@@ -28,7 +28,7 @@ else generates or draws kW.
 | T0 | **Power** | SHIPPED | The universal flow. Solar (sun-scaled, dust-degraded), reactor baseload, battery storage at 85% round-trip efficiency. |
 | T0 | **Regolith** | SHIPPED | Raw lunar soil — the universal feedstock. Excavated, then refined into nearly everything. |
 | T1 | **Oxygen** | SHIPPED | Life support. Deliberately a *byproduct* of smelting ilmenite (ONI-style: industry keeps you alive). |
-| T1 | **Water** | SHIPPED | Polar ice → life support and crops. Site-gated: no ice, no harvester. |
+| T1 | **Water** | SHIPPED | Polar ice → life support and crops; on iceless sites the smelter's hydrogen-reduction water trickle is the only supply. |
 | T1 | **Volatiles** | CUT | Full design splits cold-trap volatiles (H₂, CO, N₂, CO₂) from Water — feeding propellant, plastics precursors, and buffer gas. Slice merges them into Water. |
 | T1 | **Metals** | SHIPPED | Iron/aluminum/titanium smelted from regolith. The main build currency. |
 | T1 | **Silicon** | SHIPPED | Refined from anorthitic regolith; solar cells and collector foils. |
@@ -64,7 +64,8 @@ Regolith ─ Refinery ─→ Silicon ─→ Solar Arrays, Foil Factory
 
 ```
 Ice (site-gated) ─ Harvester ─→ Water ─ Hydroponics ─→ Food ─→ Crew ─→ labor
-Smelter byproduct ───────────→ Oxygen ─────────────────────────┘
+Smelter byproducts ─→ Oxygen ──────────────────────────────────┘
+                  └─→ Water trickle (0.05/s — the iceless-site lifeline)
 Closed-Loop Life Support tech: habitat draw ×0.6, habitat power ×1.3
 ```
 
