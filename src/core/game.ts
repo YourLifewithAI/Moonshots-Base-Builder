@@ -6,8 +6,8 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SPEEDS,
-  SWARM_PCT_PER_LAUNCH,
+  AUTOSAVE_S, ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
+  SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
 import { createInitialState, type GameState } from './state';
@@ -27,8 +27,8 @@ import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
   $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
-  $milestones, $mode, $phase, $placing, $power, $rates, $resources, $selection,
-  $siteId, $swarm, $tech, $time, $victory, $vitals,
+  $lander, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
+  $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -98,8 +98,8 @@ export class Game {
 
   // ─────────────────────────── lifecycle ───────────────────────────
 
-  startNew(siteId: SiteId) {
-    const state = createInitialState(siteId, this.opts.seed);
+  startNew(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
+    const state = createInitialState(siteId, this.opts.seed, expedition);
     this.bootWorld(state);
     // pre-place the Lander at the map heart and pad the ground under it
     const gx = 126, gz = 126;
@@ -144,6 +144,24 @@ export class Game {
     this.worldGroup.add(this.chunks.group, this.instances.group);
     this.iceOverlay = this.buildIceOverlay();
     if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
+    // constrained sites show their buildable boundary as a faint ring
+    const site = SITES[state.siteId];
+    if (site.buildableRadiusM > 0) {
+      const pts: number[] = [];
+      const segs = 96;
+      for (let i = 0; i <= segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const x = Math.cos(a) * site.buildableRadiusM;
+        const z = Math.sin(a) * site.buildableRadiusM;
+        pts.push(x, this.hf.sample(x, z) + 0.6, z);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+      const ring = new THREE.Line(g, new THREE.LineBasicMaterial({
+        color: 0xf5f7f9, transparent: true, opacity: 0.22,
+      }));
+      this.worldGroup.add(ring);
+    }
     this.scene.add(this.worldGroup);
     this.lastResources = null;
     this.buildCam.enabled = true;
@@ -314,6 +332,18 @@ export class Game {
       case 'setSpeed': s.speed = a.speed; break;
       case 'setPaused': s.paused = a.paused; break;
       case 'launch': this.doLaunch(); break;
+      case 'orderResupply': {
+        if (s.resupply?.pending) {
+          alert(s, 'SHIPMENT ALREADY EN ROUTE — one launch window at a time', 'warn');
+          break;
+        }
+        if (!s.resupply) s.resupply = { pending: false, arriveAt: 0, shipments: 0 };
+        s.resupply.pending = true;
+        s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
+        if (s.expedition !== 'robotic') s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
+        alert(s, 'SHIPMENT ORDERED — Earth launch confirmed, arrival in 1 lunar day', 'info');
+        break;
+      }
       case 'surveyIce': {
         if (!SITES[s.siteId].hasIce || s.iceSurveyed) break;
         if (s.powerStored < ICE_SURVEY_COST) {
@@ -376,6 +406,7 @@ export class Game {
 
   // ─────────────────────────── loop ───────────────────────────
 
+  private shadeAcc = 0;
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
@@ -486,6 +517,26 @@ export class Game {
       this.publish();
     }
 
+    // solar arrays in terrain shadow lose 85% output: march a ray toward the
+    // sun from each panel through the heightfield (cheap at this cadence)
+    this.shadeAcc += dt;
+    if (this.shadeAcc > 0.5) {
+      this.shadeAcc = 0;
+      const d = currentDay(this.state, SITES[this.state.siteId]);
+      if (d.sunFactor > 0.01 && d.sunElev > 0.01) {
+        const dirX = Math.cos(d.sunAzim) * Math.cos(d.sunElev);
+        const dirY = Math.sin(d.sunElev);
+        const dirZ = Math.sin(d.sunAzim) * Math.cos(d.sunElev);
+        for (const b of this.state.buildings) {
+          if (b.type !== 'solar' || (b.construction ?? 0) > 0) continue;
+          const [cx, cz] = centerOf(b);
+          const y = this.hf.sample(cx, cz);
+          b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
+        }
+      }
+      this.updateWearMarkers();
+    }
+
     // sun follows the clock; shadow frustum follows the camera focus
     const day = currentDay(this.state, SITES[this.state.siteId]);
     const focus = this.modes.mode === 'walk' ? this.walk.pos : this.buildCam.controls.target;
@@ -509,6 +560,28 @@ export class Game {
       this.autosaveAcc = 0;
       void this.doSave();
     }
+  }
+
+  /** Damaged buildings get an on-screen condition bar (build mode only). */
+  private updateWearMarkers() {
+    if (!this.playing || this.modes.mode !== 'build') { $wearMarkers.set([]); return; }
+    const v = new THREE.Vector3();
+    const out: { id: number; x: number; y: number; frac: number }[] = [];
+    for (const b of this.state.buildings) {
+      if (b.wear < 0.15 || (b.construction ?? 0) > 0) continue;
+      const [cx, cz] = centerOf(b);
+      v.set(cx, this.hf.sample(cx, cz) + BUILDINGS[b.type].height + 2, cz);
+      v.project(this.camera);
+      if (v.z > 1 || v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue;
+      out.push({
+        id: b.id,
+        x: (v.x * 0.5 + 0.5) * window.innerWidth,
+        y: (-v.y * 0.5 + 0.5) * window.innerHeight,
+        frac: 1 - b.wear,
+      });
+      if (out.length >= 14) break;
+    }
+    $wearMarkers.set(out);
   }
 
   private updateLookAt() {
@@ -537,6 +610,11 @@ export class Game {
     $vitals.set({
       crew: s.crew, housing, morale: Math.round(s.morale), data: s.data,
       botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
+      expedition: s.expedition ?? 'human',
+    });
+    $lander.set({
+      resupplyPending: s.resupply?.pending ?? false,
+      etaS: s.resupply?.pending ? Math.max(0, Math.ceil(s.resupply.arriveAt - s.simTime)) : 0,
     });
     $time.set({
       dayIndex: day.dayIndex, tCycle: day.tCycle, isNight: day.isNight, sunFactor: day.sunFactor,
@@ -641,9 +719,9 @@ export class Game {
     return true;
   }
 
-  async newGame(siteId: SiteId) {
+  async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
     await clearSave();
-    this.startNew(siteId);
+    this.startNew(siteId, expedition);
   }
 
   private onResize() {

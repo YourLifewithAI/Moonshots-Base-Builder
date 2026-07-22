@@ -11,7 +11,7 @@ import { buildCost } from '../buildings/placement';
 import { CONSTRUCTION_KW, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt } from './hud';
-import { $ice, $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
+import { $ice, $lander, $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
@@ -163,7 +163,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const conRemaining = sel.construction ?? 0;
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}`;
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}|${Math.round(sel.wear * 20)}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -177,24 +177,40 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.active ? (sel.automated ? 'OPERATING · AUTONOMOUS' : 'OPERATING') : 'STANDBY';
+    const shadowNote = sel.type === 'solar' && sel.shaded ? ' · IN TERRAIN SHADOW −85%' : '';
     insp.innerHTML = `
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
-        <span class="label">${status}${sel.wear > 0.3 ? ' · WORN −50%' : ''}${sel.dust > 0.15 ? ` · DUST −${Math.round(sel.dust * 100)}%` : ''}</span></section>
+        <span class="label">${status}${shadowNote}${sel.wear > 0.3 ? ' · WORN −50%' : ''}${sel.dust > 0.15 ? ` · DUST −${Math.round(sel.dust * 100)}%` : ''}</span></section>
       <section>${ioRows(sel.type)}</section>
+      <section>
+        <span class="label">Condition <span class="mono" style="float:right">${Math.round((1 - sel.wear) * 100)}%</span></span>
+        <div class="prog" style="height:4px; margin-top:5px; background:rgba(245,247,249,0.06)">
+          <i style="display:block; height:100%; width:${Math.round((1 - sel.wear) * 100)}%; background:${sel.wear > 0.3 ? '#f5f7f9' : 'rgba(245,247,249,0.55)'}"></i>
+        </div>
+        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">${sel.wear > 0.3 ? 'WORN — running at half output. Repairs need parts in stock.' : 'Repairs draw automatically from the parts stockpile.'}</div>
+      </section>
       <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
       <section>
         <span class="label">Idle priority (0 = last to brown out)</span>
         <div class="prio">${[0, 1, 2, 3].map((p) =>
           `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
       </section>
-      ${sel.type === 'lander' && $ice.get().hasIce ? `<section>
-        <span class="label">Site operations</span>
-        <div class="prio" style="margin-top:6px">
-          ${$ice.get().surveyed
-            ? '<span class="label">✓ Ice deposits mapped — overlay [I]</span>'
-            : `<button class="btn" id="insp-survey">❄ Survey for ice — ${ICE_SURVEY_COST} stored</button>`}
+      ${sel.type === 'lander' ? `<section>
+        <span class="label">Lander services — mission HQ</span>
+        <div class="prio" style="margin-top:6px; flex-wrap:wrap">
+          ${$ice.get().hasIce
+            ? ($ice.get().surveyed
+              ? '<span class="label">✓ Ice deposits mapped — overlay [I]</span>'
+              : `<button class="btn" id="insp-survey">❄ Survey for ice — ${ICE_SURVEY_COST} stored</button>`)
+            : '<span class="label">❄ Survey: no ice at this site — polar deposits only</span>'}
         </div>
+        <div class="prio" style="margin-top:6px">
+          ${$lander.get().resupplyPending
+            ? `<span class="label">▲ Shipment en route — ${$lander.get().etaS}s</span>`
+            : '<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in 1 day</button>'}
+        </div>
+        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +60 metals · +20 parts · morale −5 (the crew resents the umbilical)</div>
       </section>` : ''}
       ${$tech.get().automation && def.crew > 0 ? `<section>
         <span class="label">Operations — agents draw ×1.6 power, need no crew or morale</span>
@@ -217,6 +233,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
       game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }));
     insp.querySelector('#insp-survey')?.addEventListener('click', () =>
       game.actions.push({ kind: 'surveyIce' }));
+    insp.querySelector('#insp-order')?.addEventListener('click', () =>
+      game.actions.push({ kind: 'orderResupply' }));
     insp.querySelector('#insp-crewed')?.addEventListener('click', () =>
       game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }));
     insp.querySelector('#insp-auto')?.addEventListener('click', () =>

@@ -41,6 +41,7 @@ export const START = {
 export const CREW = {
   oxygenPerCrew: 0.02,                 // per game-second
   foodPerCrew: 0.008,
+  waterPerCrew: 0.005,
   growthMorale: 60,                    // min morale for crew growth
   growthPeriod: CYCLE_S,               // +1 crew per lunar day when conditions met
   starveGraceS: 60,                    // seconds at zero O2/food before losses begin

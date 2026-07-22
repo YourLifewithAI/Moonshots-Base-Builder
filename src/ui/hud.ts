@@ -5,7 +5,7 @@ import { MILESTONES } from '../data/milestones';
 import type { Game } from '../core/game';
 import {
   $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $milestones, $mode,
-  $power, $resourcePanel, $resources, $swarm, $time, $vitals,
+  $power, $resourcePanel, $resources, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
 export function fmt(n: number): string {
@@ -45,9 +45,13 @@ export function mountHud(root: HTMLElement, game: Game) {
       chip(rid, RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]),
         low || (cap !== undefined && r[rid] >= cap - 1), cap !== undefined ? `/${fmt(cap)}` : '');
     }
-    chip('crew', '◈', 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
+    if (v.expedition !== 'robotic') {
+      chip('crew', '◈', 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
+    }
     chip('bots', '◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
-    chip('morale', '◐', 'Morale', `${v.morale}%`, v.morale < 40);
+    if (v.expedition !== 'robotic') {
+      chip('morale', '◐', 'Morale', `${v.morale}%`, v.morale < 40);
+    }
     chip('data', '≡', 'Research data', fmt(v.data));
     if ($ice.get().surveyed) {
       chips.push(`<div class="chip panel interactive${$iceOverlay.get() ? ' warn' : ''}" data-key="ice" title="Toggle the ice deposit overlay [I]">
@@ -202,6 +206,20 @@ export function mountHud(root: HTMLElement, game: Game) {
     nameplate.textContent = `${la.name} — hold position to inspect from command view`;
     nameplate.style.left = `${la.x}px`;
     nameplate.style.top = `${la.y}px`;
+  });
+
+  // ── condition bars over damaged buildings ──
+  const wearLayer = el('div', '');
+  root.appendChild(wearLayer);
+  $wearMarkers.subscribe((ms) => {
+    wearLayer.innerHTML = '';
+    for (const m of ms) {
+      const d = el('div', 'wear-bar');
+      d.style.left = `${m.x}px`;
+      d.style.top = `${m.y}px`;
+      d.innerHTML = `<i style="width:${Math.round(m.frac * 100)}%"></i>`;
+      wearLayer.appendChild(d);
+    }
   });
 
   // ── floaters ──

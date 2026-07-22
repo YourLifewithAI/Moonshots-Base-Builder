@@ -15,6 +15,10 @@ export interface BuildingState {
   enabled: boolean;
   /** run on autonomous agents: no crew or morale dependence, power ×1.6 */
   automated: boolean;
+  /** solar only: terrain currently blocks the sun (computed by the renderer side) */
+  shaded?: boolean;
+  /** brownout hysteresis: ticks to stay dark before retrying the grid */
+  brownoutHold?: number;
   priority: 0 | 1 | 2 | 3;   // player-overridable idle order
   wear: number;              // 0..1, rises when parts run dry
   dust: number;              // solar arrays: 0..1 output loss
@@ -44,6 +48,8 @@ export interface GameState {
   version: 1;
   siteId: SiteId;
   seed: number;
+  /** who runs this base: fragile clever humans, or power-hungry tireless robots */
+  expedition: 'human' | 'robotic';
   simTime: number;           // game-seconds since landing
   speed: number;             // 1 | 3 | 10
   paused: boolean;
@@ -92,18 +98,23 @@ export interface GameState {
   defeatShown: boolean;
 }
 
-export function createInitialState(siteId: SiteId, seed: number): GameState {
+export function createInitialState(
+  siteId: SiteId,
+  seed: number,
+  expedition: 'human' | 'robotic' = 'human',
+): GameState {
   return {
     version: 1,
     siteId,
     seed,
+    expedition,
     simTime: 90, // land mid-morning: the first thing you see is sunlit regolith
     speed: 1,
     paused: false,
     resources: { ...START.resources },
     powerStored: START.powerStored,
     power: { supply: 0, demand: 0, capacity: START.powerStored, brownout: false },
-    crew: START.crew,
+    crew: expedition === 'robotic' ? 0 : START.crew,
     morale: START.morale,
     data: START.data,
     bots: { total: 2, busy: 0 },

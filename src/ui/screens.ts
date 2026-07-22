@@ -20,15 +20,18 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   screen.id = 'site-screen';
   root.appendChild(screen);
   let selected: SiteId | null = null;
+  let step: 'site' | 'expedition' = 'site';
+  let expedition: 'human' | 'robotic' = 'human';
 
   const render = () => {
+    if (step === 'expedition') { renderExpedition(); return; }
     screen.innerHTML = `
       <h1>MOONSHOTS</h1>
       <div class="sub">Base Builder · From regolith to Dyson swarm</div>
       <div id="sites"></div>
       <div style="display:flex; gap:12px">
         ${$hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
-        <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Land ▸</button>
+        <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose expedition ▸</button>
       </div>
       <div class="sub" style="margin-top:26px">Every site is a trade-off. Choose where your story gets hard.</div>`;
     const sites = screen.querySelector('#sites')!;
@@ -54,10 +57,53 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       sites.appendChild(card);
     }
     screen.querySelector('#btn-land')?.addEventListener('click', () => {
-      if (selected) void game.newGame(selected);
+      if (selected) { step = 'expedition'; render(); }
     });
     screen.querySelector('#btn-continue')?.addEventListener('click', () => {
       void game.continueSave();
+    });
+  };
+
+  const renderExpedition = () => {
+    const site = SITES[selected!];
+    screen.innerHTML = `
+      <h1 style="font-size:26px; line-height:30px">WHO GOES TO ${site.name}?</h1>
+      <div class="sub">Robots survive the Moon. Humans beat it.</div>
+      <div id="sites" style="margin-top:30px">
+        <div class="site-card${expedition === 'human' ? ' sel' : ''}" data-exp="human">
+          <h3>◈ HUMAN CREW</h3>
+          <div class="place">Four settlers and a supply cache</div>
+          <div class="blurb">Fragile, hungry, brilliant. People need oxygen, water, food, housing, and something to live for — and they reward you for all of it.</div>
+          <div class="pro">Morale can push crewed output to ×1.2 — and it compounds</div>
+          <div class="pro">Settlers arrive free while morale holds; labs research fastest</div>
+          <div class="con">Life support or death: O₂, water, food, habitats, recreation</div>
+          <div class="con">Lose the last settler and the mission ends</div>
+          <div class="diff">HIGH CEILING · CAN FALL</div>
+        </div>
+        <div class="site-card${expedition === 'robotic' ? ' sel' : ''}" data-exp="robotic">
+          <h3>◉ ROBOTIC MISSION</h3>
+          <div class="place">No one aboard. Nothing to lose.</div>
+          <div class="blurb">Machines do not breathe, eat, drink, sleep, or grieve. They also do not dream — every station runs, joylessly, on watts alone.</div>
+          <div class="pro">No life support at all — the night can only stop machines, never kill</div>
+          <div class="pro">Cannot starve, cannot mutiny, cannot be defeated</div>
+          <div class="con">Every crewed station pays the agent power tax: ×1.6 draw</div>
+          <div class="con">Labs research at 75% — inference is not insight</div>
+          <div class="diff">LOW FLOOR IS THE FLOOR · SLOWER</div>
+        </div>
+      </div>
+      <div style="display:flex; gap:12px">
+        <button class="btn" id="btn-back">◂ Back</button>
+        <button class="btn primary" id="btn-launch-exp">Land ▸</button>
+      </div>`;
+    screen.querySelectorAll<HTMLElement>('[data-exp]').forEach((card) => {
+      card.addEventListener('click', () => {
+        expedition = card.dataset.exp as 'human' | 'robotic';
+        render();
+      });
+    });
+    screen.querySelector('#btn-back')?.addEventListener('click', () => { step = 'site'; render(); });
+    screen.querySelector('#btn-launch-exp')?.addEventListener('click', () => {
+      if (selected) void game.newGame(selected, expedition);
     });
   };
   render();
