@@ -15,6 +15,9 @@ export class PostFX {
   readonly composer: EffectComposer;
   private failed = false;
 
+  /** surfaced into the in-game alert stack so players see render issues without F12 */
+  onIssue?: (msg: string) => void;
+
   constructor(
     private renderer: THREE.WebGLRenderer,
     private scene: THREE.Scene,
@@ -71,7 +74,11 @@ export class PostFX {
     if (this.failed) return;
     this.failed = true;
     console.warn('[MOONSHOTS] Post-processing failed on this GPU — falling back to plain rendering.', reason ?? '');
+    this.onIssue?.('RENDER — effects disabled (GPU issue), using plain rendering');
     try { this.composer.dispose(); } catch { /* best effort */ }
+    // the composer leaves autoClear disabled; plain rendering needs it back
+    this.renderer.autoClear = true;
+    this.renderer.setRenderTarget(null);
   }
 
   get usingFallback(): boolean { return this.failed; }

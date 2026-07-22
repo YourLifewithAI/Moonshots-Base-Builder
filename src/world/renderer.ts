@@ -16,7 +16,19 @@ export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   renderer.toneMapping = THREE.AgXToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  console.log('[MOONSHOTS] GPU:', gpuInfo(renderer));
   return renderer;
+}
+
+export function gpuInfo(renderer: THREE.WebGLRenderer): string {
+  try {
+    const gl = renderer.getContext();
+    const ext = gl.getExtension('WEBGL_debug_renderer_info');
+    const name = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : 'unknown GPU';
+    return `${name} · WebGL2: ${typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext}`;
+  } catch {
+    return 'unavailable';
+  }
 }
 
 export function createCamera(): THREE.PerspectiveCamera {

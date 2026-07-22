@@ -30,6 +30,7 @@ import {
 export interface GameOptions {
   nolock: boolean;
   lowfx: boolean;
+  safe: boolean;
   seed: number;
 }
 
@@ -67,6 +68,19 @@ export class Game {
     this.camera = createCamera();
     this.lighting = new Lighting(this.scene);
     this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx);
+    this.post.onIssue = (msg) => {
+      if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
+    };
+    // context loss (driver reset / tab memory pressure) looks like a permanent
+    // black screen with a working HUD — tell the player what happened
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      console.warn('[MOONSHOTS] WebGL context lost.');
+      if (this.state) { alert(this.state, 'GPU CONTEXT LOST — reload the page to restore visuals', 'crit'); this.publish(); }
+    });
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.warn('[MOONSHOTS] WebGL context restored.');
+    });
     this.buildCam = new BuildCam(this.camera, canvas);
     this.buildCam.enabled = false;
     this.bindInput();
@@ -124,6 +138,11 @@ export class Game {
     this.scene.add(this.worldGroup);
     this.buildCam.enabled = true;
     this.playing = true;
+    this.playFrames = 0; // sentinel probes count from gameplay start
+    if (this.opts.safe || this.safeMode) {
+      this.safeMode = false; // fresh world = fresh materials; re-apply
+      this.enableSafeMode();
+    }
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
@@ -319,7 +338,8 @@ export class Game {
 
   // ─────────────────────────── loop ───────────────────────────
 
-  private frameCount = 0;
+  private playFrames = 0;      // frames since gameplay (not page load) began
+  private safeMode = false;
   private hadConstruction = false;
 
   private frame(t: number) {
@@ -329,15 +349,40 @@ export class Game {
     if (this.playing) this.tick(dt);
     this.post.render(dt);
     // black-screen sentinel: some drivers fail shaders silently instead of
-    // throwing. Probe the output early in daylight; drop to plain rendering
-    // if the frame is genuinely black (the sunlit Moon never is).
-    this.frameCount++;
-    if (this.playing && !this.post.usingFallback &&
-        (this.frameCount === 40 || this.frameCount === 120)) {
+    // throwing. Probe the rendered output during daylight — first drop the
+    // post chain, then escalate to safe mode. Counted from gameplay start
+    // (the player may sit on the title screen for any length of time), and
+    // re-probed periodically to catch mid-game driver failures.
+    if (!this.playing) return;
+    this.playFrames++;
+    const probeNow = this.playFrames === 40 || this.playFrames === 150 ||
+      this.playFrames === 300 || this.playFrames % 900 === 0;
+    if (probeNow && !this.safeMode) {
       const day = currentDay(this.state, SITES[this.state.siteId]);
       if (day.sunFactor > 0.3 && this.post.outputLooksBlack()) {
-        this.post.forceFallback('black frame detected');
+        if (!this.post.usingFallback) this.post.forceFallback('black frame detected');
+        else this.enableSafeMode();
       }
+    }
+  }
+
+  /** Last-resort rendering: unlit vertex-color materials, no shadows, no
+   *  effects. Renders on anything that can draw a triangle. */
+  enableSafeMode() {
+    if (this.safeMode) return;
+    this.safeMode = true;
+    console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows.');
+    this.renderer.shadowMap.enabled = false;
+    this.scene.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
+      if (mat && mat.isMeshStandardMaterial) {
+        mesh.material = new THREE.MeshBasicMaterial({ vertexColors: mat.vertexColors });
+      }
+    });
+    if (this.state) {
+      alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
+      this.publish();
     }
   }
 

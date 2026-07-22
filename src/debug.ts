@@ -38,6 +38,8 @@ function api(game: Game) {
       yaw: game.walkController.yaw,
     }),
     save: () => game.doSave(),
+    forceRenderFallback: () => (game as any).post.forceFallback('debug'),
+    enableSafeMode: () => game.enableSafeMode(),
   };
 }
 
