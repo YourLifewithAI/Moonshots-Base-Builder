@@ -26,5 +26,5 @@ if (params.has('debug')) attachDebug(game);
 
 const siteParam = params.get('site');
 if (siteParam && siteParam in SITES) {
-  game.startNew(siteParam as SiteId);
+  game.startNew(siteParam as SiteId, params.get('exp') === 'robotic' ? 'robotic' : 'human');
 }

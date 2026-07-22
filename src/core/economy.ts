@@ -53,7 +53,10 @@ export function currentDay(s: GameState, site: SiteDef): DayInfo {
 export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
   const ev: EconEvents = { modsChanged: false, victory: false, defeat: false };
   const day = currentDay(s, site);
-  const workMult = moraleWorkMult(s.morale);
+  const robotic = s.expedition === 'robotic';
+  // robotic missions have no moods — and no morale multiplier upside
+  const workMult = robotic ? 1 : moraleWorkMult(s.morale);
+  const isAuto = (b: BuildingState) => b.automated || robotic;
 
   // ── 0 · construction robots — the fleet gates concurrent builds ────
   const building = (b: BuildingState) => (b.construction ?? 0) > 0;
@@ -81,7 +84,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (!b.enabled) continue;
     if (def.powerKW > 0) {
       let out = def.powerKW * mods.powerMult[b.type];
-      if (b.type === 'solar') out *= day.sunFactor * (1 - b.dust);
+      if (b.type === 'solar') out *= day.sunFactor * (1 - b.dust) * (b.shaded ? 0.15 : 1);
       if (b.wear > 0.3) out *= 0.5;
       supply += out;
     }
@@ -93,15 +96,16 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const wants: Draw[] = [];
   for (const b of s.buildings) {
     if (building(b)) {
-      // an active construction site pulls welding/robot power at priority 1
+      // an active construction site pulls welding power — and is the FIRST
+      // thing to stop in a brownout (priority 3)
       if (botAssigned.has(b.id)) {
-        wants.push({ b, draw: CONSTRUCTION_KW * dt, prio: 1, isSite: true });
+        wants.push({ b, draw: CONSTRUCTION_KW * dt, prio: 3, isSite: true });
       }
       continue;
     }
     if (BUILDINGS[b.type].powerKW >= 0) continue;
     // autonomous agents trade crew and morale for watts
-    const autoMult = b.automated ? 1.6 : 1;
+    const autoMult = isAuto(b) && BUILDINGS[b.type].crew > 0 ? 1.6 : 1;
     wants.push({
       b,
       draw: -BUILDINGS[b.type].powerKW * mods.powerMult[b.type] * autoMult * dt,
@@ -121,6 +125,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       w.b.idleReason = '';
       if (!w.b.enabled) { w.b.idleReason = 'off'; continue; }
     }
+    // hysteresis: a browned-out building stays dark for a few seconds before
+    // retrying, so marginal grids don't strobe the base on and off
+    if ((w.b.brownoutHold ?? 0) > 0) {
+      w.b.brownoutHold = (w.b.brownoutHold ?? 0) - 1;
+      if (!w.isSite) w.b.idleReason = 'power';
+      brownout = true; // a building held dark means the grid is still short
+      continue;
+    }
     demand += w.draw / dt;
     if (w.draw <= budget) {
       budget -= w.draw;
@@ -128,6 +140,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       powered.add(w.b.id);
     } else {
       if (!w.isSite) w.b.idleReason = 'power';
+      w.b.brownoutHold = 8;
       brownout = true;
     }
   }
@@ -158,7 +171,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
     if (building(b)) continue;
     const def = BUILDINGS[b.type];
-    const need = b.automated ? 0 : Math.max(0, def.crew + mods.crewDelta[b.type]);
+    const need = isAuto(b) ? 0 : Math.max(0, def.crew + mods.crewDelta[b.type]);
     if (!b.enabled || need === 0) { staffed.add(b.id); continue; }
     if (def.powerKW < 0 && !powered.has(b.id)) continue; // already power-idled
     if (workers >= need) { workers -= need; staffed.add(b.id); }
@@ -192,14 +205,15 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       // outputs
       let outMult = mods.outputMult[type] * dt;
       if (ISRU_BUILDINGS.includes(type)) outMult *= site.isruMult;
-      if (def.crew > 0 && !b.automated) outMult *= workMult; // agents don't have moods
+      if (def.crew > 0 && !isAuto(b)) outMult *= workMult; // agents don't have moods
       if (b.wear > 0.3) outMult *= 0.5;
       for (const [rid, rate] of Object.entries(def.outputs)) {
         let amt = rate * outMult;
         if (rid === 'launch') amt *= site.launchMult;
         s.resources[rid as keyof typeof s.resources] += amt;
       }
-      if (type === 'lab') s.data += 0.3 * dt * (b.automated ? 1 : Math.pow(workMult, 1.5));
+      // human insight beats agent inference: robotic labs run at 75%
+      if (type === 'lab') s.data += 0.3 * dt * (robotic ? 0.75 : b.automated ? 1 : Math.pow(workMult, 1.5));
       b.active = true;
     }
   }
@@ -231,14 +245,17 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   s.storageCaps = caps;
 
-  // ── 5 · life support & crew ────────────────────────────────────────
+  // ── 5 · life support & crew (robotic missions skip all of this) ────
   const lsMult = mods.inputMult['habitat'];
-  const o2Need = s.crew * CREW.oxygenPerCrew * lsMult * dt;
-  const foodNeed = s.crew * CREW.foodPerCrew * lsMult * dt;
-  const o2ok = s.resources.oxygen >= o2Need;
-  const foodok = s.resources.food >= foodNeed;
+  const o2Need = robotic ? 0 : s.crew * CREW.oxygenPerCrew * lsMult * dt;
+  const foodNeed = robotic ? 0 : s.crew * CREW.foodPerCrew * lsMult * dt;
+  const waterNeed = robotic ? 0 : s.crew * CREW.waterPerCrew * lsMult * dt;
+  const o2ok = robotic || s.resources.oxygen >= o2Need;
+  const foodok = robotic || s.resources.food >= foodNeed;
+  const waterok = robotic || s.resources.water >= waterNeed;
   s.resources.oxygen = Math.max(0, s.resources.oxygen - o2Need);
   s.resources.food = Math.max(0, s.resources.food - foodNeed);
+  s.resources.water = Math.max(0, s.resources.water - waterNeed);
   let housing = 0;
   for (const b of s.buildings) {
     const def = BUILDINGS[b.type];
@@ -246,9 +263,11 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (def.powerKW < 0 && !powered.has(b.id)) continue;
     housing += def.housing;
   }
-  if (!o2ok || !foodok) {
+  if (!o2ok || !foodok || !waterok) {
     s.starveT += dt;
-    alert(s, !o2ok ? 'OXYGEN DEPLETED — crew is suffocating' : 'FOOD DEPLETED — crew is starving', 'crit');
+    alert(s, !o2ok ? 'OXYGEN DEPLETED — crew is suffocating'
+      : !waterok ? 'WATER DEPLETED — crew is dehydrating'
+      : 'FOOD DEPLETED — crew is starving', 'crit');
     if (s.starveT > CREW.starveGraceS) {
       const losses = Math.floor((s.starveT - CREW.starveGraceS) / CREW.lossPeriodS);
       if (losses > 0) {
@@ -264,20 +283,24 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     s.starveT = Math.max(0, s.starveT - dt);
   }
   // low reserves breed anxiety long before they kill: below ~5 minutes of
-  // supply the crew notices, and morale sinks
+  // supply the crew notices, and morale sinks (robots notice nothing)
   const o2Rate = Math.max(1e-6, s.crew * CREW.oxygenPerCrew * lsMult);
   const foodRate = Math.max(1e-6, s.crew * CREW.foodPerCrew * lsMult);
-  const o2Anxious = s.resources.oxygen / o2Rate < LOW_SUPPLY_S;
-  const foodAnxious = s.resources.food / foodRate < LOW_SUPPLY_S;
+  const waterRate = Math.max(1e-6, s.crew * CREW.waterPerCrew * lsMult);
+  const o2Anxious = !robotic && s.crew > 0 && s.resources.oxygen / o2Rate < LOW_SUPPLY_S;
+  const foodAnxious = !robotic && s.crew > 0 && s.resources.food / foodRate < LOW_SUPPLY_S;
+  const waterAnxious = !robotic && s.crew > 0 && s.resources.water / waterRate < LOW_SUPPLY_S;
   if (o2Anxious) alert(s, 'OXYGEN RESERVES LOW — the crew is anxious', 'warn');
   if (foodAnxious) alert(s, 'FOOD RESERVES LOW — the crew is anxious', 'warn');
-  // the base falls silent when the last crewmember dies
-  if (s.crew <= 0 && !s.defeatShown) {
+  if (waterAnxious) alert(s, 'WATER RESERVES LOW — the crew is anxious', 'warn');
+  // the base falls silent when the last crewmember dies (humans only —
+  // a robotic mission has no one to lose)
+  if (!robotic && s.crew <= 0 && !s.defeatShown) {
     ev.defeat = true;
     s.paused = true;
   }
   // growth
-  if (s.morale > CREW.growthMorale && s.crew < housing && o2ok && foodok) {
+  if (!robotic && s.morale > CREW.growthMorale && s.crew < housing && o2ok && foodok && waterok) {
     s.growthT += dt;
     if (s.growthT >= CREW.growthPeriod) {
       s.growthT = 0;
@@ -317,14 +340,16 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     const def = BUILDINGS[b.type];
     if (def.moraleDelta && b.active) target += def.moraleDelta;
   }
-  target += o2ok && foodok ? MORALE.fed : MORALE.starving;
+  target += o2ok && foodok && waterok ? MORALE.fed : MORALE.starving;
   if (o2Anxious) target -= 10;
   if (foodAnxious) target -= 10;
+  if (waterAnxious) target -= 10;
   target += s.crew > housing ? MORALE.crowded : MORALE.housed;
   if (s.power.brownout) target += MORALE.blackout;
   if (s.flare.phase === 'active') target += MORALE.flare;
   target = Math.max(0, Math.min(100, target));
-  s.morale += (target - s.morale) * MORALE.lerp * dt;
+  if (robotic) s.morale = 70; // machines hold steady
+  else s.morale += (target - s.morale) * MORALE.lerp * dt;
 
   // ── 8 · solar flare state machine ──────────────────────────────────
   if (s.flare.nextAt === 0) s.flare.nextAt = FLARE.firstAtDay * CYCLE_S;
@@ -343,7 +368,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       if (s.flare.timer <= 0) {
         s.flare.phase = 'active';
         s.flare.timer = FLARE.activeS;
-        if (!site.flareImmune) s.morale = Math.max(0, s.morale - FLARE.moraleHit);
+        if (!site.flareImmune && !robotic) s.morale = Math.max(0, s.morale - FLARE.moraleHit);
       }
       break;
     case 'active':
@@ -373,7 +398,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   } else if (!hasSmelter && s.resources.metals < smelterCost) {
     s.resupply.pending = true;
     s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
-    s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
+    if (!robotic) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
     alert(s, 'STRANDED — Earth resupply launched, arrival in 1 lunar day', 'crit');
   }
 
@@ -409,7 +434,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
 
   // ── 10 · night survival tracking ───────────────────────────────────
-  if (s.wasNight && !day.isNight && s.crew > 0) {
+  if (s.wasNight && !day.isNight && (s.crew > 0 || robotic)) {
     s.nightsSurvived += 1;
     alert(s, `DAWN — night ${s.nightsSurvived} survived`, 'info');
   }

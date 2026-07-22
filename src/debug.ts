@@ -13,7 +13,7 @@ declare global {
 function api(game: Game) {
   return {
     getState: () => JSON.parse(JSON.stringify(game.state ?? null)),
-    selectSite: (site: SiteId) => game.startNew(site),
+    selectSite: (site: SiteId, exp: 'human' | 'robotic' = 'human') => game.startNew(site, exp),
     placeBuilding: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
       game.debugPlace(type, gx, gz, rot),
     grantResources: (map: Partial<Record<ResourceId, number>>) => {
@@ -39,6 +39,7 @@ function api(game: Game) {
     }),
     save: () => game.doSave(),
     surveyIce: () => game.actions.push({ kind: 'surveyIce' }),
+    orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
     getIceDeposits: () => JSON.parse(JSON.stringify(game.iceDepositList)),
     canPlace: (type: BuildingId, gx: number, gz: number) => game.debugCheckPlace(type, gx, gz),
     forceRenderFallback: () => (game as any).post.forceFallback('debug'),

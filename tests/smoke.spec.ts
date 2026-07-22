@@ -36,6 +36,9 @@ test('landing starts the game with HUD and lander', async ({ page }) => {
   await page.goto(URL_DEBUG);
   await page.locator('.site-card', { hasText: 'ILMENITE' }).click();
   await page.locator('#btn-land').click();
+  // expedition step: human crew is the default selection
+  await expect(page.locator('.site-card', { hasText: 'HUMAN CREW' })).toBeVisible();
+  await page.locator('#btn-launch-exp').click();
   await game(page);
   await expect(page.locator('#resource-strip')).toBeVisible();
   await expect(page.locator('#swarm-meter')).toContainText('Dyson Swarm');
@@ -256,6 +259,31 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   // off-deposit near the lander: blocked for the right reason
   const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
   expect(offIce.reason).toContain('No ice beneath');
+});
+
+test('robotic expedition: unmanned stations, no life support, no defeat', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  const s0 = await page.evaluate(() => window.__game.getState());
+  expect(s0.expedition).toBe('robotic');
+  expect(s0.crew).toBe(0);
+  // crewed stations run unmanned (lab needs 2 crew; there are none)
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(200)); // build 72s, then research staff-free
+  const s1 = await page.evaluate(() => window.__game.getState());
+  expect(s1.data).toBeGreaterThan(0);
+  const lab = s1.buildings.find((b: any) => b.type === 'lab');
+  expect(lab.active).toBe(true);
+  // machines do not breathe: drain everything, nothing bad happens
+  await page.evaluate(() => window.__game.grantResources({ oxygen: -1000, food: -1000, water: -1000 }));
+  await page.evaluate(() => window.__game.advanceGameMinutes(5));
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(s2.defeatShown).toBe(false);
+  expect(s2.crew).toBe(0);
+  expect(s2.morale).toBe(70); // machines hold steady
+  expect(s2.alerts.some((a: any) => a.text.includes('RESERVES LOW'))).toBe(false);
+  await expect(page.locator('#defeat-screen')).toBeHidden();
 });
 
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {

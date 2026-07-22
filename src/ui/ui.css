@@ -153,6 +153,16 @@
   color: rgba(var(--paper-rgb), var(--op-tertiary));
 }
 
+/* ── condition bars over damaged buildings ── */
+.wear-bar {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 38px; height: 4px;
+  background: rgba(14, 15, 17, 0.8);
+  border: 1px solid rgba(245, 247, 249, 0.35);
+  pointer-events: none;
+}
+.wear-bar i { display: block; height: 100%; background: rgba(245, 247, 249, 0.8); }
+
 /* ── floaters ── */
 @keyframes float-up {
   0% { opacity: 0; transform: translate(-50%, 0); }

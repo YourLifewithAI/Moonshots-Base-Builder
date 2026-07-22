@@ -29,9 +29,9 @@ export const MILESTONES: MilestoneDef[] = [
     check: (s) => count(s, 'smelter') >= 1 && s.resources.metals >= 100,
   },
   {
-    id: 'grow-the-crew', title: 'Grow the Crew',
-    hint: 'House 8 crew. Habitats extend your build perimeter; morale above 60 attracts arrivals.',
-    check: (s) => s.crew >= 8,
+    id: 'grow-the-crew', title: 'Grow the Expedition',
+    hint: 'House 8 crew (habitats extend the perimeter; morale above 60 attracts arrivals) — or, on a robotic mission, field a fleet of 6 robots.',
+    check: (s) => s.expedition === 'robotic' ? (s.bots?.total ?? 0) >= 6 : s.crew >= 8,
   },
   {
     id: 'survive-the-night', title: 'Survive the Night',

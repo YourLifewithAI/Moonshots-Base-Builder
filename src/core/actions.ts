@@ -15,6 +15,7 @@ export type Action =
   | { kind: 'setPaused'; paused: boolean }
   | { kind: 'launch' }
   | { kind: 'surveyIce' }
+  | { kind: 'orderResupply' }
   | { kind: 'dismissAlert'; id: number };
 
 export class ActionQueue {
