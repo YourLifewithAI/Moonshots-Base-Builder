@@ -72,7 +72,7 @@ export class BuildingInstances {
    *  feeds the exterior work-light pool. */
   completedCenters(state: GameState, focus: { x: number; z: number }): { x: number; y: number; z: number }[] {
     return state.buildings
-      .filter((b) => (b.construction ?? 0) <= 0)
+      .filter((b) => (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled)
       .map((b) => {
         const [cx, cz] = centerOf(b);
         return { x: cx, y: this.hf.sample(cx, cz), z: cz,
@@ -101,8 +101,9 @@ export class BuildingInstances {
     const types = new Set<BuildingId>(this.meshes.keys());
     for (const b of state.buildings) types.add(b.type);
     for (const type of types) this.rebuildType(state, type);
-    // light pools under every completed structure
-    const done = state.buildings.filter((b) => (b.construction ?? 0) <= 0);
+    // light pools under every completed, POWERED structure — brownouts go dark
+    const done = state.buildings.filter((b) =>
+      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled);
     this.discs.count = Math.min(done.length, MAX_DISCS);
     const mat = new THREE.Matrix4();
     done.forEach((b, i) => {
@@ -120,6 +121,7 @@ export class BuildingInstances {
   }
 
   private static DIM = new THREE.Color(0.45, 0.45, 0.5);   // construction site
+  private static DARK = new THREE.Color(0.55, 0.55, 0.6);   // browned-out (lights off)
   private static FULL = new THREE.Color(1, 1, 1);
 
   private rebuildType(state: GameState, type: BuildingId) {
@@ -142,7 +144,10 @@ export class BuildingInstances {
       const sy = progress >= 1 ? 1 : 0.12 + 0.88 * progress;
       mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(1, sy, 1));
       mesh.setMatrixAt(i, mat);
-      mesh.setColorAt(i, progress >= 1 ? BuildingInstances.FULL : BuildingInstances.DIM);
+      const color = progress < 1 ? BuildingInstances.DIM
+        : b.idleReason === 'power' ? BuildingInstances.DARK
+        : BuildingInstances.FULL;
+      mesh.setColorAt(i, color);
       order.push(b.id);
     });
     mesh.instanceMatrix.needsUpdate = true;

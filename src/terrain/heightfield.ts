@@ -14,9 +14,13 @@ export interface Crater {
   cx: number; cz: number; r: number; depth: number; rimH: number;
 }
 
+export interface IceDeposit { cx: number; cz: number; r: number }
+
 export class Heightfield {
   readonly h: Float32Array;
   readonly craters: Crater[] = [];
+  /** permanently shadowed ice patches (ice sites only), hidden until surveyed */
+  readonly iceDeposits: IceDeposit[] = [];
   private noise: NoiseFunction2D;
 
   constructor(public site: SiteDef, public seed: number) {
@@ -63,6 +67,24 @@ export class Heightfield {
         this.h[iz * N + ix] = this.baseHeight(x, z);
       }
     }
+    // ice: 6 cold-trap patches scattered past the landing zone (ice sites)
+    if (this.site.hasIce) {
+      const irng = mulberry32(this.seed ^ 0x1ce);
+      for (let i = 0; i < 6; i++) {
+        const ang = irng() * Math.PI * 2;
+        const dist = 120 + irng() * 220;
+        this.iceDeposits.push({
+          cx: Math.cos(ang) * dist,
+          cz: Math.sin(ang) * dist,
+          r: 18 + irng() * 16,
+        });
+      }
+    }
+  }
+
+  /** is this world point inside a (surveyed or not) ice deposit? */
+  onIce(x: number, z: number): boolean {
+    return this.iceDeposits.some((d) => Math.hypot(x - d.cx, z - d.cz) <= d.r);
   }
 
   private baseHeight(x: number, z: number): number {

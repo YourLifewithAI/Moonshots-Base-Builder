@@ -144,6 +144,10 @@ export function checkPlacement(
   }
   if (def.requiresIce && !site.hasIce) return { valid: false, reason: 'No ice deposits at this site' };
   const [cx, cz] = centerOf(probe);
+  if (def.requiresIce) {
+    if (!state.iceSurveyed) return { valid: false, reason: 'Deposits unknown — survey for ice from the Lander' };
+    if (!hf.onIce(cx, cz)) return { valid: false, reason: 'No ice beneath this spot — check the ice overlay' };
+  }
   if (site.buildableRadiusM > 0 && Math.hypot(cx, cz) > site.buildableRadiusM) {
     return { valid: false, reason: 'Beyond the lava tube footprint' };
   }
@@ -164,8 +168,9 @@ export function checkPlacement(
   }
   if (!near) return { valid: false, reason: 'Too far from habitat network' };
   for (const [rid, amt] of Object.entries(buildCost(type, site))) {
-    if (state.resources[rid as keyof typeof state.resources] < (amt ?? 0)) {
-      return { valid: false, reason: 'Insufficient resources' };
+    const have = state.resources[rid as keyof typeof state.resources];
+    if (have < (amt ?? 0)) {
+      return { valid: false, reason: `Need ${amt} ${rid} — have ${Math.floor(have)}` };
     }
   }
   return { valid: true, reason: '' };

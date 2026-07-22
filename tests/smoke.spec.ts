@@ -103,6 +103,9 @@ test('walk mode: WASD moves the astronaut across the terrain', async ({ page }) 
 test('tech tree: research queues, completes, unlocks buildings, gates eras', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
+  // research needs an OPERATING lab: banked data transfers at 0.4/s per lab
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(80)); // built at 72s
   await page.keyboard.press('KeyT');
   await expect(page.locator('#tech-screen')).toBeVisible();
   await expect(page.locator('.era-col')).toHaveCount(6);
@@ -114,6 +117,9 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await smelting.click();
   await page.evaluate(() => window.__game.grantData(50));
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
+  const mid = await page.evaluate(() => window.__game.getState());
+  expect(mid.techsDone).not.toContain('regolithProcessing'); // no longer instant
+  await page.evaluate(() => window.__game.advanceGameSeconds(90)); // 30 data at 0.4/s
   const s1 = await page.evaluate(() => window.__game.getState());
   expect(s1.techsDone).toContain('regolithProcessing');
 
@@ -208,6 +214,48 @@ test('low reserves breed anxiety; losing the crew ends the game', async ({ page 
   expect(s2.defeatShown).toBe(true);
   await expect(page.locator('#defeat-screen')).toBeVisible();
   await expect(page.locator('#defeat-screen')).toContainText('THE BASE FALLS SILENT');
+});
+
+test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.grantResources({ regolith: 1000 }));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s = await page.evaluate(() => window.__game.getState());
+  expect(s.resources.regolith).toBeLessThanOrEqual(300); // lander base cap
+  expect(s.alerts.some((a: any) => a.text.includes('STORAGE FULL'))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('storageYard', 132, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(30)); // build 24s
+  await page.evaluate(() => window.__game.grantResources({ regolith: 1000 }));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(s2.resources.regolith).toBeGreaterThan(500);
+  expect(s2.resources.regolith).toBeLessThanOrEqual(700); // lander + yard
+});
+
+test('ice survey gates harvesters and maps deposits', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=southpole`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('iceExtraction'));
+  const dep = await page.evaluate(() => window.__game.getIceDeposits()[0]);
+  const cell = { gx: Math.round((dep.cx + 512) / 4 - 1), gz: Math.round((dep.cz + 512) / 4 - 1) };
+  // before the survey: placement blocked with the survey hint
+  const pre = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
+  expect(pre.reason).toContain('survey');
+  // survey from the Lander costs stored energy
+  const before = await page.evaluate(() => window.__game.getState());
+  await page.evaluate(() => window.__game.surveyIce());
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const after = await page.evaluate(() => window.__game.getState());
+  expect(after.iceSurveyed).toBe(true);
+  expect(after.powerStored).toBeLessThan(before.powerStored - 100);
+  // on a deposit the ice rule passes (any remaining reason is range/terrain)
+  const onIce = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
+  expect(onIce.reason.toLowerCase()).not.toContain('ice');
+  expect(onIce.reason.toLowerCase()).not.toContain('survey');
+  // off-deposit near the lander: blocked for the right reason
+  const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
+  expect(offIce.reason).toContain('No ice beneath');
 });
 
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {

@@ -4,14 +4,14 @@ import { RESOURCE_ORDER, RESOURCES } from '../data/resources';
 import { MILESTONES } from '../data/milestones';
 import type { Game } from '../core/game';
 import {
-  $alerts, $floaters, $lookAt, $milestones, $mode, $power, $resources,
-  $swarm, $time, $vitals,
+  $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $milestones, $mode,
+  $power, $resourcePanel, $resources, $swarm, $time, $vitals,
 } from './stores';
 
 export function fmt(n: number): string {
-  if (n >= 10000) return `${(n / 1000).toFixed(1)}k`;
-  if (n >= 100) return String(Math.floor(n));
-  if (n >= 10) return n.toFixed(0);
+  // always FLOOR: the HUD must never claim more than the engine will accept
+  if (n >= 10000) return `${(Math.floor(n / 100) / 10).toFixed(1)}k`;
+  if (n >= 10) return String(Math.floor(n));
   return (Math.floor(n * 10) / 10).toString();
 }
 
@@ -31,26 +31,43 @@ export function mountHud(root: HTMLElement, game: Game) {
     const r = $resources.get();
     const p = $power.get();
     const v = $vitals.get();
+    const caps = $caps.get();
     const chips: string[] = [];
-    const chip = (glyph: string, label: string, val: string, warn = false, cap = '') =>
-      chips.push(`<div class="chip panel interactive${warn ? ' warn' : ''}" title="${label}">
+    const chip = (key: string, glyph: string, label: string, val: string, warn = false, cap = '') =>
+      chips.push(`<div class="chip panel interactive${warn ? ' warn' : ''}" data-key="${key}" title="${label} — click for details">
         <span class="glyph">${glyph}</span><span class="val mono">${val}</span>${cap ? `<span class="cap mono">${cap}</span>` : ''}</div>`);
-    chip('⚡', 'Power supply / demand (kW)', `${fmt(p.supply)}`, p.brownout, `/${fmt(p.demand)} kW`);
-    chip('▮', 'Stored energy', fmt(p.stored), p.stored < 200, `/${fmt(p.capacity)}`);
+    chip('power', '⚡', 'Power supply / demand (kW)', `${fmt(p.supply)}`, p.brownout, `/${fmt(p.demand)} kW`);
+    chip('power', '▮', 'Stored energy', fmt(p.stored), p.stored < 200, `/${fmt(p.capacity)}`);
     for (const rid of RESOURCE_ORDER) {
       if ((rid === 'foils' || rid === 'launch') && r[rid] < 0.01) continue;
       const low = (rid === 'oxygen' || rid === 'food') && r[rid] < 25;
-      chip(RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]), low);
+      const cap = caps[rid];
+      chip(rid, RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]),
+        low || (cap !== undefined && r[rid] >= cap - 1), cap !== undefined ? `/${fmt(cap)}` : '');
     }
-    chip('◈', 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
-    chip('◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
-    chip('◐', 'Morale', `${v.morale}%`, v.morale < 40);
-    chip('≡', 'Research data', fmt(v.data));
+    chip('crew', '◈', 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
+    chip('bots', '◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
+    chip('morale', '◐', 'Morale', `${v.morale}%`, v.morale < 40);
+    chip('data', '≡', 'Research data', fmt(v.data));
+    if ($ice.get().surveyed) {
+      chips.push(`<div class="chip panel interactive${$iceOverlay.get() ? ' warn' : ''}" data-key="ice" title="Toggle the ice deposit overlay [I]">
+        <span class="glyph">❄</span><span class="val mono">ICE</span></div>`);
+    }
     strip.innerHTML = chips.join('');
   };
   $resources.subscribe(renderStrip);
   $power.subscribe(renderStrip);
   $vitals.subscribe(renderStrip);
+  $ice.subscribe(renderStrip);
+  $iceOverlay.subscribe(renderStrip);
+  // chips are informational buttons: click opens the matching info panel
+  strip.addEventListener('click', (e) => {
+    const chipEl = (e.target as HTMLElement).closest('.chip') as HTMLElement | null;
+    const key = chipEl?.dataset.key;
+    if (!key) return;
+    if (key === 'ice') { $iceOverlay.set(!$iceOverlay.get()); return; }
+    $resourcePanel.set($resourcePanel.get() === key ? null : key);
+  });
 
   // ── swarm meter (built once; updated in place so the button never detaches) ──
   const meter = el('div', 'panel interactive');

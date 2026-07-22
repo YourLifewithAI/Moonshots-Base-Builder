@@ -3,6 +3,7 @@
 import './ui.css';
 import type { Game } from '../core/game';
 import { mountHud } from './hud';
+import { mountInfoPanel } from './infoPanel';
 import { mountPalette } from './palette';
 import { mountDefeat, mountSiteSelect, mountTechTree, mountVictory } from './screens';
 import { $phase } from './stores';
@@ -15,6 +16,7 @@ export function mountUI(game: Game) {
   root.appendChild(hudLayer);
 
   mountHud(hudLayer, game);
+  mountInfoPanel(hudLayer);
   mountPalette(hudLayer, game);
   mountTechTree(hudLayer, game);
   mountVictory(root, game);

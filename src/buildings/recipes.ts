@@ -74,6 +74,14 @@ const R: Record<BuildingId, () => BufferGeometry> = {
     cyl(0.14, 0.14, 3.4, TRIM, 1.5, 4.9, 1.5),
     cyl(1.9, 0.35, 0.9, BODY, 1.5, 6.6, 1.5, 0.5),
   ]),
+  storageYard: () => merge([
+    box(7, 0.4, 7, TRIM, 0, 0.2, 0),
+    box(2, 1.2, 2, BODY, -2, 1, -2),
+    box(2, 1.6, 2, BODY, 0.4, 1.2, -1.6),
+    box(2.4, 1, 2, BODY, 2, 0.9, 1.8),
+    box(2, 1.2, 2.6, BODY, -1.8, 1, 1.6),
+    box(0.3, 2.4, 0.3, TRIM, 3.2, 1.2, -3.2),
+  ]),
   roboticsBay: () => merge([
     box(6.6, 2.6, 5.4, BODY, 0, 1.3, 0),
     box(6.8, 0.5, 5.6, TRIM, 0, 2.85, 0),

@@ -9,9 +9,10 @@ import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
   BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CREW, CYCLE_S, FLARE,
-  LOW_SUPPLY_S, MORALE, RESUPPLY, SOLAR_DUST_MAX, SOLAR_DUST_PER_DAY,
-  SOLAR_DUST_RECOVER, START,
+  LOW_SUPPLY_S, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
+  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
 } from '../data/balance';
+import type { ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import type { GameState, BuildingState } from './state';
 import { computeEra, computeMods, type Mods } from './mods';
@@ -211,6 +212,25 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         && Object.keys(def.inputs).length === 0 && staffed.has(b.id)) b.active = true;
   }
 
+  // ── 4.5 · stockpile caps: excess production is lost on the ground ──
+  const caps: Partial<Record<ResourceId, number>> = {};
+  for (const b of s.buildings) {
+    if (!b.enabled || building(b)) continue;
+    for (const [rid, amt] of Object.entries(BUILDINGS[b.type].caps ?? {})) {
+      caps[rid as ResourceId] = (caps[rid as ResourceId] ?? 0) + (amt ?? 0);
+    }
+  }
+  for (const [rid, cap] of Object.entries(caps)) {
+    const r = rid as ResourceId;
+    if (s.resources[r] > (cap ?? 0)) {
+      if (s.resources[r] > (cap ?? 0) + 0.5) {
+        alert(s, `STORAGE FULL — ${r} at capacity, build a Storage Yard`, 'warn');
+      }
+      s.resources[r] = cap ?? 0;
+    }
+  }
+  s.storageCaps = caps;
+
   // ── 5 · life support & crew ────────────────────────────────────────
   const lsMult = mods.inputMult['habitat'];
   const o2Need = s.crew * CREW.oxygenPerCrew * lsMult * dt;
@@ -362,7 +382,9 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   if (head) {
     const def = TECHS[head];
     const needed = def.costData - s.researchProgress;
-    const spend = Math.min(needed, s.data);
+    const activeLabs = s.buildings.filter((b) => b.type === 'lab' && b.active).length;
+    const rate = RESEARCH_RATE_PER_LAB * activeLabs * dt;
+    const spend = Math.min(needed, s.data, rate);
     s.data -= spend;
     s.researchProgress += spend;
     if (s.researchProgress >= def.costData) {

@@ -6,8 +6,10 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SPEEDS, SWARM_PCT_PER_LAUNCH,
+  AUTOSAVE_S, ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SPEEDS,
+  SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
+import type { ResourceId } from '../data/resources';
 import { createInitialState, type GameState } from './state';
 import { ActionQueue, type Action } from './actions';
 import { economyTick, currentDay, refreshDerived, alert, computeMods, type Mods } from './economy';
@@ -24,8 +26,9 @@ import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
-  $alerts, $defeat, $hasSave, $lookAt, $milestones, $mode, $phase, $placing, $power,
-  $resources, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals,
+  $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
+  $milestones, $mode, $phase, $placing, $power, $rates, $resources, $selection,
+  $siteId, $swarm, $tech, $time, $victory, $vitals,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -64,6 +67,8 @@ export class Game {
   private raycaster = new THREE.Raycaster();
   private lastT = performance.now();
   private worldGroup: THREE.Group | null = null;
+  private iceOverlay: THREE.Group | null = null;
+  private lastResources: Record<ResourceId, number> | null = null;
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.renderer = createRenderer(canvas);
@@ -137,7 +142,10 @@ export class Game {
     });
     this.worldGroup = new THREE.Group();
     this.worldGroup.add(this.chunks.group, this.instances.group);
+    this.iceOverlay = this.buildIceOverlay();
+    if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
     this.scene.add(this.worldGroup);
+    this.lastResources = null;
     this.buildCam.enabled = true;
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
@@ -198,6 +206,7 @@ export class Game {
         case 'Digit2': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[1] }); break;
         case 'Digit3': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[2] }); break;
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
+        case 'KeyI': if (this.state?.iceSurveyed) $iceOverlay.set(!$iceOverlay.get()); break;
         case 'Escape':
           this.cancelPlacement();
           $selection.set(null);
@@ -234,6 +243,7 @@ export class Game {
     if (this.modes.mode !== 'build') return;
     $selection.set(null);
     this.placement.begin(type);
+    if (type === 'iceHarvester' && this.state.iceSurveyed) $iceOverlay.set(true);
     $placing.set({ type, valid: false, reason: '' });
   }
 
@@ -304,6 +314,18 @@ export class Game {
       case 'setSpeed': s.speed = a.speed; break;
       case 'setPaused': s.paused = a.paused; break;
       case 'launch': this.doLaunch(); break;
+      case 'surveyIce': {
+        if (!SITES[s.siteId].hasIce || s.iceSurveyed) break;
+        if (s.powerStored < ICE_SURVEY_COST) {
+          alert(s, `SURVEY NEEDS ${ICE_SURVEY_COST} STORED ENERGY — charge the banks first`, 'warn');
+          break;
+        }
+        s.powerStored -= ICE_SURVEY_COST;
+        s.iceSurveyed = true;
+        $iceOverlay.set(true);
+        alert(s, 'SURVEY COMPLETE — ice deposits mapped. Toggle the overlay with [I]', 'info');
+        break;
+      }
       case 'dismissAlert': s.alerts = s.alerts.filter((al) => al.id !== a.id); break;
     }
   }
@@ -357,7 +379,6 @@ export class Game {
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
-  private hadConstruction = false;
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
@@ -455,12 +476,8 @@ export class Game {
         publish = true;
       }
       if (publish) {
-        // animate construction sites (rise + un-dim) while any are active
-        const constructing = this.state.buildings.some((b) => (b.construction ?? 0) > 0);
-        if (constructing || this.hadConstruction) {
-          this.instances.rebuild(this.state);
-          this.hadConstruction = constructing;
-        }
+        // sync construction rise/dim AND brownout darkening every economy tick
+        this.instances.rebuild(this.state);
         this.publish();
       }
       if (victory) $victory.set(true); // after publish so the overlay reads fresh stats
@@ -538,11 +555,66 @@ export class Game {
         s.resources.launch >= 1 && s.powerStored >= LAUNCH_POWER_BURST,
       burst: LAUNCH_POWER_BURST,
     });
+    $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
+    $caps.set({ ...(s.storageCaps ?? {}) });
+    const counts: Partial<Record<BuildingId, { total: number; active: number }>> = {};
+    for (const b of s.buildings) {
+      const c = counts[b.type] ?? (counts[b.type] = { total: 0, active: 0 });
+      c.total += 1;
+      if (b.active) c.active += 1;
+    }
+    $counts.set(counts);
+    if (this.lastResources) {
+      const rates: Partial<Record<ResourceId, number>> = {};
+      for (const rid of Object.keys(s.resources) as ResourceId[]) {
+        rates[rid] = s.resources[rid] - this.lastResources[rid];
+      }
+      $rates.set(rates);
+    }
+    this.lastResources = { ...s.resources };
     const sel = $selection.get();
     if (sel) {
       const live = s.buildings.find((b) => b.id === sel.id);
       $selection.set(live ? { ...live } : null);
     }
+  }
+
+  /** Terrain-conforming discs marking surveyed ice deposits (toggle overlay). */
+  private buildIceOverlay(): THREE.Group | null {
+    if (!this.hf.iceDeposits.length) return null;
+    const group = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xdfe9f5, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide,
+    });
+    const lineMat = new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.55 });
+    for (const d of this.hf.iceDeposits) {
+      const segs = 28;
+      const verts: number[] = [d.cx, this.hf.sample(d.cx, d.cz) + 0.4, d.cz];
+      const ring: number[] = [];
+      for (let i = 0; i <= segs; i++) {
+        const a = (i / segs) * Math.PI * 2;
+        const x = d.cx + Math.cos(a) * d.r;
+        const z = d.cz + Math.sin(a) * d.r;
+        const y = this.hf.sample(x, z) + 0.4;
+        verts.push(x, y, z);
+        ring.push(x, y + 0.05, z);
+      }
+      const idx: number[] = [];
+      for (let i = 1; i <= segs; i++) idx.push(0, i, i + 1);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+      geo.setIndex(idx);
+      const disc = new THREE.Mesh(geo, mat);
+      disc.renderOrder = 3;
+      const ringGeo = new THREE.BufferGeometry();
+      ringGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ring), 3));
+      const edge = new THREE.Line(ringGeo, lineMat);
+      edge.renderOrder = 3;
+      group.add(disc, edge);
+    }
+    group.visible = false;
+    $iceOverlay.subscribe((v) => { group.visible = v && (this.state?.iceSurveyed ?? false); });
+    return group;
   }
 
   // ─────────────────────────── persistence ───────────────────────────
@@ -634,4 +706,9 @@ export class Game {
   }
 
   get walkController() { return this.walk; }
+  get iceDepositList() { return this.hf.iceDeposits; }
+
+  debugCheckPlace(type: BuildingId, gx: number, gz: number) {
+    return checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, 0);
+  }
 }

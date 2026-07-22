@@ -63,6 +63,14 @@ export const SOLAR_DUST_RECOVER = 0.2; // per day, when parts upkeep is being pa
 /** low-reserve anxiety: below this many seconds of remaining supply, morale sinks */
 export const LOW_SUPPLY_S = 300;
 
+/** research transfer cap: each OPERATING lab feeds this much banked data per
+ *  game-second into the active tech — no lab, no progress; big techs want
+ *  research campuses */
+export const RESEARCH_RATE_PER_LAB = 0.4;
+
+/** one-time ice survey from the Lander, paid in stored energy */
+export const ICE_SURVEY_COST = 150;
+
 /** emergency Earth resupply — the anti-softlock: no smelter and no metals for
  *  one means a shipment is ordered, and Earth is a full lunar day away */
 export const RESUPPLY = {
