@@ -14,6 +14,7 @@ export type Action =
   | { kind: 'setSpeed'; speed: number }
   | { kind: 'setPaused'; paused: boolean }
   | { kind: 'launch' }
+  | { kind: 'surveyIce' }
   | { kind: 'dismissAlert'; id: number };
 
 export class ActionQueue {

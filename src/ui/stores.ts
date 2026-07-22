@@ -40,6 +40,18 @@ export const $selection = atom<BuildingState | null>(null);
 export const $placing = atom<{ type: BuildingId; valid: boolean; reason: string } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
+
+/** ice survey state + overlay toggle */
+export const $ice = atom<{ hasIce: boolean; surveyed: boolean }>({ hasIce: false, surveyed: false });
+export const $iceOverlay = atom<boolean>(false);
+/** stockpile caps for capped resources */
+export const $caps = atom<Partial<Record<ResourceId, number>>>({});
+/** building counts (total / active) for the resource info panels */
+export const $counts = atom<Partial<Record<BuildingId, { total: number; active: number }>>>({});
+/** per-game-second resource deltas (informational) */
+export const $rates = atom<Partial<Record<ResourceId, number>>>({});
+/** which resource info panel is open (chip click) */
+export const $resourcePanel = atom<string | null>(null);
 export const $lookAt = atom<{ name: string; x: number; y: number } | null>(null);
 
 /** Floating deltas at the cursor on placement (Islanders-style diegetic feedback). */

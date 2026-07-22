@@ -7,7 +7,7 @@ import type { ResourceId } from './resources';
 export type BuildingId =
   | 'lander'
   | 'solar' | 'excavator' | 'habitat' | 'smelter' | 'iceHarvester' | 'hydroponics'
-  | 'battery' | 'refinery' | 'lab' | 'roboticsBay'
+  | 'battery' | 'refinery' | 'lab' | 'roboticsBay' | 'storageYard'
   | 'partsFab' | 'reactor' | 'recDome'
   | 'foilFactory' | 'massDriver';
 
@@ -37,6 +37,8 @@ export interface BuildingDef {
   moraleDelta?: number;                // contribution to morale target while active
   /** construction robots this structure contributes to the fleet */
   bots?: number;
+  /** stockpile capacity this structure adds, per resource */
+  caps?: Partial<Record<ResourceId, number>>;
   pro: string;
   con: string;
   requiresIce?: boolean;
@@ -49,6 +51,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     footprint: [3, 3], height: 14, buildTime: 0,
     buildCost: {}, crew: 0, powerKW: 6, storageKWh: 800,
     inputs: {}, outputs: {}, housing: 8, upkeepParts: 0.5, priority: 0, bots: 2,
+    caps: { regolith: 300, metals: 300, silicon: 200 },
     pro: 'Home. Power, housing, two construction robots, and the supply cache you arrived with.',
     con: 'There is only one, and it is not enough.',
   },
@@ -130,6 +133,16 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'The only way forward: data toward every unlock.',
     con: 'Produces nothing you can eat, breathe, or burn — and idles first in a crunch.',
   },
+  storageYard: {
+    id: 'storageYard', name: 'Storage Yard', category: 'industry', era: 1,
+    footprint: [2, 2], height: 3, buildTime: 30,
+    buildCost: { metals: 20 }, crew: 0, powerKW: 0,
+    inputs: {}, outputs: {}, upkeepParts: 0.5, priority: 1,
+    caps: { regolith: 400, metals: 300, silicon: 200 },
+    unlockedFromStart: true,
+    pro: 'Racks and berms: room for 400 regolith, 300 metals, 200 silicon.',
+    con: 'A field of stockpiles that produces nothing at all.',
+  },
   roboticsBay: {
     id: 'roboticsBay', name: 'Robotics Bay', category: 'industry', era: 2,
     footprint: [2, 2], height: 4, buildTime: 80,
@@ -185,7 +198,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
 export const BUILD_ORDER: BuildingId[] = [
   'solar', 'battery', 'reactor',
   'excavator', 'iceHarvester',
-  'smelter', 'refinery', 'roboticsBay', 'partsFab',
+  'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab',
   'habitat', 'hydroponics', 'recDome',
   'lab',
   'foilFactory', 'massDriver',

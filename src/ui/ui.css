@@ -121,6 +121,7 @@
 #inspector .actions { display: flex; gap: 6px; }
 
 /* walk mode strips the HUD to a helmet readout */
+#hud-layer.mode-walk #res-panel,
 #hud-layer.mode-walk #resource-strip,
 #hud-layer.mode-walk #swarm-meter,
 #hud-layer.mode-walk #milestones,
@@ -229,6 +230,18 @@
   display: flex; gap: 8px; align-items: center; padding: 8px 14px;
 }
 #tech-close { position: absolute; top: 20px; right: 24px; }
+
+/* ── resource info panel (chip click) ── */
+#res-panel {
+  position: absolute; top: 104px; left: var(--gutter);
+  width: 330px; max-height: 64vh; overflow-y: auto;
+  font-size: 12px; line-height: 17px;
+}
+#res-panel section { padding: 9px 13px; border-top: var(--hair); }
+#res-panel section:first-child { border-top: none; }
+#res-panel .row { display: flex; justify-content: space-between; gap: 10px; margin: 3px 0; }
+#res-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }
+#res-panel .actions { display: flex; justify-content: flex-end; }
 
 /* era chip that opens the tree, with the live research gauge —
    lives in the top-right stack under the time controls, never overlapping */

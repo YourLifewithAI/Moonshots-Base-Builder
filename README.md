@@ -28,6 +28,7 @@ game is ~300 kB gzipped.
 | `Tab` | Drop to first-person walk mode (and back) |
 | `WASD` + mouse | Walk the base · `Space` jumps (1/6 g — enjoy the hang time) |
 | `T` | Tech tree |
+| `I` | Toggle the ice-deposit overlay (after surveying from the Lander) |
 | `Space` | Pause · `1` `2` `3` — speed 1×/3×/10× |
 
 ## The game
@@ -43,6 +44,8 @@ game is ~300 kB gzipped.
 - **The night is the villain** — solar dies for the lunar night. Stockpile, batter
   up, or go nuclear. Solar flares are telegraphed 60 seconds out; dust abrades
   everything forever.
+- **Click any resource tracker** for its full story: what produces it, what
+  consumes it, storage capacity, and how to get more.
 - **Robots build everything** — your lander carries two construction robots; each
   active site occupies one and pulls welding power from the grid. More ambition
   needs more robots: research Construction Robotics and raise Robotics Bays.

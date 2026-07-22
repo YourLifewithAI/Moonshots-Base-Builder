@@ -8,14 +8,14 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
-import { CONSTRUCTION_KW } from '../data/balance';
+import { CONSTRUCTION_KW, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt } from './hud';
-import { $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
+import { $ice, $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
-  iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉',
+  iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', foilFactory: '▰', massDriver: '⟶',
 };
 
@@ -163,7 +163,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const conRemaining = sel.construction ?? 0;
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}`;
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -188,6 +188,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <div class="prio">${[0, 1, 2, 3].map((p) =>
           `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
       </section>
+      ${sel.type === 'lander' && $ice.get().hasIce ? `<section>
+        <span class="label">Site operations</span>
+        <div class="prio" style="margin-top:6px">
+          ${$ice.get().surveyed
+            ? '<span class="label">✓ Ice deposits mapped — overlay [I]</span>'
+            : `<button class="btn" id="insp-survey">❄ Survey for ice — ${ICE_SURVEY_COST} stored</button>`}
+        </div>
+      </section>` : ''}
       ${$tech.get().automation && def.crew > 0 ? `<section>
         <span class="label">Operations — agents draw ×1.6 power, need no crew or morale</span>
         <div class="prio" style="margin-top:6px">
@@ -207,6 +215,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     });
     insp.querySelector('#insp-toggle')?.addEventListener('click', () =>
       game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }));
+    insp.querySelector('#insp-survey')?.addEventListener('click', () =>
+      game.actions.push({ kind: 'surveyIce' }));
     insp.querySelector('#insp-crewed')?.addEventListener('click', () =>
       game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }));
     insp.querySelector('#insp-auto')?.addEventListener('click', () =>

@@ -80,6 +80,10 @@ export interface GameState {
   flare: FlareState;
   /** emergency Earth shipment (anti-softlock); arriveAt is game time */
   resupply: { pending: boolean; arriveAt: number; shipments: number };
+  /** ice deposits mapped (Lander survey, ice sites only) */
+  iceSurveyed: boolean;
+  /** current stockpile capacities, recomputed each tick (for the HUD) */
+  storageCaps: Partial<Record<import('../data/resources').ResourceId, number>>;
   alerts: AlertMsg[];
   nextAlertId: number;
   milestonesDone: string[];
@@ -118,6 +122,8 @@ export function createInitialState(siteId: SiteId, seed: number): GameState {
     growthT: 0,
     flare: { phase: 'idle', timer: 0, nextAt: 0 },
     resupply: { pending: false, arriveAt: 0, shipments: 0 },
+    iceSurveyed: false,
+    storageCaps: {},
     alerts: [],
     nextAlertId: 1,
     milestonesDone: [],
