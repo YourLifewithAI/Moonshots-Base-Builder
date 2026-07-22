@@ -38,13 +38,14 @@ export const $tech = atom<{
   progress: number;
   unlocked: BuildingId[];
   automation: boolean;
-}>({ era: 1, done: [], queue: [], progress: 0, unlocked: [], automation: false });
+  grading: boolean;
+}>({ era: 1, done: [], queue: [], progress: 0, unlocked: [], automation: false, grading: false });
 export const $alerts = atom<AlertMsg[]>([]);
 export const $milestones = atom<{ done: string[]; total: number }>({ done: [], total: 0 });
 export const $swarm = atom({ pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0 });
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
-export const $placing = atom<{ type: BuildingId; valid: boolean; reason: string } | null>(null);
+export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 

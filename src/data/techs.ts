@@ -6,7 +6,7 @@ import type { BuildingId } from './buildings';
 import type { ResourceId } from './resources';
 
 export type TechId =
-  | 'regolithProcessing' | 'iceExtraction' | 'hydroponicFarming'
+  | 'regolithProcessing' | 'iceExtraction' | 'hydroponicFarming' | 'siteGrading'
   | 'batteryStorage' | 'closedLoopLS' | 'siliconRefining' | 'constructionRobotics'
   | 'partsFabrication' | 'thoriumPower' | 'crewWellness' | 'autonomousOps'
   | 'foilManufacturing' | 'massDriver' | 'dustMitigation'
@@ -23,7 +23,8 @@ export type TechEffect =
   | { kind: 'dustMult'; mult: number }
   | { kind: 'launchAction' }
   | { kind: 'powerBeam' }
-  | { kind: 'automation' };
+  | { kind: 'automation' }
+  | { kind: 'grading' };
 
 export interface TechDef {
   id: TechId;
@@ -59,6 +60,14 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [{ kind: 'unlock', building: 'hydroponics' }],
     desc: 'Grow food under lights, from water and patience.',
     tradeoff: 'Farms must run through the night — or the crop dies.',
+  },
+
+  siteGrading: {
+    id: 'siteGrading', era: 1, name: 'Site Grading',
+    costData: 40, requires: [],
+    effects: [{ kind: 'grading' }],
+    desc: 'Robot dozer blades: flatten rough terrain into buildable pads.',
+    tradeoff: 'Each pass drains stored energy your night was counting on.',
   },
 
   // ─── ERA 2 · SELF-SUFFICIENCY ───

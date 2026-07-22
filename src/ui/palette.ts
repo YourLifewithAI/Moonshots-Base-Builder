@@ -8,7 +8,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
-import { CONSTRUCTION_KW, ICE_SURVEY_COST } from '../data/balance';
+import { CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt } from './hud';
 import { $ice, $lander, $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
@@ -40,7 +40,7 @@ function ioRows(type: BuildingId): string {
   const power = def.powerKW >= 0 ? `+${def.powerKW} kW` : `${def.powerKW} kW`;
   const upkeep = def.upkeepParts ? `${def.upkeepParts} parts/day` : '—';
   const buildTime = def.buildTime > 0
-    ? `${Math.round(def.buildTime * site.buildCostMult)}s · 1 robot · ${CONSTRUCTION_KW} kW`
+    ? `${Math.round(def.buildTime * site.buildCostMult)}s · 1 robot · ${CONSTRUCTION_KW} kW · parts to weld`
     : 'pre-placed';
   const extras: string[] = [];
   if (def.housing) extras.push(`houses ${def.housing}`);
@@ -119,6 +119,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
       }
       items.appendChild(b);
     }
+    // terrain tools live beside the extraction buildings
+    if (activeCat === 'extraction' && $tech.get().grading) {
+      const g = el('button', 'bld-btn') as HTMLButtonElement;
+      g.innerHTML = `<div class="icon">▭</div><div class="nm">Grade Site</div><div class="cost mono">${GRADE_COST_ENERGY}▮</div>`;
+      g.title = 'Flatten a 16×16 m patch of terrain for construction. Costs stored energy; recovers a little regolith.';
+      g.addEventListener('click', () => game.beginPlacement('grade'));
+      items.appendChild(g);
+    }
   };
 
   const renderCats = () => {
@@ -134,7 +142,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
   // rebuild buttons only when the unlock set or site changes, not every tick
   let itemSig = '';
   $tech.subscribe((t) => {
-    const sig = `${t.unlocked.slice().sort().join(',')}|${$siteId.get()}`;
+    const sig = `${t.unlocked.slice().sort().join(',')}|${t.grading}|${$siteId.get()}`;
     if (sig !== itemSig) { itemSig = sig; renderItems(); }
   });
   $siteId.subscribe(() => { itemSig = ''; renderItems(); });
@@ -171,6 +179,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const status = conRemaining > 0
       ? (sel.idleReason === 'queued' ? 'QUEUED — waiting for a free robot'
         : sel.idleReason === 'power' ? `CONSTRUCTION PAUSED — no power (${conPct}%)`
+        : sel.idleReason === 'inputs' ? `CONSTRUCTION STALLED — no parts (${conPct}%)`
         : `UNDER CONSTRUCTION — ${conPct}%`)
       : !sel.enabled ? 'SHUT DOWN'
       : sel.idleReason === 'power' ? 'IDLE — no power'

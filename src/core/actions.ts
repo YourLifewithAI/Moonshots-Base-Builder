@@ -16,6 +16,7 @@ export type Action =
   | { kind: 'launch' }
   | { kind: 'surveyIce' }
   | { kind: 'orderResupply' }
+  | { kind: 'grade'; gx: number; gz: number }
   | { kind: 'dismissAlert'; id: number };
 
 export class ActionQueue {

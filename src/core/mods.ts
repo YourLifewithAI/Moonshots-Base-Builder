@@ -13,6 +13,7 @@ export interface Mods {
   launchArmed: boolean;
   powerBeam: boolean;
   automation: boolean;
+  grading: boolean;
   unlocked: Set<BuildingId>;
 }
 
@@ -28,6 +29,7 @@ export function computeMods(techsDone: TechId[]): Mods {
     launchArmed: false,
     powerBeam: false,
     automation: false,
+    grading: false,
     unlocked: new Set(ids.filter((b) => BUILDINGS[b].unlockedFromStart)),
   };
 
@@ -48,6 +50,7 @@ export function computeMods(techsDone: TechId[]): Mods {
         case 'launchAction': m.launchArmed = true; break;
         case 'powerBeam': m.powerBeam = true; break;
         case 'automation': m.automation = true; break;
+        case 'grading': m.grading = true; break;
       }
     }
   }

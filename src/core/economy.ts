@@ -8,7 +8,8 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CREW, CYCLE_S, FLARE,
+  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
+  CREW, CYCLE_S, FLARE,
   LOW_SUPPLY_S, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
 } from '../data/balance';
@@ -145,11 +146,18 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     }
   }
 
-  // ── 2.5 · construction progress: needs a robot AND grid power ──────
+  // ── 2.5 · construction progress: needs a robot, grid power, AND parts ──
   for (const b of sites) {
     b.active = false;
     if (!botAssigned.has(b.id)) { b.idleReason = 'queued'; continue; }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
+    const weld = CONSTRUCTION_PARTS_PER_S * dt;
+    if (s.resources.parts < weld) {
+      b.idleReason = 'inputs'; // welding consumables ran dry
+      alert(s, 'CONSTRUCTION STALLED — no parts for welding', 'warn');
+      continue;
+    }
+    s.resources.parts -= weld;
     b.idleReason = 'building';
     b.construction = Math.max(0, (b.construction ?? 0) - dt);
     if (b.construction === 0) {
