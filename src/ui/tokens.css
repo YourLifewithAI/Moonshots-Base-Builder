@@ -1,0 +1,137 @@
+/* MOONSHOTS design tokens — "living blueprint / mission-control readout"
+   NASA 1975 manual precision · Swiss grid · Rams restraint. Grayscale only;
+   the single accent is inversion (near-white panel, dark text). */
+
+:root {
+  /* graphite ramp (dark UI over bright lunar world) */
+  --ink-900: #0e0f11;
+  --ink-800: #16181b;
+  --ink-700: #1e2125;
+  --ink-600: #2a2e33;
+  --ink-500: #3c424a;
+  --ink-400: #5a616b;
+  --ink-300: #838a93;
+  --ink-200: #aeb4bc;
+  --ink-100: #d7dbe0;
+  --ink-050: #edeff2;
+  --paper: #f5f7f9;
+  --paper-rgb: 245, 247, 249;
+
+  /* opacity ladder — the hierarchy engine */
+  --op-primary: 1;
+  --op-secondary: 0.72;
+  --op-tertiary: 0.52;
+  --op-muted: 0.34;
+  --op-hairline: 0.16;
+  --op-fill: 0.06;
+
+  /* type */
+  --font-ui: 'Helvetica Neue', Helvetica, Inter, Arial, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* spacing (4px base, 8px module) */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+  --gutter: 24px;
+
+  /* structure */
+  --hair: 1px solid rgba(var(--paper-rgb), var(--op-hairline));
+  --radius: 2px;
+
+  /* motion — curt and mechanical */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-panel: 180ms;
+  --dur-mode: 320ms;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: var(--font-ui);
+  color: var(--ink-100);
+  -webkit-font-smoothing: antialiased;
+}
+
+#world { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+#ui-root {
+  position: fixed; inset: 0;
+  pointer-events: none;           /* panels re-enable */
+  user-select: none;
+  z-index: 10;
+}
+#ui-root .interactive { pointer-events: auto; }
+
+/* ---------- shared primitives ---------- */
+
+.panel {
+  background: rgba(14, 15, 17, 0.88);
+  border: var(--hair);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+}
+
+.label {
+  font-size: 11px; line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(var(--paper-rgb), var(--op-tertiary));
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.btn {
+  font-family: var(--font-ui);
+  font-size: 12px; line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(var(--paper-rgb), var(--op-secondary));
+  background: var(--ink-600);
+  border: var(--hair);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+.btn:hover { background: var(--ink-500); color: var(--paper); }
+.btn.primary { background: var(--paper); color: var(--ink-900); border-color: transparent; }
+.btn.primary:hover { background: var(--ink-050); }
+.btn:disabled { opacity: var(--op-muted); cursor: default; }
+.btn.active { background: var(--paper); color: var(--ink-900); }
+
+/* bar glyphs for ratings: filled/empty segments */
+.rate { display: inline-flex; gap: 2px; }
+.rate i {
+  width: 10px; height: 6px;
+  background: rgba(var(--paper-rgb), var(--op-hairline));
+  border-radius: 1px;
+}
+.rate i.on { background: rgba(var(--paper-rgb), var(--op-secondary)); }
+
+/* alert flash — the one permissible accent: inversion */
+@keyframes flash-invert {
+  0% { background: var(--paper); color: var(--ink-900); }
+  100% { background: rgba(14, 15, 17, 0.88); color: var(--ink-100); }
+}
+.flash { animation: flash-invert 400ms var(--ease); }
+
+/* hatching patterns (construction / blocked) as CSS gradients */
+.hatch {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(var(--paper-rgb), 0.12) 0 2px,
+    transparent 2px 8px
+  );
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--ink-500); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
