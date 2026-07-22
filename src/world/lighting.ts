@@ -4,13 +4,23 @@
 import * as THREE from 'three';
 import { mulberry32 } from '../core/rng';
 
+const WORK_LIGHTS = 8; // exterior floods over the buildings nearest the camera
+
 export class Lighting {
   readonly sun: THREE.DirectionalLight;
   readonly earthshine: THREE.HemisphereLight;
   readonly stars: THREE.Points;
   readonly earth: THREE.Mesh;
+  private workLights: THREE.PointLight[] = [];
 
   constructor(scene: THREE.Scene) {
+    // exterior work lights: warm point lights that carry the base at night
+    for (let i = 0; i < WORK_LIGHTS; i++) {
+      const l = new THREE.PointLight(0xffe8c4, 0, 30, 1.8);
+      l.castShadow = false;
+      scene.add(l);
+      this.workLights.push(l);
+    }
     scene.background = new THREE.Color(0x000000);
 
     this.sun = new THREE.DirectionalLight(0xfffdf8, 3.2);
@@ -76,5 +86,18 @@ export class Lighting {
     const t = Math.min(1, Math.max(0, (elev + 0.03) / 0.1));
     this.sun.intensity = 3.2 * t;
     this.earthshine.intensity = 0.3 - nightFactor * 0.19;
+  }
+
+  /** Park the work lights above the given building positions (nearest-first).
+   *  Settlers need to see the Moon around them — each structure lights its
+   *  own patch of regolith. */
+  setWorkLights(points: { x: number; y: number; z: number }[], nightFactor: number) {
+    for (let i = 0; i < this.workLights.length; i++) {
+      const l = this.workLights[i];
+      const p = points[i];
+      if (!p || nightFactor < 0.03) { l.intensity = 0; continue; }
+      l.position.set(p.x, p.y + 8, p.z);
+      l.intensity = 60 * nightFactor;
+    }
   }
 }

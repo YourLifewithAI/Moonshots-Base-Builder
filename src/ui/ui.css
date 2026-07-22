@@ -99,12 +99,14 @@
 }
 #tooltip section { padding: 8px 12px; border-top: var(--hair); }
 #tooltip section:first-child { border-top: none; }
-#tooltip .tt-name { font-size: 13px; font-weight: 600; color: var(--ink-050); display: flex; justify-content: space-between; }
-#tooltip .io { display: grid; grid-template-columns: 62px 1fr; gap: 2px 8px; }
-#tooltip .io .k { color: rgba(var(--paper-rgb), var(--op-tertiary)); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; line-height: 17px; }
-#tooltip .pro::before { content: '+ '; font-weight: 700; }
-#tooltip .con::before { content: '− '; font-weight: 700; }
-#tooltip .con { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.tt-name { font-size: 13px; font-weight: 600; color: var(--ink-050); display: flex; justify-content: space-between; }
+/* the fixed-template stat grid — shared by hover tooltips AND the inspector */
+.io { display: grid; grid-template-columns: 62px 1fr; gap: 3px 10px; align-items: baseline; }
+.io .k { color: rgba(var(--paper-rgb), var(--op-tertiary)); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; line-height: 17px; }
+.pro::before { content: '+ '; font-weight: 700; }
+.con::before { content: '− '; font-weight: 700; }
+.con { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.pro, .con { margin: 2px 0; line-height: 16px; }
 
 /* ── right: inspector ── */
 #inspector {
@@ -228,8 +230,9 @@
 }
 #tech-close { position: absolute; top: 20px; right: 24px; }
 
-/* era chip that opens the tree, with the live research gauge */
-#era-chip { position: absolute; top: 76px; right: var(--gutter); text-align: right; }
+/* era chip that opens the tree, with the live research gauge —
+   lives in the top-right stack under the time controls, never overlapping */
+#era-chip { text-align: right; align-self: flex-end; }
 #era-chip .res-line {
   display: flex; align-items: center; justify-content: flex-end;
   gap: 8px; margin-top: 6px;

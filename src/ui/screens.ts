@@ -6,7 +6,8 @@ import { ERA_NAMES, TECHS, TECH_ORDER, type TechId } from '../data/techs';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { Game } from '../core/game';
 import { el, fmt } from './hud';
-import { $hasSave, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
+import { $defeat, $hasSave, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
+import { clearSave } from '../core/save';
 
 function rate(n: number): string {
   return `<span class="rate">${[0, 1, 2, 3, 4].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
@@ -69,7 +70,11 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
 export function mountTechTree(root: HTMLElement, game: Game) {
   const chip = el('button', 'btn panel interactive');
   chip.id = 'era-chip';
-  root.appendChild(chip);
+  // slot into the top-right column between the time controls and the alerts
+  const timeCol = root.querySelector('#time-controls');
+  const alerts = timeCol?.querySelector('#alerts') ?? null;
+  if (timeCol) timeCol.insertBefore(chip, alerts);
+  else root.appendChild(chip);
 
   const screen = el('div', 'screen interactive');
   screen.id = 'tech-screen';
@@ -238,6 +243,36 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     if (p !== 'playing') toggle(false);
   });
   renderChip();
+}
+
+// ─────────────────────────── defeat ───────────────────────────
+
+export function mountDefeat(root: HTMLElement) {
+  const screen = el('div', 'screen interactive');
+  screen.id = 'defeat-screen';
+  screen.style.display = 'none';
+  root.appendChild(screen);
+
+  $defeat.subscribe((d) => {
+    if (!d) { screen.style.display = 'none'; return; }
+    const t = $time.get();
+    const s = $swarm.get();
+    screen.style.display = 'flex';
+    screen.style.justifyContent = 'center';
+    screen.style.textAlign = 'center';
+    screen.innerHTML = `
+      <div class="sub">Day ${t.dayIndex + 1}</div>
+      <h1>THE BASE FALLS SILENT</h1>
+      <div class="stats" style="margin:22px 0 30px; font-size:13px; line-height:22px; color:rgba(245,247,249,0.72)">
+        The last crewmember is gone. Machines idle under the work lights;<br/>
+        the swarm holds at <span class="mono">${s.pct.toFixed(4)}%</span>, waiting for hands that will not come.<br/><br/>
+        The Moon keeps what it is given.
+      </div>
+      <button class="btn primary" id="btn-defeat-restart">Send another mission ▸</button>`;
+    screen.querySelector('#btn-defeat-restart')?.addEventListener('click', () => {
+      void clearSave().then(() => location.reload());
+    });
+  });
 }
 
 // ─────────────────────────── victory ───────────────────────────

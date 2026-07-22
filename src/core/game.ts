@@ -24,7 +24,7 @@ import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
-  $alerts, $hasSave, $lookAt, $milestones, $mode, $phase, $placing, $power,
+  $alerts, $defeat, $hasSave, $lookAt, $milestones, $mode, $phase, $placing, $power,
   $resources, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals,
 } from '../ui/stores';
 
@@ -149,6 +149,7 @@ export class Game {
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
+    $defeat.set(false);
   }
 
   // ─────────────────────────── input ───────────────────────────
@@ -329,6 +330,13 @@ export class Game {
     });
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
+    // deadlock early-warning: metals gone before your first smelter exists
+    if (!free && !s.buildings.some((b) => b.type === 'smelter')) {
+      const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * SITES[s.siteId].buildCostMult);
+      if (s.resources.metals < smelterCost + 20) {
+        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`, 'warn');
+      }
+    }
   }
 
   private doLaunch() {
@@ -430,6 +438,7 @@ export class Game {
       let publish = acts.length > 0;
       let guard = 0;
       let victory = false;
+      let defeat = false;
       while (this.econAcc >= 1 && guard < 120) {
         this.econAcc -= 1;
         guard++;
@@ -438,6 +447,10 @@ export class Game {
         if (ev.victory && !this.state.victoryShown) {
           this.state.victoryShown = true;
           victory = true;
+        }
+        if (ev.defeat && !this.state.defeatShown) {
+          this.state.defeatShown = true;
+          defeat = true;
         }
         publish = true;
       }
@@ -451,6 +464,7 @@ export class Game {
         this.publish();
       }
       if (victory) $victory.set(true); // after publish so the overlay reads fresh stats
+      if (defeat) $defeat.set(true);
     } else if (acts.length) {
       this.publish();
     }
@@ -459,11 +473,18 @@ export class Game {
     const day = currentDay(this.state, SITES[this.state.siteId]);
     const focus = this.modes.mode === 'walk' ? this.walk.pos : this.buildCam.controls.target;
     this.lighting.setSun(day.sunElev, day.sunAzim, focus as THREE.Vector3, day.nightFactor);
-    // at night the base carries its own light: hull glow + pools under structures
+    // at night the base carries its own light: hull glow, ground pools, and
+    // exterior work lights over the structures nearest the camera
     this.instances.setNightGlow(day.nightFactor);
     if (BUILDING_MATERIAL.isMeshStandardMaterial) {
       BUILDING_MATERIAL.emissive.setScalar(0.09 * day.nightFactor);
     }
+    this.lighting.setWorkLights(
+      day.nightFactor > 0.03
+        ? this.instances.completedCenters(this.state, { x: focus.x, z: focus.z })
+        : [],
+      day.nightFactor,
+    );
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -582,6 +603,7 @@ export class Game {
     // apply anything the UI/debug API queued this frame before ticking
     for (const a of this.actions.drain()) this.applyAction(a);
     let victory = false;
+    let defeat = false;
     for (let i = 0; i < gameSeconds; i++) {
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
@@ -590,12 +612,17 @@ export class Game {
         this.state.victoryShown = true;
         victory = true;
       }
+      if (ev.defeat && !this.state.defeatShown) {
+        this.state.defeatShown = true;
+        defeat = true;
+      }
     }
     if (gameSeconds > 0) {
       this.instances.rebuild(this.state);
       this.publish();
     }
     if (victory) $victory.set(true);
+    if (defeat) $defeat.set(true);
   }
 
   setModeInstant(m: 'build' | 'walk') {

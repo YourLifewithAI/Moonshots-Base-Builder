@@ -78,11 +78,14 @@ export interface GameState {
   growthT: number;           // crew growth accumulator
 
   flare: FlareState;
+  /** emergency Earth shipment (anti-softlock); arriveAt is game time */
+  resupply: { pending: boolean; arriveAt: number; shipments: number };
   alerts: AlertMsg[];
   nextAlertId: number;
   milestonesDone: string[];
 
   victoryShown: boolean;
+  defeatShown: boolean;
 }
 
 export function createInitialState(siteId: SiteId, seed: number): GameState {
@@ -114,9 +117,11 @@ export function createInitialState(siteId: SiteId, seed: number): GameState {
     starveT: 0,
     growthT: 0,
     flare: { phase: 'idle', timer: 0, nextAt: 0 },
+    resupply: { pending: false, arriveAt: 0, shipments: 0 },
     alerts: [],
     nextAlertId: 1,
     milestonesDone: [],
     victoryShown: false,
+    defeatShown: false,
   };
 }

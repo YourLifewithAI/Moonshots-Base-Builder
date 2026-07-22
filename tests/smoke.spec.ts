@@ -177,6 +177,39 @@ test('honest research path: lab is buildable from start and carries the tech tre
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 119, 131))).toBe(true);
 });
 
+test('metal deadlock triggers an Earth resupply a full day out', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // burn the metals with no smelter anywhere → stranded
+  await page.evaluate(() => window.__game.grantResources({ metals: -130 }));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s = await page.evaluate(() => window.__game.getState());
+  expect(s.resupply.pending).toBe(true);
+  expect(s.alerts.some((a: any) => a.text.includes('STRANDED'))).toBe(true);
+  // a lunar day later the shipment lands
+  await page.evaluate(() => window.__game.advanceGameMinutes(12.2));
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(s2.resupply.pending).toBe(false);
+  expect(s2.resupply.shipments).toBe(1);
+  expect(s2.resources.metals).toBeGreaterThanOrEqual(60);
+});
+
+test('low reserves breed anxiety; losing the crew ends the game', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // drain life support: anxiety first, then starvation, then silence
+  await page.evaluate(() => window.__game.grantResources({ oxygen: -1000, food: -1000 }));
+  await page.evaluate(() => window.__game.advanceGameSeconds(3));
+  const s = await page.evaluate(() => window.__game.getState());
+  expect(s.alerts.some((a: any) => a.text.includes('RESERVES LOW') || a.text.includes('DEPLETED'))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameMinutes(6));
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(s2.crew).toBe(0);
+  expect(s2.defeatShown).toBe(true);
+  await expect(page.locator('#defeat-screen')).toBeVisible();
+  await expect(page.locator('#defeat-screen')).toContainText('THE BASE FALLS SILENT');
+});
+
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
