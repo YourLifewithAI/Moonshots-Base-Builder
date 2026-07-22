@@ -15,6 +15,7 @@ const canvas = document.getElementById('world') as HTMLCanvasElement;
 const game = new Game(canvas, {
   nolock: params.has('nolock'),
   lowfx: params.has('lowfx'),
+  safe: params.has('safe'),
   seed: Number(params.get('seed') ?? Math.floor(Math.random() * 1e9)),
 });
 
