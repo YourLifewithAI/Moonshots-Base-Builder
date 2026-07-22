@@ -1,0 +1,69 @@
+/** Ordered goals — the entire tutorial (progressive disclosure, no forced steps).
+ *  Each completes contextually; the panel reveals the next. */
+import type { GameState } from '../core/state';
+
+export interface MilestoneDef {
+  id: string;
+  title: string;
+  hint: string;
+  check: (s: GameState) => boolean;
+}
+
+const count = (s: GameState, type: string) =>
+  s.buildings.filter((b) => b.type === type).length;
+
+export const MILESTONES: MilestoneDef[] = [
+  {
+    id: 'power-up', title: 'Power Up',
+    hint: 'Place a Solar Array from the build palette.',
+    check: (s) => count(s, 'solar') >= 1,
+  },
+  {
+    id: 'dig-in', title: 'Dig In',
+    hint: 'Build a Regolith Excavator and bank 50 regolith.',
+    check: (s) => s.resources.regolith >= 50,
+  },
+  {
+    id: 'first-metal', title: 'First Metal',
+    hint: 'Research Regolith Smelting, then smelt 100 metals. The smelter’s oxygen byproduct keeps your crew breathing.',
+    check: (s) => count(s, 'smelter') >= 1 && s.resources.metals >= 100,
+  },
+  {
+    id: 'grow-the-crew', title: 'Grow the Crew',
+    hint: 'House 8 crew. Habitats extend your build perimeter; morale above 60 attracts arrivals.',
+    check: (s) => s.crew >= 8,
+  },
+  {
+    id: 'survive-the-night', title: 'Survive the Night',
+    hint: 'The lunar night lasts 14 days and kills solar power. Stockpile stored kWh — batteries help.',
+    check: (s) => s.nightsSurvived >= 1,
+  },
+  {
+    id: 'era-3', title: 'Industrialize',
+    hint: 'Reach Era 3. Advancing an era needs two completed techs of the era before it.',
+    check: (s) => s.era >= 3,
+  },
+  {
+    id: 'parts-banked', title: 'Spares on the Shelf',
+    hint: 'Bank 50 parts. Everything on the Moon wears out.',
+    check: (s) => s.resources.parts >= 50,
+  },
+  {
+    id: 'driver-online', title: 'Rail to Orbit',
+    hint: 'Research and build the Electromagnetic Mass Driver.',
+    check: (s) => count(s, 'massDriver') >= 1,
+  },
+  {
+    id: 'foils-ready', title: 'Harvest of Light',
+    hint: 'Manufacture 10 collector foils at the Foil Factory.',
+    check: (s) => s.resources.foils >= 10,
+  },
+  {
+    id: 'first-light', title: 'FIRST LIGHT',
+    hint: 'Research Swarm Protocol and LAUNCH your first collector volley to solar orbit.',
+    check: (s) => s.launches >= 1,
+  },
+];
+
+/** Swarm % milestone bands (post-victory long game; see docs/09-roadmap.md). */
+export const SWARM_BANDS = [0.0001, 0.001, 0.01, 0.1, 1];
