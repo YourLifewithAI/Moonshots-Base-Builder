@@ -8,13 +8,14 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
+import { CONSTRUCTION_KW } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt } from './hud';
 import { $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
-  iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎',
+  iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉',
   partsFab: '⚙', reactor: '☢', recDome: '◔', foilFactory: '▰', massDriver: '⟶',
 };
 
@@ -38,7 +39,9 @@ function ioRows(type: BuildingId): string {
       `${fmt((rate as number) * 60)} ${RESOURCES[rid as ResourceId].name.toLowerCase()}/min`).join(' · ') || '—';
   const power = def.powerKW >= 0 ? `+${def.powerKW} kW` : `${def.powerKW} kW`;
   const upkeep = def.upkeepParts ? `${def.upkeepParts} parts/day` : '—';
-  const buildTime = def.buildTime > 0 ? `${Math.round(def.buildTime * site.buildCostMult)}s` : 'pre-placed';
+  const buildTime = def.buildTime > 0
+    ? `${Math.round(def.buildTime * site.buildCostMult)}s · 1 robot · ${CONSTRUCTION_KW} kW`
+    : 'pre-placed';
   const extras: string[] = [];
   if (def.housing) extras.push(`houses ${def.housing}`);
   if (def.storageKWh) extras.push(`stores ${def.storageKWh}`);
@@ -165,7 +168,10 @@ export function mountPalette(root: HTMLElement, game: Game) {
     inspSig = sig;
     const def = BUILDINGS[sel.type];
     insp.style.display = 'block';
-    const status = conRemaining > 0 ? `UNDER CONSTRUCTION — ${conPct}%`
+    const status = conRemaining > 0
+      ? (sel.idleReason === 'queued' ? 'QUEUED — waiting for a free robot'
+        : sel.idleReason === 'power' ? `CONSTRUCTION PAUSED — no power (${conPct}%)`
+        : `UNDER CONSTRUCTION — ${conPct}%`)
       : !sel.enabled ? 'SHUT DOWN'
       : sel.idleReason === 'power' ? 'IDLE — no power'
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
@@ -183,7 +189,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
           `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
       </section>
       <section class="actions">
-        <button class="btn" id="insp-toggle">${sel.enabled ? 'Shut down' : 'Power on'}</button>
+        ${sel.type !== 'lander' ? `<button class="btn" id="insp-toggle">${sel.enabled ? 'Shut down' : 'Power on'}</button>` : ''}
         ${sel.type !== 'lander' ? '<button class="btn" id="insp-demolish">Demolish ½↩</button>' : ''}
         <button class="btn" id="insp-close">✕</button>
       </section>`;

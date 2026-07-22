@@ -40,6 +40,9 @@ function api(game: Game) {
     save: () => game.doSave(),
     forceRenderFallback: () => (game as any).post.forceFallback('debug'),
     enableSafeMode: () => game.enableSafeMode(),
+    getFxLevel: () => (game as any).post.fxLevel as number,
+    setFxLevel: (n: number) => (game as any).post.setLevel(n),
+    degradeFx: () => (game as any).post.degrade('debug'),
   };
 }
 

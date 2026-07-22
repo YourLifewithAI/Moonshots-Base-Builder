@@ -31,6 +31,7 @@ export interface GameOptions {
   nolock: boolean;
   lowfx: boolean;
   safe: boolean;
+  fx?: number;      // explicit FX-ladder level override (?fx=0..3)
   seed: number;
 }
 
@@ -67,7 +68,7 @@ export class Game {
     this.renderer = createRenderer(canvas);
     this.camera = createCamera();
     this.lighting = new Lighting(this.scene);
-    this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx);
+    this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
     };
@@ -139,6 +140,7 @@ export class Game {
     this.buildCam.enabled = true;
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
+    this.nextProbe = 40;
     if (this.opts.safe || this.safeMode) {
       this.safeMode = false; // fresh world = fresh materials; re-apply
       this.enableSafeMode();
@@ -339,6 +341,7 @@ export class Game {
   // ─────────────────────────── loop ───────────────────────────
 
   private playFrames = 0;      // frames since gameplay (not page load) began
+  private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
   private hadConstruction = false;
 
@@ -355,13 +358,16 @@ export class Game {
     // re-probed periodically to catch mid-game driver failures.
     if (!this.playing) return;
     this.playFrames++;
-    const probeNow = this.playFrames === 40 || this.playFrames === 150 ||
-      this.playFrames === 300 || this.playFrames % 900 === 0;
-    if (probeNow && !this.safeMode) {
+    if (this.playFrames >= this.nextProbe && !this.safeMode) {
       const day = currentDay(this.state, SITES[this.state.siteId]);
-      if (day.sunFactor > 0.3 && this.post.outputLooksBlack()) {
-        if (!this.post.usingFallback) this.post.forceFallback('black frame detected');
-        else this.enableSafeMode();
+      if (day.sunFactor <= 0.3) {
+        this.nextProbe = this.playFrames + 120;      // night/dusk — check again soon
+      } else if (this.post.outputLooksBlack()) {
+        const stepped = this.post.degrade('black frame detected');
+        if (!stepped) this.enableSafeMode();
+        this.nextProbe = this.playFrames + 40;       // verify the next rung quickly
+      } else {
+        this.nextProbe = this.playFrames + 900;      // healthy — routine re-check
       }
     }
   }
@@ -479,7 +485,10 @@ export class Game {
     });
     let housing = 0;
     for (const b of s.buildings) housing += BUILDINGS[b.type].housing ?? 0;
-    $vitals.set({ crew: s.crew, housing, morale: Math.round(s.morale), data: s.data });
+    $vitals.set({
+      crew: s.crew, housing, morale: Math.round(s.morale), data: s.data,
+      botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
+    });
     $time.set({
       dayIndex: day.dayIndex, tCycle: day.tCycle, isNight: day.isNight, sunFactor: day.sunFactor,
       speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
