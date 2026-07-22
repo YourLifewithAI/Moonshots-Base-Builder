@@ -7,6 +7,7 @@ export type Action =
   | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }
   | { kind: 'demolish'; id: number }
   | { kind: 'setEnabled'; id: number; enabled: boolean }
+  | { kind: 'setAutomated'; id: number; automated: boolean }
   | { kind: 'setPriority'; id: number; priority: 0 | 1 | 2 | 3 }
   | { kind: 'research'; tech: TechId }         // enqueue (depth 3)
   | { kind: 'cancelResearch'; tech: TechId }

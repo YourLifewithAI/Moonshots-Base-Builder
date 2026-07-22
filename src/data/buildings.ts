@@ -54,7 +54,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   solar: {
     id: 'solar', name: 'Solar Array', category: 'power', era: 1,
-    footprint: [2, 2], height: 3, buildTime: 20,
+    footprint: [2, 2], height: 3, buildTime: 40,
     buildCost: { metals: 15 }, crew: 0, powerKW: 10,
     inputs: {}, outputs: {}, upkeepParts: 1, priority: 0,
     unlockedFromStart: true,
@@ -63,7 +63,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   excavator: {
     id: 'excavator', name: 'Regolith Excavator', category: 'extraction', era: 1,
-    footprint: [2, 2], height: 5, buildTime: 30,
+    footprint: [2, 2], height: 5, buildTime: 60,
     buildCost: { metals: 20, parts: 5 }, crew: 1, powerKW: -6,
     inputs: {}, outputs: { regolith: 1.5 }, upkeepParts: 2, priority: 2,
     unlockedFromStart: true,
@@ -72,7 +72,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   habitat: {
     id: 'habitat', name: 'Habitat Module', category: 'life', era: 1,
-    footprint: [2, 2], height: 6, buildTime: 45,
+    footprint: [2, 2], height: 6, buildTime: 90,
     buildCost: { metals: 30, parts: 10 }, crew: 0, powerKW: -4,
     inputs: {}, outputs: {}, housing: 4, upkeepParts: 1, priority: 0,
     unlockedFromStart: true,
@@ -81,7 +81,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   smelter: {
     id: 'smelter', name: 'Regolith Smelter', category: 'industry', era: 1,
-    footprint: [3, 2], height: 7, buildTime: 60,
+    footprint: [3, 2], height: 7, buildTime: 120,
     buildCost: { metals: 40, parts: 10 }, crew: 2, powerKW: -12,
     inputs: { regolith: 2 }, outputs: { metals: 0.5, oxygen: 0.25, water: 0.05 }, upkeepParts: 2, priority: 2,
     pro: 'Ilmenite gives threefold: metals, oxygen, and a trickle of water.',
@@ -89,7 +89,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   iceHarvester: {
     id: 'iceHarvester', name: 'Ice Harvester', category: 'extraction', era: 1,
-    footprint: [2, 2], height: 5, buildTime: 35,
+    footprint: [2, 2], height: 5, buildTime: 70,
     buildCost: { metals: 25, parts: 5 }, crew: 1, powerKW: -8,
     inputs: {}, outputs: { water: 0.4 }, upkeepParts: 2, priority: 1,
     requiresIce: true,
@@ -98,7 +98,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   hydroponics: {
     id: 'hydroponics', name: 'Hydroponics Farm', category: 'life', era: 1,
-    footprint: [2, 3], height: 4, buildTime: 45,
+    footprint: [2, 3], height: 4, buildTime: 90,
     buildCost: { metals: 25, parts: 5 }, crew: 1, powerKW: -6,
     inputs: { water: 0.2 }, outputs: { food: 0.35 }, upkeepParts: 1, priority: 1,
     moraleDelta: 5,
@@ -107,7 +107,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   battery: {
     id: 'battery', name: 'Battery Bank', category: 'power', era: 2,
-    footprint: [2, 1], height: 3, buildTime: 30,
+    footprint: [2, 1], height: 3, buildTime: 60,
     buildCost: { metals: 50, silicon: 10 }, crew: 0, powerKW: 0,
     inputs: {}, outputs: {}, storageKWh: 3000, upkeepParts: 1, priority: 0,
     pro: 'Sunlight in a box: 3,000 stored units against the fourteen-day dark.',
@@ -115,7 +115,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   refinery: {
     id: 'refinery', name: 'Silicon Refinery', category: 'industry', era: 2,
-    footprint: [3, 2], height: 6, buildTime: 60,
+    footprint: [3, 2], height: 6, buildTime: 120,
     buildCost: { metals: 50, parts: 15 }, crew: 2, powerKW: -14,
     inputs: { regolith: 2 }, outputs: { silicon: 0.4 }, upkeepParts: 2, priority: 2,
     pro: 'Silicon for panels and foils — the whole endgame flows through here.',
@@ -123,7 +123,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   lab: {
     id: 'lab', name: 'Research Lab', category: 'science', era: 1,
-    footprint: [2, 2], height: 5, buildTime: 45,
+    footprint: [2, 2], height: 5, buildTime: 90,
     buildCost: { metals: 30, parts: 10 }, crew: 2, powerKW: -5,
     inputs: {}, outputs: {}, upkeepParts: 1, priority: 3,
     unlockedFromStart: true,
@@ -132,7 +132,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   roboticsBay: {
     id: 'roboticsBay', name: 'Robotics Bay', category: 'industry', era: 2,
-    footprint: [2, 2], height: 4, buildTime: 40,
+    footprint: [2, 2], height: 4, buildTime: 80,
     buildCost: { metals: 40, parts: 10 }, crew: 0, powerKW: -3,
     inputs: {}, outputs: {}, upkeepParts: 1, priority: 1, bots: 2,
     pro: 'Two more tireless builders — raise twice as much, twice as fast.',
@@ -140,7 +140,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   partsFab: {
     id: 'partsFab', name: 'Parts Fabricator', category: 'industry', era: 3,
-    footprint: [2, 2], height: 6, buildTime: 60,
+    footprint: [2, 2], height: 6, buildTime: 120,
     buildCost: { metals: 60, silicon: 10 }, crew: 3, powerKW: -10,
     inputs: { metals: 0.4 }, outputs: { parts: 0.3 }, upkeepParts: 1, priority: 2,
     pro: 'Ends your dependence on the lander’s spare-parts cache.',
@@ -148,7 +148,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   reactor: {
     id: 'reactor', name: 'Thorium Reactor', category: 'power', era: 3,
-    footprint: [3, 3], height: 9, buildTime: 150,
+    footprint: [3, 3], height: 9, buildTime: 300,
     buildCost: { metals: 120, parts: 40 }, crew: 1, powerKW: 40,
     inputs: {}, outputs: {}, upkeepParts: 4, priority: 0,
     moraleDelta: -5,
@@ -157,7 +157,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   recDome: {
     id: 'recDome', name: 'Recreation Dome', category: 'life', era: 3,
-    footprint: [3, 3], height: 7, buildTime: 70,
+    footprint: [3, 3], height: 7, buildTime: 140,
     buildCost: { metals: 50, silicon: 5 }, crew: 1, powerKW: -4,
     inputs: { food: 0.05 }, outputs: {}, upkeepParts: 1, priority: 3,
     moraleDelta: 14,
@@ -166,7 +166,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   foilFactory: {
     id: 'foilFactory', name: 'Foil Factory', category: 'export', era: 4,
-    footprint: [3, 3], height: 8, buildTime: 120,
+    footprint: [3, 3], height: 8, buildTime: 240,
     buildCost: { metals: 80, parts: 30 }, crew: 3, powerKW: -20,
     inputs: { silicon: 0.6, metals: 0.2 }, outputs: { foils: 0.05 }, upkeepParts: 2, priority: 2,
     pro: 'Thin-film collector foils: the actual substance of the Dyson swarm.',
@@ -174,7 +174,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   },
   massDriver: {
     id: 'massDriver', name: 'Mass Driver', category: 'export', era: 4,
-    footprint: [6, 2], height: 6, buildTime: 180,
+    footprint: [6, 2], height: 6, buildTime: 360,
     buildCost: { metals: 150, parts: 50 }, crew: 2, powerKW: -15,
     inputs: { parts: 0.02 }, outputs: { launch: 0.01 }, upkeepParts: 3, priority: 2,
     pro: 'Two point four kilometers a second, no rocket required.',

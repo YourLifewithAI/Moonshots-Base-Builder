@@ -66,13 +66,13 @@ test('economy: place buildings, resources tick, night browns out industry', asyn
   await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
   const m0 = await page.evaluate(() => window.__game.getState());
-  await page.evaluate(() => window.__game.advanceGameMinutes(2));
+  await page.evaluate(() => window.__game.advanceGameMinutes(3)); // build 96s, then smelt
   const m1 = await page.evaluate(() => window.__game.getState());
   expect(m1.resources.metals).toBeGreaterThan(m0.resources.metals);
 
   // night on Mare with no batteries: industry idles by priority — the lander's
   // trickle keeps the small excavator alive; the hungry smelter browns out
-  await page.evaluate(() => window.__game.advanceGameMinutes(6)); // t≈600s, mid-night
+  await page.evaluate(() => window.__game.advanceGameMinutes(4)); // t≈630s, mid-night
   const night = await page.evaluate(() => window.__game.getState());
   expect(night.wasNight).toBe(true);
   const smelter = night.buildings.find((b: any) => b.type === 'smelter');
@@ -128,14 +128,14 @@ test('buildings take time to construct and are inert until complete', async ({ p
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   const s0 = await page.evaluate(() => window.__game.getState());
   const placed = s0.buildings.find((b: any) => b.type === 'solar');
-  expect(placed.construction).toBeGreaterThan(0); // 15s × mare 0.8 = 12s
+  expect(placed.construction).toBeGreaterThan(0); // 40s × mare 0.8 = 32s
   // 5s in: still a construction site — contributes no power
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
   const mid = await page.evaluate(() => window.__game.getState());
   expect(mid.buildings.find((b: any) => b.type === 'solar').idleReason).toBe('building');
   expect(mid.power.supply).toBeLessThan(10); // lander trickle only
   // after its build time: operational and generating
-  await page.evaluate(() => window.__game.advanceGameSeconds(20));
+  await page.evaluate(() => window.__game.advanceGameSeconds(35));
   const done = await page.evaluate(() => window.__game.getState());
   expect(done.buildings.find((b: any) => b.type === 'solar').construction).toBe(0);
   expect(done.power.supply).toBeGreaterThan(10);
@@ -157,7 +157,7 @@ test('construction robots gate concurrent builds', async ({ page }) => {
   // active sites pull construction power from the grid
   expect(s.power.demand).toBeGreaterThanOrEqual(8);
   // when a robot frees up, the queued site starts
-  await page.evaluate(() => window.__game.advanceGameSeconds(20)); // solars done at 16s
+  await page.evaluate(() => window.__game.advanceGameSeconds(40)); // solars done at 32s
   const s2 = await page.evaluate(() => window.__game.getState());
   const excavator = s2.buildings.find((b: any) => b.type === 'excavator');
   expect(excavator.idleReason).toBe('building');
