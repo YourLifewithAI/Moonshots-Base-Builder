@@ -141,6 +141,28 @@ test('buildings take time to construct and are inert until complete', async ({ p
   expect(done.power.supply).toBeGreaterThan(10);
 });
 
+test('construction robots gate concurrent builds', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // three sites, two robots: only two build, the third queues
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s = await page.evaluate(() => window.__game.getState());
+  const reasons = s.buildings.filter((b: any) => b.construction > 0).map((b: any) => b.idleReason).sort();
+  expect(reasons).toEqual(['building', 'building', 'queued']);
+  expect(s.bots.total).toBe(2);
+  expect(s.bots.busy).toBe(2);
+  // active sites pull construction power from the grid
+  expect(s.power.demand).toBeGreaterThanOrEqual(8);
+  // when a robot frees up, the queued site starts
+  await page.evaluate(() => window.__game.advanceGameSeconds(20)); // solars done at 16s
+  const s2 = await page.evaluate(() => window.__game.getState());
+  const excavator = s2.buildings.find((b: any) => b.type === 'excavator');
+  expect(excavator.idleReason).toBe('building');
+});
+
 test('honest research path: lab is buildable from start and carries the tech tree', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

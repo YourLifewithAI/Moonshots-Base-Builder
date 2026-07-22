@@ -22,7 +22,7 @@ export interface BuildingState {
   buildTotal: number;
   /** filled in by the economy each tick (for inspector/status UI) */
   active: boolean;
-  idleReason: '' | 'power' | 'crew' | 'inputs' | 'off' | 'building';
+  idleReason: '' | 'power' | 'crew' | 'inputs' | 'off' | 'building' | 'queued';
 }
 
 export interface FlareState {
@@ -54,6 +54,8 @@ export interface GameState {
   crew: number;
   morale: number;
   data: number;
+  /** construction-robot fleet, recomputed each tick (busy = sites being built) */
+  bots: { total: number; busy: number };
 
   era: number;
   techsDone: TechId[];
@@ -95,6 +97,7 @@ export function createInitialState(siteId: SiteId, seed: number): GameState {
     crew: START.crew,
     morale: START.morale,
     data: START.data,
+    bots: { total: 2, busy: 0 },
     era: 1,
     techsDone: [],
     researchQueue: [],

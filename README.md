@@ -43,6 +43,9 @@ game is ~300 kB gzipped.
 - **The night is the villain** — solar dies for the lunar night. Stockpile, batter
   up, or go nuclear. Solar flares are telegraphed 60 seconds out; dust abrades
   everything forever.
+- **Robots build everything** — your lander carries two construction robots; each
+  active site occupies one and pulls welding power from the grid. More ambition
+  needs more robots: research Construction Robotics and raise Robotics Bays.
 - **A 6-era tech tree** — First Landing → Self-Sufficiency → Industrialization →
   Export Economy → Self-Replication → **Dyson Swarm**. Later eras cost manufactured
   goods, not just data: you cannot out-research your industry.
@@ -63,7 +66,14 @@ Debug/test drive: `/?debug&seed=42&nolock` exposes `window.__game`
 toggle walk mode without pointer lock).
 
 URL flags: `?site=mare|southpole|lavatube` (skip site select) · `?seed=n` ·
-`?lowfx` (drop ambient occlusion on weak GPUs) · `?debug` · `?nolock`.
+`?fx=0..3` (post-effects ladder: 0 full · 1 standard-precision buffers ·
+2 no ambient occlusion · 3 plain) · `?lowfx` (start at level 2) ·
+`?safe` (unlit safe rendering) · `?debug` · `?nolock`.
+
+The game auto-detects GPUs that can't run the full effect chain: it steps
+down the FX ladder until the frame renders, announces what it did in the
+alert stack, and remembers the working level for future launches. Force a
+retry of the full chain after a driver update with `?fx=0`.
 
 ## Design documents
 

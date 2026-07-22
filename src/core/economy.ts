@@ -8,7 +8,7 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CREW, CYCLE_S, FLARE, MORALE,
+  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CREW, CYCLE_S, FLARE, MORALE,
   SOLAR_DUST_MAX, SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
 } from '../data/balance';
 import type { SiteDef } from '../data/sites';
@@ -52,18 +52,21 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const day = currentDay(s, site);
   const workMult = moraleWorkMult(s.morale);
 
-  // ── 0 · construction — building sites are inert until complete ─────
+  // ── 0 · construction robots — the fleet gates concurrent builds ────
   const building = (b: BuildingState) => (b.construction ?? 0) > 0;
+  let botsTotal = 0;
   for (const b of s.buildings) {
-    if (!building(b)) continue;
-    b.construction = Math.max(0, (b.construction ?? 0) - dt);
-    b.active = false;
-    b.idleReason = 'building';
-    if (b.construction === 0) {
-      b.idleReason = '';
-      alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info');
-    }
+    if (!b.enabled || building(b)) continue;
+    botsTotal += BUILDINGS[b.type].bots ?? 0;
   }
+  // FIFO by placement order: stable assignment, oldest sites build first
+  const sites = s.buildings.filter(building).sort((a, b) => a.id - b.id);
+  const botAssigned = new Set<number>();
+  for (const site of sites) {
+    if (botAssigned.size >= botsTotal) break;
+    botAssigned.add(site.id);
+  }
+  s.bots = { total: botsTotal, busy: botAssigned.size };
 
   // ── 1 · power supply ───────────────────────────────────────────────
   let supply = 0;
@@ -82,29 +85,58 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   if (mods.powerBeam) supply += s.launches * BEAM_KW_PER_LAUNCH;
 
-  // ── 2 · demand + priority idling ───────────────────────────────────
-  const consumers = s.buildings
-    .filter((b) => BUILDINGS[b.type].powerKW < 0 && !building(b))
-    .sort((a, b) => a.priority - b.priority || a.id - b.id);
+  // ── 2 · demand + priority idling (construction sites draw too) ─────
+  interface Draw { b: BuildingState; draw: number; prio: number; isSite: boolean }
+  const wants: Draw[] = [];
+  for (const b of s.buildings) {
+    if (building(b)) {
+      // an active construction site pulls welding/robot power at priority 1
+      if (botAssigned.has(b.id)) {
+        wants.push({ b, draw: CONSTRUCTION_KW * dt, prio: 1, isSite: true });
+      }
+      continue;
+    }
+    if (BUILDINGS[b.type].powerKW >= 0) continue;
+    wants.push({
+      b,
+      draw: -BUILDINGS[b.type].powerKW * mods.powerMult[b.type] * dt,
+      prio: b.priority,
+      isSite: false,
+    });
+  }
+  wants.sort((a, b) => a.prio - b.prio || a.b.id - b.b.id);
   let budget = supply * dt + s.powerStored;
   let demand = 0;
   let drawn = 0;
   let brownout = false;
   const powered = new Set<number>();
-  for (const b of consumers) {
-    const def = BUILDINGS[b.type];
-    const draw = -def.powerKW * mods.powerMult[b.type] * dt;
-    b.active = false;
-    b.idleReason = '';
-    if (!b.enabled) { b.idleReason = 'off'; continue; }
-    demand += draw / dt;
-    if (draw <= budget) {
-      budget -= draw;
-      drawn += draw;
-      powered.add(b.id);
+  for (const w of wants) {
+    if (!w.isSite) {
+      w.b.active = false;
+      w.b.idleReason = '';
+      if (!w.b.enabled) { w.b.idleReason = 'off'; continue; }
+    }
+    demand += w.draw / dt;
+    if (w.draw <= budget) {
+      budget -= w.draw;
+      drawn += w.draw;
+      powered.add(w.b.id);
     } else {
-      b.idleReason = 'power';
+      if (!w.isSite) w.b.idleReason = 'power';
       brownout = true;
+    }
+  }
+
+  // ── 2.5 · construction progress: needs a robot AND grid power ──────
+  for (const b of sites) {
+    b.active = false;
+    if (!botAssigned.has(b.id)) { b.idleReason = 'queued'; continue; }
+    if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
+    b.idleReason = 'building';
+    b.construction = Math.max(0, (b.construction ?? 0) - dt);
+    if (b.construction === 0) {
+      b.idleReason = '';
+      alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info');
     }
   }
   // settle storage: net energy this tick

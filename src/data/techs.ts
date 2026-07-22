@@ -7,7 +7,7 @@ import type { ResourceId } from './resources';
 
 export type TechId =
   | 'regolithProcessing' | 'iceExtraction' | 'hydroponicFarming'
-  | 'batteryStorage' | 'closedLoopLS' | 'siliconRefining'
+  | 'batteryStorage' | 'closedLoopLS' | 'siliconRefining' | 'constructionRobotics'
   | 'partsFabrication' | 'thoriumPower' | 'crewWellness'
   | 'foilManufacturing' | 'massDriver' | 'dustMitigation'
   | 'autoFabrication' | 'selfReplication' | 'hiEffLaunch'
@@ -84,6 +84,14 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [{ kind: 'unlock', building: 'refinery' }],
     desc: 'Anorthite to wafer-grade silicon.',
     tradeoff: 'Another furnace for the night to strangle.',
+  },
+
+  constructionRobotics: {
+    id: 'constructionRobotics', era: 2, name: 'Construction Robotics',
+    costData: 45, requires: [],
+    effects: [{ kind: 'unlock', building: 'roboticsBay' }],
+    desc: 'Autonomous builders: each Robotics Bay fields two more robots.',
+    tradeoff: 'A bigger fleet builds faster — and drains the grid while it works.',
   },
 
   // ─── ERA 3 · INDUSTRIALIZATION ───

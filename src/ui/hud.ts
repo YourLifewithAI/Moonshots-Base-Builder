@@ -43,6 +43,7 @@ export function mountHud(root: HTMLElement, game: Game) {
       chip(RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]), low);
     }
     chip('◈', 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
+    chip('◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
     chip('◐', 'Morale', `${v.morale}%`, v.morale < 40);
     chip('≡', 'Research data', fmt(v.data));
     strip.innerHTML = chips.join('');

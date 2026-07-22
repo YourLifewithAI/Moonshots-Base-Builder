@@ -24,6 +24,7 @@ export const EYE_HEIGHT = 1.7;
 export const PLAYER_RADIUS = 0.5;
 
 export const BUILD_RADIUS_M = 60;      // buildable distance from Lander / any Habitat
+export const CONSTRUCTION_KW = 4;      // grid draw per active construction site
 export const MAX_SLOPE_DELTA = 2.5;    // max height delta (m) across a footprint
 
 export const START = {
