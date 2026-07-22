@@ -39,6 +39,7 @@ export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
 export const $placing = atom<{ type: BuildingId; valid: boolean; reason: string } | null>(null);
 export const $victory = atom<boolean>(false);
+export const $defeat = atom<boolean>(false);
 export const $lookAt = atom<{ name: string; x: number; y: number } | null>(null);
 
 /** Floating deltas at the cursor on placement (Islanders-style diegetic feedback). */

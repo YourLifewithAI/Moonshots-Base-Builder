@@ -64,8 +64,21 @@ export class BuildingInstances {
 
   /** 0 = day (pools invisible) … 1 = deep night. Called per frame. */
   setNightGlow(f: number) {
-    this.discMaterial.opacity = 0.4 * f;
+    this.discMaterial.opacity = 0.5 * f;
     this.discs.visible = f > 0.02;
+  }
+
+  /** World positions of completed structures, nearest to `focus` first —
+   *  feeds the exterior work-light pool. */
+  completedCenters(state: GameState, focus: { x: number; z: number }): { x: number; y: number; z: number }[] {
+    return state.buildings
+      .filter((b) => (b.construction ?? 0) <= 0)
+      .map((b) => {
+        const [cx, cz] = centerOf(b);
+        return { x: cx, y: this.hf.sample(cx, cz), z: cz,
+          d: (cx - focus.x) ** 2 + (cz - focus.z) ** 2 };
+      })
+      .sort((a, b) => a.d - b.d);
   }
 
   private meshFor(type: BuildingId): THREE.InstancedMesh {

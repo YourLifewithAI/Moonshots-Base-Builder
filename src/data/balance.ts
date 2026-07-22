@@ -60,6 +60,18 @@ export const SOLAR_DUST_PER_DAY = 0.08; // output fraction lost per lunar day, u
 export const SOLAR_DUST_MAX = 0.5;
 export const SOLAR_DUST_RECOVER = 0.2; // per day, when parts upkeep is being paid
 
+/** low-reserve anxiety: below this many seconds of remaining supply, morale sinks */
+export const LOW_SUPPLY_S = 300;
+
+/** emergency Earth resupply — the anti-softlock: no smelter and no metals for
+ *  one means a shipment is ordered, and Earth is a full lunar day away */
+export const RESUPPLY = {
+  metals: 60,
+  parts: 20,
+  delayS: CYCLE_S,
+  moraleHit: 5,
+};
+
 export const FLARE = {
   firstAtDay: 2.4,
   periodDays: 2.0, jitterDays: 0.8,

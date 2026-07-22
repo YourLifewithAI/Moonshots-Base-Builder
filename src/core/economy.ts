@@ -8,8 +8,9 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CREW, CYCLE_S, FLARE, MORALE,
-  SOLAR_DUST_MAX, SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
+  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CREW, CYCLE_S, FLARE,
+  LOW_SUPPLY_S, MORALE, RESUPPLY, SOLAR_DUST_MAX, SOLAR_DUST_PER_DAY,
+  SOLAR_DUST_RECOVER, START,
 } from '../data/balance';
 import type { SiteDef } from '../data/sites';
 import type { GameState, BuildingState } from './state';
@@ -29,6 +30,7 @@ const PROD_ORDER: BuildingId[] = [
 export interface EconEvents {
   modsChanged: boolean;
   victory: boolean;
+  defeat: boolean;
 }
 
 export function alert(s: GameState, text: string, kind: 'info' | 'warn' | 'crit' = 'info') {
@@ -48,7 +50,7 @@ export function currentDay(s: GameState, site: SiteDef): DayInfo {
 
 /** Advance the economy by dt game-seconds (call at 1 Hz of game time). */
 export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
-  const ev: EconEvents = { modsChanged: false, victory: false };
+  const ev: EconEvents = { modsChanged: false, victory: false, defeat: false };
   const day = currentDay(s, site);
   const workMult = moraleWorkMult(s.morale);
 
@@ -241,6 +243,19 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   } else {
     s.starveT = Math.max(0, s.starveT - dt);
   }
+  // low reserves breed anxiety long before they kill: below ~5 minutes of
+  // supply the crew notices, and morale sinks
+  const o2Rate = Math.max(1e-6, s.crew * CREW.oxygenPerCrew * lsMult);
+  const foodRate = Math.max(1e-6, s.crew * CREW.foodPerCrew * lsMult);
+  const o2Anxious = s.resources.oxygen / o2Rate < LOW_SUPPLY_S;
+  const foodAnxious = s.resources.food / foodRate < LOW_SUPPLY_S;
+  if (o2Anxious) alert(s, 'OXYGEN RESERVES LOW — the crew is anxious', 'warn');
+  if (foodAnxious) alert(s, 'FOOD RESERVES LOW — the crew is anxious', 'warn');
+  // the base falls silent when the last crewmember dies
+  if (s.crew <= 0 && !s.defeatShown) {
+    ev.defeat = true;
+    s.paused = true;
+  }
   // growth
   if (s.morale > CREW.growthMorale && s.crew < housing && o2ok && foodok) {
     s.growthT += dt;
@@ -283,6 +298,8 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (def.moraleDelta && b.active) target += def.moraleDelta;
   }
   target += o2ok && foodok ? MORALE.fed : MORALE.starving;
+  if (o2Anxious) target -= 10;
+  if (foodAnxious) target -= 10;
   target += s.crew > housing ? MORALE.crowded : MORALE.housed;
   if (s.power.brownout) target += MORALE.blackout;
   if (s.flare.phase === 'active') target += MORALE.flare;
@@ -317,6 +334,27 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         s.flare.nextAt = s.simTime + (FLARE.periodDays + (jitter - 0.5) * 2 * FLARE.jitterDays) * CYCLE_S;
       }
       break;
+  }
+
+  // ── 8.5 · emergency Earth resupply (the anti-softlock) ─────────────
+  // no smelter anywhere and not enough metals to build one = stuck.
+  // Earth notices; a shipment launches — and takes a full lunar day.
+  if (!s.resupply) s.resupply = { pending: false, arriveAt: 0, shipments: 0 };
+  const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * site.buildCostMult);
+  const hasSmelter = s.buildings.some((b) => b.type === 'smelter');
+  if (s.resupply.pending) {
+    if (s.simTime >= s.resupply.arriveAt) {
+      s.resupply.pending = false;
+      s.resupply.shipments += 1;
+      s.resources.metals += RESUPPLY.metals;
+      s.resources.parts += RESUPPLY.parts;
+      alert(s, `RESUPPLY LANDED — +${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts from Earth`, 'info');
+    }
+  } else if (!hasSmelter && s.resources.metals < smelterCost) {
+    s.resupply.pending = true;
+    s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
+    s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
+    alert(s, 'STRANDED — Earth resupply launched, arrival in 1 lunar day', 'crit');
   }
 
   // ── 9 · research ───────────────────────────────────────────────────

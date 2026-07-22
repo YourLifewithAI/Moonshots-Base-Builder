@@ -4,7 +4,7 @@ import './ui.css';
 import type { Game } from '../core/game';
 import { mountHud } from './hud';
 import { mountPalette } from './palette';
-import { mountSiteSelect, mountTechTree, mountVictory } from './screens';
+import { mountDefeat, mountSiteSelect, mountTechTree, mountVictory } from './screens';
 import { $phase } from './stores';
 
 export function mountUI(game: Game) {
@@ -18,6 +18,7 @@ export function mountUI(game: Game) {
   mountPalette(hudLayer, game);
   mountTechTree(hudLayer, game);
   mountVictory(root, game);
+  mountDefeat(root);
   mountSiteSelect(root, game);
 
   $phase.subscribe((p) => {
