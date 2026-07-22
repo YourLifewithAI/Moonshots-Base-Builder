@@ -316,12 +316,25 @@ export class Game {
 
   // ─────────────────────────── loop ───────────────────────────
 
+  private frameCount = 0;
+
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
     const dt = Math.min((t - this.lastT) / 1000, 0.1);
     this.lastT = t;
     if (this.playing) this.tick(dt);
     this.post.render(dt);
+    // black-screen sentinel: some drivers fail shaders silently instead of
+    // throwing. Probe the output early in daylight; drop to plain rendering
+    // if the frame is genuinely black (the sunlit Moon never is).
+    this.frameCount++;
+    if (this.playing && !this.post.usingFallback &&
+        (this.frameCount === 40 || this.frameCount === 120)) {
+      const day = currentDay(this.state, SITES[this.state.siteId]);
+      if (day.sunFactor > 0.3 && this.post.outputLooksBlack()) {
+        this.post.forceFallback('black frame detected');
+      }
+    }
   }
 
   private tick(dt: number) {
