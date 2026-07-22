@@ -30,7 +30,8 @@ export const $tech = atom<{
   queue: TechId[];
   progress: number;
   unlocked: BuildingId[];
-}>({ era: 1, done: [], queue: [], progress: 0, unlocked: [] });
+  automation: boolean;
+}>({ era: 1, done: [], queue: [], progress: 0, unlocked: [], automation: false });
 export const $alerts = atom<AlertMsg[]>([]);
 export const $milestones = atom<{ done: string[]; total: number }>({ done: [], total: 0 });
 export const $swarm = atom({ pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0 });

@@ -13,6 +13,8 @@ export interface BuildingState {
   gz: number;
   rot: 0 | 1 | 2 | 3;
   enabled: boolean;
+  /** run on autonomous agents: no crew or morale dependence, power ×1.6 */
+  automated: boolean;
   priority: 0 | 1 | 2 | 3;   // player-overridable idle order
   wear: number;              // 0..1, rises when parts run dry
   dust: number;              // solar arrays: 0..1 output loss

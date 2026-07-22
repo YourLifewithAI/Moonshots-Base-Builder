@@ -12,6 +12,7 @@ export interface Mods {
   dustMult: number;
   launchArmed: boolean;
   powerBeam: boolean;
+  automation: boolean;
   unlocked: Set<BuildingId>;
 }
 
@@ -26,6 +27,7 @@ export function computeMods(techsDone: TechId[]): Mods {
     dustMult: 1,
     launchArmed: false,
     powerBeam: false,
+    automation: false,
     unlocked: new Set(ids.filter((b) => BUILDINGS[b].unlockedFromStart)),
   };
 
@@ -45,6 +47,7 @@ export function computeMods(techsDone: TechId[]): Mods {
         case 'dustMult': m.dustMult *= fx.mult; break;
         case 'launchAction': m.launchArmed = true; break;
         case 'powerBeam': m.powerBeam = true; break;
+        case 'automation': m.automation = true; break;
       }
     }
   }

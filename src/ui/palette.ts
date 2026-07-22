@@ -163,7 +163,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const conRemaining = sel.construction ?? 0;
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
-    const sig = `${sel.id}|${sel.enabled}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}`;
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -176,7 +176,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'power' ? 'IDLE — no power'
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
-      : sel.active ? 'OPERATING' : 'STANDBY';
+      : sel.active ? (sel.automated ? 'OPERATING · AUTONOMOUS' : 'OPERATING') : 'STANDBY';
     insp.innerHTML = `
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
@@ -188,6 +188,13 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <div class="prio">${[0, 1, 2, 3].map((p) =>
           `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
       </section>
+      ${$tech.get().automation && def.crew > 0 ? `<section>
+        <span class="label">Operations — agents draw ×1.6 power, need no crew or morale</span>
+        <div class="prio" style="margin-top:6px">
+          <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">◈ Crewed</button>
+          <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
+        </div>
+      </section>` : ''}
       <section class="actions">
         ${sel.type !== 'lander' ? `<button class="btn" id="insp-toggle">${sel.enabled ? 'Shut down' : 'Power on'}</button>` : ''}
         ${sel.type !== 'lander' ? '<button class="btn" id="insp-demolish">Demolish ½↩</button>' : ''}
@@ -200,6 +207,10 @@ export function mountPalette(root: HTMLElement, game: Game) {
     });
     insp.querySelector('#insp-toggle')?.addEventListener('click', () =>
       game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }));
+    insp.querySelector('#insp-crewed')?.addEventListener('click', () =>
+      game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }));
+    insp.querySelector('#insp-auto')?.addEventListener('click', () =>
+      game.actions.push({ kind: 'setAutomated', id: sel.id, automated: true }));
     insp.querySelector('#insp-demolish')?.addEventListener('click', () =>
       game.actions.push({ kind: 'demolish', id: sel.id }));
     insp.querySelector('#insp-close')?.addEventListener('click', () => $selection.set(null));

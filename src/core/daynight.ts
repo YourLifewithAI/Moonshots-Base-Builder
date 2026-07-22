@@ -1,5 +1,6 @@
 /** Compressed lunar day/night clock. Drives both the economy's solar factor and
- *  the renderer's sun. Night is the villain of this game. */
+ *  the renderer's sun. Night is the villain of this game.
+ *  Dusk and dawn blend smoothly — no hard cut when the terminator crosses. */
 import { CYCLE_S, DAY_S } from '../data/balance';
 import type { SiteDef } from '../data/sites';
 
@@ -12,14 +13,17 @@ export interface DayInfo {
   /** sun elevation in radians for the renderer (can dip below horizon) */
   sunElev: number;
   sunAzim: number;
+  /** 0 = full day … 1 = full night (light-pool / glow driver for the renderer) */
+  nightFactor: number;
 }
 
-const DAWN_S = 20; // smoothstep ramp at dawn/dusk, game-seconds
+const BLEND_S = 35; // dusk/dawn ramp, game-seconds
 
 function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
   return t * t * (3 - 2 * t);
 }
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
 export function dayInfo(simTime: number, site: SiteDef, flareActive: boolean): DayInfo {
   const dayIndex = Math.floor(simTime / CYCLE_S);
@@ -27,27 +31,36 @@ export function dayInfo(simTime: number, site: SiteDef, flareActive: boolean): D
   const tCycle = tIn / CYCLE_S;
   const isNight = tIn >= DAY_S;
 
-  // raw irradiance: ramp up at dawn, down at dusk, night floor from site
+  // irradiance: smooth ramps at dawn and dusk, night floor from site
   let raw: number;
   if (!isNight) {
-    raw = smoothstep(0, DAWN_S, tIn) * (1 - smoothstep(DAY_S - DAWN_S, DAY_S, tIn));
-    raw = Math.max(raw, 0);
+    raw = smoothstep(0, BLEND_S, tIn) * (1 - smoothstep(DAY_S - BLEND_S, DAY_S, tIn));
   } else {
     raw = 0;
   }
-  let sunFactor = Math.max(raw, isNight ? site.nightSolarFraction : raw) * site.solarDayMult;
+  let sunFactor = Math.max(raw, site.nightSolarFraction) * site.solarDayMult;
   if (flareActive && !site.flareImmune) sunFactor = 0;
 
-  // visual sun: sweeps 0..180 deg over the day, sits below horizon at night
+  // visual sun: a sine arc through the day, blending into the night elevation
+  // at both edges so the terminator crossing reads as a sunset, not a cut
   // (polar sites keep a grazing sun all night — their eternal-light ridge)
-  let sunElev: number;
+  const nightElev = site.nightSolarFraction > 0 ? 0.05 : -0.25;
   const dayT = Math.min(tIn / DAY_S, 1);
+  const dayElev = Math.sin(dayT * Math.PI) * 0.5 + 0.06;
+  let sunElev: number;
   if (!isNight) {
-    sunElev = Math.sin(dayT * Math.PI) * 0.5 + 0.06; // up to ~32deg, low & dramatic
+    sunElev = dayElev;
+    if (tIn < BLEND_S) sunElev = lerp(nightElev, dayElev, smoothstep(0, BLEND_S, tIn));
+    else if (tIn > DAY_S - BLEND_S) sunElev = lerp(dayElev, nightElev, smoothstep(DAY_S - BLEND_S, DAY_S, tIn));
   } else {
-    sunElev = site.nightSolarFraction > 0 ? 0.05 : -0.25;
+    sunElev = nightElev;
   }
-  const sunAzim = tCycle * Math.PI * 2 * 0.25 + Math.PI * 0.25; // slow sweep
+  // shadows visibly sweep across the base as the day wears on — time made legible
+  const sunAzim = tCycle * Math.PI * 1.2 + Math.PI * 0.3;
 
-  return { dayIndex, tCycle, isNight, sunFactor, sunElev, sunAzim };
+  // how dark it feels (drives building glow + light pools); polar ridges never
+  // go fully dark, so their factor stays low
+  const nightFactor = 1 - Math.min(1, sunFactor / 0.25);
+
+  return { dayIndex, tCycle, isNight, sunFactor, sunElev, sunAzim, nightFactor };
 }

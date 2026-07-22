@@ -61,7 +61,7 @@ export class Lighting {
   }
 
   /** Point the sun from (elevation, azimuth) radians; called per frame. */
-  setSun(elev: number, azim: number, focus: THREE.Vector3) {
+  setSun(elev: number, azim: number, focus: THREE.Vector3, nightFactor = 0) {
     const dist = 900;
     const y = Math.sin(elev) * dist;
     const r = Math.cos(elev) * dist;
@@ -71,9 +71,10 @@ export class Lighting {
       focus.z + Math.sin(azim) * r,
     );
     this.sun.target.position.copy(focus);
-    // dusk: fade the sun as it sinks; night is earthshine + stars only
+    // dusk: fade the sun as it sinks. Night is claustrophobic by design —
+    // earthshine drops LOW so the base's own light pools carry the scene.
     const t = Math.min(1, Math.max(0, (elev + 0.03) / 0.1));
     this.sun.intensity = 3.2 * t;
-    this.earthshine.intensity = 0.28 + (1 - t) * 0.16;
+    this.earthshine.intensity = 0.3 - nightFactor * 0.19;
   }
 }

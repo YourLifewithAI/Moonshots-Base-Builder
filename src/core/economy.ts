@@ -97,9 +97,11 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       continue;
     }
     if (BUILDINGS[b.type].powerKW >= 0) continue;
+    // autonomous agents trade crew and morale for watts
+    const autoMult = b.automated ? 1.6 : 1;
     wants.push({
       b,
-      draw: -BUILDINGS[b.type].powerKW * mods.powerMult[b.type] * dt,
+      draw: -BUILDINGS[b.type].powerKW * mods.powerMult[b.type] * autoMult * dt,
       prio: b.priority,
       isSite: false,
     });
@@ -153,7 +155,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
     if (building(b)) continue;
     const def = BUILDINGS[b.type];
-    const need = Math.max(0, def.crew + mods.crewDelta[b.type]);
+    const need = b.automated ? 0 : Math.max(0, def.crew + mods.crewDelta[b.type]);
     if (!b.enabled || need === 0) { staffed.add(b.id); continue; }
     if (def.powerKW < 0 && !powered.has(b.id)) continue; // already power-idled
     if (workers >= need) { workers -= need; staffed.add(b.id); }
@@ -187,14 +189,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       // outputs
       let outMult = mods.outputMult[type] * dt;
       if (ISRU_BUILDINGS.includes(type)) outMult *= site.isruMult;
-      if (def.crew > 0) outMult *= workMult;
+      if (def.crew > 0 && !b.automated) outMult *= workMult; // agents don't have moods
       if (b.wear > 0.3) outMult *= 0.5;
       for (const [rid, rate] of Object.entries(def.outputs)) {
         let amt = rate * outMult;
         if (rid === 'launch') amt *= site.launchMult;
         s.resources[rid as keyof typeof s.resources] += amt;
       }
-      if (type === 'lab') s.data += 0.3 * dt * Math.pow(workMult, 1.5);
+      if (type === 'lab') s.data += 0.3 * dt * (b.automated ? 1 : Math.pow(workMult, 1.5));
       b.active = true;
     }
   }

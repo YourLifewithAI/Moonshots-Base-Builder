@@ -25,13 +25,48 @@ export function centerOf(b: { type: BuildingId; gx: number; gz: number; rot: num
   ];
 }
 
+const MAX_DISCS = 256;
+
 export class BuildingInstances {
   readonly group = new THREE.Group();
   private meshes = new Map<BuildingId, THREE.InstancedMesh>();
   /** instance order per type, mirroring rebuild() — used for picking */
   private ids = new Map<BuildingId, number[]>();
+  /** night light pools: one soft additive disc under each completed building */
+  private discs: THREE.InstancedMesh;
+  private discMaterial: THREE.MeshBasicMaterial;
 
-  constructor(private hf: Heightfield) {}
+  constructor(private hf: Heightfield) {
+    const discGeo = new THREE.CircleGeometry(1, 24);
+    discGeo.rotateX(-Math.PI / 2);
+    // radial falloff via vertex alpha-in-color: bright center, dark rim
+    const pos = discGeo.getAttribute('position');
+    const col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const d = Math.hypot(pos.getX(i), pos.getZ(i));
+      const v = Math.max(0, 1 - d) ** 1.6;
+      col[i * 3] = v; col[i * 3 + 1] = v * 0.98; col[i * 3 + 2] = v * 0.92; // faintly warm
+    }
+    discGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    this.discMaterial = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
+    this.discs = new THREE.InstancedMesh(discGeo, this.discMaterial, MAX_DISCS);
+    this.discs.count = 0;
+    this.discs.renderOrder = 2;
+    this.discs.visible = false;
+    this.group.add(this.discs);
+  }
+
+  /** 0 = day (pools invisible) … 1 = deep night. Called per frame. */
+  setNightGlow(f: number) {
+    this.discMaterial.opacity = 0.4 * f;
+    this.discs.visible = f > 0.02;
+  }
 
   private meshFor(type: BuildingId): THREE.InstancedMesh {
     let m = this.meshes.get(type);
@@ -53,6 +88,22 @@ export class BuildingInstances {
     const types = new Set<BuildingId>(this.meshes.keys());
     for (const b of state.buildings) types.add(b.type);
     for (const type of types) this.rebuildType(state, type);
+    // light pools under every completed structure
+    const done = state.buildings.filter((b) => (b.construction ?? 0) <= 0);
+    this.discs.count = Math.min(done.length, MAX_DISCS);
+    const mat = new THREE.Matrix4();
+    done.forEach((b, i) => {
+      if (i >= MAX_DISCS) return;
+      const [cx, cz] = centerOf(b);
+      const y = this.hf.sample(cx, cz);
+      const r = footprintRect(b);
+      const radius = Math.max(r.w, r.d) * 4 * 1.1; // meters; a little past the walls
+      mat.makeScale(radius, 1, radius);
+      mat.setPosition(cx, y + 0.12, cz);
+      this.discs.setMatrixAt(i, mat);
+    });
+    this.discs.instanceMatrix.needsUpdate = true;
+    this.discs.computeBoundingSphere();
   }
 
   private static DIM = new THREE.Color(0.45, 0.45, 0.5);   // construction site

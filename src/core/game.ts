@@ -15,6 +15,7 @@ import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { PlacementController, buildCost, checkPlacement } from '../buildings/placement';
+import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
 import { PostFX } from '../world/post';
@@ -269,6 +270,11 @@ export class Game {
         if (b) b.enabled = a.enabled;
         break;
       }
+      case 'setAutomated': {
+        const b = s.buildings.find((x) => x.id === a.id);
+        if (b && this.mods.automation && BUILDINGS[b.type].crew > 0) b.automated = a.automated;
+        break;
+      }
       case 'setPriority': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (b) b.priority = a.priority;
@@ -317,7 +323,7 @@ export class Game {
     const buildTotal = Math.round(BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult);
     s.buildings.push({
       id: s.nextBuildingId++, type, gx, gz, rot,
-      enabled: true, priority: BUILDINGS[type].priority, wear: 0, dust: 0,
+      enabled: true, automated: false, priority: BUILDINGS[type].priority, wear: 0, dust: 0,
       construction: free ? 0 : buildTotal, buildTotal,
       active: false, idleReason: free ? '' : 'building',
     });
@@ -452,7 +458,12 @@ export class Game {
     // sun follows the clock; shadow frustum follows the camera focus
     const day = currentDay(this.state, SITES[this.state.siteId]);
     const focus = this.modes.mode === 'walk' ? this.walk.pos : this.buildCam.controls.target;
-    this.lighting.setSun(day.sunElev, day.sunAzim, focus as THREE.Vector3);
+    this.lighting.setSun(day.sunElev, day.sunAzim, focus as THREE.Vector3, day.nightFactor);
+    // at night the base carries its own light: hull glow + pools under structures
+    this.instances.setNightGlow(day.nightFactor);
+    if (BUILDING_MATERIAL.isMeshStandardMaterial) {
+      BUILDING_MATERIAL.emissive.setScalar(0.09 * day.nightFactor);
+    }
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -496,6 +507,7 @@ export class Game {
     $tech.set({
       era: s.era, done: [...s.techsDone], queue: [...s.researchQueue],
       progress: s.researchProgress, unlocked: [...this.mods.unlocked],
+      automation: this.mods.automation,
     });
     $alerts.set([...s.alerts]);
     $milestones.set({ done: [...s.milestonesDone], total: MILESTONES.length });
