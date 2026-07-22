@@ -122,6 +122,20 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   expect(s2.era).toBe(2);
 });
 
+test('honest research path: lab is buildable from start and carries the tech tree', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // no completeTech / grantData: the lab must be placeable day one and
+  // its data output must complete a queued tech on its own
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  await page.evaluate(() => window.__game.research('regolithProcessing'));
+  await page.evaluate(() => window.__game.advanceGameMinutes(4));
+  const s = await page.evaluate(() => window.__game.getState());
+  expect(s.techsDone).toContain('regolithProcessing');
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 119, 131))).toBe(true);
+});
+
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

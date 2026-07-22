@@ -488,6 +488,8 @@ export class Game {
   }
 
   debugAdvance(gameSeconds: number) {
+    // apply anything the UI/debug API queued this frame before ticking
+    for (const a of this.actions.drain()) this.applyAction(a);
     let victory = false;
     for (let i = 0; i < gameSeconds; i++) {
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
