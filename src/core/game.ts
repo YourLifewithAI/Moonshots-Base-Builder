@@ -6,7 +6,8 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
+  AUTOSAVE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
@@ -16,7 +17,7 @@ import { economyTick, currentDay, refreshDerived, alert, computeMods, type Mods 
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
-import { PlacementController, buildCost, checkPlacement } from '../buildings/placement';
+import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
@@ -243,9 +244,12 @@ export class Game {
   private onWorldClick() {
     if (this.placement.active) {
       const p = this.placement.probe!;
-      if (p.valid) {
+      if (!p.valid) return;
+      if (p.type === 'grade') {
+        // grading stays active: multiple passes are the point
+        this.actions.push({ kind: 'grade', gx: p.gx, gz: p.gz });
+      } else {
         this.actions.push({ kind: 'place', type: p.type, gx: p.gx, gz: p.gz, rot: p.rot });
-        // keep placing while shift held? keep simple: exit placement
         this.cancelPlacement();
       }
       return;
@@ -257,8 +261,9 @@ export class Game {
     $selection.set(b ? { ...b } : null);
   }
 
-  beginPlacement(type: BuildingId) {
+  beginPlacement(type: PlaceableType) {
     if (this.modes.mode !== 'build') return;
+    if (type === 'grade' && !this.mods.grading) return;
     $selection.set(null);
     this.placement.begin(type);
     if (type === 'iceHarvester' && this.state.iceSurveyed) $iceOverlay.set(true);
@@ -332,6 +337,17 @@ export class Game {
       case 'setSpeed': s.speed = a.speed; break;
       case 'setPaused': s.paused = a.paused; break;
       case 'launch': this.doLaunch(); break;
+      case 'grade': {
+        if (!this.mods.grading) break;
+        const chk = checkGrade(s, this.hf, a.gx, a.gz);
+        if (!chk.valid) { alert(s, `CANNOT GRADE — ${chk.reason}`, 'warn'); break; }
+        s.powerStored -= GRADE_COST_ENERGY;
+        const h = this.hf.flatten(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
+        s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
+        this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
+        s.resources.regolith += GRADE_REGOLITH_YIELD; // dozed spoil, recovered
+        break;
+      }
       case 'orderResupply': {
         if (s.resupply?.pending) {
           alert(s, 'SHIPMENT ALREADY EN ROUTE — one launch window at a time', 'warn');
@@ -623,7 +639,7 @@ export class Game {
     $tech.set({
       era: s.era, done: [...s.techsDone], queue: [...s.researchQueue],
       progress: s.researchProgress, unlocked: [...this.mods.unlocked],
-      automation: this.mods.automation,
+      automation: this.mods.automation, grading: this.mods.grading,
     });
     $alerts.set([...s.alerts]);
     $milestones.set({ done: [...s.milestonesDone], total: MILESTONES.length });

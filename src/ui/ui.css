@@ -13,8 +13,8 @@
   padding: 5px 10px;
 }
 .chip .glyph { color: rgba(var(--paper-rgb), var(--op-tertiary)); font-size: 11px; }
-.chip .val { font-size: 13px; color: var(--ink-050); }
-.chip .cap { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-muted)); }
+.chip .val { font-size: 13px; color: var(--ink-050); min-width: 4ch; text-align: right; }
+.chip .cap { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-muted)); min-width: 4ch; }
 .chip.warn .val { color: var(--paper); }
 .chip.warn { border-color: rgba(var(--paper-rgb), 0.5); }
 

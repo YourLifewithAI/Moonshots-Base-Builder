@@ -4,15 +4,20 @@
  *  dark ghost + flat outline = blocked. */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
-import { BUILD_RADIUS_M, CELL_M, MAP_CELLS, MAP_M, MAX_SLOPE_DELTA } from '../data/balance';
+import {
+  BUILD_RADIUS_M, CELL_M, GRADE_CELLS, GRADE_COST_ENERGY, MAP_CELLS, MAP_M,
+  MAX_SLOPE_DELTA,
+} from '../data/balance';
 import type { SiteDef } from '../data/sites';
 import type { GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { recipeGeometry } from './recipes';
 import { centerOf, footprintRect } from './instances';
 
+export type PlaceableType = BuildingId | 'grade';
+
 export interface PlacementProbe {
-  type: BuildingId;
+  type: PlaceableType;
   gx: number; gz: number; rot: 0 | 1 | 2 | 3;
   valid: boolean;
   reason: string;
@@ -51,9 +56,12 @@ export class PlacementController {
     scene.add(this.outline);
   }
 
-  begin(type: BuildingId) {
+  begin(type: PlaceableType) {
     this.cancel();
-    this.ghost = new THREE.Mesh(recipeGeometry(type), GHOST_VALID);
+    const geo = type === 'grade'
+      ? new THREE.PlaneGeometry(GRADE_CELLS * CELL_M, GRADE_CELLS * CELL_M).rotateX(-Math.PI / 2).translate(0, 0.25, 0)
+      : recipeGeometry(type);
+    this.ghost = new THREE.Mesh(geo, GHOST_VALID);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
     this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '' };
@@ -76,13 +84,20 @@ export class PlacementController {
     if (!this.probe || !this.ghost) return;
     const hit = this.hf.raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z);
     if (!hit) { this.ghost.visible = false; this.outline.visible = false; return; }
-    const def = BUILDINGS[this.probe.type];
-    const [w, d] = this.probe.rot % 2 === 0 ? def.footprint : [def.footprint[1], def.footprint[0]];
+    let w: number, d: number;
+    if (this.probe.type === 'grade') {
+      w = GRADE_CELLS; d = GRADE_CELLS;
+    } else {
+      const def = BUILDINGS[this.probe.type];
+      [w, d] = this.probe.rot % 2 === 0 ? def.footprint : [def.footprint[1], def.footprint[0]];
+    }
     this.probe.gx = Math.round((hit[0] + MAP_M / 2) / CELL_M - w / 2);
     this.probe.gz = Math.round((hit[2] + MAP_M / 2) / CELL_M - d / 2);
     this.validate(state, unlocked);
 
-    const [cx, cz] = centerOf(this.probe);
+    const [cx, cz] = this.probe.type === 'grade'
+      ? gradeCenter(this.probe.gx, this.probe.gz)
+      : centerOf(this.probe as { type: BuildingId; gx: number; gz: number; rot: number });
     const y = this.hf.sample(cx, cz);
     this.ghost.position.set(cx, y, cz);
     this.ghost.rotation.y = -this.probe.rot * Math.PI / 2;
@@ -116,11 +131,52 @@ export class PlacementController {
 
   validate(state: GameState, unlocked: Set<BuildingId>): boolean {
     const p = this.probe!;
-    const res = checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot);
+    const res = p.type === 'grade'
+      ? checkGrade(state, this.hf, p.gx, p.gz)
+      : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot);
     p.valid = res.valid;
     p.reason = res.reason;
     return p.valid;
   }
+}
+
+function gradeCenter(gx: number, gz: number): [number, number] {
+  return [
+    (gx + GRADE_CELLS / 2) * CELL_M - MAP_M / 2,
+    (gz + GRADE_CELLS / 2) * CELL_M - MAP_M / 2,
+  ];
+}
+
+/** Grading validity: in bounds, near the habitat network, no structure on top,
+ *  and enough stored energy for the dozer pass. */
+export function checkGrade(
+  state: GameState,
+  hf: Heightfield,
+  gx: number,
+  gz: number,
+): { valid: boolean; reason: string } {
+  const gx1 = gx + GRADE_CELLS, gz1 = gz + GRADE_CELLS;
+  if (gx < 1 || gz < 1 || gx1 > MAP_CELLS - 1 || gz1 > MAP_CELLS - 1) {
+    return { valid: false, reason: 'Outside survey area' };
+  }
+  const [cx, cz] = gradeCenter(gx, gz);
+  for (const b of state.buildings) {
+    const o = footprintRect(b);
+    if (gx < o.gx1 && gx1 > o.gx0 && gz < o.gz1 && gz1 > o.gz0) {
+      return { valid: false, reason: 'A structure is in the way' };
+    }
+  }
+  let near = state.buildings.length === 0;
+  for (const b of state.buildings) {
+    if (b.type !== 'lander' && b.type !== 'habitat') continue;
+    const [bx, bz] = centerOf(b);
+    if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
+  }
+  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (state.powerStored < GRADE_COST_ENERGY) {
+    return { valid: false, reason: `Need ${GRADE_COST_ENERGY} stored energy — have ${Math.floor(state.powerStored)}` };
+  }
+  return { valid: true, reason: '' };
 }
 
 /** Standalone validity check — shared by the ghost controller, the action

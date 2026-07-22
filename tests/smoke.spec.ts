@@ -172,6 +172,26 @@ test('construction robots gate concurrent builds', async ({ page }) => {
   expect(excavator.idleReason).toBe('building');
 });
 
+test('construction stalls without welding parts and resumes on delivery', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // no parts in stock; solar costs metals only, so the site opens but can't weld
+  await page.evaluate(() => window.__game.grantResources({ parts: -70 }));
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(5));
+  const s = await page.evaluate(() => window.__game.getState());
+  const site = s.buildings.find((b: any) => b.type === 'solar');
+  expect(site.idleReason).toBe('inputs');
+  expect(site.construction).toBeGreaterThan(30); // no progress while stalled
+  expect(s.alerts.some((a: any) => a.text.includes('CONSTRUCTION STALLED'))).toBe(true);
+  // a parts delivery restarts the weld and the panel completes
+  await page.evaluate(() => window.__game.grantResources({ parts: 20 }));
+  await page.evaluate(() => window.__game.advanceGameSeconds(40)); // build 32s on mare
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(s2.buildings.find((b: any) => b.type === 'solar').construction).toBe(0);
+  expect(s2.resources.parts).toBeLessThan(20); // welding consumed some
+});
+
 test('honest research path: lab is buildable from start and carries the tech tree', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
@@ -259,6 +279,53 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   // off-deposit near the lander: blocked for the right reason
   const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
   expect(offIce.reason).toContain('No ice beneath');
+});
+
+test('site grading: era-1 tech flattens rough terrain for construction', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=southpole`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('siteGrading'));
+  // hunt the rugged south pole for a spot too rough to build on, close enough
+  // to the lander that the grade tool can reach it (radius 60 m)
+  const target = await page.evaluate(() => {
+    const g = window.__game!;
+    const buildings = g.getState().buildings;
+    const lander = buildings[0];
+    const lx = lander.gx + 1.5, lz = lander.gz + 1.5; // lander center, cells
+    // the 4×4 grade rect must clear every structure (lander is 3×3)
+    const rectClear = (gx: number, gz: number) => buildings.every(
+      (b: any) => !(gx < b.gx + 3 && gx + 4 > b.gx && gz < b.gz + 3 && gz + 4 > b.gz),
+    );
+    let fallback: { gx: number; gz: number; rough: boolean } | null = null;
+    for (let r = 4; r <= 12; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const gx = lander.gx + dx, gz = lander.gz + dz;
+          const distM = Math.hypot(gx + 2 - lx, gz + 2 - lz) * 4;
+          if (distM > 55 || !rectClear(gx, gz)) continue;
+          const p = g.canPlace('solar', gx, gz);
+          if (!p.valid && p.reason === 'Terrain too rough') return { gx, gz, rough: true };
+          if (!fallback && p.valid) fallback = { gx, gz, rough: false };
+        }
+      }
+    }
+    return fallback;
+  });
+  expect(target).not.toBeNull();
+  const before = await page.evaluate(() => window.__game.getState());
+  await page.evaluate((t) => window.__game.gradeAt(t.gx, t.gz), target!);
+  await page.evaluate(() => window.__game.advanceGameSeconds(1));
+  const after = await page.evaluate(() => window.__game.getState());
+  // grading spends stored energy, banks the dozed spoil, and records the cut
+  expect(after.flattens.length).toBe(before.flattens.length + 1);
+  expect(after.powerStored).toBeLessThanOrEqual(before.powerStored - 30); // −40, minus a tick of recharge
+  expect(after.resources.regolith).toBeGreaterThanOrEqual(before.resources.regolith + 5);
+  // the once-blocked pad now takes a solar array
+  const post = await page.evaluate(
+    (t) => window.__game.canPlace('solar', t.gx + 1, t.gz + 1), target!,
+  );
+  expect(post.valid).toBe(true);
 });
 
 test('robotic expedition: unmanned stations, no life support, no defeat', async ({ page }) => {

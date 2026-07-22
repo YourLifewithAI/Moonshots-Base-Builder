@@ -26,7 +26,7 @@ export class Lighting {
     this.sun = new THREE.DirectionalLight(0xfffdf8, 3.2);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
-    const s = 260;
+    const s = 460;
     this.sun.shadow.camera.left = -s;
     this.sun.shadow.camera.right = s;
     this.sun.shadow.camera.top = s;

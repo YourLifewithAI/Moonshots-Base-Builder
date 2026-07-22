@@ -40,6 +40,7 @@ function api(game: Game) {
     save: () => game.doSave(),
     surveyIce: () => game.actions.push({ kind: 'surveyIce' }),
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
+    gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),
     getIceDeposits: () => JSON.parse(JSON.stringify(game.iceDepositList)),
     canPlace: (type: BuildingId, gx: number, gz: number) => game.debugCheckPlace(type, gx, gz),
     forceRenderFallback: () => (game as any).post.forceFallback('debug'),
