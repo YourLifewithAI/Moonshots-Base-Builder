@@ -10,7 +10,7 @@ export interface MilestoneDef {
 }
 
 const count = (s: GameState, type: string) =>
-  s.buildings.filter((b) => b.type === type).length;
+  s.buildings.filter((b) => b.type === type && (b.construction ?? 0) <= 0).length;
 
 export const MILESTONES: MilestoneDef[] = [
   {

@@ -176,7 +176,7 @@ Because hue is forbidden, texture is the semantic channel:
 
 | Pattern | Meaning | Slice status |
 |---|---|---|
-| Diagonal hatch | under construction | `.hatch` CSS primitive shipped; build-time is instant in the slice, so unused in the HUD |
+| Diagonal hatch | under construction | `.hatch` CSS primitive shipped; in 3D, construction sites render dimmed and rise from the pad over the building's build time |
 | Pale ghost + draped outline | valid placement | **shipped** as 3D ghost materials (`placement.ts`: `#f5f7f9` @ 0.42) |
 | Dark ghost | blocked placement (+ reason line in `#place-hint`) | **shipped** (`#14161a` @ 0.60) |
 | Dot grid | buildable area | deferred with build-radius visualization |

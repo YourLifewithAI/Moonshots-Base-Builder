@@ -122,6 +122,25 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   expect(s2.era).toBe(2);
 });
 
+test('buildings take time to construct and are inert until complete', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  const s0 = await page.evaluate(() => window.__game.getState());
+  const placed = s0.buildings.find((b: any) => b.type === 'solar');
+  expect(placed.construction).toBeGreaterThan(0); // 15s × mare 0.8 = 12s
+  // 5s in: still a construction site — contributes no power
+  await page.evaluate(() => window.__game.advanceGameSeconds(5));
+  const mid = await page.evaluate(() => window.__game.getState());
+  expect(mid.buildings.find((b: any) => b.type === 'solar').idleReason).toBe('building');
+  expect(mid.power.supply).toBeLessThan(10); // lander trickle only
+  // after its build time: operational and generating
+  await page.evaluate(() => window.__game.advanceGameSeconds(20));
+  const done = await page.evaluate(() => window.__game.getState());
+  expect(done.buildings.find((b: any) => b.type === 'solar').construction).toBe(0);
+  expect(done.power.supply).toBeGreaterThan(10);
+});
+
 test('honest research path: lab is buildable from start and carries the tech tree', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

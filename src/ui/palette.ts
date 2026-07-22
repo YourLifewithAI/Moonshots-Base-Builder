@@ -38,6 +38,7 @@ function ioRows(type: BuildingId): string {
       `${fmt((rate as number) * 60)} ${RESOURCES[rid as ResourceId].name.toLowerCase()}/min`).join(' · ') || '—';
   const power = def.powerKW >= 0 ? `+${def.powerKW} kW` : `${def.powerKW} kW`;
   const upkeep = def.upkeepParts ? `${def.upkeepParts} parts/day` : '—';
+  const buildTime = def.buildTime > 0 ? `${Math.round(def.buildTime * site.buildCostMult)}s` : 'pre-placed';
   const extras: string[] = [];
   if (def.housing) extras.push(`houses ${def.housing}`);
   if (def.storageKWh) extras.push(`stores ${def.storageKWh}`);
@@ -46,6 +47,7 @@ function ioRows(type: BuildingId): string {
   return `
     <div class="io">
       <span class="k">Build</span><span class="mono">${cost}</span>
+      <span class="k">Time</span><span class="mono">${buildTime}</span>
       <span class="k">Power</span><span class="mono">${power}</span>
       <span class="k">Input</span><span class="mono">${flow(def.inputs)}</span>
       <span class="k">Output</span><span class="mono">${flow(def.outputs)}</span>
@@ -155,12 +157,16 @@ export function mountPalette(root: HTMLElement, game: Game) {
   let inspSig = '';
   $selection.subscribe((sel) => {
     if (!sel) { insp.style.display = 'none'; inspSig = ''; return; }
-    const sig = `${sel.id}|${sel.enabled}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}`;
+    const conRemaining = sel.construction ?? 0;
+    const conPct = conRemaining > 0 && sel.buildTotal
+      ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
+    const sig = `${sel.id}|${sel.enabled}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
     insp.style.display = 'block';
-    const status = !sel.enabled ? 'SHUT DOWN'
+    const status = conRemaining > 0 ? `UNDER CONSTRUCTION — ${conPct}%`
+      : !sel.enabled ? 'SHUT DOWN'
       : sel.idleReason === 'power' ? 'IDLE — no power'
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'

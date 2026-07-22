@@ -47,40 +47,16 @@ export class BuildingInstances {
     return m;
   }
 
-  /** Sync all instance matrices from state (call after place/demolish/load). */
+  /** Sync all instance matrices from state (call after place/demolish/load,
+   *  and each economy tick while anything is under construction). */
   rebuild(state: GameState) {
-    const byType = new Map<BuildingId, BuildingState[]>();
-    for (const b of state.buildings) {
-      if (!byType.has(b.type)) byType.set(b.type, []);
-      byType.get(b.type)!.push(b);
-    }
-    const mat = new THREE.Matrix4();
-    const rot = new THREE.Quaternion();
-    const up = new THREE.Vector3(0, 1, 0);
-    for (const [type, mesh] of this.meshes) {
-      const list = byType.get(type) ?? [];
-      mesh.count = Math.min(list.length, MAX_PER_TYPE);
-      const order: number[] = [];
-      list.forEach((b, i) => {
-        if (i >= MAX_PER_TYPE) return;
-        const [cx, cz] = centerOf(b);
-        const y = this.hf.sample(cx, cz);
-        rot.setFromAxisAngle(up, -b.rot * Math.PI / 2);
-        mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(1, 1, 1));
-        mesh.setMatrixAt(i, mat);
-        order.push(b.id);
-      });
-      mesh.instanceMatrix.needsUpdate = true;
-      mesh.computeBoundingSphere();
-      order.length = mesh.count;
-      this.ids.set(type, order);
-    }
-    for (const type of byType.keys()) this.meshFor(type); // create lazily
-    // second pass for newly created meshes
-    for (const [type, mesh] of this.meshes) {
-      if ((this.ids.get(type)?.length ?? -1) !== mesh.count) this.rebuildType(state, type);
-    }
+    const types = new Set<BuildingId>(this.meshes.keys());
+    for (const b of state.buildings) types.add(b.type);
+    for (const type of types) this.rebuildType(state, type);
   }
+
+  private static DIM = new THREE.Color(0.45, 0.45, 0.5);   // construction site
+  private static FULL = new THREE.Color(1, 1, 1);
 
   private rebuildType(state: GameState, type: BuildingId) {
     const mesh = this.meshFor(type);
@@ -95,11 +71,18 @@ export class BuildingInstances {
       const [cx, cz] = centerOf(b);
       const y = this.hf.sample(cx, cz);
       rot.setFromAxisAngle(up, -b.rot * Math.PI / 2);
-      mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(1, 1, 1));
+      // constructing buildings rise from the pad and render dimmed
+      const remaining = b.construction ?? 0;
+      const total = b.buildTotal ?? 0;
+      const progress = remaining > 0 && total > 0 ? 1 - remaining / total : 1;
+      const sy = progress >= 1 ? 1 : 0.12 + 0.88 * progress;
+      mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(1, sy, 1));
       mesh.setMatrixAt(i, mat);
+      mesh.setColorAt(i, progress >= 1 ? BuildingInstances.FULL : BuildingInstances.DIM);
       order.push(b.id);
     });
     mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
   }
