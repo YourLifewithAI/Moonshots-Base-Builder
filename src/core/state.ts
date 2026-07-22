@@ -16,9 +16,13 @@ export interface BuildingState {
   priority: 0 | 1 | 2 | 3;   // player-overridable idle order
   wear: number;              // 0..1, rises when parts run dry
   dust: number;              // solar arrays: 0..1 output loss
+  /** game-seconds of construction remaining (0 = operational) */
+  construction: number;
+  /** total construction time this building was placed with (for progress UI) */
+  buildTotal: number;
   /** filled in by the economy each tick (for inspector/status UI) */
   active: boolean;
-  idleReason: '' | 'power' | 'crew' | 'inputs' | 'off';
+  idleReason: '' | 'power' | 'crew' | 'inputs' | 'off' | 'building';
 }
 
 export interface FlareState {

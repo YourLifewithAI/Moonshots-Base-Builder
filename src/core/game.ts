@@ -292,10 +292,13 @@ export class Game {
     const h = this.hf.flatten(r.gx0, r.gz0, r.gx1, r.gz1);
     s.flattens.push({ x0: r.gx0, z0: r.gz0, x1: r.gx1, z1: r.gz1, h });
     this.chunks.rebuildAround(r.gx0, r.gz0, r.gx1, r.gz1);
+    // rough terrain slows construction the same way it inflates costs
+    const buildTotal = Math.round(BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult);
     s.buildings.push({
       id: s.nextBuildingId++, type, gx, gz, rot,
       enabled: true, priority: BUILDINGS[type].priority, wear: 0, dust: 0,
-      active: false, idleReason: '',
+      construction: free ? 0 : buildTotal, buildTotal,
+      active: false, idleReason: free ? '' : 'building',
     });
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
@@ -317,6 +320,7 @@ export class Game {
   // ─────────────────────────── loop ───────────────────────────
 
   private frameCount = 0;
+  private hadConstruction = false;
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
@@ -380,7 +384,15 @@ export class Game {
         }
         publish = true;
       }
-      if (publish) this.publish();
+      if (publish) {
+        // animate construction sites (rise + un-dim) while any are active
+        const constructing = this.state.buildings.some((b) => (b.construction ?? 0) > 0);
+        if (constructing || this.hadConstruction) {
+          this.instances.rebuild(this.state);
+          this.hadConstruction = constructing;
+        }
+        this.publish();
+      }
       if (victory) $victory.set(true); // after publish so the overlay reads fresh stats
     } else if (acts.length) {
       this.publish();
@@ -513,7 +525,10 @@ export class Game {
         victory = true;
       }
     }
-    if (gameSeconds > 0) this.publish();
+    if (gameSeconds > 0) {
+      this.instances.rebuild(this.state);
+      this.publish();
+    }
     if (victory) $victory.set(true);
   }
 

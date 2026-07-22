@@ -52,10 +52,24 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const day = currentDay(s, site);
   const workMult = moraleWorkMult(s.morale);
 
+  // ── 0 · construction — building sites are inert until complete ─────
+  const building = (b: BuildingState) => (b.construction ?? 0) > 0;
+  for (const b of s.buildings) {
+    if (!building(b)) continue;
+    b.construction = Math.max(0, (b.construction ?? 0) - dt);
+    b.active = false;
+    b.idleReason = 'building';
+    if (b.construction === 0) {
+      b.idleReason = '';
+      alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info');
+    }
+  }
+
   // ── 1 · power supply ───────────────────────────────────────────────
   let supply = 0;
   let capacity = 0;
   for (const b of s.buildings) {
+    if (building(b)) continue;
     const def = BUILDINGS[b.type];
     if (def.storageKWh) capacity += def.storageKWh;
     if (!b.enabled) continue;
@@ -70,7 +84,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
 
   // ── 2 · demand + priority idling ───────────────────────────────────
   const consumers = s.buildings
-    .filter((b) => BUILDINGS[b.type].powerKW < 0)
+    .filter((b) => BUILDINGS[b.type].powerKW < 0 && !building(b))
     .sort((a, b) => a.priority - b.priority || a.id - b.id);
   let budget = supply * dt + s.powerStored;
   let demand = 0;
@@ -105,6 +119,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   let workers = s.crew;
   const staffed = new Set<number>();
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
+    if (building(b)) continue;
     const def = BUILDINGS[b.type];
     const need = Math.max(0, def.crew + mods.crewDelta[b.type]);
     if (!b.enabled || need === 0) { staffed.add(b.id); continue; }
@@ -124,7 +139,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (!list) continue;
     const def = BUILDINGS[type];
     for (const b of list) {
-      if (!b.enabled) continue;
+      if (!b.enabled || building(b)) continue;
       if (def.powerKW < 0 && !powered.has(b.id)) continue;
       if (!staffed.has(b.id)) continue;
       // inputs
@@ -153,6 +168,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   // structures with no inputs/outputs/crew that were powered count as active
   for (const b of s.buildings) {
+    if (building(b)) continue;
     const def = BUILDINGS[b.type];
     if (b.enabled && def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = true;
     if (b.enabled && def.powerKW < 0 && powered.has(b.id) && Object.keys(def.outputs).length === 0
@@ -170,7 +186,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   let housing = 0;
   for (const b of s.buildings) {
     const def = BUILDINGS[b.type];
-    if (!def.housing || !b.enabled) continue;
+    if (!def.housing || !b.enabled || building(b)) continue;
     if (def.powerKW < 0 && !powered.has(b.id)) continue;
     housing += def.housing;
   }
@@ -207,7 +223,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   let partsShort = false;
   for (const b of s.buildings) {
     const def = BUILDINGS[b.type];
-    if (!b.enabled) continue;
+    if (!b.enabled || building(b)) continue;
     const rate = (def.upkeepParts * mods.upkeepMult[b.type] * site.upkeepMult / CYCLE_S) * dt;
     if (s.resources.parts >= rate) {
       s.resources.parts -= rate;
