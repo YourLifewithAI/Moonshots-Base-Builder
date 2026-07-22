@@ -5,7 +5,8 @@
 #resource-strip {
   position: absolute; top: var(--gutter); left: var(--gutter);
   display: flex; flex-wrap: wrap; gap: var(--s2);
-  max-width: 46vw;
+  /* never reach the centered swarm meter */
+  max-width: calc(50vw - 200px);
 }
 .chip {
   display: flex; align-items: baseline; gap: 6px;
@@ -20,8 +21,8 @@
 /* ── top-center: swarm meter ── */
 #swarm-meter {
   position: absolute; top: var(--gutter); left: 50%; transform: translateX(-50%);
-  width: min(420px, 40vw);
-  padding: 8px 14px 10px;
+  width: min(300px, 28vw);
+  padding: 6px 12px 8px;
   text-align: center;
 }
 #swarm-meter .bar {
@@ -227,8 +228,21 @@
 }
 #tech-close { position: absolute; top: 20px; right: 24px; }
 
-/* era chip that opens the tree */
-#era-chip { position: absolute; top: 76px; right: var(--gutter); }
+/* era chip that opens the tree, with the live research gauge */
+#era-chip { position: absolute; top: 76px; right: var(--gutter); text-align: right; }
+#era-chip .res-line {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 8px; margin-top: 6px;
+}
+#era-chip .res-name {
+  max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#era-chip .res-bar {
+  width: 90px; height: 3px;
+  background: rgba(var(--paper-rgb), var(--op-fill));
+  border: var(--hair);
+}
+#era-chip .res-bar i { display: block; height: 100%; background: var(--paper); width: 0; }
 
 /* victory */
 #victory-screen { justify-content: center; text-align: center; }

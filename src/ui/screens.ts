@@ -91,7 +91,31 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   const renderChip = () => {
     const t = $tech.get();
-    chip.innerHTML = `ERA ${t.era} · ${ERA_NAMES[t.era]} <span class="cap mono">— tech [T]</span>`;
+    chip.innerHTML = `ERA ${t.era} · ${ERA_NAMES[t.era]} <span class="cap mono">— tech [T]</span>
+      <div class="res-line">
+        <span class="label res-name" id="chip-res-name"></span>
+        <div class="res-bar"><i id="chip-res-fill"></i></div>
+        <span class="cap mono" id="chip-res-pct"></span>
+      </div>`;
+  };
+  // the always-visible research gauge: targeted updates every tick, no re-render
+  const updateChipResearch = (t: ReturnType<typeof $tech.get>) => {
+    const name = chip.querySelector('#chip-res-name') as HTMLElement | null;
+    const fill = chip.querySelector('#chip-res-fill') as HTMLElement | null;
+    const pct = chip.querySelector('#chip-res-pct') as HTMLElement | null;
+    if (!name || !fill || !pct) return;
+    const head = t.queue[0];
+    if (!head) {
+      name.textContent = 'no active research';
+      fill.style.width = '0%';
+      pct.textContent = '';
+      return;
+    }
+    const def = TECHS[head];
+    const frac = Math.min(1, t.progress / def.costData);
+    name.textContent = def.name;
+    fill.style.width = `${frac * 100}%`;
+    pct.textContent = frac >= 1 ? 'needs goods' : `${Math.round(frac * 100)}%`;
   };
   // re-render only on structural change; update progress bars in place
   // (a full re-render every economy tick would detach cards mid-click)
@@ -110,6 +134,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       const qpc = screen.querySelector('#q-head-pct') as HTMLElement | null;
       if (qpc) qpc.textContent = `${Math.round(pc)}%`;
     }
+    updateChipResearch(t);
   });
 
   const state = (tid: TechId): 'done' | 'queued' | 'available' | 'locked' => {
