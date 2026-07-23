@@ -5,7 +5,7 @@ import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
 import { ERA_NAMES, TECHS, TECH_ORDER, type TechId } from '../data/techs';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { Game } from '../core/game';
-import { el, fmt } from './hud';
+import { el, fmt, PERSON_SVG } from './hud';
 import { $defeat, $hasSave, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
 
@@ -71,7 +71,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       <div class="sub">Robots survive the Moon. Humans beat it.</div>
       <div id="sites" style="margin-top:30px">
         <div class="site-card${expedition === 'human' ? ' sel' : ''}" data-exp="human">
-          <h3>◈ HUMAN CREW</h3>
+          <h3>${PERSON_SVG} HUMAN CREW</h3>
           <div class="place">Four settlers and a supply cache</div>
           <div class="blurb">Fragile, hungry, brilliant. People need oxygen, water, food, housing, and something to live for — and they reward you for all of it.</div>
           <div class="pro">Morale can push crewed output to ×1.2 — and it compounds</div>

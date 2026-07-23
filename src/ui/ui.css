@@ -60,10 +60,20 @@
 #milestones {
   position: absolute; bottom: var(--gutter); left: var(--gutter);
   width: 300px; padding: 10px 12px;
+  max-height: 62vh; overflow-y: auto;
+  cursor: pointer;
 }
 #milestones .goal-title { font-size: 13px; font-weight: 600; color: var(--ink-050); margin: 6px 0 3px; }
 #milestones .goal-hint { font-size: 12px; line-height: 16px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 #milestones .done-count { float: right; }
+#milestones .caret { float: right; margin-left: 8px; opacity: 0.6; }
+#milestones .goal-item { border-top: var(--hair); margin-top: 7px; padding-top: 2px; }
+#milestones .goal-item.done .goal-title { opacity: 0.38; font-weight: 400; }
+#milestones .goal-item.future .goal-title { opacity: 0.62; }
+#milestones .goal-item.future .goal-hint { opacity: 0.6; }
+
+/* inline person glyph (crew) */
+.pglyph { vertical-align: -1px; }
 
 /* ── bottom-center: build palette ── */
 #palette {

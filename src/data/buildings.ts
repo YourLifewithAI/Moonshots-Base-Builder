@@ -152,7 +152,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     con: 'Robots wear parts and sip power even while they wait for work.',
   },
   partsFab: {
-    id: 'partsFab', name: 'Parts Fabricator', category: 'industry', era: 3,
+    id: 'partsFab', name: 'Parts Fabricator', category: 'industry', era: 2,
     footprint: [2, 2], height: 6, buildTime: 120,
     buildCost: { metals: 60, silicon: 10 }, crew: 3, powerKW: -10,
     inputs: { metals: 0.4 }, outputs: { parts: 0.3 }, upkeepParts: 1, priority: 2,

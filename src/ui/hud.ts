@@ -15,6 +15,9 @@ export function fmt(n: number): string {
   return (Math.floor(n * 10) / 10).toString();
 }
 
+/** little-person glyph used everywhere crew is shown (SVG: no font roulette) */
+export const PERSON_SVG = `<svg class="pglyph" viewBox="0 0 10 12" width="9" height="11" aria-hidden="true"><circle cx="5" cy="2.6" r="2.3" fill="currentColor"/><path d="M5 5.6C2.7 5.6 1.3 7.4 1.3 9.8V12h7.4V9.8C8.7 7.4 7.3 5.6 5 5.6Z" fill="currentColor"/></svg>`;
+
 export function el(tag: string, cls = '', html = ''): HTMLElement {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -46,7 +49,7 @@ export function mountHud(root: HTMLElement, game: Game) {
         low || (cap !== undefined && r[rid] >= cap - 1), cap !== undefined ? `/${fmt(cap)}` : '');
     }
     if (v.expedition !== 'robotic') {
-      chip('crew', '◈', 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
+      chip('crew', PERSON_SVG, 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
     }
     chip('bots', '◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
     if (v.expedition !== 'robotic') {
@@ -152,18 +155,34 @@ export function mountHud(root: HTMLElement, game: Game) {
     }
   });
 
-  // ── milestone goals (the tutorial) ──
-  const goals = el('div', 'panel');
+  // ── milestone goals (the tutorial) — click to expand the whole roadmap ──
+  const goals = el('div', 'panel interactive');
   goals.id = 'milestones';
+  goals.title = 'Click to see all objectives';
   root.appendChild(goals);
-  $milestones.subscribe((m) => {
+  let goalsOpen = false;
+  const renderGoals = () => {
+    const m = $milestones.get();
     const next = MILESTONES.find((x) => !m.done.includes(x.id));
-    goals.innerHTML = `
-      <span class="label">Objectives <span class="done-count mono">${m.done.length}/${m.total}</span></span>
-      ${next
-        ? `<div class="goal-title">◻ ${next.title}</div><div class="goal-hint">${next.hint}</div>`
-        : '<div class="goal-title">✓ All objectives complete</div><div class="goal-hint">The swarm grows. Keep launching.</div>'}`;
-  });
+    const label = `<span class="label">Objectives <span class="done-count mono">${m.done.length}/${m.total}</span><span class="caret">${goalsOpen ? '▾' : '▸'}</span></span>`;
+    if (!goalsOpen) {
+      goals.innerHTML = `${label}
+        ${next
+          ? `<div class="goal-title">◻ ${next.title}</div><div class="goal-hint">${next.hint}</div>`
+          : '<div class="goal-title">✓ All objectives complete</div><div class="goal-hint">The swarm grows. Keep launching.</div>'}`;
+      return;
+    }
+    const rows = MILESTONES.map((x) => {
+      const done = m.done.includes(x.id);
+      const current = x.id === next?.id;
+      const cls = done ? 'done' : current ? 'current' : 'future';
+      const mark = done ? '✓' : current ? '◻' : '○';
+      return `<div class="goal-item ${cls}"><div class="goal-title">${mark} ${x.title}</div>${done ? '' : `<div class="goal-hint">${x.hint}</div>`}</div>`;
+    }).join('');
+    goals.innerHTML = label + rows;
+  };
+  goals.addEventListener('click', () => { goalsOpen = !goalsOpen; renderGoals(); });
+  $milestones.subscribe(renderGoals);
 
   // ── pause veil ──
   const veil = el('div', 'panel label', 'Paused');

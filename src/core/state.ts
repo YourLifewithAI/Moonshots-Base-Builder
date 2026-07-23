@@ -68,7 +68,8 @@ export interface GameState {
   era: number;
   techsDone: TechId[];
   researchQueue: TechId[];   // head is in progress
-  researchProgress: number;  // data accumulated toward head
+  /** data banked per tech — survives queue reshuffles and cancels */
+  researchSpent: Partial<Record<TechId, number>>;
 
   buildings: BuildingState[];
   nextBuildingId: number;
@@ -121,7 +122,7 @@ export function createInitialState(
     era: 1,
     techsDone: [],
     researchQueue: [],
-    researchProgress: 0,
+    researchSpent: {},
     buildings: [],
     nextBuildingId: 1,
     flattens: [],

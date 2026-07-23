@@ -4,7 +4,7 @@
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { CREW, RESEARCH_RATE_PER_LAB } from '../data/balance';
-import { el, fmt } from './hud';
+import { el, fmt, PERSON_SVG } from './hud';
 import { $caps, $counts, $rates, $resourcePanel, $resources, $tech, $vitals } from './stores';
 import { TECHS, TECH_ORDER } from '../data/techs';
 
@@ -55,7 +55,7 @@ export function mountInfoPanel(root: HTMLElement) {
 
     if (key === 'crew' ) {
       html = `
-        <section><div class="tt-name"><span>◈ Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div></section>
+        <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div></section>
         <section>
           <span class="label">How settlers arrive</span>
           <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, housing is free, and nobody is starving. Habitats add 4 beds each and extend the build perimeter.</div>
