@@ -78,15 +78,12 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Store the day. Survive the night.',
     tradeoff: '15% round-trip loss, and metals you wanted elsewhere.',
   },
-  closedLoopLS: {
-    id: 'closedLoopLS', era: 2, name: 'Closed-Loop Life Support',
-    costData: 120, requires: [],
-    effects: [
-      { kind: 'inputMult', buildings: ['habitat'], mult: 0.6 },
-      { kind: 'powerMult', buildings: ['habitat'], mult: 1.3 },
-    ],
-    desc: 'Scrub, recycle, repeat: habitats need 40% less oxygen and food.',
-    tradeoff: 'The recyclers draw 30% more power per habitat.',
+  partsFabrication: {
+    id: 'partsFabrication', era: 2, name: 'Parts Fabrication',
+    costData: 110, requires: ['siliconRefining'],
+    effects: [{ kind: 'unlock', building: 'partsFab' }],
+    desc: 'Make your own spares. Cut the last umbilical to the lander cache.',
+    tradeoff: 'Adds a whole supply chain that also needs maintaining.',
   },
   siliconRefining: {
     id: 'siliconRefining', era: 2, name: 'Silicon Refining',
@@ -105,12 +102,15 @@ export const TECHS: Record<TechId, TechDef> = {
   },
 
   // ─── ERA 3 · INDUSTRIALIZATION ───
-  partsFabrication: {
-    id: 'partsFabrication', era: 3, name: 'Parts Fabrication',
-    costData: 220, costGoods: { metals: 60 }, requires: ['siliconRefining'],
-    effects: [{ kind: 'unlock', building: 'partsFab' }],
-    desc: 'Make your own spares. Cut the last umbilical to the lander cache.',
-    tradeoff: 'Adds a whole supply chain that also needs maintaining.',
+  closedLoopLS: {
+    id: 'closedLoopLS', era: 3, name: 'Closed-Loop Life Support',
+    costData: 260, costGoods: { parts: 25 }, requires: [],
+    effects: [
+      { kind: 'inputMult', buildings: ['habitat'], mult: 0.6 },
+      { kind: 'powerMult', buildings: ['habitat'], mult: 1.3 },
+    ],
+    desc: 'Scrub, recycle, repeat: habitats need 40% less oxygen and food.',
+    tradeoff: 'The recyclers draw 30% more power — and eat 25 parts to install.',
   },
   thoriumPower: {
     id: 'thoriumPower', era: 3, name: 'Thorium Reactor',

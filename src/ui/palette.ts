@@ -10,7 +10,7 @@ import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
 import { CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
-import { el, fmt } from './hud';
+import { el, fmt, PERSON_SVG } from './hud';
 import { $ice, $lander, $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
@@ -224,7 +224,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${$tech.get().automation && def.crew > 0 ? `<section>
         <span class="label">Operations — agents draw ×1.6 power, need no crew or morale</span>
         <div class="prio" style="margin-top:6px">
-          <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">◈ Crewed</button>
+          <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">${PERSON_SVG} Crewed</button>
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
         </div>
       </section>` : ''}

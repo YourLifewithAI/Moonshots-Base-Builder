@@ -43,6 +43,12 @@ test('landing starts the game with HUD and lander', async ({ page }) => {
   await expect(page.locator('#resource-strip')).toBeVisible();
   await expect(page.locator('#swarm-meter')).toContainText('Dyson Swarm');
   await expect(page.locator('#milestones')).toContainText('Power Up');
+  // objectives expand on click to show the whole roadmap, then collapse
+  await page.locator('#milestones').click();
+  await expect(page.locator('#milestones')).toContainText('Close the Parts Loop');
+  await expect(page.locator('#milestones')).toContainText('FIRST LIGHT');
+  await page.locator('#milestones').click();
+  await expect(page.locator('#milestones')).not.toContainText('FIRST LIGHT');
   const state = await page.evaluate(() => window.__game.getState());
   expect(state.siteId).toBe('mare');
   expect(state.buildings.length).toBe(1);
@@ -129,6 +135,30 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.evaluate(() => window.__game.completeTech('iceExtraction'));
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.era).toBe(2);
+});
+
+test('research progress is banked across queue changes', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(80)); // lab built at 72s
+  await page.evaluate(() => window.__game.grantData(100));
+  await page.evaluate(() => window.__game.research('regolithProcessing'));
+  await page.evaluate(() => window.__game.advanceGameSeconds(30)); // ~12 of 30 data in
+  const mid = await page.evaluate(() => window.__game.getState());
+  expect(mid.researchSpent.regolithProcessing).toBeGreaterThan(5);
+  expect(mid.techsDone).not.toContain('regolithProcessing');
+  // cancel — the banked data survives the reshuffle
+  await page.evaluate(() => window.__game.cancelResearch('regolithProcessing'));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const cancelled = await page.evaluate(() => window.__game.getState());
+  expect(cancelled.researchQueue).toEqual([]);
+  expect(cancelled.researchSpent.regolithProcessing).toBeGreaterThan(5);
+  // re-queue: it resumes from the bank and finishes early
+  await page.evaluate(() => window.__game.research('regolithProcessing'));
+  await page.evaluate(() => window.__game.advanceGameSeconds(60)); // 18 left at 0.4/s = 45s
+  const done = await page.evaluate(() => window.__game.getState());
+  expect(done.techsDone).toContain('regolithProcessing');
 });
 
 test('buildings take time to construct and are inert until complete', async ({ page }) => {
@@ -370,11 +400,12 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
 
   // satisfy the ordered milestone chain up to first-light
   await page.evaluate(() => window.__game.grantResources({
-    metals: 500, parts: 200, foils: 12, regolith: 80, oxygen: 200, food: 200,
+    metals: 500, parts: 200, foils: 12, regolith: 80, oxygen: 200, food: 200, silicon: 30,
   }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('massDriver', 132, 134))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('partsFab', 138, 128))).toBe(true); // fab-online milestone
   await page.evaluate(() => window.__game.grantCrew(6)); // 10 total: staff + "grow the crew"
   await page.evaluate(() => window.__game.advanceGameMinutes(13)); // a full lunar cycle → night survived
   await page.evaluate(() => window.__game.grantPower(1000)); // launch burst budget

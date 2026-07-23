@@ -78,10 +78,10 @@ export class TerrainChunks {
 
   /** Rebuild the (≤4) chunks covering a cell rect after a flatten. */
   rebuildAround(gx0: number, gz0: number, gx1: number, gz1: number) {
-    const cx0 = Math.max(0, Math.floor((gx0 - 1) / CHUNK_CELLS));
-    const cz0 = Math.max(0, Math.floor((gz0 - 1) / CHUNK_CELLS));
-    const cx1 = Math.min(CHUNKS - 1, Math.floor((gx1 + 1) / CHUNK_CELLS));
-    const cz1 = Math.min(CHUNKS - 1, Math.floor((gz1 + 1) / CHUNK_CELLS));
+    const cx0 = Math.max(0, Math.floor((gx0 - 2) / CHUNK_CELLS));
+    const cz0 = Math.max(0, Math.floor((gz0 - 2) / CHUNK_CELLS));
+    const cx1 = Math.min(CHUNKS - 1, Math.floor((gx1 + 2) / CHUNK_CELLS));
+    const cz1 = Math.min(CHUNKS - 1, Math.floor((gz1 + 2) / CHUNK_CELLS));
     for (let cz = cz0; cz <= cz1; cz++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const i = cz * CHUNKS + cx;

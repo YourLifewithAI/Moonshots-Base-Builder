@@ -27,6 +27,7 @@ function api(game: Game) {
     grantPower: (n: number) => { game.state.powerStored += n; game.publish(); },
     completeTech: (id: TechId) => game.debugCompleteTech(id),
     research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
+    cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),
     launch: () => game.actions.push({ kind: 'launch' }),
     setSpeed: (n: number) => game.actions.push({ kind: 'setSpeed', speed: n }),
     setPaused: (p: boolean) => game.actions.push({ kind: 'setPaused', paused: p }),

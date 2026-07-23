@@ -112,6 +112,13 @@ export class Game {
   }
 
   loadFrom(blob: SaveBlob) {
+    // migrate pre-bank saves: scalar researchProgress → per-tech researchSpent
+    const legacy = blob.state as GameState & { researchProgress?: number };
+    if (!legacy.researchSpent) {
+      legacy.researchSpent = {};
+      const head = legacy.researchQueue?.[0];
+      if (head && legacy.researchProgress) legacy.researchSpent[head] = legacy.researchProgress;
+    }
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
@@ -327,10 +334,10 @@ export class Game {
       case 'cancelResearch': {
         const i = s.researchQueue.indexOf(a.tech);
         if (i >= 0) {
-          // canceling an earlier item also drops anything that required it
+          // canceling an earlier item also drops anything that required it —
+          // banked data (researchSpent) is kept, so re-queuing resumes progress
           s.researchQueue = s.researchQueue.filter((t, j) =>
             j < i || (t !== a.tech && !TECHS[t].requires.includes(a.tech)));
-          if (i === 0) s.researchProgress = 0;
         }
         break;
       }
@@ -638,7 +645,8 @@ export class Game {
     });
     $tech.set({
       era: s.era, done: [...s.techsDone], queue: [...s.researchQueue],
-      progress: s.researchProgress, unlocked: [...this.mods.unlocked],
+      progress: s.researchQueue[0] ? (s.researchSpent[s.researchQueue[0]] ?? 0) : 0,
+      unlocked: [...this.mods.unlocked],
       automation: this.mods.automation, grading: this.mods.grading,
     });
     $alerts.set([...s.alerts]);

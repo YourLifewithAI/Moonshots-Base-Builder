@@ -414,13 +414,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const head = s.researchQueue[0];
   if (head) {
     const def = TECHS[head];
-    const needed = def.costData - s.researchProgress;
+    const banked = s.researchSpent[head] ?? 0;
+    const needed = def.costData - banked;
     const activeLabs = s.buildings.filter((b) => b.type === 'lab' && b.active).length;
     const rate = RESEARCH_RATE_PER_LAB * activeLabs * dt;
     const spend = Math.min(needed, s.data, rate);
     s.data -= spend;
-    s.researchProgress += spend;
-    if (s.researchProgress >= def.costData) {
+    s.researchSpent[head] = banked + spend;
+    if ((s.researchSpent[head] ?? 0) >= def.costData) {
       let affordable = true;
       for (const [rid, amt] of Object.entries(def.costGoods ?? {})) {
         if (s.resources[rid as keyof typeof s.resources] < amt) { affordable = false; break; }
@@ -430,7 +431,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
           s.resources[rid as keyof typeof s.resources] -= amt;
         }
         s.researchQueue.shift();
-        s.researchProgress = 0;
+        delete s.researchSpent[head];
         s.techsDone.push(head);
         s.era = computeEra(s.techsDone);
         ev.modsChanged = true;

@@ -119,8 +119,12 @@ export class Heightfield {
     return this.h[Math.min(Math.max(iz, 0), N - 1) * N + Math.min(Math.max(ix, 0), N - 1)];
   }
 
+  /** samples locked by a flatten pad — skirts of later pads must not move them,
+   *  or neighbouring building pads get carved into visible seams */
+  private padMask = new Uint8Array(N * N);
+
   /** Flatten a cell rect [gx0..gx1) x [gz0..gz1) to its mean corner height,
-   *  with a 1-sample smoothed skirt. Returns pad height. */
+   *  with a mask-aware two-ring smoothed skirt. Returns pad height. */
   flatten(gx0: number, gz0: number, gx1: number, gz1: number, forcedH?: number): number {
     let sum = 0, n = 0;
     for (let iz = gz0; iz <= gz1; iz++) {
@@ -128,14 +132,25 @@ export class Heightfield {
     }
     const pad = forcedH ?? sum / n;
     for (let iz = gz0; iz <= gz1; iz++) {
-      for (let ix = gx0; ix <= gx1; ix++) this.h[iz * N + ix] = pad;
+      for (let ix = gx0; ix <= gx1; ix++) {
+        this.h[iz * N + ix] = pad;
+        this.padMask[iz * N + ix] = 1;
+      }
     }
-    // skirt: blend the ring just outside toward the pad
-    for (let iz = gz0 - 1; iz <= gz1 + 1; iz++) {
-      for (let ix = gx0 - 1; ix <= gx1 + 1; ix++) {
-        if (ix >= gx0 && ix <= gx1 && iz >= gz0 && iz <= gz1) continue;
-        if (ix < 0 || iz < 0 || ix >= N || iz >= N) continue;
-        this.h[iz * N + ix] = this.h[iz * N + ix] * 0.4 + pad * 0.6;
+    // skirt: feather two rings outward, never touching another pad's samples
+    for (let ring = 1; ring <= 2; ring++) {
+      const w = ring === 1 ? 0.6 : 0.25; // blend weight toward the pad
+      for (let iz = gz0 - ring; iz <= gz1 + ring; iz++) {
+        for (let ix = gx0 - ring; ix <= gx1 + ring; ix++) {
+          const d = Math.max(
+            Math.max(gx0 - ix, ix - gx1),
+            Math.max(gz0 - iz, iz - gz1),
+          );
+          if (d !== ring) continue; // only this ring's cells
+          if (ix < 0 || iz < 0 || ix >= N || iz >= N) continue;
+          if (this.padMask[iz * N + ix]) continue;
+          this.h[iz * N + ix] = this.h[iz * N + ix] * (1 - w) + pad * w;
+        }
       }
     }
     return pad;

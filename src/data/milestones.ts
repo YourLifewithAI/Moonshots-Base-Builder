@@ -39,14 +39,14 @@ export const MILESTONES: MilestoneDef[] = [
     check: (s) => s.nightsSurvived >= 1,
   },
   {
+    id: 'fab-online', title: 'Close the Parts Loop',
+    hint: 'Research Parts Fabrication (Era 2) and build a Parts Fabricator. Welding and upkeep both burn parts — without a local source, the base slowly seizes up.',
+    check: (s) => count(s, 'partsFab') >= 1,
+  },
+  {
     id: 'era-3', title: 'Industrialize',
     hint: 'Reach Era 3. Advancing an era needs two completed techs of the era before it.',
     check: (s) => s.era >= 3,
-  },
-  {
-    id: 'parts-banked', title: 'Spares on the Shelf',
-    hint: 'Bank 50 parts. Everything on the Moon wears out.',
-    check: (s) => s.resources.parts >= 50,
   },
   {
     id: 'driver-online', title: 'Rail to Orbit',
