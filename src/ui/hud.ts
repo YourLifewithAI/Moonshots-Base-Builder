@@ -48,11 +48,13 @@ export function mountHud(root: HTMLElement, game: Game) {
       chip(rid, RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]),
         low || (cap !== undefined && r[rid] >= cap - 1), cap !== undefined ? `/${fmt(cap)}` : '');
     }
-    if (v.expedition !== 'robotic') {
+    // a robotic base hides crew vitals until Human Cohabitation brings settlers
+    const crewAboard = v.expedition !== 'robotic' || v.crew > 0;
+    if (crewAboard) {
       chip('crew', PERSON_SVG, 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
     }
     chip('bots', '◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
-    if (v.expedition !== 'robotic') {
+    if (crewAboard) {
       chip('morale', '◐', 'Morale', `${v.morale}%`, v.morale < 40);
     }
     chip('data', '≡', 'Research data', fmt(v.data));

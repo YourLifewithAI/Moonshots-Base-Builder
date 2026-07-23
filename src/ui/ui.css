@@ -239,6 +239,8 @@
 .tech-card.done { border-style: solid; background: var(--ink-600); }
 .tech-card.done .nm::after { content: ' ✓'; }
 .tech-card.locked { opacity: 0.38; border-style: dashed; cursor: default; }
+/* the why-is-this-locked line stays readable through the card's dimming */
+.tech-card .req { margin-top: 5px; color: var(--ink-050); font-weight: 600; letter-spacing: 0.02em; }
 .tech-card.queued { border-color: rgba(var(--paper-rgb), 0.55); }
 .tech-card .prog {
   height: 3px; margin-top: 6px;

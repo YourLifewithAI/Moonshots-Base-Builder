@@ -9,7 +9,7 @@ export type TechId =
   | 'regolithProcessing' | 'iceExtraction' | 'hydroponicFarming' | 'siteGrading'
   | 'batteryStorage' | 'closedLoopLS' | 'siliconRefining' | 'constructionRobotics'
   | 'partsFabrication' | 'thoriumPower' | 'crewWellness' | 'autonomousOps'
-  | 'foilManufacturing' | 'massDriver' | 'dustMitigation'
+  | 'foilManufacturing' | 'massDriver' | 'dustMitigation' | 'humanCohabitation'
   | 'autoFabrication' | 'selfReplication' | 'hiEffLaunch'
   | 'swarmProtocol' | 'powerBeaming' | 'vonNeumann';
 
@@ -36,6 +36,21 @@ export interface TechDef {
   effects: TechEffect[];
   desc: string;
   tradeoff: string;
+  /** only researchable (and shown) on robotic expeditions */
+  roboticOnly?: boolean;
+  /** human-comfort tech: robotic missions must research Human Cohabitation first */
+  crewTech?: boolean;
+}
+
+/** Expedition gating — '' when researchable, else the reason it is locked. */
+export function techExpeditionLock(
+  def: TechDef, expedition: 'human' | 'robotic', done: TechId[],
+): string {
+  if (def.roboticOnly && expedition !== 'robotic') return 'Robotic expeditions only';
+  if (def.crewTech && expedition === 'robotic' && !done.includes('humanCohabitation')) {
+    return 'needs Human Cohabitation (Era 4)';
+  }
+  return '';
 }
 
 export const TECHS: Record<TechId, TechDef> = {
@@ -56,7 +71,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   hydroponicFarming: {
     id: 'hydroponicFarming', era: 1, name: 'Hydroponics',
-    costData: 40, requires: [],
+    costData: 40, requires: [], crewTech: true,
     effects: [{ kind: 'unlock', building: 'hydroponics' }],
     desc: 'Grow food under lights, from water and patience.',
     tradeoff: 'Farms must run through the night — or the crop dies.',
@@ -78,19 +93,19 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Store the day. Survive the night.',
     tradeoff: '15% round-trip loss, and metals you wanted elsewhere.',
   },
-  partsFabrication: {
-    id: 'partsFabrication', era: 2, name: 'Parts Fabrication',
-    costData: 110, requires: ['siliconRefining'],
-    effects: [{ kind: 'unlock', building: 'partsFab' }],
-    desc: 'Make your own spares. Cut the last umbilical to the lander cache.',
-    tradeoff: 'Adds a whole supply chain that also needs maintaining.',
-  },
   siliconRefining: {
     id: 'siliconRefining', era: 2, name: 'Silicon Refining',
     costData: 100, requires: ['regolithProcessing'],
     effects: [{ kind: 'unlock', building: 'refinery' }],
     desc: 'Anorthite to wafer-grade silicon.',
     tradeoff: 'Another furnace for the night to strangle.',
+  },
+  partsFabrication: {
+    id: 'partsFabrication', era: 2, name: 'Parts Fabrication',
+    costData: 110, requires: ['siliconRefining'],
+    effects: [{ kind: 'unlock', building: 'partsFab' }],
+    desc: 'Make your own spares. Cut the last umbilical to the lander cache.',
+    tradeoff: 'Adds a whole supply chain that also needs maintaining.',
   },
 
   constructionRobotics: {
@@ -104,7 +119,7 @@ export const TECHS: Record<TechId, TechDef> = {
   // ─── ERA 3 · INDUSTRIALIZATION ───
   closedLoopLS: {
     id: 'closedLoopLS', era: 3, name: 'Closed-Loop Life Support',
-    costData: 260, costGoods: { parts: 25 }, requires: [],
+    costData: 260, costGoods: { parts: 25 }, requires: [], crewTech: true,
     effects: [
       { kind: 'inputMult', buildings: ['habitat'], mult: 0.6 },
       { kind: 'powerMult', buildings: ['habitat'], mult: 1.3 },
@@ -121,7 +136,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   crewWellness: {
     id: 'crewWellness', era: 3, name: 'Crew Wellness Program',
-    costData: 200, requires: [],
+    costData: 200, requires: [], crewTech: true,
     effects: [{ kind: 'unlock', building: 'recDome' }],
     desc: 'A dome with plants, a screen, and gravity-optional handball.',
     tradeoff: 'Diverts power, food, and a worker from every "productive" number.',
@@ -159,6 +174,13 @@ export const TECHS: Record<TechId, TechDef> = {
     ],
     desc: 'Electrostatic wands and sealed bearings against the Moon’s knife-dust.',
     tradeoff: 'Research spent on brooms while rivals research rockets.',
+  },
+  humanCohabitation: {
+    id: 'humanCohabitation', era: 4, name: 'Human Cohabitation',
+    costData: 420, costGoods: { parts: 30 }, requires: ['thoriumPower'], roboticOnly: true,
+    effects: [{ kind: 'unlock', building: 'habitat' }],
+    desc: 'Pressurized quarters, storm shelters, medical stores: ready the base for human partners.',
+    tradeoff: 'Humans bring the morale work bonus — and lungs, stomachs, and moods to keep alive.',
   },
 
   // ─── ERA 5 · SELF-REPLICATION ───

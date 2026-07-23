@@ -121,7 +121,11 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
   // era 1 tech is clickable; era 2 techs locked until 2 era-1 techs done
-  const smelting = page.locator('.tech-card', { hasText: 'Regolith Smelting' });
+  // match on the card title, not full text — lock-reason lines on other cards
+  // ("⬑ needs Regolith Smelting") would double-match a plain hasText filter
+  const smelting = page.locator('.tech-card').filter({
+    has: page.locator('.nm', { hasText: 'Regolith Smelting' }),
+  });
   await expect(smelting).toHaveClass(/available/);
   await smelting.click();
   await page.evaluate(() => window.__game.grantData(50));
@@ -381,6 +385,31 @@ test('robotic expedition: unmanned stations, no life support, no defeat', async 
   expect(s2.morale).toBe(70); // machines hold steady
   expect(s2.alerts.some((a: any) => a.text.includes('RESERVES LOW'))).toBe(false);
   await expect(page.locator('#defeat-screen')).toBeHidden();
+});
+
+test('human cohabitation: robotic bases earn settlers late in the tree', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  // human-comfort research is locked to machines...
+  await page.evaluate(() => window.__game.research('hydroponicFarming'));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s0 = await page.evaluate(() => window.__game.getState());
+  expect(s0.researchQueue).toEqual([]);
+  // ...and so is housing
+  expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 130))).toBe(false);
+  // Era 4 Human Cohabitation readies the base for partners
+  await page.evaluate(() => window.__game.completeTech('humanCohabitation'));
+  await page.evaluate(() => window.__game.research('hydroponicFarming'));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s1 = await page.evaluate(() => window.__game.getState());
+  expect(s1.researchQueue).toContain('hydroponicFarming');
+  expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 130))).toBe(true);
+  // with reserves stocked and housing online, the first settler arrives
+  await page.evaluate(() => window.__game.grantResources({ oxygen: 100, food: 100, water: 50 }));
+  await page.evaluate(() => window.__game.advanceGameMinutes(13.5));
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(s2.crew).toBeGreaterThanOrEqual(1);
+  expect(s2.defeatShown).toBe(false); // a robotic mission still cannot be defeated
 });
 
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {
