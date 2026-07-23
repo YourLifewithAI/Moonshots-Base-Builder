@@ -17,7 +17,7 @@ export interface Mods {
   unlocked: Set<BuildingId>;
 }
 
-export function computeMods(techsDone: TechId[]): Mods {
+export function computeMods(techsDone: TechId[], expedition: 'human' | 'robotic' = 'human'): Mods {
   const ids = Object.keys(BUILDINGS) as BuildingId[];
   const one = () => Object.fromEntries(ids.map((b) => [b, 1])) as Record<BuildingId, number>;
   const zero = () => Object.fromEntries(ids.map((b) => [b, 0])) as Record<BuildingId, number>;
@@ -30,7 +30,9 @@ export function computeMods(techsDone: TechId[]): Mods {
     powerBeam: false,
     automation: false,
     grading: false,
-    unlocked: new Set(ids.filter((b) => BUILDINGS[b].unlockedFromStart)),
+    // robots need no quarters: habitats wait for the Human Cohabitation tech
+    unlocked: new Set(ids.filter((b) =>
+      BUILDINGS[b].unlockedFromStart && !(expedition === 'robotic' && b === 'habitat'))),
   };
 
   for (const tid of techsDone) {

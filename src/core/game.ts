@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteId } from '../data/sites';
-import { TECHS, type TechId } from '../data/techs';
+import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
   AUTOSAVE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
@@ -118,6 +118,11 @@ export class Game {
       legacy.researchSpent = {};
       const head = legacy.researchQueue?.[0];
       if (head && legacy.researchProgress) legacy.researchSpent[head] = legacy.researchProgress;
+    }
+    // migrate robotic saves from before agent-control defaults: an unmanned
+    // base's stations must all be automated or they'd idle waiting for crew
+    if (legacy.expedition === 'robotic' && legacy.crew <= 0) {
+      for (const b of legacy.buildings) b.automated = true;
     }
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
@@ -326,6 +331,7 @@ export class Game {
         if (!def) break;
         if (s.techsDone.includes(a.tech) || s.researchQueue.includes(a.tech)) break;
         if (def.era > s.era) break;
+        if (techExpeditionLock(def, s.expedition, s.techsDone)) break;
         if (!def.requires.every((r) => s.techsDone.includes(r) || s.researchQueue.includes(r))) break;
         if (s.researchQueue.length >= 3) break;
         s.researchQueue.push(a.tech);
@@ -399,7 +405,11 @@ export class Game {
     const buildTotal = Math.round(BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult);
     s.buildings.push({
       id: s.nextBuildingId++, type, gx, gz, rot,
-      enabled: true, automated: false, priority: BUILDINGS[type].priority, wear: 0, dust: 0,
+      enabled: true,
+      // robotic missions place every station under agent control, so arriving
+      // settlers never strand a running base — crewing is an opt-in upgrade
+      automated: s.expedition === 'robotic',
+      priority: BUILDINGS[type].priority, wear: 0, dust: 0,
       construction: free ? 0 : buildTotal, buildTotal,
       active: false, idleReason: free ? '' : 'building',
     });
@@ -518,7 +528,7 @@ export class Game {
         this.econAcc -= 1;
         guard++;
         const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
-        if (ev.modsChanged) this.mods = computeMods(this.state.techsDone);
+        if (ev.modsChanged) this.mods = computeMods(this.state.techsDone, this.state.expedition);
         if (ev.victory && !this.state.victoryShown) {
           this.state.victoryShown = true;
           victory = true;
@@ -781,7 +791,7 @@ export class Game {
     for (let i = 0; i < gameSeconds; i++) {
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
-      if (ev.modsChanged) this.mods = computeMods(this.state.techsDone);
+      if (ev.modsChanged) this.mods = computeMods(this.state.techsDone, this.state.expedition);
       if (ev.victory && !this.state.victoryShown) {
         this.state.victoryShown = true;
         victory = true;

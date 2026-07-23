@@ -11,7 +11,7 @@ import { buildCost } from '../buildings/placement';
 import { CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
-import { $ice, $lander, $placing, $selection, $siteId, $tech, spawnFloater } from './stores';
+import { $ice, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloater } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
@@ -37,7 +37,11 @@ function ioRows(type: BuildingId): string {
   const flow = (rec: Partial<Record<ResourceId, number>>) =>
     Object.entries(rec).map(([rid, rate]) =>
       `${fmt((rate as number) * 60)} ${RESOURCES[rid as ResourceId].name.toLowerCase()}/min`).join(' · ') || '—';
-  const power = def.powerKW >= 0 ? `+${def.powerKW} kW` : `${def.powerKW} kW`;
+  // on a robotic mission, crewed stations run on agents: show the real draw
+  const agentRun = $vitals.get().expedition === 'robotic' && def.crew > 0 && def.powerKW < 0;
+  const power = def.powerKW >= 0 ? `+${def.powerKW} kW`
+    : agentRun ? `${(def.powerKW * 1.6).toFixed(1)} kW (×1.6 agent-run)`
+    : `${def.powerKW} kW`;
   const upkeep = def.upkeepParts ? `${def.upkeepParts} parts/day` : '—';
   const buildTime = def.buildTime > 0
     ? `${Math.round(def.buildTime * site.buildCostMult)}s · 1 robot · ${CONSTRUCTION_KW} kW · parts to weld`
@@ -171,7 +175,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const conRemaining = sel.construction ?? 0;
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}|${Math.round(sel.wear * 20)}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}`;
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}|${Math.round(sel.wear * 20)}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$vitals.get().crew > 0}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -185,7 +189,11 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'power' ? 'IDLE — no power'
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
-      : sel.active ? (sel.automated ? 'OPERATING · AUTONOMOUS' : 'OPERATING') : 'STANDBY';
+      : sel.active
+        ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
+          ? `OPERATING · AUTONOMOUS${def.crew > 0 ? ' · ×1.6 kW' : ''}`
+          : 'OPERATING')
+        : 'STANDBY';
     const shadowNote = sel.type === 'solar' && sel.shaded ? ' · IN TERRAIN SHADOW −85%' : '';
     insp.innerHTML = `
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
@@ -221,7 +229,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
         </div>
         <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +60 metals · +20 parts · morale −5 (the crew resents the umbilical)</div>
       </section>` : ''}
-      ${$tech.get().automation && def.crew > 0 ? `<section>
+      ${def.crew > 0 && ($tech.get().automation ||
+        ($vitals.get().expedition === 'robotic' && $vitals.get().crew > 0)) ? `<section>
         <span class="label">Operations — agents draw ×1.6 power, need no crew or morale</span>
         <div class="prio" style="margin-top:6px">
           <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">${PERSON_SVG} Crewed</button>
