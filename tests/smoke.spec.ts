@@ -117,7 +117,7 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // built at 72s
   await page.keyboard.press('KeyT');
   await expect(page.locator('#tech-screen')).toBeVisible();
-  await expect(page.locator('.era-col')).toHaveCount(6);
+  await expect(page.locator('.era-col')).toHaveCount(8);
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
   // era 1 tech is clickable; era 2 techs locked until 2 era-1 techs done
@@ -387,6 +387,28 @@ test('robotic expedition: unmanned stations, no life support, no defeat', async 
   await expect(page.locator('#defeat-screen')).toBeHidden();
 });
 
+test('chip fab and data center: silicon becomes chips becomes research', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('waferFab'));
+  await page.evaluate(() => window.__game.completeTech('lunarDataCenter'));
+  await page.evaluate(() => window.__game.grantResources({
+    silicon: 100, parts: 100, chips: 15, metals: 300,
+  }));
+  // enough panels to feed an 18 kW fab and a 30 kW data center through the day
+  for (const [gx, gz] of [[132, 126], [132, 130], [136, 126], [136, 130], [140, 126]]) {
+    expect(await page.evaluate((c) => window.__game.placeBuilding('solar', c[0], c[1]), [gx, gz])).toBe(true);
+  }
+  expect(await page.evaluate(() => window.__game.placeBuilding('chipFab', 120, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('dataCenter', 126, 138))).toBe(true);
+  const d0 = await page.evaluate(() => window.__game.getState());
+  await page.evaluate(() => window.__game.advanceGameMinutes(6)); // builds ~210s, then operation
+  const d1 = await page.evaluate(() => window.__game.getState());
+  expect(d1.resources.chips).toBeGreaterThan(d0.resources.chips); // fab converting silicon
+  // there are no labs here: every point of data is the data center thinking
+  expect(d1.data).toBeGreaterThan(25);
+});
+
 test('human cohabitation: robotic bases earn settlers late in the tree', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
@@ -416,25 +438,28 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
 
-  // fast-forward the tech tree to swarm protocol
-  for (const t of ['regolithProcessing', 'iceExtraction', 'hydroponicFarming',
-    'batteryStorage', 'siliconRefining', 'closedLoopLS',
-    'partsFabrication', 'thoriumPower', 'crewWellness',
-    'foilManufacturing', 'massDriver', 'dustMitigation',
-    'autoFabrication', 'hiEffLaunch', 'selfReplication', 'swarmProtocol']) {
+  // fast-forward the eight-era tree to swarm protocol
+  for (const t of ['regolithProcessing', 'iceExtraction', 'teleoperation',
+    'batteryStorage', 'siliconRefining', 'partsFabrication',
+    'thoriumPower', 'autonomousOps',
+    'waferFab', 'acceleratorDesign',
+    'lunarDataCenter', 'cryoRadiators',
+    'closedLoopLS', 'crewWellness',
+    'foilManufacturing', 'massDriver', 'hiEffLaunch', 'swarmProtocol']) {
     await page.evaluate((tech) => window.__game.completeTech(tech), t);
   }
   const st = await page.evaluate(() => window.__game.getState());
-  expect(st.era).toBe(6);
+  expect(st.era).toBe(8);
 
   // satisfy the ordered milestone chain up to first-light
   await page.evaluate(() => window.__game.grantResources({
-    metals: 500, parts: 200, foils: 12, regolith: 80, oxygen: 200, food: 200, silicon: 30,
+    metals: 500, parts: 200, foils: 12, regolith: 80, oxygen: 200, food: 200, silicon: 30, chips: 30,
   }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('massDriver', 132, 134))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('partsFab', 138, 128))).toBe(true); // fab-online milestone
+  expect(await page.evaluate(() => window.__game.placeBuilding('dataCenter', 126, 138))).toBe(true); // silicon-brains milestone
   await page.evaluate(() => window.__game.grantCrew(6)); // 10 total: staff + "grow the crew"
   await page.evaluate(() => window.__game.advanceGameMinutes(13)); // a full lunar cycle → night survived
   await page.evaluate(() => window.__game.grantPower(1000)); // launch burst budget

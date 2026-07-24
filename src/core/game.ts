@@ -124,6 +124,8 @@ export class Game {
     if (legacy.expedition === 'robotic' && legacy.crew <= 0) {
       for (const b of legacy.buildings) b.automated = true;
     }
+    // saves from before the chip era lack the chips stockpile
+    legacy.resources.chips ??= 0;
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
@@ -401,8 +403,10 @@ export class Game {
     const h = this.hf.flatten(r.gx0, r.gz0, r.gx1, r.gz1);
     s.flattens.push({ x0: r.gx0, z0: r.gz0, x1: r.gx1, z1: r.gz1, h });
     this.chunks.rebuildAround(r.gx0, r.gz0, r.gx1, r.gz1);
-    // rough terrain slows construction the same way it inflates costs
-    const buildTotal = Math.round(BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult);
+    // rough terrain slows construction the same way it inflates costs;
+    // teleoperation / swarm-robotics techs speed every build
+    const buildTotal = Math.round(
+      BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult * this.mods.buildSpeedMult);
     s.buildings.push({
       id: s.nextBuildingId++, type, gx, gz, rot,
       enabled: true,

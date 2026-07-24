@@ -44,9 +44,19 @@ export const MILESTONES: MilestoneDef[] = [
     check: (s) => count(s, 'partsFab') >= 1,
   },
   {
-    id: 'era-3', title: 'Industrialize',
-    hint: 'Reach Era 3. Advancing an era needs two completed techs of the era before it.',
+    id: 'era-3', title: 'Robots Build Robots',
+    hint: 'Reach Era 3 — Robotic Fabrication. Advancing an era needs two completed techs of the era before it.',
     check: (s) => s.era >= 3,
+  },
+  {
+    id: 'silicon-brains', title: 'Silicon Brains',
+    hint: 'Fab chips from lunar silicon (Era 4), then build a Data Center (Era 5). Compute researches like three labs and never sleeps.',
+    check: (s) => count(s, 'dataCenter') >= 1,
+  },
+  {
+    id: 'welcome-home', title: 'First Boots on Regolith',
+    hint: 'Bring humans to the base the machines built. On a robotic mission: research Human Cohabitation (Era 6) and stock life-support reserves.',
+    check: (s) => s.crew >= 1,
   },
   {
     id: 'driver-online', title: 'Rail to Orbit',

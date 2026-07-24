@@ -1,6 +1,26 @@
 # 03 · Tech Tree
 
-The full tree: six eras, ~30 techs — the 18 shipped in the slice
+
+> **Updated (robots-first restructure):** the shipped tree is now **36 techs
+> across EIGHT eras**, reordered around the realistic rollout of lunar
+> construction — robots land and build first, humans arrive only once the
+> machines have made the base worth inhabiting:
+> 1. **FIRST LANDING** — survey, smelting, ice, grading, Earth teleoperation
+> 2. **EARLY CONSTRUCTION** — batteries, silicon, parts, construction robotics, regolith shielding
+> 3. **ROBOTIC FABRICATION** — thorium baseload, autonomous ops, swarm robotics, robotic self-assembly, dust mitigation
+> 4. **CHIP FABRICATION** — wafer fab (vacuum cleanrooms), accelerator design, cleanroom robotics
+> 5. **LUNAR COMPUTE** — data centers under regolith, cryo radiators, inference optimization
+> 6. **HUMAN HABITATION** — Human Cohabitation (robotic runs), closed-loop LS, wellness, safety protocols, condition optimization
+> 7. **SWARM INDUSTRY** — foils, mass driver, auto-fabrication, self-replication, high-efficiency launch
+> 8. **DYSON SWARM** — swarm protocol, power beaming, Von Neumann foundry
+>
+> New resource: **chips** (Chip Fab: silicon → chips). New buildings: **Chip
+> Fab** (era 4) and **Data Center** (era 5 — produces data at 1/s and
+> transfers research like three labs). On robotic expeditions the era-6 gate
+> FORCES the human arc before the swarm eras — matching the mission plan.
+> The sections below document the original six-era design for reference.
+
+The original design: six eras, ~30 techs — the 18 first shipped in the slice
 (`src/data/techs.ts`, canonical) plus the 10 designed-but-cut techs and the
 map-discovered Breakthroughs system. Every tech states an explicit trade-off
 (pillar 1); none is a pure number-up.

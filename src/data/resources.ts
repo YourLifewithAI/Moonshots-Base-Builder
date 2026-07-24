@@ -8,6 +8,7 @@ export type ResourceId =
   | 'oxygen'
   | 'food'
   | 'parts'
+  | 'chips'
   | 'foils'
   | 'launch';
 
@@ -27,10 +28,11 @@ export const RESOURCES: Record<ResourceId, ResourceDef> = {
   oxygen:   { id: 'oxygen',   name: 'Oxygen',   glyph: '○', tier: 1, desc: 'Byproduct of smelting ilmenite-rich regolith.' },
   food:     { id: 'food',     name: 'Food',     glyph: '✳', tier: 1, desc: 'Hydroponic produce. Crew morale depends on it.' },
   parts:    { id: 'parts',    name: 'Parts',    glyph: '⚙', tier: 2, desc: 'Machine parts. Every building wears them out.' },
+  chips:    { id: 'chips',    name: 'Chips',    glyph: '▣', tier: 2, desc: 'Wafers, accelerators, controllers — fabbed on-site from lunar silicon.' },
   foils:    { id: 'foils',    name: 'Foils',    glyph: '▰', tier: 3, desc: 'Thin-film solar collector units — the swarm is made of these.' },
   launch:   { id: 'launch',   name: 'Launch',   glyph: '↑', tier: 3, desc: 'Mass-driver launch capacity, accrued per window.' },
 };
 
 export const RESOURCE_ORDER: ResourceId[] = [
-  'regolith', 'metals', 'silicon', 'water', 'oxygen', 'food', 'parts', 'foils', 'launch',
+  'regolith', 'metals', 'silicon', 'water', 'oxygen', 'food', 'parts', 'chips', 'foils', 'launch',
 ];

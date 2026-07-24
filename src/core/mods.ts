@@ -10,6 +10,8 @@ export interface Mods {
   upkeepMult: Record<BuildingId, number>;
   crewDelta: Record<BuildingId, number>;
   dustMult: number;
+  buildSpeedMult: number;
+  botPerBay: number;
   launchArmed: boolean;
   powerBeam: boolean;
   automation: boolean;
@@ -26,6 +28,8 @@ export function computeMods(techsDone: TechId[], expedition: 'human' | 'robotic'
     outputMult: one(), inputMult: one(), powerMult: one(), upkeepMult: one(),
     crewDelta: zero(),
     dustMult: 1,
+    buildSpeedMult: 1,
+    botPerBay: 0,
     launchArmed: false,
     powerBeam: false,
     automation: false,
@@ -49,6 +53,8 @@ export function computeMods(techsDone: TechId[], expedition: 'human' | 'robotic'
         }
         case 'crewDelta': for (const b of fx.buildings) m.crewDelta[b] += fx.delta; break;
         case 'dustMult': m.dustMult *= fx.mult; break;
+        case 'buildSpeed': m.buildSpeedMult *= fx.mult; break;
+        case 'botPerBay': m.botPerBay += fx.delta; break;
         case 'launchAction': m.launchArmed = true; break;
         case 'powerBeam': m.powerBeam = true; break;
         case 'automation': m.automation = true; break;
@@ -62,7 +68,7 @@ export function computeMods(techsDone: TechId[], expedition: 'human' | 'robotic'
 /** Current era: era N+1 opens once ≥2 techs of era N are done (sequentially). */
 export function computeEra(techsDone: TechId[]): number {
   let era = 1;
-  while (era < 6) {
+  while (era < 8) {
     const doneInEra = techsDone.filter((t) => TECHS[t].era === era).length;
     if (doneInEra >= 2) era++;
     else break;

@@ -16,7 +16,8 @@ import { $ice, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloa
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
-  partsFab: '⚙', reactor: '☢', recDome: '◔', foilFactory: '▰', massDriver: '⟶',
+  partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
+  foilFactory: '▰', massDriver: '⟶',
 };
 
 function techThatUnlocks(b: BuildingId): string | null {

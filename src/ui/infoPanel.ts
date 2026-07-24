@@ -36,6 +36,7 @@ const NOTES: Partial<Record<string, string>> = {
   metals: 'Smelted from regolith. If you run dry with no smelter, Earth sends an emergency shipment — a full day away.',
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
   parts: 'Made by Parts Fabricators. EVERY building wears parts as upkeep — run out and machines degrade to half output.',
+  chips: 'Chip Fabs turn lunar silicon into wafers and accelerators. Data Centers are built from them; late research and swarm doctrine consume them.',
   foils: 'Foil Factories turn silicon and metals into collectors. Ten foils = one swarm volley.',
   launch: 'Mass Drivers accrue launch capacity each window. One capacity + ten foils + stored power = one launch.',
 };
@@ -102,7 +103,7 @@ export function mountInfoPanel(root: HTMLElement) {
         <section><div class="tt-name"><span>≡ Research data</span><span class="mono">${fmt(v.data)}</span></div></section>
         <section><span class="label">Produced by</span>
           ${buildingLine('lab', 0.3, '+')}
-          <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the active tech — no lab, no research progress. Big eras want research campuses.</div></section>`;
+          <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the active tech — no lab, no research progress. A Data Center transfers like three labs and produces data itself; big eras want compute.</div></section>`;
     } else {
       const rid = key as ResourceId;
       const def = RESOURCES[rid];

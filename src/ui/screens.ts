@@ -21,7 +21,8 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   root.appendChild(screen);
   let selected: SiteId | null = null;
   let step: 'site' | 'expedition' = 'site';
-  let expedition: 'human' | 'robotic' = 'human';
+  // robots first — the realistic default; a crewed landing is the what-if
+  let expedition: 'human' | 'robotic' = 'robotic';
 
   const render = () => {
     if (step === 'expedition') { renderExpedition(); return; }
@@ -78,19 +79,19 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
           <div class="pro">Settlers arrive free while morale holds; labs research fastest</div>
           <div class="con">Life support or death: O₂, water, food, habitats, recreation</div>
           <div class="con">Lose the last settler and the mission ends</div>
-          <div class="diff">HIGH CEILING · CAN FALL</div>
+          <div class="diff">THE WHAT-IF · HIGH CEILING · CAN FALL</div>
         </div>
         <div class="site-card${expedition === 'robotic' ? ' sel' : ''}" data-exp="robotic">
-          <h3>◉ ROBOTIC MISSION</h3>
-          <div class="place">No one aboard. Nothing to lose.</div>
+          <h3>◉ ROBOTIC MISSION · THE PLAN</h3>
+          <div class="place">No one aboard. Nothing to lose. This is how it will actually happen.</div>
           <div class="blurb">Machines do not breathe, eat, drink, sleep, or grieve. They also do not dream — every station runs, joylessly, on watts alone.</div>
           <div class="pro">No life support at all — the night can only stop machines, never kill</div>
           <div class="pro">Cannot starve, cannot mutiny, cannot be defeated</div>
-          <div class="pro">Era 4 Human Cohabitation can bring settlers aboard later</div>
+          <div class="pro">Era 6 Human Cohabitation brings settlers aboard once the base is ready</div>
           <div class="con">Every crewed station pays the agent power tax: ×1.6 draw</div>
           <div class="con">Labs research at 75% — inference is not insight</div>
           <div class="con">Human-comfort research (farms, wellness) locked until cohabitation</div>
-          <div class="diff">LOW FLOOR IS THE FLOOR · SLOWER</div>
+          <div class="diff">THE MISSION PLAN · ROBOTS FIRST</div>
         </div>
       </div>
       <div style="display:flex; gap:12px">
@@ -229,7 +230,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
     const cols = screen.querySelector('#tech-cols')!;
     const cardEls = new Map<TechId, HTMLElement>();
-    for (let era = 1; era <= 6; era++) {
+    for (let era = 1; era <= 8; era++) {
       const col = el('div', `era-col${era > t.era ? ' locked-era' : ''}`);
       col.innerHTML = `<div class="label">Era ${era} — ${ERA_NAMES[era]}</div>`;
       for (const tid of TECH_ORDER) {
