@@ -15,7 +15,7 @@ export const $hasSave = atom<boolean>(false);
 export const $siteId = atom<SiteId | null>(null);
 
 export const $resources = atom<Record<ResourceId, number>>({
-  regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, foils: 0, launch: 0,
+  regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
 });
 export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false });
 export const $vitals = atom({

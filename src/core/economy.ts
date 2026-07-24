@@ -23,10 +23,10 @@ import { mulberry32 } from './rng';
 const ISRU_BUILDINGS: BuildingId[] = ['excavator', 'iceHarvester', 'smelter', 'refinery'];
 const PROD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',            // extraction
-  'smelter', 'refinery', 'partsFab',      // industry (same-tick chaining)
+  'smelter', 'refinery', 'partsFab', 'chipFab', // industry (same-tick chaining)
   'hydroponics', 'recDome',               // life
   'foilFactory', 'massDriver',            // export
-  'lab',                                  // science
+  'lab', 'dataCenter',                    // science
 ];
 
 export interface EconEvents {
@@ -67,6 +67,8 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   for (const b of s.buildings) {
     if (!b.enabled || building(b)) continue;
     botsTotal += BUILDINGS[b.type].bots ?? 0;
+    // self-assembly: bays print extra workers
+    if (b.type === 'roboticsBay') botsTotal += mods.botPerBay;
   }
   // FIFO by placement order: stable assignment, oldest sites build first
   const sites = s.buildings.filter(building).sort((a, b) => a.id - b.id);
@@ -225,6 +227,8 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       // human insight beats agent inference: agent-run labs on a robotic
       // mission hold 75% — staffing them after cohabitation lifts the cap
       if (type === 'lab') s.data += 0.3 * dt * (isAuto(b) ? (robotic ? 0.75 : 1) : Math.pow(workMult, 1.5));
+      // data centers research at machine speed, immune to moods and staffing
+      if (type === 'dataCenter') s.data += 1.0 * dt * mods.outputMult['dataCenter'];
       b.active = true;
     }
   }
@@ -423,7 +427,9 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     const banked = s.researchSpent[head] ?? 0;
     const needed = def.costData - banked;
     const activeLabs = s.buildings.filter((b) => b.type === 'lab' && b.active).length;
-    const rate = RESEARCH_RATE_PER_LAB * activeLabs * dt;
+    // each data center transfers like three labs — compute is the point of them
+    const activeDCs = s.buildings.filter((b) => b.type === 'dataCenter' && b.active).length;
+    const rate = RESEARCH_RATE_PER_LAB * (activeLabs + activeDCs * 3) * dt;
     const spend = Math.min(needed, s.data, rate);
     s.data -= spend;
     s.researchSpent[head] = banked + spend;

@@ -8,7 +8,7 @@ export type BuildingId =
   | 'lander'
   | 'solar' | 'excavator' | 'habitat' | 'smelter' | 'iceHarvester' | 'hydroponics'
   | 'battery' | 'refinery' | 'lab' | 'roboticsBay' | 'storageYard'
-  | 'partsFab' | 'reactor' | 'recDome'
+  | 'partsFab' | 'reactor' | 'recDome' | 'chipFab' | 'dataCenter'
   | 'foilFactory' | 'massDriver';
 
 export type Category = 'power' | 'extraction' | 'industry' | 'life' | 'science' | 'export';
@@ -17,7 +17,7 @@ export interface BuildingDef {
   id: BuildingId;
   name: string;
   category: Category;
-  era: 1 | 2 | 3 | 4 | 5 | 6;
+  era: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   footprint: [number, number];         // grid cells (4 m each)
   height: number;                      // collision AABB height, m
   /** construction duration in game-seconds, scaled by site buildCostMult.
@@ -169,7 +169,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     con: 'Nobody sleeps well beside a reactor — and it eats parts like a fleet of rovers.',
   },
   recDome: {
-    id: 'recDome', name: 'Recreation Dome', category: 'life', era: 3,
+    id: 'recDome', name: 'Recreation Dome', category: 'life', era: 6,
     footprint: [3, 3], height: 7, buildTime: 140,
     buildCost: { metals: 50, silicon: 5 }, crew: 1, powerKW: -4,
     inputs: { food: 0.05 }, outputs: {}, upkeepParts: 1, priority: 3,
@@ -177,8 +177,24 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'The biggest single lever on morale — and morale multiplies everything.',
     con: 'A pure cost center. It consumes and produces nothing but goodwill.',
   },
+  chipFab: {
+    id: 'chipFab', name: 'Chip Fab', category: 'industry', era: 4,
+    footprint: [3, 2], height: 6, buildTime: 200,
+    buildCost: { metals: 60, silicon: 30, parts: 20 }, crew: 2, powerKW: -18,
+    inputs: { silicon: 0.15, parts: 0.02 }, outputs: { chips: 0.05 }, upkeepParts: 2, priority: 2,
+    pro: 'Hard vacuum is the cleanest cleanroom ever built: lunar silicon becomes lunar chips.',
+    con: 'The most delicate machine on the Moon, with the grid appetite of a smelter.',
+  },
+  dataCenter: {
+    id: 'dataCenter', name: 'Data Center', category: 'science', era: 5,
+    footprint: [3, 3], height: 7, buildTime: 260,
+    buildCost: { metals: 80, chips: 15, parts: 30 }, crew: 0, powerKW: -30,
+    inputs: {}, outputs: {}, upkeepParts: 2.5, priority: 2,
+    pro: 'Racks under regolith: research at machine speed, no crew required, ever.',
+    con: 'Thirty kilowatts, day and night. The night will negotiate with your batteries.',
+  },
   foilFactory: {
-    id: 'foilFactory', name: 'Foil Factory', category: 'export', era: 4,
+    id: 'foilFactory', name: 'Foil Factory', category: 'export', era: 7,
     footprint: [3, 3], height: 8, buildTime: 240,
     buildCost: { metals: 80, parts: 30 }, crew: 3, powerKW: -20,
     inputs: { silicon: 0.6, metals: 0.2 }, outputs: { foils: 0.05 }, upkeepParts: 2, priority: 2,
@@ -186,7 +202,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     con: 'The largest power draw on the Moon. Your grid will remember this purchase.',
   },
   massDriver: {
-    id: 'massDriver', name: 'Mass Driver', category: 'export', era: 4,
+    id: 'massDriver', name: 'Mass Driver', category: 'export', era: 7,
     footprint: [6, 2], height: 6, buildTime: 360,
     buildCost: { metals: 150, parts: 50 }, crew: 2, powerKW: -15,
     inputs: { parts: 0.02 }, outputs: { launch: 0.01 }, upkeepParts: 3, priority: 2,
@@ -198,9 +214,9 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
 export const BUILD_ORDER: BuildingId[] = [
   'solar', 'battery', 'reactor',
   'excavator', 'iceHarvester',
-  'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab',
+  'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
   'habitat', 'hydroponics', 'recDome',
-  'lab',
+  'lab', 'dataCenter',
   'foilFactory', 'massDriver',
 ];
 

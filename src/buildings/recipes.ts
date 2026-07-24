@@ -109,6 +109,26 @@ const R: Record<BuildingId, () => BufferGeometry> = {
     box(2.2, 2.2, 2.6, BODY, 0, 1.1, 5.6),
     box(0.4, 3.4, 0.4, TRIM, 0, 6.3, 0),
   ]),
+  chipFab: () => merge([
+    // cleanroom: long low hall, penthouse air handler, twin vent stacks
+    box(9.6, 2.6, 6.6, BODY, 0, 1.3, 0),
+    box(9.8, 0.4, 6.8, TRIM, 0, 2.8, 0),
+    box(3.6, 1.6, 3.2, BODY, -2.2, 3.7, 0),
+    cyl(0.35, 0.45, 2.6, TRIM, 2.6, 4.2, -1.8),
+    cyl(0.35, 0.45, 2.2, TRIM, 3.8, 4.0, -1.8),
+    box(1.8, 1.8, 0.5, TRIM, 2.4, 0.9, 3.3),
+  ]),
+  dataCenter: () => merge([
+    // half-buried server hall crowned by a radiator fin array — heat is the enemy
+    box(8.6, 3.2, 8.6, BODY, 0, 1.6, 0),
+    box(8.8, 0.5, 8.8, TRIM, 0, 3.45, 0),
+    box(7.6, 2.6, 0.22, TRIM, 0, 5.0, -2.6),
+    box(7.6, 2.6, 0.22, TRIM, 0, 5.0, -0.9),
+    box(7.6, 2.6, 0.22, TRIM, 0, 5.0, 0.9),
+    box(7.6, 2.6, 0.22, TRIM, 0, 5.0, 2.6),
+    cyl(0.09, 0.09, 2.8, TRIM, 3.6, 4.9, 3.6),
+    box(2.2, 2.0, 0.5, TRIM, -2.6, 1.0, 4.3),
+  ]),
   foilFactory: () => merge([
     box(9.6, 4.2, 8.6, BODY, 0, 2.1, 0),
     box(9.8, 0.6, 8.8, TRIM, 0, 4.5, 0),

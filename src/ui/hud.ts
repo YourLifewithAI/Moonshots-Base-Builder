@@ -42,7 +42,7 @@ export function mountHud(root: HTMLElement, game: Game) {
     chip('power', '⚡', 'Power supply / demand (kW)', `${fmt(p.supply)}`, p.brownout, `/${fmt(p.demand)} kW`);
     chip('power', '▮', 'Stored energy', fmt(p.stored), p.stored < 200, `/${fmt(p.capacity)}`);
     for (const rid of RESOURCE_ORDER) {
-      if ((rid === 'foils' || rid === 'launch') && r[rid] < 0.01) continue;
+      if ((rid === 'chips' || rid === 'foils' || rid === 'launch') && r[rid] < 0.01) continue;
       const low = (rid === 'oxygen' || rid === 'food') && r[rid] < 25;
       const cap = caps[rid];
       chip(rid, RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]),

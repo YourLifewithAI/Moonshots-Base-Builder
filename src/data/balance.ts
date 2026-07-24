@@ -38,7 +38,7 @@ export const START = {
   powerStored: 800,                    // energy units (kW·gs) in the lander bank
   resources: {
     regolith: 0, metals: 140, silicon: 0, water: 50, oxygen: 120,
-    food: 120, parts: 70, foils: 0, launch: 0,
+    food: 120, parts: 70, chips: 0, foils: 0, launch: 0,
   } as const,
 };
 
