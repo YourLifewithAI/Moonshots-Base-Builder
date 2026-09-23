@@ -26,7 +26,7 @@ import { Lighting } from '../world/lighting';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { materials, PATCH_MARKER } from '../world/materials';
-import { BuildCam } from '../player/buildCam';
+import { BuildCam, HOME_DIST } from '../player/buildCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
@@ -130,8 +130,7 @@ export class Game {
     // pre-place the Lander at the map heart and pad the ground under it
     const gx = 126, gz = 126;
     this.commitPlace('lander', gx, gz, 0, true);
-    this.buildCam.controls.target.set(0, 0, 0);
-    this.camera.position.set(70, 80, 120);
+    this.homeCamera(false);
     this.publish();
     alert(this.state, 'TOUCHDOWN — begin with a Solar Array', 'info');
   }
@@ -159,6 +158,7 @@ export class Game {
     }
     if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
     this.instances.rebuild(this.state);
+    this.homeCamera(false);
     this.walk.colliders = this.instances.colliders(this.state);
     if (blob.player.mode === 'walk') {
       this.walk.pos.set(blob.player.x, blob.player.y, blob.player.z);
@@ -188,6 +188,7 @@ export class Game {
     this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
       $mode.set(m);
+      this.buildCam.clearKeys();
       if (m === 'walk' && !this.opts.nolock) this.canvas.requestPointerLock();
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
     });
@@ -215,6 +216,7 @@ export class Game {
     }
     this.scene.add(this.worldGroup);
     this.sky.setSite(site);
+    this.buildCam.groundAt = this.groundAnywhere;
     this.lastResources = null;
     this.buildCam.enabled = true;
     this.playing = true;
@@ -281,12 +283,33 @@ export class Game {
           this.cancelPlacement();
           $selection.set(null);
           break;
+        case 'KeyF': {
+          const sel = $selection.get();
+          if (this.modes.mode !== 'build' || !sel) break;
+          const [x, z] = centerOf(sel);
+          this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
+          break;
+        }
+        case 'KeyH':
+        case 'Home':
+          if (this.modes.mode === 'build') this.homeCamera(true);
+          break;
         default:
           if (this.modes.mode === 'walk') this.walk.keyDown(e.code);
+          else if (BuildCam.handles(e.code)) {
+            e.preventDefault();
+            this.buildCam.keyDown(e.code);
+          }
       }
     });
-    window.addEventListener('keyup', (e) => { this.walk?.keyUp(e.code); });
-    window.addEventListener('blur', () => this.walk?.clearKeys());
+    window.addEventListener('keyup', (e) => {
+      this.walk?.keyUp(e.code);
+      this.buildCam.keyUp(e.code);
+    });
+    window.addEventListener('blur', () => {
+      this.walk?.clearKeys();
+      this.buildCam.clearKeys();
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.playing) void this.doSave();
     });
@@ -324,6 +347,15 @@ export class Game {
   cancelPlacement() {
     this.placement?.cancel();
     $placing.set(null);
+  }
+
+  /** Frame the Lander from the home direction (a glide unless `glide` is false). */
+  private homeCamera(glide: boolean) {
+    const lander = this.state.buildings.find((b) => b.type === 'lander');
+    const [x, z] = lander ? centerOf(lander) : [0, 0];
+    const y = this.hf.sample(x, z);
+    if (glide) this.buildCam.focus(x, y, z, HOME_DIST, true);
+    else this.buildCam.home(x, y, z);
   }
 
   /** Cells [x0..x1) × [z0..z1) were flattened: clear the rocks off them and
@@ -574,7 +606,7 @@ export class Game {
     const tweening = this.modes.update(dt);
     if (!tweening) {
       if (this.modes.mode === 'build') {
-        this.buildCam.update();
+        this.buildCam.update(dt);
         if (this.placement.active) {
           this.raycaster.setFromCamera(this.mouse, this.camera);
           this.placement.update(this.state, this.mods.unlocked,
@@ -911,9 +943,7 @@ export class Game {
       this.walk.applyToCamera(this.camera);
       return;
     }
-    this.buildCam.controls.target.set(target.x, target.y, target.z);
-    this.camera.position.set(pos.x, pos.y, pos.z);
-    this.buildCam.controls.update();
+    this.buildCam.view(pos, target);
   }
 
   /** Render-path state for tests and probes. */
@@ -934,11 +964,29 @@ export class Game {
     };
   }
 
+  /** Build-camera pose and its clearance over the ground (tests, probes). */
+  debugCamera() {
+    const t = this.buildCam.controls.target, p = this.camera.position;
+    return {
+      pos: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
+      targetGround: this.groundAnywhere(t.x, t.z),
+      clearance: this.buildCam.clearance,
+      dist: p.distanceTo(t),
+      azimuth: Math.atan2(p.z - t.z, p.x - t.x),
+    };
+  }
+
   /** Rocks still standing with centres in a world rect (tests, probes). */
   debugRocksIn(x0: number, z0: number, x1: number, z1: number): number {
     return this.rocks.countIn(x0, z0, x1, z1);
   }
 
+  /** Select a building as a click would (tests). */
+  debugSelect(id: number) {
+    const b = this.state.buildings.find((x) => x.id === id);
+    $selection.set(b ? { ...b } : null);
+  }
 
   /** Hide the terrain so a screenshot masks the buildings (probe pixel stats).
    *  The black-frame sentinel is held off meanwhile — a terrain-less frame is
