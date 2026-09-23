@@ -6,7 +6,7 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  AUTOSAVE_S, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
@@ -22,6 +22,7 @@ import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
 import { PostFX } from '../world/post';
+import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam } from '../player/buildCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
@@ -78,6 +79,22 @@ export class Game {
     this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
+    };
+    // scene shader patches ride the same ladder as the post chain
+    if (opts.fx !== undefined) materials.clearFault();
+    materials.setFxLevel(this.post.fxLevel);
+    this.post.onLevelChange = (level, explicit) => {
+      if (explicit) materials.clearFault();
+      materials.setFxLevel(level);
+    };
+    // a program that fails to compile is reported here (replacing three's
+    // console dump); the response waits until the frame has finished
+    this.renderer.debug.onShaderError = (gl, program, vs, fs) => {
+      const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
+      console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
+        `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
+      const patched = [vs, fs].some((s) => gl.getShaderSource(s)?.includes(PATCH_MARKER));
+      if (this.shaderFault !== 'patch') this.shaderFault = patched ? 'patch' : 'other';
     };
     // context loss (driver reset / tab memory pressure) looks like a permanent
     // black screen with a working HUD — tell the player what happened
@@ -148,6 +165,10 @@ export class Game {
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
     this.chunks = new TerrainChunks(this.hf);
     this.instances = new BuildingInstances(this.hf);
+    this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
+      () => this.lighting.requestShadowUpdate();
+    this.lighting.requestShadowUpdate();
+    this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.walk = new WalkController(this.hf);
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
@@ -447,6 +468,7 @@ export class Game {
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
+  private shaderFault: 'patch' | 'other' | null = null;
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
@@ -454,6 +476,7 @@ export class Game {
     this.lastT = t;
     if (this.playing) this.tick(dt);
     this.post.render(dt);
+    if (this.shaderFault) this.recoverFromShaderFault();
     // black-screen sentinel: some drivers fail shaders silently instead of
     // throwing. Probe the rendered output during daylight — first drop the
     // post chain, then escalate to safe mode. Counted from gameplay start
@@ -465,7 +488,7 @@ export class Game {
       const day = currentDay(this.state, SITES[this.state.siteId]);
       if (day.sunFactor <= 0.3) {
         this.nextProbe = this.playFrames + 120;      // night/dusk — check again soon
-      } else if (this.post.outputLooksBlack()) {
+      } else if (this.post.outputLooksBlack((u, v) => this.groundAt(u, v))) {
         const stepped = this.post.degrade('black frame detected');
         if (!stepped) this.enableSafeMode();
         this.nextProbe = this.playFrames + 40;       // verify the next rung quickly
@@ -475,20 +498,37 @@ export class Game {
     }
   }
 
+  /** Does the screen point (u, v ∈ 0..1, origin bottom-left) look at terrain? */
+  private groundAt(u: number, v: number): boolean {
+    this.raycaster.setFromCamera(new THREE.Vector2(u * 2 - 1, v * 2 - 1), this.camera);
+    const { origin: o, direction: d } = this.raycaster.ray;
+    return this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 1500) !== null;
+  }
+
+  /** A shader failed to compile this frame. A patched scene shader is the
+   *  likely culprit and the cheapest to lose: strip the patches first. Any
+   *  other program steps the post ladder down (then safe mode). */
+  private recoverFromShaderFault() {
+    const fault = this.shaderFault;
+    this.shaderFault = null;
+    if (fault === 'patch' && materials.stripPatches()) {
+      console.warn('[MOONSHOTS] Detail shaders failed to compile — stock materials.');
+      if (this.state) { alert(this.state, 'RENDER — detail shaders disabled (GPU limitation)', 'warn'); this.publish(); }
+      return;
+    }
+    if (this.safeMode) return;
+    if (!this.post.degrade('shader compile error')) this.enableSafeMode();
+  }
+
   /** Last-resort rendering: unlit vertex-color materials, no shadows, no
-   *  effects. Renders on anything that can draw a triangle. */
+   *  effects. Renders on anything that can draw a triangle — including
+   *  meshes created later, which take their material from the registry. */
   enableSafeMode() {
     if (this.safeMode) return;
     this.safeMode = true;
     console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows.');
     this.renderer.shadowMap.enabled = false;
-    this.scene.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
-      if (mat && mat.isMeshStandardMaterial) {
-        mesh.material = new THREE.MeshBasicMaterial({ vertexColors: mat.vertexColors });
-      }
-    });
+    materials.enableSafe(this.scene);
     if (this.state) {
       alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
       this.publish();
@@ -574,10 +614,14 @@ export class Game {
       this.updateWearMarkers();
     }
 
-    // sun follows the clock; shadow frustum follows the camera focus
+    // sun follows the clock; the shadow window hugs the ground in view
     const day = currentDay(this.state, SITES[this.state.siteId]);
-    const focus = this.modes.mode === 'walk' ? this.walk.pos : this.buildCam.controls.target;
-    this.lighting.setSun(day.sunElev, day.sunAzim, focus as THREE.Vector3, day.nightFactor);
+    const walking = this.modes.mode === 'walk';
+    const focus = walking ? this.walk.pos : this.buildCam.controls.target;
+    this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
+    this.camera.updateMatrixWorld();
+    this.lighting.fitShadow(this.camera, focus, walking ? 160
+      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
     // at night the base carries its own light: hull glow, ground pools, and
     // exterior work lights over the structures nearest the camera
     this.instances.setNightGlow(day.nightFactor);
@@ -819,6 +863,45 @@ export class Game {
       this.walk.spawnAt(t.x, t.z, 0);
     }
     this.modes.set(m);
+  }
+
+  /** Frame the camera deterministically (screenshots / probes). In walk mode
+   *  the astronaut stands at pos (x, z) and faces the target. */
+  debugSetView(pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) {
+    if (this.modes.mode === 'walk') {
+      this.walk.spawnAt(pos.x, pos.z, 0);
+      const eyeY = this.walk.pos.y + EYE_HEIGHT;
+      const dx = target.x - pos.x, dz = target.z - pos.z;
+      this.walk.yaw = Math.atan2(-dx, -dz);
+      this.walk.pitch = Math.atan2(target.y - eyeY, Math.hypot(dx, dz));
+      this.walk.applyToCamera(this.camera);
+      return;
+    }
+    this.buildCam.controls.target.set(target.x, target.y, target.z);
+    this.camera.position.set(pos.x, pos.y, pos.z);
+    this.buildCam.controls.update();
+  }
+
+  /** Render-path state for tests and probes. */
+  debugRenderInfo() {
+    return {
+      fxLevel: this.post.fxLevel,
+      safeMode: this.safeMode,
+      shadowTexel: this.lighting.shadowTexel,
+      shadowRenders: this.lighting.shadowRenders,
+      patches: materials.variants(),
+      patchFault: materials.patchesFaulted,
+      buildingMaterials: this.instances.materialTypes(),
+      terrainMaterial: this.chunks.materialType,
+    };
+  }
+
+  /** Hide the terrain so a screenshot masks the buildings (probe pixel stats).
+   *  The black-frame sentinel is held off meanwhile — a terrain-less frame is
+   *  mostly black sky by construction. */
+  debugSetTerrainVisible(v: boolean) {
+    this.chunks.group.visible = v;
+    this.nextProbe = v ? this.playFrames + 40 : Number.POSITIVE_INFINITY;
   }
 
   get walkController() { return this.walk; }

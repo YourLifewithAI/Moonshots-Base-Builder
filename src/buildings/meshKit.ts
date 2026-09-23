@@ -4,6 +4,7 @@
  *  InstancedMesh — one draw call per type. */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { materials } from '../world/materials';
 
 export const BODY = 0.81; // lit metal
 export const TRIM = 0.42; // panel accents
@@ -67,5 +68,6 @@ export function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
 export const BUILDING_MATERIAL = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 0.55,
-  metalness: 0.35,
+  metalness: 0.15,
 });
+materials.define('building', BUILDING_MATERIAL);

@@ -34,6 +34,9 @@ function api(game: Game) {
     advanceGameMinutes: (min: number) => game.debugAdvance(Math.round(min * 60)),
     advanceGameSeconds: (s: number) => game.debugAdvance(Math.round(s)),
     setMode: (m: 'build' | 'walk') => game.setModeInstant(m),
+    setView: (pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) =>
+      game.debugSetView(pos, target),
+    setTerrainVisible: (v: boolean) => game.debugSetTerrainVisible(v),
     getPlayer: () => ({
       x: game.walkController.pos.x, y: game.walkController.pos.y, z: game.walkController.pos.z,
       yaw: game.walkController.yaw,
@@ -49,6 +52,7 @@ function api(game: Game) {
     getFxLevel: () => (game as any).post.fxLevel as number,
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
+    getRenderInfo: () => game.debugRenderInfo(),
   };
 }
 

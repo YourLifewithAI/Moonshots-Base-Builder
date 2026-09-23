@@ -12,6 +12,7 @@ declare module 'n8ao' {
       denoiseSamples: number;
       denoiseRadius: number;
       halfRes: boolean;
+      depthAwareUpsampling: boolean;
     };
     setQualityMode(mode: 'Performance' | 'Low' | 'Medium' | 'High' | 'Ultra'): void;
   }

@@ -7,7 +7,7 @@ import { CELL_M, MAP_M } from '../data/balance';
 import type { GameState, BuildingState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { recipeGeometry } from './recipes';
-import { BUILDING_MATERIAL } from './meshKit';
+import { materials } from '../world/materials';
 
 const MAX_PER_TYPE = 96;
 
@@ -35,6 +35,10 @@ export class BuildingInstances {
   /** night light pools: one soft additive disc under each completed building */
   private discs: THREE.InstancedMesh;
   private discMaterial: THREE.MeshBasicMaterial;
+  /** placement + construction-rise of every instance at the last rebuild */
+  private casterSig = '';
+  /** fired when a rebuild moved, added or removed a shadow caster */
+  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {
     const discGeo = new THREE.CircleGeometry(1, 24);
@@ -84,7 +88,7 @@ export class BuildingInstances {
   private meshFor(type: BuildingId): THREE.InstancedMesh {
     let m = this.meshes.get(type);
     if (!m) {
-      m = new THREE.InstancedMesh(recipeGeometry(type), BUILDING_MATERIAL, MAX_PER_TYPE);
+      m = new THREE.InstancedMesh(recipeGeometry(type), materials.get('building'), MAX_PER_TYPE);
       m.castShadow = true;
       m.receiveShadow = true;
       m.count = 0;
@@ -100,7 +104,12 @@ export class BuildingInstances {
   rebuild(state: GameState) {
     const types = new Set<BuildingId>(this.meshes.keys());
     for (const b of state.buildings) types.add(b.type);
-    for (const type of types) this.rebuildType(state, type);
+    let sig = '';
+    for (const type of types) sig += this.rebuildType(state, type);
+    if (sig !== this.casterSig) {
+      this.casterSig = sig;
+      this.onShadowCastersChanged?.();
+    }
     // light pools under every completed, POWERED structure — brownouts go dark
     const done = state.buildings.filter((b) =>
       (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled);
@@ -124,7 +133,8 @@ export class BuildingInstances {
   private static DARK = new THREE.Color(0.55, 0.55, 0.6);   // browned-out (lights off)
   private static FULL = new THREE.Color(1, 1, 1);
 
-  private rebuildType(state: GameState, type: BuildingId) {
+  /** Returns this type's caster signature (placements + rise). */
+  private rebuildType(state: GameState, type: BuildingId): string {
     const mesh = this.meshFor(type);
     const list = state.buildings.filter((b) => b.type === type);
     mesh.count = Math.min(list.length, MAX_PER_TYPE);
@@ -132,6 +142,7 @@ export class BuildingInstances {
     const rot = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
     const order: number[] = [];
+    let sig = type;
     list.forEach((b, i) => {
       if (i >= MAX_PER_TYPE) return;
       const [cx, cz] = centerOf(b);
@@ -149,11 +160,20 @@ export class BuildingInstances {
         : BuildingInstances.FULL;
       mesh.setColorAt(i, color);
       order.push(b.id);
+      sig += `|${b.gx},${b.gz},${b.rot},${sy.toFixed(3)}`;
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
+    return sig;
+  }
+
+  /** Material class per building type (safe-mode checks, probes). */
+  materialTypes(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [type, m] of this.meshes) out[type] = (m.material as THREE.Material).type;
+    return out;
   }
 
   /** Raycast → building id (for selection). */

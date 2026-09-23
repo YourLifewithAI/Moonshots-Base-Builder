@@ -1,30 +1,36 @@
 /** Terrain render meshes: 8×8 chunks over the shared heightfield (shared edge
  *  samples → no cracks). Vertex colors carry the regolith look: noise mottling,
- *  slope darkening, crater-floor basalt, bright rims. Rebuilt per-chunk when a
- *  building pad flattens the field. */
+ *  slope darkening, crater-floor basalt, bright rims — all relative to the
+ *  site's albedo. Rebuilt per-chunk when a building pad flattens the field. */
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
+import { materials } from '../world/materials';
+import { regolithPatch } from './terrainShader';
 import type { Heightfield } from './heightfield';
+
+materials.define('terrain', new THREE.MeshStandardMaterial({
+  vertexColors: true,
+  roughness: 0.96,
+  metalness: 0.0,
+}), regolithPatch);
 
 export class TerrainChunks {
   readonly group = new THREE.Group();
   private meshes: THREE.Mesh[] = [];
-  private material: THREE.MeshStandardMaterial;
   private colorNoise = createNoise2D(mulberry32(0xc0ffee));
+  /** fired after a flatten rebuilt chunk geometry (terrain casts shadows) */
+  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {
-    this.material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.96,
-      metalness: 0.0,
-    });
     for (let cz = 0; cz < CHUNKS; cz++) {
       for (let cx = 0; cx < CHUNKS; cx++) {
-        const mesh = new THREE.Mesh(this.buildGeometry(cx, cz), this.material);
+        const mesh = new THREE.Mesh(this.buildGeometry(cx, cz), materials.get('terrain'));
         mesh.receiveShadow = true;
-        mesh.castShadow = false;
+        // back faces fill the shadow map (three's default shadowSide), so lit
+        // slopes never self-shadow into acne; ridges and crater walls do cast
+        mesh.castShadow = true;
         mesh.matrixAutoUpdate = false;
         this.meshes.push(mesh);
         this.group.add(mesh);
@@ -38,6 +44,7 @@ export class TerrainChunks {
     const col = new Float32Array(n * n * 3);
     const gx0 = cx * CHUNK_CELLS;
     const gz0 = cz * CHUNK_CELLS;
+    const albedo = this.hf.site.terrain.albedo;
     let p = 0;
     for (let iz = 0; iz < n; iz++) {
       for (let ix = 0; ix < n; ix++) {
@@ -47,16 +54,17 @@ export class TerrainChunks {
         const y = this.hf.sampleGrid(gx, gz);
         pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
 
-        // regolith albedo: mid-gray, mottled, darker in crater bowls, brighter on rims
-        let v = 0.56;
-        v += this.colorNoise(x / 55, z / 55) * 0.045;
-        v += this.colorNoise(x / 11, z / 11) * 0.03;
+        // regolith albedo relative to the site's: mottled, darker in crater
+        // bowls, brighter on fresh rims
+        let v = 1;
+        v += this.colorNoise(x / 55, z / 55) * 0.08;
+        v += this.colorNoise(x / 11, z / 11) * 0.054;
         for (const c of this.hf.craters) {
           const d = Math.hypot(x - c.cx, z - c.cz) / c.r;
-          if (d < 0.9) v -= 0.075 * (1 - d);              // basalt floor
-          else if (d < 1.35) v += 0.05 * (1.35 - d) * 2;  // fresh bright rim/ejecta
+          if (d < 0.9) v -= 0.134 * (1 - d);              // basalt floor
+          else if (d < 1.35) v += 0.18 * (1.35 - d);      // fresh bright rim/ejecta
         }
-        v = Math.min(0.72, Math.max(0.3, v));
+        v = albedo * Math.min(1.29, Math.max(0.54, v));
         col[p] = v; col[p + 1] = v; col[p + 2] = v * 1.005; // whisper of cool
         p += 3;
       }
@@ -89,5 +97,9 @@ export class TerrainChunks {
         this.meshes[i].geometry = this.buildGeometry(cx, cz);
       }
     }
+    this.onShadowCastersChanged?.();
   }
+
+  /** Material class of the terrain meshes (safe-mode checks, probes). */
+  get materialType(): string { return (this.meshes[0].material as THREE.Material).type; }
 }
