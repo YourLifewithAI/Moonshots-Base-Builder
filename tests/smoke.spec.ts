@@ -407,6 +407,22 @@ test('low reserves breed anxiety; losing the crew ends the game', async ({ page 
   expect(s2.defeatShown).toBe(true);
   await expect(page.locator('#defeat-screen')).toBeVisible();
   await expect(page.locator('#defeat-screen')).toContainText('THE BASE FALLS SILENT');
+
+  // the loss is final: no unpausing, no settlers wandering into a dead base
+  await page.evaluate(() => window.__game.grantResources({ oxygen: 500, food: 500, water: 300 }));
+  await page.evaluate(() => window.__game.setPaused(false));
+  await page.evaluate(() => window.__game.advanceGameMinutes(15)); // > one settler period
+  const s3 = await page.evaluate(() => window.__game.getState());
+  expect(s3.paused).toBe(true);
+  expect(s3.crew).toBe(0);
+  expect(s3.alerts.some((a: any) => a.text.startsWith('ARRIVAL'))).toBe(false);
+  // ...and no second life from the save: the title shows the lost mission
+  await page.evaluate(() => window.__game.save()); // refused for a lost base
+  await page.waitForTimeout(300);
+  await page.goto(URL_DEBUG);
+  await expect(page.locator('#lost-mission')).toBeVisible();
+  await expect(page.locator('#lost-mission')).toContainText('Mission lost');
+  await expect(page.locator('#btn-continue')).toHaveCount(0);
 });
 
 test('life support first: a farm never drinks the crew dry', async ({ page }) => {

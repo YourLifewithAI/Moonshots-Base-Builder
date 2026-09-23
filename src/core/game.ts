@@ -6,14 +6,14 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  AUTOSAVE_S, CYCLE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
 import { createInitialState, type GameState } from './state';
 import { ActionQueue, type Action } from './actions';
-import { economyTick, currentDay, refreshDerived, alert, computeMods, type Mods } from './economy';
+import { economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, type Mods } from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
@@ -28,7 +28,7 @@ import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
   $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
-  $lander, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
+  $lander, $lostMission, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
   $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
 } from '../ui/stores';
 
@@ -94,7 +94,7 @@ export class Game {
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
     requestAnimationFrame((t) => this.frame(t));
-    void loadGame().then((blob) => $hasSave.set(blob !== null));
+    void loadGame().then((blob) => this.publishSaveSlot(blob));
   }
 
   // ─────────────────────────── lifecycle ───────────────────────────
@@ -139,6 +139,7 @@ export class Game {
       this.modes.set('walk');
     }
     this.publish();
+    if (missionLost(this.state)) $defeat.set(true);
   }
 
   private bootWorld(state: GameState) {
@@ -350,7 +351,10 @@ export class Game {
         break;
       }
       case 'setSpeed': s.speed = a.speed; break;
-      case 'setPaused': s.paused = a.paused; break;
+      case 'setPaused':
+        // a lost base stays frozen under its defeat screen
+        if (!missionLost(s)) s.paused = a.paused;
+        break;
       case 'launch': this.doLaunch(); break;
       case 'grade': {
         if (!this.mods.grading) break;
@@ -549,7 +553,10 @@ export class Game {
         this.publish();
       }
       if (victory) $victory.set(true); // after publish so the overlay reads fresh stats
-      if (defeat) $defeat.set(true);
+      if (defeat) {
+        $defeat.set(true);
+        void this.recordLoss();
+      }
     } else if (acts.length) {
       this.publish();
     }
@@ -737,9 +744,8 @@ export class Game {
 
   // ─────────────────────────── persistence ───────────────────────────
 
-  async doSave() {
-    if (!this.playing) return;
-    const blob: SaveBlob = {
+  private saveBlob(): SaveBlob {
+    return {
       state: this.state,
       player: {
         mode: this.modes.mode,
@@ -748,19 +754,40 @@ export class Game {
       },
       savedAt: Date.now(),
     };
-    await saveGame(blob);
+  }
+
+  async doSave() {
+    // a lost base is written once, at the moment of loss, and never again
+    if (!this.playing || missionLost(this.state)) return;
+    await saveGame(this.saveBlob());
     $hasSave.set(true);
+  }
+
+  private async recordLoss() {
+    const blob = this.saveBlob();
+    await saveGame(blob);
+    this.publishSaveSlot(blob);
+  }
+
+  /** the title screen's view of the save slot: a lost mission is shown, not continued */
+  private publishSaveSlot(blob: SaveBlob | null) {
+    const lost = blob !== null && missionLost(blob.state);
+    $hasSave.set(blob !== null && !lost);
+    $lostMission.set(lost
+      ? { siteId: blob.state.siteId, day: Math.floor(blob.state.simTime / CYCLE_S) + 1 }
+      : null);
   }
 
   async continueSave(): Promise<boolean> {
     const blob = await loadGame();
-    if (!blob) return false;
+    if (!blob || missionLost(blob.state)) { this.publishSaveSlot(blob); return false; }
     this.loadFrom(blob);
     return true;
   }
 
   async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
     await clearSave();
+    this.publishSaveSlot(null);
     this.startNew(siteId, expedition);
   }
 
@@ -812,7 +839,10 @@ export class Game {
       this.publish();
     }
     if (victory) $victory.set(true);
-    if (defeat) $defeat.set(true);
+    if (defeat) {
+      $defeat.set(true);
+      void this.recordLoss();
+    }
   }
 
   setModeInstant(m: 'build' | 'walk') {

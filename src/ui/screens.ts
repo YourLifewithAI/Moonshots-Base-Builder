@@ -6,7 +6,7 @@ import { ERA_NAMES, TECHS, TECH_ORDER, techExpeditionLock, type TechId } from '.
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
-import { $defeat, $hasSave, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
+import { $defeat, $hasSave, $lostMission, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
 
 function rate(n: number): string {
@@ -26,12 +26,15 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
 
   const render = () => {
     if (step === 'expedition') { renderExpedition(); return; }
+    const lost = $lostMission.get();
     screen.innerHTML = `
       <h1>MOONSHOTS</h1>
       <div class="sub">Base Builder · From regolith to Dyson swarm</div>
       <div id="sites"></div>
-      <div style="display:flex; gap:12px">
-        ${$hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
+      <div style="display:flex; gap:12px; align-items:center">
+        ${lost
+          ? `<span class="label" id="lost-mission">✕ Mission lost — ${SITES[lost.siteId].name}, day ${lost.day}. The base fell silent.</span>`
+          : $hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
         <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose expedition ▸</button>
       </div>
       <div class="sub" style="margin-top:26px">Every site is a trade-off. Choose where your story gets hard.</div>`;
@@ -111,6 +114,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   };
   render();
   $hasSave.subscribe(render);
+  $lostMission.subscribe(render);
   $phase.subscribe((p) => { screen.style.display = p === 'playing' ? 'none' : 'flex'; });
 }
 

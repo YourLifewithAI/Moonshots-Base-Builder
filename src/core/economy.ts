@@ -46,6 +46,12 @@ export function moraleWorkMult(morale: number): number {
   return MORALE.workMultMin + (morale / 100) * MORALE.workMultSpan;
 }
 
+/** a human base whose last crewmember died stays lost: no growth, no
+ *  production, no second life from a save (robotic missions cannot fall) */
+export function missionLost(s: GameState): boolean {
+  return s.expedition !== 'robotic' && s.defeatShown;
+}
+
 /** output multiplier from equipment wear — the Lander, the lifeboat, never wears */
 export function wearDerate(b: BuildingState): number {
   return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
@@ -58,6 +64,7 @@ export function currentDay(s: GameState, site: SiteDef): DayInfo {
 /** Advance the economy by dt game-seconds (call at 1 Hz of game time). */
 export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
   const ev: EconEvents = { modsChanged: false, victory: false, defeat: false };
+  if (missionLost(s)) return ev;
   const day = currentDay(s, site);
   const robotic = s.expedition === 'robotic';
   // a robotic mission runs unmanned until Human Cohabitation brings settlers;
@@ -377,6 +384,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   if (!robotic && s.crew <= 0 && !s.defeatShown) {
     ev.defeat = true;
     s.paused = true;
+    return ev;
   }
   // growth — robotic missions attract settlers only after Human Cohabitation,
   // and nobody boards a base without reserves to breathe, drink, and eat

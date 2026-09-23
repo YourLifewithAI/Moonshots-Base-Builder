@@ -12,6 +12,8 @@ export type Phase = 'title' | 'site' | 'playing';
 
 export const $phase = atom<Phase>('title');
 export const $hasSave = atom<boolean>(false);
+/** the saved mission was lost (human crew gone): the title shows it instead of 'Continue' */
+export const $lostMission = atom<{ siteId: SiteId; day: number } | null>(null);
 export const $siteId = atom<SiteId | null>(null);
 
 export const $resources = atom<Record<ResourceId, number>>({
