@@ -1028,6 +1028,8 @@ test('settlers board only a base that can keep one more alive', async ({ page })
     g.grantCrew(3);
     g.grantResources({ oxygen: 80 - g.getState().resources.oxygen });
     g.advanceGameSeconds(750); // longer than a settler period
+    g.setPaused(true); // a still HUD for the chip click; fast-forwards still tick
+    g.advanceGameSeconds(0);
     return g.getState();
   });
   expect(held.crew).toBe(3);

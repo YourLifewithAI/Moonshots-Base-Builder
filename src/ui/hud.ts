@@ -30,6 +30,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   const strip = el('div', '', '');
   strip.id = 'resource-strip';
   root.appendChild(strip);
+  let stripHtml = '';
   const renderStrip = () => {
     const r = $resources.get();
     const p = $power.get();
@@ -63,7 +64,10 @@ export function mountHud(root: HTMLElement, game: Game) {
       chips.push(`<div class="chip panel interactive${$iceOverlay.get() ? ' warn' : ''}" data-key="ice" title="Toggle the ice deposit overlay [I]">
         <span class="glyph">❄</span><span class="val mono">ICE</span></div>`);
     }
-    strip.innerHTML = chips.join('');
+    // several stores publish per tick: skip redraws that change nothing, so a
+    // chip under the cursor is not replaced mid-click
+    const html = chips.join('');
+    if (html !== stripHtml) { stripHtml = html; strip.innerHTML = html; }
   };
   $resources.subscribe(renderStrip);
   $power.subscribe(renderStrip);
