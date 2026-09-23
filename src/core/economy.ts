@@ -58,6 +58,30 @@ export function wearDerate(b: BuildingState): number {
   return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
 }
 
+/** settlers come to any human base, and to a robotic one once it is ready for them */
+export function settlersWelcome(s: GameState): boolean {
+  return s.expedition !== 'robotic' || s.techsDone.includes('humanCohabitation');
+}
+
+const LIFE_SUPPORT: ['oxygen' | 'food' | 'water', number][] = [
+  ['oxygen', CREW.oxygenPerCrew], ['food', CREW.foodPerCrew], ['water', CREW.waterPerCrew],
+];
+
+/** The life-support supply that cannot carry one more settler, or '' when all
+ *  can: at the current net flow, each must keep crew+1 alive for a lunar day,
+ *  with at least five minutes of their supply in the tanks (night stops most
+ *  producers). No production means a full lunar day in reserve. */
+export function boardingShortfall(s: GameState, lsMult: number): '' | 'oxygen' | 'food' | 'water' {
+  for (const [rid, rate] of LIFE_SUPPORT) {
+    const perCrew = rate * lsMult;
+    const flow = s.rates?.[rid] ?? -s.crew * perCrew;
+    const deficit = Math.max(0, perCrew - flow); // the newcomer's share the base can't make
+    const stock = s.resources[rid];
+    if (stock < (s.crew + 1) * perCrew * LOW_SUPPLY_S || stock < deficit * CYCLE_S) return rid;
+  }
+  return '';
+}
+
 /** a construction site's place in the robot queue (lower builds first) */
 export function queuePos(b: BuildingState): number {
   return b.buildSeq ?? b.id;
@@ -400,15 +424,18 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     return ev;
   }
   // growth — robotic missions attract settlers only after Human Cohabitation,
-  // and nobody boards a base without reserves to breathe, drink, and eat
-  const cohab = !robotic || s.techsDone.includes('humanCohabitation');
-  const reserves = s.resources.oxygen > 20 && s.resources.food > 20 && s.resources.water > 10;
-  if (cohab && reserves && s.morale > CREW.growthMorale && s.crew < housing && o2ok && foodok && waterok) {
+  // and nobody boards a base that cannot keep one more alive
+  const sustainable = boardingShortfall(s, lsMult) === '';
+  if (settlersWelcome(s) && sustainable && s.morale > CREW.growthMorale && s.crew < housing &&
+      o2ok && foodok && waterok) {
     s.growthT += dt;
     if (s.growthT >= CREW.growthPeriod) {
       s.growthT = 0;
       s.crew += 1;
       alert(s, 'ARRIVAL — a new crewmember has joined the base', 'info');
+      if (robotic && s.crew === 1 && s.buildings.some((b) => b.automated && BUILDINGS[b.type].crew > 0)) {
+        alert(s, 'SETTLERS ABOARD — stations are still agent-run; crew them from the Lander to save power and lift the labs’ agent cap', 'info');
+      }
     }
   } else {
     s.growthT = Math.max(0, s.growthT - dt * 0.5);

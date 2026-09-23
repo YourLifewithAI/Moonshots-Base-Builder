@@ -20,13 +20,17 @@ export const $resources = atom<Record<ResourceId, number>>({
   regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
 });
 export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false, shed: false });
-/** housing = beds the economy counts (enabled, complete, powered); beds = all completed */
+/** housing = beds the economy counts (enabled, complete, powered); beds = all completed;
+ *  boardingHold = the life-support supply keeping the next settler away ('' = none) */
 export const $vitals = atom({
   crew: 0, housing: 0, beds: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
   expedition: 'human' as 'human' | 'robotic',
+  boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
 });
-/** Lander services status (shipment en route etc.) */
-export const $lander = atom<{ resupplyPending: boolean; etaS: number }>({ resupplyPending: false, etaS: 0 });
+/** Lander services status (shipment en route, agent-run stations the crew could take) */
+export const $lander = atom<{ resupplyPending: boolean; etaS: number; agentRun: number }>({
+  resupplyPending: false, etaS: 0, agentRun: 0,
+});
 /** on-screen condition bars over damaged buildings */
 export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: number }[]>([]);
 export const $time = atom({

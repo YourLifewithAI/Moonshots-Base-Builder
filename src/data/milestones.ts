@@ -56,7 +56,7 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'welcome-home', title: 'First Boots on Regolith',
-    hint: 'Bring humans to the base the machines built. On a robotic mission: research Human Cohabitation (Era 6) and stock life-support reserves.',
+    hint: 'Bring humans to the base the machines built. On a robotic mission: research Human Cohabitation (Era 6), then keep a lunar day of oxygen, food and water for each newcomer — or produce it.',
     check: (s) => s.crew >= 1,
   },
   {

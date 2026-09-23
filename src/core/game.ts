@@ -10,10 +10,12 @@ import {
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
-import { createInitialState, type GameState } from './state';
+import { createInitialState, type BuildingState, type GameState } from './state';
+import { canToggleCrew } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
-  economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, queuePos, type Mods,
+  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, queuePos,
+  settlersWelcome, type Mods,
 } from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
@@ -326,9 +328,17 @@ export class Game {
       }
       case 'setAutomated': {
         const b = s.buildings.find((x) => x.id === a.id);
-        if (b && this.mods.automation && BUILDINGS[b.type].crew > 0) b.automated = a.automated;
+        if (!b || BUILDINGS[b.type].crew <= 0) break;
+        if (!canToggleCrew(s.expedition, s.crew, this.mods)) {
+          alert(s, s.expedition === 'robotic'
+            ? 'CANNOT CREW — no one aboard yet; stations stay agent-run'
+            : 'CANNOT AUTOMATE — research Autonomous Operations first', 'warn');
+          break;
+        }
+        b.automated = a.automated;
         break;
       }
+      case 'crewAll': this.crewAllStations(); break;
       case 'setPriority': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (b) b.priority = a.priority;
@@ -443,6 +453,39 @@ export class Game {
         alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`, 'warn');
       }
     }
+  }
+
+  /** Settlers take agent-run stations in the order the economy staffs them,
+   *  as far as free hands reach; the rest stay agent-run rather than idle. */
+  private crewAllStations() {
+    const s = this.state;
+    if (s.crew <= 0 || !canToggleCrew(s.expedition, s.crew, this.mods)) {
+      alert(s, 'CANNOT CREW — no one aboard yet; stations stay agent-run', 'warn');
+      return;
+    }
+    const seats = (b: BuildingState) => Math.max(0, BUILDINGS[b.type].crew + this.mods.crewDelta[b.type]);
+    const stations = s.buildings.filter((b) =>
+      BUILDINGS[b.type].crew > 0 && b.enabled && (b.construction ?? 0) <= 0);
+    let free = s.crew;
+    for (const b of stations) if (!b.automated) free -= seats(b);
+    let crewed = 0;
+    let left = 0;
+    for (const b of stations.sort((x, y) => x.priority - y.priority || x.id - y.id)) {
+      if (!b.automated) continue;
+      if (seats(b) <= free) {
+        free -= seats(b);
+        b.automated = false;
+        crewed++;
+      } else {
+        left++;
+      }
+    }
+    if (crewed === 0) {
+      alert(s, 'NO FREE HANDS — every settler already has a station', 'warn');
+      return;
+    }
+    alert(s, `CREWED — ${crewed} station${crewed === 1 ? '' : 's'} handed to the settlers` +
+      (left ? `; ${left} stay${left === 1 ? 's' : ''} agent-run for want of hands` : ''), 'info');
   }
 
   private doLaunch() {
@@ -664,17 +707,22 @@ export class Game {
       brownout: s.power.brownout, shed: s.power.shed ?? false,
     });
     let beds = 0;
+    let agentRun = 0;
     for (const b of s.buildings) {
-      if ((b.construction ?? 0) <= 0) beds += BUILDINGS[b.type].housing ?? 0;
+      if ((b.construction ?? 0) > 0) continue;
+      beds += BUILDINGS[b.type].housing ?? 0;
+      if (b.enabled && b.automated && BUILDINGS[b.type].crew > 0) agentRun++;
     }
     $vitals.set({
       crew: s.crew, housing: s.housingActive ?? 0, beds, morale: Math.round(s.morale), data: s.data,
       botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
       expedition: s.expedition ?? 'human',
+      boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,
       etaS: s.resupply?.pending ? Math.max(0, Math.ceil(s.resupply.arriveAt - s.simTime)) : 0,
+      agentRun,
     });
     $time.set({
       dayIndex: day.dayIndex, tCycle: day.tCycle, isNight: day.isNight, sunFactor: day.sunFactor,

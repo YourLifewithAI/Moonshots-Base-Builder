@@ -9,6 +9,7 @@ import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost, demolishRefund, untouchedSite } from '../buildings/placement';
 import { wearDerate } from '../core/economy';
+import { canToggleCrew } from '../core/mods';
 import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST, RESUPPLY } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
@@ -189,7 +190,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
     const worn = Math.round((1 - wearDerate(sel)) * 100); // % output lost to wear
     const untouched = untouchedSite(sel);
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${untouched}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$vitals.get().crew > 0}`;
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${untouched}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$lander.get().agentRun > 0}|${$vitals.get().crew > 0}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -215,6 +216,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
           : 'OPERATING')
         : 'STANDBY';
     const shadowNote = sel.type === 'solar' && sel.shaded ? ' · IN TERRAIN SHADOW −85%' : '';
+    const vit = $vitals.get();
+    const crewToggle = canToggleCrew(vit.expedition, vit.crew, $tech.get());
     insp.innerHTML = `
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
@@ -248,9 +251,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
             : '<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in 1 day</button>'}
         </div>
         <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +${RESUPPLY.metals} metals · +${RESUPPLY.parts} parts · morale −${RESUPPLY.moraleHit} (the crew resents the umbilical)</div>
+        ${crewToggle && vit.crew > 0 && $lander.get().agentRun > 0 ? `<div class="prio" style="margin-top:6px">
+          <button class="btn" id="insp-crewall">${PERSON_SVG} Crew all eligible stations</button>
+        </div>
+        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Settlers take agent-run stations in priority order while free hands last; the rest stay agent-run.</div>` : ''}
       </section>` : ''}
-      ${def.crew > 0 && ($tech.get().automation ||
-        ($vitals.get().expedition === 'robotic' && $vitals.get().crew > 0)) ? `<section>
+      ${def.crew > 0 && crewToggle ? `<section>
         <span class="label">Operations — ${def.powerKW > 0
           ? `agents keep ${Math.round((1 - AGENT_GEN_TAX) * 100)}% of the output`
           : 'agents draw ×1.6 power'}, need no crew or morale</span>
@@ -281,6 +287,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
       game.actions.push({ kind: 'surveyIce' }));
     insp.querySelector('#insp-order')?.addEventListener('click', () =>
       game.actions.push({ kind: 'orderResupply' }));
+    insp.querySelector('#insp-crewall')?.addEventListener('click', () =>
+      game.actions.push({ kind: 'crewAll' }));
     insp.querySelector('#insp-crewed')?.addEventListener('click', () =>
       game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }));
     insp.querySelector('#insp-auto')?.addEventListener('click', () =>

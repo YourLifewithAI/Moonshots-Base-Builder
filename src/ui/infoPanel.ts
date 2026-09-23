@@ -60,7 +60,8 @@ export function mountInfoPanel(root: HTMLElement) {
           ${v.beds > v.housing ? `<span class="label">${v.beds - v.housing} of ${v.beds} beds dark — shut down or unpowered</span>` : ''}</section>
         <section>
           <span class="label">How settlers arrive</span>
-          <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, housing is free, and nobody is starving. Habitats add 4 beds each and extend the build perimeter.</div>
+          <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, a powered bed is free, and nobody is starving. Nobody boards unless oxygen, food and water can each keep one more person alive for a lunar day at the current rates — a day's reserve, or production that covers them. Habitats add 4 beds each and extend the build perimeter.</div>
+          ${v.boardingHold ? `<div class="goal-hint">Arrivals on hold — not enough ${RESOURCES[v.boardingHold].name.toLowerCase()} for another settler.</div>` : ''}
         </section>
         <section>
           <span class="label">Each settler consumes</span>
@@ -149,7 +150,7 @@ export function mountInfoPanel(root: HTMLElement) {
     if (!key) return;
     const v = $vitals.get();
     const perMin = ($rates.get()[key as ResourceId] ?? 0) * 60;
-    const next = `${key}|${JSON.stringify($counts.get())}|${v.crew}|${v.housing}|${v.beds}|${Math.floor(($resources.get()[key as ResourceId] ?? 0) / 5)}|${perMin < 0 ? '-' : ''}${fmt(Math.abs(perMin))}`;
+    const next = `${key}|${JSON.stringify($counts.get())}|${v.crew}|${v.housing}|${v.beds}|${v.boardingHold}|${Math.floor(($resources.get()[key as ResourceId] ?? 0) / 5)}|${perMin < 0 ? '-' : ''}${fmt(Math.abs(perMin))}`;
     if (next !== sig) { sig = next; render(); }
   });
 }

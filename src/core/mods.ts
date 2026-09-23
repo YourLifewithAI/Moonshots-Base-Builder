@@ -65,6 +65,18 @@ export function computeMods(techsDone: TechId[], expedition: 'human' | 'robotic'
   return m;
 }
 
+/** Whether stations may switch between crewed and agent-run — the one rule
+ *  both the action handler and the inspector use. Autonomous Operations allows
+ *  it anywhere; a robotic base runs on agents from the start, so once settlers
+ *  are aboard they may take stations over (and hand them back). */
+export function canToggleCrew(
+  expedition: 'human' | 'robotic',
+  crew: number,
+  mods: Pick<Mods, 'automation'>,
+): boolean {
+  return mods.automation || (expedition === 'robotic' && crew > 0);
+}
+
 /** Current era: era N+1 opens once ≥2 techs of era N are done (sequentially). */
 export function computeEra(techsDone: TechId[]): number {
   let era = 1;

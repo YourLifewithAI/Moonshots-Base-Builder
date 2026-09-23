@@ -876,6 +876,114 @@ test('human cohabitation: robotic bases earn settlers late in the tree', async (
   expect(s2.defeatShown).toBe(false); // a robotic mission still cannot be defeated
 });
 
+test('settlers board only a base that can keep one more alive', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('humanCohabitation'));
+  // three settlers aboard, nothing making oxygen, and 80 in the tanks: enough
+  // for the old 20-unit floor all day, short of a lunar day for a fourth
+  // (4 × 0.02/s × 720 s = 57.6 once the three have breathed their share)
+  const held = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantCrew(3);
+    g.grantResources({ oxygen: 80 - g.getState().resources.oxygen });
+    g.advanceGameSeconds(750); // longer than a settler period
+    return g.getState();
+  });
+  expect(held.crew).toBe(3);
+  expect(held.alerts.some((a: any) => a.text.startsWith('ARRIVAL'))).toBe(false);
+  await page.locator('#resource-strip .chip[data-key="crew"]').click();
+  await expect(page.locator('#res-panel')).toContainText('Arrivals on hold — not enough oxygen');
+
+  // production that covers the newcomer lifts the hold with only a few
+  // minutes of oxygen in the tanks
+  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
+  for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['solar', 136, 126],
+    ['excavator', 120, 126], ['smelter', 120, 132]] as const) {
+    expect(await page.evaluate(([tt, xx, zz]) => window.__game.placeBuilding(tt, xx, zz), [t, x, z] as const)).toBe(true);
+  }
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.advanceGameSeconds(200); // smelter online at ~130s, its flow settled
+    g.grantResources({ oxygen: 30 - g.getState().resources.oxygen });
+    g.advanceGameSeconds(1);
+  });
+  await expect(page.locator('#res-panel')).not.toContainText('Arrivals on hold');
+
+  // and a stocked base takes its fourth settler
+  const grown = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ oxygen: 300 });
+    g.advanceGameSeconds(750);
+    return g.getState();
+  });
+  expect(grown.crew).toBe(4);
+});
+
+test('robotic handover: settlers take stations from the Lander; one crew-toggle rule', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  for (const [t, x, z] of [['solar', 132, 126], ['excavator', 120, 126], ['lab', 135, 133]] as const) {
+    expect(await page.evaluate(([tt, xx, zz]) => window.__game.placeBuilding(tt, xx, zz), [t, x, z] as const)).toBe(true);
+  }
+  await page.evaluate(() => window.__game.advanceGameSeconds(120)); // all built
+  const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
+  const s0 = await page.evaluate(() => window.__game.getState());
+  // no one aboard: crewing is refused out loud, and the inspector offers no toggle
+  const refused = await page.evaluate((id) => {
+    const g = window.__game!;
+    g.setAutomated(id, false);
+    g.advanceGameSeconds(1);
+    return g.getState();
+  }, by(s0, 'lab').id);
+  expect(by(refused, 'lab').automated).toBe(true);
+  expect(refused.alerts.some((a: any) => a.text.startsWith('CANNOT CREW'))).toBe(true);
+  await page.evaluate((id) => window.__game.select(id), by(s0, 'lab').id);
+  await expect(page.locator('#insp-crewed')).toHaveCount(0);
+
+  // the first settler arrives to an agent-run base, and the log says so
+  await page.evaluate(() => window.__game.completeTech('humanCohabitation'));
+  const arrived = await page.evaluate(() => {
+    const g = window.__game!;
+    for (let i = 0; i < 90 && g.getState().crew < 1; i++) g.advanceGameSeconds(10);
+    return g.getState();
+  });
+  expect(arrived.crew).toBe(1);
+  expect(arrived.alerts.some((a: any) => a.text.startsWith('SETTLERS ABOARD'))).toBe(true);
+
+  // one settler, two stations: the excavator (priority 2, one seat) is crewed,
+  // the two-seat lab stays agent-run rather than idle
+  await page.evaluate((id) => window.__game.select(id), by(s0, 'lander').id);
+  await page.locator('#insp-crewall').click();
+  await expect.poll(async () => by(await page.evaluate(() => window.__game.getState()), 'excavator').automated)
+    .toBe(false);
+  const crewed = await page.evaluate(() => window.__game.getState());
+  expect(by(crewed, 'lab').automated).toBe(true);
+  expect(crewed.alerts.some((a: any) =>
+    a.text === 'CREWED — 1 station handed to the settlers; 1 stays agent-run for want of hands')).toBe(true);
+
+  // the lab's own toggle works the moment anyone is aboard — no Autonomous Ops needed
+  await page.evaluate(() => window.__game.grantCrew(2));
+  await page.evaluate((id) => window.__game.select(id), by(s0, 'lab').id);
+  await page.locator('#insp-crewed').click();
+  await expect.poll(async () => by(await page.evaluate(() => window.__game.getState()), 'lab').automated)
+    .toBe(false);
+
+  // a human base without Autonomous Operations cannot hand stations to agents
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  const human = await page.evaluate(() => {
+    const g = window.__game!;
+    g.advanceGameSeconds(80);
+    g.setAutomated(g.getState().buildings.find((b: any) => b.type === 'lab').id, true);
+    g.advanceGameSeconds(1);
+    return g.getState();
+  });
+  expect(by(human, 'lab').automated).toBe(false);
+  expect(human.alerts.some((a: any) => a.text.startsWith('CANNOT AUTOMATE'))).toBe(true);
+});
+
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
