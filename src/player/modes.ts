@@ -2,7 +2,7 @@
  *  continuity teaches the player the two views are the same place). */
 import * as THREE from 'three';
 import { EYE_HEIGHT } from '../data/balance';
-import type { BuildCam } from './buildCam';
+import { HOME_DIR, HOME_DIST, type BuildCam } from './buildCam';
 import type { WalkController } from './walk';
 
 export type Mode = 'build' | 'walk';
@@ -15,7 +15,7 @@ export class ModeManager {
     fromQuat: THREE.Quaternion; toQuat: THREE.Quaternion;
     onDone: () => void;
   } | null = null;
-  private savedBuildPos = new THREE.Vector3(90, 110, 150);
+  private savedBuildPos = HOME_DIR.clone().multiplyScalar(HOME_DIST);
   private savedBuildTarget = new THREE.Vector3(0, 0, 0);
 
   constructor(
@@ -54,7 +54,7 @@ export class ModeManager {
     if (this.mode !== 'walk' || this.tween) return;
     // rise back to the saved overhead framing, re-centered over the player
     const off = this.savedBuildPos.clone().sub(this.savedBuildTarget);
-    const target = new THREE.Vector3(this.walk.pos.x, 0, this.walk.pos.z);
+    const target = this.walk.pos.clone();
     const toPos = target.clone().add(off);
     const dummy = new THREE.Object3D();
     dummy.position.copy(toPos);

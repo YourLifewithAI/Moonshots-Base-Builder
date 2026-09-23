@@ -6,7 +6,7 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  AUTOSAVE_S, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
@@ -16,13 +16,17 @@ import { ActionQueue, type Action } from './actions';
 import { economyTick, currentDay, refreshDerived, alert, computeMods, type Mods } from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
+import { Horizon } from '../terrain/horizon';
+import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
+import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
-import { BuildCam } from '../player/buildCam';
+import { materials, PATCH_MARKER } from '../world/materials';
+import { BuildCam, HOME_DIST } from '../player/buildCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
@@ -49,9 +53,12 @@ export class Game {
   private camera: THREE.PerspectiveCamera;
   private scene = new THREE.Scene();
   private lighting: Lighting;
+  private sky: Sky;
   private post: PostFX;
   private hf!: Heightfield;
   private chunks!: TerrainChunks;
+  private horizon!: Horizon;
+  private rocks!: Rocks;
   private instances!: BuildingInstances;
   private placement!: PlacementController;
   private buildCam: BuildCam;
@@ -75,9 +82,27 @@ export class Game {
     this.renderer = createRenderer(canvas);
     this.camera = createCamera();
     this.lighting = new Lighting(this.scene);
+    this.sky = new Sky(this.scene);
     this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
+    };
+    // scene shader patches ride the same ladder as the post chain
+    if (opts.fx !== undefined) materials.clearFault();
+    materials.setFxLevel(this.post.fxLevel);
+    this.post.onLevelChange = (level, explicit) => {
+      if (explicit) materials.clearFault();
+      materials.setFxLevel(level);
+      this.rocks?.setFxLevel(level);
+    };
+    // a program that fails to compile is reported here (replacing three's
+    // console dump); the response waits until the frame has finished
+    this.renderer.debug.onShaderError = (gl, program, vs, fs) => {
+      const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
+      console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
+        `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
+      const patched = [vs, fs].some((s) => gl.getShaderSource(s)?.includes(PATCH_MARKER));
+      if (this.shaderFault !== 'patch') this.shaderFault = patched ? 'patch' : 'other';
     };
     // context loss (driver reset / tab memory pressure) looks like a permanent
     // black screen with a working HUD — tell the player what happened
@@ -105,8 +130,7 @@ export class Game {
     // pre-place the Lander at the map heart and pad the ground under it
     const gx = 126, gz = 126;
     this.commitPlace('lander', gx, gz, 0, true);
-    this.buildCam.controls.target.set(0, 0, 0);
-    this.camera.position.set(70, 80, 120);
+    this.homeCamera(false);
     this.publish();
     alert(this.state, 'TOUCHDOWN — begin with a Solar Array', 'info');
   }
@@ -128,9 +152,13 @@ export class Game {
     legacy.resources.chips ??= 0;
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
-    for (const f of this.state.flattens) this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
+    for (const f of this.state.flattens) {
+      this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
+      this.onFlattened(f.x0, f.z0, f.x1, f.z1);
+    }
     if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
     this.instances.rebuild(this.state);
+    this.homeCamera(false);
     this.walk.colliders = this.instances.colliders(this.state);
     if (blob.player.mode === 'walk') {
       this.walk.pos.set(blob.player.x, blob.player.y, blob.player.z);
@@ -147,16 +175,25 @@ export class Game {
     if (this.worldGroup) this.scene.remove(this.worldGroup);
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
     this.chunks = new TerrainChunks(this.hf);
+    this.horizon = new Horizon(this.hf);
+    this.rocks = new Rocks(this.hf);
+    this.rocks.setFxLevel(this.post.fxLevel);
     this.instances = new BuildingInstances(this.hf);
+    this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
+      this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
+    this.lighting.requestShadowUpdate();
+    this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.walk = new WalkController(this.hf);
+    this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
       $mode.set(m);
+      this.buildCam.clearKeys();
       if (m === 'walk' && !this.opts.nolock) this.canvas.requestPointerLock();
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
     });
     this.worldGroup = new THREE.Group();
-    this.worldGroup.add(this.chunks.group, this.instances.group);
+    this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group);
     this.iceOverlay = this.buildIceOverlay();
     if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
     // constrained sites show their buildable boundary as a faint ring
@@ -178,6 +215,8 @@ export class Game {
       this.worldGroup.add(ring);
     }
     this.scene.add(this.worldGroup);
+    this.sky.setSite(site);
+    this.buildCam.groundAt = this.groundAnywhere;
     this.lastResources = null;
     this.buildCam.enabled = true;
     this.playing = true;
@@ -244,12 +283,33 @@ export class Game {
           this.cancelPlacement();
           $selection.set(null);
           break;
+        case 'KeyF': {
+          const sel = $selection.get();
+          if (this.modes.mode !== 'build' || !sel) break;
+          const [x, z] = centerOf(sel);
+          this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
+          break;
+        }
+        case 'KeyH':
+        case 'Home':
+          if (this.modes.mode === 'build') this.homeCamera(true);
+          break;
         default:
           if (this.modes.mode === 'walk') this.walk.keyDown(e.code);
+          else if (BuildCam.handles(e.code)) {
+            e.preventDefault();
+            this.buildCam.keyDown(e.code);
+          }
       }
     });
-    window.addEventListener('keyup', (e) => { this.walk?.keyUp(e.code); });
-    window.addEventListener('blur', () => this.walk?.clearKeys());
+    window.addEventListener('keyup', (e) => {
+      this.walk?.keyUp(e.code);
+      this.buildCam.keyUp(e.code);
+    });
+    window.addEventListener('blur', () => {
+      this.walk?.clearKeys();
+      this.buildCam.clearKeys();
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.playing) void this.doSave();
     });
@@ -287,6 +347,23 @@ export class Game {
   cancelPlacement() {
     this.placement?.cancel();
     $placing.set(null);
+  }
+
+  /** Frame the Lander from the home direction (a glide unless `glide` is false). */
+  private homeCamera(glide: boolean) {
+    const lander = this.state.buildings.find((b) => b.type === 'lander');
+    const [x, z] = lander ? centerOf(lander) : [0, 0];
+    const y = this.hf.sample(x, z);
+    if (glide) this.buildCam.focus(x, y, z, HOME_DIST, true);
+    else this.buildCam.home(x, y, z);
+  }
+
+  /** Cells [x0..x1) × [z0..z1) were flattened: clear the rocks off them and
+   *  keep the horizon's shared edge in step with the grid. */
+  private onFlattened(x0: number, z0: number, x1: number, z1: number) {
+    this.rocks.clearRect(x0, z0, x1, z1);
+    this.walk.boulders = this.rocks.colliders();
+    this.horizon.onFlatten(x0, z0, x1, z1);
   }
 
   // ─────────────────────────── actions ───────────────────────────
@@ -360,6 +437,7 @@ export class Game {
         const h = this.hf.flatten(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
         this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
+        this.onFlattened(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         s.resources.regolith += GRADE_REGOLITH_YIELD; // dozed spoil, recovered
         break;
       }
@@ -403,6 +481,7 @@ export class Game {
     const h = this.hf.flatten(r.gx0, r.gz0, r.gx1, r.gz1);
     s.flattens.push({ x0: r.gx0, z0: r.gz0, x1: r.gx1, z1: r.gz1, h });
     this.chunks.rebuildAround(r.gx0, r.gz0, r.gx1, r.gz1);
+    this.onFlattened(r.gx0, r.gz0, r.gx1, r.gz1);
     // rough terrain slows construction the same way it inflates costs;
     // teleoperation / swarm-robotics techs speed every build
     const buildTotal = Math.round(
@@ -447,6 +526,7 @@ export class Game {
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
+  private shaderFault: 'patch' | 'other' | null = null;
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
@@ -454,6 +534,7 @@ export class Game {
     this.lastT = t;
     if (this.playing) this.tick(dt);
     this.post.render(dt);
+    if (this.shaderFault) this.recoverFromShaderFault();
     // black-screen sentinel: some drivers fail shaders silently instead of
     // throwing. Probe the rendered output during daylight — first drop the
     // post chain, then escalate to safe mode. Counted from gameplay start
@@ -465,7 +546,7 @@ export class Game {
       const day = currentDay(this.state, SITES[this.state.siteId]);
       if (day.sunFactor <= 0.3) {
         this.nextProbe = this.playFrames + 120;      // night/dusk — check again soon
-      } else if (this.post.outputLooksBlack()) {
+      } else if (this.post.outputLooksBlack((u, v) => this.groundAt(u, v))) {
         const stepped = this.post.degrade('black frame detected');
         if (!stepped) this.enableSafeMode();
         this.nextProbe = this.playFrames + 40;       // verify the next rung quickly
@@ -475,20 +556,42 @@ export class Game {
     }
   }
 
+  /** Terrain height anywhere: the grid inside the map, the horizon ring past it. */
+  private groundAnywhere = (x: number, z: number) => this.horizon.heightAt(x, z);
+
+  /** Does the screen point (u, v ∈ 0..1, origin bottom-left) look at terrain? */
+  private groundAt(u: number, v: number): boolean {
+    this.raycaster.setFromCamera(new THREE.Vector2(u * 2 - 1, v * 2 - 1), this.camera);
+    const { origin: o, direction: d } = this.raycaster.ray;
+    return this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 1500) !== null;
+  }
+
+  /** A shader failed to compile this frame. A patched scene shader is the
+   *  likely culprit and the cheapest to lose: strip the patches first. Any
+   *  other program steps the post ladder down (then safe mode). */
+  private recoverFromShaderFault() {
+    const fault = this.shaderFault;
+    this.shaderFault = null;
+    if (fault === 'patch' && materials.stripPatches()) {
+      console.warn('[MOONSHOTS] Detail shaders failed to compile — stock materials.');
+      if (this.state) { alert(this.state, 'RENDER — detail shaders disabled (GPU limitation)', 'warn'); this.publish(); }
+      return;
+    }
+    if (this.safeMode) return;
+    if (!this.post.degrade('shader compile error')) this.enableSafeMode();
+  }
+
   /** Last-resort rendering: unlit vertex-color materials, no shadows, no
-   *  effects. Renders on anything that can draw a triangle. */
+   *  effects. Renders on anything that can draw a triangle — including
+   *  meshes created later, which take their material from the registry. */
   enableSafeMode() {
     if (this.safeMode) return;
     this.safeMode = true;
     console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows.');
     this.renderer.shadowMap.enabled = false;
-    this.scene.traverse((o) => {
-      const mesh = o as THREE.Mesh;
-      const mat = mesh.material as THREE.MeshStandardMaterial | undefined;
-      if (mat && mat.isMeshStandardMaterial) {
-        mesh.material = new THREE.MeshBasicMaterial({ vertexColors: mat.vertexColors });
-      }
-    });
+    materials.enableSafe(this.scene);
+    this.rocks?.setSafe(true);
+    this.sky.setSafe(true);
     if (this.state) {
       alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
       this.publish();
@@ -503,7 +606,7 @@ export class Game {
     const tweening = this.modes.update(dt);
     if (!tweening) {
       if (this.modes.mode === 'build') {
-        this.buildCam.update();
+        this.buildCam.update(dt);
         if (this.placement.active) {
           this.raycaster.setFromCamera(this.mouse, this.camera);
           this.placement.update(this.state, this.mods.unlocked,
@@ -574,10 +677,17 @@ export class Game {
       this.updateWearMarkers();
     }
 
-    // sun follows the clock; shadow frustum follows the camera focus
+    // sun follows the clock; the shadow window hugs the ground in view
     const day = currentDay(this.state, SITES[this.state.siteId]);
-    const focus = this.modes.mode === 'walk' ? this.walk.pos : this.buildCam.controls.target;
-    this.lighting.setSun(day.sunElev, day.sunAzim, focus as THREE.Vector3, day.nightFactor);
+    const walking = this.modes.mode === 'walk';
+    const focus = walking ? this.walk.pos : this.buildCam.controls.target;
+    this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
+    this.camera.updateMatrixWorld();
+    this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
+      this.groundAnywhere);
+    this.rocks.update(this.camera);
+    this.lighting.fitShadow(this.camera, focus, walking ? 160
+      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
     // at night the base carries its own light: hull glow, ground pools, and
     // exterior work lights over the structures nearest the camera
     this.instances.setNightGlow(day.nightFactor);
@@ -819,6 +929,71 @@ export class Game {
       this.walk.spawnAt(t.x, t.z, 0);
     }
     this.modes.set(m);
+  }
+
+  /** Frame the camera deterministically (screenshots / probes). In walk mode
+   *  the astronaut stands at pos (x, z) and faces the target. */
+  debugSetView(pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) {
+    if (this.modes.mode === 'walk') {
+      this.walk.spawnAt(pos.x, pos.z, 0);
+      const eyeY = this.walk.pos.y + EYE_HEIGHT;
+      const dx = target.x - pos.x, dz = target.z - pos.z;
+      this.walk.yaw = Math.atan2(-dx, -dz);
+      this.walk.pitch = Math.atan2(target.y - eyeY, Math.hypot(dx, dz));
+      this.walk.applyToCamera(this.camera);
+      return;
+    }
+    this.buildCam.view(pos, target);
+  }
+
+  /** Render-path state for tests and probes. */
+  debugRenderInfo() {
+    return {
+      fxLevel: this.post.fxLevel,
+      safeMode: this.safeMode,
+      shadowTexel: this.lighting.shadowTexel,
+      shadowRenders: this.lighting.shadowRenders,
+      patches: materials.variants(),
+      patchFault: materials.patchesFaulted,
+      buildingMaterials: this.instances.materialTypes(),
+      terrainMaterial: this.chunks.materialType,
+      horizonMaterial: (this.horizon.mesh.material as THREE.Material).type,
+      horizonSeam: this.horizon.seamError(),
+      rocks: this.rocks.stats(),
+      sky: this.sky.info(),
+    };
+  }
+
+  /** Build-camera pose and its clearance over the ground (tests, probes). */
+  debugCamera() {
+    const t = this.buildCam.controls.target, p = this.camera.position;
+    return {
+      pos: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
+      targetGround: this.groundAnywhere(t.x, t.z),
+      clearance: this.buildCam.clearance,
+      dist: p.distanceTo(t),
+      azimuth: Math.atan2(p.z - t.z, p.x - t.x),
+    };
+  }
+
+  /** Rocks still standing with centres in a world rect (tests, probes). */
+  debugRocksIn(x0: number, z0: number, x1: number, z1: number): number {
+    return this.rocks.countIn(x0, z0, x1, z1);
+  }
+
+  /** Select a building as a click would (tests). */
+  debugSelect(id: number) {
+    const b = this.state.buildings.find((x) => x.id === id);
+    $selection.set(b ? { ...b } : null);
+  }
+
+  /** Hide the terrain so a screenshot masks the buildings (probe pixel stats).
+   *  The black-frame sentinel is held off meanwhile — a terrain-less frame is
+   *  mostly black sky by construction. */
+  debugSetTerrainVisible(v: boolean) {
+    this.chunks.group.visible = v;
+    this.nextProbe = v ? this.playFrames + 40 : Number.POSITIVE_INFINITY;
   }
 
   get walkController() { return this.walk; }
