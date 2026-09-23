@@ -4,3 +4,5 @@ test-results/
 playwright-report/
 *.local
 .DS_Store
+# throwaway probe scripts from scripts/harness.mjs sessions
+scripts/_probe-*
