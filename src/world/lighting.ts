@@ -1,13 +1,12 @@
 /** The lunar lighting rig: one hard white sun (long shadows, black sky) + a
  *  faint blue earthshine hemisphere — the only color in the entire scene —
- *  whose ground half carries the neutral bounce off sunlit regolith, plus a
- *  procedural starfield and a small Earth disc.
+ *  whose ground half carries the neutral bounce off sunlit regolith. The
+ *  sky itself (stars, sun disc, Earth) lives in world/sky.ts.
  *
  *  Sun shadows: one 2048² ortho map fitted each frame to the ground the camera
  *  can see and snapped to whole texels, re-rendered only when something
  *  changed (sun moved, window moved, casters rebuilt) — never at night. */
 import * as THREE from 'three';
-import { mulberry32 } from '../core/rng';
 
 const WORK_LIGHTS = 8; // exterior floods over the buildings nearest the camera
 
@@ -26,8 +25,6 @@ const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
 export class Lighting {
   readonly sun: THREE.DirectionalLight;
   readonly earthshine: THREE.HemisphereLight;
-  readonly stars: THREE.Points;
-  readonly earth: THREE.Mesh;
   private workLights: THREE.PointLight[] = [];
   /** regolith albedo under the base (drives the bounce light) */
   groundAlbedo = 0.3;
@@ -63,35 +60,6 @@ export class Lighting {
 
     this.earthshine = new THREE.HemisphereLight(0x2a3a55, 0x000000, 0.42);
     scene.add(this.earthshine);
-
-    // starfield: 1800 points on a far sphere
-    const rng = mulberry32(0x57a25);
-    const starCount = 1800;
-    const pos = new Float32Array(starCount * 3);
-    for (let i = 0; i < starCount; i++) {
-      const u = rng() * 2 - 1;
-      const th = rng() * Math.PI * 2;
-      const r = Math.sqrt(1 - u * u);
-      pos[i * 3] = r * Math.cos(th) * 3200;
-      pos[i * 3 + 1] = Math.abs(u) * 3200 + 60; // keep stars above horizon
-      pos[i * 3 + 2] = r * Math.sin(th) * 3200;
-    }
-    const starGeo = new THREE.BufferGeometry();
-    starGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    this.stars = new THREE.Points(
-      starGeo,
-      new THREE.PointsMaterial({ color: 0xd7dbe0, size: 2.2, sizeAttenuation: false, fog: false }),
-    );
-    this.stars.frustumCulled = false;
-    scene.add(this.stars);
-
-    // Earth: a small pale-blue disc hanging in the black — home, far away
-    this.earth = new THREE.Mesh(
-      new THREE.SphereGeometry(48, 24, 24),
-      new THREE.MeshBasicMaterial({ color: 0x8fa8c8 }),
-    );
-    this.earth.position.set(-1400, 950, -2200);
-    scene.add(this.earth);
   }
 
   /** Point the sun from (elevation, azimuth) radians; called per frame. */
@@ -111,6 +79,9 @@ export class Lighting {
     const exitance = this.sun.intensity * Math.max(0, Math.sin(elev)) * this.groundAlbedo;
     this.earthshine.groundColor.setScalar(BOUNCE * exitance / Math.max(this.earthshine.intensity, 1e-3));
   }
+
+  /** The sun's light as a fraction of full (0 once it has set). */
+  get sunLight(): number { return this.sun.intensity / SUN_INTENSITY; }
 
   /** Later shadow casters that move (rovers, sun-tracking panels, …) call
    *  this to get the map re-rendered on the next frame. */

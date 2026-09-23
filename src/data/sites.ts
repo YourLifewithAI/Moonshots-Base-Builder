@@ -25,6 +25,10 @@ export interface SiteDef {
   /** albedo: regolith base reflectance (linear vertex color) — basaltic mare
    *  is dark, anorthositic highland roughly 1.35× brighter */
   terrain: { roughness: number; craterCount: number; craterMaxD: number; skylight: boolean; albedo: number };
+  /** where Earth hangs in this site's sky — fixed, since the Moon keeps one
+   *  face to it. Azimuth in the scene's sun convention (0° = +x, 90° = +z);
+   *  libration bobs the elevation by ± this much once per lunar cycle. */
+  earth: { elevDeg: number; azimDeg: number; librationDeg: number };
   /** x/5 ratings for the site-select card — identical dimensions across sites */
   ratings: { solar: number; ice: number; isru: number; launch: number; safety: number; terrain: number };
   pros: string[];
@@ -49,6 +53,8 @@ export const SITES: Record<SiteId, SiteDef> = {
     moraleBase: 62,
     buildableRadiusM: 0,
     terrain: { roughness: 1.5, craterCount: 26, craterMaxD: 180, skylight: false, albedo: 0.17 },
+    // at the pole Earth sits on the horizon, bobbing in and out of the ridges
+    earth: { elevDeg: 2.5, azimDeg: 250, librationDeg: 2 },
     ratings: { solar: 5, ice: 5, isru: 3, launch: 2, safety: 3, terrain: 2 },
     pros: ['Near-continuous sunlight — the night barely bites', 'Local water ice: hydroponics and life support thrive'],
     cons: ['Rough polar terrain: +25% build costs', 'Mass driver efficiency only 60% — the endgame is a grind'],
@@ -70,6 +76,8 @@ export const SITES: Record<SiteId, SiteDef> = {
     moraleBase: 58,
     buildableRadiusM: 0,
     terrain: { roughness: 0.45, craterCount: 10, craterMaxD: 90, skylight: false, albedo: 0.125 },
+    // 23°E of the sub-Earth point: high in the west (true ≈ 67°)
+    earth: { elevDeg: 60, azimDeg: 175, librationDeg: 1.5 },
     ratings: { solar: 3, ice: 0, isru: 5, launch: 5, safety: 2, terrain: 5 },
     pros: ['Ilmenite-rich regolith: +25% extraction and smelting', 'Equatorial mass driver: 150% launch efficiency, −20% build costs'],
     cons: ['Full lunar night: zero solar for 14 days — stockpile or die', 'No water ice: food from stores until closed-loop tech'],
@@ -91,6 +99,8 @@ export const SITES: Record<SiteId, SiteDef> = {
     moraleBase: 72,
     buildableRadiusM: 220,
     terrain: { roughness: 0.8, craterCount: 14, craterMaxD: 110, skylight: true, albedo: 0.135 },
+    // 56°W, 14°N: a third of the way up the eastern sky
+    earth: { elevDeg: 33, azimDeg: 15, librationDeg: 1.5 },
     ratings: { solar: 2, ice: 0, isru: 3, launch: 3, safety: 5, terrain: 3 },
     pros: ['Immune to solar flares; thermal stability cuts upkeep 15%', 'Sheltered crew: highest baseline morale on the Moon'],
     cons: ['Only 70% solar throughput reaches the grid', 'Constrained buildable footprint around the skylight'],

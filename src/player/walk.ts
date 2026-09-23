@@ -7,6 +7,7 @@ import { EYE_HEIGHT, GRAVITY, JUMP_V, MAP_M, PLAYER_RADIUS, WALK_SPEED } from '.
 import type { Heightfield } from '../terrain/heightfield';
 
 interface Collider { minX: number; maxX: number; minZ: number; maxZ: number; top: number }
+interface Boulder { x: number; z: number; r: number; top: number }
 
 export class WalkController {
   pos = new THREE.Vector3();
@@ -16,6 +17,8 @@ export class WalkController {
   private grounded = true;
   private keys = new Set<string>();
   colliders: Collider[] = [];
+  /** boulders as upright cylinders; a leap clears them */
+  boulders: Boulder[] = [];
 
   constructor(private hf: Heightfield) {}
 
@@ -23,7 +26,8 @@ export class WalkController {
     // never materialize inside a structure: spiral outward to the first free spot
     const inside = (px: number, pz: number) => this.colliders.some((c) =>
       px > c.minX - PLAYER_RADIUS && px < c.maxX + PLAYER_RADIUS &&
-      pz > c.minZ - PLAYER_RADIUS && pz < c.maxZ + PLAYER_RADIUS);
+      pz > c.minZ - PLAYER_RADIUS && pz < c.maxZ + PLAYER_RADIUS) ||
+      this.boulders.some((b) => Math.hypot(px - b.x, pz - b.z) < b.r + PLAYER_RADIUS);
     if (inside(x, z)) {
       outer: for (let r = 3; r < 60; r += 3) {
         for (let a = 0; a < Math.PI * 2; a += Math.PI / 6) {
@@ -95,6 +99,16 @@ export class WalkController {
           else this.pos.z = c.maxZ + PLAYER_RADIUS;
         }
       }
+    }
+
+    for (const b of this.boulders) {
+      if (this.pos.y > b.top) continue;
+      const dx = this.pos.x - b.x, dz = this.pos.z - b.z;
+      const min = b.r + PLAYER_RADIUS, d2 = dx * dx + dz * dz;
+      if (d2 >= min * min || d2 < 1e-8) continue;
+      const d = Math.sqrt(d2);
+      this.pos.x = b.x + (dx / d) * min;
+      this.pos.z = b.z + (dz / d) * min;
     }
 
     // vertical: lunar gravity + ground snap

@@ -30,10 +30,13 @@ export class Heightfield {
     this.generate(rng);
   }
 
-  private fbm(x: number, z: number, octaves: number, freq: number, amp: number): number {
+  /** `footprint` (m, the caller's sample spacing) fades out octaves whose
+   *  wavelength is under twice that spacing, so coarse samplers don't alias. */
+  private fbm(x: number, z: number, octaves: number, freq: number, amp: number, footprint = 0): number {
     let v = 0;
     for (let o = 0; o < octaves; o++) {
-      v += this.noise(x * freq, z * freq) * amp;
+      const w = footprint > 0 ? Math.min(1, Math.max(0, 1 / (freq * footprint) - 1)) : 1;
+      if (w > 0) v += this.noise(x * freq, z * freq) * amp * w;
       freq *= 2;
       amp *= 0.5;
     }
@@ -87,11 +90,14 @@ export class Heightfield {
     return this.iceDeposits.some((d) => Math.hypot(x - d.cx, z - d.cz) <= d.r);
   }
 
-  private baseHeight(x: number, z: number): number {
+  /** The analytic surface before any pad: defined everywhere, so the far
+   *  horizon ring continues it past the map edge. The grid samples it with
+   *  footprint 0 (every octave). */
+  baseHeight(x: number, z: number, footprint = 0): number {
     const t = this.site.terrain;
     // gentle rolling regolith: 4-octave fBm, amplitude by site roughness
-    let h = this.fbm(x, z, 4, 1 / 700, 9 * t.roughness);
-    h += this.fbm(x + 999, z - 999, 2, 1 / 90, 0.7 * t.roughness);
+    let h = this.fbm(x, z, 4, 1 / 700, 9 * t.roughness, footprint);
+    h += this.fbm(x + 999, z - 999, 2, 1 / 90, 0.7 * t.roughness, footprint);
     for (const c of this.craters) {
       const d = Math.hypot(x - c.cx, z - c.cz) / c.r;
       if (d < 1) {
@@ -117,6 +123,23 @@ export class Heightfield {
 
   sampleGrid(ix: number, iz: number): number {
     return this.h[Math.min(Math.max(iz, 0), N - 1) * N + Math.min(Math.max(ix, 0), N - 1)];
+  }
+
+  /** Grid height, continued past the map edge by the analytic surface. */
+  private gridOrBase(ix: number, iz: number): number {
+    if (ix >= 0 && iz >= 0 && ix < N && iz < N) return this.h[iz * N + ix];
+    return this.baseHeight(ix * CELL_M - MAP_M / 2, iz * CELL_M - MAP_M / 2);
+  }
+
+  /** Unit normal at grid sample (ix, iz) by central differences. Every mesh
+   *  touching the grid uses this one definition, so vertices shared across
+   *  chunk borders and the horizon ring's inner edge shade identically. */
+  gridNormal(ix: number, iz: number, out: Float32Array, o: number) {
+    const nx = this.gridOrBase(ix - 1, iz) - this.gridOrBase(ix + 1, iz);
+    const nz = this.gridOrBase(ix, iz - 1) - this.gridOrBase(ix, iz + 1);
+    const ny = 2 * CELL_M;
+    const inv = 1 / Math.hypot(nx, ny, nz);
+    out[o] = nx * inv; out[o + 1] = ny * inv; out[o + 2] = nz * inv;
   }
 
   /** samples locked by a flatten pad — skirts of later pads must not move them,

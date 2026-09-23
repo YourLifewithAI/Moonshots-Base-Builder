@@ -1,5 +1,5 @@
 /** Material registry. Every mesh creator (building instances, terrain chunks,
- *  later rocks and the horizon) asks here for its surface instead of holding a
+ *  the horizon ring, rocks) asks here for its surface instead of holding a
  *  material itself, so the render-safety switches reach meshes created at any
  *  time — including the first building of a type placed after safe mode:
  *
@@ -10,7 +10,7 @@
  *                  launches, cleared by an explicit FX-level choice) */
 import * as THREE from 'three';
 
-export type MaterialKey = 'building' | 'terrain';
+export type MaterialKey = 'building' | 'terrain' | 'rock';
 
 /** Installs a shader patch on its material for an FX level. Returns a cache
  *  key naming the variant, or null when that level runs the stock shader. */

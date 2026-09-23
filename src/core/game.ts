@@ -16,11 +16,14 @@ import { ActionQueue, type Action } from './actions';
 import { economyTick, currentDay, refreshDerived, alert, computeMods, type Mods } from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
+import { Horizon } from '../terrain/horizon';
+import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
+import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam } from '../player/buildCam';
@@ -50,9 +53,12 @@ export class Game {
   private camera: THREE.PerspectiveCamera;
   private scene = new THREE.Scene();
   private lighting: Lighting;
+  private sky: Sky;
   private post: PostFX;
   private hf!: Heightfield;
   private chunks!: TerrainChunks;
+  private horizon!: Horizon;
+  private rocks!: Rocks;
   private instances!: BuildingInstances;
   private placement!: PlacementController;
   private buildCam: BuildCam;
@@ -76,6 +82,7 @@ export class Game {
     this.renderer = createRenderer(canvas);
     this.camera = createCamera();
     this.lighting = new Lighting(this.scene);
+    this.sky = new Sky(this.scene);
     this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
@@ -86,6 +93,7 @@ export class Game {
     this.post.onLevelChange = (level, explicit) => {
       if (explicit) materials.clearFault();
       materials.setFxLevel(level);
+      this.rocks?.setFxLevel(level);
     };
     // a program that fails to compile is reported here (replacing three's
     // console dump); the response waits until the frame has finished
@@ -145,7 +153,10 @@ export class Game {
     legacy.resources.chips ??= 0;
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
-    for (const f of this.state.flattens) this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
+    for (const f of this.state.flattens) {
+      this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
+      this.onFlattened(f.x0, f.z0, f.x1, f.z1);
+    }
     if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
     this.instances.rebuild(this.state);
     this.walk.colliders = this.instances.colliders(this.state);
@@ -164,20 +175,24 @@ export class Game {
     if (this.worldGroup) this.scene.remove(this.worldGroup);
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
     this.chunks = new TerrainChunks(this.hf);
+    this.horizon = new Horizon(this.hf);
+    this.rocks = new Rocks(this.hf);
+    this.rocks.setFxLevel(this.post.fxLevel);
     this.instances = new BuildingInstances(this.hf);
     this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
-      () => this.lighting.requestShadowUpdate();
+      this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
     this.lighting.requestShadowUpdate();
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.walk = new WalkController(this.hf);
+    this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
       $mode.set(m);
       if (m === 'walk' && !this.opts.nolock) this.canvas.requestPointerLock();
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
     });
     this.worldGroup = new THREE.Group();
-    this.worldGroup.add(this.chunks.group, this.instances.group);
+    this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group);
     this.iceOverlay = this.buildIceOverlay();
     if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
     // constrained sites show their buildable boundary as a faint ring
@@ -199,6 +214,7 @@ export class Game {
       this.worldGroup.add(ring);
     }
     this.scene.add(this.worldGroup);
+    this.sky.setSite(site);
     this.lastResources = null;
     this.buildCam.enabled = true;
     this.playing = true;
@@ -310,6 +326,14 @@ export class Game {
     $placing.set(null);
   }
 
+  /** Cells [x0..x1) × [z0..z1) were flattened: clear the rocks off them and
+   *  keep the horizon's shared edge in step with the grid. */
+  private onFlattened(x0: number, z0: number, x1: number, z1: number) {
+    this.rocks.clearRect(x0, z0, x1, z1);
+    this.walk.boulders = this.rocks.colliders();
+    this.horizon.onFlatten(x0, z0, x1, z1);
+  }
+
   // ─────────────────────────── actions ───────────────────────────
 
   private applyAction(a: Action) {
@@ -381,6 +405,7 @@ export class Game {
         const h = this.hf.flatten(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
         this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
+        this.onFlattened(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         s.resources.regolith += GRADE_REGOLITH_YIELD; // dozed spoil, recovered
         break;
       }
@@ -424,6 +449,7 @@ export class Game {
     const h = this.hf.flatten(r.gx0, r.gz0, r.gx1, r.gz1);
     s.flattens.push({ x0: r.gx0, z0: r.gz0, x1: r.gx1, z1: r.gz1, h });
     this.chunks.rebuildAround(r.gx0, r.gz0, r.gx1, r.gz1);
+    this.onFlattened(r.gx0, r.gz0, r.gx1, r.gz1);
     // rough terrain slows construction the same way it inflates costs;
     // teleoperation / swarm-robotics techs speed every build
     const buildTotal = Math.round(
@@ -498,6 +524,9 @@ export class Game {
     }
   }
 
+  /** Terrain height anywhere: the grid inside the map, the horizon ring past it. */
+  private groundAnywhere = (x: number, z: number) => this.horizon.heightAt(x, z);
+
   /** Does the screen point (u, v ∈ 0..1, origin bottom-left) look at terrain? */
   private groundAt(u: number, v: number): boolean {
     this.raycaster.setFromCamera(new THREE.Vector2(u * 2 - 1, v * 2 - 1), this.camera);
@@ -529,6 +558,8 @@ export class Game {
     console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows.');
     this.renderer.shadowMap.enabled = false;
     materials.enableSafe(this.scene);
+    this.rocks?.setSafe(true);
+    this.sky.setSafe(true);
     if (this.state) {
       alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
       this.publish();
@@ -620,6 +651,9 @@ export class Game {
     const focus = walking ? this.walk.pos : this.buildCam.controls.target;
     this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
     this.camera.updateMatrixWorld();
+    this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
+      this.groundAnywhere);
+    this.rocks.update(this.camera);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
       : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
     // at night the base carries its own light: hull glow, ground pools, and
@@ -893,8 +927,18 @@ export class Game {
       patchFault: materials.patchesFaulted,
       buildingMaterials: this.instances.materialTypes(),
       terrainMaterial: this.chunks.materialType,
+      horizonMaterial: (this.horizon.mesh.material as THREE.Material).type,
+      horizonSeam: this.horizon.seamError(),
+      rocks: this.rocks.stats(),
+      sky: this.sky.info(),
     };
   }
+
+  /** Rocks still standing with centres in a world rect (tests, probes). */
+  debugRocksIn(x0: number, z0: number, x1: number, z1: number): number {
+    return this.rocks.countIn(x0, z0, x1, z1);
+  }
+
 
   /** Hide the terrain so a screenshot masks the buildings (probe pixel stats).
    *  The black-frame sentinel is held off meanwhile — a terrain-less frame is

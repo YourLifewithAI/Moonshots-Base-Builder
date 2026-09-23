@@ -33,7 +33,8 @@ export function gpuInfo(renderer: THREE.WebGLRenderer): string {
 }
 
 export function createCamera(): THREE.PerspectiveCamera {
-  const cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 4000);
+  // far reaches the horizon ring's rim; depth precision rides on `near`
+  const cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 16000);
   cam.position.set(90, 110, 150);
   cam.lookAt(0, 0, 0);
   return cam;

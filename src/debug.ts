@@ -53,6 +53,7 @@ function api(game: Game) {
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
+    rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
   };
 }
 

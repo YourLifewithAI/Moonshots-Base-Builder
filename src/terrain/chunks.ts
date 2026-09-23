@@ -8,7 +8,7 @@ import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
 import { regolithPatch } from './terrainShader';
-import type { Heightfield } from './heightfield';
+import type { Crater, Heightfield } from './heightfield';
 
 materials.define('terrain', new THREE.MeshStandardMaterial({
   vertexColors: true,
@@ -16,10 +16,28 @@ materials.define('terrain', new THREE.MeshStandardMaterial({
   metalness: 0.0,
 }), regolithPatch);
 
+const colorNoise = createNoise2D(mulberry32(0xc0ffee));
+
+/** Regolith albedo at (x, z): mottled, darker in crater bowls, brighter on
+ *  fresh rims, kept inside the site's band. Shared by the chunks and the
+ *  horizon ring so the two agree at the map edge; `footprint` (m, the
+ *  caller's sample spacing) fades mottle too fine for it to hold. */
+export function regolithAlbedo(albedo: number, craters: readonly Crater[], x: number, z: number, footprint = 0): number {
+  const fade = (period: number) => (footprint > 0 ? Math.min(1, Math.max(0, period / footprint - 1)) : 1);
+  let v = 1;
+  v += colorNoise(x / 55, z / 55) * 0.08 * fade(55);
+  v += colorNoise(x / 11, z / 11) * 0.054 * fade(11);
+  for (const c of craters) {
+    const d = Math.hypot(x - c.cx, z - c.cz) / c.r;
+    if (d < 0.9) v -= 0.134 * (1 - d);              // basalt floor
+    else if (d < 1.35) v += 0.18 * (1.35 - d);      // fresh bright rim/ejecta
+  }
+  return albedo * Math.min(1.29, Math.max(0.54, v));
+}
+
 export class TerrainChunks {
   readonly group = new THREE.Group();
   private meshes: THREE.Mesh[] = [];
-  private colorNoise = createNoise2D(mulberry32(0xc0ffee));
   /** fired after a flatten rebuilt chunk geometry (terrain casts shadows) */
   onShadowCastersChanged?: () => void;
 
@@ -42,6 +60,7 @@ export class TerrainChunks {
     const n = CHUNK_CELLS + 1;
     const pos = new Float32Array(n * n * 3);
     const col = new Float32Array(n * n * 3);
+    const nrm = new Float32Array(n * n * 3);
     const gx0 = cx * CHUNK_CELLS;
     const gz0 = cz * CHUNK_CELLS;
     const albedo = this.hf.site.terrain.albedo;
@@ -53,18 +72,8 @@ export class TerrainChunks {
         const z = gz * CELL_M - MAP_M / 2;
         const y = this.hf.sampleGrid(gx, gz);
         pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
-
-        // regolith albedo relative to the site's: mottled, darker in crater
-        // bowls, brighter on fresh rims
-        let v = 1;
-        v += this.colorNoise(x / 55, z / 55) * 0.08;
-        v += this.colorNoise(x / 11, z / 11) * 0.054;
-        for (const c of this.hf.craters) {
-          const d = Math.hypot(x - c.cx, z - c.cz) / c.r;
-          if (d < 0.9) v -= 0.134 * (1 - d);              // basalt floor
-          else if (d < 1.35) v += 0.18 * (1.35 - d);      // fresh bright rim/ejecta
-        }
-        v = albedo * Math.min(1.29, Math.max(0.54, v));
+        this.hf.gridNormal(gx, gz, nrm, p);
+        const v = regolithAlbedo(albedo, this.hf.craters, x, z);
         col[p] = v; col[p + 1] = v; col[p + 2] = v * 1.005; // whisper of cool
         p += 3;
       }
@@ -78,18 +87,19 @@ export class TerrainChunks {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(idx);
-    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
     return geo;
   }
 
   /** Rebuild the (≤4) chunks covering a cell rect after a flatten. */
   rebuildAround(gx0: number, gz0: number, gx1: number, gz1: number) {
-    const cx0 = Math.max(0, Math.floor((gx0 - 2) / CHUNK_CELLS));
-    const cz0 = Math.max(0, Math.floor((gz0 - 2) / CHUNK_CELLS));
-    const cx1 = Math.min(CHUNKS - 1, Math.floor((gx1 + 2) / CHUNK_CELLS));
-    const cz1 = Math.min(CHUNKS - 1, Math.floor((gz1 + 2) / CHUNK_CELLS));
+    const cx0 = Math.max(0, Math.floor((gx0 - 3) / CHUNK_CELLS));
+    const cz0 = Math.max(0, Math.floor((gz0 - 3) / CHUNK_CELLS));
+    const cx1 = Math.min(CHUNKS - 1, Math.floor((gx1 + 3) / CHUNK_CELLS));
+    const cz1 = Math.min(CHUNKS - 1, Math.floor((gz1 + 3) / CHUNK_CELLS));
     for (let cz = cz0; cz <= cz1; cz++) {
       for (let cx = cx0; cx <= cx1; cx++) {
         const i = cz * CHUNKS + cx;
