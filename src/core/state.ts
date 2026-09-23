@@ -27,9 +27,10 @@ export interface BuildingState {
   /** total construction time this building was placed with (for progress UI) */
   buildTotal: number;
   /** filled in by the economy each tick (for inspector/status UI);
-   *  'reserve' = the inputs on hand are the crew's life-support reserve */
+   *  'reserve' = the inputs on hand are the crew's life-support reserve,
+   *  'full' = every output is at its stockpile cap */
   active: boolean;
-  idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'off' | 'building' | 'queued';
+  idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued';
 }
 
 export interface FlareState {

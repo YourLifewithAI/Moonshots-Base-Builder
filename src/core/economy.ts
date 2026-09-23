@@ -122,6 +122,25 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   if (mods.powerBeam) supply += s.launches * BEAM_KW_PER_LAUNCH;
 
+  // ── 1.5 · stockpile caps (this tick's structures) ──────────────────
+  const caps: Partial<Record<ResourceId, number>> = {};
+  for (const b of s.buildings) {
+    if (!b.enabled || building(b)) continue;
+    for (const [rid, amt] of Object.entries(BUILDINGS[b.type].caps ?? {})) {
+      caps[rid as ResourceId] = (caps[rid as ResourceId] ?? 0) + (amt ?? 0);
+    }
+  }
+  s.storageCaps = caps;
+  // a producer with no room for a tick of any of its outputs stands by: it
+  // would only burn inputs, power and crew to make product lost on the ground.
+  // (Room for a whole tick, not "below cap": upkeep nibbling a full yard
+  // must not wake a fabricator every tick.)
+  const outputFull = (b: BuildingState) => {
+    const outs = Object.entries(BUILDINGS[b.type].outputs) as [ResourceId, number][];
+    return outs.length > 0 && outs.every(([rid, rate]) => caps[rid] !== undefined &&
+      s.resources[rid] + rate * mods.outputMult[b.type] * dt > caps[rid]!);
+  };
+
   // ── 2 · demand + priority idling (construction sites draw too) ─────
   interface Draw { b: BuildingState; draw: number; prio: number; isSite: boolean }
   const wants: Draw[] = [];
@@ -135,6 +154,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       continue;
     }
     if (BUILDINGS[b.type].powerKW >= 0) continue;
+    if (b.enabled && outputFull(b)) { b.active = false; b.idleReason = 'full'; continue; }
     // autonomous agents trade crew and morale for watts
     const autoMult = isAuto(b) && BUILDINGS[b.type].crew > 0 ? 1.6 : 1;
     wants.push({
@@ -293,23 +313,17 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
 
   // ── 4.5 · stockpile caps: excess production is lost on the ground ──
-  const caps: Partial<Record<ResourceId, number>> = {};
-  for (const b of s.buildings) {
-    if (!b.enabled || building(b)) continue;
-    for (const [rid, amt] of Object.entries(BUILDINGS[b.type].caps ?? {})) {
-      caps[rid as ResourceId] = (caps[rid as ResourceId] ?? 0) + (amt ?? 0);
-    }
-  }
   for (const [rid, cap] of Object.entries(caps)) {
     const r = rid as ResourceId;
     if (s.resources[r] > (cap ?? 0)) {
       if (s.resources[r] > (cap ?? 0) + 0.5) {
-        alert(s, `STORAGE FULL — ${r} at capacity, build a Storage Yard`, 'warn');
+        // a byproduct tank topping off is routine; a full yard is waste
+        if (r === 'oxygen' || r === 'water') alert(s, `TANKS FULL — surplus ${r} vented`, 'info');
+        else alert(s, `STORAGE FULL — ${r} at capacity, build a Storage Yard`, 'warn');
       }
       s.resources[r] = cap ?? 0;
     }
   }
-  s.storageCaps = caps;
 
   // ── 5 · life support & crew (nobody aboard → nothing to keep alive) ─
   const o2Need = s.crew * CREW.oxygenPerCrew * lsMult * dt;
@@ -470,9 +484,15 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (s.simTime >= s.resupply.arriveAt) {
       s.resupply.pending = false;
       s.resupply.shipments += 1;
-      s.resources.metals += RESUPPLY.metals;
-      s.resources.parts += RESUPPLY.parts;
-      alert(s, `RESUPPLY LANDED — +${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts from Earth`, 'info');
+      // cargo that does not fit the stockpile is lost — and the log says so
+      const lost: string[] = [];
+      for (const [rid, amt] of [['metals', RESUPPLY.metals], ['parts', RESUPPLY.parts]] as const) {
+        const room = Math.max(0, (caps[rid] ?? Infinity) - s.resources[rid]);
+        s.resources[rid] += Math.min(amt, room);
+        if (amt - room >= 1) lost.push(`${Math.floor(amt - room)} ${rid}`);
+      }
+      alert(s, `RESUPPLY LANDED — +${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts from Earth` +
+        (lost.length ? ` · ${lost.join(' and ')} lost to full storage` : ''), lost.length ? 'warn' : 'info');
     }
   } else if (stranded) {
     s.resupply.pending = true;

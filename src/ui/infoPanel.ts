@@ -131,7 +131,7 @@ export function mountInfoPanel(root: HTMLElement) {
         <section><span class="label">Consumed by</span>${consumers || ''}${crewLine}
           ${!consumers && !crewLine ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
         ${cap !== undefined ? `<section><span class="label">Storage</span>
-          <div class="goal-hint">Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground.</div></section>` : ''}
+          <div class="goal-hint">Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground; a producer whose every output is full stands by instead of burning its inputs.</div></section>` : ''}
         ${NOTES[rid] ? `<section><span class="label">Field notes</span><div class="goal-hint">${NOTES[rid]}</div></section>` : ''}`;
     }
 

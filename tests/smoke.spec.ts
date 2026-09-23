@@ -463,6 +463,53 @@ test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page })
   expect(s2.resources.regolith).toBeLessThanOrEqual(700); // lander + yard
 });
 
+test('full stockpiles: producers stand by, tanks cap, shipment overflow is reported', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('partsFabrication'));
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('partsFab', 138, 128))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(140)); // solars 32s, fab 96s after
+  const running = await page.evaluate(() => window.__game.getState());
+  const fab = (s: any) => s.buildings.find((b: any) => b.type === 'partsFab');
+  expect(fab(running).active).toBe(true);
+  expect(running.storageCaps.parts).toBe(200);
+  // top the parts yard off: the fab stops eating metals instead of wasting them
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ parts: 200 - g.getState().resources.parts });
+    g.advanceGameSeconds(1);
+    const m0 = g.getState().resources.metals;
+    g.advanceGameSeconds(20);
+    return { s: g.getState(), metalsUsed: m0 - g.getState().resources.metals };
+  });
+  expect(fab(r.s).idleReason).toBe('full');
+  expect(fab(r.s).active).toBe(false);
+  expect(r.metalsUsed).toBeLessThan(0.7); // ≤ a couple of top-up ticks, not 20 s × 0.3
+  expect(r.s.resources.parts).toBeLessThanOrEqual(200);
+  // oxygen and water have tanks too — generous, and venting is routine
+  expect(r.s.storageCaps.oxygen).toBe(600);
+  expect(r.s.storageCaps.water).toBe(400);
+  await page.evaluate(() => window.__game.grantResources({ oxygen: 1000 }));
+  await page.evaluate(() => window.__game.advanceGameSeconds(1));
+  const tank = await page.evaluate(() => window.__game.getState());
+  expect(tank.resources.oxygen).toBeLessThanOrEqual(600);
+  expect(tank.alerts.some((a: any) => a.text.startsWith('TANKS FULL'))).toBe(true);
+  // an Earth shipment into a full yard says what it lost
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 300 - g.getState().resources.metals });
+    g.orderResupply();
+  });
+  await page.evaluate(() => window.__game.advanceGameMinutes(12.2));
+  const landed = await page.evaluate(() => window.__game.getState());
+  expect(landed.resupply.shipments).toBe(1);
+  expect(landed.resources.metals).toBeLessThanOrEqual(300);
+  expect(landed.alerts.some((a: any) =>
+    /^RESUPPLY LANDED .* \d+ metals.* lost to full storage$/.test(a.text) && a.kind === 'warn')).toBe(true);
+});
+
 test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=southpole`);
   await game(page);

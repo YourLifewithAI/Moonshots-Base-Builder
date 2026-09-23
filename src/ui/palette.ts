@@ -203,6 +203,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
+      : sel.idleReason === 'full' ? 'STANDBY — output full'
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
           ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''
