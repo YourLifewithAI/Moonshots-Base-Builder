@@ -36,6 +36,7 @@ export const START = {
   morale: 70,
   data: 0,
   powerStored: 800,                    // energy units (kW·gs) in the lander bank
+  /** metals are scaled by the site's buildCostMult at landing */
   resources: {
     regolith: 0, metals: 140, silicon: 0, water: 50, oxygen: 120,
     food: 120, parts: 70, chips: 0, foils: 0, launch: 0,

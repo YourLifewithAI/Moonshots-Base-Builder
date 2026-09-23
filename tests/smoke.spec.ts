@@ -51,6 +51,7 @@ test('landing starts the game with HUD and lander', async ({ page }) => {
   await expect(page.locator('#milestones')).not.toContainText('FIRST LIGHT');
   const state = await page.evaluate(() => window.__game.getState());
   expect(state.siteId).toBe('mare');
+  expect(state.resources.metals).toBe(112); // 140-metal cache scaled by the mare's 0.8 build costs
   expect(state.buildings.length).toBe(1);
   expect(state.buildings[0].type).toBe('lander');
   await page.screenshot({ path: 'test-results/02-landed.png' });
@@ -329,8 +330,12 @@ test('honest research path: lab is buildable from start and carries the tech tre
 test('metal deadlock triggers an Earth resupply a full day out', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
-  // burn the metals with no smelter anywhere → stranded
-  await page.evaluate(() => window.__game.grantResources({ metals: -130 }));
+  // burn the metals with no smelter anywhere → stranded (leave 10 of the
+  // site-scaled cache: 140 × 0.8 on the mare)
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 10 - g.getState().resources.metals });
+  });
   await page.evaluate(() => window.__game.advanceGameSeconds(2));
   const s = await page.evaluate(() => window.__game.getState());
   expect(s.resupply.pending).toBe(true);
@@ -530,7 +535,13 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=southpole`);
   await game(page);
   await page.evaluate(() => window.__game.completeTech('iceExtraction'));
+  const s0 = await page.evaluate(() => window.__game.getState());
+  expect(s0.resources.metals).toBe(175); // 140 × the pole's 1.25 build costs
+  // deposit 0 is the guaranteed starter patch, inside the Lander's build radius
   const dep = await page.evaluate(() => window.__game.getIceDeposits()[0]);
+  const fromLander = Math.hypot(dep.cx + 2, dep.cz + 2); // Lander centre sits at (−2, −2)
+  expect(fromLander).toBeGreaterThanOrEqual(40);
+  expect(fromLander).toBeLessThanOrEqual(55);
   const cell = { gx: Math.round((dep.cx + 512) / 4 - 1), gz: Math.round((dep.cz + 512) / 4 - 1) };
   // before the survey: placement blocked with the survey hint
   const pre = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
@@ -546,6 +557,7 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   const onIce = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
   expect(onIce.reason.toLowerCase()).not.toContain('ice');
   expect(onIce.reason.toLowerCase()).not.toContain('survey');
+  expect(onIce.valid).toBe(true); // the starter patch takes a harvester with no habitat chain
   // off-deposit near the lander: blocked for the right reason
   const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
   expect(offIce.reason).toContain('No ice beneath');

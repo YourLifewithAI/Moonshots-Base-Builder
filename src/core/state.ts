@@ -3,7 +3,7 @@
 import type { ResourceId } from '../data/resources';
 import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
-import type { SiteId } from '../data/sites';
+import { SITES, type SiteId } from '../data/sites';
 import { START } from '../data/balance';
 
 export interface BuildingState {
@@ -119,7 +119,11 @@ export function createInitialState(
     simTime: 90, // land mid-morning: the first thing you see is sunlit regolith
     speed: 1,
     paused: false,
-    resources: { ...START.resources },
+    // the cache buys the same opening everywhere: rough sites cost more to build on
+    resources: {
+      ...START.resources,
+      metals: Math.round(START.resources.metals * SITES[siteId].buildCostMult),
+    },
     powerStored: START.powerStored,
     power: { supply: 0, demand: 0, served: 0, capacity: START.powerStored, brownout: false, shed: false },
     crew: expedition === 'robotic' ? 0 : START.crew,
