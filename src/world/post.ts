@@ -98,7 +98,7 @@ export class PostFX {
         }
       }
       if (this.level === 0) {
-        // HDR-only: sunlit white hull peaks near 1.3 in half-float buffers, so
+        // HDR-only: sunlit white hull peaks near 1.5 in half-float buffers, so
         // only emissives (and the sun disc) pass this threshold
         try {
           const bloom = new BloomEffect({

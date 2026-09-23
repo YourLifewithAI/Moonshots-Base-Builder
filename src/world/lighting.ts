@@ -11,7 +11,7 @@ import { mulberry32 } from '../core/rng';
 
 const WORK_LIGHTS = 8; // exterior floods over the buildings nearest the camera
 
-export const SUN_INTENSITY = 4.8;
+export const SUN_INTENSITY = 5.4;
 const SHADOW_MAP = 2048;
 const SUN_DIST = 900;           // light sits this far sunward of the shadow window
 const SHADOW_MARGIN = 6;        // m of slack around the fitted ground

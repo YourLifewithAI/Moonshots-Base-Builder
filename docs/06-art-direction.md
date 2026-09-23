@@ -46,7 +46,7 @@ reference; the floats are canonical.
 
 | Element | Value (code) | ≈ Hex | Where |
 |---|---|---|---|
-| Regolith base | site `terrain.albedo`: mare **0.14**, lava tube **0.15**, south-pole highland **0.19** | — | `data/sites.ts` → `terrain/chunks.ts` vertex colors |
+| Regolith base | site `terrain.albedo`: mare **0.125**, lava tube **0.135**, south-pole highland **0.17** | — | `data/sites.ts` → `terrain/chunks.ts` vertex colors |
 | Regolith mottle, broad | `× (1 ± 0.08)` noise @ 1/55 m | — | simplex, seeded `0xc0ffee` |
 | Regolith mottle, fine | `× (1 ± 0.054)` noise @ 1/11 m | — | second simplex octave |
 | Crater floor (basalt) | `− 0.134 × (1−d)` for d < 0.9 | — | darkens toward bowl center |
@@ -73,8 +73,8 @@ Material response (the other half of "palette" in a PBR world):
 
 **Value structure.** The regolith is dark (real maria reflect 7–12%, highlands
 about twice that) and the sun is hot, so the ground renders mid-gray while
-sunlit hulls read about 2.2× brighter in linear luminance (measured: ground
-median sRGB 122, lit building faces 178 in the mare overview). The base is
+sunlit hulls read about 2.3× brighter in linear luminance (measured: ground
+median sRGB 123, lit building faces 183 in the mare overview). The base is
 the brightest thing on the Moon, as the LM is in every Apollo frame.
 
 Two tones per building is a hard limit. BODY carries mass; TRIM carries
@@ -88,7 +88,7 @@ One sun, one fill, nothing else:
 
 | Light | Values |
 |---|---|
-| Sun | `DirectionalLight #fffdf8`, intensity **4.8** (physically hot; AgX rolls it off) |
+| Sun | `DirectionalLight #fffdf8`, intensity **5.4** (physically hot; AgX rolls it off) |
 | Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
 | Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 0.11 (night)** |
 | Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
@@ -140,7 +140,7 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
    forms legible: contact shadows glue buildings to the regolith and carve
    panel joins without edge lines.
 3. **Bloom** (FX 0 only, its own pass) — mipmap blur, luminance threshold
-   **2.0**, intensity 0.6. A sunlit hull peaks near 1.3 in the HDR buffer,
+   **2.0**, intensity 0.6. A sunlit hull peaks near 1.5 in the HDR buffer,
    so only emissives and the sun disc ever glow.
 4. **Final pass** — one `EffectPass`:
    **SMAA** first (it re-reads the input buffer at edges, which would drop

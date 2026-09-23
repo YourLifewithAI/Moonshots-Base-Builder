@@ -130,7 +130,7 @@ const FRAG_ALBEDO = /* glsl */`
 		vec4 regF = texture2D( uRegolithDetail, regXZ * ${(1 / FINE_M).toFixed(6)} );
 		float regFadeF = ( 1.0 - smoothstep( ${(FINE_M / 64).toFixed(3)}, ${(FINE_M / 22).toFixed(3)}, regFw ) )
 			* ( 1.0 - smoothstep( 45.0, 90.0, regDist ) );
-		regSlope += ( regF.rg * 2.0 - 1.0 ) * ( 0.8 * regFadeF );
+		regSlope += ( regF.rg * 2.0 - 1.0 ) * ( 0.65 * regFadeF );
 		regAlb += ( regF.b - 0.5 ) * ( 0.7 * regFadeF );
 	#endif
 	diffuseColor.rgb *= max( 1.0 + regAlb, 0.5 );
