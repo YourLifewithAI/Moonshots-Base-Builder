@@ -30,7 +30,7 @@ const EARTH_DIST = 2800;
 const EARTH_R = 46;
 const SUN_R = 16;
 const SUN_HDR = 30;
-const GLARE = 0.5;
+const GLARE = 0.35;
 const GLARE_M = 700;           // sprite size at SKY_R (~14°)
 const DAY_STARS = 0.006;
 const MAG_MIN = -1.4, MAG_MAX = 6.5, MAG_K = 0.45;

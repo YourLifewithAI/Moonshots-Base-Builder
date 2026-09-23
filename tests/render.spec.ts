@@ -1,7 +1,8 @@
 /** Render-ladder test: every FX level, then safe mode, must draw a lit frame
  *  with no shader compile errors — including the first building of a type
  *  placed after each switch, which compiles a fresh program (or, in safe mode,
- *  must come up unlit like everything else). */
+ *  must come up unlit like everything else). The rocks thin down the ladder,
+ *  and the horizon ring and rocks go unlit with the rest in safe mode. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -66,7 +67,13 @@ test('render ladder: FX 0-3 and safe mode draw lit frames without shader errors'
     if (s.fx !== 'safe') {
       expect(info.fxLevel, 'the black-frame sentinel never stepped down').toBe(s.fx);
       expect(info.patches.terrain).toBe(s.fx <= 1 ? 'regolith-2' : s.fx === 2 ? 'regolith-1' : null);
+      expect(info.rocks.smallDensity, `FX ${s.fx}: small-rock density`).toBe([1, 1, 0.5, 0.25][s.fx]);
+      expect(info.horizonMaterial).toBe('MeshStandardMaterial');
     }
+    // the ring shares the map's edge samples exactly; boulders stay at every level
+    expect(info.horizonSeam).toBe(0);
+    expect(info.rocks.largeDrawn).toBe(info.rocks.large);
+    expect(info.sky.starLevel, 'no stars in a sunlit frame').toBeLessThan(0.01);
   }
   expect(shaderErrors).toEqual([]);
 
@@ -79,6 +86,9 @@ test('render ladder: FX 0-3 and safe mode draw lit frames without shader errors'
   for (const [type, mat] of Object.entries(info.buildingMaterials)) {
     expect(mat, `${type} mesh in safe mode`).toBe('MeshBasicMaterial');
   }
+  expect(info.horizonMaterial).toBe('MeshBasicMaterial');
+  expect(info.rocks.material).toBe('MeshBasicMaterial');
+  expect(info.rocks.smallDensity).toBe(0.25);
 });
 
 test('safe mode from boot: buildings placed later come up unlit', async ({ page }) => {
@@ -89,6 +99,10 @@ test('safe mode from boot: buildings placed later come up unlit', async ({ page 
   expect(info.safeMode).toBe(true);
   expect(info.buildingMaterials).toEqual({ lander: 'MeshBasicMaterial', solar: 'MeshBasicMaterial' });
   expect(info.terrainMaterial).toBe('MeshBasicMaterial');
+  // the ring and the rocks are created with the world, after safe mode
+  expect(info.horizonMaterial).toBe('MeshBasicMaterial');
+  expect(info.rocks.material).toBe('MeshBasicMaterial');
+  expect(info.rocks.smallDensity).toBe(0.25);
 });
 
 test('shadow map re-renders only on change', async ({ page }) => {
