@@ -1,7 +1,7 @@
 /** One plain-JSON world state object. The sim owns it; the UI never mutates it
  *  (typed actions only); the renderer reads it. Everything here serializes. */
 import type { ResourceId } from '../data/resources';
-import type { BuildingId } from '../data/buildings';
+import { BUILDINGS, type BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import { SITES, type SiteId } from '../data/sites';
 import { START } from '../data/balance';
@@ -70,8 +70,13 @@ export interface GameState {
   };
 
   crew: number;
+  /** beds in enabled, completed, powered housing — what the economy counts */
+  housingActive: number;
   morale: number;
   data: number;
+  /** smoothed net flow per resource, per game-second (production − consumption
+   *  − upkeep − spillage; deliveries and research goods are not flow) */
+  rates: Partial<Record<ResourceId, number>>;
   /** construction-robot fleet, recomputed each tick (busy = sites being built) */
   bots: { total: number; busy: number };
 
@@ -130,8 +135,10 @@ export function createInitialState(
     powerStored: START.powerStored,
     power: { supply: 0, demand: 0, served: 0, capacity: START.powerStored, brownout: false, shed: false },
     crew: expedition === 'robotic' ? 0 : START.crew,
+    housingActive: BUILDINGS.lander.housing ?? 0, // every base lands with its Lander
     morale: START.morale,
     data: START.data,
+    rates: {},
     bots: { total: 2, busy: 0 },
     era: 1,
     techsDone: [],

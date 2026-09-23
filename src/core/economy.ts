@@ -1,8 +1,8 @@
 /** The 1 Hz economy tick — deterministic resolution order:
  *  generator staffing → power supply → stockpile caps → priority idling →
  *  worker allocation → production (tier order) → life support & crew →
- *  parts upkeep & wear → morale → flare events → resupply → research →
- *  night tracking → milestones.
+ *  parts upkeep & wear → net rates → morale → flare events → resupply →
+ *  research → night tracking → milestones.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
@@ -11,7 +11,7 @@ import { MILESTONES } from '../data/milestones';
 import {
   AGENT_GEN_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
   CREW, CYCLE_S, FLARE,
-  LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
+  LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START, WEAR,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
@@ -71,6 +71,7 @@ export function currentDay(s: GameState, site: SiteDef): DayInfo {
 export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
   const ev: EconEvents = { modsChanged: false, victory: false, defeat: false };
   if (missionLost(s)) return ev;
+  const before = { ...s.resources };
   const day = currentDay(s, site);
   const robotic = s.expedition === 'robotic';
   // a robotic mission runs unmanned until Human Cohabitation brings settlers;
@@ -360,6 +361,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (def.powerKW < 0 && !powered.has(b.id)) continue;
     housing += def.housing;
   }
+  s.housingActive = housing;
   if (!o2ok || !foodok || !waterok) {
     s.starveT += dt;
     alert(s, !o2ok ? 'OXYGEN DEPLETED — crew is suffocating'
@@ -437,6 +439,15 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     alert(s, s.resupply?.pending
       ? 'PARTS DEPLETED — equipment wearing down until the Earth shipment lands at the Lander'
       : 'PARTS DEPLETED — equipment wearing down; order an Earth shipment at the Lander', 'warn');
+  }
+
+  // ── 6.5 · net flow rates (before deliveries and research goods) ──────
+  if (!s.rates) s.rates = {};
+  const k = Math.min(1, dt / RATE_SMOOTH_S);
+  for (const rid of Object.keys(s.resources) as ResourceId[]) {
+    const r = (s.resources[rid] - before[rid]) / dt;
+    const prev = s.rates[rid];
+    s.rates[rid] = prev === undefined ? r : prev + (r - prev) * k;
   }
 
   // ── 7 · morale ─────────────────────────────────────────────────────

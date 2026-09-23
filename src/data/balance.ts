@@ -88,6 +88,9 @@ export const SOLAR_DUST_RECOVER = 0.2; // per day, when parts upkeep is being pa
 /** low-reserve anxiety: below this many seconds of remaining supply, morale sinks */
 export const LOW_SUPPLY_S = 300;
 
+/** net resource rates are an exponential average over about this many game-seconds */
+export const RATE_SMOOTH_S = 20;
+
 /** research transfer cap: each OPERATING lab feeds this much banked data per
  *  game-second into the active tech — no lab, no progress; big techs want
  *  research campuses */

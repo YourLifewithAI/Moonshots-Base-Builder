@@ -576,6 +576,54 @@ test('life support first: a farm never drinks the crew dry', async ({ page }) =>
   expect(end.resources.food).toBeGreaterThan(120); // and the farm still fed them
 });
 
+test('net rates are the economy\'s smoothed flow; housing counts only powered beds', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  const flow = await page.evaluate(() => {
+    const g = window.__game!;
+    g.advanceGameSeconds(110); // excavator digging since 48s; the average has settled
+    const s1 = g.getState();
+    g.advanceGameSeconds(30);
+    const s2 = g.getState();
+    g.advanceGameSeconds(20); // however far a probe skips, the rate stays per game-second
+    const s3 = g.getState();
+    return {
+      r2: s2.rates.regolith, r3: s3.rates.regolith, regolith: s3.resources.regolith,
+      measured: (s2.resources.regolith - s1.resources.regolith) / 30,
+    };
+  });
+  expect(flow.regolith).toBeLessThan(290); // below the yard cap: nothing spilled
+  expect(flow.r2).toBeGreaterThan(0.5);
+  expect(Math.abs(flow.r2 - flow.measured)).toBeLessThan(0.05 * flow.measured);
+  expect(Math.abs(flow.r3 - flow.r2)).toBeLessThan(0.05 * flow.r2);
+
+  // paying for a building is not a flow: paused, a habitat's price leaves the
+  // metals panel at net 0/min (no smelter, nothing makes or burns metals)
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 130))).toBe(true);
+  await page.locator('#resource-strip .chip[data-key="metals"]').click();
+  await expect(page.locator('#res-panel')).toContainText('net 0/min');
+  await page.locator('#res-panel-close').click();
+
+  // housing: the HUD counts the beds the economy counts
+  const crewChip = page.locator('#resource-strip .chip[data-key="crew"]');
+  await expect(crewChip.locator('.cap')).toHaveText('/8'); // habitat still a site
+  await page.evaluate(() => { window.__game.setPaused(false); window.__game.advanceGameSeconds(80); });
+  await expect(crewChip.locator('.cap')).toHaveText('/12');
+  await expect(crewChip).toHaveAttribute('title', /12 beds built · 12 powered/);
+  const off = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setEnabled(g.getState().buildings.find((b: any) => b.type === 'habitat').id, false);
+    g.advanceGameSeconds(1);
+    return g.getState();
+  });
+  expect(off.housingActive).toBe(8);
+  await expect(crewChip.locator('.cap')).toHaveText('/8');
+  await expect(crewChip).toHaveAttribute('title', /12 beds built · 8 powered/);
+});
+
 test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

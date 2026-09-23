@@ -20,8 +20,9 @@ export const $resources = atom<Record<ResourceId, number>>({
   regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
 });
 export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false, shed: false });
+/** housing = beds the economy counts (enabled, complete, powered); beds = all completed */
 export const $vitals = atom({
-  crew: 0, housing: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
+  crew: 0, housing: 0, beds: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
   expedition: 'human' as 'human' | 'robotic',
 });
 /** Lander services status (shipment en route etc.) */
@@ -58,7 +59,7 @@ export const $iceOverlay = atom<boolean>(false);
 export const $caps = atom<Partial<Record<ResourceId, number>>>({});
 /** building counts (total / active / dark for lack of power) for the resource info panels */
 export const $counts = atom<Partial<Record<BuildingId, { total: number; active: number; dark: number }>>>({});
-/** per-game-second resource deltas (informational) */
+/** smoothed net flow per resource, per game-second (from the economy tick) */
 export const $rates = atom<Partial<Record<ResourceId, number>>>({});
 /** which resource info panel is open (chip click) */
 export const $resourcePanel = atom<string | null>(null);

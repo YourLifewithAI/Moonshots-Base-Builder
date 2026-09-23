@@ -10,7 +10,6 @@ import {
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
-import type { ResourceId } from '../data/resources';
 import { createInitialState, type GameState } from './state';
 import { ActionQueue, type Action } from './actions';
 import {
@@ -73,7 +72,6 @@ export class Game {
   private lastT = performance.now();
   private worldGroup: THREE.Group | null = null;
   private iceOverlay: THREE.Group | null = null;
-  private lastResources: Record<ResourceId, number> | null = null;
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.renderer = createRenderer(canvas);
@@ -130,6 +128,10 @@ export class Game {
     }
     // saves from before the chip era lack the chips stockpile
     legacy.resources.chips ??= 0;
+    // saves from before economy-side rates and live housing
+    legacy.rates ??= {};
+    legacy.housingActive ??= legacy.buildings.reduce((n, b) =>
+      n + (b.enabled && (b.construction ?? 0) <= 0 ? BUILDINGS[b.type].housing ?? 0 : 0), 0);
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
@@ -183,7 +185,6 @@ export class Game {
       this.worldGroup.add(ring);
     }
     this.scene.add(this.worldGroup);
-    this.lastResources = null;
     this.buildCam.enabled = true;
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
@@ -662,10 +663,12 @@ export class Game {
       stored: s.powerStored, capacity: s.power.capacity,
       brownout: s.power.brownout, shed: s.power.shed ?? false,
     });
-    let housing = 0;
-    for (const b of s.buildings) housing += BUILDINGS[b.type].housing ?? 0;
+    let beds = 0;
+    for (const b of s.buildings) {
+      if ((b.construction ?? 0) <= 0) beds += BUILDINGS[b.type].housing ?? 0;
+    }
     $vitals.set({
-      crew: s.crew, housing, morale: Math.round(s.morale), data: s.data,
+      crew: s.crew, housing: s.housingActive ?? 0, beds, morale: Math.round(s.morale), data: s.data,
       botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
       expedition: s.expedition ?? 'human',
     });
@@ -701,14 +704,7 @@ export class Game {
       if (b.idleReason === 'power' && (b.construction ?? 0) <= 0) c.dark += 1;
     }
     $counts.set(counts);
-    if (this.lastResources) {
-      const rates: Partial<Record<ResourceId, number>> = {};
-      for (const rid of Object.keys(s.resources) as ResourceId[]) {
-        rates[rid] = s.resources[rid] - this.lastResources[rid];
-      }
-      $rates.set(rates);
-    }
-    this.lastResources = { ...s.resources };
+    $rates.set({ ...(s.rates ?? {}) });
     const sel = $selection.get();
     if (sel) {
       const live = s.buildings.find((b) => b.id === sel.id);

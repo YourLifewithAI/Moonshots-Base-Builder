@@ -51,7 +51,8 @@ export function mountHud(root: HTMLElement, game: Game) {
     // a robotic base hides crew vitals until Human Cohabitation brings settlers
     const crewAboard = v.expedition !== 'robotic' || v.crew > 0;
     if (crewAboard) {
-      chip('crew', PERSON_SVG, 'Crew / housing', `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
+      chip('crew', PERSON_SVG, `Crew / housing — ${v.beds} beds built · ${v.housing} powered`,
+        `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
     }
     chip('bots', '◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
     if (crewAboard) {

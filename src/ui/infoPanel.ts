@@ -56,7 +56,8 @@ export function mountInfoPanel(root: HTMLElement) {
 
     if (key === 'crew' ) {
       html = `
-        <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div></section>
+        <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div>
+          ${v.beds > v.housing ? `<span class="label">${v.beds - v.housing} of ${v.beds} beds dark — shut down or unpowered</span>` : ''}</section>
         <section>
           <span class="label">How settlers arrive</span>
           <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, housing is free, and nobody is starving. Habitats add 4 beds each and extend the build perimeter.</div>
@@ -126,7 +127,7 @@ export function mountInfoPanel(root: HTMLElement) {
       html = `
         <section><div class="tt-name"><span>${def.glyph} ${def.name}</span>
           <span class="mono">${fmt(stock)}${cap ? ` / ${fmt(cap)}` : ''}</span></div>
-          <span class="label">net ${rate >= 0 ? '+' : ''}${fmt(Math.abs(rate)) === '0' ? '0' : (rate >= 0 ? '' : '−') + fmt(Math.abs(rate))}/min · ${def.desc}</span></section>
+          <span class="label">net ${fmt(Math.abs(rate)) === '0' ? '0' : (rate >= 0 ? '+' : '−') + fmt(Math.abs(rate))}/min · ${def.desc}</span></section>
         <section><span class="label">Produced by</span>${producers || '<div class="goal-hint">Nothing on the Moon makes this yet.</div>'}</section>
         <section><span class="label">Consumed by</span>${consumers || ''}${crewLine}
           ${!consumers && !crewLine ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
@@ -147,7 +148,8 @@ export function mountInfoPanel(root: HTMLElement) {
     const key = $resourcePanel.get();
     if (!key) return;
     const v = $vitals.get();
-    const next = `${key}|${JSON.stringify($counts.get())}|${v.crew}|${Math.floor(($resources.get()[key as ResourceId] ?? 0) / 5)}`;
+    const perMin = ($rates.get()[key as ResourceId] ?? 0) * 60;
+    const next = `${key}|${JSON.stringify($counts.get())}|${v.crew}|${v.housing}|${v.beds}|${Math.floor(($resources.get()[key as ResourceId] ?? 0) / 5)}|${perMin < 0 ? '-' : ''}${fmt(Math.abs(perMin))}`;
     if (next !== sig) { sig = next; render(); }
   });
 }
