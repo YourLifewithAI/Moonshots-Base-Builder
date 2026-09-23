@@ -224,6 +224,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
 
   // ── 4 · production in tier order (a tick's regolith can smelt same tick) ──
+  // the crew drinks first: production may not touch the last few minutes of
+  // life support, so a farm idles before it takes the crew's water
+  const lsMult = mods.inputMult['habitat'];
+  const reserve: Partial<Record<ResourceId, number>> = {
+    oxygen: s.crew * CREW.oxygenPerCrew * lsMult * LOW_SUPPLY_S,
+    food: s.crew * CREW.foodPerCrew * lsMult * LOW_SUPPLY_S,
+    water: s.crew * CREW.waterPerCrew * lsMult * LOW_SUPPLY_S,
+  };
   const byType = new Map<BuildingId, BuildingState[]>();
   for (const b of s.buildings) {
     if (!byType.has(b.type)) byType.set(b.type, []);
@@ -239,11 +247,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       if (!staffed.has(b.id)) continue;
       // inputs
       const inMult = mods.inputMult[type];
-      let ok = true;
+      let short: '' | 'inputs' | 'reserve' = '';
       for (const [rid, rate] of Object.entries(def.inputs)) {
-        if (s.resources[rid as keyof typeof s.resources] < rate * inMult * dt) { ok = false; break; }
+        const need = rate * inMult * dt;
+        const have = s.resources[rid as ResourceId];
+        if (have < need) { short = 'inputs'; break; }
+        if (have - (reserve[rid as ResourceId] ?? 0) < need) short = 'reserve';
       }
-      if (!ok) { b.idleReason = 'inputs'; continue; }
+      if (short) { b.idleReason = short; continue; }
       for (const [rid, rate] of Object.entries(def.inputs)) {
         s.resources[rid as keyof typeof s.resources] -= rate * inMult * dt;
       }
@@ -295,7 +306,6 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   s.storageCaps = caps;
 
   // ── 5 · life support & crew (nobody aboard → nothing to keep alive) ─
-  const lsMult = mods.inputMult['habitat'];
   const o2Need = s.crew * CREW.oxygenPerCrew * lsMult * dt;
   const foodNeed = s.crew * CREW.foodPerCrew * lsMult * dt;
   const waterNeed = s.crew * CREW.waterPerCrew * lsMult * dt;

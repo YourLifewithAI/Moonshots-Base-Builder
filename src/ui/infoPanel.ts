@@ -31,7 +31,7 @@ function buildingLine(type: BuildingId, rate: number, sign: '+' | '−'): string
 const NOTES: Partial<Record<string, string>> = {
   oxygen: 'Smelters exhale oxygen while smelting regolith — industry keeps the crew breathing. Crew consume it constantly; Closed-Loop Life Support cuts that 40%.',
   food: 'Hydroponics grow food from water and power. Crew eat around the clock; low reserves make everyone anxious.',
-  water: 'Ice Harvesters mine polar deposits (survey first); smelting regolith recovers a trickle everywhere.',
+  water: 'Ice Harvesters mine polar deposits (survey first); smelting regolith recovers a trickle everywhere. The crew drinks first: farms stand idle rather than take the last five minutes of the crew’s water.',
   regolith: 'Excavators dig it; nearly every industry eats it. Stockpile capacity comes from the Lander and Storage Yards.',
   metals: 'Smelted from regolith. If you run dry with no smelter, Earth sends an emergency shipment — a full day away.',
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
@@ -65,6 +65,7 @@ export function mountInfoPanel(root: HTMLElement) {
           <span class="label">Each settler consumes</span>
           <div class="row"><span>Oxygen</span><span class="mono">−${fmt(CREW.oxygenPerCrew * 60)}/min</span></div>
           <div class="row"><span>Food</span><span class="mono">−${fmt(CREW.foodPerCrew * 60)}/min</span></div>
+          <div class="row"><span>Water</span><span class="mono">−${fmt(CREW.waterPerCrew * 60)}/min</span></div>
           <div class="goal-hint">Closed-Loop Life Support (Era 2) cuts both by 40%. Autonomous Operations (Era 3) lets buildings run without crew at ×1.6 power.</div>
         </section>`;
     } else if (key === 'power') {
@@ -116,10 +117,11 @@ export function mountInfoPanel(root: HTMLElement) {
         .map((t) => buildingLine(t, BUILDINGS[t].outputs[rid]!, '+')).join('');
       const consumers = BUILD_ORDER.filter((t) => (BUILDINGS[t].inputs[rid] ?? 0) > 0)
         .map((t) => buildingLine(t, BUILDINGS[t].inputs[rid]!, '−')).join('');
-      const crewLine = rid === 'oxygen'
-        ? `<div class="row"><span>Crew ×${v.crew}</span><span class="mono">−${fmt(CREW.oxygenPerCrew * v.crew * 60)}/min</span></div>`
-        : rid === 'food'
-        ? `<div class="row"><span>Crew ×${v.crew}</span><span class="mono">−${fmt(CREW.foodPerCrew * v.crew * 60)}/min</span></div>`
+      const perCrew = rid === 'oxygen' ? CREW.oxygenPerCrew
+        : rid === 'food' ? CREW.foodPerCrew
+        : rid === 'water' ? CREW.waterPerCrew : 0;
+      const crewLine = perCrew
+        ? `<div class="row"><span>Crew ×${v.crew}</span><span class="mono">−${fmt(perCrew * v.crew * 60)}/min</span></div>`
         : '';
       html = `
         <section><div class="tt-name"><span>${def.glyph} ${def.name}</span>

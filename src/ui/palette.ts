@@ -29,6 +29,14 @@ function techThatUnlocks(b: BuildingId): string | null {
   return null;
 }
 
+/** the inputs a station shares with the crew's life support ("water", "food") */
+function lifeSupportInputs(type: BuildingId): string {
+  return (Object.keys(BUILDINGS[type].inputs) as ResourceId[])
+    .filter((rid) => rid === 'oxygen' || rid === 'food' || rid === 'water')
+    .map((rid) => RESOURCES[rid].name.toLowerCase())
+    .join(' and ') || 'supplies';
+}
+
 function ioRows(type: BuildingId): string {
   const def = BUILDINGS[type];
   const site = SITES[$siteId.get() ?? 'mare'];
@@ -192,6 +200,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'power' ? 'IDLE — no power'
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
+      : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
           ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''

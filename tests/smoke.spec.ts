@@ -359,6 +359,43 @@ test('low reserves breed anxiety; losing the crew ends the game', async ({ page 
   await expect(page.locator('#defeat-screen')).toContainText('THE BASE FALLS SILENT');
 });
 
+test('life support first: a farm never drinks the crew dry', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('hydroponicFarming'));
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('hydroponics', 120, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(80)); // farm built at 72s
+  // leave the crew just their five-minute reserve (4 × 0.005/s × 300 s = 6)
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ water: 6.05 - g.getState().resources.water });
+  });
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const held = await page.evaluate(() => window.__game.getState());
+  expect(held.buildings.find((b: any) => b.type === 'hydroponics').idleReason).toBe('reserve');
+  expect(held.resources.water).toBeGreaterThan(5.9); // only the crew drank
+
+  // the standard opening that used to die of thirst inside ten minutes
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('hydroponicFarming'));
+  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
+  for (const spot of [['solar', 132, 126], ['solar', 132, 130], ['solar', 136, 126],
+    ['excavator', 120, 126], ['smelter', 120, 132], ['hydroponics', 116, 126]]) {
+    expect(await page.evaluate(([t, x, z]) => window.__game.placeBuilding(t, x, z), spot)).toBe(true);
+  }
+  for (let m = 0; m < 25; m++) {
+    await page.evaluate(() => window.__game.advanceGameMinutes(1));
+    const s = await page.evaluate(() => window.__game.getState());
+    expect(s.crew).toBeGreaterThanOrEqual(4);
+    expect(s.alerts.some((a: any) => a.text.includes('WATER DEPLETED'))).toBe(false);
+  }
+  const end = await page.evaluate(() => window.__game.getState());
+  expect(end.nightsSurvived).toBeGreaterThanOrEqual(1);
+  expect(end.resources.food).toBeGreaterThan(120); // and the farm still fed them
+});
+
 test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

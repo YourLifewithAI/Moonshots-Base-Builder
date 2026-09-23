@@ -103,7 +103,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     id: 'hydroponics', name: 'Hydroponics Farm', category: 'life', era: 1,
     footprint: [2, 3], height: 4, buildTime: 90,
     buildCost: { metals: 25, parts: 5 }, crew: 1, powerKW: -6,
-    inputs: { water: 0.2 }, outputs: { food: 0.35 }, upkeepParts: 1, priority: 1,
+    inputs: { water: 0.03 }, outputs: { food: 0.10 }, upkeepParts: 1, priority: 1,
     moraleDelta: 5,
     pro: 'Fresh food, green light — the crew’s favorite corridor.',
     con: 'Crops die if power drops through the night. It holds your grid hostage.',
