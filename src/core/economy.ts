@@ -5,18 +5,18 @@
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
-import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
   BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
   CREW, CYCLE_S, FLARE,
-  LOW_SUPPLY_S, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
+  LOW_SUPPLY_S, MORALE, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
-import type { GameState, BuildingState } from './state';
-import { computeEra, computeMods, type Mods } from './mods';
+import { fillStateDefaults, type GameState, type BuildingState } from './state';
+import { computeMods, modsFor, type Mods } from './mods';
+import { computeEra, eraTick, insightTick, researchTick } from './research';
 import { dayInfo, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 
@@ -420,39 +420,9 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     alert(s, 'STRANDED — Earth resupply launched, arrival in 1 lunar day', 'crit');
   }
 
-  // ── 9 · research ───────────────────────────────────────────────────
-  const head = s.researchQueue[0];
-  if (head) {
-    const def = TECHS[head];
-    const banked = s.researchSpent[head] ?? 0;
-    const needed = def.costData - banked;
-    const activeLabs = s.buildings.filter((b) => b.type === 'lab' && b.active).length;
-    // each data center transfers like three labs — compute is the point of them
-    const activeDCs = s.buildings.filter((b) => b.type === 'dataCenter' && b.active).length;
-    const rate = RESEARCH_RATE_PER_LAB * (activeLabs + activeDCs * 3) * dt;
-    const spend = Math.min(needed, s.data, rate);
-    s.data -= spend;
-    s.researchSpent[head] = banked + spend;
-    if ((s.researchSpent[head] ?? 0) >= def.costData) {
-      let affordable = true;
-      for (const [rid, amt] of Object.entries(def.costGoods ?? {})) {
-        if (s.resources[rid as keyof typeof s.resources] < amt) { affordable = false; break; }
-      }
-      if (affordable) {
-        for (const [rid, amt] of Object.entries(def.costGoods ?? {})) {
-          s.resources[rid as keyof typeof s.resources] -= amt;
-        }
-        s.researchQueue.shift();
-        delete s.researchSpent[head];
-        s.techsDone.push(head);
-        s.era = computeEra(s.techsDone);
-        ev.modsChanged = true;
-        alert(s, `RESEARCH COMPLETE — ${def.name}`, 'info');
-      } else {
-        alert(s, `RESEARCH STALLED — ${def.name} needs manufactured goods`, 'warn');
-      }
-    }
-  }
+  // ── 9 · research (queue, transfer cap, goods pass: core/research.ts) ──
+  if (researchTick(s, mods, dt).modsChanged) ev.modsChanged = true;
+  insightTick(s);
 
   // ── 10 · night survival tracking ───────────────────────────────────
   if (s.wasNight && !day.isNight && (s.crew > 0 || robotic)) {
@@ -461,7 +431,8 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   s.wasNight = day.isNight;
 
-  // ── 11 · milestones (in order, progressive disclosure) ─────────────
+  // ── 11 · charters, then milestones (in order, progressive disclosure) ──
+  eraTick(s);
   for (const m of MILESTONES) {
     if (s.milestonesDone.includes(m.id)) continue;
     if (m.check(s)) {
@@ -476,10 +447,11 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   return ev;
 }
 
-/** Recompute mods + era from scratch (load, debug completeTech). */
+/** Recompute mods + era from scratch (load, debug completeTech). The era never goes down. */
 export function refreshDerived(s: GameState): Mods {
-  s.era = computeEra(s.techsDone);
-  return computeMods(s.techsDone, s.expedition);
+  fillStateDefaults(s);
+  s.era = computeEra(s);
+  return modsFor(s);
 }
 
 export { computeMods };

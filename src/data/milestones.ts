@@ -45,7 +45,7 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'era-3', title: 'Robots Build Robots',
-    hint: 'Reach Era 3 — Robotic Fabrication. Advancing an era needs two completed techs of the era before it.',
+    hint: 'Reach Era 3 — Robotic Fabrication. An era opens with 2 of the previous era’s techs — or 1 plus a deed.',
     check: (s) => s.era >= 3,
   },
   {
