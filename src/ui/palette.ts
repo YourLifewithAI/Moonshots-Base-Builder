@@ -17,7 +17,7 @@ const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
-  foilFactory: '▰', massDriver: '⟶',
+  foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
 };
 
 function techThatUnlocks(b: BuildingId): string | null {

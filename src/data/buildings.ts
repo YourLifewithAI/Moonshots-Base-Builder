@@ -9,7 +9,8 @@ export type BuildingId =
   | 'solar' | 'excavator' | 'habitat' | 'smelter' | 'iceHarvester' | 'hydroponics'
   | 'battery' | 'refinery' | 'lab' | 'roboticsBay' | 'storageYard'
   | 'partsFab' | 'reactor' | 'recDome' | 'chipFab' | 'dataCenter'
-  | 'foilFactory' | 'massDriver';
+  | 'foilFactory' | 'massDriver'
+  | 'relayMast' | 'propellantPlant';
 
 export type Category = 'power' | 'extraction' | 'industry' | 'life' | 'science' | 'export';
 
@@ -43,6 +44,10 @@ export interface BuildingDef {
   con: string;
   requiresIce?: boolean;
   unlockedFromStart?: boolean;         // rest come from techs
+  /** extends the buildable network this far from the structure (m) */
+  buildRadiusM?: number;
+  /** launch output is not scaled by the site's launchMult (rockets steer) */
+  ignoresLaunchMult?: boolean;
 }
 
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
@@ -105,6 +110,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     buildCost: { metals: 25, parts: 5 }, crew: 1, powerKW: -6,
     inputs: { water: 0.2 }, outputs: { food: 0.35 }, upkeepParts: 1, priority: 1,
     moraleDelta: 5,
+    unlockedFromStart: true,
     pro: 'Fresh food, green light — the crew’s favorite corridor.',
     con: 'Crops die if power drops through the night. It holds your grid hostage.',
   },
@@ -209,6 +215,23 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'Two point four kilometers a second, no rocket required.',
     con: 'A power-hungry rail with a long shadow — and it needs truly flat ground.',
   },
+  relayMast: {
+    id: 'relayMast', name: 'Relay Mast', category: 'science', era: 1,
+    footprint: [1, 1], height: 12, buildTime: 40,
+    buildCost: { metals: 20, parts: 5 }, crew: 0, powerKW: -1.5,
+    inputs: {}, outputs: {}, upkeepParts: 0.5, priority: 1, buildRadiusM: 45,
+    pro: 'Extends the build network 45 m from any completed mast — masts chain — and reveals deposits within 45 m.',
+    con: 'Produces nothing, and it needs power.',
+  },
+  propellantPlant: {
+    id: 'propellantPlant', name: 'Propellant Plant', category: 'export', era: 7,
+    footprint: [3, 2], height: 7, buildTime: 240,
+    buildCost: { metals: 90, parts: 30, silicon: 20 }, crew: 1, powerKW: -18,
+    inputs: { water: 0.30, oxygen: 0.05 }, outputs: { launch: 0.01 }, upkeepParts: 2, priority: 2,
+    ignoresLaunchMult: true,
+    pro: 'LOX/LH₂ rockets launch from any latitude — they steer where rails cannot.',
+    con: 'Drinks the crew’s water.',
+  },
 };
 
 export const BUILD_ORDER: BuildingId[] = [
@@ -216,8 +239,8 @@ export const BUILD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',
   'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
   'habitat', 'hydroponics', 'recDome',
-  'lab', 'dataCenter',
-  'foilFactory', 'massDriver',
+  'lab', 'relayMast', 'dataCenter',
+  'foilFactory', 'massDriver', 'propellantPlant',
 ];
 
 export const CATEGORY_ORDER: Category[] = ['power', 'extraction', 'industry', 'life', 'science', 'export'];
