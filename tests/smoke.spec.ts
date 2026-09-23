@@ -177,6 +177,31 @@ test('thorium reactor needs its operator; agent-run reactors pay the agent tax',
   expect(r.power.supply).toBeCloseTo(6 + 40 * 0.85, 0);
 });
 
+test('slow frames keep game time at full speed; a hitch is capped', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const site = () => g.getState().buildings.find((b: any) => b.type === 'solar').construction;
+    g.setSpeed(10);
+    g.stepFrame(0); // applies the speed change
+    const t0 = g.getState().simTime;
+    const c0 = site();
+    g.stepFrame(0.4); // one frame at 2.5 fps
+    const t1 = g.getState().simTime;
+    const c1 = site();
+    g.stepFrame(3); // a three-second stall
+    const t2 = g.getState().simTime;
+    g.setSpeed(1);
+    g.stepFrame(0);
+    return { slow: t1 - t0, welded: c0 - c1, hitch: t2 - t1 };
+  });
+  expect(r.slow).toBeCloseTo(4, 6);    // 0.4 s × 10, not the 0.1 s frame clamp × 10
+  expect(r.welded).toBeGreaterThanOrEqual(3); // the economy ticked along with it
+  expect(r.hitch).toBeCloseTo(5, 6);   // at most half a second of game time per frame
+});
+
 test('walk mode: WASD moves the astronaut across the terrain', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

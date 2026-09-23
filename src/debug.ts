@@ -40,6 +40,8 @@ function api(game: Game) {
     setPaused: (p: boolean) => game.actions.push({ kind: 'setPaused', paused: p }),
     advanceGameMinutes: (min: number) => game.debugAdvance(Math.round(min * 60)),
     advanceGameSeconds: (s: number) => game.debugAdvance(Math.round(s)),
+    /** one live frame of `realDt` wall-seconds, through the real loop's clamps */
+    stepFrame: (realDt: number) => game.debugFrame(realDt),
     setMode: (m: 'build' | 'walk') => game.setModeInstant(m),
     getPlayer: () => ({
       x: game.walkController.pos.x, y: game.walkController.pos.y, z: game.walkController.pos.z,

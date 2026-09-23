@@ -512,10 +512,10 @@ export class Game {
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
-    const dt = Math.min((t - this.lastT) / 1000, 0.1);
+    const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
-    if (this.playing) this.tick(dt);
-    this.post.render(dt);
+    if (this.playing) this.step(realDt);
+    this.post.render(Math.min(realDt, 0.1));
     // black-screen sentinel: some drivers fail shaders silently instead of
     // throwing. Probe the rendered output during daylight — first drop the
     // post chain, then escalate to safe mode. Counted from gameplay start
@@ -557,7 +557,14 @@ export class Game {
     }
   }
 
-  private tick(dt: number) {
+  /** One frame of play. Camera, walk physics and effects step at most 0.1 s,
+   *  but game time takes up to 0.5 s of it, so a slow GPU still runs the clock
+   *  at full speed (the tick loop's guard bounds the catch-up). */
+  private step(realDt: number) {
+    this.tick(Math.min(realDt, 0.1), Math.min(realDt, 0.5));
+  }
+
+  private tick(dt: number, simDt: number) {
     // actions first, every frame, so the UI feels immediate
     const acts = this.actions.drain();
     for (const a of acts) this.applyAction(a);
@@ -583,7 +590,7 @@ export class Game {
 
     // game time + economy at fixed 1 Hz (of game time)
     if (!this.state.paused) {
-      const gdt = dt * this.state.speed;
+      const gdt = simDt * this.state.speed;
       this.state.simTime += gdt;
       this.econAcc += gdt;
       let publish = acts.length > 0;
@@ -865,6 +872,11 @@ export class Game {
     this.commitPlace(type, gx, gz, rot, false);
     this.publish();
     return true;
+  }
+
+  /** run one frame of play as if `realDt` wall-seconds had passed (no render) */
+  debugFrame(realDt: number) {
+    if (this.playing) this.step(realDt);
   }
 
   debugCompleteTech(id: TechId) {
