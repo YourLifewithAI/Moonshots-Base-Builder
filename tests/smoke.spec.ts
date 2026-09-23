@@ -420,7 +420,7 @@ test('robot queue: Build next jumps the line, a paused site frees its robot, dem
   await expect(page.locator('#insp-demolish')).toContainText('Demolish'); // it has been welded on
   await page.locator('#insp-toggle').click();
   await expect(page.locator('#inspector')).toContainText('CONSTRUCTION PAUSED — shut down');
-  await expect(page.locator('#insp-toggle')).toHaveText('Resume build');
+  await expect(page.locator('#insp-toggle')).toHaveText('Resume');
 
   // demolish returns what the site actually cost on the mare (×0.8): all of it
   // for a site no robot has touched, half of it once welding has begun

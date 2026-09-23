@@ -266,13 +266,15 @@ export function mountPalette(root: HTMLElement, game: Game) {
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
         </div>
       </section>` : ''}
+      ${conRemaining > 0 && sel.enabled && sel.idleReason === 'queued' ? `<section>
+        <span class="label">Robot queue — sites build in placement order</span>
+        <div class="prio"><button class="btn" id="insp-buildnext">Build next</button></div>
+      </section>` : ''}
       <section class="actions">
-        ${conRemaining > 0 && sel.enabled && sel.idleReason === 'queued'
-          ? '<button class="btn" id="insp-buildnext" title="Move this site to the front of the robot queue">Build next</button>' : ''}
         ${sel.type !== 'lander' ? `<button class="btn" id="insp-toggle">${conRemaining > 0
-          ? (sel.enabled ? 'Pause build' : 'Resume build')
+          ? (sel.enabled ? 'Pause' : 'Resume')
           : (sel.enabled ? 'Shut down' : 'Power on')}</button>` : ''}
-        ${sel.type !== 'lander' ? `<button class="btn" id="insp-demolish" title="Refund: ${refund || 'nothing'}">${untouched ? 'Cancel build ↩' : 'Demolish ½↩'}</button>` : ''}
+        ${sel.type !== 'lander' ? `<button class="btn" id="insp-demolish" title="Refund: ${refund || 'nothing'}">${untouched ? 'Cancel ↩' : 'Demolish ½↩'}</button>` : ''}
         <button class="btn" id="insp-close">✕</button>
       </section>`;
     insp.querySelectorAll<HTMLButtonElement>('.prio-btn').forEach((b) => {
