@@ -27,9 +27,10 @@ export const $vitals = atom({
   expedition: 'human' as 'human' | 'robotic',
   boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
 });
-/** Lander services status (shipment en route, agent-run stations the crew could take) */
-export const $lander = atom<{ resupplyPending: boolean; etaS: number; agentRun: number }>({
-  resupplyPending: false, etaS: 0, agentRun: 0,
+/** Lander services status (shipment en route, the next order's transit in
+ *  lunar days, agent-run stations the crew could take) */
+export const $lander = atom<{ resupplyPending: boolean; etaS: number; orderDays: number; agentRun: number }>({
+  resupplyPending: false, etaS: 0, orderDays: 1, agentRun: 0,
 });
 /** on-screen condition bars over damaged buildings */
 export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: number }[]>([]);

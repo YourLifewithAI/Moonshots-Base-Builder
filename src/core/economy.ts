@@ -82,6 +82,11 @@ export function boardingShortfall(s: GameState, lsMult: number): '' | 'oxygen' |
   return '';
 }
 
+/** transit time of a shipment ordered by hand now: Earth's patience thins */
+export function orderDelayS(s: GameState): number {
+  return RESUPPLY.delayS + (s.resupply?.ordered ?? 0) * RESUPPLY.orderStepS;
+}
+
 /** a construction site's place in the robot queue (lower builds first) */
 export function queuePos(b: BuildingState): number {
   return b.buildSeq ?? b.id;

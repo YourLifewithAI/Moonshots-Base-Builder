@@ -190,7 +190,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
     const worn = Math.round((1 - wearDerate(sel)) * 100); // % output lost to wear
     const untouched = untouchedSite(sel);
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${untouched}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$lander.get().agentRun > 0}|${$vitals.get().crew > 0}`;
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${untouched}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$lander.get().orderDays}|${$lander.get().agentRun > 0}|${$vitals.get().crew > 0}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -218,6 +218,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const shadowNote = sel.type === 'solar' && sel.shaded ? ' · IN TERRAIN SHADOW −85%' : '';
     const vit = $vitals.get();
     const crewToggle = canToggleCrew(vit.expedition, vit.crew, $tech.get());
+    const orderDays = $lander.get().orderDays;
     insp.innerHTML = `
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
@@ -248,9 +249,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <div class="prio" style="margin-top:6px">
           ${$lander.get().resupplyPending
             ? `<span class="label">▲ Shipment en route — ${$lander.get().etaS}s</span>`
-            : '<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in 1 day</button>'}
+            : `<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in ${orderDays} day${orderDays === 1 ? '' : 's'}</button>`}
         </div>
-        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +${RESUPPLY.metals} metals · +${RESUPPLY.parts} parts · morale −${RESUPPLY.moraleHit} (the crew resents the umbilical)</div>
+        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +${RESUPPLY.metals} metals · +${RESUPPLY.parts} parts${vit.crew > 0 ? ` · morale −${RESUPPLY.moraleHit} (the crew resents the umbilical)` : ''}. Each order waits a lunar day longer than the last; Earth's rescue of a stranded base does not.</div>
         ${crewToggle && vit.crew > 0 && $lander.get().agentRun > 0 ? `<div class="prio" style="margin-top:6px">
           <button class="btn" id="insp-crewall">${PERSON_SVG} Crew all eligible stations</button>
         </div>

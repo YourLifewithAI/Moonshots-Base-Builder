@@ -455,6 +455,59 @@ test('metal deadlock triggers an Earth resupply a full day out', async ({ page }
   expect(s2.resupply.pending).toBe(false);
   expect(s2.resupply.shipments).toBe(1);
   expect(s2.resources.metals).toBeGreaterThanOrEqual(60);
+  // the rescue is free: it does not lengthen the next hand-placed order
+  await page.evaluate((id) => window.__game.select(id), s2.buildings[0].id);
+  await expect(page.locator('#insp-order')).toContainText('arrives in 1 day');
+});
+
+test('Earth shipments ordered by hand wait longer each time and cost morale whenever anyone is aboard', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  const order = () => page.evaluate(() => {
+    const g = window.__game!;
+    const before = g.getState();
+    g.orderResupply();
+    g.advanceGameSeconds(0);
+    const after = g.getState();
+    return {
+      transit: after.resupply.arriveAt - after.simTime,
+      moraleLost: before.morale - after.morale,
+      alert: after.alerts[after.alerts.length - 1].text,
+    };
+  });
+  const lander = await page.evaluate(() => window.__game.getState().buildings[0].id);
+  await page.evaluate((id) => window.__game.select(id), lander);
+  await expect(page.locator('#insp-order')).toContainText('arrives in 1 day');
+  await expect(page.locator('#inspector')).toContainText('morale −5');
+  const first = await order();
+  expect(first.transit).toBeCloseTo(720, 3);
+  expect(first.moraleLost).toBeCloseTo(5, 6);
+  expect(first.alert).toContain('arrival in 1 lunar day');
+  await page.evaluate(() => window.__game.advanceGameSeconds(721));
+  await expect(page.locator('#insp-order')).toContainText('arrives in 2 days');
+  const second = await order();
+  expect(second.transit).toBeCloseTo(1440, 3);
+  expect(second.alert).toContain('arrival in 2 lunar days');
+
+  // robots mind nothing — but settlers on a robotic base resent it like anyone
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  const lander2 = await page.evaluate(() => window.__game.getState().buildings[0].id);
+  await page.evaluate((id) => window.__game.select(id), lander2);
+  await expect(page.locator('#insp-order')).toBeVisible();
+  await expect(page.locator('#inspector')).not.toContainText('morale −5');
+  const unmanned = await order();
+  expect(unmanned.moraleLost).toBe(0);
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('humanCohabitation');
+    g.grantCrew(2);
+    g.advanceGameSeconds(721);
+  });
+  await expect(page.locator('#inspector')).toContainText('morale −5');
+  const crewed = await order();
+  expect(crewed.moraleLost).toBeCloseTo(5, 6);
+  expect(crewed.transit).toBeCloseTo(1440, 3);
 });
 
 test('parts loop: an honest robotic run never softlocks on parts, no shipment button needed', async ({ page }) => {

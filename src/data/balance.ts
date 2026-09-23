@@ -101,13 +101,15 @@ export const ICE_SURVEY_COST = 150;
 
 /** emergency Earth resupply — the anti-softlock: no smelter and no metals for
  *  one, or no Parts Fabricator and the spares cache nearly gone, means a
- *  shipment is ordered, and Earth is a full lunar day away */
+ *  shipment is ordered, and Earth is a full lunar day away. Orders placed by
+ *  hand at the Lander each wait a lunar day longer than the last. */
 export const RESUPPLY = {
   metals: 60,
   parts: 40,
   partsFloor: 15,                      // auto-order below this with no fabricator
   delayS: CYCLE_S,
-  moraleHit: 5,
+  orderStepS: CYCLE_S,                 // extra wait per earlier hand-placed order
+  moraleHit: 5,                        // whenever anyone is aboard
 };
 
 export const FLARE = {

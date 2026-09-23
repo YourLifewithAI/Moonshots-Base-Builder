@@ -14,8 +14,8 @@ import { createInitialState, type BuildingState, type GameState } from './state'
 import { canToggleCrew } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
-  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, queuePos,
-  settlersWelcome, type Mods,
+  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, orderDelayS,
+  queuePos, settlersWelcome, type Mods,
 } from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
@@ -396,10 +396,12 @@ export class Game {
           break;
         }
         if (!s.resupply) s.resupply = { pending: false, arriveAt: 0, shipments: 0 };
+        const days = Math.round(orderDelayS(s) / CYCLE_S);
         s.resupply.pending = true;
-        s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
-        if (s.expedition !== 'robotic') s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
-        alert(s, 'SHIPMENT ORDERED — Earth launch confirmed, arrival in 1 lunar day', 'info');
+        s.resupply.arriveAt = s.simTime + orderDelayS(s);
+        s.resupply.ordered = (s.resupply.ordered ?? 0) + 1;
+        if (s.crew > 0) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
+        alert(s, `SHIPMENT ORDERED — Earth launch confirmed, arrival in ${days} lunar day${days === 1 ? '' : 's'}`, 'info');
         break;
       }
       case 'surveyIce': {
@@ -722,6 +724,7 @@ export class Game {
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,
       etaS: s.resupply?.pending ? Math.max(0, Math.ceil(s.resupply.arriveAt - s.simTime)) : 0,
+      orderDays: Math.round(orderDelayS(s) / CYCLE_S),
       agentRun,
     });
     $time.set({

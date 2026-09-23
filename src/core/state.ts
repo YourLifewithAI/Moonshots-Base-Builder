@@ -100,8 +100,9 @@ export interface GameState {
   growthT: number;           // crew growth accumulator
 
   flare: FlareState;
-  /** emergency Earth shipment (anti-softlock); arriveAt is game time */
-  resupply: { pending: boolean; arriveAt: number; shipments: number };
+  /** Earth shipments; arriveAt is game time, ordered counts the hand-placed
+   *  orders (the automatic anti-softlock rescue is not counted) */
+  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number };
   /** ice deposits mapped (Lander survey, ice sites only) */
   iceSurveyed: boolean;
   /** current stockpile capacities, recomputed each tick (for the HUD) */
@@ -154,7 +155,7 @@ export function createInitialState(
     starveT: 0,
     growthT: 0,
     flare: { phase: 'idle', timer: 0, nextAt: 0 },
-    resupply: { pending: false, arriveAt: 0, shipments: 0 },
+    resupply: { pending: false, arriveAt: 0, shipments: 0, ordered: 0 },
     iceSurveyed: false,
     storageCaps: {},
     alerts: [],
