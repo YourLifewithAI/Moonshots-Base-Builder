@@ -2,7 +2,8 @@
  *  the era-banded tech tree (HTML cards over one SVG line layer), and the
  *  FIRST LIGHT victory overlay. */
 import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
-import { ERA_NAMES, TECHS, TECH_ORDER, techExpeditionLock, type TechId } from '../data/techs';
+import { ERA_NAMES, TECHS, TECH_ORDER, type TechId } from '../data/techs';
+import { resolveTech, techAvailability, techCost } from '../core/research';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
@@ -166,7 +167,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       return;
     }
     const def = TECHS[head];
-    const frac = Math.min(1, t.progress / def.costData);
+    const frac = Math.min(1, t.progress / Math.max(1, techCost(head, game.state).data));
     name.textContent = def.name;
     fill.style.width = `${frac * 100}%`;
     pct.textContent = frac >= 1 ? 'needs goods' : `${Math.round(frac * 100)}%`;
@@ -181,8 +182,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       renderChip();
       if (open) render();
     } else if (open && t.queue.length) {
-      const def = TECHS[t.queue[0]];
-      const pc = Math.min(100, (t.progress / def.costData) * 100);
+      const pc = Math.min(100, (t.progress / Math.max(1, techCost(t.queue[0], game.state).data)) * 100);
       const bar = screen.querySelector('.tech-card.queued .prog i') as HTMLElement | null;
       if (bar) bar.style.width = `${pc}%`;
       const qpc = screen.querySelector('#q-head-pct') as HTMLElement | null;
@@ -191,36 +191,24 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     updateChipResearch(t);
   });
 
-  const state = (tid: TechId): 'done' | 'queued' | 'available' | 'locked' => {
-    const t = $tech.get();
-    if (t.done.includes(tid)) return 'done';
-    if (t.queue.includes(tid)) return 'queued';
-    const def = TECHS[tid];
-    if (techExpeditionLock(def, $vitals.get().expedition, t.done as TechId[])) return 'locked';
-    if (def.era > t.era) return 'locked';
-    if (!def.requires.every((r) => t.done.includes(r) || t.queue.includes(r))) return 'locked';
-    return 'available';
+  // interim tree: research.ts decides; the swimlane tree (techTree.ts) replaces this
+  const state = (tid: TechId): 'done' | 'queued' | 'available' | 'locked' | 'hidden' => {
+    const a = techAvailability(tid, game.state).state;
+    if (a === 'done' || a === 'hidden' || a === 'available') return a;
+    if (a === 'queued' || a === 'stalled') return 'queued';
+    return 'locked';
   };
 
   /** why a locked card is locked — printed on the card so the player never
    *  has to guess which thread to pull */
-  const lockReason = (tid: TechId): string => {
-    const t = $tech.get();
-    const def = TECHS[tid];
-    const expLock = techExpeditionLock(def, $vitals.get().expedition, t.done as TechId[]);
-    if (expLock) return expLock;
-    const missing = def.requires.filter((r) => !t.done.includes(r) && !t.queue.includes(r));
-    if (missing.length) return `needs ${missing.map((r) => TECHS[r].name).join(', ')}`;
-    if (def.era > t.era) return `opens with Era ${def.era}`;
-    return '';
-  };
+  const lockReason = (tid: TechId): string => techAvailability(tid, game.state).reason;
 
   function render() {
     const t = $tech.get();
     screen.innerHTML = `
       <button class="btn" id="tech-close">Close [T]</button>
       <h1 style="font-size:22px; line-height:26px">RESEARCH</h1>
-      <div class="sub">Era ${t.era} — ${ERA_NAMES[t.era]} · complete 2 techs of an era to open the next</div>
+      <div class="sub">Era ${t.era} — ${ERA_NAMES[t.era]} · an era opens with 2 of the previous era’s techs — or 1 plus a deed</div>
       <div id="tech-wrap">
         <svg id="tech-svg"></svg>
         <div id="tech-cols"></div>
@@ -234,19 +222,19 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       const col = el('div', `era-col${era > t.era ? ' locked-era' : ''}`);
       col.innerHTML = `<div class="label">Era ${era} — ${ERA_NAMES[era]}</div>`;
       for (const tid of TECH_ORDER) {
-        const def = TECHS[tid];
+        const def = resolveTech(TECHS[tid], game.state.expedition);
         if (def.era !== era) continue;
-        // humans are already aboard: they never see the cohabitation tech
-        if (def.roboticOnly && $vitals.get().expedition !== 'robotic') continue;
         const st = state(tid);
+        if (st === 'hidden') continue;
+        const cost = techCost(tid, game.state).data;
         const card = el('div', `tech-card ${st}`);
         const goods = Object.entries(def.costGoods ?? {})
           .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
         const prog = st === 'queued' && $tech.get().queue[0] === tid
-          ? `<div class="prog"><i style="width:${Math.min(100, (t.progress / def.costData) * 100)}%"></i></div>` : '';
+          ? `<div class="prog"><i style="width:${Math.min(100, (t.progress / Math.max(1, cost)) * 100)}%"></i></div>` : '';
         const reason = st === 'locked' ? lockReason(tid) : '';
         card.innerHTML = `
-          <div class="nm"><span>${def.name}</span><span class="mono cap">${def.costData}≡${goods ? ' ' + goods : ''}</span></div>
+          <div class="nm"><span>${def.name}</span><span class="mono cap">${cost}≡${goods ? ' ' + goods : ''}</span></div>
           <div class="desc">${def.desc}</div>
           <div class="trade">${def.tradeoff}</div>
           ${reason ? `<div class="req">⬑ ${reason}</div>` : ''}
@@ -271,14 +259,15 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       svg.setAttribute('height', String(wrap.scrollHeight));
       let paths = '';
       for (const tid of TECH_ORDER) {
-        for (const req of TECHS[tid].requires) {
+        for (const req of [...TECHS[tid].requires, ...(TECHS[tid].requiresAny ?? [])]) {
           const a = cardEls.get(req)?.getBoundingClientRect();
           const b = cardEls.get(tid)?.getBoundingClientRect();
           if (!a || !b) continue;
           const doneLink = $tech.get().done.includes(req);
           const stroke = `fill="none" stroke="rgba(245,247,249,${doneLink ? 0.5 : 0.28})"
             stroke-width="1" ${doneLink ? '' : 'stroke-dasharray="3 3"'}`;
-          if (TECHS[req].era === TECHS[tid].era) {
+          const exp = game.state.expedition;
+          if (resolveTech(TECHS[req], exp).era === resolveTech(TECHS[tid], exp).era) {
             // same-era dependency (e.g. Silicon Refining → Parts Fabrication):
             // bracket out the LEFT edge of the column so the link is unmistakable
             const x1 = a.left - wr.left + wrap.scrollLeft;
@@ -308,7 +297,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     } else {
       queue.innerHTML = '<span class="label">Queue</span>' + t.queue.map((tid, i) => {
         const def = TECHS[tid];
-        const pc = i === 0 ? Math.round((t.progress / def.costData) * 100) : 0;
+        const pc = i === 0 ? Math.round((t.progress / Math.max(1, techCost(tid, game.state).data)) * 100) : 0;
         return `<button class="btn" data-t="${tid}" title="Click to cancel">${i + 1}. ${def.name}${i === 0 ? ` <span class="mono" id="q-head-pct">${pc}%</span>` : ''}</button>`;
       }).join('');
       queue.querySelectorAll<HTMLButtonElement>('button[data-t]').forEach((b) => {

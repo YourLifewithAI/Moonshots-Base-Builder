@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteId } from '../data/sites';
-import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
+import type { TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
   AUTOSAVE_S, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
@@ -13,7 +13,9 @@ import {
 import type { ResourceId } from '../data/resources';
 import { createInitialState, type GameState } from './state';
 import { ActionQueue, type Action } from './actions';
-import { economyTick, currentDay, refreshDerived, alert, computeMods, type Mods } from './economy';
+import { economyTick, currentDay, refreshDerived, alert, type Mods } from './economy';
+import { modsFor } from './mods';
+import { cancel, enqueue, enqueuePath, moveInQueue, researchView } from './research';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
@@ -33,7 +35,7 @@ import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
   $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
   $lander, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
-  $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
+  $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -405,25 +407,13 @@ export class Game {
         if (b) b.priority = a.priority;
         break;
       }
-      case 'research': {
-        const def = TECHS[a.tech];
-        if (!def) break;
-        if (s.techsDone.includes(a.tech) || s.researchQueue.includes(a.tech)) break;
-        if (def.era > s.era) break;
-        if (techExpeditionLock(def, s.expedition, s.techsDone)) break;
-        if (!def.requires.every((r) => s.techsDone.includes(r) || s.researchQueue.includes(r))) break;
-        if (s.researchQueue.length >= 3) break;
-        s.researchQueue.push(a.tech);
-        break;
-      }
-      case 'cancelResearch': {
-        const i = s.researchQueue.indexOf(a.tech);
-        if (i >= 0) {
-          // canceling an earlier item also drops anything that required it —
-          // banked data (researchSpent) is kept, so re-queuing resumes progress
-          s.researchQueue = s.researchQueue.filter((t, j) =>
-            j < i || (t !== a.tech && !TECHS[t].requires.includes(a.tech)));
-        }
+      case 'research': case 'researchPath': case 'cancelResearch': case 'moveResearch': {
+        // banked data (researchSpent) survives every queue change
+        const r = a.kind === 'research' ? enqueue(s, a.tech)
+          : a.kind === 'researchPath' ? enqueuePath(s, a.tech)
+          : a.kind === 'cancelResearch' ? cancel(s, a.tech)
+          : moveInQueue(s, a.tech, a.delta);
+        if (!r.ok) alert(s, r.reason, 'warn');
         break;
       }
       case 'setSpeed': s.speed = a.speed; break;
@@ -635,7 +625,7 @@ export class Game {
         this.econAcc -= 1;
         guard++;
         const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
-        if (ev.modsChanged) this.mods = computeMods(this.state.techsDone, this.state.expedition);
+        if (ev.modsChanged) this.mods = modsFor(this.state);
         if (ev.victory && !this.state.victoryShown) {
           this.state.victoryShown = true;
           victory = true;
@@ -773,6 +763,7 @@ export class Game {
       unlocked: [...this.mods.unlocked],
       automation: this.mods.automation, grading: this.mods.grading,
     });
+    $research.set(researchView(s, this.mods));
     $alerts.set([...s.alerts]);
     $milestones.set({ done: [...s.milestonesDone], total: MILESTONES.length });
     $swarm.set({
@@ -905,7 +896,7 @@ export class Game {
     for (let i = 0; i < gameSeconds; i++) {
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
-      if (ev.modsChanged) this.mods = computeMods(this.state.techsDone, this.state.expedition);
+      if (ev.modsChanged) this.mods = modsFor(this.state);
       if (ev.victory && !this.state.victoryShown) {
         this.state.victoryShown = true;
         victory = true;

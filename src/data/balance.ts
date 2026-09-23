@@ -100,3 +100,77 @@ export const SWARM_PCT_PER_LAUNCH = 0.0001;
 export const BEAM_KW_PER_LAUNCH = 4;   // power-beaming return per volley launched
 
 export const AUTOSAVE_S = 60;          // real seconds
+
+// ─── research tree & lunar map (docs/11-research-and-map-spec.md) ───
+
+export const QUEUE_MAX = 5;
+/** transfer cap per active Data Center (labs use RESEARCH_RATE_PER_LAB) */
+export const RESEARCH_RATE_PER_DC = 2.5;
+/** agent-run labs share one DSN allocation: E(n) = Σ weights[0..n−1], share = E(n)/n;
+ *  counts past the end reuse the last weight */
+export const LAB_UPLINK_WEIGHTS = [1, 1, 1, 1, 0.6, 0.6, 0.6, 0.6, 0.3];
+export const INSIGHT_MAX = 0.5;
+/** the single research-cost tuning dial, per resolved era */
+export const ERA_COST_SCALE: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = {
+  1: 1.0, 2: 1.0, 3: 1.0, 4: 1.0, 5: 1.0, 6: 1.0, 7: 1.0, 8: 1.0,
+};
+/** era N opens with this many visible done techs of resolved era N−1 (or 1 + the deed) */
+export const CHARTER_TECHS = 2;
+/** time constant of the displayed research transfer average (s.researchRateAvg) */
+export const RESEARCH_RATE_EMA_S = 30;
+
+export const LAB_DATA = {
+  base: 0.3,                           // data/s per lab before multipliers
+  roboticAgent: 0.75,                  // agent-run lab on a robotic mission
+  humanAgent: 1.0,                     // agent-run lab on a crewed mission
+  crewedMoraleExp: 1.5,                // crewed labs scale with workMult^1.5
+};
+export const DC_DATA_PER_S = 1.0;
+
+/** agent-run crewed stations draw ×(1 + agentTax); Rad-Hard multiplies the tax */
+export const AGENT_TAX = 0.6;
+export const WEAR_DERATE = { threshold: 0.3, mult: 0.5 };
+
+export const OVERCLOCK = { mult: 1.5, wearPerDay: 0.35, tripWear: 0.3 };
+export const DOWNLINK = {
+  baseData: 150, stepData: 50,         // cost = base + step × downlinks so far
+  delayS: 360,
+  cargo: { metals: 60, parts: 20, chips: 5 } as const,
+};
+export const CREW_ROTATION = {
+  delayS: 240, count: 2, retryS: 60,
+  minO2: 60, minO2Rate: 0.04, minFood: 12, minWater: 8, minHousing: 2,
+};
+export const CROP_LOSS = { darkS: 30, regrowS: 150 };
+export const HELIOPHYSICS_DATA = 25;   // flare turning active while a lab operates
+
+export const LAUNCH_CAP_PER_VOLLEY = 3; // ↑ per volley — needs core-fixes sign-off
+export const MAX_SLOPE_LARGE = 1.2;     // m of relief allowed under large pads
+
+/** feed-grade coefficients (spec S7): factor = max(floor, 1 + Σ coef × share) */
+export const FEED = {
+  floor: 0.5,
+  smelter: { ilmenite: 0.30, anorthosite: -0.30, kreep: -0.15 },
+  smelterO2Glass: 0.6,
+  refinery: { anorthosite: 0.40, ilmenite: -0.20 },
+  kreepReactorShare: 0.15,
+  kreepReactorUpkeep: 0.6,
+  kreepOutputMult: 1.15,               // KREEP outpost: reactor output
+  kreepChipMult: 1.1,                  // KREEP outpost: chipFab output (REE dopants)
+};
+/** location effects of the deposit under a building's footprint centre */
+export const DEPOSIT_FX = {
+  volatilesWater: 2.5, volatilesRegolith: 0.9,
+  glassExcavatorUpkeep: 1.3,
+  ridgeSolar: 1.2, ridgeSolarBuildTime: 1.3,
+};
+
+/** Exploration coverage tiers (index = tier) — reveal radius and outpost slots */
+export const SURVEY_TIERS = [
+  { label: 'LANDING SITE', revealM: 120, slots: 0 },
+  { label: 'REGIONAL', revealM: 320, slots: 0 },
+  { label: 'NEAR SIDE', revealM: MAP_M, slots: 1 },
+  { label: 'FAR SIDE', revealM: MAP_M, slots: 2 },
+  { label: 'SUBSURFACE', revealM: MAP_M, slots: 3 },
+] as const;
+export const ATLAS = { minTier: 4, surveys: 12, extraSlots: 1, streamMult: 1.25, insight: 0.25, lateData: 500 };

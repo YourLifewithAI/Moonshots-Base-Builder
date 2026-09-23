@@ -4,6 +4,8 @@ import type { ResourceId } from '../data/resources';
 import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import type { SiteId } from '../data/sites';
+import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
+import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
 import { START } from '../data/balance';
 
 export interface BuildingState {
@@ -29,6 +31,68 @@ export interface BuildingState {
   /** filled in by the economy each tick (for inspector/status UI) */
   active: boolean;
   idleReason: '' | 'power' | 'crew' | 'inputs' | 'off' | 'building' | 'queued';
+  /** Dynamic Clocking: ×1.5 draw, inputs, outputs and data; extra wear */
+  overclock?: boolean;
+  /** deposit under the footprint centre (stamped on placement, recomputed on load) */
+  deposit?: DepositKind;
+  /** hydroponics: seconds of output lost to a dead crop (0 = growing) */
+  cropRegrowT?: number;
+  /** seconds held dark (idleReason 'power') at night, reset when powered */
+  darkT?: number;
+  /** solar: seconds continuously in terrain shade */
+  shadedT?: number;
+  /** generators: staffed at last tick's worker allocation */
+  staffedPrev?: boolean;
+}
+
+/** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
+export interface GameStats {
+  /** buildings only — outposts and shipments excluded */
+  produced: Record<ResourceId, number>;
+  built: number;
+  waitingSitesPeak: number;
+  nightBrownouts: number;
+  dayBrownouts: number;
+  /** a priority ≤1 load went dark this night (reset at dusk) */
+  nightCritDark: boolean;
+  /** per-night accumulators, reset at dusk */
+  nightLoadShed: boolean;
+  nightDcAllActive: boolean;
+  cleanNightStreak: number;
+  dcCleanNight: boolean;
+  darkNightMaxS: number;
+  shadedMaxS: number;
+  maxDust: number;
+  lowPartsSeen: boolean;
+  wornSeen: boolean;
+  flaresWithSix: number;
+  ilmeniteDigS: number;
+  dcOpS: number;
+  outpostOpS: number;
+  minReserveS: number;
+  minMorale: number;
+}
+
+export interface ProspectRecord { surveyedAt: number; cls: ProspectClass; data: number }
+export interface ActiveSurvey { id: ProspectId; startedAt: number; endsAt: number }
+export interface OutpostState {
+  id: ProspectId;
+  kind: OutpostKind;
+  cls: ProspectClass;
+  claimedAt: number;
+  readyAt: number;
+  /** streaming (set once readyAt passes); only live outposts feed computeMods */
+  live: boolean;
+  fuelOk: boolean;
+  upkeepOk: boolean;
+}
+export interface SurveyState {
+  /** deposit ids revealed outside the tier radius (placement strike, relay mast, legacy ice survey) */
+  struck: string[];
+  prospects: Partial<Record<ProspectId, ProspectRecord>>;
+  active: ActiveSurvey | null;
+  outposts: OutpostState[];
+  atlas: boolean;
 }
 
 export interface FlareState {
@@ -70,6 +134,25 @@ export interface GameState {
   researchQueue: TechId[];   // head is in progress
   /** data banked per tech — survives queue reshuffles and cancels */
   researchSpent: Partial<Record<TechId, number>>;
+  /** tech-table schema; 1 = the 34-id tree (migrated by migrateTechSchema) */
+  techSchema: number;
+  /** earned research discounts per tech (0..INSIGHT_MAX) */
+  insights: Partial<Record<TechId, number>>;
+  /** breakthrough techs revealed by surveying a host prospect */
+  discoveries: TechId[];
+  /** queued techs whose data is paid but whose goods are short */
+  researchStalled: TechId[];
+  /** why the queue is not moving: no operating lab/DC, or every lab browned out */
+  researchPaused: '' | 'noLab' | 'brownout';
+  /** 30 s moving average of the actual data transfer, /s (ETAs) */
+  researchRateAvg: number;
+  stats: GameStats;
+  /** last tick's excavator feed shares — kept while nothing is dug */
+  feed: FeedGrade;
+  downlinks: number;
+  /** robotic Human Cohabitation: settlers board at `at` if the base can keep them */
+  crewRotation: { at: number; count: number } | null;
+  survey: SurveyState;
 
   buildings: BuildingState[];
   nextBuildingId: number;
@@ -123,6 +206,7 @@ export function createInitialState(
     techsDone: [],
     researchQueue: [],
     researchSpent: {},
+    ...researchDefaults(),
     buildings: [],
     nextBuildingId: 1,
     flattens: [],
@@ -142,4 +226,59 @@ export function createInitialState(
     victoryShown: false,
     defeatShown: false,
   };
+}
+
+export function emptyStats(): GameStats {
+  return {
+    produced: {
+      regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0,
+      food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
+    },
+    built: 0, waitingSitesPeak: 0, nightBrownouts: 0, dayBrownouts: 0,
+    nightCritDark: false, nightLoadShed: false, nightDcAllActive: false,
+    cleanNightStreak: 0, dcCleanNight: false, darkNightMaxS: 0, shadedMaxS: 0,
+    maxDust: 0, lowPartsSeen: false, wornSeen: false, flaresWithSix: 0,
+    ilmeniteDigS: 0, dcOpS: 0, outpostOpS: 0,
+    minReserveS: 1e9,   // "never measured": no crew aboard yet
+    minMorale: 100,
+  };
+}
+
+function researchDefaults() {
+  return {
+    techSchema: 2,
+    insights: {},
+    discoveries: [] as TechId[],
+    researchStalled: [] as TechId[],
+    researchPaused: '' as const,
+    researchRateAvg: 0,
+    stats: emptyStats(),
+    feed: emptyFeed(),
+    downlinks: 0,
+    crewRotation: null,
+    survey: { struck: [], prospects: {}, active: null, outposts: [], atlas: false } as SurveyState,
+  };
+}
+
+/** Fill every field added with the research/map redesign on a loaded state
+ *  (never overwrites). techSchema is left alone: migrateTechSchema owns it. */
+export function fillStateDefaults(s: GameState): GameState {
+  const legacy = s as Partial<GameState> & GameState;
+  const d = researchDefaults();
+  legacy.insights ??= d.insights;
+  legacy.discoveries ??= d.discoveries;
+  legacy.researchStalled ??= d.researchStalled;
+  legacy.researchPaused ??= d.researchPaused;
+  legacy.researchRateAvg ??= d.researchRateAvg;
+  legacy.stats = { ...d.stats, ...(legacy.stats ?? {}) };
+  legacy.stats.produced = { ...d.stats.produced, ...(legacy.stats.produced ?? {}) };
+  legacy.feed = { ...d.feed, ...(legacy.feed ?? {}) };
+  legacy.downlinks ??= d.downlinks;
+  legacy.crewRotation ??= d.crewRotation;
+  legacy.survey = { ...d.survey, ...(legacy.survey ?? {}) };
+  for (const b of legacy.buildings ?? []) {
+    b.overclock ??= false;
+    b.cropRegrowT ??= 0;
+  }
+  return s;
 }

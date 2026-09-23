@@ -145,6 +145,18 @@ const R: Record<BuildingId, () => BufferGeometry> = {
     strut(5.0, TRIM, 4.5, 2.5, 1.0), strut(5.0, TRIM, 4.5, 2.5, -1.0),
     strut(6.6, TRIM, 9.5, 3.3, 1.0), strut(6.6, TRIM, 9.5, 3.3, -1.0),
   ]),
+  relayMast: () => merge([
+    box(1.6, 0.4, 1.6, TRIM, 0, 0.2, 0),
+    cyl(0.18, 0.3, 11, BODY, 0, 5.9, 0),
+    cyl(1.2, 0.2, 0.5, BODY, 0, 11.2, 0, 0.6),
+  ]),
+  propellantPlant: () => merge([
+    box(4.6, 2.4, 7.6, BODY, -3.2, 1.2, 0),
+    cyl(1.5, 1.5, 6.2, BODY, 2.2, 3.1, -1.8),
+    cyl(1.5, 1.5, 6.2, BODY, 2.2, 3.1, 1.8),
+    dome(1.5, TRIM, 2.2, 6.2, -1.8), dome(1.5, TRIM, 2.2, 6.2, 1.8),
+    cyl(0.25, 0.25, 4.2, TRIM, -0.4, 2.6, 0, 0, Math.PI / 2),
+  ]),
 };
 
 const cache = new Map<BuildingId, BufferGeometry>();

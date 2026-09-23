@@ -7,6 +7,9 @@ import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import type { SiteId } from '../data/sites';
 import type { AlertMsg, BuildingState } from '../core/state';
+import type { ResearchView } from '../core/research';
+import type { DepositKind } from '../data/deposits';
+import type { MapView, OutpostKind, ProspectClass, ProspectId, ProspectKind } from '../data/lunarMap';
 
 export type Phase = 'title' | 'site' | 'playing';
 
@@ -40,6 +43,43 @@ export const $tech = atom<{
   automation: boolean;
   grading: boolean;
 }>({ era: 1, done: [], queue: [], progress: 0, unlocked: [], automation: false, grading: false });
+/** The research tree, computed in game.publish() by research.researchView();
+ *  the UI never recomputes availability, cost or ETA. null before the first publish. */
+export const $research = atom<ResearchView | null>(null);
+
+export interface LunarProspectView {
+  id: ProspectId; cls: ProspectClass; dist: number; visible: boolean; surveyed: boolean;
+  kind: ProspectKind; bt: TechId | null; claimable: boolean; reason: string;
+}
+export interface LunarOutpostView {
+  id: ProspectId; kind: OutpostKind; readyAt: number; fuelOk: boolean; upkeepOk: boolean;
+  /** display text, e.g. `+0.20≈/s` */
+  stream: string;
+}
+export interface LunarView {
+  tier: 0 | 1 | 2 | 3 | 4;
+  view: MapView;
+  maxView: MapView;
+  /** a tier unlocked while the map was closed: pulse the chip, animate on next open */
+  justExpanded: boolean;
+  slots: number;
+  used: number;
+  surveyedCount: number;
+  atlas: boolean;
+  prospects: LunarProspectView[];
+  active: { id: ProspectId; remaining: number } | null;
+  outposts: LunarOutpostView[];
+}
+export const $lunar = atom<LunarView | null>(null);
+
+export interface DepositView {
+  id: string; kind: DepositKind; x: number; z: number; r: number;
+  revealed: boolean;
+  lead: { x: number; z: number } | null;
+  inNetwork: boolean;
+}
+export const $deposits = atom<DepositView[]>([]);
+
 export const $alerts = atom<AlertMsg[]>([]);
 export const $milestones = atom<{ done: string[]; total: number }>({ done: [], total: 0 });
 export const $swarm = atom({ pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0 });
