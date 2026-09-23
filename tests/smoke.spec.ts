@@ -144,6 +144,38 @@ test('power: dark loads count as demand; load shed vs brownout; power returns in
   expect(back.power.shed).toBe(false);
 });
 
+test('thorium reactor needs its operator; agent-run reactors pay the agent tax', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('thoriumPower'));
+  await page.evaluate(() => window.__game.grantResources({ metals: 300, parts: 100 }));
+  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 120, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(500)); // build 240s each, two robots
+  const s = await page.evaluate(() => window.__game.getState());
+  const reactors = (st: any) => st.buildings.filter((b: any) => b.type === 'reactor');
+  // staffed reactors run — and count as active, so their morale con applies
+  expect(reactors(s).every((b: any) => b.active)).toBe(true);
+  expect(s.power.supply).toBeCloseTo(6 + 40 + 40, 0);
+  // one operator left for two reactors: the second one goes cold
+  await page.evaluate(() => window.__game.grantCrew(-3));
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const s2 = await page.evaluate(() => window.__game.getState());
+  expect(reactors(s2).map((b: any) => b.idleReason).sort()).toEqual(['', 'crew']);
+  expect(s2.power.supply).toBeCloseTo(6 + 40, 0);
+
+  // robotic: agents staff the reactor, and skim its output for their own load
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('thoriumPower'));
+  await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60 }));
+  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 132, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(260));
+  const r = await page.evaluate(() => window.__game.getState());
+  expect(reactors(r)[0].active).toBe(true);
+  expect(r.power.supply).toBeCloseTo(6 + 40 * 0.85, 0);
+});
+
 test('walk mode: WASD moves the astronaut across the terrain', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

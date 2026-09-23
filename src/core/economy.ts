@@ -1,5 +1,5 @@
 /** The 1 Hz economy tick — deterministic resolution order:
- *  power supply → priority idling → worker allocation → production (tier order)
+ *  generator staffing → power supply → priority idling → worker allocation → production (tier order)
  *  → life support & crew → parts upkeep & wear → morale → flare events →
  *  research → night tracking → milestones.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
@@ -8,7 +8,7 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
+  AGENT_GEN_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
   CREW, CYCLE_S, FLARE,
   LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
@@ -79,6 +79,26 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   s.bots = { total: botsTotal, busy: botAssigned.size };
 
+  // ── 0.5 · generator staffing — crewed generators take workers first,
+  // because every other station's power depends on them ───────────────
+  let workers = s.crew;
+  const staffed = new Set<number>();
+  const crewedGen = (b: BuildingState) => BUILDINGS[b.type].powerKW > 0 && BUILDINGS[b.type].crew > 0;
+  for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
+    if (building(b) || !crewedGen(b)) continue;
+    b.active = false;
+    b.idleReason = '';
+    if (!b.enabled) { b.idleReason = 'off'; continue; }
+    const need = isAuto(b) ? 0 : Math.max(0, BUILDINGS[b.type].crew + mods.crewDelta[b.type]);
+    if (workers >= need) {
+      workers -= need;
+      staffed.add(b.id);
+      b.active = true;
+    } else {
+      b.idleReason = 'crew';
+    }
+  }
+
   // ── 1 · power supply ───────────────────────────────────────────────
   let supply = 0;
   let capacity = 0;
@@ -88,8 +108,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (def.storageKWh) capacity += def.storageKWh;
     if (!b.enabled) continue;
     if (def.powerKW > 0) {
+      if (crewedGen(b) && !staffed.has(b.id)) continue;
       let out = def.powerKW * mods.powerMult[b.type];
       if (b.type === 'solar') out *= day.sunFactor * (1 - b.dust) * (b.shaded ? 0.15 : 1);
+      if (crewedGen(b) && isAuto(b)) out *= 1 - AGENT_GEN_TAX;
       if (b.wear > 0.3) out *= 0.5;
       supply += out;
     }
@@ -191,10 +213,8 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   else if (shed) alert(s, 'LOAD SHED — low-priority systems idled to protect the grid', 'info');
 
   // ── 3 · worker allocation (priority order) ─────────────────────────
-  let workers = s.crew;
-  const staffed = new Set<number>();
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
-    if (building(b)) continue;
+    if (building(b) || crewedGen(b)) continue;
     const def = BUILDINGS[b.type];
     const need = isAuto(b) ? 0 : Math.max(0, def.crew + mods.crewDelta[b.type]);
     if (!b.enabled || need === 0) { staffed.add(b.id); continue; }
@@ -246,10 +266,11 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     }
   }
   // structures with no inputs/outputs/crew that were powered count as active
+  // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {
     if (building(b)) continue;
     const def = BUILDINGS[b.type];
-    if (b.enabled && def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = true;
+    if (def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = b.enabled;
     if (b.enabled && def.powerKW < 0 && powered.has(b.id) && Object.keys(def.outputs).length === 0
         && Object.keys(def.inputs).length === 0 && staffed.has(b.id)) b.active = true;
   }

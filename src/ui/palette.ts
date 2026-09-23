@@ -8,7 +8,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
-import { CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
+import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
 import { $ice, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloater } from './stores';
@@ -39,8 +39,10 @@ function ioRows(type: BuildingId): string {
     Object.entries(rec).map(([rid, rate]) =>
       `${fmt((rate as number) * 60)} ${RESOURCES[rid as ResourceId].name.toLowerCase()}/min`).join(' · ') || '—';
   // on a robotic mission, crewed stations run on agents: show the real draw
-  const agentRun = $vitals.get().expedition === 'robotic' && def.crew > 0 && def.powerKW < 0;
-  const power = def.powerKW >= 0 ? `+${def.powerKW} kW`
+  const agentRun = $vitals.get().expedition === 'robotic' && def.crew > 0;
+  const power = def.powerKW > 0 && agentRun
+    ? `+${fmt(def.powerKW * (1 - AGENT_GEN_TAX))} kW (−${Math.round(AGENT_GEN_TAX * 100)}% agent-run)`
+    : def.powerKW >= 0 ? `+${def.powerKW} kW`
     : agentRun ? `${(def.powerKW * 1.6).toFixed(1)} kW (×1.6 agent-run)`
     : `${def.powerKW} kW`;
   const upkeep = def.upkeepParts ? `${def.upkeepParts} parts/day` : '—';
@@ -192,7 +194,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
-          ? `OPERATING · AUTONOMOUS${def.crew > 0 ? ' · ×1.6 kW' : ''}`
+          ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''
+            : def.powerKW > 0 ? ` · −${Math.round(AGENT_GEN_TAX * 100)}% kW` : ' · ×1.6 kW'}`
           : 'OPERATING')
         : 'STANDBY';
     const shadowNote = sel.type === 'solar' && sel.shaded ? ' · IN TERRAIN SHADOW −85%' : '';
@@ -232,7 +235,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
       </section>` : ''}
       ${def.crew > 0 && ($tech.get().automation ||
         ($vitals.get().expedition === 'robotic' && $vitals.get().crew > 0)) ? `<section>
-        <span class="label">Operations — agents draw ×1.6 power, need no crew or morale</span>
+        <span class="label">Operations — ${def.powerKW > 0
+          ? `agents keep ${Math.round((1 - AGENT_GEN_TAX) * 100)}% of the output`
+          : 'agents draw ×1.6 power'}, need no crew or morale</span>
         <div class="prio" style="margin-top:6px">
           <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">${PERSON_SVG} Crewed</button>
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
