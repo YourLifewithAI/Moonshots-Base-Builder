@@ -34,7 +34,7 @@ Corollaries that follow from the thesis:
 | No filters, only light | AgX tonemapping does the "film" work; albedo stays neutral |
 | Shape is identity | Buildings must read by silhouette, never by hue (§5) |
 | The sky is black | UI panels are dark so the *world* is the bright element (see 07) |
-| Zero binary assets | Every texture-like effect is vertex color, noise, or post |
+| Zero binary assets | Every texture-like effect is vertex color, noise, a texture generated at boot, or post |
 
 ---
 
@@ -46,12 +46,13 @@ reference; the floats are canonical.
 
 | Element | Value (code) | ≈ Hex | Where |
 |---|---|---|---|
-| Regolith base | `0.56` | `#8f8f8f` | `terrain/chunks.ts` vertex colors |
-| Regolith mottle, broad | `± 0.045` noise @ 1/55 m | — | simplex, seeded `0xc0ffee` |
-| Regolith mottle, fine | `± 0.03` noise @ 1/11 m | — | second simplex octave |
-| Crater floor (basalt) | `−0.075 × (1−d)` for d < 0.9 | — | darkens toward bowl center |
-| Crater rim/ejecta (fresh) | `+0.05 × (1.35−d) × 2` for d < 1.35 | — | bright ring |
-| Regolith clamp | `0.30 … 0.72` | — | keeps terrain inside mid-gray band |
+| Regolith base | site `terrain.albedo`: mare **0.14**, lava tube **0.15**, south-pole highland **0.19** | — | `data/sites.ts` → `terrain/chunks.ts` vertex colors |
+| Regolith mottle, broad | `× (1 ± 0.08)` noise @ 1/55 m | — | simplex, seeded `0xc0ffee` |
+| Regolith mottle, fine | `× (1 ± 0.054)` noise @ 1/11 m | — | second simplex octave |
+| Crater floor (basalt) | `− 0.134 × (1−d)` for d < 0.9 | — | darkens toward bowl center |
+| Crater rim/ejecta (fresh) | `+ 0.18 × (1.35−d)` for d < 1.35 | — | bright ring |
+| Regolith clamp | `0.54 … 1.29 ×` albedo | — | keeps each site inside its own band |
+| Regolith micro-detail | `× (1 ± ~0.15)` from the detail tile | — | `terrain/terrainShader.ts`, per pixel (§5) |
 | Regolith cool bias | blue channel `× 1.005` | — | a whisper, not a tint |
 | Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — lit metal panels |
 | Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — accents, struts, stacks |
@@ -66,8 +67,15 @@ Material response (the other half of "palette" in a PBR world):
 
 - **Regolith**: `roughness 0.96, metalness 0.0` — bone-dry powder, no specular
   glint, so form reads through shading alone.
-- **Buildings**: `roughness 0.55, metalness 0.35` — brushed aluminum that
-  catches the sun on curved hulls without ever blowing out to mirror.
+- **Buildings**: `roughness 0.55, metalness 0.15` — satin aluminum. With no
+  environment map there is nothing for metal to reflect, so metalness only
+  darkens; it stays low until one exists.
+
+**Value structure.** The regolith is dark (real maria reflect 7–12%, highlands
+about twice that) and the sun is hot, so the ground renders mid-gray while
+sunlit hulls read about 2.2× brighter in linear luminance (measured: ground
+median sRGB 122, lit building faces 178 in the mare overview). The base is
+the brightest thing on the Moon, as the LM is in every Apollo frame.
 
 Two tones per building is a hard limit. BODY carries mass; TRIM carries
 detail. There is no third value and no per-building tint.
@@ -80,10 +88,11 @@ One sun, one fill, nothing else:
 
 | Light | Values |
 |---|---|
-| Sun | `DirectionalLight #fffdf8`, intensity **3.2** (physically hot; AgX rolls it off) |
-| Sun shadows | `PCFSoftShadowMap`, **2048²** map, ortho frustum ±260 m, near 10 / far 1600, bias −0.0004, normalBias 0.03 |
-| Earthshine | `HemisphereLight #2a3a55` → black ground; intensity 0.42 at boot, driven per-frame to **0.28 (day) → 0.44 (night)** |
-| Tonemapping | **AgX**, exposure **1.1**, sRGB output (`renderer.ts`) |
+| Sun | `DirectionalLight #fffdf8`, intensity **4.8** (physically hot; AgX rolls it off) |
+| Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
+| Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 0.11 (night)** |
+| Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
+| Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
 
 Dynamics, driven by the day/night clock (`core/daynight.ts`):
 
@@ -92,9 +101,21 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   short dusk window (`t = (elev + 0.03)/0.1`), so night is earthshine and
   stars only. Polar sites keep a grazing 0.05 rad sun all night — their
   "peak of eternal light" rendered literally.
-- The shadow frustum re-centers on the camera focus every frame (build-cam
-  target or the astronaut), so shadow resolution is spent where the player is
-  looking.
+- **Shadows are fitted, snapped, and change-driven** (`Lighting.fitShadow`).
+  The four frustum-corner rays are intersected with the ground plane through
+  the focus (clamped to 2.2 × camera distance in build mode, 160 m in walk
+  mode), the box is padded for 20 m-tall receivers, and its size steps in
+  9% increments with hysteresis. The window is snapped to whole texels in
+  light space, so edges hold still while panning. Typical texels: 0.06 m in
+  a close build view or on foot, 0.12–0.18 m in the default overview (the
+  old fixed ±460 m window was 0.45 m). The map is re-rendered only when the
+  sun turns 0.1°, the snapped window moves or resizes, or casters change
+  (placements, construction rise, terrain flattening) — never at night.
+  `Lighting.requestShadowUpdate()` is the hook for anything that moves.
+- **Terrain casts shadows.** Back faces fill the shadow map (three's default
+  `shadowSide`), so lit slopes never self-shadow; crater walls and ridges
+  throw Apollo-black shadow at low sun, and a solar array the economy marks
+  as terrain-shaded now visibly sits in shadow.
 
 ### Starfield and Earth
 
@@ -110,26 +131,47 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
 
 ## 4. Post chain (`src/world/post.ts`)
 
-`EffectComposer` (HalfFloat) in this exact order:
+`EffectComposer` (HalfFloat at FX 0) in this exact order:
 
 1. **RenderPass** — the scene.
 2. **N8AO** (`N8AOPostPass`) — `aoRadius 3.0, intensity 2.5, distanceFalloff
-   1.0`, quality "Low". AO is what makes white-on-gray forms legible: contact
-   shadows glue buildings to the regolith and carve panel joins without edge
-   lines.
-3. **Grain** — `NoiseEffect`, OVERLAY blend, premultiplied, opacity **0.14**.
-   The film-stock cue; also dithers the long gray gradients that grayscale is
-   prone to banding on.
-4. **Vignette** — offset **0.28**, darkness **0.52**. Pulls the eye centerward,
-   Hasselblad frame falloff.
-5. **SMAA** — final antialiasing (the renderer runs with MSAA off).
+   1.0`, quality "Medium" at **half resolution** with depth-aware upsampling
+   (cheaper than the old full-res "Low"). AO is what makes white-on-gray
+   forms legible: contact shadows glue buildings to the regolith and carve
+   panel joins without edge lines.
+3. **Bloom** (FX 0 only, its own pass) — mipmap blur, luminance threshold
+   **2.0**, intensity 0.6. A sunlit hull peaks near 1.3 in the HDR buffer,
+   so only emissives and the sun disc ever glow.
+4. **Final pass** — one `EffectPass`:
+   **SMAA** first (it re-reads the input buffer at edges, which would drop
+   any effect merged ahead of it), then **AgX tone mapping** (render targets
+   bypass the renderer's own), **grain** (`NoiseEffect`, OVERLAY,
+   premultiplied, opacity **0.14** — the film-stock cue that also dithers
+   long gray gradients) and **vignette** (offset **0.28**, darkness **0.52** —
+   Hasselblad frame falloff).
 
-Grain, vignette, and SMAA share a single `EffectPass`, so the full chain is
-three passes (two on low-end).
+**Degradation ladder** (`world/post.ts`, `world/materials.ts`). Not every
+GPU runs everything; the game walks down until something renders, and the
+working level persists to `localStorage`:
 
-**Degradation tier**: `?lowfx` drops the N8AO pass only — grain, vignette, and
-SMAA are cheap and stay. This is the one quality switch in the slice; the
-mobile tier ladder is roadmap work (09).
+| Level | Post | Scene shaders |
+|---|---|---|
+| FX 0 | half-float · AO · bloom · final pass | regolith patch, both detail scales |
+| FX 1 | 8-bit buffers · AO · final pass | regolith patch, both detail scales |
+| FX 2 (`?lowfx`) | 8-bit buffers · final pass | regolith patch, coarse scale only |
+| FX 3 | plain forward render | stock three.js materials |
+| Safe mode | plain, no shadows | unlit `MeshBasicMaterial` twins |
+
+Every mesh creator takes its material from the registry
+(`materials.get(key)`), so safe mode also covers buildings created after it
+switched on. A shader that fails to compile is caught by
+`renderer.debug.onShaderError`: if it carries a patch, every patch is
+stripped back to the stock shader (remembered across launches until an FX
+level is chosen explicitly) and the player sees an alert; any other program
+steps the post ladder down. The black-frame sentinel reads a 4×4 grid of the
+drawing buffer and judges only the samples whose view ray hits terrain, so a
+single failed terrain program is caught even with buildings on screen.
+`tests/render.spec.ts` walks all five rungs.
 
 ---
 
@@ -155,9 +197,25 @@ because they come from the same source.
 
 Chunking (`terrain/chunks.ts`): 8×8 chunks that share edge samples with
 their neighbors, so flattening a building pad rebuilds at most 4 chunk meshes
-and never opens a crack. Terrain casts no shadows (it only receives) —
-crater self-shadowing comes from AO and shading, keeping the shadow map for
-buildings.
+and never opens a crack. The chunks cast and receive sun shadows (§3).
+
+**Regolith shader** (`terrain/terrainShader.ts`, patched in through
+`onBeforeCompile`, so the stock shader is always one removal away):
+
+- **Micro-relief** — at first use a 512² tiling texture is generated: three
+  octaves of value-noise grain plus 1,600 craterlets with a cumulative
+  N(>r) ∝ r⁻² size law (bowl + gaussian rim; fresh ones get dark floors and
+  bright rims). It holds detail slopes and an albedo offset and is sampled
+  at two world scales — a 41 m tile (rotated 37°) for 0.2–3.5 m craterlets
+  and a 7.3 m tile for grain and pits — perturbing the normal and albedo.
+  Each scale fades out by pixel footprint (`fwidth`) and distance before it
+  can shimmer.
+- **Lunar photometry** — the direct diffuse term is McEwen's lunar-Lambert
+  (Lambert blended with Lommel–Seeliger by phase angle, which gives the Moon
+  its flat, limb-bright look) times a Hapke-style opposition surge
+  (B₀ 0.8, h 0.07): the bright halo around the anti-solar point, i.e. around
+  your own shadow. μ is floored at 0.05 so the blend never divides by zero
+  at grazing view angles.
 
 ---
 
@@ -210,8 +268,8 @@ direction, not an afterthought:
 |---|---|---|
 | Draw calls | < 100 | 64 terrain chunks + ≤15 instanced building types + stars + Earth + ghost/outline ≈ **85 worst case** |
 | Triangles | ~1 M | terrain 131 k; buildings a few hundred–2 k each ×96 cap — comfortably under |
-| Shadow maps | 1 × 2048² | single cascade, focus-following |
-| Post passes | ≤ 3 | render + AO + (grain·vignette·SMAA); 2 with `?lowfx` |
+| Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (terrain + buildings) |
+| Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx` |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
 | Assets | 0 bytes binary | all procedural; fonts are system stacks (07) |
 

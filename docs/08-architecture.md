@@ -37,15 +37,17 @@ src/
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
     chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds
+    terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
   buildings/
     meshKit.ts            parametric primitive kit + BODY/TRIM vertex-color baking
     recipes.ts            15 building silhouettes composed from the kit (cached)
     instances.ts          one InstancedMesh per type, picking, walk-mode AABBs
     placement.ts          ghost preview + checkPlacement validity chain + site build costs
   world/
-    renderer.ts           WebGLRenderer (AgX, PCFSoft shadows) + camera
-    lighting.ts           sun + earthshine + starfield + Earth disc
-    post.ts               composer: N8AO → grain → vignette → SMAA (?lowfx drops AO)
+    renderer.ts           WebGLRenderer (AgX, PCF shadows) + camera
+    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + stars + Earth
+    materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
+    post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; black-frame sentinel
   player/
     buildCam.ts           MapControls overhead camera, clamped to the map
     walk.ts               first-person controller: lunar gravity, capsule vs AABBs
