@@ -1,7 +1,8 @@
 /** The 1 Hz economy tick — deterministic resolution order:
- *  generator staffing → power supply → priority idling → worker allocation → production (tier order)
- *  → life support & crew → parts upkeep & wear → morale → flare events →
- *  research → night tracking → milestones.
+ *  generator staffing → power supply → stockpile caps → priority idling →
+ *  worker allocation → production (tier order) → life support & crew →
+ *  parts upkeep & wear → morale → flare events → resupply → research →
+ *  night tracking → milestones.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';

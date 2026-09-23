@@ -66,7 +66,7 @@ export function mountInfoPanel(root: HTMLElement) {
           <div class="row"><span>Oxygen</span><span class="mono">−${fmt(CREW.oxygenPerCrew * 60)}/min</span></div>
           <div class="row"><span>Food</span><span class="mono">−${fmt(CREW.foodPerCrew * 60)}/min</span></div>
           <div class="row"><span>Water</span><span class="mono">−${fmt(CREW.waterPerCrew * 60)}/min</span></div>
-          <div class="goal-hint">Closed-Loop Life Support (Era 2) cuts both by 40%. Autonomous Operations (Era 3) lets buildings run without crew at ×1.6 power.</div>
+          <div class="goal-hint">Closed-Loop Life Support (Era 6) cuts all three by 40%. Autonomous Operations (Era 3) lets buildings run without crew at ×1.6 power.</div>
         </section>`;
     } else if (key === 'power') {
       const gen = (['solar', 'reactor', 'lander'] as BuildingId[])
@@ -94,9 +94,9 @@ export function mountInfoPanel(root: HTMLElement) {
           <div class="row"><span>Hydroponics (fresh food)</span><span class="mono">+5</span></div>
           <div class="row"><span>Recreation Dome</span><span class="mono">+14</span></div></section>
         <section><span class="label">Sinks it</span>
-          <div class="row"><span>Low oxygen/food reserves</span><span class="mono">−10 each</span></div>
-          <div class="row"><span>Brownouts (priority 0–1 dark)</span><span class="mono">${MORALE.blackout}</span></div>
-          <div class="row"><span>Load shedding (priority 2–3 idled)</span><span class="mono">${MORALE.shed}</span></div>
+          <div class="row"><span>Low oxygen/food/water reserves</span><span class="mono">−10 each</span></div>
+          <div class="row"><span>Brownouts (priority 0–1 dark)</span><span class="mono">−${-MORALE.blackout}</span></div>
+          <div class="row"><span>Load shedding (priority 2–3 idled)</span><span class="mono">−${-MORALE.shed}</span></div>
           <div class="row"><span>Overcrowding</span><span class="mono">−20</span></div>
           <div class="row"><span>Reactor next door</span><span class="mono">−5</span></div>
           <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;
