@@ -63,14 +63,16 @@ playwright.config.ts      test runner config (preinstalled Chromium aware)
 ## 2. The loop (`core/game.ts`)
 
 One `requestAnimationFrame` loop; no separate sim thread. Per frame, with
-`dt = min(frameDt, 0.1 s)`:
+`dt = min(frameDt, 0.1 s)` for the camera, walk physics and effects, and
+`simDt = min(frameDt, 0.5 s)` for game time (so a 2 fps GPU still runs the
+clock at full speed):
 
 1. **Drain the action queue** — every frame, before anything else, so UI
    commands feel immediate even when paused.
 2. **Mode/camera update** — the mode tween if transitioning; otherwise the
    build camera (MapControls + placement ghost raycast) or the walk
    controller.
-3. **Game-time accumulation** — if not paused, `simTime += dt × speed`
+3. **Game-time accumulation** — if not paused, `simTime += simDt × speed`
    (speeds 1/3/10).
 4. **Fixed 1 Hz economy ticks** — an accumulator fires `economyTick(state,
    site, mods, 1)` for each whole game-second, with a **120-tick catch-up
@@ -102,8 +104,8 @@ in `game.ts`):
 | 3 | Demand + priority idling | Consumers sorted by `(priority, id)` ascending draw from `supply·dt + stored`. Priority 0 (habitats, power) feeds first; 3 (labs) browns out first — Timberborn-style shortage triage. Net surplus charges storage at 85% round-trip efficiency; deficit drains it. Brownout raises an alert |
 | 4 | Worker allocation | Crew assigned in the same `(priority, id)` order; unstaffed buildings idle with reason `crew` |
 | 5 | Production, tier order | `PROD_ORDER`: extraction → smelter/refinery/partsFab → life → foilFactory/massDriver → lab. **Same-tick chaining**: this tick's regolith can smelt this tick. Inputs checked/consumed, outputs scaled by tech mults × site ISRU × morale work-mult (0.5 + morale/100 × 0.7) × wear penalty; launch output × site launch mult; labs emit data at 0.3/s × workMult^1.5 |
-| 6 | Life support & crew | O₂ 0.02 and food 0.008 per crew-second (× closed-loop mult). Shortage runs a 60 s grace timer, then loses 1 crew per 30 s with a −15 morale hit. Growth: morale > 60 + free housing + fed → +1 crew per lunar day |
-| 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap |
+| 6 | Life support & crew | O₂ 0.02 and food 0.008 per crew-second (× closed-loop mult). Shortage runs a 60 s grace timer, then loses 1 crew per 30 s with a −15 morale hit. Growth: morale > 60 + a free powered bed + fed + life support that carries crew+1 for a lunar day at the current flow → +1 crew per lunar day |
+| 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap. The tick's net flow per resource so far (deliveries and research goods excluded) feeds a 20 s average, `state.rates`, which the info panels show |
 | 8 | Morale | Target = site base + active-building deltas + fed/starving + crowding + brownout + flare penalties, clamped 0–100; state lerps toward it at 0.05/tick |
 | 9 | Flare state machine | idle → telegraph (60 s warning alert) → active (45 s, solar = 0, −10 morale unless the site is flare-immune) → idle, next event at 2.0 ± 0.8 days, **seeded jitter** (§7) |
 | 10 | Research | Data drains into the queue head; on completion, era-3+ techs also gate on **manufactured goods** (Factorio rule: you cannot out-research your industry) — unaffordable techs stall with an alert. Completion recomputes era + mods |
@@ -129,8 +131,9 @@ DOM events ──► ActionQueue (typed Action union) ──► sim (applyAction
 ```
 
 The UI **never mutates GameState** — every intent is a typed `Action`
-(`place`, `demolish`, `setEnabled`, `setPriority`, `research`,
-`cancelResearch`, `setSpeed`, `setPaused`, `launch`, `dismissAlert`) drained
+(`place`, `demolish`, `setEnabled`, `setAutomated`, `setPriority`,
+`buildNext`, `crewAll`, `research`, `cancelResearch`, `setSpeed`, `setPaused`,
+`launch`, `orderResupply`, `dismissAlert`, …) drained
 at the top of the tick. Published snapshots are copies (`{...}` / array
 spreads), so a subscriber can never reach back into live sim state. High-rate
 UI state that isn't economy output (`$placing` per frame during placement,

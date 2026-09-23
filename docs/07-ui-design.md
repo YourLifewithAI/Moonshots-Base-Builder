@@ -101,7 +101,11 @@ template trains the eye so a player can price a building in one saccade:
 The inspector reuses the identical grid and pro/con block, adding live status
 (`OPERATING / IDLE — no power / no crew / missing inputs / SHUT DOWN`, wear
 and dust readouts), the 0–3 idle-priority selector, and shut-down / demolish
-actions. Same template everywhere; nothing to relearn.
+actions (a construction site offers *Build next* while queued, *Pause build*,
+and *Cancel build* for a full refund until a robot touches it). The Lander's
+panel adds its services: the ice survey, Earth shipments (showing the transit
+and morale cost the next order would actually take), and *Crew all eligible
+stations* once settlers are aboard. Same template everywhere; nothing to relearn.
 
 ## 6. Tech tree screen (`screens.ts`)
 

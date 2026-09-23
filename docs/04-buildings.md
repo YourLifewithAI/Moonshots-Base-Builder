@@ -17,7 +17,13 @@ intent only; their numbers are targets for the balancing pass when they land.
 - **Brownout priority** (0–3): under power shortage the grid sheds priority 3
   first (labs), then industry, then food, and life support (0) last. Idling
   only priority 2–3 loads is a *load shed* (morale −3); a dark priority 0–1
-  load is a *brownout* (morale −15).
+  load is a *brownout* (morale −15). Construction sites weld (4 kW) at their
+  building's priority, after running loads of the same priority; a site held
+  dark is shed load, never a brownout.
+- **Construction**: one robot per site, in placement order unless *Build next*
+  moves a queued site to the front. A shut-down site pauses and frees its
+  robot. Demolition refunds half the site-scaled price paid, or all of it for
+  a site no robot has touched.
 - **Placement**: 4 m grid cells, within 60 m of the Lander or any Habitat
   (coverage model, Cities: Skylines — no wires, no pipes).
 

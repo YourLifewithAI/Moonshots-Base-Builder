@@ -97,14 +97,25 @@ hitting zero before self-sufficiency is the full design's true early fail state.
 
 The slice substitutes a generous lander stockpile (140 metals, 120 food, 120
 oxygen, 70 parts, 50 water, 800 stored energy) — same function, no arc. The
-Era-2 beat survives only implicitly (batteries + first night survived).
+Era-2 beat survives only implicitly (batteries + first night survived). What
+survives of Earth's thinning patience: shipments ordered by hand at the Lander
+(+60 metals, +40 parts) take one lunar day, then two, then three — each order a
+day longer than the last — and cost −5 morale whenever anyone is aboard. The
+automatic rescue of a stranded base (no smelter and no metals for one, or no
+fabricator and the spares nearly gone) stays one day out and never escalates.
 
 ## Crew and labor
 
 Shipped model: an undifferentiated crew pool. Buildings declare `crew` seats;
-under-crewed buildings idle. Growth (+1 per lunar day) requires morale ≥ 60 and
-free housing; starvation gives a 60 s grace, then losses every 30 s — Banished's
-quiet death spiral, on a timer you can see.
+under-crewed buildings idle. Growth (+1 per lunar day) requires morale ≥ 60,
+a free powered bed, and a base that can keep one more alive: at the current net
+flow, oxygen, food and water must each last crew+1 a lunar day, with five
+minutes of it in the tanks (a day's reserve with nothing producing, or
+production that covers the newcomer). Starvation gives a 60 s grace, then
+losses every 30 s — Banished's quiet death spiral, on a timer you can see.
+Settlers who reach a robotic base find its stations agent-run; the Lander's
+"Crew all eligible stations" hands them over in priority order while free
+hands last.
 
 **Crew tiers (CUT — the Anno 1800 model).** Full design: three tiers, each more
 productive and more demanding, each *requiring the lower tiers to keep existing*:
