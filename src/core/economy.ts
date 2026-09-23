@@ -400,7 +400,11 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       }
     }
   }
-  if (partsShort) alert(s, 'PARTS DEPLETED — equipment is wearing down', 'warn');
+  if (partsShort) {
+    alert(s, s.resupply?.pending
+      ? 'PARTS DEPLETED — equipment wearing down until the Earth shipment lands at the Lander'
+      : 'PARTS DEPLETED — equipment wearing down; order an Earth shipment at the Lander', 'warn');
+  }
 
   // ── 7 · morale ─────────────────────────────────────────────────────
   let target = site.moraleBase;
@@ -451,11 +455,17 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
 
   // ── 8.5 · emergency Earth resupply (the anti-softlock) ─────────────
-  // no smelter anywhere and not enough metals to build one = stuck.
-  // Earth notices; a shipment launches — and takes a full lunar day.
+  // no smelter anywhere and not enough metals to build one = stuck; no
+  // working parts fabricator and the spares cache nearly gone = stuck too,
+  // since welding and upkeep both burn parts. Earth notices; a shipment
+  // launches — and takes a full lunar day.
   if (!s.resupply) s.resupply = { pending: false, arriveAt: 0, shipments: 0 };
   const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * site.buildCostMult);
   const hasSmelter = s.buildings.some((b) => b.type === 'smelter');
+  const hasPartsFab = s.buildings.some((b) => b.type === 'partsFab' && !building(b));
+  const stranded = !hasSmelter && s.resources.metals < smelterCost ? 'metals'
+    : !hasPartsFab && s.resources.parts < RESUPPLY.partsFloor ? 'parts'
+    : '';
   if (s.resupply.pending) {
     if (s.simTime >= s.resupply.arriveAt) {
       s.resupply.pending = false;
@@ -464,11 +474,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       s.resources.parts += RESUPPLY.parts;
       alert(s, `RESUPPLY LANDED — +${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts from Earth`, 'info');
     }
-  } else if (!hasSmelter && s.resources.metals < smelterCost) {
+  } else if (stranded) {
     s.resupply.pending = true;
     s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
     if (s.crew > 0) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
-    alert(s, 'STRANDED — Earth resupply launched, arrival in 1 lunar day', 'crit');
+    alert(s, stranded === 'metals'
+      ? 'STRANDED — Earth resupply launched, arrival in 1 lunar day'
+      : 'STRANDED — spare parts nearly gone and no Parts Fabricator; Earth resupply launched, arrival in 1 lunar day',
+    'crit');
   }
 
   // ── 9 · research ───────────────────────────────────────────────────

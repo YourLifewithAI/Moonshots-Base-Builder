@@ -3,7 +3,7 @@
  *  answer to "I'm out of oxygen, what do I build?" */
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
-import { CREW, MORALE, RESEARCH_RATE_PER_LAB } from '../data/balance';
+import { CREW, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY } from '../data/balance';
 import { el, fmt, PERSON_SVG } from './hud';
 import { $caps, $counts, $rates, $resourcePanel, $resources, $tech, $vitals } from './stores';
 import { TECHS, TECH_ORDER } from '../data/techs';
@@ -35,7 +35,7 @@ const NOTES: Partial<Record<string, string>> = {
   regolith: 'Excavators dig it; nearly every industry eats it. Stockpile capacity comes from the Lander and Storage Yards.',
   metals: 'Smelted from regolith. If you run dry with no smelter, Earth sends an emergency shipment — a full day away.',
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
-  parts: 'Made by Parts Fabricators. EVERY building burns parts as upkeep — run dry and machines wear, losing up to half their output (the Lander never wears). Paid upkeep repairs them again.',
+  parts: `Made by Parts Fabricators. EVERY building burns parts as upkeep — run dry and machines wear, losing up to half their output (the Lander never wears). Paid upkeep repairs them again. No fabricator yet? Order an Earth shipment at the Lander (+${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts, one lunar day out) — Earth sends one on its own when the cache drops below ${RESUPPLY.partsFloor}.`,
   chips: 'Chip Fabs turn lunar silicon into wafers and accelerators. Data Centers are built from them; late research and swarm doctrine consume them.',
   foils: 'Foil Factories turn silicon and metals into collectors. Ten foils = one swarm volley.',
   launch: 'Mass Drivers accrue launch capacity each window. One capacity + ten foils + stored power = one launch.',

@@ -154,10 +154,10 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   partsFab: {
     id: 'partsFab', name: 'Parts Fabricator', category: 'industry', era: 2,
     footprint: [2, 2], height: 6, buildTime: 120,
-    buildCost: { metals: 60, silicon: 10 }, crew: 3, powerKW: -10,
-    inputs: { metals: 0.4 }, outputs: { parts: 0.3 }, upkeepParts: 1, priority: 2,
+    buildCost: { metals: 60 }, crew: 1, powerKW: -10,
+    inputs: { metals: 0.3 }, outputs: { parts: 0.2 }, upkeepParts: 1, priority: 2,
     pro: 'Ends your dependence on the lander’s spare-parts cache.',
-    con: 'Three crew on the line — your scarcest resource, standing at a bench.',
+    con: 'Three metals in, two parts out — metals your next building was counting on.',
   },
   reactor: {
     id: 'reactor', name: 'Thorium Reactor', category: 'power', era: 3,

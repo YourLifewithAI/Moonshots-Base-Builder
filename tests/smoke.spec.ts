@@ -343,6 +343,56 @@ test('metal deadlock triggers an Earth resupply a full day out', async ({ page }
   expect(s2.resources.metals).toBeGreaterThanOrEqual(60);
 });
 
+test('parts loop: an honest robotic run never softlocks on parts, no shipment button needed', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  // a greedy opening that burns the spares cache before the fab is researched;
+  // only placements and research — no grants, no completeTech, no orderResupply
+  const run = await page.evaluate(() => {
+    const g = window.__game!;
+    const plan: [string, number, number][] = [
+      ['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133], ['excavator', 120, 126],
+      ['smelter', 120, 132], ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
+      ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126], ['partsFab', 138, 128],
+    ];
+    const research = ['regolithProcessing', 'teleoperation', 'siliconRefining', 'partsFabrication'];
+    let dryWithoutRemedy = 0;
+    let wentDry = false;
+    let partsStranded = false;
+    let fabOnlineMin = -1;
+    for (let step = 0; step < 120; step++) { // 30 s steps: one game-hour
+      const s = g.getState();
+      for (const r of research) if (!s.techsDone.includes(r)) g.research(r);
+      const next = plan[0];
+      if (next && g.canPlace(next[0], next[1], next[2]).valid) {
+        g.placeBuilding(next[0], next[1], next[2]);
+        plan.shift();
+      }
+      g.advanceGameSeconds(30);
+      const s2 = g.getState();
+      const fab = s2.buildings.some((b: any) => b.type === 'partsFab' && b.construction <= 0);
+      if (fab && fabOnlineMin < 0) fabOnlineMin = s2.simTime / 60;
+      if (s2.alerts.some((a: any) => a.text.startsWith('STRANDED — spare parts'))) partsStranded = true;
+      if (s2.resources.parts < 1) {
+        wentDry = true;
+        if (!fab && !s2.resupply.pending) dryWithoutRemedy++;
+      }
+    }
+    return { dryWithoutRemedy, wentDry, partsStranded, fabOnlineMin, planLeft: plan.length, end: g.getState() };
+  });
+  expect(run.wentDry).toBe(true); // the greedy opening really does run the cache dry...
+  expect(run.dryWithoutRemedy).toBe(0); // ...but Earth is always already on the way
+  expect(run.end.resupply.shipments).toBeGreaterThanOrEqual(1);
+  expect(run.partsStranded).toBe(true); // launched by the parts trigger, not the metals one
+  // the loop closes: the fabricator stands, everything planned got built
+  expect(run.planLeft).toBe(0);
+  expect(run.fabOnlineMin).toBeGreaterThan(0);
+  expect(run.fabOnlineMin).toBeLessThan(50);
+  expect(run.end.buildings.every((b: any) => b.construction <= 0)).toBe(true);
+  expect(run.end.resources.parts).toBeGreaterThan(20);
+  expect(Math.max(...run.end.buildings.map((b: any) => b.wear))).toBeLessThan(0.1);
+});
+
 test('low reserves breed anxiety; losing the crew ends the game', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
@@ -537,6 +587,9 @@ test('wear derates output linearly, heals on paid upkeep, and never touches the 
   expect(lander(r.worn).wear).toBe(0);
   expect(r.worn.power.supply).toBe(6); // the lifeboat keeps its full 6 kW at night
   expect(lab(r.healed).wear).toBeCloseTo(0.054, 2);
+  // the dry cache names the remedy — and with no fabricator, Earth is already on it
+  expect(r.worn.resupply.pending).toBe(true);
+  expect(r.worn.alerts.some((a: any) => a.text.startsWith('PARTS DEPLETED') && a.text.includes('Lander'))).toBe(true);
 });
 
 test('chip fab and data center: silicon becomes chips becomes research', async ({ page }) => {

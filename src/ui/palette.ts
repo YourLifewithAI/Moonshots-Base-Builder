@@ -9,7 +9,7 @@ import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
 import { wearDerate } from '../core/economy';
-import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
+import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST, RESUPPLY } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
 import { $ice, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloater } from './stores';
@@ -242,7 +242,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
             ? `<span class="label">▲ Shipment en route — ${$lander.get().etaS}s</span>`
             : '<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in 1 day</button>'}
         </div>
-        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +60 metals · +20 parts · morale −5 (the crew resents the umbilical)</div>
+        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +${RESUPPLY.metals} metals · +${RESUPPLY.parts} parts · morale −${RESUPPLY.moraleHit} (the crew resents the umbilical)</div>
       </section>` : ''}
       ${def.crew > 0 && ($tech.get().automation ||
         ($vitals.get().expedition === 'robotic' && $vitals.get().crew > 0)) ? `<section>
