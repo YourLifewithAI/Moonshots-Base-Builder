@@ -8,6 +8,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost } from '../buildings/placement';
+import { wearDerate } from '../core/economy';
 import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST } from '../data/balance';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
@@ -186,7 +187,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const conRemaining = sel.construction ?? 0;
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${sel.wear > 0.3}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}|${Math.round(sel.wear * 20)}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$vitals.get().crew > 0}`;
+    const worn = Math.round((1 - wearDerate(sel)) * 100); // % output lost to wear
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$vitals.get().crew > 0}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
@@ -211,14 +213,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
     insp.innerHTML = `
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
-        <span class="label">${status}${shadowNote}${sel.wear > 0.3 ? ' · WORN −50%' : ''}${sel.dust > 0.15 ? ` · DUST −${Math.round(sel.dust * 100)}%` : ''}</span></section>
+        <span class="label">${status}${shadowNote}${worn >= 1 ? ` · WORN −${worn}%` : ''}${sel.dust > 0.15 ? ` · DUST −${Math.round(sel.dust * 100)}%` : ''}</span></section>
       <section>${ioRows(sel.type)}</section>
       <section>
         <span class="label">Condition <span class="mono" style="float:right">${Math.round((1 - sel.wear) * 100)}%</span></span>
         <div class="prog" style="height:4px; margin-top:5px; background:rgba(245,247,249,0.06)">
           <i style="display:block; height:100%; width:${Math.round((1 - sel.wear) * 100)}%; background:${sel.wear > 0.3 ? '#f5f7f9' : 'rgba(245,247,249,0.55)'}"></i>
         </div>
-        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">${sel.wear > 0.3 ? 'WORN — running at half output. Repairs need parts in stock.' : 'Repairs draw automatically from the parts stockpile.'}</div>
+        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">${worn >= 5 ? `WORN — output −${worn}%. Repairs need parts in stock.` : 'Repairs draw automatically from the parts stockpile.'}</div>
       </section>
       <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
       <section>

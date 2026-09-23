@@ -510,6 +510,35 @@ test('robotic expedition: unmanned stations, no life support, no defeat', async 
   await expect(page.locator('#defeat-screen')).toBeHidden();
 });
 
+test('wear derates output linearly, heals on paid upkeep, and never touches the Lander', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(75)); // built at 72s
+  // measure inside one evaluate so the live frame loop can't slip a tick in
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const rate = () => { const a = g.getState().data; g.advanceGameSeconds(10); return (g.getState().data - a) / 10; };
+    const fresh = rate();
+    g.grantResources({ parts: -g.getState().resources.parts });
+    g.advanceGameSeconds(360); // half a lunar day unpaid: +0.25 wear
+    const worn = g.getState();
+    const wornRate = rate();
+    g.grantResources({ parts: 100 });
+    g.advanceGameSeconds(360); // half a day paid: −0.2 wear
+    return { fresh, worn, wornRate, healed: g.getState() };
+  });
+  const lab = (s: any) => s.buildings.find((b: any) => b.type === 'lab');
+  const lander = (s: any) => s.buildings.find((b: any) => b.type === 'lander');
+  expect(r.fresh).toBeCloseTo(0.3 * 0.75, 3); // agent-run lab, no wear
+  expect(lab(r.worn).wear).toBeCloseTo(0.25, 2);
+  // worn labs research slower in proportion — no cliff, no free pass
+  expect(r.wornRate).toBeCloseTo(0.3 * 0.75 * (1 - 0.5 * 0.252), 3);
+  expect(lander(r.worn).wear).toBe(0);
+  expect(r.worn.power.supply).toBe(6); // the lifeboat keeps its full 6 kW at night
+  expect(lab(r.healed).wear).toBeCloseTo(0.054, 2);
+});
+
 test('chip fab and data center: silicon becomes chips becomes research', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

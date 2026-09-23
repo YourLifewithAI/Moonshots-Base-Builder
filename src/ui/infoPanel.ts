@@ -35,7 +35,7 @@ const NOTES: Partial<Record<string, string>> = {
   regolith: 'Excavators dig it; nearly every industry eats it. Stockpile capacity comes from the Lander and Storage Yards.',
   metals: 'Smelted from regolith. If you run dry with no smelter, Earth sends an emergency shipment — a full day away.',
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
-  parts: 'Made by Parts Fabricators. EVERY building wears parts as upkeep — run out and machines degrade to half output.',
+  parts: 'Made by Parts Fabricators. EVERY building burns parts as upkeep — run dry and machines wear, losing up to half their output (the Lander never wears). Paid upkeep repairs them again.',
   chips: 'Chip Fabs turn lunar silicon into wafers and accelerators. Data Centers are built from them; late research and swarm doctrine consume them.',
   foils: 'Foil Factories turn silicon and metals into collectors. Ten foils = one swarm volley.',
   launch: 'Mass Drivers accrue launch capacity each window. One capacity + ten foils + stored power = one launch.',

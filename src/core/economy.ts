@@ -11,7 +11,7 @@ import {
   AGENT_GEN_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
   CREW, CYCLE_S, FLARE,
   LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
-  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
+  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START, WEAR,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
@@ -44,6 +44,11 @@ export function alert(s: GameState, text: string, kind: 'info' | 'warn' | 'crit'
 
 export function moraleWorkMult(morale: number): number {
   return MORALE.workMultMin + (morale / 100) * MORALE.workMultSpan;
+}
+
+/** output multiplier from equipment wear — the Lander, the lifeboat, never wears */
+export function wearDerate(b: BuildingState): number {
+  return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
 }
 
 export function currentDay(s: GameState, site: SiteDef): DayInfo {
@@ -112,8 +117,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       let out = def.powerKW * mods.powerMult[b.type];
       if (b.type === 'solar') out *= day.sunFactor * (1 - b.dust) * (b.shaded ? 0.15 : 1);
       if (crewedGen(b) && isAuto(b)) out *= 1 - AGENT_GEN_TAX;
-      if (b.wear > 0.3) out *= 0.5;
-      supply += out;
+      supply += out * wearDerate(b);
     }
   }
   if (mods.powerBeam) supply += s.launches * BEAM_KW_PER_LAUNCH;
@@ -259,10 +263,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         s.resources[rid as keyof typeof s.resources] -= rate * inMult * dt;
       }
       // outputs
-      let outMult = mods.outputMult[type] * dt;
+      const derate = wearDerate(b);
+      let outMult = mods.outputMult[type] * dt * derate;
       if (ISRU_BUILDINGS.includes(type)) outMult *= site.isruMult;
       if (def.crew > 0 && !isAuto(b)) outMult *= workMult; // agents don't have moods
-      if (b.wear > 0.3) outMult *= 0.5;
       for (const [rid, rate] of Object.entries(def.outputs)) {
         let amt = rate * outMult;
         if (rid === 'launch') amt *= site.launchMult;
@@ -270,9 +274,11 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       }
       // human insight beats agent inference: agent-run labs on a robotic
       // mission hold 75% — staffing them after cohabitation lifts the cap
-      if (type === 'lab') s.data += 0.3 * dt * (isAuto(b) ? (robotic ? 0.75 : 1) : Math.pow(workMult, 1.5));
+      if (type === 'lab') {
+        s.data += 0.3 * dt * derate * (isAuto(b) ? (robotic ? 0.75 : 1) : Math.pow(workMult, 1.5));
+      }
       // data centers research at machine speed, immune to moods and staffing
-      if (type === 'dataCenter') s.data += 1.0 * dt * mods.outputMult['dataCenter'];
+      if (type === 'dataCenter') s.data += 1.0 * dt * derate * mods.outputMult['dataCenter'];
       b.active = true;
     }
   }
@@ -381,14 +387,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     const rate = (def.upkeepParts * mods.upkeepMult[b.type] * site.upkeepMult / CYCLE_S) * dt;
     if (s.resources.parts >= rate) {
       s.resources.parts -= rate;
-      b.wear = Math.max(0, b.wear - (0.1 / CYCLE_S) * dt);
+      b.wear = Math.max(0, b.wear - (WEAR.healPerDay / CYCLE_S) * dt);
       if (b.type === 'solar') {
         b.dust = Math.max(0, b.dust +
           ((SOLAR_DUST_PER_DAY * mods.dustMult - SOLAR_DUST_RECOVER) / CYCLE_S) * dt);
       }
     } else {
       partsShort = true;
-      b.wear = Math.min(1, b.wear + (0.5 / CYCLE_S) * dt);
+      if (b.type !== 'lander') b.wear = Math.min(1, b.wear + (WEAR.risePerDay / CYCLE_S) * dt);
       if (b.type === 'solar') {
         b.dust = Math.min(SOLAR_DUST_MAX, b.dust + ((SOLAR_DUST_PER_DAY * mods.dustMult) / CYCLE_S) * dt);
       }
@@ -471,10 +477,15 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     const def = TECHS[head];
     const banked = s.researchSpent[head] ?? 0;
     const needed = def.costData - banked;
-    const activeLabs = s.buildings.filter((b) => b.type === 'lab' && b.active).length;
-    // each data center transfers like three labs — compute is the point of them
-    const activeDCs = s.buildings.filter((b) => b.type === 'dataCenter' && b.active).length;
-    const rate = RESEARCH_RATE_PER_LAB * (activeLabs + activeDCs * 3) * dt;
+    // each data center transfers like three labs — compute is the point of
+    // them; worn racks and benches transfer at their derated rate
+    let labs = 0;
+    for (const b of s.buildings) {
+      if (!b.active) continue;
+      if (b.type === 'lab') labs += wearDerate(b);
+      else if (b.type === 'dataCenter') labs += 3 * wearDerate(b);
+    }
+    const rate = RESEARCH_RATE_PER_LAB * labs * dt;
     const spend = Math.min(needed, s.data, rate);
     s.data -= spend;
     s.researchSpent[head] = banked + spend;
