@@ -102,13 +102,15 @@ test('power: dark loads count as demand; load shed vs brownout; power returns in
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true); // 6 kW, prio 2
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);       // 5 kW, prio 3
   await page.evaluate(() => window.__game.advanceGameSeconds(130)); // all three built
-  const drain = () => page.evaluate(() => {
+  // empty the bank and tick in one evaluate, so the live frame loop can't
+  // slip in extra ticks of trickle charge
+  const drainAndRun = (secs: number) => page.evaluate((n) => {
     const g = window.__game!;
     g.grantPower(-g.getState().powerStored);
-  });
-  await drain();
-  await page.evaluate(() => window.__game.advanceGameSeconds(3));
-  const shed = await page.evaluate(() => window.__game.getState());
+    g.advanceGameSeconds(n);
+    return g.getState();
+  }, secs);
+  const shed = await drainAndRun(3);
   const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
   expect(by(shed, 'habitat').idleReason).toBe('');
   expect(by(shed, 'excavator').idleReason).toBe('power');
@@ -126,9 +128,7 @@ test('power: dark loads count as demand; load shed vs brownout; power returns in
 
   // promote the lab to priority 1: now a critical load is dark — a brownout
   await page.evaluate((id) => window.__game.setPriority(id, 1), by(afterShed, 'lab').id);
-  await drain();
-  await page.evaluate(() => window.__game.advanceGameSeconds(2));
-  const brown = await page.evaluate(() => window.__game.getState());
+  const brown = await drainAndRun(2);
   expect(by(brown, 'lab').idleReason).toBe('power');
   expect(brown.power.brownout).toBe(true);
   expect(brown.alerts.some((a: any) => a.text.startsWith('BROWNOUT') && a.kind === 'crit')).toBe(true);
@@ -438,12 +438,12 @@ test('life support first: a farm never drinks the crew dry', async ({ page }) =>
   expect(await page.evaluate(() => window.__game.placeBuilding('hydroponics', 120, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // farm built at 72s
   // leave the crew just their five-minute reserve (4 × 0.005/s × 300 s = 6)
-  await page.evaluate(() => {
+  const held = await page.evaluate(() => {
     const g = window.__game!;
     g.grantResources({ water: 6.05 - g.getState().resources.water });
+    g.advanceGameSeconds(2);
+    return g.getState();
   });
-  await page.evaluate(() => window.__game.advanceGameSeconds(2));
-  const held = await page.evaluate(() => window.__game.getState());
   expect(held.buildings.find((b: any) => b.type === 'hydroponics').idleReason).toBe('reserve');
   expect(held.resources.water).toBeGreaterThan(5.9); // only the crew drank
 
@@ -595,10 +595,15 @@ test('site grading: era-1 tech flattens rough terrain for construction', async (
     return fallback;
   });
   expect(target).not.toBeNull();
-  const before = await page.evaluate(() => window.__game.getState());
-  await page.evaluate((t) => window.__game.gradeAt(t.gx, t.gz), target!);
-  await page.evaluate(() => window.__game.advanceGameSeconds(1));
-  const after = await page.evaluate(() => window.__game.getState());
+  // grade and tick in one evaluate, so the live frame loop can't slip in a
+  // second tick of recharge between the pass and the reading
+  const { before, after } = await page.evaluate((t) => {
+    const g = window.__game!;
+    const before = g.getState();
+    g.gradeAt(t.gx, t.gz);
+    g.advanceGameSeconds(1);
+    return { before, after: g.getState() };
+  }, target!);
   // grading spends stored energy, banks the dozed spoil, and records the cut
   expect(after.flattens.length).toBe(before.flattens.length + 1);
   expect(after.powerStored).toBeLessThanOrEqual(before.powerStored - 30); // −40, minus a tick of recharge
