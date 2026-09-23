@@ -9,7 +9,7 @@ import {
   MAX_SLOPE_DELTA,
 } from '../data/balance';
 import type { SiteDef } from '../data/sites';
-import type { GameState } from '../core/state';
+import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { recipeGeometry } from './recipes';
 import { centerOf, footprintRect } from './instances';
@@ -34,6 +34,22 @@ export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<strin
   const out: Partial<Record<string, number>> = {};
   for (const [rid, amt] of Object.entries(BUILDINGS[type].buildCost)) {
     out[rid] = Math.ceil(amt * site.buildCostMult);
+  }
+  return out;
+}
+
+/** a site no robot has welded on yet: demolishing it cancels the order */
+export function untouchedSite(b: BuildingState): boolean {
+  return b.buildTotal > 0 && (b.construction ?? 0) >= b.buildTotal;
+}
+
+/** what demolition returns: half the site-scaled price paid, or all of it
+ *  for an untouched site */
+export function demolishRefund(b: BuildingState, site: SiteDef): Partial<Record<string, number>> {
+  const full = untouchedSite(b);
+  const out: Partial<Record<string, number>> = {};
+  for (const [rid, amt] of Object.entries(buildCost(b.type, site))) {
+    out[rid] = full ? amt : Math.floor((amt ?? 0) * 0.5);
   }
   return out;
 }

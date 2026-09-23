@@ -7,7 +7,7 @@ import {
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
-import { buildCost } from '../buildings/placement';
+import { buildCost, demolishRefund, untouchedSite } from '../buildings/placement';
 import { wearDerate } from '../core/economy';
 import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST, RESUPPLY } from '../data/balance';
 import type { Game } from '../core/game';
@@ -188,13 +188,17 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
     const worn = Math.round((1 - wearDerate(sel)) * 100); // % output lost to wear
-    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$vitals.get().crew > 0}`;
+    const untouched = untouchedSite(sel);
+    const sig = `${sel.id}|${sel.enabled}|${sel.automated}|${sel.priority}|${sel.idleReason}|${sel.active}|${worn}|${Math.round(sel.dust * 20)}|${conPct}|${untouched}|${$tech.get().automation}|${$ice.get().surveyed}|${$lander.get().resupplyPending}|${Math.floor($lander.get().etaS / 10)}|${$vitals.get().crew > 0}`;
     if (sig === inspSig) return; // avoid detaching buttons mid-click every tick
     inspSig = sig;
     const def = BUILDINGS[sel.type];
     insp.style.display = 'block';
+    const refund = Object.entries(demolishRefund(sel, SITES[$siteId.get() ?? 'mare']))
+      .map(([rid, amt]) => `${amt} ${RESOURCES[rid as ResourceId].name.toLowerCase()}`).join(' · ');
     const status = conRemaining > 0
-      ? (sel.idleReason === 'queued' ? 'QUEUED — waiting for a free robot'
+      ? (!sel.enabled ? `CONSTRUCTION PAUSED — shut down (${conPct}%)`
+        : sel.idleReason === 'queued' ? 'QUEUED — waiting for a free robot'
         : sel.idleReason === 'power' ? `CONSTRUCTION PAUSED — no power (${conPct}%)`
         : sel.idleReason === 'inputs' ? `CONSTRUCTION STALLED — no parts (${conPct}%)`
         : `UNDER CONSTRUCTION — ${conPct}%`)
@@ -256,8 +260,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
         </div>
       </section>` : ''}
       <section class="actions">
-        ${sel.type !== 'lander' ? `<button class="btn" id="insp-toggle">${sel.enabled ? 'Shut down' : 'Power on'}</button>` : ''}
-        ${sel.type !== 'lander' ? '<button class="btn" id="insp-demolish">Demolish ½↩</button>' : ''}
+        ${conRemaining > 0 && sel.enabled && sel.idleReason === 'queued'
+          ? '<button class="btn" id="insp-buildnext" title="Move this site to the front of the robot queue">Build next</button>' : ''}
+        ${sel.type !== 'lander' ? `<button class="btn" id="insp-toggle">${conRemaining > 0
+          ? (sel.enabled ? 'Pause build' : 'Resume build')
+          : (sel.enabled ? 'Shut down' : 'Power on')}</button>` : ''}
+        ${sel.type !== 'lander' ? `<button class="btn" id="insp-demolish" title="Refund: ${refund || 'nothing'}">${untouched ? 'Cancel build ↩' : 'Demolish ½↩'}</button>` : ''}
         <button class="btn" id="insp-close">✕</button>
       </section>`;
     insp.querySelectorAll<HTMLButtonElement>('.prio-btn').forEach((b) => {
@@ -265,6 +273,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
         kind: 'setPriority', id: sel.id, priority: Number(b.dataset.p) as 0 | 1 | 2 | 3,
       }));
     });
+    insp.querySelector('#insp-buildnext')?.addEventListener('click', () =>
+      game.actions.push({ kind: 'buildNext', id: sel.id }));
     insp.querySelector('#insp-toggle')?.addEventListener('click', () =>
       game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }));
     insp.querySelector('#insp-survey')?.addEventListener('click', () =>

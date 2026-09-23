@@ -313,6 +313,115 @@ test('construction stalls without welding parts and resumes on delivery', async 
   expect(s2.resources.parts).toBeLessThan(20); // welding consumed some
 });
 
+test('construction sites draw power at their own priority; a dark site is never a brownout', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // no solar: the lander's 6 kW carries one 6 kW excavator OR one 4 kW site
+  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(50)); // built at 48s
+  expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 126))).toBe(true);
+  const run = (secs: number, prios: [string, number][] = []) => page.evaluate(([n, ps]) => {
+    const g = window.__game!;
+    const find = (t: string) => g.getState().buildings.find((b: any) => b.type === t);
+    for (const [t, p] of ps) g.setPriority(find(t).id, p);
+    // settle every hold with a full bank, then empty it and read the triage
+    g.grantPower(1000);
+    g.advanceGameSeconds(10);
+    g.grantPower(-g.getState().powerStored);
+    g.advanceGameSeconds(n);
+    return g.getState();
+  }, [secs, prios] as const);
+  const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
+  // the habitat site welds at the habitat's priority 0, ahead of priority-2 industry
+  const first = await run(2);
+  expect(by(first, 'habitat').construction).toBeGreaterThan(0);
+  expect(by(first, 'habitat').idleReason).toBe('building');
+  expect(by(first, 'excavator').idleReason).toBe('power');
+  expect(first.power.shed).toBe(true);
+  expect(first.power.brownout).toBe(false);
+  // the player's priority governs the site: at 3 it idles before the excavator
+  const demoted = await run(2, [['habitat', 3]]);
+  expect(by(demoted, 'habitat').idleReason).toBe('power');
+  expect(by(demoted, 'excavator').idleReason).toBe('');
+  // a critical-priority site held dark is shed load, not a life-support brownout
+  const critical = await run(2, [['habitat', 1], ['excavator', 0]]);
+  expect(by(critical, 'habitat').idleReason).toBe('power');
+  expect(critical.power.brownout).toBe(false);
+  expect(critical.power.shed).toBe(true);
+});
+
+test('robot queue: Build next jumps the line, a paused site frees its robot, demolish refunds what was paid', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // three sites, two robots: the excavator waits its turn
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  const q = await page.evaluate(() => {
+    const g = window.__game!;
+    const ids = g.getState().buildings.filter((b: any) => b.type !== 'lander').map((b: any) => b.id);
+    const reasons = () => {
+      const s = g.getState();
+      return ids.map((id: number) => s.buildings.find((b: any) => b.id === id).idleReason);
+    };
+    g.advanceGameSeconds(1);
+    const placed = reasons();
+    // Build next: the excavator takes the robot of the last site in line
+    g.buildNext(ids[2]);
+    g.advanceGameSeconds(1);
+    const jumped = reasons();
+    // pausing the first solar hands its robot down the queue; its progress holds
+    g.setEnabled(ids[0], false);
+    g.advanceGameSeconds(1);
+    const held = g.getState().buildings.find((b: any) => b.id === ids[0]).construction;
+    g.advanceGameSeconds(5);
+    const paused = reasons();
+    const s = g.getState();
+    const heldAfter = s.buildings.find((b: any) => b.id === ids[0]).construction;
+    g.setEnabled(ids[0], true);
+    g.advanceGameSeconds(1);
+    return { ids, placed, jumped, paused, held, heldAfter, busy: s.bots.busy, resumed: reasons() };
+  });
+  expect(q.placed).toEqual(['building', 'building', 'queued']);
+  expect(q.jumped).toEqual(['building', 'queued', 'building']);
+  expect(q.paused).toEqual(['off', 'building', 'building']);
+  expect(q.heldAfter).toBe(q.held);
+  expect(q.busy).toBe(2);
+  expect(q.resumed).toEqual(['building', 'queued', 'building']); // it keeps its place in line
+
+  // the inspector offers Build next on a queued site and pauses a site in place
+  await page.evaluate((id) => window.__game.select(id), q.ids[1]);
+  await expect(page.locator('#insp-buildnext')).toBeVisible();
+  await expect(page.locator('#insp-demolish')).toContainText('Demolish'); // it has been welded on
+  await page.locator('#insp-toggle').click();
+  await expect(page.locator('#inspector')).toContainText('CONSTRUCTION PAUSED — shut down');
+  await expect(page.locator('#insp-toggle')).toHaveText('Resume build');
+
+  // demolish returns what the site actually cost on the mare (×0.8): all of it
+  // for a site no robot has touched, half of it once welding has begun
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  const refunds = await page.evaluate((excavatorId) => {
+    const g = window.__game!;
+    const lab = g.getState().buildings.find((b: any) => b.type === 'lab');
+    const r0 = g.getState().resources;
+    g.demolish(lab.id);
+    g.advanceGameSeconds(0);
+    const r1 = g.getState().resources;
+    g.demolish(excavatorId);
+    g.advanceGameSeconds(0);
+    const r2 = g.getState().resources;
+    return {
+      untouched: { metals: r1.metals - r0.metals, parts: r1.parts - r0.parts },
+      started: { metals: r2.metals - r1.metals, parts: r2.parts - r1.parts },
+    };
+  }, q.ids[2]);
+  // (parts carry fractional welding draw, so compare those to a tolerance)
+  expect(refunds.untouched.metals).toBe(24); // lab: 30◆ 10⚙ × 0.8
+  expect(refunds.untouched.parts).toBeCloseTo(8, 6);
+  expect(refunds.started.metals).toBe(8);    // excavator: ½ of 16◆ 4⚙
+  expect(refunds.started.parts).toBeCloseTo(2, 6);
+});
+
 test('honest research path: lab is buildable from start and carries the tech tree', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

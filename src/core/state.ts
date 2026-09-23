@@ -19,6 +19,9 @@ export interface BuildingState {
   shaded?: boolean;
   /** brownout hysteresis: ticks to stay dark before retrying the grid */
   brownoutHold?: number;
+  /** construction sites: robot-queue position when moved up with Build next
+   *  (unset = placement order, i.e. the id) */
+  buildSeq?: number;
   priority: 0 | 1 | 2 | 3;   // player-overridable idle order
   wear: number;              // 0..1, rises when parts run dry
   dust: number;              // solar arrays: 0..1 output loss

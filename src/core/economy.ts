@@ -58,6 +58,11 @@ export function wearDerate(b: BuildingState): number {
   return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
 }
 
+/** a construction site's place in the robot queue (lower builds first) */
+export function queuePos(b: BuildingState): number {
+  return b.buildSeq ?? b.id;
+}
+
 export function currentDay(s: GameState, site: SiteDef): DayInfo {
   return dayInfo(s.simTime, site, s.flare.phase === 'active');
 }
@@ -83,12 +88,13 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     // self-assembly: bays print extra workers
     if (b.type === 'roboticsBay') botsTotal += mods.botPerBay;
   }
-  // FIFO by placement order: stable assignment, oldest sites build first
-  const sites = s.buildings.filter(building).sort((a, b) => a.id - b.id);
+  // robot queue: placement order unless a site was moved up with Build next;
+  // a shut-down site keeps its place in line but frees its robot
+  const sites = s.buildings.filter(building).sort((a, b) => queuePos(a) - queuePos(b) || a.id - b.id);
   const botAssigned = new Set<number>();
   for (const site of sites) {
     if (botAssigned.size >= botsTotal) break;
-    botAssigned.add(site.id);
+    if (site.enabled) botAssigned.add(site.id);
   }
   s.bots = { total: botsTotal, busy: botAssigned.size };
 
@@ -154,10 +160,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const wants: Draw[] = [];
   for (const b of s.buildings) {
     if (building(b)) {
-      // an active construction site pulls welding power — and is the FIRST
-      // thing to stop in a brownout (priority 3)
+      // an active construction site pulls welding power at its building's
+      // idle priority
       if (botAssigned.has(b.id)) {
-        wants.push({ b, draw: CONSTRUCTION_KW * dt, prio: 3, isSite: true });
+        wants.push({ b, draw: CONSTRUCTION_KW * dt, prio: b.priority, isSite: true });
       }
       continue;
     }
@@ -172,7 +178,9 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       isSite: false,
     });
   }
-  wants.sort((a, b) => a.prio - b.prio || a.b.id - b.b.id);
+  // within a priority, running loads keep their power ahead of new construction
+  const drawOrder = (w: Draw) => (w.isSite ? queuePos(w.b) : w.b.id);
+  wants.sort((a, b) => a.prio - b.prio || Number(a.isSite) - Number(b.isSite) || drawOrder(a) - drawOrder(b));
   let budget = supply * dt + s.powerStored;
   let supplyLeft = supply * dt;
   let demand = 0; // requested — loads held dark still want their watts
@@ -207,18 +215,20 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       dark.push(w);
     }
   }
-  // a dark priority 0–1 load is a brownout; idling only 2–3 is load shedding
+  // a dark priority 0–1 load is a brownout; idling only 2–3 is load shedding.
+  // A paused construction site is never a brownout: nobody lives in it yet
   let brownout = false;
   let shed = false;
   for (const w of dark) {
     if (!w.isSite) w.b.idleReason = 'power';
-    if (w.prio <= 1) brownout = true;
+    if (w.prio <= 1 && !w.isSite) brownout = true;
     else shed = true;
   }
 
   // ── 2.5 · construction progress: needs a robot, grid power, AND parts ──
   for (const b of sites) {
     b.active = false;
+    if (!b.enabled) { b.idleReason = 'off'; continue; }
     if (!botAssigned.has(b.id)) { b.idleReason = 'queued'; continue; }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
     const weld = CONSTRUCTION_PARTS_PER_S * dt;

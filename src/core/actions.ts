@@ -9,6 +9,7 @@ export type Action =
   | { kind: 'setEnabled'; id: number; enabled: boolean }
   | { kind: 'setAutomated'; id: number; automated: boolean }
   | { kind: 'setPriority'; id: number; priority: 0 | 1 | 2 | 3 }
+  | { kind: 'buildNext'; id: number }          // construction site → front of the robot queue
   | { kind: 'research'; tech: TechId }         // enqueue (depth 3)
   | { kind: 'cancelResearch'; tech: TechId }
   | { kind: 'setSpeed'; speed: number }

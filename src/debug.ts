@@ -27,6 +27,11 @@ function api(game: Game) {
     grantPower: (n: number) => { game.state.powerStored += n; game.publish(); },
     setPriority: (id: number, priority: 0 | 1 | 2 | 3) => game.actions.push({ kind: 'setPriority', id, priority }),
     setEnabled: (id: number, enabled: boolean) => game.actions.push({ kind: 'setEnabled', id, enabled }),
+    setAutomated: (id: number, automated: boolean) => game.actions.push({ kind: 'setAutomated', id, automated }),
+    demolish: (id: number) => game.actions.push({ kind: 'demolish', id }),
+    buildNext: (id: number) => game.actions.push({ kind: 'buildNext', id }),
+    /** open the inspector on a building (null closes it) */
+    select: (id: number | null) => game.debugSelect(id),
     completeTech: (id: TechId) => game.debugCompleteTech(id),
     research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
     cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),

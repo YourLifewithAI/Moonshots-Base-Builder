@@ -13,11 +13,15 @@ import {
 import type { ResourceId } from '../data/resources';
 import { createInitialState, type GameState } from './state';
 import { ActionQueue, type Action } from './actions';
-import { economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, type Mods } from './economy';
+import {
+  economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, queuePos, type Mods,
+} from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
-import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
+import {
+  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, type PlaceableType,
+} from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
@@ -305,8 +309,8 @@ export class Game {
         const i = s.buildings.findIndex((b) => b.id === a.id);
         if (i < 0 || s.buildings[i].type === 'lander') break;
         const b = s.buildings[i];
-        for (const [rid, amt] of Object.entries(BUILDINGS[b.type].buildCost)) {
-          s.resources[rid as keyof typeof s.resources] += Math.floor(amt * 0.5);
+        for (const [rid, amt] of Object.entries(demolishRefund(b, SITES[s.siteId]))) {
+          s.resources[rid as keyof typeof s.resources] += amt ?? 0;
         }
         s.buildings.splice(i, 1);
         this.instances.rebuild(s);
@@ -327,6 +331,14 @@ export class Game {
       case 'setPriority': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (b) b.priority = a.priority;
+        break;
+      }
+      case 'buildNext': {
+        const b = s.buildings.find((x) => x.id === a.id);
+        if (!b || (b.construction ?? 0) <= 0) break;
+        const sites = s.buildings.filter((x) => (x.construction ?? 0) > 0 && x.id !== b.id);
+        const head = Math.min(...sites.map(queuePos));
+        if (queuePos(b) >= head) b.buildSeq = head - 1;
         break;
       }
       case 'research': {
@@ -855,6 +867,11 @@ export class Game {
 
   get walkController() { return this.walk; }
   get iceDepositList() { return this.hf.iceDeposits; }
+
+  debugSelect(id: number | null) {
+    const b = id === null ? undefined : this.state.buildings.find((x) => x.id === id);
+    $selection.set(b ? { ...b } : null);
+  }
 
   debugCheckPlace(type: BuildingId, gx: number, gz: number) {
     return checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, 0);
