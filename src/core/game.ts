@@ -640,7 +640,8 @@ export class Game {
     $resources.set({ ...s.resources });
     $power.set({
       supply: s.power.supply, demand: s.power.demand,
-      stored: s.powerStored, capacity: s.power.capacity, brownout: s.power.brownout,
+      stored: s.powerStored, capacity: s.power.capacity,
+      brownout: s.power.brownout, shed: s.power.shed ?? false,
     });
     let housing = 0;
     for (const b of s.buildings) housing += BUILDINGS[b.type].housing ?? 0;
@@ -673,11 +674,12 @@ export class Game {
     });
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $caps.set({ ...(s.storageCaps ?? {}) });
-    const counts: Partial<Record<BuildingId, { total: number; active: number }>> = {};
+    const counts: Partial<Record<BuildingId, { total: number; active: number; dark: number }>> = {};
     for (const b of s.buildings) {
-      const c = counts[b.type] ?? (counts[b.type] = { total: 0, active: 0 });
+      const c = counts[b.type] ?? (counts[b.type] = { total: 0, active: 0, dark: 0 });
       c.total += 1;
       if (b.active) c.active += 1;
+      if (b.idleReason === 'power' && (b.construction ?? 0) <= 0) c.dark += 1;
     }
     $counts.set(counts);
     if (this.lastResources) {

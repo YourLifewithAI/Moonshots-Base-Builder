@@ -56,8 +56,13 @@ export interface GameState {
 
   resources: Record<ResourceId, number>;
   powerStored: number;       // kWh across all batteries + lander
-  /** last economy tick's power book-keeping, for the HUD */
-  power: { supply: number; demand: number; capacity: number; brownout: boolean };
+  /** last economy tick's power book-keeping, for the HUD: demand is what every
+   *  running load requested (dark ones included), served what the grid delivered;
+   *  brownout = a priority 0–1 load is dark, shed = only priority 2–3 loads idled */
+  power: {
+    supply: number; demand: number; served: number; capacity: number;
+    brownout: boolean; shed: boolean;
+  };
 
   crew: number;
   morale: number;
@@ -114,7 +119,7 @@ export function createInitialState(
     paused: false,
     resources: { ...START.resources },
     powerStored: START.powerStored,
-    power: { supply: 0, demand: 0, capacity: START.powerStored, brownout: false },
+    power: { supply: 0, demand: 0, served: 0, capacity: START.powerStored, brownout: false, shed: false },
     crew: expedition === 'robotic' ? 0 : START.crew,
     morale: START.morale,
     data: START.data,

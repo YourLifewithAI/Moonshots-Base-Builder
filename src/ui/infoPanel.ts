@@ -3,7 +3,7 @@
  *  answer to "I'm out of oxygen, what do I build?" */
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
-import { CREW, RESEARCH_RATE_PER_LAB } from '../data/balance';
+import { CREW, MORALE, RESEARCH_RATE_PER_LAB } from '../data/balance';
 import { el, fmt, PERSON_SVG } from './hud';
 import { $caps, $counts, $rates, $resourcePanel, $resources, $tech, $vitals } from './stores';
 import { TECHS, TECH_ORDER } from '../data/techs';
@@ -21,7 +21,7 @@ function buildingLine(type: BuildingId, rate: number, sign: '+' | '−'): string
   const counts = $counts.get()[type];
   const unlocked = $tech.get().unlocked.includes(type);
   const status = counts?.total
-    ? `×${counts.total} (${counts.active} running)`
+    ? `×${counts.total} (${counts.active} running${counts.dark ? `, ${counts.dark} dark` : ''})`
     : unlocked ? 'none built — in palette'
     : `locked — ${techThatUnlocks(type) ?? 'research'}`;
   return `<div class="row"><span>${BUILDINGS[type].name}</span>
@@ -77,7 +77,7 @@ export function mountInfoPanel(root: HTMLElement) {
         <section><span class="label">Generation</span>${gen}
           <div class="goal-hint">Solar dies at night; batteries store the day (15% round-trip loss); reactors don't care.</div></section>
         <section><span class="label">Draws</span>${draws}
-          <div class="goal-hint">Construction sites pull 4 kW each while building. Under shortage, high-priority-number buildings idle first.</div></section>`;
+          <div class="goal-hint">Construction sites pull 4 kW each while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
     } else if (key === 'bots') {
       html = `
         <section><div class="tt-name"><span>◉ Construction robots</span><span class="mono">${v.botsFree}/${v.botsTotal} free</span></div></section>
@@ -94,7 +94,8 @@ export function mountInfoPanel(root: HTMLElement) {
           <div class="row"><span>Recreation Dome</span><span class="mono">+14</span></div></section>
         <section><span class="label">Sinks it</span>
           <div class="row"><span>Low oxygen/food reserves</span><span class="mono">−10 each</span></div>
-          <div class="row"><span>Brownouts</span><span class="mono">−15</span></div>
+          <div class="row"><span>Brownouts (priority 0–1 dark)</span><span class="mono">${MORALE.blackout}</span></div>
+          <div class="row"><span>Load shedding (priority 2–3 idled)</span><span class="mono">${MORALE.shed}</span></div>
           <div class="row"><span>Overcrowding</span><span class="mono">−20</span></div>
           <div class="row"><span>Reactor next door</span><span class="mono">−5</span></div>
           <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;

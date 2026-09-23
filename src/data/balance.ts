@@ -56,8 +56,27 @@ export const MORALE = {
   lerp: 0.05,                          // approach rate toward target per econ tick
   fed: 8, starving: -30,
   housed: 0, crowded: -20,
-  blackout: -15, flare: -10,
+  blackout: -15,                       // a priority 0–1 load is dark
+  shed: -3,                            // only priority 2–3 loads were idled
+  flare: -10,
   workMultMin: 0.5, workMultSpan: 0.7, // work mult = 0.5 + morale/100 * 0.7
+};
+
+/** brownout hysteresis: a load that loses power stays dark this many ticks
+ *  before retrying — unless the budget covers it with the release margin */
+export const BROWNOUT_HOLD_S = 8;
+export const POWER_RELEASE_MARGIN = 1.2;
+
+/** crewed generators run by agents lose this share of their output to the
+ *  agents' own control load (the generator side of the ×1.6 agent tax) */
+export const AGENT_GEN_TAX = 0.15;
+
+/** equipment wear (0..1): rises while upkeep goes unpaid, heals while it is
+ *  paid; output scales by 1 − derate × wear. The Lander never wears. */
+export const WEAR = {
+  risePerDay: 0.5,
+  healPerDay: 0.4,
+  derate: 0.5,
 };
 
 export const BATTERY_EFF = 0.85;       // round-trip
@@ -77,10 +96,12 @@ export const RESEARCH_RATE_PER_LAB = 0.4;
 export const ICE_SURVEY_COST = 150;
 
 /** emergency Earth resupply — the anti-softlock: no smelter and no metals for
- *  one means a shipment is ordered, and Earth is a full lunar day away */
+ *  one, or no Parts Fabricator and the spares cache nearly gone, means a
+ *  shipment is ordered, and Earth is a full lunar day away */
 export const RESUPPLY = {
   metals: 60,
-  parts: 20,
+  parts: 40,
+  partsFloor: 15,                      // auto-order below this with no fabricator
   delayS: CYCLE_S,
   moraleHit: 5,
 };

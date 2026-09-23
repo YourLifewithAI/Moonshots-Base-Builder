@@ -56,7 +56,7 @@ test('landing starts the game with HUD and lander', async ({ page }) => {
   await page.screenshot({ path: 'test-results/02-landed.png' });
 });
 
-test('economy: place buildings, resources tick, night browns out industry', async ({ page }) => {
+test('economy: place buildings, resources tick, night sheds industry load', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
 
@@ -80,14 +80,68 @@ test('economy: place buildings, resources tick, night browns out industry', asyn
   expect(m1.resources.metals).toBeGreaterThan(m0.resources.metals);
 
   // night on Mare with no batteries: industry idles by priority — the lander's
-  // trickle keeps the small excavator alive; the hungry smelter browns out
+  // trickle keeps the small excavator alive; the hungry smelter goes dark.
+  // Only priority-2 industry is idled, so this is load shedding, not a brownout
   await page.evaluate(() => window.__game.advanceGameMinutes(4)); // t≈630s, mid-night
   const night = await page.evaluate(() => window.__game.getState());
   expect(night.wasNight).toBe(true);
   const smelter = night.buildings.find((b: any) => b.type === 'smelter');
   expect(smelter.idleReason).toBe('power');
-  expect(night.power.brownout).toBe(true);
+  expect(night.power.shed).toBe(true);
+  expect(night.power.brownout).toBe(false);
+  expect(night.power.demand).toBeGreaterThan(night.power.supply); // the dark smelter still asks
   await page.screenshot({ path: 'test-results/03-night.png' });
+});
+
+test('power: dark loads count as demand; load shed vs brownout; power returns in priority order', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // no solar: the lander's 6 kW and its bank are the whole grid
+  expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 126))).toBe(true);   // 4 kW, prio 0
+  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true); // 6 kW, prio 2
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);       // 5 kW, prio 3
+  await page.evaluate(() => window.__game.advanceGameSeconds(130)); // all three built
+  const drain = () => page.evaluate(() => {
+    const g = window.__game!;
+    g.grantPower(-g.getState().powerStored);
+  });
+  await drain();
+  await page.evaluate(() => window.__game.advanceGameSeconds(3));
+  const shed = await page.evaluate(() => window.__game.getState());
+  const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
+  expect(by(shed, 'habitat').idleReason).toBe('');
+  expect(by(shed, 'excavator').idleReason).toBe('power');
+  expect(by(shed, 'lab').idleReason).toBe('power');
+  // requested demand keeps counting the loads held dark
+  expect(shed.power.demand).toBeGreaterThanOrEqual(15);
+  expect(shed.power.supply).toBeLessThan(shed.power.demand);
+  // only priority 2–3 idled: an informational load shed, no blackout penalty
+  expect(shed.power.shed).toBe(true);
+  expect(shed.power.brownout).toBe(false);
+  expect(shed.alerts.some((a: any) => a.text.startsWith('LOAD SHED') && a.kind === 'info')).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(60));
+  const afterShed = await page.evaluate(() => window.__game.getState());
+  expect(afterShed.morale).toBeGreaterThan(60);
+
+  // promote the lab to priority 1: now a critical load is dark — a brownout
+  await page.evaluate((id) => window.__game.setPriority(id, 1), by(afterShed, 'lab').id);
+  await drain();
+  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  const brown = await page.evaluate(() => window.__game.getState());
+  expect(by(brown, 'lab').idleReason).toBe('power');
+  expect(brown.power.brownout).toBe(true);
+  expect(brown.alerts.some((a: any) => a.text.startsWith('BROWNOUT') && a.kind === 'crit')).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(60));
+  const afterBrown = await page.evaluate(() => window.__game.getState());
+  expect(afterBrown.morale).toBeLessThan(afterShed.morale - 4);
+
+  // power returns: held loads come back on the next tick, not after the hold
+  await page.evaluate(() => window.__game.grantPower(1000));
+  await page.evaluate(() => window.__game.advanceGameSeconds(1));
+  const back = await page.evaluate(() => window.__game.getState());
+  expect(back.buildings.every((b: any) => b.idleReason !== 'power')).toBe(true);
+  expect(back.power.brownout).toBe(false);
+  expect(back.power.shed).toBe(false);
 });
 
 test('walk mode: WASD moves the astronaut across the terrain', async ({ page }) => {

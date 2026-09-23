@@ -17,7 +17,7 @@ export const $siteId = atom<SiteId | null>(null);
 export const $resources = atom<Record<ResourceId, number>>({
   regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
 });
-export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false });
+export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false, shed: false });
 export const $vitals = atom({
   crew: 0, housing: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
   expedition: 'human' as 'human' | 'robotic',
@@ -54,8 +54,8 @@ export const $ice = atom<{ hasIce: boolean; surveyed: boolean }>({ hasIce: false
 export const $iceOverlay = atom<boolean>(false);
 /** stockpile caps for capped resources */
 export const $caps = atom<Partial<Record<ResourceId, number>>>({});
-/** building counts (total / active) for the resource info panels */
-export const $counts = atom<Partial<Record<BuildingId, { total: number; active: number }>>>({});
+/** building counts (total / active / dark for lack of power) for the resource info panels */
+export const $counts = atom<Partial<Record<BuildingId, { total: number; active: number; dark: number }>>>({});
 /** per-game-second resource deltas (informational) */
 export const $rates = atom<Partial<Record<ResourceId, number>>>({});
 /** which resource info panel is open (chip click) */

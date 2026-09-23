@@ -25,6 +25,8 @@ function api(game: Game) {
     grantData: (n: number) => { game.state.data += n; game.publish(); },
     grantCrew: (n: number) => { game.state.crew += n; game.publish(); },
     grantPower: (n: number) => { game.state.powerStored += n; game.publish(); },
+    setPriority: (id: number, priority: 0 | 1 | 2 | 3) => game.actions.push({ kind: 'setPriority', id, priority }),
+    setEnabled: (id: number, enabled: boolean) => game.actions.push({ kind: 'setEnabled', id, enabled }),
     completeTech: (id: TechId) => game.debugCompleteTech(id),
     research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
     cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),

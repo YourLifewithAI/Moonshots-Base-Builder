@@ -39,7 +39,7 @@ export function mountHud(root: HTMLElement, game: Game) {
     const chip = (key: string, glyph: string, label: string, val: string, warn = false, cap = '') =>
       chips.push(`<div class="chip panel interactive${warn ? ' warn' : ''}" data-key="${key}" title="${label} — click for details">
         <span class="glyph">${glyph}</span><span class="val mono">${val}</span>${cap ? `<span class="cap mono">${cap}</span>` : ''}</div>`);
-    chip('power', '⚡', 'Power supply / demand (kW)', `${fmt(p.supply)}`, p.brownout, `/${fmt(p.demand)} kW`);
+    chip('power', '⚡', 'Power supply / requested demand (kW)', `${fmt(p.supply)}`, p.brownout || p.shed, `/${fmt(p.demand)} kW`);
     chip('power', '▮', 'Stored energy', fmt(p.stored), p.stored < 200, `/${fmt(p.capacity)}`);
     for (const rid of RESOURCE_ORDER) {
       if ((rid === 'chips' || rid === 'foils' || rid === 'launch') && r[rid] < 0.01) continue;

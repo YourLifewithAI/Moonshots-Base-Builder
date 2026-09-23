@@ -8,9 +8,9 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
+  BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
   CREW, CYCLE_S, FLARE,
-  LOW_SUPPLY_S, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
+  LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
@@ -120,34 +120,46 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   wants.sort((a, b) => a.prio - b.prio || a.b.id - b.b.id);
   let budget = supply * dt + s.powerStored;
-  let demand = 0;
+  let supplyLeft = supply * dt;
+  let demand = 0; // requested — loads held dark still want their watts
   let drawn = 0;
-  let brownout = false;
   const powered = new Set<number>();
+  const dark: Draw[] = [];
   for (const w of wants) {
     if (!w.isSite) {
       w.b.active = false;
       w.b.idleReason = '';
       if (!w.b.enabled) { w.b.idleReason = 'off'; continue; }
     }
-    // hysteresis: a browned-out building stays dark for a few seconds before
-    // retrying, so marginal grids don't strobe the base on and off
-    if ((w.b.brownoutHold ?? 0) > 0) {
-      w.b.brownoutHold = (w.b.brownoutHold ?? 0) - 1;
-      if (!w.isSite) w.b.idleReason = 'power';
-      brownout = true; // a building held dark means the grid is still short
-      continue;
-    }
     demand += w.draw / dt;
-    if (w.draw <= budget) {
+    // hysteresis: a browned-out building stays dark for a few seconds before
+    // retrying, so marginal grids don't strobe the base on and off — but it
+    // comes back in priority order once the grid carries it with margin: from
+    // this tick's supply alone, or from the bank for the rest of its hold
+    const hold = w.b.brownoutHold ?? 0;
+    if (hold > 0) w.b.brownoutHold = hold - 1;
+    const margin = w.draw * POWER_RELEASE_MARGIN;
+    const fits = hold > 0
+      ? supplyLeft >= margin || budget >= margin * hold
+      : w.draw <= budget;
+    if (fits) {
+      w.b.brownoutHold = 0;
       budget -= w.draw;
+      supplyLeft = Math.max(0, supplyLeft - w.draw);
       drawn += w.draw;
       powered.add(w.b.id);
     } else {
-      if (!w.isSite) w.b.idleReason = 'power';
-      w.b.brownoutHold = 8;
-      brownout = true;
+      if (hold === 0) w.b.brownoutHold = BROWNOUT_HOLD_S;
+      dark.push(w);
     }
+  }
+  // a dark priority 0–1 load is a brownout; idling only 2–3 is load shedding
+  let brownout = false;
+  let shed = false;
+  for (const w of dark) {
+    if (!w.isSite) w.b.idleReason = 'power';
+    if (w.prio <= 1) brownout = true;
+    else shed = true;
   }
 
   // ── 2.5 · construction progress: needs a robot, grid power, AND parts ──
@@ -173,9 +185,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const net = supply * dt - drawn;
   if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * BATTERY_EFF);
   else s.powerStored = Math.max(0, s.powerStored + net);
-  s.power = { supply, demand, capacity, brownout };
+  s.power = { supply, demand, served: drawn / dt, capacity, brownout, shed };
   if (brownout && day.isNight) alert(s, 'BROWNOUT — night demand exceeds stored power', 'crit');
-  else if (brownout) alert(s, 'BROWNOUT — grid demand exceeds supply', 'warn');
+  else if (brownout) alert(s, 'BROWNOUT — grid demand exceeds supply', 'crit');
+  else if (shed) alert(s, 'LOAD SHED — low-priority systems idled to protect the grid', 'info');
 
   // ── 3 · worker allocation (priority order) ─────────────────────────
   let workers = s.crew;
@@ -364,6 +377,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   if (waterAnxious) target -= 10;
   target += s.crew > housing ? MORALE.crowded : MORALE.housed;
   if (s.power.brownout) target += MORALE.blackout;
+  else if (s.power.shed) target += MORALE.shed;
   if (s.flare.phase === 'active') target += MORALE.flare;
   target = Math.max(0, Math.min(100, target));
   if (unmanned) s.morale = 70; // machines hold steady
