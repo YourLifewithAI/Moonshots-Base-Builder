@@ -606,6 +606,7 @@ test('low reserves breed anxiety; losing the crew ends the game', async ({ page 
   await page.evaluate(() => window.__game.advanceGameMinutes(15)); // > one settler period
   const s3 = await page.evaluate(() => window.__game.getState());
   expect(s3.paused).toBe(true);
+  expect(s3.simTime).toBe(s2.simTime); // even a debug fast-forward leaves the clock stopped
   expect(s3.crew).toBe(0);
   expect(s3.alerts.some((a: any) => a.text.startsWith('ARRIVAL'))).toBe(false);
   // ...and no second life from the save: the title shows the lost mission
@@ -796,6 +797,26 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   // off-deposit near the lander: blocked for the right reason
   const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
   expect(offIce.reason).toContain('No ice beneath');
+});
+
+test('fast-forwarding follows the sun: terrain shade comes and goes inside one advance', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=southpole`);
+  await game(page);
+  // at the pole's dawn the low sun drops this panel into a ridge's shadow
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 120, 126))).toBe(true);
+  const trace = await page.evaluate(() => {
+    const g = window.__game!;
+    const panel = () => g.getState().buildings.find((b: any) => b.type === 'solar');
+    const seen: boolean[] = [];
+    while (g.getState().simTime < 800) {
+      g.advanceGameSeconds(5);
+      if (panel().construction <= 0) seen.push(!!panel().shaded);
+    }
+    return seen;
+  });
+  expect(trace.length).toBeGreaterThan(50);
+  expect(trace.some((s) => s)).toBe(true);    // shaded at dawn...
+  expect(trace[trace.length - 1]).toBe(false); // ...and back in the sun as it climbs
 });
 
 test('site grading: era-1 tech flattens rough terrain for construction', async ({ page }) => {

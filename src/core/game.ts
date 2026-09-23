@@ -626,23 +626,10 @@ export class Game {
       this.publish();
     }
 
-    // solar arrays in terrain shadow lose 85% output: march a ray toward the
-    // sun from each panel through the heightfield (cheap at this cadence)
     this.shadeAcc += dt;
     if (this.shadeAcc > 0.5) {
       this.shadeAcc = 0;
-      const d = currentDay(this.state, SITES[this.state.siteId]);
-      if (d.sunFactor > 0.01 && d.sunElev > 0.01) {
-        const dirX = Math.cos(d.sunAzim) * Math.cos(d.sunElev);
-        const dirY = Math.sin(d.sunElev);
-        const dirZ = Math.sin(d.sunAzim) * Math.cos(d.sunElev);
-        for (const b of this.state.buildings) {
-          if (b.type !== 'solar' || (b.construction ?? 0) > 0) continue;
-          const [cx, cz] = centerOf(b);
-          const y = this.hf.sample(cx, cz);
-          b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
-        }
-      }
+      this.updateShading();
       this.updateWearMarkers();
     }
 
@@ -668,6 +655,22 @@ export class Game {
     if (this.autosaveAcc > AUTOSAVE_S) {
       this.autosaveAcc = 0;
       void this.doSave();
+    }
+  }
+
+  /** Solar arrays in terrain shadow lose 85% output: march a ray toward the
+   *  sun from each panel through the heightfield (cheap at this cadence). */
+  private updateShading() {
+    const d = currentDay(this.state, SITES[this.state.siteId]);
+    if (d.sunFactor <= 0.01 || d.sunElev <= 0.01) return;
+    const dirX = Math.cos(d.sunAzim) * Math.cos(d.sunElev);
+    const dirY = Math.sin(d.sunElev);
+    const dirZ = Math.sin(d.sunAzim) * Math.cos(d.sunElev);
+    for (const b of this.state.buildings) {
+      if (b.type !== 'solar' || (b.construction ?? 0) > 0) continue;
+      const [cx, cz] = centerOf(b);
+      const y = this.hf.sample(cx, cz);
+      b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
     }
   }
 
@@ -892,7 +895,10 @@ export class Game {
     for (const a of this.actions.drain()) this.applyAction(a);
     let victory = false;
     let defeat = false;
-    for (let i = 0; i < gameSeconds; i++) {
+    // as in play: shading follows the sun (every 5 game-seconds, the live
+    // loop's cadence at 10×), and a lost base never ticks again
+    for (let i = 0; i < gameSeconds && !missionLost(this.state); i++) {
+      if (i % 5 === 0) this.updateShading();
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
       if (ev.modsChanged) this.mods = computeMods(this.state.techsDone, this.state.expedition);
