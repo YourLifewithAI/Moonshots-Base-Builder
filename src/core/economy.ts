@@ -558,16 +558,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   }
   s.wasNight = day.isNight;
 
-  // ── 11 · milestones (in order, progressive disclosure) ─────────────
+  // ── 11 · milestones — each latches the moment it is met, in any order
+  // (the objectives panel still reads top-down); the first launch is victory
+  // whatever else is outstanding ─────────────────────────────────────
   for (const m of MILESTONES) {
-    if (s.milestonesDone.includes(m.id)) continue;
-    if (m.check(s)) {
-      s.milestonesDone.push(m.id);
-      alert(s, `MILESTONE — ${m.title}`, 'info');
-      if (m.id === 'first-light') ev.victory = true;
-      continue; // only complete in order; check next
-    }
-    break;
+    if (s.milestonesDone.includes(m.id) || !m.check(s)) continue;
+    s.milestonesDone.push(m.id);
+    alert(s, `MILESTONE — ${m.title}`, 'info');
+    if (m.id === 'first-light') ev.victory = true;
   }
 
   return ev;

@@ -1,5 +1,6 @@
 /** Ordered goals — the entire tutorial (progressive disclosure, no forced steps).
- *  Each completes contextually; the panel reveals the next. */
+ *  Each latches the moment it is met, in any order; the panel shows the
+ *  earliest one still open. */
 import type { GameState } from '../core/state';
 
 export interface MilestoneDef {

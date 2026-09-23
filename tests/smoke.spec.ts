@@ -719,23 +719,18 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   const st = await page.evaluate(() => window.__game.getState());
   expect(st.era).toBe(8);
 
-  // satisfy the ordered milestone chain up to first-light
-  await page.evaluate(() => window.__game.grantResources({
-    metals: 500, parts: 200, foils: 12, regolith: 80, oxygen: 200, food: 200, silicon: 30, chips: 30,
-  }));
+  // victory needs a launch and nothing else: no milestone chain to satisfy
+  await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60, foils: 10 }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('massDriver', 132, 134))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('partsFab', 138, 128))).toBe(true); // fab-online milestone
-  expect(await page.evaluate(() => window.__game.placeBuilding('dataCenter', 126, 138))).toBe(true); // silicon-brains milestone
-  await page.evaluate(() => window.__game.grantCrew(6)); // 10 total: staff + "grow the crew"
-  await page.evaluate(() => window.__game.advanceGameMinutes(13)); // a full lunar cycle → night survived
+  await page.evaluate(() => window.__game.advanceGameMinutes(6)); // driver builds ~245s, then accrues
   await page.evaluate(() => window.__game.grantPower(1000)); // launch burst budget
 
   const pre = await page.evaluate(() => window.__game.getState());
-  expect(pre.nightsSurvived).toBeGreaterThanOrEqual(1);
   expect(pre.resources.launch).toBeGreaterThanOrEqual(1);
-  expect(pre.milestonesDone).toContain('foils-ready');
+  expect(pre.milestonesDone).toContain('foils-ready'); // latched out of order
+  expect(pre.milestonesDone).not.toContain('grow-the-crew');
+  expect(pre.milestonesDone).not.toContain('survive-the-night');
 
   // the real button, on the swarm meter
   const btn = page.locator('#btn-launch');
@@ -746,6 +741,8 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   const post = await page.evaluate(() => window.__game.getState());
   expect(post.launches).toBe(1);
   expect(post.swarmPct).toBeGreaterThan(0);
+  expect(post.milestonesDone).toContain('first-light');
+  expect(post.victoryShown).toBe(true);
   await expect(page.locator('#victory-screen')).toBeVisible();
   await expect(page.locator('#victory-screen')).toContainText('FIRST LIGHT');
   await page.screenshot({ path: 'test-results/06-victory.png' });
