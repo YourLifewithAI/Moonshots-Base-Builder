@@ -289,7 +289,7 @@ export class Game {
     $selection.set(null);
     this.placement.begin(type);
     if (type === 'iceHarvester' && this.state.iceSurveyed) $iceOverlay.set(true);
-    $placing.set({ type, valid: false, reason: '' });
+    $placing.set({ type, valid: false, reason: '', warn: '' });
   }
 
   cancelPlacement() {
@@ -578,7 +578,7 @@ export class Game {
           this.placement.update(this.state, this.mods.unlocked,
             this.raycaster.ray.origin, this.raycaster.ray.direction);
           const p = this.placement.probe!;
-          $placing.set({ type: p.type, valid: p.valid, reason: p.reason });
+          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn });
         }
       } else {
         this.walk.update(dt);

@@ -173,7 +173,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     if (!p) { hint.style.display = 'none'; return; }
     hint.style.display = 'block';
     hint.innerHTML = p.valid || !p.reason
-      ? `<span class="label">Click place · R rotate · right-click cancel</span>`
+      ? `<span class="label">Click place · R rotate · right-click cancel</span>${p.valid && p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
       : `<span class="blocked">${p.reason}</span>`;
   });
 

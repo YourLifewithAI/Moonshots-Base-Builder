@@ -21,6 +21,8 @@ export interface PlacementProbe {
   gx: number; gz: number; rot: 0 | 1 | 2 | 3;
   valid: boolean;
   reason: string;
+  /** soft warning on a valid placement ('' = none) */
+  warn: string;
 }
 
 const GHOST_VALID = new THREE.MeshBasicMaterial({
@@ -36,6 +38,17 @@ export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<strin
     out[rid] = Math.ceil(amt * site.buildCostMult);
   }
   return out;
+}
+
+/** Before any smelter exists, a placement that would leave too few metals to
+ *  build one — without it there is no making more. A soft warning, never a block. */
+export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId): string {
+  if (type === 'smelter' || state.buildings.some((b) => b.type === 'smelter')) return '';
+  const cost = buildCost(type, site).metals ?? 0;
+  if (cost <= 0) return '';
+  const smelter = buildCost('smelter', site).metals ?? 0;
+  const left = Math.floor(state.resources.metals - cost);
+  return left < smelter ? `Leaves ${left}◆ — a Smelter needs ${smelter}◆` : '';
 }
 
 /** a site no robot has welded on yet: demolishing it cancels the order */
@@ -80,7 +93,7 @@ export class PlacementController {
     this.ghost = new THREE.Mesh(geo, GHOST_VALID);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
-    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '' };
+    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '' };
   }
 
   rotate() {
@@ -147,11 +160,12 @@ export class PlacementController {
 
   validate(state: GameState, unlocked: Set<BuildingId>): boolean {
     const p = this.probe!;
-    const res = p.type === 'grade'
+    const res: { valid: boolean; reason: string; warn?: string } = p.type === 'grade'
       ? checkGrade(state, this.hf, p.gx, p.gz)
       : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot);
     p.valid = res.valid;
     p.reason = res.reason;
+    p.warn = res.warn ?? '';
     return p.valid;
   }
 }
@@ -196,7 +210,7 @@ export function checkGrade(
 }
 
 /** Standalone validity check — shared by the ghost controller, the action
- *  handler, and the debug API. */
+ *  handler, and the debug API. A valid placement may carry a soft warning. */
 export function checkPlacement(
   state: GameState,
   site: SiteDef,
@@ -206,7 +220,7 @@ export function checkPlacement(
   gx: number,
   gz: number,
   rot: 0 | 1 | 2 | 3,
-): { valid: boolean; reason: string } {
+): { valid: boolean; reason: string; warn?: string } {
   const def = BUILDINGS[type];
   const probe = { type, gx, gz, rot };
   const r = footprintRect(probe);
@@ -245,5 +259,5 @@ export function checkPlacement(
       return { valid: false, reason: `Need ${amt} ${rid} — have ${Math.floor(have)}` };
     }
   }
-  return { valid: true, reason: '' };
+  return { valid: true, reason: '', warn: smelterWarning(state, site, type) };
 }

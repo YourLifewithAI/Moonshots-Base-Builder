@@ -53,7 +53,7 @@ export const $milestones = atom<{ done: string[]; total: number }>({ done: [], t
 export const $swarm = atom({ pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0 });
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
-export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string } | null>(null);
+export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 

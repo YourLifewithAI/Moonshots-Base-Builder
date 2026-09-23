@@ -461,6 +461,47 @@ test('honest research path: lab is buildable from start and carries the tech tre
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 119, 131))).toBe(true);
 });
 
+test('placement warns before metals for the first smelter run out', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=southpole`);
+  await game(page);
+  // 77 metals on the pole (×1.25): a 38◆ lab leaves 39, short of the 50◆ smelter
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(true);
+    g.advanceGameSeconds(0);
+    g.grantResources({ metals: 77 - g.getState().resources.metals });
+  });
+  const lab = await page.evaluate(() => window.__game.canPlace('lab', 132, 126));
+  expect(lab.valid).toBe(true); // a warning, never a block
+  expect(lab.warn).toBe('Leaves 39◆ — a Smelter needs 50◆');
+  const solar = await page.evaluate(() => window.__game.canPlace('solar', 132, 126));
+  expect(solar.warn).toBe(''); // 19◆ leaves 58: room for the smelter
+  // the ghost's hint carries it
+  await page.locator('#palette .cats .btn', { hasText: 'Science' }).click();
+  await page.locator('.bld-btn', { hasText: 'Research Lab' }).click();
+  await page.mouse.move(820, 450); // open ground east of the Lander
+  await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — a Smelter needs 50◆');
+  await page.keyboard.press('Escape');
+  // once a smelter stands (even as a site), spending metals is no longer a trap
+  await page.evaluate(() => {
+    window.__game.completeTech('regolithProcessing');
+    window.__game.grantResources({ metals: 50 });
+  });
+  const smelterPlaced = await page.evaluate(() => {
+    const g = window.__game!;
+    for (let gx = 116; gx <= 138; gx += 2) {
+      for (let gz = 116; gz <= 138; gz += 2) {
+        if (g.canPlace('smelter', gx, gz).valid) return g.placeBuilding('smelter', gx, gz);
+      }
+    }
+    return false;
+  });
+  expect(smelterPlaced).toBe(true);
+  const after = await page.evaluate(() => window.__game.canPlace('lab', 132, 126));
+  expect(after.valid).toBe(true);
+  expect(after.warn).toBe('');
+});
+
 test('metal deadlock triggers an Earth resupply a full day out', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
