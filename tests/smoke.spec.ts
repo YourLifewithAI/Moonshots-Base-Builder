@@ -253,7 +253,8 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   const s1 = await page.evaluate(() => window.__game.getState());
   expect(s1.techsDone).toContain('regolithProcessing');
 
-  await page.evaluate(() => window.__game.completeTech('iceExtraction'));
+  // (Ice Extraction is pole-only now; a hidden tech never counts for a charter)
+  await page.evaluate(() => window.__game.completeTech('teleoperation'));
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.era).toBe(2);
 });
@@ -1293,24 +1294,26 @@ test('human cohabitation: robotic bases earn settlers late in the tree', async (
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
   // human-comfort research is locked to machines...
-  await page.evaluate(() => window.__game.research('hydroponicFarming'));
+  await page.evaluate(() => window.__game.research('closedLoopLS'));
   await page.evaluate(() => window.__game.advanceGameSeconds(2));
   const s0 = await page.evaluate(() => window.__game.getState());
   expect(s0.researchQueue).toEqual([]);
-  // ...and so is housing
+  expect(s0.alerts.some((a: any) => a.text.startsWith('CREW TECH — Closed-Loop Life Support'))).toBe(true);
+  // ...and so are housing and the farm
   expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 130))).toBe(false);
-  // Era 4 Human Cohabitation readies the base for partners
+  expect(await page.evaluate(() => window.__game.placeBuilding('hydroponics', 120, 132))).toBe(false);
+  // Human Cohabitation readies the base for partners
   await page.evaluate(() => window.__game.completeTech('humanCohabitation'));
-  await page.evaluate(() => window.__game.research('hydroponicFarming'));
-  await page.evaluate(() => window.__game.advanceGameSeconds(2));
-  const s1 = await page.evaluate(() => window.__game.getState());
-  expect(s1.researchQueue).toContain('hydroponicFarming');
+  const r1 = await page.evaluate(() => window.__game.getResearch());
+  expect(r1.cards.closedLoopLS.state).not.toBe('crewLocked');
   expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 130))).toBe(true);
-  // with reserves stocked and housing online, the first settler arrives
+  expect(await page.evaluate(() => window.__game.placeBuilding('hydroponics', 120, 132))).toBe(true);
+  // with reserves stocked, the crew rotation boards 2 settlers after 240 s
   await page.evaluate(() => window.__game.grantResources({ oxygen: 100, food: 100, water: 50 }));
-  await page.evaluate(() => window.__game.advanceGameMinutes(13.5));
+  await page.evaluate(() => window.__game.advanceGameSeconds(241));
   const s2 = await page.evaluate(() => window.__game.getState());
-  expect(s2.crew).toBeGreaterThanOrEqual(1);
+  expect(s2.crew).toBe(2);
+  expect(s2.alerts.some((a: any) => a.text.startsWith('CREW ROTATION — 2 settlers aboard'))).toBe(true);
   expect(s2.defeatShown).toBe(false); // a robotic mission still cannot be defeated
 });
 
@@ -1377,21 +1380,22 @@ test('robotic handover: settlers take stations from the Lander; one crew-toggle 
     return g.getState();
   }, by(s0, 'lab').id);
   expect(by(refused, 'lab').automated).toBe(true);
-  expect(refused.alerts.some((a: any) => a.text.startsWith('CANNOT CREW'))).toBe(true);
+  expect(refused.alerts.some((a: any) => a.text.startsWith('NO CREW ABOARD'))).toBe(true);
   await page.evaluate((id) => window.__game.select(id), by(s0, 'lab').id);
   await expect(page.locator('#insp-crewed')).toHaveCount(0);
 
-  // the first settler arrives to an agent-run base, and the log says so
+  // the crew rotation's two settlers arrive to an agent-run base, and the log says so
   await page.evaluate(() => window.__game.completeTech('humanCohabitation'));
   const arrived = await page.evaluate(() => {
     const g = window.__game!;
     for (let i = 0; i < 90 && g.getState().crew < 1; i++) g.advanceGameSeconds(10);
     return g.getState();
   });
-  expect(arrived.crew).toBe(1);
-  expect(arrived.alerts.some((a: any) => a.text.startsWith('SETTLERS ABOARD'))).toBe(true);
+  expect(arrived.crew).toBe(2);
+  expect(arrived.alerts.some((a: any) =>
+    a.text.startsWith('CREW ROTATION — 2 settlers aboard') && a.text.includes('agent-run'))).toBe(true);
 
-  // one settler, two stations: the excavator (priority 2, one seat) is crewed,
+  // two settlers, two stations: the excavator (priority 2, one seat) is crewed,
   // the two-seat lab stays agent-run rather than idle
   await page.evaluate((id) => window.__game.select(id), by(s0, 'lander').id);
   await page.locator('#insp-crewall').click();
@@ -1402,14 +1406,14 @@ test('robotic handover: settlers take stations from the Lander; one crew-toggle 
   expect(crewed.alerts.some((a: any) =>
     a.text === 'CREWED — 1 station handed to the settlers; 1 stays agent-run for want of hands')).toBe(true);
 
-  // the lab's own toggle works the moment anyone is aboard — no Autonomous Ops needed
+  // the lab's own toggle works the moment anyone is aboard — no automation tech needed
   await page.evaluate(() => window.__game.grantCrew(2));
   await page.evaluate((id) => window.__game.select(id), by(s0, 'lab').id);
   await page.locator('#insp-crewed').click();
   await expect.poll(async () => by(await page.evaluate(() => window.__game.getState()), 'lab').automated)
     .toBe(false);
 
-  // a human base without Autonomous Operations cannot hand stations to agents
+  // a human base without Construction Robotics cannot hand stations to agents
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
@@ -1421,7 +1425,7 @@ test('robotic handover: settlers take stations from the Lander; one crew-toggle 
     return g.getState();
   });
   expect(by(human, 'lab').automated).toBe(false);
-  expect(human.alerts.some((a: any) => a.text.startsWith('CANNOT AUTOMATE'))).toBe(true);
+  expect(human.alerts.some((a: any) => a.text.startsWith('NEEDS CONSTRUCTION ROBOTICS'))).toBe(true);
 });
 
 test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async ({ page }) => {
@@ -1429,27 +1433,28 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   await game(page);
 
   // fast-forward the eight-era tree to swarm protocol
-  for (const t of ['regolithProcessing', 'iceExtraction', 'teleoperation',
-    'batteryStorage', 'siliconRefining', 'partsFabrication',
-    'thoriumPower', 'autonomousOps',
-    'waferFab', 'acceleratorDesign',
-    'lunarDataCenter', 'cryoRadiators',
-    'closedLoopLS', 'crewWellness',
-    'foilManufacturing', 'massDriver', 'hiEffLaunch', 'swarmProtocol']) {
+  for (const t of ['regolithProcessing', 'teleoperation', 'prospectingRovers',
+    'siliconRefining', 'partsFabrication', 'batteryStorage', 'constructionRobotics', 'regolithShielding',
+    'thoriumPower', 'swarmRobotics',
+    'waferFab', 'orbitalProspector', 'acceleratorDesign',
+    'lunarDataCenter', 'dynamicClocking',
+    'closedLoopLS', 'scienceCrews',
+    'foilManufacturing', 'massDriver', 'swarmProtocol']) {
     await page.evaluate((tech) => window.__game.completeTech(tech), t);
   }
   const st = await page.evaluate(() => window.__game.getState());
   expect(st.era).toBe(8);
 
-  // victory needs a launch and nothing else: no milestone chain to satisfy
-  await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60, foils: 10 }));
+  // victory needs a launch and nothing else: no milestone chain to satisfy.
+  // A volley needs 3↑ of launch capacity, more than the driver banks in this window
+  await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60, foils: 15, launch: 3 }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('massDriver', 132, 134))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameMinutes(6)); // driver builds ~245s, then accrues
   await page.evaluate(() => window.__game.grantPower(1000)); // launch burst budget
 
   const pre = await page.evaluate(() => window.__game.getState());
-  expect(pre.resources.launch).toBeGreaterThanOrEqual(1);
+  expect(pre.resources.launch).toBeGreaterThanOrEqual(3);
   expect(pre.milestonesDone).toContain('foils-ready'); // latched out of order
   expect(pre.milestonesDone).not.toContain('grow-the-crew');
   expect(pre.milestonesDone).not.toContain('survive-the-night');

@@ -1,0 +1,496 @@
+/** Research-tree sim (docs/11-research-and-map-spec.md §9): charters, insights,
+ *  doctrines, the queue, the new verbs, the crew rotation and the mods the
+ *  economy now runs on. Drives the sim through window.__game (?debug). */
+import { test, expect, type Page } from '@playwright/test';
+
+declare global {
+  interface Window { __game?: any }
+}
+
+const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+
+async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human') {
+  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
+  await page.waitForFunction(() => window.__game !== undefined);
+  // game time moves only through the fast-forwards: every reading lands on a known tick
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  await page.evaluate(POWERED);
+}
+
+const complete = (page: Page, techs: string[]) =>
+  page.evaluate((ts) => { for (const t of ts) window.__game.completeTech(t); }, techs);
+
+/** Place buildings on the nearest free valid spots around the Lander. */
+async function placeNear(page: Page, items: [string, number][]) {
+  const missing = await page.evaluate((list) => {
+    const g = window.__game!;
+    const spots: [number, number][] = [];
+    for (let gz = 112; gz <= 143; gz++) for (let gx = 112; gx <= 143; gx++) spots.push([gx, gz]);
+    spots.sort((a, b) => Math.hypot(a[0] - 127, a[1] - 127) - Math.hypot(b[0] - 127, b[1] - 127));
+    const short: string[] = [];
+    for (const [type, n] of list) {
+      let placed = 0;
+      for (const [gx, gz] of spots) {
+        if (placed >= n) break;
+        if (g.placeBuilding(type, gx, gz)) placed++;
+      }
+      if (placed < n) short.push(`${type} ${placed}/${n}`);
+    }
+    return short;
+  }, items);
+  expect(missing).toEqual([]);
+}
+
+const hasAlert = (s: any, re: RegExp) => s.alerts.some((a: any) => re.test(a.text));
+
+/** In-page: advance `secs` with the bank topped up every 10 s (a grant above
+ *  capacity is clamped whenever the grid runs a surplus, so one big grant
+ *  would not carry a night). */
+declare function powered(secs: number): void;
+const POWERED = `window.powered = (secs) => {
+  const g = window.__game;
+  for (let t = 0; t < secs; t += 10) { g.grantPower(5000); g.advanceGameSeconds(Math.min(10, secs - t)); }
+}`;
+
+// through Era 5 on either expedition (debug completes skip prerequisites and goods)
+const TO_ERA_5 = [
+  'regolithProcessing', 'teleoperation',
+  'siliconRefining', 'partsFabrication', 'constructionRobotics', 'batteryStorage',
+  'regenFuelCells', 'swarmRobotics',
+  'waferFab', 'acceleratorDesign',
+];
+
+test('charter by deed: one era-1 tech plus 100◆ smelted opens Era 2', async ({ page }) => {
+  await start(page, 'mare');
+  await complete(page, ['regolithProcessing']);
+  await placeNear(page, [['solar', 2], ['excavator', 2], ['smelter', 1]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ regolith: 200 });
+    let eraWhileShort = 0;
+    let s = g.getState();
+    for (let i = 0; i < 80 && s.stats.produced.metals < 100; i++) {
+      eraWhileShort = Math.max(eraWhileShort, s.era);
+      g.advanceGameSeconds(5);
+      s = g.getState();
+    }
+    return { s, eraWhileShort, gate: g.getResearch().gates[0] };
+  });
+  expect(r.s.stats.produced.metals).toBeGreaterThanOrEqual(100);
+  expect(r.eraWhileShort).toBe(1); // one tech alone is not a charter
+  expect(r.s.era).toBe(2);
+  expect(r.gate.via).toBe('deed');
+  expect(hasAlert(r.s, /^ERA 2 OPENS — EARLY CONSTRUCTION · via 1 tech \+ 100◆ smelted$/)).toBe(true);
+});
+
+test('insight: a night with load shed makes Battery Banks 40% cheaper, even while locked', async ({ page }) => {
+  await start(page, 'mare');
+  // two crewed labs (10 kW) outlast the Lander's bank before dawn; no batteries
+  await placeNear(page, [['solar', 1], ['lab', 2]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.advanceGameSeconds(470 - g.getState().simTime); // just before the first dusk
+    const dusk = g.getState();
+    g.advanceGameSeconds(725 - dusk.simTime); // through the night, just past dawn
+    return { dusk, dawn: g.getState(), card: g.getResearch().cards.batteryStorage };
+  });
+  expect(r.dusk.insights.batteryStorage).toBeUndefined();
+  expect(r.dawn.stats.nightBrownouts).toBe(1);
+  expect(r.dawn.insights.batteryStorage).toBe(0.4);
+  expect(r.card.state).toBe('eraLocked');
+  expect(r.card.cost.data).toBe(66); // 110 × 0.6
+  expect(r.card.insight.earned).toBe(true);
+  expect(hasAlert(r.dawn, /^INSIGHT — Battery Banks 40% cheaper: a night brownout/)).toBe(true);
+});
+
+test('doctrine: a queued pick forecloses its rival until cancelled, a done one for good', async ({ page }) => {
+  await start(page, 'mare');
+  await complete(page, ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication']);
+  const read = () => page.evaluate(() => {
+    const g = window.__game!;
+    g.advanceGameSeconds(0);
+    return { s: g.getState(), r: g.getResearch() };
+  });
+  expect((await read()).s.era).toBe(3);
+  await page.evaluate(() => window.__game.research('swarmRobotics'));
+  const queued = await read();
+  expect(queued.r.cards.heavyConstructors.state).toBe('foreclosed');
+  expect(queued.r.cards.heavyConstructors.doctrine).toBe('constructionDoctrine');
+  // the refusal says what is wrong and how to reopen it
+  await page.evaluate(() => window.__game.research('heavyConstructors'));
+  const refused = await read();
+  expect(refused.s.researchQueue).toEqual(['swarmRobotics']);
+  expect(hasAlert(refused.s,
+    /^FORECLOSED — Heavy Constructors while Swarm Robotics is queued — cancel it to reopen$/)).toBe(true);
+  // cancel reopens it
+  await page.evaluate(() => window.__game.cancelResearch('swarmRobotics'));
+  expect((await read()).r.cards.heavyConstructors.state).toBe('available');
+  // a completed pick stays chosen
+  await complete(page, ['swarmRobotics']);
+  await page.evaluate(() => window.__game.research('heavyConstructors'));
+  const chosen = await read();
+  expect(chosen.r.cards.heavyConstructors.state).toBe('foreclosed');
+  expect(chosen.r.cards.heavyConstructors.reason).toBe('foreclosed — you chose Swarm Robotics');
+  expect(chosen.s.researchQueue).toEqual([]);
+  expect(hasAlert(chosen.s, /^FORECLOSED — Heavy Constructors — you chose Swarm Robotics$/)).toBe(true);
+});
+
+test('requiresAny: either branch opens the tech; hidden members are never listed', async ({ page }) => {
+  // mare: Site Grading is hidden, so only Construction Robotics is named
+  await start(page, 'mare');
+  await complete(page, ['regolithProcessing', 'prospectingRovers']);
+  const mare = await page.evaluate(() => window.__game.getResearch());
+  expect(mare.era).toBe(2);
+  expect(mare.cards.regolithShielding.state).toBe('requiresAny');
+  expect(mare.cards.regolithShielding.reason).toBe('needs Construction Robotics');
+  // Construction Robotics itself takes either uplink: Rovers is done, Teleoperation is not
+  expect(mare.cards.constructionRobotics.state).toBe('available');
+  // the path queues the one missing branch in front of it
+  await page.evaluate(() => window.__game.researchPath('regolithShielding'));
+  const path = await page.evaluate(() => { window.__game.advanceGameSeconds(0); return window.__game.getState(); });
+  expect(path.researchQueue).toEqual(['constructionRobotics', 'regolithShielding']);
+
+  // pole: the grading branch alone is enough
+  await start(page, 'southpole');
+  await complete(page, ['regolithProcessing', 'siteGrading']);
+  const pole = await page.evaluate(() => window.__game.getResearch());
+  expect(pole.cards.regolithShielding.state).toBe('available');
+  await page.evaluate(() => window.__game.research('regolithShielding'));
+  const q = await page.evaluate(() => { window.__game.advanceGameSeconds(0); return window.__game.getState(); });
+  expect(q.researchQueue).toEqual(['regolithShielding']);
+});
+
+test('goods stall: a tech short of chips waits while the queue flows past it', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  await complete(page, TO_ERA_5);
+  await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60 }));
+  await placeNear(page, [['solar', 2], ['lab', 4]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.research('lunarDataCenter');
+    g.research('dustMitigation');
+    g.grantData(2000);
+    powered(600); // four agent labs outdraw the arrays
+    const stalled = g.getState();
+    g.grantResources({ chips: 10 });
+    g.advanceGameSeconds(2);
+    return { stalled, after: g.getState() };
+  });
+  expect(r.stalled.era).toBe(5);
+  expect(r.stalled.techsDone).toContain('dustMitigation');
+  expect(r.stalled.techsDone).not.toContain('lunarDataCenter');
+  expect(r.stalled.researchStalled).toEqual(['lunarDataCenter']);
+  expect(hasAlert(r.stalled, /^RESEARCH WAITING — Lunar Data Center needs 10▣.*Chip Fab/)).toBe(true);
+  expect(r.after.techsDone).toContain('lunarDataCenter');
+  expect(r.after.resources.chips).toBeCloseTo(0, 6);
+});
+
+test('cancel is transitive: dependents drop with alerts and never finish', async ({ page }) => {
+  await start(page, 'mare');
+  await complete(page, ['teleoperation', 'prospectingRovers']); // Era 2 without smelting
+  await placeNear(page, [['solar', 1], ['lab', 1]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    for (const t of ['regolithProcessing', 'siliconRefining', 'partsFabrication']) g.research(t);
+    g.advanceGameSeconds(0);
+    const queued = g.getState().researchQueue;
+    g.cancelResearch('regolithProcessing');
+    g.advanceGameSeconds(0);
+    const cancelled = g.getState();
+    g.grantData(500);
+    g.advanceGameSeconds(600);
+    return { queued, cancelled, later: g.getState() };
+  });
+  expect(r.queued).toEqual(['regolithProcessing', 'siliconRefining', 'partsFabrication']);
+  expect(r.cancelled.researchQueue).toEqual([]);
+  const drops = r.cancelled.alerts.filter((a: any) => a.text.startsWith('RESEARCH DROPPED'));
+  expect(drops.map((a: any) => a.text).sort()).toEqual([
+    'RESEARCH DROPPED — Parts Fabrication needs Regolith Smelting',
+    'RESEARCH DROPPED — Silicon Refining needs Regolith Smelting',
+  ]);
+  expect(r.later.techsDone).not.toContain('siliconRefining');
+  expect(r.later.techsDone).not.toContain('partsFabrication');
+  expect(r.later.techsDone).not.toContain('regolithProcessing');
+});
+
+test('overclock: ×1.5 draw and output, then it trips itself at WORN', async ({ page }) => {
+  await start(page, 'mare');
+  await complete(page, ['waferFab']);
+  await page.evaluate(() => window.__game.grantResources({ metals: 100, silicon: 200, parts: 100 }));
+  await placeNear(page, [['solar', 4], ['chipFab', 1]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const fab = () => g.getState().buildings.find((b: any) => b.type === 'chipFab');
+    powered(260); // the fab is built after the arrays, and runs through the night
+    const id = fab().id;
+    g.setOverclock(id, true); // before the tech: refused
+    g.advanceGameSeconds(1);
+    const refused = { s: g.getState(), on: !!fab().overclock };
+    g.completeTech('dynamicClocking');
+    const window20 = () => {
+      g.grantPower(5000);
+      const a = g.getState();
+      g.advanceGameSeconds(20);
+      const b = g.getState();
+      return { chips: (b.resources.chips - a.resources.chips) / 20, demand: b.power.demand };
+    };
+    g.advanceGameSeconds(1);
+    const base = window20();
+    g.setOverclock(id, true);
+    g.advanceGameSeconds(1);
+    const onAt = g.getState().simTime;
+    const oc = window20();
+    // +0.35 wear per lunar day, unhealed: WORN (0.3) after ~617 s of running
+    powered(580);
+    let wearAtTrip = 0;
+    while (fab().overclock && g.getState().simTime < onAt + 700) {
+      wearAtTrip = fab().wear;
+      g.grantPower(1000);
+      g.advanceGameSeconds(1);
+      if (!fab().overclock) wearAtTrip = fab().wear;
+    }
+    const tripped = g.getState();
+    g.setOverclock(id, true); // worn: refused
+    g.advanceGameSeconds(1);
+    return { refused, base, oc, wearAtTrip, ranS: tripped.simTime - onAt, tripped, again: g.getState(), id };
+  });
+  expect(r.refused.on).toBe(false);
+  expect(hasAlert(r.refused.s, /^NEEDS Dynamic Clocking/)).toBe(true);
+  expect(r.base.chips).toBeGreaterThan(0.04);
+  expect(r.oc.chips / r.base.chips).toBeCloseTo(1.5, 1);
+  expect(r.oc.demand - r.base.demand).toBeCloseTo(9, 0); // 18 kW → 27 kW
+  const fab = r.tripped.buildings.find((b: any) => b.id === r.id);
+  expect(fab.overclock).toBe(false);
+  expect(r.wearAtTrip).toBeGreaterThanOrEqual(0.3);
+  expect(r.ranS).toBeGreaterThan(600);
+  expect(r.ranS).toBeLessThan(640);
+  expect(hasAlert(r.tripped, new RegExp(`^OVERCLOCK TRIPPED — Chip Fab #${r.id} reached WORN$`))).toBe(true);
+  expect(r.again.buildings.find((b: any) => b.id === r.id).overclock).toBe(false);
+  expect(hasAlert(r.again, /^CANNOT OVERCLOCK — Chip Fab #\d+ is WORN/)).toBe(true);
+});
+
+test('downlink: banked data buys cargo through the one shipment slot, each dearer', async ({ page }) => {
+  await start(page, 'mare');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const step = () => { g.advanceGameSeconds(1); return g.getState(); };
+    g.downlink();
+    const noTech = step();
+    g.completeTech('teleoperation');
+    g.grantData(100);
+    g.downlink();
+    const poor = step();
+    g.grantData(300);
+    g.downlink();
+    const sent = step();
+    g.downlink();
+    const busy = step();
+    g.advanceGameSeconds(360);
+    const landed = g.getState();
+    g.downlink();
+    const dearer = step();
+    return { noTech, poor, sent, busy, landed, dearer };
+  });
+  expect(hasAlert(r.noTech, /^NEEDS Earth Teleoperation/)).toBe(true);
+  expect(r.poor.resupply.pending).toBe(false);
+  expect(hasAlert(r.poor, /^DOWNLINK NEEDS 150≡ BANKED — have 100$/)).toBe(true);
+  expect(r.sent.data).toBeCloseTo(250, 6);
+  expect(r.sent.downlinks).toBe(1);
+  expect(r.sent.resupply.pending).toBe(true);
+  expect(r.sent.resupply.downlink).toBe(true);
+  expect(hasAlert(r.busy, /^SHIPMENT ALREADY EN ROUTE/)).toBe(true);
+  expect(r.busy.data).toBeCloseTo(250, 6);
+  // the cargo lands: 60◆ 20⚙ 5▣
+  expect(r.landed.resupply.pending).toBe(false);
+  expect(r.landed.resources.chips).toBe(5);
+  expect(r.landed.resources.metals - r.sent.resources.metals).toBeCloseTo(60, 0);
+  expect(hasAlert(r.landed, /^DOWNLINK CARGO LANDED — \+60 metals, \+20 parts, \+5 chips from Earth$/)).toBe(true);
+  // the second one costs 200
+  expect(hasAlert(r.dearer, /^DOWNLINK NEEDS 200≡ BANKED — have 250$/)).toBe(false);
+  expect(r.dearer.data).toBeCloseTo(50, 6);
+  expect(r.dearer.downlinks).toBe(2);
+});
+
+test('crew rotation: robotic Cohabitation boards 2 settlers only when the base can keep them', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ food: -g.getState().resources.food });
+    g.completeTech('humanCohabitation');
+    const t0 = g.getState().simTime;
+    const pending = g.getState().crewRotation;
+    g.advanceGameSeconds(239);
+    const early = g.getState();
+    g.advanceGameSeconds(2);
+    const held = g.getState();
+    g.grantResources({ food: 50 });
+    g.advanceGameSeconds(30);
+    const retrying = g.getState();
+    g.advanceGameSeconds(30);
+    return { t0, pending, early, held, retrying, boarded: g.getState() };
+  });
+  expect(r.pending).toEqual({ at: r.t0 + 240, count: 2 });
+  expect(r.early.crew).toBe(0);
+  // no food: held, naming what is missing and what makes it
+  expect(r.held.crew).toBe(0);
+  expect(hasAlert(r.held, /^CREW ROTATION HELD — needs 12 food \(have 0\) · build Hydroponics Farm$/)).toBe(true);
+  // re-checked a minute later, not every tick
+  expect(r.retrying.crew).toBe(0);
+  expect(r.boarded.crew).toBe(2);
+  expect(r.boarded.crewRotation).toBeNull();
+  expect(hasAlert(r.boarded, /^CREW ROTATION — 2 settlers aboard/)).toBe(true);
+  // the rotation, not the growth rule, brought them
+  expect(hasAlert(r.boarded, /^ARRIVAL/)).toBe(false);
+});
+
+test('robotic charter: Era 7 waits for Human Cohabitation on either route', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  await complete(page, [...TO_ERA_5, 'lunarDataCenter', 'dynamicClocking']);
+  expect((await page.evaluate(() => window.__game.getState())).era).toBe(6);
+  // Crew Wellness resolves to Era 7 on robotic runs: Cohab alone is one Era-6 tech
+  await complete(page, ['humanCohabitation', 'crewWellness']);
+  const cohabOnly = await page.evaluate(() => window.__game.getResearch());
+  expect(cohabOnly.era).toBe(6);
+  expect(cohabOnly.cards.crewWellness.era).toBe(7);
+  expect(cohabOnly.gates.find((gt: any) => gt.era === 7).techs).toBe(1);
+
+  await start(page, 'mare', 'robotic');
+  await complete(page, [...TO_ERA_5, 'lunarDataCenter', 'dynamicClocking']);
+  // both routes met — two Era-6 techs, and a day of outpost operation — but no Cohab
+  await complete(page, ['farSideRelay', 'closedLoopLS']);
+  await page.evaluate(() => { window.__game.setStats({ outpostOpS: 720 }); window.__game.advanceGameSeconds(1); });
+  const noCohab = await page.evaluate(() => window.__game.getResearch());
+  const gate = noCohab.gates.find((gt: any) => gt.era === 7);
+  expect(noCohab.era).toBe(6);
+  expect(gate.techs).toBe(2);
+  expect(gate.deedMet).toBe(true);
+  expect(gate.requires).toEqual({ tech: 'humanCohabitation', done: false });
+  expect(gate.open).toBe(false);
+  await complete(page, ['humanCohabitation']);
+  expect((await page.evaluate(() => window.__game.getState())).era).toBe(7);
+});
+
+test('uplink share: six agent labs research at 5.2 × 0.225, exactly what researchRates reports', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 80 }));
+  await placeNear(page, [['lab', 6]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    powered(240); // six labs, two robots, no arrays
+    g.grantPower(5000);
+    const a = g.getState();
+    g.advanceGameSeconds(10);
+    const b = g.getState();
+    return { labs: b.buildings.filter((x: any) => x.type === 'lab' && x.active).length,
+      rate: (b.data - a.data) / 10, view: g.getResearch() };
+  });
+  expect(r.labs).toBe(6);
+  expect(r.view.uplinkShare).toBeCloseTo(5.2 / 6, 6);
+  expect(Math.abs(r.rate / (5.2 * 0.225) - 1)).toBeLessThan(0.03);
+  expect(r.rate).toBeCloseTo(r.view.production, 6);
+});
+
+test('tech mods reach the grid: Lander comms loads, agent tax, night draw, construction', async ({ page }) => {
+  // exploration techs load the Lander: below 0 kW it is a priority-0 draw
+  await start(page, 'mare');
+  const lander = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('prospectingRovers');
+    g.advanceGameSeconds(1);
+    const rovers = g.getState().power.supply;
+    for (const t of ['orbitalProspector', 'farSideRelay', 'deepSounding']) g.completeTech(t);
+    g.advanceGameSeconds(1);
+    const loaded = g.getState();
+    g.grantPower(-g.getState().powerStored);
+    g.advanceGameSeconds(1);
+    return { rovers, loaded, dark: g.getState() };
+  });
+  expect(lander.rovers).toBeCloseTo(5, 6); // 6 kW − 1 kW rover charging
+  expect(lander.loaded.power.supply).toBeCloseTo(0, 6);
+  expect(lander.loaded.power.demand).toBeCloseTo(2, 6); // 6 − 1 − 2 − 2 − 3
+  expect(lander.dark.buildings[0].idleReason).toBe('power');
+  expect(lander.dark.power.brownout).toBe(true);
+
+  // agent-run draw is ×(1 + agentTax): 1.6, or 1.36 with Rad-Hard; Wadis tax the day ×1.05
+  await start(page, 'mare', 'robotic');
+  await placeNear(page, [['lab', 1]]);
+  const tax = await page.evaluate(() => {
+    const g = window.__game!;
+    g.advanceGameSeconds(80);
+    const draw = () => { g.advanceGameSeconds(1); return g.getState().power.demand; };
+    const base = draw();
+    g.completeTech('radHardProcess');
+    const radHard = draw();
+    g.completeTech('thermalWadis');
+    const day = draw();
+    g.advanceGameSeconds(490 - g.getState().simTime); // night
+    g.grantPower(5000);
+    const night = draw();
+    return { base, radHard, day, night };
+  });
+  expect(tax.base).toBeCloseTo(5 * 1.6, 6);
+  expect(tax.radHard).toBeCloseTo(5 * 1.36, 6);
+  expect(tax.day).toBeCloseTo(5 * 1.36 * 1.05, 6);
+  expect(tax.night).toBeCloseTo(5 * 1.36 * 0.85, 6);
+
+  // Heavy Constructors: 2.2× weld rate on 60% of the parts, at twice the site draw
+  await start(page, 'mare');
+  const heavy = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('heavyConstructors');
+    g.placeBuilding('solar', 132, 126);
+    const c0 = g.getState().buildings.find((b: any) => b.type === 'solar').construction;
+    const p0 = g.getState().resources.parts;
+    g.advanceGameSeconds(5);
+    const s = g.getState();
+    return { c0, welded: c0 - s.buildings.find((b: any) => b.type === 'solar').construction,
+      parts: p0 - s.resources.parts, demand: s.power.demand, built: s.stats.built };
+  });
+  expect(heavy.welded).toBeCloseTo(5 * 2.2, 6);
+  expect(heavy.demand).toBeCloseTo(8, 6);
+  expect(heavy.parts).toBeGreaterThan(5 * 0.04 * 0.6 - 1e-6); // welding, plus a little Lander upkeep
+  expect(heavy.parts).toBeLessThan(5 * 0.04 * 0.6 + 0.01);
+});
+
+test('save migration: a 34-tech save loads with retired ids refunded and the queue sanitized', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await start(page, 'southpole');
+  await complete(page, ['regolithProcessing']);
+  const legacy = await page.evaluate(() => {
+    const st = window.__game.getState();
+    for (const k of ['techSchema', 'insights', 'discoveries', 'researchStalled', 'researchPaused',
+      'researchRateAvg', 'stats', 'feed', 'downlinks', 'crewRotation', 'survey']) delete st[k];
+    st.techsDone = ['regolithProcessing', 'hydroponicFarming', 'inferenceOptimization', 'autonomousOps'];
+    st.researchQueue = ['autoFabrication', 'hiEffLaunch'];
+    st.researchSpent = { autoFabrication: 50 };
+    st.iceSurveyed = true;
+    return st;
+  });
+  await page.goto(URL_DEBUG); // the title screen
+  await page.evaluate((st) => new Promise((resolve, reject) => {
+    const req = indexedDB.open('keyval-store');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('keyval', 'readwrite');
+      tx.objectStore('keyval').put({
+        state: st, player: { mode: 'build', x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }, savedAt: Date.now(),
+      }, 'mbb-save-v1');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  }), legacy);
+  await page.reload();
+  await page.locator('#btn-continue').click();
+  await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 0);
+  const s = await page.evaluate(() => window.__game.getState());
+  expect(s.techsDone).toEqual(['regolithProcessing']);
+  expect(s.researchQueue).toEqual([]);
+  expect(s.techSchema).toBe(2);
+  // 40 + 640 + 260 for the three done, plus the 50 banked on a queued one
+  expect(s.data - legacy.data).toBeCloseTo(990, 6);
+  expect(s.stats.produced.metals).toBe(0);
+  expect(s.survey.outposts).toEqual([]);
+  expect(hasAlert(s, /^RESEARCH TREE UPDATED — 5 retired techs refunded 990≡$/)).toBe(true);
+  expect(errors).toEqual([]);
+});
