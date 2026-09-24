@@ -1,163 +1,207 @@
 # 03 · Tech Tree
 
+The research tree is **47 technologies in 7 swimlanes across 8 eras**, built
+around the realistic rollout of lunar construction: robots land and build
+first, and humans arrive only once the machines have made the base worth
+inhabiting. The full design rationale, pacing model and test plan live in
+[11-research-and-map-spec.md](11-research-and-map-spec.md) §2–§3; this page is
+the player-facing summary plus tables generated from `src/data/techs.ts`.
 
-> **Updated (robots-first restructure):** the shipped tree is now **36 techs
-> across EIGHT eras**, reordered around the realistic rollout of lunar
-> construction — robots land and build first, humans arrive only once the
-> machines have made the base worth inhabiting:
-> 1. **FIRST LANDING** — survey, smelting, ice, grading, Earth teleoperation
-> 2. **EARLY CONSTRUCTION** — batteries, silicon, parts, construction robotics, regolith shielding
-> 3. **ROBOTIC FABRICATION** — thorium baseload, autonomous ops, swarm robotics, robotic self-assembly, dust mitigation
-> 4. **CHIP FABRICATION** — wafer fab (vacuum cleanrooms), accelerator design, cleanroom robotics
-> 5. **LUNAR COMPUTE** — data centers under regolith, cryo radiators, inference optimization
-> 6. **HUMAN HABITATION** — Human Cohabitation (robotic runs), closed-loop LS, wellness, safety protocols, condition optimization
-> 7. **SWARM INDUSTRY** — foils, mass driver, auto-fabrication, self-replication, high-efficiency launch
-> 8. **DYSON SWARM** — swarm protocol, power beaming, Von Neumann foundry
->
-> New resource: **chips** (Chip Fab: silicon → chips). New buildings: **Chip
-> Fab** (era 4) and **Data Center** (era 5 — produces data at 1/s and
-> transfers research like three labs). On robotic expeditions the era-6 gate
-> FORCES the human arc before the swarm eras — matching the mission plan.
-> The sections below document the original six-era design for reference.
+`src/core/research.ts` is the single source of truth for availability, cost,
+the queue and era progress. The UI (`src/ui/techTree.ts`), the economy tick,
+debug hooks and tests all call into it; nothing else recomputes them.
 
-The original design: six eras, ~30 techs — the 18 first shipped in the slice
-(`src/data/techs.ts`, canonical) plus the 10 designed-but-cut techs and the
-map-discovered Breakthroughs system. Every tech states an explicit trade-off
-(pillar 1); none is a pure number-up.
+## Eras and lanes
 
-## The six eras
+| Era | Name | The game becomes about… |
+|---|---|---|
+| 1 | FIRST LANDING | smelting, ice, grading and survey on the lander's cache |
+| 2 | EARLY CONSTRUCTION | surviving the night; silicon, parts, construction robotics |
+| 3 | ROBOTIC FABRICATION | baseload power, a workforce of machines, the first breakthrough |
+| 4 | CHIP FABRICATION | vacuum cleanrooms and what your chips are for |
+| 5 | LUNAR COMPUTE | Data Centers under regolith; research that scales |
+| 6 | HUMAN HABITATION | people: life support, wellness, safety, science crews |
+| 7 | SWARM INDUSTRY | foils, the launch architecture, self-replication |
+| 8 | DYSON SWARM | the swarm protocol, and what the swarm is for |
 
-Eras are the tree's act structure (Civilization's model): named chapters that
-reframe what the game is about. Shipped names from `ERA_NAMES`:
+The seven lanes are rows on the tree screen: ⚡ POWER, ◆ MATERIALS,
+◉ ROBOTS & FAB, ▣ SILICON & COMPUTE, ⌂ HABITAT, ◎ EXPLORATION (map tiers and
+the three breakthrough slots) and ↑ EXPORT. Era 8 is a lane-free capstone
+column (★ below).
 
-| Era | Name | The game becomes about… | Research working title |
-|---|---|---|---|
-| 1 | FIRST LANDING | staying alive on the lander's cache | Site Survey / First Landing |
-| 2 | SELF-SUFFICIENCY | surviving the night on your own systems; cutting the Earth umbilical | Self-Sufficiency |
-| 3 | INDUSTRIALIZATION | supply chains, spare parts, baseload power, a real workforce | Industrialization |
-| 4 | EXPORT ECONOMY | the mass driver; your site choice pays off — or bites | Mass Driver / Export Economy |
-| 5 | SELF-REPLICATION | machines that extend machines; the curve bends exponential | Self-Replication |
-| 6 | DYSON SWARM | launching the swarm; the meter; power flowing back | Dyson Swarm Contribution |
+## The rules
 
-## Era gating rules
+1. **Charters.** Era N opens once **2 techs of era N−1** are done, or **1 of
+   them plus that era's deed** (a production milestone such as "100◆ smelted",
+   or "a Data Center held a full night with every priority-0/1 load powered").
+   The deed routes teach the loop of each era; the tree header shows both
+   routes' progress. On robotic runs, era 7 also requires Human Cohabitation.
+2. **Prerequisites** (`requires`) always apply; `requiresAny` needs one member
+   of a set (for example either night-power doctrine).
+3. **Doctrines** are six permanent either/or picks (◈). Queuing one member
+   forecloses the other until you cancel; completing it forecloses the other
+   for the rest of the run. Data already spent on an abandoned pick is kept.
+   Each site has a natural answer, shown on the bracket.
+4. **Goods.** Many techs also cost manufactured goods. Missing goods never
+   block queueing: the data is paid first, then the tech waits for the goods
+   with a `RESEARCH WAITING` alert that names the producer.
+5. **Research transfer.** Data accrues in a bank (labs, Data Centers, surveys,
+   flares, the Daedalus radio outpost) and flows into the queue at up to
+   0.4/s per lab plus 2.5/s per Data Center. Agent-run labs share one Earth
+   uplink, so the fifth and later labs add less. The queue holds 5.
+6. **Insights** (✎). In-base deeds discount specific techs by up to 50%, for
+   example "a night with any load shed" makes Battery Banks 40% cheaper. They
+   fire even while the tech is locked, and there are none in era 1.
+7. **Breakthroughs** (✦). Three techs are hidden until you survey a host
+   prospect on the Lunar Map ([M]). Each has a fixed slot in the Exploration
+   lane and a fixed era; one found early waits for its era.
+8. **Robotic runs.** Some techs resolve into a different era or cost on
+   robotic expeditions. Human-comfort techs (farms, wellness) are visible but
+   locked until Human Cohabitation brings a crew rotation aboard.
 
-1. **Era N+1 opens once ≥ 2 techs of era N are complete** (`ERA_ADVANCE_COUNT = 2`).
-   You must invest in an era's breadth before leaving it — no beelining the
-   capstone through a single chain.
-2. **Individual prerequisites still apply** (`requires`): e.g. Silicon Refining
-   needs Regolith Smelting regardless of era count.
-3. **Era 3+ techs also cost manufactured goods** (`costGoods`) on top of Data.
-4. Research is sequential (one active tech, queue of 3 in the UI); Data accrues
-   from staffed Research Labs, scaled by the morale work multiplier.
+## Verbs the tree unlocks
 
-## The manufactured-science rationale
-
-The Factorio lesson: **you cannot out-research your industry.** If progress
-costs only an abstract point stream, the optimal base is a lab farm and the
-economy is decoration. From Era 3 the slice charges metals, silicon, parts, and
-finally foils for techs — so the tech tree periodically *becomes* a production
-goal, and industry buildouts are research decisions.
-
-**Full design goes further — Data Cores (CUT).** The Data-Core Foundry (04)
-manufactures Data Cores from Electronics + Data, and every Era 4+ tech costs
-Cores rather than raw goods: one currency, deep supply chain (Regolith → Silicon
-/ Metals / Rare Earths → Electronics → Cores). The slice's `costGoods` fields
-are that system flattened by one step — same pressure, fewer moving parts.
-Cut alongside Electronics (02); they return together.
+- **Overclock** (inspector toggle): a station runs ×1.5 at extra power and
+  wear.
+- **Downlink** (lander): sell banked data to Earth for a cargo drop.
+- **Crew rotation** (Human Cohabitation on robotic runs): settlers arrive and
+  crewed stations stop paying the agent power tax.
+- **Survey / claim / abandon** on the Lunar Map: surveys borrow a robot and
+  pay data with novelty decay; outposts stream resources for hopper fuel and
+  upkeep.
 
 ## The tree
 
-Status: **S** = shipped (costs from `techs.ts`) · **C** = cut (costs are design
-targets, to be balanced at implementation). Effects for shipped techs are
-abbreviated; the code is canonical.
+The tables below are regenerated by `node scripts/gen-tech-doc.mjs` (use
+`--check` in CI to fail on a stale page). Do not edit between the markers.
+
+<!-- BEGIN GENERATED: node scripts/gen-tech-doc.mjs -->
+Costs are data after `ERA_COST_SCALE`; `robotic →` marks the resolved era and cost on robotic
+runs. Pros and cons are generated by `describeTech()` exactly as the tree cards show them
+(no site filter, human crew). ✎ = an insight discount can be earned in-base; ◈ = doctrine pick.
 
 ### Era 1 · FIRST LANDING
 
-| Tech | St | Cost | Requires | Effect | Trade-off |
-|---|---|---|---|---|---|
-| Regolith Smelting | S | 15 Data | — | Unlock Regolith Smelter | Smelters are the grid's second-largest draw |
-| Cryo Ice Extraction | S | 15 Data | — | Unlock Ice Harvester | Only pays off on sites that actually have ice |
-| Hydroponics | S | 20 Data | — | Unlock Hydroponics Farm | Farms must run through the night — or the crop dies |
-| Orbital Survey | C | (low Data) | — | Reveal map resource richness + anomaly (Breakthrough) sites | Spends your only early lab time on looking instead of building |
-| Earth Resupply Link | C | (low Data) | — | Enable credit-spend resupply drops (02, umbilical arc) | Every drop deepens the habit the game will make you break |
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Regolith Smelting** | ◆ | 30 | — | — | UNLOCK Regolith Smelter<br>makes 0.5◆ + 0.25○ + 0.05≈/s | −12 kW<br>eats 2▲/s<br>2⚙/day upkeep<br>2 crew<br>40◆ 10⚙ to build |
+| **Earth Teleoperation** | ◉ | 120 | — | — | builds 15% faster<br>NEW ACTION downlink: 150≡ → 60◆ 20⚙ 5▣ | each downlink spends 150 + 50·n banked data<br>−10% output: Research Lab |
+| **Prospecting Rovers** | ◎ | 120 | — | — | MAP T1 REGIONAL: local reveal 320 m, Moon map ≤27°, hopper surveys<br>UNLOCK Relay Mast<br>extends the build network 45 m | every survey borrows 1 robot for its duration<br>−1.5 kW<br>0.5⚙/day upkeep<br>20◆ 5⚙ to build<br>−1 kW: Lander |
+| **Site Grading**<br><sub>sites: SHACKLETON RIM, MARIUS HILLS TUBE</sub> | ◉ | 90 | — | — | NEW TOOL grade 16×16 m pads (≤0.8 m relief for large pads) | 40 stored energy per pass |
+| **Cryo Ice Extraction**<br><sub>sites: SHACKLETON RIM</sub> | ⌂ | 130 | — | — | UNLOCK Ice Harvester<br>makes 0.4≈/s | −8 kW<br>2⚙/day upkeep<br>1 crew<br>25◆ 5⚙ to build |
+| **Solar-Wind Volatiles**<br><sub>sites: ILMENITE PLAINS, MARIUS HILLS TUBE</sub> | ⌂ | 100 | — | — | Regolith Excavator: +0.02≈/s | Regolith Excavator: −9 kW (was −6) |
 
-### Era 2 · SELF-SUFFICIENCY
+### Era 2 · EARLY CONSTRUCTION
 
-| Tech | St | Cost | Requires | Effect | Trade-off |
-|---|---|---|---|---|---|
-| Battery Banks | S | 40 Data | — | Unlock Battery Bank | 15% round-trip loss, and metals you wanted elsewhere |
-| Closed-Loop Life Support | S | 60 Data | — | Habitat draw ×0.6, habitat power ×1.3 | The recyclers draw 30% more power per habitat |
-| Silicon Refining | S | 50 Data | Regolith Smelting | Unlock Silicon Refinery | Another furnace for the night to strangle |
-| Regolith Shielding | C | (mid Data) | — | Unlock Buried Habitat; bury habitats against radiation | Buried crews see less sun — morale trades against safety |
+Opens with 2 techs of era 1, or 1 plus the deed: **100◆ smelted**.
 
-### Era 3 · INDUSTRIALIZATION
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Battery Banks** | ⚡ | 110<br><sub>✎ −40%: a night with any load shed</sub> | — | — | UNLOCK Battery Bank<br>stores 3,000 energy | 15% round-trip loss<br>1⚙/day upkeep<br>50◆ 10◇ to build |
+| **Thermal Wadis**<br><sub>sites: ILMENITE PLAINS</sub> | ⚡ | 120<br><sub>✎ −40%: a building held dark ≥60 s at night</sub> | — | — | −15% draw at night | +5% draw by day |
+| **Vertical Solar Masts**<br><sub>sites: SHACKLETON RIM</sub> | ⚡ | 130<br><sub>✎ −40%: an array shaded ≥60 s</sub> | 20◆ | Prospecting Rovers | solar arrays ignore terrain shade<br>+10% power: Solar Array | build time ×1.5: Solar Array<br>+30% upkeep: Solar Array |
+| **Skylight Heliostats**<br><sub>sites: MARIUS HILLS TUBE</sub> | ⚡ | 130<br><sub>✎ −40%: a daytime brownout</sub> | 10◇ | Prospecting Rovers | +25% power: Solar Array | +50% solar dust |
+| **Silicon Refining** | ▣ | 130<br><sub>✎ −30%: 150▲ in stock</sub> | — | Regolith Smelting | UNLOCK Silicon Refinery<br>makes 0.4◇/s | −14 kW<br>eats 2▲/s<br>2⚙/day upkeep<br>2 crew<br>50◆ 15⚙ to build |
+| **Parts Fabrication** | ◉ | 110<br><sub>✎ −40%: parts below 20</sub> | — | Regolith Smelting | UNLOCK Parts Fabricator<br>makes 0.2⚙/s | −10 kW<br>eats 0.3◆/s<br>1⚙/day upkeep<br>1 crew<br>60◆ to build |
+| **Construction Robotics** | ◉ | 130<br><sub>✎ −40%: 5 buildings completed</sub> | — | any of Earth Teleoperation / Prospecting Rovers | UNLOCK Robotics Bay<br>+2 robots<br>NEW TOGGLE Crewed / Autonomous on every station | −3 kW<br>1⚙/day upkeep<br>40◆ 10⚙ to build<br>agent-run stations draw ×1.6 |
+| **Regolith Shielding** | ⌂ | 140<br><sub>✎ −40%: a flare goes active with ≥6 structures running</sub> | — | any of Site Grading / Construction Robotics | −15% upkeep: all structures | wear heals ×0.5 |
+| **Molten Regolith Electrolysis**<br><sub>◈ How hard do you push the furnace?</sub> | ◆ | 150<br><sub>✎ −30%: 300◆ smelted</sub> | 10⚙ | Regolith Smelting | Regolith Smelter: +0.15◆/s<br>Regolith Smelter: +0.15○/s<br>Regolith Smelter: +0.04◇/s<br>Regolith Smelter melts any soil (feed-insensitive) | Regolith Smelter: no water (was 0.05≈/s)<br>Regolith Smelter: −22 kW (was −12)<br>+50% upkeep: Regolith Smelter |
+| **Ilmenite Beneficiation**<br><sub>◈ How hard do you push the furnace? · sites: ILMENITE PLAINS, MARIUS HILLS TUBE</sub> | ◆ | 140<br><sub>✎ −40%: an excavator digging ilmenite for 60 s</sub> | — | Regolith Smelting, Prospecting Rovers | ilmenite feed ×2: H₂ smelter yield +60% per unit share<br>−20% inputs: Regolith Smelter | +30% draw: Regolith Excavator |
 
-| Tech | St | Cost | Requires | Effect | Trade-off |
-|---|---|---|---|---|---|
-| Parts Fabrication | S | 110 Data + 60 metals | Silicon Refining | Unlock Parts Fabricator | Adds a whole supply chain that also needs maintaining |
-| Thorium Reactor | S | 140 Data + 80 metals | Battery Banks | Unlock Thorium Reactor | Expensive, parts-hungry, and the crew hates living next to it |
-| Crew Wellness Program | S | 100 Data | — | Unlock Recreation Dome | Diverts power, food, and a worker from every "productive" number |
-| Automated Drone Logistics | C | (mid Data + goods) | — | Unlock Drone Hub; hauling within drone range, fewer crew-haulers | Range rings now constrain layout; hubs are pure overhead |
-| Specialist Training | C | (mid Data + goods) | — | Enable crew tiers: Crew → Technicians → Scientists (02) | Every promotion hollows out the tier below |
-| Advanced Research Cluster | C | (mid Data + goods) | — | Unlock Data-Core Foundry; Era 4+ techs cost Data Cores | Science itself now has a supply chain that can starve |
+### Era 3 · ROBOTIC FABRICATION
 
-### Era 4 · EXPORT ECONOMY
+Opens with 2 techs of era 2, or 1 plus the deed: **80⚙ fabricated**.
 
-| Tech | St | Cost | Requires | Effect | Trade-off |
-|---|---|---|---|---|---|
-| Thin-Film Foils | S | 220 Data + 40 silicon | Parts Fabrication | Unlock Foil Factory | The factory is the single largest power draw you will ever build |
-| Electromagnetic Mass Driver | S | 260 Data + 50 parts | Parts Fabrication | Unlock Mass Driver | Site geometry now matters enormously — equatorial bases pull ahead |
-| Dust Mitigation | S | 180 Data | — | Dust rate ×0.4; excavator upkeep ×0.5 | Research spent on brooms while rivals research rockets |
-| Propellant Plant | C | (high Data + goods) | Cryo Ice Extraction | Unlock Propellant Plant: water/volatiles → propellant; chemical launch alternative | Burns the same water your farms and crew drink |
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Thorium Reactor**<br><sub>◈ How does the base survive the 14-day night?</sub> | ⚡ | 200<br><sub>✎ −30%: 2 nights survived</sub> | 80◆ | Regolith Shielding | UNLOCK Thorium Reactor<br>+40 kW | 4⚙/day upkeep<br>1 crew<br>-5 morale<br>120◆ 40⚙ to build |
+| **Regenerative Fuel Cells**<br><sub>◈ How does the base survive the 14-day night?</sub> | ⚡ | 180<br><sub>✎ −40%: 100≈ banked</sub> | 80≈ | Battery Banks | battery capacity ×2 | grid round-trip 85% → 60% |
+| **Swarm Robotics**<br><sub>◈ Many hands, or strong ones?</sub> | ◉ | 180<br><sub>✎ −30%: 3 sites waiting for robots at once</sub> | 20⚙ | Construction Robotics | +1 robot per Robotics Bay<br>builds 15% faster | construction draw ×1.5 (6 kW per active site)<br>+50% upkeep: Robotics Bay |
+| **Heavy Constructors**<br><sub>◈ Many hands, or strong ones?</sub> | ◉ | 180<br><sub>✎ −30%: 3 sites waiting for robots at once</sub> | 20⚙ | Construction Robotics | each build ×2.2 speed per site<br>−40% weld parts | −1 robot per Robotics Bay<br>construction draw ×2 (8 kW per active site) |
+| **Dust Mitigation** | ◆ | 160<br><sub>✎ −50%: an array at ≥25% dust</sub> | — | any of Parts Fabrication / Construction Robotics | −60% solar dust<br>−50% upkeep: Regolith Excavator | −5% power: Solar Array |
+| **Lava-Tube Caverns**<br><sub>✦ breakthrough — survey Tranquillitatis pit, Marius tube, Ingenii pit</sub> | ◎ | 190 | — | — | −15% draw: Habitat Module, Data Center<br>−30% upkeep: Habitat Module, Data Center, Chip Fab | build time ×1.3: Habitat Module, Data Center, Chip Fab |
 
-### Era 5 · SELF-REPLICATION
+### Era 4 · CHIP FABRICATION
 
-| Tech | St | Cost | Requires | Effect | Trade-off |
-|---|---|---|---|---|---|
-| Automated Fabrication | S | 420 Data + 60 parts | Thin-Film Foils | PartsFab/FoilFactory output ×2, crew −1 each | Automation fails ugly — wear bites harder with no one watching |
-| Self-Replicating Systems | S | 520 Data + 80 parts | Automated Fabrication | Extraction/refining output ×1.5; ALL upkeep ×0.75 | Every doubling doubles the blast radius of a single bad batch |
-| High-Efficiency Launch | S | 480 Data + 60 silicon | Electromagnetic Mass Driver | Mass driver power ×0.6, output ×2 | Superconductors demand silicon your foils were counting on |
-| Orbital Catcher | C | (high Data + Cores) | Electromagnetic Mass Driver | Unlock Orbital Catcher/Depot: recover carriers, more foils delivered per launch | Another orbital asset to maintain from the ground |
+Opens with 2 techs of era 3, or 1 plus the deed: **150◇ refined**.
 
-In the full design, Self-Replicating Systems also unlocks the **Self-Replicating
-Factory Seed** building (04) — replication as something you *place*, not just a
-multiplier. The slice ships the multiplier form only.
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Wafer Fabrication** | ◆ | 260<br><sub>✎ −30%: 150◇ in stock</sub> | 40◇ | Silicon Refining, Parts Fabrication | UNLOCK Chip Fab<br>makes 0.05▣/s | −18 kW<br>eats 0.15◇ + 0.02⚙/s<br>2⚙/day upkeep<br>2 crew<br>60◆ 30◇ 20⚙ to build |
+| **Accelerator Design**<br><sub>◈ What are your chips for?</sub> | ▣ | 300 | 30◇ | Wafer Fabrication | +50% output: Data Center | +25% inputs: Chip Fab |
+| **Rad-Hard Process**<br><sub>◈ What are your chips for?</sub> | ▣ | 300 | 30◇ | Wafer Fabrication | +40% output: Chip Fab<br>agent-run draw ×1.6 → ×1.36 | −15% output: Data Center |
+| **Cleanroom Robotics** | ◉ | 280<br><sub>✎ −30%: first Chip Fab completes</sub> | 30⚙ | Wafer Fabrication, any of Swarm Robotics / Heavy Constructors | −30% draw: Chip Fab<br>−20% inputs: Chip Fab | +50% upkeep: Chip Fab |
+| **Orbital Prospector** | ◎ | 240<br><sub>✎ −40%: 3 regional prospects surveyed</sub> | 5▣ | Prospecting Rovers, Wafer Fabrication | MAP T2 NEAR SIDE: whole local map, near side, first outpost slot | −2 kW: Lander |
+| **Volcanic Glass Reduction**<br><sub>✦ breakthrough — survey Taurus–Littrow, Aristarchus, Schrödinger</sub> | ◎ | 280 | — | — | +20% output: Regolith Smelter | +15% draw: Regolith Smelter |
 
-### Era 6 · DYSON SWARM
+### Era 5 · LUNAR COMPUTE
 
-| Tech | St | Cost | Requires | Effect | Trade-off |
-|---|---|---|---|---|---|
-| Swarm Protocol | S | 700 Data + 5 foils | High-Efficiency Launch | Arms the LAUNCH action | The five test foils it consumes never come back |
-| Power Beaming Return | S | 800 Data | Swarm Protocol | +4 kW per volley launched, beamed back | Your grid now depends on hardware forty million kilometers away |
-| Von Neumann Foundry | S | 1200 Data + 20 foils | Swarm Protocol | Foil Factory output ×3 | A monument to obsolescence: yours, specifically |
-| Statite Deployment | C | (capstone Cores + foils) | Swarm Protocol | Unlock Statite Deployment Launcher: foils fly as radiation-pressure statites, swarm % per volley ↑ | Statites need station-keeping data — Comms Relay uptime becomes existential |
-| Swarm Coordination Network | C | (capstone Cores) | Statite Deployment | Requires Comms Relay; swarm-wide efficiency and beaming multiplier; opens Von Neumann portfolio (02) | Centralizes the swarm on one relay chain — a single point of glorious failure |
+Opens with 2 techs of era 4, or 1 plus the deed: **20▣ chips fabbed**.
 
-## Breakthroughs (CUT — Surviving Mars)
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Lunar Data Center** | ▣ | 420<br><sub>✎ −40%: 6 labs operating</sub> | 10▣ | Wafer Fabrication | UNLOCK Data Center | −30 kW<br>2.5⚙/day upkeep<br>80◆ 15▣ 30⚙ to build |
+| **Dynamic Clocking** | ▣ | 440 | 5▣ | any of Accelerator Design / Rad-Hard Process | NEW ACTION overclock: output ×1.5 per building | overclocked: kW and inputs ×1.5, wear +0.35/day, trips at WORN |
+| **Cryo Radiators** | ⚡ | 480<br><sub>✎ −30%: a Data Center has operated 720 s</sub> | 60◆ | Lunar Data Center | −35% draw: Data Center | +60% upkeep: Data Center |
+| **Crew Wellness Program**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 460<br><sub>robotic → E7 · 1250</sub><br><sub>✎ −40%: morale below 50</sub> | — | — | UNLOCK Recreation Dome<br>+14 morale | −4 kW<br>eats 0.05✳/s<br>1⚙/day upkeep<br>1 crew<br>50◆ 5◇ to build |
 
-A layer of **discovered, not researched** techs: anomaly sites seeded on the map
-(revealed by Orbital Survey; more by the Deep-Space Observatory) grant unique
-one-off techs when surveyed by crew or drones. Each run offers a different
-handful, bending strategy around what the Moon gives you. Design-intent
-examples: *Lava Tube Network* (extra buildable radius, lava-tube site),
-*Pristine Ilmenite Vein* (+smelter yield), *Ancient Impactor Core* (free rare
-earths cache), *Fission Refinement* (reactor upkeep ×0.5). Breakthroughs are the
-tree's replayability valve — the only techs the player cannot plan for.
+### Era 6 · HUMAN HABITATION
 
-## Reading the tree as a player
+Opens with 2 techs of era 5, or 1 plus the deed: **a Data Center held a full night with every priority-0/1 load powered**.
 
-The shipped spine is Smelting → Silicon → Parts Fabrication → Foils/Driver →
-Automation → Swarm Protocol: seven techs deep. Everything else is a choice about
-*which pressure to buy down* — night (batteries/reactor), people (wellness,
-tiers), wear (dust mitigation), or distance (launch efficiency). Era gating
-(rule 1) guarantees at least one such choice per era; capstones cost the very
-resource they improve (foils), making the last techs economic decisions too.
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Human Cohabitation**<br><sub>robotic only</sub> | ⌂ | 1250<br><sub>✎ −40%: 2 consecutive clean nights</sub> | 30⚙ 10▣ | Regolith Shielding, any of Thorium Reactor / Regenerative Fuel Cells | UNLOCK Habitat Module<br>houses 4<br>extends the build network 60 m<br>UNLOCK Hydroponics Farm<br>makes 0.1✳/s<br>+5 morale | −4 kW<br>1⚙/day upkeep<br>30◆ 10⚙ to build<br>−6 kW<br>eats 0.03≈/s<br>1⚙/day upkeep<br>1 crew<br>25◆ 5⚙ to build |
+| **Closed-Loop Life Support**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 1150<br><sub>✎ −40%: a life-support reserve under 5 min</sub> | 25⚙ | any of Thorium Reactor / Regenerative Fuel Cells | −40% inputs: Habitat Module | +30% draw: Habitat Module |
+| **Safety Protocols**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ◉ | 1200<br><sub>✎ −50%: a building worn past 0.3</sub> | 10▣ | Regolith Shielding | −20% upkeep: all structures | builds 15% slower |
+| **Condition Optimization**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ◆ | 1200 | 10▣ | Lunar Data Center | +15% output: Regolith Excavator, Ice Harvester, Regolith Smelter, Silicon Refinery | +25% draw: Habitat Module |
+| **Science Crews**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ▣ | 1150<br><sub>✎ −25%: 6 crew aboard</sub> | — | Lunar Data Center | +35% output: Research Lab (crewed only)<br>survey data ×1.5 while ≥2 crew are aboard | +40% draw: Research Lab |
+| **Far-Side Relay** | ◎ | 1100<br><sub>✎ −40%: 3 near-side prospects surveyed</sub> | 15▣ 20⚙ | Orbital Prospector | MAP T3 FAR SIDE: far side, +1 outpost slot | −2 kW: Lander |
+| **Cold-Trap Chemistry**<br><sub>✦ breakthrough — survey Cabeus, Hermite</sub> | ◎ | 1150 | — | — | +40% output: Hydroponics Farm<br>+25% output: Propellant Plant<br>+10% output: Chip Fab | +30% upkeep: Hydroponics Farm, Propellant Plant, Chip Fab |
 
-## Slice status
+### Era 7 · SWARM INDUSTRY
 
-**Shipped:** 18 techs across all six eras; era gating exactly as rules 1–3;
-goods-cost gating from Era 3; queue of 3; the full-screen era-column tree UI
-(07). **Deferred** (see [09-roadmap.md](09-roadmap.md)): the 10 cut techs above;
-Data Cores replacing raw-goods costs from Era 4 (with Electronics and the
-Data-Core Foundry, 02/04); the Breakthroughs layer (with Orbital Survey and map
-anomalies); the Self-Replicating Factory Seed building form of Era 5.
+Opens with 2 techs of era 6, or 1 plus the deed: **an outpost operated a full lunar day** (robotic runs also need Human Cohabitation).
+
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Thin-Film Foils** | ◆ | 1250<br><sub>✎ −30%: 250◇ in stock</sub> | 40◇ | Wafer Fabrication, any of Cleanroom Robotics / Dust Mitigation | UNLOCK Foil Factory<br>makes 0.05▰/s | −20 kW<br>eats 0.6◇ + 0.2◆/s<br>2⚙/day upkeep<br>3 crew<br>80◆ 30⚙ to build |
+| **Electromagnetic Mass Driver**<br><sub>◈ How does a foil reach orbit?</sub> | ↑ | 1400<br><sub>✎ −30%: 400◆ banked</sub> | 50⚙ | Parts Fabrication, Battery Banks | UNLOCK Mass Driver<br>makes 0.01↑/s | −15 kW<br>eats 0.02⚙/s<br>3⚙/day upkeep<br>2 crew<br>150◆ 50⚙ to build |
+| **Propellant Depot**<br><sub>◈ How does a foil reach orbit?</sub> | ↑ | 1400<br><sub>✎ −40%: 300≈ banked</sub> | 40⚙ 40◆ | Parts Fabrication, any of Cryo Ice Extraction / Solar-Wind Volatiles | UNLOCK Propellant Plant<br>makes 0.01↑/s | −18 kW<br>eats 0.3≈ + 0.05○/s<br>2⚙/day upkeep<br>1 crew<br>90◆ 30⚙ 20◇ to build |
+| **Self-Replicating Systems** | ◉ | 1700<br><sub>✎ −30%: a fleet of 8 robots</sub> | 80⚙ 15▣ | Lunar Data Center, any of Swarm Robotics / Heavy Constructors | +30% output: Regolith Excavator, Regolith Smelter, Silicon Refinery, Ice Harvester<br>+60% output: Parts Fabricator, Foil Factory<br>−1 crew: Parts Fabricator, Foil Factory<br>+1 robot per Robotics Bay | +25% draw: Regolith Excavator, Regolith Smelter, Silicon Refinery, Ice Harvester, Parts Fabricator, Foil Factory<br>×2 upkeep: Robotics Bay |
+| **Deep Sounding Network** | ◎ | 1250<br><sub>✎ −40%: a far-side prospect surveyed</sub> | 20▣ | Far-Side Relay | MAP T4 SUBSURFACE: subsurface prospects, +1 outpost slot, enables ATLAS | −3 kW: Lander |
+
+On robotic runs Crew Wellness Program also resolves into this era.
+
+### Era 8 · DYSON SWARM
+
+Opens with 2 techs of era 7, or 1 plus the deed: **10▰ manufactured**.
+
+| Tech | Lane | Data | Goods | Requires | Pros | Cons |
+|---|---|---|---|---|---|---|
+| **Swarm Protocol** | ★ | 3300<br><sub>✎ −25%: ATLAS COMPLETE</sub> | 5▰ 10▣ | Thin-Film Foils, any of Electromagnetic Mass Driver / Propellant Depot | NEW ACTION launch — LAUNCH is armed | each volley costs 10▰ + 3↑ + 400 stored |
+| **Power Beaming Return**<br><sub>◈ What is the swarm for?</sub> | ★ | 3400 | — | Swarm Protocol, Battery Banks | +4 kW per volley launched | the beam drops to 0 while a flare is active |
+| **Von Neumann Foundry**<br><sub>◈ What is the swarm for?</sub> | ★ | 4000 | 20▰ | Swarm Protocol, Self-Replicating Systems | ×3 output: Foil Factory | +50% draw: Foil Factory |
+
+### Doctrines
+
+| Era | Question | Members | Site notes |
+|---|---|---|---|
+| 2 | How hard do you push the furnace? | Molten Regolith Electrolysis / Ilmenite Beneficiation | ILMENITE PLAINS: Plenty of ilmenite, and MRE kills the only water trickle.<br>SHACKLETON RIM: MRE stands alone: highland soil barely reacts to H₂.<br>MARIUS HILLS TUBE: A genuine split. |
+| 3 | How does the base survive the 14-day night? | Thorium Reactor / Regenerative Fuel Cells | ILMENITE PLAINS: Thorium: the night is long.<br>SHACKLETON RIM: Fuel cells: ice gives water and the pole’s night is short.<br>MARIUS HILLS TUBE: Thorium: the sun is a rumour down here. |
+| 3 | Many hands, or strong ones? | Swarm Robotics / Heavy Constructors | — |
+| 4 | What are your chips for? | Accelerator Design / Rad-Hard Process | — |
+| 7 | How does a foil reach orbit? | Electromagnetic Mass Driver / Propellant Depot | ILMENITE PLAINS: Driver: the equator gives it ×1.5.<br>SHACKLETON RIM: Propellant: it ignores the pole’s ×0.6.<br>MARIUS HILLS TUBE: A split. |
+| 8 | What is the swarm for? | Power Beaming Return / Von Neumann Foundry | — |
+
+47 techs: 44 researchable from the start of their era, 3 breakthroughs,
+6 doctrines, 32 insights.
+<!-- END GENERATED -->
+
+## Save migration
+
+Saves from the six-era tree (tech schema 1) migrate on load: retired techs
+(Hydroponics, Autonomous Ops, Robotic Self-Assembly, Inference Optimization,
+Automated Fabrication, High-Efficiency Launch) refund their data, renamed ids
+map to their successors, and a save that already finished both members of a
+doctrine keeps both. See spec §8.

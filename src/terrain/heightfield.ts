@@ -4,8 +4,11 @@
  *  by placement, walking, and the chunk meshes; flatten() writes building pads
  *  back into the field. */
 import { createNoise2D, type NoiseFunction2D } from 'simplex-noise';
-import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
+import { CELL_M, MAP_CELLS, MAP_M, MAX_SLOPE_DELTA } from '../data/balance';
 import type { SiteDef } from '../data/sites';
+import {
+  DEPOSIT_KINDS, DEPOSIT_PLAN, LEAD_JITTER_M, type DepositKind, type DepositPlanEntry,
+} from '../data/deposits';
 import { mulberry32 } from '../core/rng';
 
 const N = MAP_CELLS + 1; // samples per side (cell corners)
@@ -14,13 +17,30 @@ export interface Crater {
   cx: number; cz: number; r: number; depth: number; rimH: number;
 }
 
-export interface IceDeposit { cx: number; cz: number; r: number }
+/** A local deposit (spec §5a). id is `${kind}-${n}`, n counting within its
+ *  kind in generation order; (leadX, leadZ) is where its '?' lead sits. */
+export interface Deposit {
+  id: string; kind: DepositKind;
+  cx: number; cz: number; r: number;
+  leadX: number; leadZ: number;
+}
+
+/** deposits keep their centres this far from the Lander pad's edge */
+const PAD_CLEAR_M = 20;
+/** the Lander pad's half-width (3×3 cells about the map heart) */
+const PAD_HALF_M = 6;
+/** placement tries per wanted candidate before a deposit is dropped */
+const DEPOSIT_TRIES = 80;
+/** a ridge takes the highest of this many candidates in its ring */
+const RIDGE_CANDIDATES = 40;
+/** guaranteed patches prefer a centre flat enough for an excavator */
+const GUARANTEED_CANDIDATES = 24;
 
 export class Heightfield {
   readonly h: Float32Array;
   readonly craters: Crater[] = [];
-  /** permanently shadowed ice patches (ice sites only), hidden until surveyed */
-  readonly iceDeposits: IceDeposit[] = [];
+  /** every local deposit, ice first (index 0 = the guaranteed starter patch) */
+  readonly deposits: Deposit[] = [];
   private noise: NoiseFunction2D;
 
   constructor(public site: SiteDef, public seed: number) {
@@ -30,10 +50,13 @@ export class Heightfield {
     this.generate(rng);
   }
 
-  private fbm(x: number, z: number, octaves: number, freq: number, amp: number): number {
+  /** `footprint` (m, the caller's sample spacing) fades out octaves whose
+   *  wavelength is under twice that spacing, so coarse samplers don't alias. */
+  private fbm(x: number, z: number, octaves: number, freq: number, amp: number, footprint = 0): number {
     let v = 0;
     for (let o = 0; o < octaves; o++) {
-      v += this.noise(x * freq, z * freq) * amp;
+      const w = footprint > 0 ? Math.min(1, Math.max(0, 1 / (freq * footprint) - 1)) : 1;
+      if (w > 0) v += this.noise(x * freq, z * freq) * amp * w;
       freq *= 2;
       amp *= 0.5;
     }
@@ -67,31 +90,124 @@ export class Heightfield {
         this.h[iz * N + ix] = this.baseHeight(x, z);
       }
     }
-    // ice: 6 cold-trap patches scattered past the landing zone (ice sites)
-    if (this.site.hasIce) {
+    this.generateDeposits();
+  }
+
+  /** permanently shadowed ice patches (ice sites only) */
+  get iceDeposits(): Deposit[] {
+    return this.deposits.filter((d) => d.kind === 'ice');
+  }
+
+  /** The deposit under a world point (the first match: legacy ice patches may
+   *  overlap each other; no other kind overlaps anything). */
+  depositAt(x: number, z: number): Deposit | null {
+    for (const d of this.deposits) if (Math.hypot(x - d.cx, z - d.cz) <= d.r) return d;
+    return null;
+  }
+
+  private generateDeposits() {
+    const plan = DEPOSIT_PLAN[this.site.id];
+    // ice: the legacy stream, bit-for-bit — one small starter deposit inside
+    // the Lander's build radius (the first harvester must not wait on a chain
+    // of habitats), then six cold-trap patches past the landing zone
+    const ice = plan.find((e) => e.kind === 'ice');
+    if (ice && this.site.hasIce) {
+      const put = (d: { cx: number; cz: number; r: number }) => this.deposits.push({
+        id: `ice-${this.deposits.length}`, kind: 'ice', ...d, leadX: d.cx, leadZ: d.cz,
+      });
+      put(this.starterDeposit(mulberry32(this.seed ^ 0x1ce5), ice));
       const irng = mulberry32(this.seed ^ 0x1ce);
-      for (let i = 0; i < 6; i++) {
+      for (let i = 1; i < ice.count; i++) {
         const ang = irng() * Math.PI * 2;
-        const dist = 120 + irng() * 220;
-        this.iceDeposits.push({
-          cx: Math.cos(ang) * dist,
-          cz: Math.sin(ang) * dist,
-          r: 18 + irng() * 16,
-        });
+        const dist = ice.dMin + irng() * (ice.dMax - ice.dMin);
+        put({ cx: Math.cos(ang) * dist, cz: Math.sin(ang) * dist, r: ice.rMin + irng() * (ice.rMax - ice.rMin) });
       }
+    }
+    for (const e of plan) {
+      if (e.kind === 'ice') continue;
+      const rng = mulberry32(this.seed ^ (0xde90 + DEPOSIT_KINDS.indexOf(e.kind)));
+      let n = 0;
+      for (let i = 0; i < e.count; i++) {
+        const g = e.guaranteed && i < e.guaranteed.count ? e.guaranteed : null;
+        const d = this.placeDeposit(rng, e, g ? g.minM : e.dMin, g ? g.maxM : e.dMax, !!g);
+        if (d) this.deposits.push({ id: `${e.kind}-${n++}`, kind: e.kind, ...d, leadX: d.cx, leadZ: d.cz });
+      }
+    }
+    // leads sit off the true centre, stably per seed
+    const lrng = mulberry32(this.seed ^ 0x1ead);
+    for (const d of this.deposits) {
+      const a = lrng() * Math.PI * 2;
+      const j = Math.sqrt(lrng()) * LEAD_JITTER_M;
+      d.leadX = d.cx + Math.cos(a) * j;
+      d.leadZ = d.cz + Math.sin(a) * j;
     }
   }
 
-  /** is this world point inside a (surveyed or not) ice deposit? */
-  onIce(x: number, z: number): boolean {
-    return this.iceDeposits.some((d) => Math.hypot(x - d.cx, z - d.cz) <= d.r);
+  /** A candidate is rejected if it leaves the map, overlaps another deposit,
+   *  sits within 20 m of the Lander pad, or (lava tube) lies outside the
+   *  buildable footprint. A ridge takes the highest of 40 candidates; a
+   *  guaranteed patch the first whose centre an excavator can stand on. */
+  private placeDeposit(
+    rng: () => number, e: DepositPlanEntry, dMin: number, dMax: number, guaranteed: boolean,
+  ): { cx: number; cz: number; r: number } | null {
+    const edge = MAP_M / 2 - 8;
+    const R = this.site.buildableRadiusM;
+    const want = e.kind === 'ridge' ? RIDGE_CANDIDATES : guaranteed ? GUARANTEED_CANDIDATES : 1;
+    let best: { cx: number; cz: number; r: number } | null = null;
+    let bestScore = -Infinity;
+    let valid = 0;
+    for (let t = 0; t < DEPOSIT_TRIES * want && valid < want; t++) {
+      const ang = rng() * Math.PI * 2;
+      const dist = dMin + rng() * (dMax - dMin);
+      const r = e.rMin + rng() * (e.rMax - e.rMin);
+      const cx = Math.cos(ang) * dist, cz = Math.sin(ang) * dist;
+      if (Math.abs(cx) + r > edge || Math.abs(cz) + r > edge) continue;
+      if (Math.max(Math.abs(cx), Math.abs(cz)) - PAD_HALF_M < PAD_CLEAR_M) continue;
+      if (R > 0 && Math.hypot(cx, cz) + r / 2 > R) continue;
+      if (this.deposits.some((o) => Math.hypot(cx - o.cx, cz - o.cz) < r + o.r + 4)) continue;
+      valid++;
+      let score = 0;
+      if (e.kind === 'ridge') score = this.sample(cx, cz);
+      else if (guaranteed) {
+        const delta = this.maxDelta(...padCells(cx, cz));
+        score = delta <= MAX_SLOPE_DELTA * 0.5 ? Infinity : -delta;
+      }
+      if (score > bestScore) { best = { cx, cz, r }; bestScore = score; }
+      if (score === Infinity) break;
+    }
+    return best;
   }
 
-  private baseHeight(x: number, z: number): number {
+  /** A small deposit 43–52 m from the map heart (the Lander sits ~3 m off it),
+   *  on the flattest of a few seeded spots, so a harvester centred on it
+   *  passes the placement slope check. */
+  private starterDeposit(rng: () => number, ice: DepositPlanEntry): { cx: number; cz: number; r: number } {
+    const g = ice.guaranteed ?? { minM: 43, maxM: 52 };
+    let best = { cx: 0, cz: 0, r: 0 };
+    let bestDelta = Infinity;
+    for (let i = 0; i < 16 && bestDelta > MAX_SLOPE_DELTA * 0.5; i++) {
+      const ang = rng() * Math.PI * 2;
+      const dist = g.minM + rng() * (g.maxM - g.minM);
+      const d = { cx: Math.cos(ang) * dist, cz: Math.sin(ang) * dist, r: 10 + rng() * 3 };
+      const delta = this.maxDelta(...padCells(d.cx, d.cz));
+      if (delta < bestDelta) { best = d; bestDelta = delta; }
+    }
+    return best;
+  }
+
+  /** is this world point inside an ice deposit (revealed or not)? */
+  onIce(x: number, z: number): boolean {
+    return this.depositAt(x, z)?.kind === 'ice';
+  }
+
+  /** The analytic surface before any pad: defined everywhere, so the far
+   *  horizon ring continues it past the map edge. The grid samples it with
+   *  footprint 0 (every octave). */
+  baseHeight(x: number, z: number, footprint = 0): number {
     const t = this.site.terrain;
     // gentle rolling regolith: 4-octave fBm, amplitude by site roughness
-    let h = this.fbm(x, z, 4, 1 / 700, 9 * t.roughness);
-    h += this.fbm(x + 999, z - 999, 2, 1 / 90, 0.7 * t.roughness);
+    let h = this.fbm(x, z, 4, 1 / 700, 9 * t.roughness, footprint);
+    h += this.fbm(x + 999, z - 999, 2, 1 / 90, 0.7 * t.roughness, footprint);
     for (const c of this.craters) {
       const d = Math.hypot(x - c.cx, z - c.cz) / c.r;
       if (d < 1) {
@@ -117,6 +233,23 @@ export class Heightfield {
 
   sampleGrid(ix: number, iz: number): number {
     return this.h[Math.min(Math.max(iz, 0), N - 1) * N + Math.min(Math.max(ix, 0), N - 1)];
+  }
+
+  /** Grid height, continued past the map edge by the analytic surface. */
+  private gridOrBase(ix: number, iz: number): number {
+    if (ix >= 0 && iz >= 0 && ix < N && iz < N) return this.h[iz * N + ix];
+    return this.baseHeight(ix * CELL_M - MAP_M / 2, iz * CELL_M - MAP_M / 2);
+  }
+
+  /** Unit normal at grid sample (ix, iz) by central differences. Every mesh
+   *  touching the grid uses this one definition, so vertices shared across
+   *  chunk borders and the horizon ring's inner edge shade identically. */
+  gridNormal(ix: number, iz: number, out: Float32Array, o: number) {
+    const nx = this.gridOrBase(ix - 1, iz) - this.gridOrBase(ix + 1, iz);
+    const nz = this.gridOrBase(ix, iz - 1) - this.gridOrBase(ix, iz + 1);
+    const ny = 2 * CELL_M;
+    const inv = 1 / Math.hypot(nx, ny, nz);
+    out[o] = nx * inv; out[o + 1] = ny * inv; out[o + 2] = nz * inv;
   }
 
   /** samples locked by a flatten pad — skirts of later pads must not move them,
@@ -202,6 +335,13 @@ export class Heightfield {
     }
     return null;
   }
+}
+
+/** the 2×2-cell footprint centred on a world point: [gx0, gz0, gx1, gz1] */
+function padCells(cx: number, cz: number): [number, number, number, number] {
+  const gx = Math.round((cx + MAP_M / 2) / CELL_M - 1);
+  const gz = Math.round((cz + MAP_M / 2) / CELL_M - 1);
+  return [gx, gz, gx + 2, gz + 2];
 }
 
 export { N as HF_SAMPLES };

@@ -73,15 +73,19 @@ Build mode lays five persistent regions over the canvas, 24 px from each edge:
 | Region | Element | Contents |
 |---|---|---|
 | **Top-left** | `#resource-strip` | Chip row, mono digits: ⚡ supply`/`demand kW · ▮ stored`/`capacity · the nine stockpiles (▲◆◇≈○✳⚙▰↑) · ◈ crew`/`housing · ◐ morale · ≡ data. Foils/launch chips stay hidden until first production (progressive disclosure). Warn state = brighter value + stronger border — never a color |
-| **Top-center** | `#swarm-meter` | The game's spine: "Dyson Swarm · 0.0000%" with a 4 px progress bar, volley count, and — once Swarm Protocol is researched — the inverted **▲ Launch collectors** button with its cost line (`10 foils · 1 launch · 400 stored`) |
+| **Top-center** | `#swarm-meter` | The game's spine: "Dyson Swarm · 0.0000%" with a 4 px progress bar, volley count, and — once Swarm Protocol is researched — the inverted **▲ Launch collectors** button with what a volley still lacks (`foils 6/10 ✗ · launch 3/3↑ ✓ · stored 400/400 ✓`) |
 | **Top-right** | `#time-controls` + `#alerts` | Mono clock (`DAY n · ☀ 62%` / `☾ NIGHT` / `FLARE −45s`), pause + 1×/3×/10× buttons (Space, 1/2/3), and the alert stack beneath: last 4, click to dismiss, `crit` alerts inverted |
 | **Bottom-left** | `#milestones` | "Objectives n/10" + the single next milestone (title + hint). **This panel is the entire tutorial** (§9) |
 | **Bottom-center** | `#palette` | Category tabs (Power / Extraction / Industry / Life / Science / Export) over building cards: glyph icon, name, cost in resource glyphs. Locked cards are dashed at 38% opacity — visible futures, not hidden menus |
 
 Contextual, not persistent: `#inspector` (right edge, on selection),
 `#tooltip` (anchored to hovered palette card), `#place-hint` (above palette
-during placement), `#pause-veil` (center), floaters (Islanders-style mono
-deltas that rise from the cursor on placement, 1.4 s).
+during placement: `SOLAR ARRAY · 12◆ (112→100) · +10 kW · R rotate · ⇧ keep
+placing`, then the blocked reason, which flashes when a blocked spot is
+clicked), `#pause-veil` (center), floaters (Islanders-style mono deltas: the
+price rises from the pad it was paid for, 1.4 s), and `#menu` (§12).
+Shift-click keeps placing; a plain click places once. A locked card opens
+the research tree on the tech that unlocks it.
 
 ## 5. The fixed tooltip template (`palette.ts: tooltipHtml`)
 
@@ -101,30 +105,70 @@ template trains the eye so a player can price a building in one saccade:
 The inspector reuses the identical grid and pro/con block, adding live status
 (`OPERATING / IDLE — no power / no crew / missing inputs / SHUT DOWN`, wear
 and dust readouts), the 0–3 idle-priority selector, and shut-down / demolish
-actions. Same template everywhere; nothing to relearn.
+actions (a construction site offers *Build next* while queued, *Pause*, and
+*Cancel* for a full refund until a robot touches it). The Lander's
+panel adds its services: the ice survey, Earth shipments (showing the transit
+and morale cost the next order would actually take), and *Crew all eligible
+stations* once settlers are aboard. Same template everywhere; nothing to relearn.
 
-## 6. Tech tree screen (`screens.ts`)
+## 6. Research tree and Lunar Map (`techTree.ts`, `lunarMap.ts`)
 
-Full-screen overlay (T key, or the era chip under the time controls):
+Both are opaque full-screen DOM/SVG overlays over a still-running sim. They
+render a published view (`$research`, `$lunar`) and dispatch actions; neither
+recomputes availability, cost or reach. The world stops rendering while
+either one covers it. Full layout rules are in
+[11-research-and-map-spec.md](11-research-and-map-spec.md) §5b and §6.
 
-- **Era columns, left to right**: FIRST LANDING → SELF-SUFFICIENCY →
-  INDUSTRIALIZATION → EXPORT ECONOMY → SELF-REPLICATION → **DYSON SWARM** at
-  the far right — the capstone is always visible at the end of the road, the
-  Civ V/VI trick for making the endgame feel inevitable.
-- **HTML cards over one SVG line layer.** Cards are DOM (free layout, hover,
-  text wrap); dependencies are orthogonally-routed paths in a single `<svg>`
-  behind them, redrawn from card `getBoundingClientRect` after layout.
-  Satisfied links: solid @ 0.5 opacity. Unsatisfied: dashed @ 0.22.
-- **State by shape and fill, never color**: done = solid fill + ✓ suffix;
-  queued = brightened border + "⧗ queued n" + in-place progress bar;
-  available = normal card; locked = dashed border @ 38% opacity. Locked eras
-  dim their whole column header.
-- Each card carries cost (`data≡` + goods glyphs for era 3+), description,
-  and its **trade-off line** (`−` prefixed) — the tree never sells a free
-  lunch.
-- **3-deep research queue** rail at the bottom; head shows live %; clicking a
-  queued item cancels it (canceling a prerequisite also drops its dependents,
-  handled sim-side).
+### 6a. Research tree ([T], or the era chip)
+
+- **Swimlanes × eras.** Seven lane rows (⚡ POWER, ◆ MATERIALS,
+  ◉ ROBOTS & FAB, ▣ SILICON & COMPUTE, ⌂ HABITAT, ◎ EXPLORATION, ↑ EXPORT)
+  across eight era columns, plus a lane-free Era 8 capstone column that is
+  always on screen: the Civ trick of keeping the end of the road visible.
+  Lane heights come from the techs visible on this run, so a site's own
+  techs never leave holes.
+- **Era headers** show both charter routes live: `◼◻ 1/2 · or 1 + 20▣ fabbed
+  (12/20)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
+- **Cards** are two lines: state glyph and short name, then cost and the
+  first generated pro. Markers: ◇ and a bracket for a doctrine, ✦ for a
+  breakthrough (a dotted `✦ ?` placeholder until surveyed), ◬ for a site
+  tech, `✎−40%` for an earned insight, ⚠ for a tech waiting on goods.
+- **State by shape and value, never hue alone:** done = solid border + ✓;
+  queued = `#n` + a 2 px bar; available = hairline; locked = dashed @ 38%;
+  foreclosed = struck through @ 25%; full = ⊘.
+- **Links** are one SVG layer routed through the gutters: solid from a done
+  source, dashed from a pending one, `requiresAny` edges meeting at an OR
+  diamond. Hovering a card highlights its prerequisite closure and
+  dependents and dims everything else.
+- **Detail sheet** (hover, or the sticky selection) has three columns:
+  1. identity and the exact lock reason;
+  2. the generated ⊕/⊖ lines and a **YOUR BASE** preview diffed from the
+     buildings you actually have (`Your 2 Data Centers: −21 kW`);
+  3. cost after insights, goods as have/need with the producer, ETA, and the
+     Queue / Queue path ⇧ / Cancel buttons.
+- **Doctrines** never commit on a click. Selecting one shows both members
+  side by side, and only `[Commit to … — permanent]` queues it.
+- **Queue** of 5: click to queue, click a queued card to cancel (dependents
+  drop with an alert), shift-click queues the whole prerequisite path, and
+  ↑/↓ reorders it. Keys: arrows move, Enter queues, Shift+Enter queues the
+  path, Esc or T closes.
+- A locked palette card opens the tree on the tech that unlocks it.
+
+### 6b. Lunar Map ([M], or `[M] Map` in the tree header)
+
+- **Six views that open with research:** SITE (the 1 km build map, top
+  down, with deposits, the build-network discs and your buildings), VICINITY
+  and REGION (orthographic around home), then NEAR, FAR and MOON (discs over
+  a maria basemap). A new survey tier tweens the window outward the next
+  time the map opens, and the map chip pulses until then.
+- **Prospects** are 34 real places at real coordinates. Pins beyond coverage
+  show a lock reason naming the tech that reaches them; the sheet for a
+  visible one shows its geology, survey cost and data (novelty applied),
+  claim terms, and any breakthrough (`✦?` before its survey).
+- **Outposts** list their live stream, hopper fuel, upkeep and link power,
+  and dim when grounded for fuel or parts.
+- The header carries the tier label, outpost slots, survey count and ATLAS
+  progress. Nothing pauses; every refusal is the sim's own alert.
 
 ## 7. Site-selection screen (`screens.ts: mountSiteSelect`)
 
@@ -210,6 +254,36 @@ detaches the node under the cursor and **silently eats the click**. With a
 1 Hz publisher this is not theoretical — any per-tick rebuild of a panel with
 buttons is a bug by definition. Read-only text (resource chips, clock) may
 rebuild freely.
+
+## 12. Menu and sound (`menu.ts`, `audio/sfx.ts`)
+
+**Esc** closes one thing at a time — placement, the inspector, a resource
+panel, the tree — and with nothing left to cancel opens the mission menu
+(also ☰ beside the speed buttons). The sim pauses while it is open and
+resumes as it was. It holds Resume · Save now · New mission (confirmed; the
+save is erased) · Graphics · Audio · the Controls list. Graphics is a 0–3
+segmented control showing the level the render ladder is actually running,
+marked `AUTO` with its cause when the black-frame check lowered it; the
+player's own choice carries a ◆. Lowering is one click; a level that failed
+a render check on this GPU (in any session) asks for a second. A raise shows
+"Checking…" until the black-frame check has seen it draw, and is stored only
+then — a black frame puts the old level back. Safe render mode toggles both
+ways: on at once (plain forward rendering, no effects), off as the same
+kind of checked raise back to the ladder's level; a safe mode the render
+check turned on says so and holds across launches. The choices live in
+`localStorage` (`core/settings.ts`) and apply at boot before the first
+frame. A browser without WebGL2 gets a page saying the game needs it, that
+hardware acceleration must be on, and that Chrome or Edge is recommended on
+Windows.
+
+Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio
+nodes only: a switch click on every control, a thunk on placement, a blip on
+a refused action, chimes for a finished site or tech, warn and crit alerts
+band-passed between Quindar tones (2525 Hz in, 2475 Hz out), a swell at
+nightfall, a sweep per launch. A low control-room hum detunes and beats as
+the grid's margin shrinks, so a brownout is audible before it lands; on
+foot the suit breathes. The sim stays silent: `game.publish()` diffs alert
+ids and state and plays the cues, each rate-limited in real time.
 
 ---
 

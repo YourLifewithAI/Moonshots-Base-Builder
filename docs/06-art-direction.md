@@ -4,11 +4,12 @@
 > we light a gray one correctly.
 
 This document is the art bible for MOONSHOTS' grayscale look: the thesis, the
-exact palette and lighting values as shipped, the post-processing chain, the
-procedural terrain and building vocabulary, and the art items deliberately
-deferred. Every number here is quoted from the implementation
-(`src/world/*`, `src/terrain/*`, `src/buildings/meshKit.ts`); if code and doc
-disagree, the code wins.
+exact palette and lighting values as shipped, the sky, the post-processing
+chain and its degradation ladder, the procedural terrain and building
+vocabulary, the things that move, the research you can see, the two cameras,
+and the art items deliberately deferred. Every number here is quoted from the
+implementation (`src/world/*`, `src/terrain/*`, `src/buildings/*`,
+`src/player/*`); if code and doc disagree, the code wins.
 
 ---
 
@@ -32,9 +33,10 @@ Corollaries that follow from the thesis:
 | Rule | Consequence |
 |---|---|
 | No filters, only light | AgX tonemapping does the "film" work; albedo stays neutral |
-| Shape is identity | Buildings must read by silhouette, never by hue (§5) |
+| Shape is identity | Buildings must read by silhouette, never by hue (§6) |
 | The sky is black | UI panels are dark so the *world* is the bright element (see 07) |
-| Zero binary assets | Every texture-like effect is vertex color, noise, or post |
+| Vacuum physics | Dust flies in clean parabolas and falls; bootprints never erode; no fog, no smoke, no twinkle |
+| Zero binary assets | Every texture-like effect is vertex color, noise, a texture generated at boot, or post |
 
 ---
 
@@ -46,44 +48,75 @@ reference; the floats are canonical.
 
 | Element | Value (code) | ≈ Hex | Where |
 |---|---|---|---|
-| Regolith base | `0.56` | `#8f8f8f` | `terrain/chunks.ts` vertex colors |
-| Regolith mottle, broad | `± 0.045` noise @ 1/55 m | — | simplex, seeded `0xc0ffee` |
-| Regolith mottle, fine | `± 0.03` noise @ 1/11 m | — | second simplex octave |
-| Crater floor (basalt) | `−0.075 × (1−d)` for d < 0.9 | — | darkens toward bowl center |
-| Crater rim/ejecta (fresh) | `+0.05 × (1.35−d) × 2` for d < 1.35 | — | bright ring |
-| Regolith clamp | `0.30 … 0.72` | — | keeps terrain inside mid-gray band |
+| Regolith base | site `terrain.albedo`: mare **0.125**, lava tube **0.135**, south-pole highland **0.17** | — | `data/sites.ts` → `terrain/chunks.ts` vertex colors |
+| Regolith mottle, broad | `× (1 ± 0.08)` noise @ 1/55 m | — | simplex, seeded `0xc0ffee` |
+| Regolith mottle, fine | `× (1 ± 0.054)` noise @ 1/11 m | — | second simplex octave |
+| Crater floor (basalt) | `− 0.134 × (1−d)` for d < 0.9 | — | darkens toward bowl center |
+| Crater rim/ejecta (fresh) | `+ 0.18 × (1.35−d)` for d < 1.35 | — | bright ring |
+| Regolith clamp | `0.54 … 1.29 ×` albedo | — | keeps each site inside its own band |
+| Regolith micro-detail | `× (1 ± ~0.15)` from the detail tile | — | `terrain/terrainShader.ts`, per pixel (§5) |
 | Regolith cool bias | blue channel `× 1.005` | — | a whisper, not a tint |
-| Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — lit metal panels |
-| Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — accents, struts, stacks |
+| Boulders | albedo × **1.2–1.7** (background), × **1.5–2.2** (fresh crater blocks) | — | `terrain/rocks.ts` instance colors: unweathered rock outshines gardened soil |
+| Regolith berms | regolith albedo × **0.9** | — | `buildings/berms.ts` — turned soil, a shade under the surface |
+| Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — hull panels (also radiators, MLI foil, lamps, beacons: same value, other finish) |
+| Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — frames, struts, stacks, rails, bare metal |
+| Building GLASS | `0.07` | `#121212` | `meshKit.ts` — PV cells and windows (dark glass, roughness 0.18) |
+| Rovers, cargo lander | the building finishes (BODY / TRIM / GLASS / PLATE, LAMP, BEACON) | — | `world/rovers.ts`, `world/events.ts` — no new values |
+| Window / print band / floods | `#fff4e0`-ish warm white (`1.0, 0.955, 0.88`) | — | the only light the base makes; neutral enough to stay "gray" |
+| Headlamp | `#fff6ea` | — | the suit lamp (§9) |
+| Dust grains | linear gray `0.015 + 0.45 × sun`, opacity 0.9 | — | `world/life.ts` → `world/dust.ts`; sunlit grains catch the light brighter than the ground they leave |
+| Bootprints | black @ 0.42 × tread alpha | — | `player/footprints.ts`: compacted soil reads darker |
+| Rover contact shadow | black @ 0.5 × sun | — | `world/rovers.ts` decal |
+| Launch capsule | white × **9** (HDR) + additive glow sprite; trail 0 → 2.2 additive | — | `world/events.ts`: blooms at FX 0, clips white below |
+| Descent plume | additive gray ≤ **0.14** | — | a faint frustum, not a flame: exhaust is nearly invisible in vacuum |
+| Swarm glints | 0.22 idle, flashes to **3.0** (HDR) | — | `world/swarm.ts` |
 | Earthshine (sky fill) | `#2a3a55` | — | `HemisphereLight` sky color — **the only color** |
-| Earth disc | `#8fa8c8` | — | unlit `MeshBasicMaterial` sphere |
-| Stars | `#d7dbe0` | — | near-neutral, not pure white |
+| Earth disc | `#8fa8c8`, clouds toward `#dfe6ee` | — | vertex-colored sphere, re-lit by the sun (§3) |
+| Stars | luminance × `(0.86, 0.88, 0.90)` | — | near-neutral, never pure white |
 | Sky | `#000000` | — | `scene.background` |
-| Ghost, valid | `#f5f7f9` @ opacity 0.42 | — | placement preview (pale = yes) |
-| Ghost, blocked | `#14161a` @ opacity 0.60 | — | placement preview (dark = no) |
+| Ghost, valid | `#f5f7f9` @ opacity 0.42 | — | placement preview (pale = yes); FX 0–2 add half-Lambert from the sun + fresnel rim |
+| Ghost, blocked | `#14161a` @ opacity 0.60 | — | placement preview (dark = no); FX 0–2 add a 45° screen-space hatch — pattern, never hue |
 
 Material response (the other half of "palette" in a PBR world):
 
 - **Regolith**: `roughness 0.96, metalness 0.0` — bone-dry powder, no specular
-  glint, so form reads through shading alone.
-- **Buildings**: `roughness 0.55, metalness 0.35` — brushed aluminum that
-  catches the sun on curved hulls without ever blowing out to mirror.
+  glint, so form reads through shading alone. Berms share the terrain
+  material; boulders are `0.92 / 0`, flat-shaded.
+- **Buildings**: per-vertex finishes (the kit's `mat` attribute, read by the
+  building patch): hull `0.55 / 0.15` satin aluminum, trim `0.62 / 0.2`,
+  glass `0.18 / 0`, radiators `0.9 / 0`, MLI foil `0.3 / 0.45`, bare metal
+  `0.45 / 0.35` (roughness / metalness). With no environment map metalness
+  only darkens, so it stays low everywhere. FX 3 and safe mode run the stock
+  material (`0.55 / 0.15` on everything) and keep the values.
 
-Two tones per building is a hard limit. BODY carries mass; TRIM carries
-detail. There is no third value and no per-building tint.
+**Value structure.** The regolith is dark (real maria reflect 7–12%, highlands
+about twice that) and the sun is hot, so the ground renders mid-gray while
+sunlit hulls read about 2.3× brighter in linear luminance (measured: ground
+median sRGB 123, lit building faces 183 in the mare overview). The base is
+the brightest thing on the Moon, as the LM is in every Apollo frame. Glass
+sits below the ground (0.07 vs 0.125), so solar wings and window bands read
+as dark cut-outs in bright hulls, with a sharp sun glint at low roughness.
+
+Three values per building is a hard limit: BODY carries mass, TRIM carries
+detail, GLASS carries function (power and people). Finishes vary roughness
+and metalness, never value; there is no per-building tint.
 
 ---
 
-## 3. The lighting rig (`src/world/lighting.ts`)
+## 3. Light and sky (`src/world/lighting.ts`, `src/world/sky.ts`)
 
-One sun, one fill, nothing else:
+One sun, one fill, the base's own lamps, and a suit lamp on foot:
 
 | Light | Values |
 |---|---|
-| Sun | `DirectionalLight #fffdf8`, intensity **3.2** (physically hot; AgX rolls it off) |
-| Sun shadows | `PCFSoftShadowMap`, **2048²** map, ortho frustum ±260 m, near 10 / far 1600, bias −0.0004, normalBias 0.03 |
-| Earthshine | `HemisphereLight #2a3a55` → black ground; intensity 0.42 at boot, driven per-frame to **0.28 (day) → 0.44 (night)** |
-| Tonemapping | **AgX**, exposure **1.1**, sRGB output (`renderer.ts`) |
+| Sun | `DirectionalLight #fffdf8`, intensity **5.4** (physically hot; AgX rolls it off) |
+| Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
+| Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 1.0 (night)** (the eye adapting) |
+| Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy |
+| Night floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
+| Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
+| Headlamp | camera-mounted `SpotLight #fff6ea`, **16 cd** at full night, range 40 m, cone 0.52 rad, penumbra 0.6, decay 2, 0.12 m above the eye and aimed ~23° under the gaze; no shadow. Always in the scene (constant light count — a light joining would recompile every lit program), intensity 0 except on foot, ramped in over night factor 0.25 → 0.75 |
+| Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
 
 Dynamics, driven by the day/night clock (`core/daynight.ts`):
 
@@ -92,44 +125,198 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   short dusk window (`t = (elev + 0.03)/0.1`), so night is earthshine and
   stars only. Polar sites keep a grazing 0.05 rad sun all night — their
   "peak of eternal light" rendered literally.
-- The shadow frustum re-centers on the camera focus every frame (build-cam
-  target or the astronaut), so shadow resolution is spent where the player is
-  looking.
+- **Shadows are fitted, snapped, and change-driven** (`Lighting.fitShadow`).
+  The four frustum-corner rays are intersected with the ground plane through
+  the focus (clamped to 2.2 × camera distance in build mode, 160 m in walk
+  mode), the box is padded for 20 m-tall receivers, and its size steps in
+  9% increments with hysteresis. The window is snapped to whole texels in
+  light space, so edges hold still while panning. Typical texels: 0.06 m in
+  a close build view or on foot, 0.12–0.18 m in the default overview (the
+  old fixed ±460 m window was 0.45 m). The map is re-rendered only when the
+  sun turns a step (0.1° up to 3×, growing with speed past that: 0.33° at
+  10×), the view leaves the window it was drawn for (the window stands while
+  the visible ground stays inside it — slack is 6 m or 3% of its extent), or
+  casters change (placements, construction rise, terrain flattening, berms,
+  a resupply lander touching down or lifting off) — at most every 0.1 s of
+  real time, and never at night. The solar wings re-aim on the same step and
+  *before* the fit, so a re-aim joins that frame's shadow render instead of
+  forcing another one. Measured at a simulated 60 fps (three buildings, two
+  wings): 2.5 renders/s at 1× (was 6.7), 7.5 at 3× (18.9), 7.9 at 10× (45.2),
+  3.0 while panning (60, every frame), 7.8 while orbiting (60), 0 when paused
+  and still. `Lighting.requestShadowUpdate()` is the hook for anything that
+  moves; things that move *continuously* (rovers, a descending lander, dust)
+  stay out of the shadow map instead (§7).
+- **Terrain casts shadows.** Back faces fill the shadow map (three's default
+  `shadowSide`), so lit slopes never self-shadow; crater walls and ridges
+  throw Apollo-black shadow at low sun, and a solar array the economy marks
+  as terrain-shaded now visibly sits in shadow.
 
-### Starfield and Earth
+### Night lighting (`world/floodlights.ts`, `buildings/instances.ts`)
 
-- **Stars**: 1,800 points scattered on a 3,200 m sphere (seeded `mulberry32`,
-  hemisphere-folded so all stars sit above the horizon), `size 2.2`,
-  no size attenuation, color `#d7dbe0`.
-- **Earth**: a 48 m-radius sphere at (−1400, 950, −2200) with an unlit
-  `MeshBasicMaterial` — at that distance it reads as a small flat pale-blue
-  disc hanging in the black. Home, far away. It never moves; it is a
-  landmark, a compass, and the game's quietest storytelling device.
+At night the base lights itself, and only where the grid is live:
+
+- **Floods are shader data**, not scene lights: one `uniform vec4
+  uFlood[32]` (xyz = lamp, w = reach) evaluated in the terrain, rock and
+  building patches — `N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Pools drape over
+  slopes and crater walls (no flat discs cutting through the ground), and
+  never jump between buildings while the camera pans.
+- **Filled once per economy tick from every powered structure** (complete,
+  enabled, not browned out). A brownout turns that structure's pool *and*
+  its windows off: the cause is visible. Past 32 structures, lamps merge
+  into grid clusters (24 m cells, growing) instead of being dropped.
+- **Zero cost by day**: the count uniform is 0 until night, so the loop
+  exits at once; the slot count is fixed per FX level (32 at FX 0–1, 16 at
+  FX 2), so dusk never recompiles anything.
+- **Windows, not hulls, glow**: `WINDOW` and `LAMP` parts emit warm white ×
+  lit × night (rover headlights included); beacons blink (0.2 s every 2 s,
+  phase per instance, on the building shader's own clock) day and night.
+- **Fallback** (FX 3, a patch fault, safe mode): the old path — whole-hull
+  glow 0.09, additive discs under lit structures and 8 PointLights over the
+  nearest ones. The PointLights leave the scene while the shader floods run,
+  so the lit programs don't carry `NUM_POINT_LIGHTS` all day.
+
+### The sky (`world/sky.ts`, `world/swarm.ts`)
+
+The sky is a group re-centred on the camera every frame, so nothing in it
+parallaxes. Every piece is a stock unlit material — the sky adds no shader
+program of its own. All but the glare draw first in the opaque pass with
+depth writes off (group order −1), so the ground paints over them wherever it
+stands; the glare is additive, drawn last, and fades when terrain hides the
+sun.
+
+- **Stars**: 4,200 field stars plus 2,600 crowding a tilted galactic band,
+  magnitudes −1.4 … 6.5 drawn from N(<m) ∝ 10^0.45m (≈ ×2.8 per magnitude),
+  flux 2.512^−m compressed for display, in three pixel-size buckets
+  (2.8 / 1.8 / 1.0 px, the brightest round). **No twinkle** — there is no
+  air. Exposure follows the sun: by day the field drops to **0.6%** (Apollo
+  film shows none), at night it is full.
+- **Milky Way**: a vertex-coloured back-face sphere, gaussian in galactic
+  latitude (e-folding at 0.15 rad) with noise clumping and a dark lane, brightest
+  toward a galactic centre ~35° up; faded with the stars.
+- **Sun**: a 0.63° disc at ×30 (AgX clips it white, FX-0 bloom catches it)
+  and a soft additive glare sprite (~14°, opacity 0.35 × sun), both faded
+  with the sun's light; the glare eases out when a ridge or the horizon
+  ring hides the disc (a march through the heightfield every 0.2 s).
+- **Earth**: a 1.9° sphere whose vertex colours (blue, drifting cloud) are
+  re-lit from the sun direction as it moves, so its lit side faces the sun
+  you see and the phase follows — crescent near noon, gibbous at night.
+  Placed per site, with a slow libration bob:
+
+  | Site | Earth elevation | Azimuth | Libration |
+  |---|---|---|---|
+  | Mare (near-side) | 60° | 175° | ± 1.5° |
+  | Lava tube (Marius Hills) | 33° | 15° | ± 1.5° |
+  | South pole (Shackleton) | 2.5° — on the ridge line, partly hidden | 250° | ± 2° |
+
+- **Swarm glints** (the Dyson swarm, §8): points on a thin ellipse through
+  the sun (±9° along its path, ±1.3° across), camera-centred in the same sky
+  slot.
 
 ---
 
-## 4. Post chain (`src/world/post.ts`)
+## 4. Post chain and the degradation ladder (`src/world/post.ts`, `src/world/materials.ts`)
 
-`EffectComposer` (HalfFloat) in this exact order:
+`EffectComposer` (HalfFloat at FX 0) in this exact order:
 
 1. **RenderPass** — the scene.
 2. **N8AO** (`N8AOPostPass`) — `aoRadius 3.0, intensity 2.5, distanceFalloff
-   1.0`, quality "Low". AO is what makes white-on-gray forms legible: contact
-   shadows glue buildings to the regolith and carve panel joins without edge
-   lines.
-3. **Grain** — `NoiseEffect`, OVERLAY blend, premultiplied, opacity **0.14**.
-   The film-stock cue; also dithers the long gray gradients that grayscale is
-   prone to banding on.
-4. **Vignette** — offset **0.28**, darkness **0.52**. Pulls the eye centerward,
-   Hasselblad frame falloff.
-5. **SMAA** — final antialiasing (the renderer runs with MSAA off).
+   1.0`, quality "Medium" at **half resolution** with depth-aware upsampling
+   (cheaper than the old full-res "Low"). AO is what makes white-on-gray
+   forms legible: contact shadows glue buildings to the regolith and carve
+   panel joins without edge lines. Transparent decals (bootprints, rover
+   shadows, the ghost) write no depth and stay out of it. N8AO's automatic
+   transparency detection is off: left on, the first transparent material
+   in the scene turned its transparency pass on — two more renders of the
+   whole scene every frame. Every level draws the scene once a frame.
+3. **Bloom** (FX 0 only, its own pass) — mipmap blur, luminance threshold
+   **2.0**, intensity 0.6. A sunlit hull peaks near 1.5 in the HDR buffer,
+   so only emissives, the sun disc, launch capsules and glint flashes glow.
+4. **Final pass** — one `EffectPass`:
+   **SMAA** first (it re-reads the input buffer at edges, which would drop
+   any effect merged ahead of it), then **AgX tone mapping** (render targets
+   bypass the renderer's own), **grain** (`NoiseEffect`, OVERLAY,
+   premultiplied, opacity **0.14** — the film-stock cue that also dithers
+   long gray gradients) and **vignette** (offset **0.28**, darkness **0.52** —
+   Hasselblad frame falloff).
 
-Grain, vignette, and SMAA share a single `EffectPass`, so the full chain is
-three passes (two on low-end).
+**Degradation ladder.** Not every GPU runs everything; the game walks down
+until something renders, and the working level persists to `localStorage`.
+Scene shader patches ride the same ladder through the material registry.
+Safe mode is not a rung but a switch beside the ladder: it draws the plain
+forward path with unlit twins from the first frame (the composer is never
+built while it is on), and leaving it returns to the ladder's level. Feature
+by feature:
 
-**Degradation tier**: `?lowfx` drops the N8AO pass only — grain, vignette, and
-SMAA are cheap and stay. This is the one quality switch in the slice; the
-mobile tier ladder is roadmap work (09).
+| Feature | FX 0 | FX 1 | FX 2 (`?lowfx`) | FX 3 | Safe mode |
+|---|---|---|---|---|---|
+| Frame buffers | half-float | 8-bit | 8-bit | none (forward) | none (forward) |
+| Ambient occlusion | N8AO, half-res | N8AO, half-res | — | — | — |
+| Bloom | ✓ | — | — | — | — |
+| SMAA · AgX · grain · vignette | final pass | final pass | final pass | AgX in the materials | AgX in the materials |
+| Sun shadows | ✓ | ✓ | ✓ | ✓ | off |
+| Regolith shader (terrain, ring, berms) | `regolith-2`: both detail scales, lunar photometry | `regolith-2` | `regolith-1`: coarse scale | stock | unlit twin |
+| Night floods (slots) | 32 | 32 | 16 | discs + 8 PointLights | discs + 8 PointLights |
+| Earthshine floor | ✓ | ✓ | ✓ | — | — |
+| Building shader | `bldg-2`: finishes, seams, windows, beacons, print reveal | `bldg-2` | `bldg-1`: no seams | stock: squash-rise, hull glow | unlit twin |
+| Shadow-depth cut | `bldg-depth` | `bldg-depth` | `bldg-depth` | stock | stock copy (no shadows drawn) |
+| Placement ghost | `ghost-lit`: half-Lambert, rim, hatch | `ghost-lit` | `ghost-lit` | flat fill | stock copy |
+| Rocks | floods, full density | full | ½ small rocks | ¼ small rocks | unlit, ¼ small rocks |
+| Horizon ring | as terrain | as terrain | as terrain | stock | unlit twin |
+| Sky: stars, sun, Earth, glints | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Sky: Milky Way, glare | ✓ | ✓ | ✓ | ✓ | — |
+| Rovers | building shader | building shader | building shader | stock | unlit twin |
+| Dust | `dust-gpu`: vertex-shader ballistics | `dust-gpu` | `dust-gpu` | static puffs placed on the CPU | none |
+| Launch capsule / trail / glow | ✓ (capsule blooms) | ✓ | ✓ | ✓ | capsule only |
+| Resupply lander / plume | ✓ | ✓ | ✓ | stock lander | unlit lander, no plume |
+| Berms | regolith shader | regolith shader | regolith shader | stock | unlit twin |
+| Bootprints, rover shadows | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Headlamp | ✓ | ✓ | ✓ | ✓ | no effect (unlit) |
+| Visor | DOM | DOM | DOM | DOM | DOM |
+
+**The registry contract** (every scene shader patch, including the ones
+added for motion): a patch checks its injection anchors against the stock
+three.js templates before claiming a variant, so an upgrade that moves an
+anchor leaves the stock shader — and its fallbacks — in charge rather than a
+variant that never injected. Every patched program carries the
+`MBB_PATCHED` define. Every mesh creator takes its material from the registry
+(`materials.get(key)`), so safe mode also covers meshes created after it
+switched on. A shader that fails to compile is caught by
+`renderer.debug.onShaderError`: if it carries a patch, every patch is
+stripped back to the stock shader (remembered across launches until an FX
+level is chosen explicitly) and the player sees an alert; any other program
+steps the post ladder down. The black-frame sentinel reads a 4×4 grid of the
+drawing buffer and judges only the samples whose view ray hits terrain, so a
+single failed terrain program is caught even with buildings on screen. It
+reads only frames whose ground cannot legitimately be black: by day under a
+risen sun (≥ 75% of its light — the economy's solar factor stays high for a
+while after the disc has set, and a set sun is no black frame); at night at
+FX 0–2, where the earthshine floor holds open ground at ~30 r+g+b against a
+cut of ≤ 2 (FX 3 nights read ~5 and are not probed); and at any hour in safe
+mode, whose unlit twins do not dim. Dusk, dawn, FX 3 nights, views with
+fewer than three ground samples and frames under the tech tree or Lunar Map
+(which are not drawn at all) are inconclusive and re-checked ~120 frames
+on; a healthy frame re-checks in 900. A black frame steps the ladder down,
+then turns safe mode on; in safe mode, with nothing simpler to fall back to,
+it can at most store FX 3 for good. **A raise is a trial** — a menu pick,
+`?fx=`, or leaving safe mode: the new level runs at once, but the level it
+left stays stored (so a reload never boots into it unchecked) until the
+next readable frame passes; a black one goes straight back (to the old
+level, or to safe mode) with an alert. Levels that failed a check are kept
+in the settings across launches, and the menu asks twice before raising to
+one; a level that later draws is cleared. Safe mode the sentinel turned on
+is stored apart from the player's own choice and holds at the next launch
+until the player turns it off. A composer that throws is blamed only if a
+plain render of the same frame succeeds; a throwing scene skips the frame
+(reported once) and never stops the loop.
+Moving things (§7) add exactly one patch (`dust`); everything else reuses
+existing programs or stock unlit materials, and each part of the motion
+layer fails soft — an exception hides that part and the game carries on.
+`tests/render.spec.ts` walks all five rungs, by day and by night, and checks
+the motion layer at FX 0, FX 3 and in safe mode; it also holds the safety
+contract above — safe mode plain with the sentinel on, a return to a patched
+level with live uniforms (FX 0 → 3 → 0, then night), night and dusk probes,
+raise trials and the remembered failures, one scene render a frame, and the
+page a browser without WebGL2 gets.
 
 ---
 
@@ -155,25 +342,93 @@ because they come from the same source.
 
 Chunking (`terrain/chunks.ts`): 8×8 chunks that share edge samples with
 their neighbors, so flattening a building pad rebuilds at most 4 chunk meshes
-and never opens a crack. Terrain casts no shadows (it only receives) —
-crater self-shadowing comes from AO and shading, keeping the shadow map for
-buildings.
+and never opens a crack. The chunks cast and receive sun shadows (§3).
+
+**Regolith shader** (`terrain/terrainShader.ts`, patched in through
+`onBeforeCompile`, so the stock shader is always one removal away):
+
+- **Micro-relief** — at first use a 512² tiling texture is generated: three
+  octaves of value-noise grain plus 1,600 craterlets with a cumulative
+  N(>r) ∝ r⁻² size law (bowl + gaussian rim; fresh ones get dark floors and
+  bright rims). It holds detail slopes and an albedo offset and is sampled
+  at two world scales — a 41 m tile (rotated 37°) for 0.2–3.5 m craterlets
+  and a 7.3 m tile for grain and pits — perturbing the normal and albedo.
+  Each scale fades out by pixel footprint (`fwidth`) and distance before it
+  can shimmer.
+- **Lunar photometry** — the direct diffuse term is McEwen's lunar-Lambert
+  (Lambert blended with Lommel–Seeliger by phase angle, which gives the Moon
+  its flat, limb-bright look) times a Hapke-style opposition surge
+  (B₀ 0.8, h 0.07): the bright halo around the anti-solar point, i.e. around
+  your own shadow. μ is floored at 0.05 so the blend never divides by zero
+  at grazing view angles. It applies to every direct light, so the headlamp
+  — which sits next to the eye — lights the ground ahead of you with the
+  same retro-reflective surge.
+
+**Horizon ring** (`terrain/horizon.ts`): one mesh from the map's square edge
+out to ~12 km that continues the analytic terrain (fBm, the map's craters,
+plus three far-only craters per map crater), so the world ends in a horizon
+instead of a lip. Its inner row *is* the map edge — the same grid samples,
+heights, normals and albedo as the border chunks — so the seam is watertight
+with nothing overlapping (no z-fighting, no discard shader). Rows step
+outward geometrically (×1.13; 4 m at the edge, ~0.8 km at the rim) and thin
+from 1,024 to 256 around: one draw call, ~43 k triangles. Past the edge the
+ground drops by d²/2R with R = 50 km — the Moon's curvature compressed ~35×,
+so the horizon "curves away too soon," as in the Apollo frames.
+
+**Boulder scatter** (`terrain/rocks.ts`): instanced procedural rocks for
+scale and depth cueing in a fog-free world. Two noise-displaced polyhedra
+(a 36-facet dodecahedron below 1 m, an 80-facet icosahedron above), varied
+by rotation, squash (0.6–0.95) and albedo; tilted partly with the slope and
+buried on the downhill side. Sizes follow truncated power laws — a background
+field (0.25–2 m, N(>D) ∝ D⁻²) swept thin within 45 m of the landing site, and
+blocks crowding every crater (`2 × rockiness × r^1.3` of them, 0.4 m up to
+`min(4, 0.3 + 0.06 r)` m, N(>D) ∝ D⁻¹·⁷) — most just outside the rim, 15%
+slumped down the wall. Small rocks are refilled within 300 m of the camera
+(every 20 m of travel); large ones are static and the only ones that cast
+shadows. Pads and graded patches clear what they cover and resettle the rocks
+on their skirts. Two draw calls, one more in the shadow pass.
 
 ---
 
 ## 6. Parametric building language (`src/buildings/meshKit.ts`, `recipes.ts`)
 
-Zero modeled assets. Every one of the 15 structures (14 buildable + the
+Zero modeled assets. Every one of the 21 structures (20 buildable + the
 Lander) is merged from a tiny parametric kit:
 
 - **Primitives**: `box`, `cyl` (cylinder/cone/tank), `dome` (half-sphere),
-  `vault` (half-pipe greenhouse), `strut` (thin truss leg) — with panels and
-  tanks as parameterizations of box and cyl. Six words of vocabulary:
-  *box, cylinder, dome, vault, strut, panel.*
-- Each recipe merges its primitives into **one geometry** with BODY/TRIM baked
-  into vertex colors, UVs deleted (no textures anywhere), normals recomputed.
-  One geometry + one shared material = **one `InstancedMesh` per building
-  type = one draw call per type** (cap 96 instances/type).
+  `domeBand` (window belts, skylights), `vault` (half-pipe greenhouse),
+  `archWall`, `berm`, `lathe` (dish shells), `bar`/`pipe` (members between
+  two points), `strut`.
+- **Load-bearing details** built from them: `door` (frame, recessed leaf,
+  porthole, lamp, sill), `pane`/`windowStrip`/`windowRing`, `rail`
+  (handrails with posts and knee rails), `radiator`, `antenna` (with a
+  blinking beacon), `lattice` (masts, derricks), `ladder`, `cableTray` +
+  `junction`, `bands`.
+- Each part is baked with a **Finish**: its value into vertex colors, its
+  roughness / metalness / emissive id into a per-vertex `mat` attribute.
+  UVs deleted (no textures anywhere), normals recomputed. One geometry + one
+  shared material = **one `InstancedMesh` per building type = one draw call
+  per type** (cap 96 instances/type). 500–2,800 triangles per building. The
+  rovers (436 triangles) and the cargo lander (720) are built from the same
+  kit and draw with the same material and program.
+- **Moving parts** are instanced apart (`buildings/trackers.ts`): solar
+  wings yaw to the sun's azimuth and tilt to its elevation every time it
+  turns 0.1° (near-vertical under the pole's grazing sun, folded flat below
+  the horizon), and dishes on the Lander, Lab, Relay Mast and Data Center
+  hold on Earth. Picking maps a hit on a part back to its building.
+- **Building shader** (`buildings/buildingShader.ts`, FX 0–2): per-vertex
+  finishes; fwidth-antialiased panel seams every 1.2 m in object space on
+  the face-tangent axes (−12%, faded under a pixel and past 80–160 m);
+  per-instance state `iState = (lit, dust, wear, cut)`: dust grays and
+  mattes the glass, wear darkens, windows glow at night when lit, beacons
+  blink on a clock the frame loop advances (`uBldTime`, real time, so they
+  keep blinking while the game is paused).
+- **Construction is a 3D print**: fragments above the cut height
+  (progress × recipe height) are discarded with a warm band at the cut, and
+  a matching patched `customDepthMaterial` cuts the shadow the same way. A
+  line scaffold (standards, a ledger every 2 m lift, alternating braces)
+  stands over the site, and a construction rover works at its wall (§7).
+  FX 3 and safe mode keep the squash-rise + dim.
 
 **Silhouette-first identity.** In a monochrome world, shape is the only
 nameplate, and the shape grammar is consistent:
@@ -183,17 +438,18 @@ nameplate, and the shape grammar is consistent:
 | Dome | life | Habitat, Recreation Dome, reactor cap |
 | Tank / stack | industry | Smelter chimneys, Refinery columns, Reactor drum |
 | Vault | growth | Hydroponics half-pipe |
-| Tilted plane | power | Solar Array panel pair |
-| Rail | export | Mass Driver's 80 m inclined truss — the endgame, visible from orbit |
+| Tilted plane | power | Solar Array wing |
+| Rail | export | Mass Driver's inclined rail — the endgame, and where the capsules leave |
 | Spire | arrival | The Lander's stacked cone + antenna, tallest thing you own on day one |
+| Low box on wheels | work | the construction rovers — small, many, always moving |
 
 **Restraint rules** (Rams, applied to geometry):
 
-- Two tones per building, ever (§2).
+- Three values per building, ever (§2).
 - Greebles are load-bearing only: a chimney says furnace, an airlock box says
   "people enter here," a mast says comms. No detail that doesn't explain the
   building. Chamfer/bevel detail was considered and deferred with the edge
-  pass (§8) — at gameplay camera distance, AO in the primitive intersections
+  pass (§11) — at gameplay camera distance, AO in the primitive intersections
   does the work.
 - Bases sit at y = 0 and are placed on a flattened pad with a smoothed 1-sample
   skirt, so buildings meet the ground the way the LM footpads do: flat object,
@@ -201,23 +457,174 @@ nameplate, and the shape grammar is consistent:
 
 ---
 
-## 7. Performance budget
+## 7. Motion and life (`src/world/life.ts`)
+
+A base that only casts shadows reads as a diorama. Everything that moves on
+its own is one module the frame loop calls once, and every motion is a
+visible *game rule* — the fleet size, who is building what, which machines
+are running, when a volley or a shipment happens. Nothing here changes the
+simulation; it only reads the state.
+
+**Construction rovers** (`world/rovers.ts`). One instanced rover per bot in
+`state.bots.total`, docked at the structures that supply them (two at the
+Lander, two per Robotics Bay, self-assembled extras at the bays), parked in
+a row off the dock's side. The economy gives every assigned site one bot;
+that rover drives out (4.5 m/s cruise, 3 m/s², 2.4 rad/s turn limit — heading
+follows velocity), works at the site's nearest wall — a slow shuffle along it,
+a 2 cm bob, a small yaw wobble — and drives home to park when the site
+completes. Paths are straight legs that hop round the corner of any footprint
+in the way. The chassis sits on the heightfield, pitched and rolled to the
+ground under its wheels. Motion runs on game time: pause freezes the fleet,
+×10 speeds it up with everything else.
+
+- Rovers never enter the shadow map (a moving caster would re-render it every
+  frame). A soft contact decal smeared down-sun — `min(7 m, 1.4 m / tan
+  elev)` long, 0.5 × sun opacity — grounds them instead.
+
+**Regolith dust** (`world/dust.ts`). One Points cloud of 1,920 grains in 20
+pooled emitter slots (96 grains each). Each grain flies a closed-form vacuum
+ballistic — `p = p₀ + v·t + ½·g·t²`, **g = 1.62 m/s², no drag, no billowing**
+— so arcs are the long clean parabolas of the Apollo rover rooster tails,
+and every grain comes back down. The vertex shader derives each grain's
+launch from a hash of (grain, cycle), so the CPU only writes three `vec4`
+uniforms per slot (ground point and density; base velocity and horizontal
+spread; vertical spread, launch height and grain size). A moving emitter's
+grains fly relative to it — exact for a rover at steady speed whose ejecta
+keep its velocity plus a kick. Grains are 1.6–3.5 px round points that fade in
+over 50 ms and out over the last 30% of their flight. Emitters, nearest the
+camera first:
+
+| Source | When | Kick (m/s) |
+|---|---|---|
+| Rover wheels | driving > 0.6 m/s | 1.3 back (× speed), 0.9–2.3 up, ±0.7 |
+| Rover print head | working a site | 0.4 ahead, 0.5–1.7 up, ±0.9 |
+| Excavator bucket wheel | the excavator is running | 0.9 forward, 1.3–2.4 up, ±0.9, from 0.3 m |
+| Resupply landing sheet | engine below 28 m (six slots) | radial 5–17.5, only 0.2–2.6 up: flat and fast, as in the Apollo descent films |
+
+At FX 0–2 the motion is the `dust-gpu` patch; at FX 3 (or after a patch
+fault) the stock points material shows static puffs placed on the CPU around
+the live emitters; safe mode shows no dust.
+
+**Beacons** blink on the building shader's clock (§6) — antennas, the mass
+driver's muzzle, rover masts, the cargo lander.
+
+**Mass-driver launch** (`world/events.ts`, fired from `Game.doLaunch` after a
+volley leaves). A white-hot capsule (×9 HDR) accelerates up the rail at
+55 m/s² (≈ 0.8 s, 44 m/s at the muzzle), lights a kick motor (30 m/s²) and
+pitches up from the rail's 10° to 36° into the black over ~1 s, for 7 s of
+flight. It drags a 1.3 s trail (a 48-vertex additive line along the flight's
+own precomputed path) and wears a constant-size glow sprite, so it stays a
+bright point after it has shrunk past a pixel. Up to three volleys fly at
+once. Real time, frozen while paused.
+
+**Earth resupply** (from `state.resupply`, whichever path ordered it). A
+cargo lander appears 12 game seconds before `arriveAt`, 220 m up and 170 m
+out on Earth's side, on a braking burn: altitude ∝ u², approach ∝ u^2.2
+(u = time left / 12 s), leaning back against its approach (up to 0.32 rad)
+and upright at touchdown. A faint additive plume frustum hangs under the
+bell (length = altitude + 0.3 m, ≤ 9 m, widening in ground effect below
+10 m); under 28 m the radial dust sheet builds. It touches down exactly when
+the economy credits the shipment, stands for 30 s — the only time it casts a
+shadow (two shadow-map requests in all) — and lifts off for 12 s. Every frame
+is a pure function of `simTime − arriveAt`, so saves, pauses and time jumps
+all land on the right frame. The pad is picked beside the Lander toward
+Earth: the first spot 36–90 m out that is 7 m clear of every footprint and
+level to 1.2 m.
+
+---
+
+## 8. Research you can see
+
+Techs change numbers; a few now also change the world, the way the audit
+asked ("research has no visible consequences"). All visual only.
+
+- **Regolith Shielding → berms** (`buildings/berms.ts`). Once the tech is
+  done, every shielded structure (habitats, domes, hydroponics, labs,
+  industry, the reactor, batteries — not solar arrays, masts, the mass
+  driver, diggers, storage yards or the Lander, and the Data Center keeps
+  the berms its recipe already has) gets
+  a bulldozed berm round its footprint: 1.15 m high, steep against the wall
+  (0.7 m in the first 0.2 m), a 1.3 m outer slope, the corners swept round.
+  It opens at the doors — the gaps come from the recipes' door positions —
+  tapering to the ground over 1.3 m. One merged mesh, draped on the
+  heightfield (it follows later pads' skirts) in the terrain's own material
+  and albedo, so it shades, floods at night and falls back exactly like the
+  ground it was pushed up from. It casts shadows and is rebuilt only when the
+  set of shielded structures or the ground under them changes.
+- **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors
+  glint on a thin ellipse through the sun (the ring seen nearly edge-on):
+  `n = 12 + 40 · log10(1 + swarm% · 10⁴)` points (cap 400), so the first
+  volley already shows (24) and growth stays legible from 0.0001% to 100%.
+  Each idles dim (0.22) and flashes (`sin²⁴` of its own slow clock) to 3.0
+  HDR as its foil catches the sun — FX 0 blooms the flash. The ellipse
+  drifts slowly; the ground paints over it at sunset like the stars.
+- **Dust Mitigation → cleaner panels**. Base traffic settles a thin film on
+  every solar wing's glass: `dF/dt = gain − F/τ`, gain 0.25 per lunar day
+  (doubled within 45 m of a running excavator or an active site), F ≤ 0.35.
+  Uncleaned, τ is a lunar day, so arrays gray and matte over a day or two of
+  work (F ≈ 0.25). With the electrostatic curtains τ = 60 s: the film
+  never settles and the wings stay dark glass. Shown through the wing's
+  `iState` dust channel (the larger of this film and the economy's own
+  `b.dust`); the economy never sees it.
+
+---
+
+## 9. Cameras: command view and on foot
+
+**Command view** (`player/buildCam.ts`): MapControls — left-drag pan,
+right-drag orbit, wheel zoom toward the cursor — plus WASD/arrows (pan at
+0.75 camera distances per second) and Q/E (orbit, 1.5 rad/s). The orbit
+target rides the terrain (eased onto the ground at 5/s), the camera never
+sinks below 4 m over the highest ground under it, distance stays within
+18–700 m and the polar angle under 0.44 π. Home (H) frames the Lander from
+90 m, ~22° above the horizon — the landing site with its horizon; F glides to
+the selection (0.6 s). Lens: **55°**, near plane 0.5 m.
+
+**On foot** (`player/walk.ts`, `player/modes.ts`, `player/footprints.ts`,
+`ui/visor.ts`). The same camera dollies down in 1.2 s (ease-out cubic) and
+the lens changes with it:
+
+- **Wider lens**: the FOV tweens 55° → **70°** on the way down and back on
+  the way up (a suit visor, not a telephoto); the near plane pulls in to
+  **0.15 m** so walls and boulders at arm's length never clip.
+- **Gait**: a slow lope — the eye bobs 3.5 cm at 1.1 bounds per second at
+  walking pace (cadence ×0.6–1.6 with speed), easing in and out as you start
+  and stop — and on landing from a leap a damped spring (k 120/s², c 16/s)
+  dips the eye ≈ 7 cm after a full jump (clamped at 16 cm), integrated in
+  1/120 s substeps so a slow frame cannot overshoot it.
+- **Headlamp** (§3): on only at night — a pool of light that leads you
+  across the dark plain, and nothing more.
+- **Bootprints**: every 1.15 m of grounded travel (left and right 0.13 m
+  either side of the path; both feet on landing) a treaded sole
+  (0.15 × 0.33 m, chevron ribs, a generated texture) is pressed into the
+  ground, tilted to it. An instanced ring buffer of 400 prints; nothing
+  erodes them — no wind, no rain — so they stay until the buffer wraps.
+- **Visor**: a pure-CSS layer at the back of `#walk-hud` (so the reticle and
+  helmet readouts sit on it): the helmet's curved glass edge as a radial
+  falloff to 88% black, a faint specular sheen high on the left (two 128°
+  streaks under a radial mask) and a hairline rim. No GPU cost at all.
+
+---
+
+## 10. Performance budget
 
 The look must hold at 60 fps on integrated GPUs; the budget is part of the art
 direction, not an afterthought:
 
 | Budget | Target | Shipped reality |
 |---|---|---|
-| Draw calls | < 100 | 64 terrain chunks + ≤15 instanced building types + stars + Earth + ghost/outline ≈ **85 worst case** |
-| Triangles | ~1 M | terrain 131 k; buildings a few hundred–2 k each ×96 cap — comfortably under |
-| Shadow maps | 1 × 2048² | single cascade, focus-following |
-| Post passes | ≤ 3 | render + AO + (grain·vignette·SMAA); 2 with `?lowfx` |
+| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply) |
+| Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each |
+| Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
+| Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock night path |
+| Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
+| Per-frame CPU | small and flat | ≤ 64 rover matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms rebuilt only on change |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
 | Assets | 0 bytes binary | all procedural; fonts are system stacks (07) |
 
 ---
 
-## 8. Deferred art items
+## 11. Deferred art items
 
 Designed during research, deliberately cut from the slice (sequencing in
 [09-roadmap.md](09-roadmap.md)):
@@ -229,9 +636,15 @@ Designed during research, deliberately cut from the slice (sequencing in
 2. **Blue-noise dither upgrade** — the shipped grain is white-noise
    `NoiseEffect`; a tiled blue-noise texture would dither gradients with less
    visible crawl at the same 0.14 opacity.
-3. **Walk-mode helmet reflections** — a faint curved-glass overlay (screen-space
-   smudge + specular streak) for first person, reinforcing "you are in a suit"
-   without a rendered helmet model. Pure post/UI-layer work; no scene cost.
+3. **Rover tracks and a turning bucket wheel** — wheel ruts in the ring
+   buffer the bootprints use, and the excavator's wheel as a moving part
+   (trackers.ts); the dust already says where both happen.
+4. **Moving casters in the shadow map** — rovers and a descending lander
+   would need a second, small shadow map (or per-frame re-renders of the one
+   we have); the contact decal carries it for now.
+
+*Shipped since the slice plan:* the walk-mode helmet visor (formerly deferred
+item 3) is the CSS layer in §9.
 
 ---
 

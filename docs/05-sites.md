@@ -197,11 +197,92 @@ from base noise, linked home by Comms Relay — the first structure the player
 builds *beyond* the coverage bubble. Design intent only; sequenced with the
 logistics layer in [09-roadmap.md](09-roadmap.md).
 
+## Deposits, map tiers and site techs (as shipped)
+
+Each site now seeds **deposits** around the Lander (`src/data/deposits.ts`,
+placed by `src/terrain/heightfield.ts` from the run seed). A building that
+sits on a deposit digs it: excavators feed smelters and refineries a **feed
+grade**, so high-Ti basalt raises H₂ smelter yield, anorthosite raises
+refinery yield and lowers smelter yield, and so on. The inspector and the
+regolith panel show the live feed shares. Deposits start hidden: orbital data
+gives a `?` lead for some kinds within 400 m of the Lander, and the [I]
+overlay rings each kind with its own line pattern (never by colour alone).
+
+The **Lunar Map** ([M]) starts at the landing site and grows with research,
+from the build grid out to the whole Moon. It has six views (SITE, VICINITY,
+REGION, NEAR, FAR, MOON), and 34 real prospects sit at their real
+coordinates. Surveying a prospect borrows a robot, pays data (less for each
+repeat of a class) and can reveal a breakthrough. Claiming one builds an
+outpost that streams resources for hopper fuel and upkeep. Completing the
+ATLAS (12 surveys at T4) adds an outpost slot and a Swarm Protocol insight.
+The build network is the union of discs around the Lander, completed
+habitats and Relay Masts; large pads also need ≤0.8 m relief, which Site
+Grading provides.
+
+<!-- BEGIN GENERATED: node scripts/gen-tech-doc.mjs -->
+### Survey tiers (the map grows with research)
+
+| Tier | Coverage | Local reveal | Outpost slots | Unlocked by |
+|---|---|---|---|---|
+| T0 LANDING SITE | the landing site | 120 m | 0 | landing |
+| T1 REGIONAL | regional prospects (≤27°) | 320 m | 0 | Prospecting Rovers |
+| T2 NEAR SIDE | the whole near side | whole map | 1 | Orbital Prospector |
+| T3 FAR SIDE | the far side | whole map | 2 | Far-Side Relay |
+| T4 SUBSURFACE | buried prospects | whole map | 3 | Deep Sounding Network |
+
+### SHACKLETON RIM
+
+Home 89.9°S 0°E
+
+| Deposit | Count | Radius | Distance from Lander | Effect when built on |
+|---|---|---|---|---|
+| ❄ cold-trap ice | 7 (1 within 43–52 m) | 18–34 m | 120–340 m | On confirmed ice |
+| ◇ highland anorthosite | 3 (1 within 42–57 m) | 22–34 m | 90–340 m | On highland anorthosite — refinery feed ↑ · smelter feed ↓ |
+| ▲ peak of light | 2 | 14–20 m | 80–250 m | On a peak of light — solar ×1.2, never shaded · build ×1.3 |
+
+**Site techs:** Site Grading, Cryo Ice Extraction, Vertical Solar Masts.
+**Not here:** Solar-Wind Volatiles, Thermal Wadis, Skylight Heliostats, Ilmenite Beneficiation.
+**Doctrine answers:** How hard do you push the furnace? MRE stands alone: highland soil barely reacts to H₂. How does the base survive the 14-day night? Fuel cells: ice gives water and the pole’s night is short. How does a foil reach orbit? Propellant: it ignores the pole’s ×0.6.
+
+### ILMENITE PLAINS
+
+Home 0.8°N 23°E
+
+| Deposit | Count | Radius | Distance from Lander | Effect when built on |
+|---|---|---|---|---|
+| ◆ high-Ti basalt | 4 (1 within 30–50 m) | 16–26 m | 30–320 m | On high-Ti basalt — smelter feed ↑ |
+| ◇ highland anorthosite | 1 | 22–34 m | 250–420 m | On highland anorthosite — refinery feed ↑ · smelter feed ↓ |
+| ≈ mature soil | 3 | 24–36 m | 60–350 m | On mature soil — water ×2.5 with Solar-Wind Volatiles · regolith ×0.9 |
+
+**Site techs:** Solar-Wind Volatiles, Thermal Wadis, Ilmenite Beneficiation.
+**Not here:** Site Grading, Cryo Ice Extraction, Vertical Solar Masts, Skylight Heliostats.
+**Doctrine answers:** How hard do you push the furnace? Plenty of ilmenite, and MRE kills the only water trickle. How does the base survive the 14-day night? Thorium: the night is long. How does a foil reach orbit? Driver: the equator gives it ×1.5.
+
+### MARIUS HILLS TUBE
+
+Home 14.1°N 56.8°W
+
+| Deposit | Count | Radius | Distance from Lander | Effect when built on |
+|---|---|---|---|---|
+| ◆ high-Ti basalt | 2 (1 within 30–50 m) | 16–26 m | 30–320 m | On high-Ti basalt — smelter feed ↑ |
+| ○ pyroclastic glass | 2 (1 within 30–56 m) | 16–24 m | 30–200 m | On pyroclastic glass — smelter O₂ ↑ · excavator wear ×1.3 |
+| ☢ KREEP soil | 1 | 18 m | 60–150 m | On KREEP — reactor fuel make-up at ≥15% feed · no habitats here |
+| ≈ mature soil | 1 | 24–36 m | 60–350 m | On mature soil — water ×2.5 with Solar-Wind Volatiles · regolith ×0.9 |
+
+**Site techs:** Site Grading, Solar-Wind Volatiles, Skylight Heliostats, Ilmenite Beneficiation.
+**Not here:** Cryo Ice Extraction, Thermal Wadis, Vertical Solar Masts.
+**Doctrine answers:** How hard do you push the furnace? A genuine split. How does the base survive the 14-day night? Thorium: the sun is a rumour down here. How does a foil reach orbit? A split.
+
+**Breakthrough hosts (every site):** Lava-Tube Caverns (Tranquillitatis pit, Marius tube, Ingenii pit); Volcanic Glass Reduction (Taurus–Littrow, Aristarchus, Schrödinger); Cold-Trap Chemistry (Cabeus, Hermite). 34 prospects in all.
+<!-- END GENERATED -->
+
 ## Slice status
 
 **Shipped:** Shackleton Rim, Ilmenite Plains, and Marius Hills Tube, exactly as
 tabled above (`sites.ts` canonical), with the Surviving-Mars-style selection
-screen (07) rating all sites on identical dimensions. **Deferred** (see
+screen (07) rating all sites on identical dimensions, local deposits, and the
+Lunar Map. Highland anorthosite and KREEP now exist as deposit kinds and as
+map prospects you can survey and claim, not as landing sites. **Deferred** (see
 [09-roadmap.md](09-roadmap.md)): Highland Anorthosite (lands naturally once
 metals/silicon chains are worth specializing between — ideally with the Smelter
 unmerge, 04) and KREEP/Procellarum (hard-coupled to Rare Earths, Electronics,

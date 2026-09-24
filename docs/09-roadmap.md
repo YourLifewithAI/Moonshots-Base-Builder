@@ -138,13 +138,14 @@ balance-heavy.
 
 ## Phase 7 · Presentation — Audio and the Deferred Art Passes
 
-**What:** The slice ships **zero audio**; this phase adds the designed
-minimal soundscape — UI ticks (mission-control switch clicks), a low
-habitat-interior room tone, muffled-through-structure thumps in walk mode
+**What:** The first soundscape has shipped (07 §12: UI ticks, placement,
+Quindar-framed alerts, the grid hum, suit breathing); this phase finishes
+it — a habitat-interior room tone, muffled-through-structure thumps in walk mode
 (vacuum outside: sound only via conduction — the audio *is* an art
 direction), and telegraph/alarm tones for events. Plus the deferred render
-work from 06 §8: the **hairline edge/outline post pass**, **blue-noise
-dither** replacing white-noise grain, and **walk-mode helmet reflections**.
+work from 06 §11: the **hairline edge/outline post pass**, **blue-noise
+dither** replacing white-noise grain, rover tracks, and a second shadow map
+for moving casters (the walk-mode helmet visor has since shipped, 06 §9).
 
 **Why next:** Pure polish multipliers — they touch nothing mechanical, so
 they slot after systems stabilize but before any public milestone build.

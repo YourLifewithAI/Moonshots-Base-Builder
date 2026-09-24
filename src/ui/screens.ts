@@ -1,13 +1,11 @@
-/** Full-screen screens: site selection (Surviving Mars-style rated cards),
- *  the era-banded tech tree (HTML cards over one SVG line layer), and the
- *  FIRST LIGHT victory overlay. */
+/** Full-screen screens: site selection (Surviving Mars-style rated cards)
+ *  and the FIRST LIGHT victory / defeat overlays. The tech tree is techTree.ts. */
 import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
-import { ERA_NAMES, TECHS, TECH_ORDER, techExpeditionLock, type TechId } from '../data/techs';
-import { RESOURCES, type ResourceId } from '../data/resources';
 import type { Game } from '../core/game';
-import { el, fmt, PERSON_SVG } from './hud';
-import { $defeat, $hasSave, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
+import { el, PERSON_SVG } from './hud';
+import { $defeat, $hasSave, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
+import { computeMods } from '../core/mods';
 
 function rate(n: number): string {
   return `<span class="rate">${[0, 1, 2, 3, 4].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
@@ -21,17 +19,21 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   root.appendChild(screen);
   let selected: SiteId | null = null;
   let step: 'site' | 'expedition' = 'site';
+  let landing = false;
   // robots first — the realistic default; a crewed landing is the what-if
   let expedition: 'human' | 'robotic' = 'robotic';
 
   const render = () => {
     if (step === 'expedition') { renderExpedition(); return; }
+    const lost = $lostMission.get();
     screen.innerHTML = `
       <h1>MOONSHOTS</h1>
       <div class="sub">Base Builder · From regolith to Dyson swarm</div>
       <div id="sites"></div>
-      <div style="display:flex; gap:12px">
-        ${$hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
+      <div style="display:flex; gap:12px; align-items:center">
+        ${lost
+          ? `<span class="label" id="lost-mission">✕ Mission lost — ${SITES[lost.siteId].name}, day ${lost.day}. The base fell silent.</span>`
+          : $hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
         <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose expedition ▸</button>
       </div>
       <div class="sub" style="margin-top:26px">Every site is a trade-off. Choose where your story gets hard.</div>`;
@@ -88,15 +90,15 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
           <div class="pro">No life support at all — the night can only stop machines, never kill</div>
           <div class="pro">Cannot starve, cannot mutiny, cannot be defeated</div>
           <div class="pro">Era 6 Human Cohabitation brings settlers aboard once the base is ready</div>
-          <div class="con">Every crewed station pays the agent power tax: ×1.6 draw</div>
+          <div class="con">Every crewed station pays the agent power tax: ×${Math.round((1 + computeMods([], 'robotic', selected).agentTax) * 100) / 100} draw</div>
           <div class="con">Labs research at 75% — inference is not insight</div>
           <div class="con">Human-comfort research (farms, wellness) locked until cohabitation</div>
           <div class="diff">THE MISSION PLAN · ROBOTS FIRST</div>
         </div>
       </div>
       <div style="display:flex; gap:12px">
-        <button class="btn" id="btn-back">◂ Back</button>
-        <button class="btn primary" id="btn-launch-exp">Land ▸</button>
+        <button class="btn" id="btn-back" ${landing ? 'disabled' : ''}>◂ Back</button>
+        <button class="btn primary" id="btn-launch-exp" ${landing ? 'disabled' : ''}>${landing ? 'DESCENDING…' : 'Land ▸'}</button>
       </div>`;
     screen.querySelectorAll<HTMLElement>('[data-exp]').forEach((card) => {
       card.addEventListener('click', () => {
@@ -106,222 +108,21 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
     });
     screen.querySelector('#btn-back')?.addEventListener('click', () => { step = 'site'; render(); });
     screen.querySelector('#btn-launch-exp')?.addEventListener('click', () => {
-      if (selected) void game.newGame(selected, expedition);
+      if (!selected || landing) return;
+      // building the world stalls the page for a few seconds: paint the
+      // descent first, and take no second click meanwhile
+      landing = true;
+      render();
+      const site = selected;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        void game.newGame(site, expedition).finally(() => { landing = false; });
+      }));
     });
   };
   render();
   $hasSave.subscribe(render);
+  $lostMission.subscribe(render);
   $phase.subscribe((p) => { screen.style.display = p === 'playing' ? 'none' : 'flex'; });
-}
-
-// ─────────────────────────── tech tree ───────────────────────────
-
-export function mountTechTree(root: HTMLElement, game: Game) {
-  const chip = el('button', 'btn panel interactive');
-  chip.id = 'era-chip';
-  // slot into the top-right column between the time controls and the alerts
-  const timeCol = root.querySelector('#time-controls');
-  const alerts = timeCol?.querySelector('#alerts') ?? null;
-  if (timeCol) timeCol.insertBefore(chip, alerts);
-  else root.appendChild(chip);
-
-  const screen = el('div', 'screen interactive');
-  screen.id = 'tech-screen';
-  screen.style.display = 'none';
-  root.appendChild(screen);
-  let open = false;
-
-  const toggle = (v: boolean) => {
-    open = v;
-    screen.style.display = open ? 'flex' : 'none';
-    if (open) render();
-  };
-  chip.addEventListener('click', () => toggle(!open));
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyT' && $phase.get() === 'playing' &&
-        (e.target as HTMLElement)?.tagName !== 'INPUT') toggle(!open);
-    if (e.code === 'Escape' && open) toggle(false);
-  });
-
-  const renderChip = () => {
-    const t = $tech.get();
-    chip.innerHTML = `ERA ${t.era} · ${ERA_NAMES[t.era]} <span class="cap mono">— tech [T]</span>
-      <div class="res-line">
-        <span class="label res-name" id="chip-res-name"></span>
-        <div class="res-bar"><i id="chip-res-fill"></i></div>
-        <span class="cap mono" id="chip-res-pct"></span>
-      </div>`;
-  };
-  // the always-visible research gauge: targeted updates every tick, no re-render
-  const updateChipResearch = (t: ReturnType<typeof $tech.get>) => {
-    const name = chip.querySelector('#chip-res-name') as HTMLElement | null;
-    const fill = chip.querySelector('#chip-res-fill') as HTMLElement | null;
-    const pct = chip.querySelector('#chip-res-pct') as HTMLElement | null;
-    if (!name || !fill || !pct) return;
-    const head = t.queue[0];
-    if (!head) {
-      name.textContent = 'no active research';
-      fill.style.width = '0%';
-      pct.textContent = '';
-      return;
-    }
-    const def = TECHS[head];
-    const frac = Math.min(1, t.progress / def.costData);
-    name.textContent = def.name;
-    fill.style.width = `${frac * 100}%`;
-    pct.textContent = frac >= 1 ? 'needs goods' : `${Math.round(frac * 100)}%`;
-  };
-  // re-render only on structural change; update progress bars in place
-  // (a full re-render every economy tick would detach cards mid-click)
-  let lastSig = '';
-  $tech.subscribe((t) => {
-    const sig = `${t.era}|${t.done.join(',')}|${t.queue.join(',')}`;
-    if (sig !== lastSig) {
-      lastSig = sig;
-      renderChip();
-      if (open) render();
-    } else if (open && t.queue.length) {
-      const def = TECHS[t.queue[0]];
-      const pc = Math.min(100, (t.progress / def.costData) * 100);
-      const bar = screen.querySelector('.tech-card.queued .prog i') as HTMLElement | null;
-      if (bar) bar.style.width = `${pc}%`;
-      const qpc = screen.querySelector('#q-head-pct') as HTMLElement | null;
-      if (qpc) qpc.textContent = `${Math.round(pc)}%`;
-    }
-    updateChipResearch(t);
-  });
-
-  const state = (tid: TechId): 'done' | 'queued' | 'available' | 'locked' => {
-    const t = $tech.get();
-    if (t.done.includes(tid)) return 'done';
-    if (t.queue.includes(tid)) return 'queued';
-    const def = TECHS[tid];
-    if (techExpeditionLock(def, $vitals.get().expedition, t.done as TechId[])) return 'locked';
-    if (def.era > t.era) return 'locked';
-    if (!def.requires.every((r) => t.done.includes(r) || t.queue.includes(r))) return 'locked';
-    return 'available';
-  };
-
-  /** why a locked card is locked — printed on the card so the player never
-   *  has to guess which thread to pull */
-  const lockReason = (tid: TechId): string => {
-    const t = $tech.get();
-    const def = TECHS[tid];
-    const expLock = techExpeditionLock(def, $vitals.get().expedition, t.done as TechId[]);
-    if (expLock) return expLock;
-    const missing = def.requires.filter((r) => !t.done.includes(r) && !t.queue.includes(r));
-    if (missing.length) return `needs ${missing.map((r) => TECHS[r].name).join(', ')}`;
-    if (def.era > t.era) return `opens with Era ${def.era}`;
-    return '';
-  };
-
-  function render() {
-    const t = $tech.get();
-    screen.innerHTML = `
-      <button class="btn" id="tech-close">Close [T]</button>
-      <h1 style="font-size:22px; line-height:26px">RESEARCH</h1>
-      <div class="sub">Era ${t.era} — ${ERA_NAMES[t.era]} · complete 2 techs of an era to open the next</div>
-      <div id="tech-wrap">
-        <svg id="tech-svg"></svg>
-        <div id="tech-cols"></div>
-      </div>
-      <div id="tech-queue" class="panel"></div>`;
-    screen.querySelector('#tech-close')!.addEventListener('click', () => toggle(false));
-
-    const cols = screen.querySelector('#tech-cols')!;
-    const cardEls = new Map<TechId, HTMLElement>();
-    for (let era = 1; era <= 8; era++) {
-      const col = el('div', `era-col${era > t.era ? ' locked-era' : ''}`);
-      col.innerHTML = `<div class="label">Era ${era} — ${ERA_NAMES[era]}</div>`;
-      for (const tid of TECH_ORDER) {
-        const def = TECHS[tid];
-        if (def.era !== era) continue;
-        // humans are already aboard: they never see the cohabitation tech
-        if (def.roboticOnly && $vitals.get().expedition !== 'robotic') continue;
-        const st = state(tid);
-        const card = el('div', `tech-card ${st}`);
-        const goods = Object.entries(def.costGoods ?? {})
-          .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
-        const prog = st === 'queued' && $tech.get().queue[0] === tid
-          ? `<div class="prog"><i style="width:${Math.min(100, (t.progress / def.costData) * 100)}%"></i></div>` : '';
-        const reason = st === 'locked' ? lockReason(tid) : '';
-        card.innerHTML = `
-          <div class="nm"><span>${def.name}</span><span class="mono cap">${def.costData}≡${goods ? ' ' + goods : ''}</span></div>
-          <div class="desc">${def.desc}</div>
-          <div class="trade">${def.tradeoff}</div>
-          ${reason ? `<div class="req">⬑ ${reason}</div>` : ''}
-          ${st === 'queued' ? `<div class="label">⧗ queued ${t.queue.indexOf(tid) + 1}</div>` : ''}
-          ${prog}`;
-        card.addEventListener('click', () => {
-          if (st === 'available') game.actions.push({ kind: 'research', tech: tid });
-          else if (st === 'queued') game.actions.push({ kind: 'cancelResearch', tech: tid });
-        });
-        cardEls.set(tid, card);
-        col.appendChild(card);
-      }
-      cols.appendChild(col);
-    }
-
-    // dependency lines: one SVG layer behind the cards, orthogonal routing
-    requestAnimationFrame(() => {
-      const wrap = screen.querySelector('#tech-wrap') as HTMLElement;
-      const svg = screen.querySelector('#tech-svg') as unknown as SVGSVGElement;
-      const wr = wrap.getBoundingClientRect();
-      svg.setAttribute('width', String(wrap.scrollWidth));
-      svg.setAttribute('height', String(wrap.scrollHeight));
-      let paths = '';
-      for (const tid of TECH_ORDER) {
-        for (const req of TECHS[tid].requires) {
-          const a = cardEls.get(req)?.getBoundingClientRect();
-          const b = cardEls.get(tid)?.getBoundingClientRect();
-          if (!a || !b) continue;
-          const doneLink = $tech.get().done.includes(req);
-          const stroke = `fill="none" stroke="rgba(245,247,249,${doneLink ? 0.5 : 0.28})"
-            stroke-width="1" ${doneLink ? '' : 'stroke-dasharray="3 3"'}`;
-          if (TECHS[req].era === TECHS[tid].era) {
-            // same-era dependency (e.g. Silicon Refining → Parts Fabrication):
-            // bracket out the LEFT edge of the column so the link is unmistakable
-            const x1 = a.left - wr.left + wrap.scrollLeft;
-            const y1 = a.top + a.height / 2 - wr.top + wrap.scrollTop;
-            const x2 = b.left - wr.left + wrap.scrollLeft;
-            const y2 = b.top + b.height / 2 - wr.top + wrap.scrollTop;
-            const gx = Math.min(x1, x2) - 10;
-            paths += `<path d="M${x1},${y1} L${gx},${y1} L${gx},${y2} L${x2},${y2}" ${stroke} />
-              <circle cx="${x2}" cy="${y2}" r="2.5" fill="rgba(245,247,249,${doneLink ? 0.5 : 0.28})" />`;
-            continue;
-          }
-          const x1 = a.right - wr.left + wrap.scrollLeft;
-          const y1 = a.top + a.height / 2 - wr.top + wrap.scrollTop;
-          const x2 = b.left - wr.left + wrap.scrollLeft;
-          const y2 = b.top + b.height / 2 - wr.top + wrap.scrollTop;
-          const mx = (x1 + x2) / 2;
-          paths += `<path d="M${x1},${y1} L${mx},${y1} L${mx},${y2} L${x2},${y2}" ${stroke} />`;
-        }
-      }
-      svg.innerHTML = paths;
-    });
-
-    // queue rail
-    const queue = screen.querySelector('#tech-queue') as HTMLElement;
-    if (t.queue.length === 0) {
-      queue.innerHTML = '<span class="label">Research queue empty — click an available tech</span>';
-    } else {
-      queue.innerHTML = '<span class="label">Queue</span>' + t.queue.map((tid, i) => {
-        const def = TECHS[tid];
-        const pc = i === 0 ? Math.round((t.progress / def.costData) * 100) : 0;
-        return `<button class="btn" data-t="${tid}" title="Click to cancel">${i + 1}. ${def.name}${i === 0 ? ` <span class="mono" id="q-head-pct">${pc}%</span>` : ''}</button>`;
-      }).join('');
-      queue.querySelectorAll<HTMLButtonElement>('button[data-t]').forEach((b) => {
-        b.addEventListener('click', () => game.actions.push({ kind: 'cancelResearch', tech: b.dataset.t as TechId }));
-      });
-    }
-  }
-
-  $phase.subscribe((p) => {
-    chip.style.display = p === 'playing' ? 'block' : 'none';
-    if (p !== 'playing') toggle(false);
-  });
-  renderChip();
 }
 
 // ─────────────────────────── defeat ───────────────────────────

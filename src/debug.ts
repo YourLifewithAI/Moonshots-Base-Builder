@@ -2,15 +2,35 @@
  *  Playwright drives the whole game loop through window.__game. */
 import type { Game } from './core/game';
 import type { BuildingId } from './data/buildings';
-import type { TechId } from './data/techs';
+import { TECH_ALIASES, auditTechs, techRelevanceMatrix, type TechId } from './data/techs';
 import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
+import type { GameStats } from './core/state';
+import { researchView } from './core/research';
+import { recipeTriangles } from './buildings/recipes';
+import type { MapView, ProspectId } from './data/lunarMap';
+import { sfx, type Cue } from './audio/sfx';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
 }
 
+/** Old probe scripts may name retired techs: map them (spec §8), warning;
+ *  a retired id with no successor is a warned no-op (null). */
+function techId(id: string): TechId | null {
+  if (!(id in TECH_ALIASES)) return id as TechId;
+  const to = TECH_ALIASES[id];
+  console.warn(`[debug] ${id} is retired${to ? ` — using ${to}` : ' — ignored'}`);
+  return to;
+}
+
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+
 function api(game: Game) {
+  const withTech = (id: string, fn: (t: TechId) => void) => {
+    const t = techId(id);
+    if (t) fn(t);
+  };
   return {
     getState: () => JSON.parse(JSON.stringify(game.state ?? null)),
     selectSite: (site: SiteId, exp: 'human' | 'robotic' = 'human') => game.startNew(site, exp),
@@ -25,15 +45,41 @@ function api(game: Game) {
     grantData: (n: number) => { game.state.data += n; game.publish(); },
     grantCrew: (n: number) => { game.state.crew += n; game.publish(); },
     grantPower: (n: number) => { game.state.powerStored += n; game.publish(); },
-    completeTech: (id: TechId) => game.debugCompleteTech(id),
-    research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
-    cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),
+    setPriority: (id: number, priority: 0 | 1 | 2 | 3) => game.actions.push({ kind: 'setPriority', id, priority }),
+    setEnabled: (id: number, enabled: boolean) => game.actions.push({ kind: 'setEnabled', id, enabled }),
+    setAutomated: (id: number, automated: boolean) => game.actions.push({ kind: 'setAutomated', id, automated }),
+    demolish: (id: number) => game.actions.push({ kind: 'demolish', id }),
+    buildNext: (id: number) => game.actions.push({ kind: 'buildNext', id }),
+    /** open the inspector on a building (null closes it) */
+    select: (id: number | null) => game.select(id),
+    completeTech: (id: TechId) => withTech(id, (t) => game.debugCompleteTech(t)),
+    research: (id: TechId) => withTech(id, (t) => game.actions.push({ kind: 'research', tech: t })),
+    /** shift-click: the tech and its prerequisite closure */
+    researchPath: (id: TechId) => game.actions.push({ kind: 'researchPath', tech: id }),
+    cancelResearch: (id: TechId) => withTech(id, (t) => game.actions.push({ kind: 'cancelResearch', tech: t })),
+    moveResearch: (id: TechId, delta: -1 | 1) => game.actions.push({ kind: 'moveResearch', tech: id, delta }),
+    /** the $research payload: cards, gates, queue, rates */
+    getResearch: () => clone(researchView(game.state, game.mods)),
+    auditTechs: () => clone(auditTechs()),
+    techRelevanceMatrix: () => techRelevanceMatrix(),
+    /** force charter / insight counters (tests of deed routes) */
+    setStats: (patch: Partial<GameStats>) => { Object.assign(game.state.stats, patch); game.publish(); },
+    setOverclock: (id: number, on: boolean) => game.actions.push({ kind: 'setOverclock', id, on }),
+    downlink: () => game.actions.push({ kind: 'downlink' }),
     launch: () => game.actions.push({ kind: 'launch' }),
     setSpeed: (n: number) => game.actions.push({ kind: 'setSpeed', speed: n }),
     setPaused: (p: boolean) => game.actions.push({ kind: 'setPaused', paused: p }),
     advanceGameMinutes: (min: number) => game.debugAdvance(Math.round(min * 60)),
     advanceGameSeconds: (s: number) => game.debugAdvance(Math.round(s)),
+    /** one live frame of `realDt` wall-seconds, through the real loop's clamps */
+    stepFrame: (realDt: number) => game.debugFrame(realDt),
     setMode: (m: 'build' | 'walk') => game.setModeInstant(m),
+    setView: (pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) =>
+      game.debugSetView(pos, target),
+    setTerrainVisible: (v: boolean) => game.debugSetTerrainVisible(v),
+    /** run the black-frame check on the next drawn frame (with the terrain
+     *  hidden: a silent terrain failure, as the check sees it) */
+    probeNext: () => game.debugProbeNext(),
     getPlayer: () => ({
       x: game.walkController.pos.x, y: game.walkController.pos.y, z: game.walkController.pos.z,
       yaw: game.walkController.yaw,
@@ -43,12 +89,46 @@ function api(game: Game) {
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
     gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),
     getIceDeposits: () => JSON.parse(JSON.stringify(game.iceDepositList)),
-    canPlace: (type: BuildingId, gx: number, gz: number) => game.debugCheckPlace(type, gx, gz),
+    canPlace: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => game.debugCheckPlace(type, gx, gz, rot),
+    // ── the Lunar Map and local deposits (spec §5) ──
+    surveyProspect: (id: ProspectId) => game.actions.push({ kind: 'surveyProspect', id }),
+    claimOutpost: (id: ProspectId) => game.actions.push({ kind: 'claimOutpost', id }),
+    abandonOutpost: (id: ProspectId) => game.actions.push({ kind: 'abandonOutpost', id }),
+    /** the $lunar payload */
+    getLunar: () => clone(game.debugLunar()),
+    /** the $deposits payload */
+    getDeposits: () => clone(game.debugDeposits()),
+    /** the deposit under a world point (null = plain ground) */
+    depositAt: (x: number, z: number) => clone(game.debugDepositAt(x, z)),
+    revealAll: () => game.debugRevealAll(),
+    /** exactly n live outposts at the nearest claimable prospects (deed tests) */
+    forceOutposts: (n: number) => game.debugForceOutposts(n),
+    setMapOpen: (open: boolean) => game.setMapOpen(open),
+    setMapView: (view: MapView) => game.setMapView(view),
     forceRenderFallback: () => (game as any).post.forceFallback('debug'),
     enableSafeMode: () => game.enableSafeMode(),
+    /** the player turning safe mode off in the menu (a checked raise) */
+    disableSafeMode: () => game.disableSafeMode(),
     getFxLevel: () => (game as any).post.fxLevel as number,
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
+    getRenderInfo: () => game.debugRenderInfo(),
+    /** what the menu shows about the render path */
+    getRenderStatus: () => game.renderStatus(),
+    /** the audio layer: context state, cues accepted per kind, the hum */
+    getAudio: () => sfx.info(),
+    playCue: (cue: Cue) => sfx.play(cue),
+    getCamera: () => game.debugCamera(),
+    screenOf: (x: number, z: number) => game.debugScreenOf(x, z),
+    rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
+    recipeTriangles: () => recipeTriangles(),
+    beginPlacement: (type: BuildingId) => game.beginPlacement(type),
+    cancelPlacement: () => game.cancelPlacement(),
+    /** Complete every construction site now (one economy tick settles them). */
+    finishConstruction: () => {
+      for (const b of game.state.buildings) b.construction = 0;
+      game.debugAdvance(1);
+    },
   };
 }
 

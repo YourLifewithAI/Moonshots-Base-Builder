@@ -2,6 +2,7 @@
  *  UI never mutates GameState directly. */
 import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
+import type { ProspectId } from '../data/lunarMap';
 
 export type Action =
   | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }
@@ -9,8 +10,17 @@ export type Action =
   | { kind: 'setEnabled'; id: number; enabled: boolean }
   | { kind: 'setAutomated'; id: number; automated: boolean }
   | { kind: 'setPriority'; id: number; priority: 0 | 1 | 2 | 3 }
-  | { kind: 'research'; tech: TechId }         // enqueue (depth 3)
-  | { kind: 'cancelResearch'; tech: TechId }
+  | { kind: 'buildNext'; id: number }          // construction site → front of the robot queue
+  | { kind: 'crewAll' }                        // settlers take agent-run stations, seats permitting
+  | { kind: 'research'; tech: TechId }         // enqueue (QUEUE_MAX deep)
+  | { kind: 'researchPath'; tech: TechId }     // enqueue the prerequisite closure too
+  | { kind: 'cancelResearch'; tech: TechId }   // transitive: dependents drop with alerts
+  | { kind: 'moveResearch'; tech: TechId; delta: -1 | 1 }
+  | { kind: 'setOverclock'; id: number; on: boolean }
+  | { kind: 'downlink' }
+  | { kind: 'surveyProspect'; id: ProspectId }
+  | { kind: 'claimOutpost'; id: ProspectId }
+  | { kind: 'abandonOutpost'; id: ProspectId }
   | { kind: 'setSpeed'; speed: number }
   | { kind: 'setPaused'; paused: boolean }
   | { kind: 'launch' }

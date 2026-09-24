@@ -9,7 +9,8 @@ export type BuildingId =
   | 'solar' | 'excavator' | 'habitat' | 'smelter' | 'iceHarvester' | 'hydroponics'
   | 'battery' | 'refinery' | 'lab' | 'roboticsBay' | 'storageYard'
   | 'partsFab' | 'reactor' | 'recDome' | 'chipFab' | 'dataCenter'
-  | 'foilFactory' | 'massDriver';
+  | 'foilFactory' | 'massDriver'
+  | 'relayMast' | 'propellantPlant';
 
 export type Category = 'power' | 'extraction' | 'industry' | 'life' | 'science' | 'export';
 
@@ -43,6 +44,10 @@ export interface BuildingDef {
   con: string;
   requiresIce?: boolean;
   unlockedFromStart?: boolean;         // rest come from techs
+  /** extends the buildable network this far from the structure (m) */
+  buildRadiusM?: number;
+  /** launch output is not scaled by the site's launchMult (rockets steer) */
+  ignoresLaunchMult?: boolean;
 }
 
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
@@ -50,8 +55,8 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     id: 'lander', name: 'Lander', category: 'life', era: 1,
     footprint: [3, 3], height: 14, buildTime: 0,
     buildCost: {}, crew: 0, powerKW: 6, storageKWh: 800,
-    inputs: {}, outputs: {}, housing: 8, upkeepParts: 0.5, priority: 0, bots: 2,
-    caps: { regolith: 300, metals: 300, silicon: 200 },
+    inputs: {}, outputs: {}, housing: 8, upkeepParts: 0.5, priority: 0, bots: 2, buildRadiusM: 60,
+    caps: { regolith: 300, metals: 300, silicon: 200, parts: 200, oxygen: 600, water: 400 },
     pro: 'Home. Power, housing, two construction robots, and the supply cache you arrived with.',
     con: 'There is only one, and it is not enough.',
   },
@@ -77,9 +82,9 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     id: 'habitat', name: 'Habitat Module', category: 'life', era: 1,
     footprint: [2, 2], height: 6, buildTime: 90,
     buildCost: { metals: 30, parts: 10 }, crew: 0, powerKW: -4,
-    inputs: {}, outputs: {}, housing: 4, upkeepParts: 1, priority: 0,
+    inputs: {}, outputs: {}, housing: 4, upkeepParts: 1, priority: 0, buildRadiusM: 60,
     unlockedFromStart: true,
-    pro: 'Room for four more; extends the buildable perimeter.',
+    pro: 'Room for four more; extends the buildable perimeter 60 m once built.',
     con: 'Draws life support every second of the night, forever.',
   },
   smelter: {
@@ -103,8 +108,9 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     id: 'hydroponics', name: 'Hydroponics Farm', category: 'life', era: 1,
     footprint: [2, 3], height: 4, buildTime: 90,
     buildCost: { metals: 25, parts: 5 }, crew: 1, powerKW: -6,
-    inputs: { water: 0.2 }, outputs: { food: 0.35 }, upkeepParts: 1, priority: 1,
+    inputs: { water: 0.03 }, outputs: { food: 0.10 }, upkeepParts: 1, priority: 1,
     moraleDelta: 5,
+    unlockedFromStart: true,
     pro: 'Fresh food, green light — the crew’s favorite corridor.',
     con: 'Crops die if power drops through the night. It holds your grid hostage.',
   },
@@ -138,9 +144,9 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     footprint: [2, 2], height: 3, buildTime: 30,
     buildCost: { metals: 20 }, crew: 0, powerKW: 0,
     inputs: {}, outputs: {}, upkeepParts: 0.5, priority: 1,
-    caps: { regolith: 400, metals: 300, silicon: 200 },
+    caps: { regolith: 400, metals: 300, silicon: 200, parts: 150, oxygen: 300, water: 200 },
     unlockedFromStart: true,
-    pro: 'Racks and berms: room for 400 regolith, 300 metals, 200 silicon.',
+    pro: 'Racks, berms and tanks: room for 400 regolith, 300 metals, 200 silicon, 150 parts, 300 oxygen, 200 water.',
     con: 'A field of stockpiles that produces nothing at all.',
   },
   roboticsBay: {
@@ -154,10 +160,10 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   partsFab: {
     id: 'partsFab', name: 'Parts Fabricator', category: 'industry', era: 2,
     footprint: [2, 2], height: 6, buildTime: 120,
-    buildCost: { metals: 60, silicon: 10 }, crew: 3, powerKW: -10,
-    inputs: { metals: 0.4 }, outputs: { parts: 0.3 }, upkeepParts: 1, priority: 2,
+    buildCost: { metals: 60 }, crew: 1, powerKW: -10,
+    inputs: { metals: 0.3 }, outputs: { parts: 0.2 }, upkeepParts: 1, priority: 2,
     pro: 'Ends your dependence on the lander’s spare-parts cache.',
-    con: 'Three crew on the line — your scarcest resource, standing at a bench.',
+    con: 'Three metals in, two parts out — metals your next building was counting on.',
   },
   reactor: {
     id: 'reactor', name: 'Thorium Reactor', category: 'power', era: 3,
@@ -209,6 +215,23 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'Two point four kilometers a second, no rocket required.',
     con: 'A power-hungry rail with a long shadow — and it needs truly flat ground.',
   },
+  relayMast: {
+    id: 'relayMast', name: 'Relay Mast', category: 'science', era: 1,
+    footprint: [1, 1], height: 12, buildTime: 40,
+    buildCost: { metals: 20, parts: 5 }, crew: 0, powerKW: -1.5,
+    inputs: {}, outputs: {}, upkeepParts: 0.5, priority: 1, buildRadiusM: 45,
+    pro: 'Extends the build network 45 m from any completed mast — masts chain — and reveals deposits within 45 m.',
+    con: 'Produces nothing, and it needs power.',
+  },
+  propellantPlant: {
+    id: 'propellantPlant', name: 'Propellant Plant', category: 'export', era: 7,
+    footprint: [3, 2], height: 7, buildTime: 240,
+    buildCost: { metals: 90, parts: 30, silicon: 20 }, crew: 1, powerKW: -18,
+    inputs: { water: 0.30, oxygen: 0.05 }, outputs: { launch: 0.01 }, upkeepParts: 2, priority: 2,
+    ignoresLaunchMult: true,
+    pro: 'LOX/LH₂ rockets launch from any latitude — they steer where rails cannot.',
+    con: 'Drinks the crew’s water.',
+  },
 };
 
 export const BUILD_ORDER: BuildingId[] = [
@@ -216,8 +239,8 @@ export const BUILD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',
   'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
   'habitat', 'hydroponics', 'recDome',
-  'lab', 'dataCenter',
-  'foilFactory', 'massDriver',
+  'lab', 'relayMast', 'dataCenter',
+  'foilFactory', 'massDriver', 'propellantPlant',
 ];
 
 export const CATEGORY_ORDER: Category[] = ['power', 'extraction', 'industry', 'life', 'science', 'export'];

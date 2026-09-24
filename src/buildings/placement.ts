@@ -1,18 +1,23 @@
 /** Placement pipeline: heightfield ray → grid snap → validity (occupancy, slope,
- *  build radius, site rules, cost, unlock) → ghost preview → commit action.
- *  Validity is shown by shape/value, never hue: pale ghost = valid,
- *  dark ghost + flat outline = blocked. */
+ *  the build network, site and deposit rules, cost, unlock) → ghost preview → commit action.
+ *  Validity is shown by value/pattern, never hue: pale lit ghost = valid,
+ *  dark hatched ghost = blocked (buildings/ghost.ts). */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import {
-  BUILD_RADIUS_M, CELL_M, GRADE_CELLS, GRADE_COST_ENERGY, MAP_CELLS, MAP_M,
-  MAX_SLOPE_DELTA,
+  CELL_M, GRADE_CELLS, GRADE_COST_ENERGY, MAP_CELLS, MAP_M,
+  MAX_SLOPE_DELTA, MAX_SLOPE_LARGE,
 } from '../data/balance';
 import type { SiteDef } from '../data/sites';
-import type { GameState } from '../core/state';
+import { TECHS } from '../data/techs';
+import { DEPOSIT_INFO } from '../data/deposits';
+import type { BuildingState, GameState } from '../core/state';
+import type { SurveyTier } from '../core/mods';
+import { beyondNetwork, depositRevealed, groundMapped, inNetwork } from '../core/exploration';
 import type { Heightfield } from '../terrain/heightfield';
-import { recipeGeometry } from './recipes';
+import { ghostGeometry } from './recipes';
 import { centerOf, footprintRect } from './instances';
+import { createGhost, setGhostBlocked } from './ghost';
 
 export type PlaceableType = BuildingId | 'grade';
 
@@ -21,14 +26,11 @@ export interface PlacementProbe {
   gx: number; gz: number; rot: 0 | 1 | 2 | 3;
   valid: boolean;
   reason: string;
+  /** soft warning on a valid placement ('' = none) */
+  warn: string;
+  /** the revealed deposit under the footprint centre, as a ghost line ('' = none) */
+  note: string;
 }
-
-const GHOST_VALID = new THREE.MeshBasicMaterial({
-  color: 0xf5f7f9, transparent: true, opacity: 0.42, depthWrite: false,
-});
-const GHOST_BLOCKED = new THREE.MeshBasicMaterial({
-  color: 0x14161a, transparent: true, opacity: 0.6, depthWrite: false,
-});
 
 export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<string, number>> {
   const out: Partial<Record<string, number>> = {};
@@ -38,18 +40,51 @@ export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<strin
   return out;
 }
 
+/** Before any smelter exists, a placement that would leave too few metals to
+ *  build one — without it there is no making more. A soft warning, never a block. */
+export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId): string {
+  if (type === 'smelter' || state.buildings.some((b) => b.type === 'smelter')) return '';
+  const cost = buildCost(type, site).metals ?? 0;
+  if (cost <= 0) return '';
+  const smelter = buildCost('smelter', site).metals ?? 0;
+  const left = Math.floor(state.resources.metals - cost);
+  return left < smelter ? `Leaves ${left}◆ — a Smelter needs ${smelter}◆` : '';
+}
+
+/** a site no robot has welded on yet: demolishing it cancels the order */
+export function untouchedSite(b: BuildingState): boolean {
+  return b.buildTotal > 0 && (b.construction ?? 0) >= b.buildTotal;
+}
+
+/** what demolition returns: half the site-scaled price paid, or all of it
+ *  for an untouched site */
+export function demolishRefund(b: BuildingState, site: SiteDef): Partial<Record<string, number>> {
+  const full = untouchedSite(b);
+  const out: Partial<Record<string, number>> = {};
+  for (const [rid, amt] of Object.entries(buildCost(b.type, site))) {
+    out[rid] = full ? amt : Math.floor((amt ?? 0) * 0.5);
+  }
+  return out;
+}
+
+const OUTLINE_SEG = 8; // per footprint edge: the outline drapes over the ground
+
 export class PlacementController {
   ghost: THREE.Mesh | null = null;
   probe: PlacementProbe | null = null;
   private outline: THREE.LineSegments;
+  /** 4 edges × OUTLINE_SEG segments × 2 ends, rewritten in place while placing */
+  private outlinePos = new THREE.BufferAttribute(new Float32Array(4 * OUTLINE_SEG * 2 * 3), 3);
 
   constructor(
     private scene: THREE.Scene,
     private hf: Heightfield,
     private site: SiteDef,
   ) {
+    const outline = new THREE.BufferGeometry();
+    outline.setAttribute('position', this.outlinePos);
     this.outline = new THREE.LineSegments(
-      new THREE.BufferGeometry(),
+      outline,
       new THREE.LineBasicMaterial({ color: 0xf5f7f9, transparent: true, opacity: 0.6 }),
     );
     this.outline.visible = false;
@@ -60,11 +95,11 @@ export class PlacementController {
     this.cancel();
     const geo = type === 'grade'
       ? new THREE.PlaneGeometry(GRADE_CELLS * CELL_M, GRADE_CELLS * CELL_M).rotateX(-Math.PI / 2).translate(0, 0.25, 0)
-      : recipeGeometry(type);
-    this.ghost = new THREE.Mesh(geo, GHOST_VALID);
+      : ghostGeometry(type);
+    this.ghost = createGhost(geo);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
-    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '' };
+    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '', note: '' };
   }
 
   rotate() {
@@ -80,7 +115,7 @@ export class PlacementController {
   get active(): boolean { return this.probe !== null; }
 
   /** Update ghost to the terrain point under the given world ray. */
-  update(state: GameState, unlocked: Set<BuildingId>, origin: THREE.Vector3, dir: THREE.Vector3) {
+  update(state: GameState, unlocked: Set<BuildingId>, origin: THREE.Vector3, dir: THREE.Vector3, tier: SurveyTier = 0) {
     if (!this.probe || !this.ghost) return;
     const hit = this.hf.raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z);
     if (!hit) { this.ghost.visible = false; this.outline.visible = false; return; }
@@ -93,7 +128,7 @@ export class PlacementController {
     }
     this.probe.gx = Math.round((hit[0] + MAP_M / 2) / CELL_M - w / 2);
     this.probe.gz = Math.round((hit[2] + MAP_M / 2) / CELL_M - d / 2);
-    this.validate(state, unlocked);
+    this.validate(state, unlocked, tier);
 
     const [cx, cz] = this.probe.type === 'grade'
       ? gradeCenter(this.probe.gx, this.probe.gz)
@@ -101,41 +136,43 @@ export class PlacementController {
     const y = this.hf.sample(cx, cz);
     this.ghost.position.set(cx, y, cz);
     this.ghost.rotation.y = -this.probe.rot * Math.PI / 2;
-    this.ghost.material = this.probe.valid ? GHOST_VALID : GHOST_BLOCKED;
+    setGhostBlocked(this.ghost, !this.probe.valid);
     this.ghost.visible = true;
     this.updateOutline(w, d, cx, cz, y);
   }
 
   private updateOutline(w: number, d: number, cx: number, cz: number, y: number) {
     const hw = (w * CELL_M) / 2, hd = (d * CELL_M) / 2;
-    const pts: number[] = [];
-    const seg = 8;
+    const pts = this.outlinePos.array as Float32Array;
+    let k = 0;
+    const put = (x: number, z: number) => {
+      pts[k++] = x; pts[k++] = this.hf.sample(x, z) + 0.15; pts[k++] = z;
+    };
     const edge = (x0: number, z0: number, x1: number, z1: number) => {
-      for (let i = 0; i < seg; i++) {
-        const t0 = i / seg, t1 = (i + 1) / seg;
-        const xa = x0 + (x1 - x0) * t0, za = z0 + (z1 - z0) * t0;
-        const xb = x0 + (x1 - x0) * t1, zb = z0 + (z1 - z0) * t1;
-        pts.push(xa, this.hf.sample(xa, za) + 0.15, za, xb, this.hf.sample(xb, zb) + 0.15, zb);
+      for (let i = 0; i < OUTLINE_SEG; i++) {
+        const t0 = i / OUTLINE_SEG, t1 = (i + 1) / OUTLINE_SEG;
+        put(x0 + (x1 - x0) * t0, z0 + (z1 - z0) * t0);
+        put(x0 + (x1 - x0) * t1, z0 + (z1 - z0) * t1);
       }
     };
     edge(cx - hw, cz - hd, cx + hw, cz - hd);
     edge(cx + hw, cz - hd, cx + hw, cz + hd);
     edge(cx + hw, cz + hd, cx - hw, cz + hd);
     edge(cx - hw, cz + hd, cx - hw, cz - hd);
-    this.outline.geometry.dispose();
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
-    this.outline.geometry = g;
+    this.outlinePos.needsUpdate = true;
+    this.outline.geometry.computeBoundingSphere();
     this.outline.visible = true;
   }
 
-  validate(state: GameState, unlocked: Set<BuildingId>): boolean {
+  validate(state: GameState, unlocked: Set<BuildingId>, tier: SurveyTier = 0): boolean {
     const p = this.probe!;
-    const res = p.type === 'grade'
+    const res: { valid: boolean; reason: string; warn?: string; note?: string } = p.type === 'grade'
       ? checkGrade(state, this.hf, p.gx, p.gz)
-      : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot);
+      : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot, tier);
     p.valid = res.valid;
     p.reason = res.reason;
+    p.warn = res.warn ?? '';
+    p.note = res.note ?? '';
     return p.valid;
   }
 }
@@ -147,7 +184,7 @@ function gradeCenter(gx: number, gz: number): [number, number] {
   ];
 }
 
-/** Grading validity: in bounds, near the habitat network, no structure on top,
+/** Grading validity: in bounds, inside the build network, no structure on top,
  *  and enough stored energy for the dozer pass. */
 export function checkGrade(
   state: GameState,
@@ -166,21 +203,30 @@ export function checkGrade(
       return { valid: false, reason: 'A structure is in the way' };
     }
   }
-  let near = state.buildings.length === 0;
-  for (const b of state.buildings) {
-    if (b.type !== 'lander' && b.type !== 'habitat') continue;
-    const [bx, bz] = centerOf(b);
-    if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
-  }
-  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
   if (state.powerStored < GRADE_COST_ENERGY) {
     return { valid: false, reason: `Need ${GRADE_COST_ENERGY} stored energy — have ${Math.floor(state.powerStored)}` };
   }
   return { valid: true, reason: '' };
 }
 
+/** Footprints of this many cells (and the mass driver) are large pads. */
+const LARGE_PAD_CELLS = 9;
+
+/** Large pads need gentle ground; the fix is Site Grading where it exists. */
+function largePadRefusal(type: BuildingId, cells: number, relief: number, site: SiteDef): string {
+  if (cells < LARGE_PAD_CELLS && type !== 'massDriver') return '';
+  if (relief <= MAX_SLOPE_LARGE) return '';
+  const grading = TECHS.siteGrading;
+  const fix = !grading.sites || grading.sites.includes(site.id) ? `grade it (${grading.name})` : 'find flatter ground';
+  // rounded up, so a refusal never reads '0.8 m > 0.8 m'
+  return `Too rough for a large pad (${(Math.ceil(relief * 10) / 10).toFixed(1)} m relief > ${MAX_SLOPE_LARGE} m) — ${fix}`;
+}
+
 /** Standalone validity check — shared by the ghost controller, the action
- *  handler, and the debug API. */
+ *  handler, and the debug API. A valid placement may carry a soft warning,
+ *  and a note naming the revealed deposit under its centre. `tier` is the
+ *  survey tier (what ground is mapped). */
 export function checkPlacement(
   state: GameState,
   site: SiteDef,
@@ -190,7 +236,8 @@ export function checkPlacement(
   gx: number,
   gz: number,
   rot: 0 | 1 | 2 | 3,
-): { valid: boolean; reason: string } {
+  tier: SurveyTier = 0,
+): { valid: boolean; reason: string; warn?: string; note?: string } {
   const def = BUILDINGS[type];
   const probe = { type, gx, gz, rot };
   const r = footprintRect(probe);
@@ -200,9 +247,16 @@ export function checkPlacement(
   }
   if (def.requiresIce && !site.hasIce) return { valid: false, reason: 'No ice deposits at this site' };
   const [cx, cz] = centerOf(probe);
-  if (def.requiresIce) {
-    if (!state.iceSurveyed) return { valid: false, reason: 'Deposits unknown — survey for ice from the Lander' };
-    if (!hf.onIce(cx, cz)) return { valid: false, reason: 'No ice beneath this spot — check the ice overlay' };
+  const dep = hf.depositAt(cx, cz);
+  const known = dep && depositRevealed(state, dep, tier) ? dep : null;
+  if (def.requiresIce && known?.kind !== 'ice') {
+    // unmapped ground says nothing either way, so the ghost never hints at hidden ice
+    return groundMapped(state, cx, cz, tier)
+      ? { valid: false, reason: 'No ice beneath this spot — check the deposit overlay [I]' }
+      : { valid: false, reason: 'ICE UNCONFIRMED — extend your survey (Prospecting Rovers) or place a Relay Mast nearby' };
+  }
+  if (type === 'habitat' && dep?.kind === 'kreep') {
+    return { valid: false, reason: 'RADIATION — KREEP soil: no habitats here' };
   }
   if (site.buildableRadiusM > 0 && Math.hypot(cx, cz) > site.buildableRadiusM) {
     return { valid: false, reason: 'Beyond the lava tube footprint' };
@@ -213,21 +267,18 @@ export function checkPlacement(
       return { valid: false, reason: 'Overlaps a structure' };
     }
   }
-  if (hf.maxDelta(r.gx0, r.gz0, r.gx1, r.gz1) > MAX_SLOPE_DELTA) {
+  const relief = hf.maxDelta(r.gx0, r.gz0, r.gx1, r.gz1);
+  const large = largePadRefusal(type, r.w * r.d, relief, site);
+  if (large) return { valid: false, reason: large };
+  if (relief > MAX_SLOPE_DELTA) {
     return { valid: false, reason: 'Terrain too rough' };
   }
-  let near = state.buildings.length === 0;
-  for (const b of state.buildings) {
-    if (b.type !== 'lander' && b.type !== 'habitat') continue;
-    const [bx, bz] = centerOf(b);
-    if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
-  }
-  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
   for (const [rid, amt] of Object.entries(buildCost(type, site))) {
     const have = state.resources[rid as keyof typeof state.resources];
     if (have < (amt ?? 0)) {
       return { valid: false, reason: `Need ${amt} ${rid} — have ${Math.floor(have)}` };
     }
   }
-  return { valid: true, reason: '' };
+  return { valid: true, reason: '', warn: smelterWarning(state, site, type), note: known ? DEPOSIT_INFO[known.kind].ghost : '' };
 }

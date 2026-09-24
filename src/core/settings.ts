@@ -1,0 +1,63 @@
+/** Player settings from the in-game menu, kept in localStorage, plus what the
+ *  render checks learned about this GPU. Read once at boot (main.ts) so the
+ *  FX level, safe mode and audio apply before the first frame. Storage can be
+ *  missing or throw (private mode, quota): every access is guarded, and a
+ *  failure only means the choice lasts this session. */
+
+const KEY = 'mbb-settings';
+
+export interface Settings {
+  /** the player's own FX level (0 full … 3 plain); null = never chosen */
+  fx: number | null;
+  /** safe render mode chosen in the menu */
+  safe: boolean;
+  /** safe render mode the render check switched on (the player's own choice
+   *  clears it) */
+  safeAuto: boolean;
+  /** FX levels that failed a render check on this GPU (the menu asks twice
+   *  before raising to one) */
+  fxFailed: number[];
+  /** master volume 0..1 */
+  volume: number;
+  muted: boolean;
+}
+
+export const DEFAULT_SETTINGS: Readonly<Settings> = {
+  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, muted: false,
+};
+
+const isLevel = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
+
+const clamp01 = (v: unknown, d: number) =>
+  typeof v === 'number' && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : d;
+
+function read(): Settings {
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Settings> | null;
+    if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS };
+    return {
+      fx: isLevel(raw.fx) ? raw.fx : null,
+      safe: raw.safe === true,
+      safeAuto: raw.safeAuto === true,
+      fxFailed: Array.isArray(raw.fxFailed) ? [...new Set(raw.fxFailed.filter(isLevel))].sort() : [],
+      volume: clamp01(raw.volume, DEFAULT_SETTINGS.volume),
+      muted: raw.muted === true,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+let current: Settings | null = null;
+
+export function loadSettings(): Settings {
+  current ??= read();
+  return { ...current, fxFailed: [...current.fxFailed] };
+}
+
+/** Merge `patch` into the settings and persist them; returns the result. */
+export function saveSettings(patch: Partial<Settings>): Settings {
+  current = { ...loadSettings(), ...patch };
+  try { localStorage.setItem(KEY, JSON.stringify(current)); } catch { /* session-only */ }
+  return loadSettings();
+}

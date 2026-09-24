@@ -12,7 +12,8 @@ export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // hard-edged PCF (radius set on the sun): no atmosphere, razor shadows
+  renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.AgXToneMapping;
   renderer.toneMappingExposure = 1.1;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -32,7 +33,8 @@ export function gpuInfo(renderer: THREE.WebGLRenderer): string {
 }
 
 export function createCamera(): THREE.PerspectiveCamera {
-  const cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 4000);
+  // far reaches the horizon ring's rim; depth precision rides on `near`
+  const cam = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.5, 16000);
   cam.position.set(90, 110, 150);
   cam.lookAt(0, 0, 0);
   return cam;
