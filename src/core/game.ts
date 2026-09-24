@@ -3,22 +3,26 @@
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteId } from '../data/sites';
-import type { TechId } from '../data/techs';
+import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
+import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
-  ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
+  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DOWNLINK, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  ICE_SURVEY_COST, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import { createInitialState, type BuildingState, type GameState } from './state';
-import { canToggleCrew } from './mods';
+import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveRates } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
-  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction, missionLost,
-  orderDelayS, queuePos, settlersWelcome, type Mods,
+  boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction,
+  missionLost, orderDelayS, queuePos, settlersWelcome, type Mods,
 } from './economy';
 import { modsFor } from './mods';
-import { cancel, enqueue, enqueuePath, moveInQueue, researchView } from './research';
+import {
+  cancel, enqueue, enqueuePath, migrateTechSchema, moveInQueue, onTechComplete, researchView,
+} from './research';
+import { fmtClock } from './daynight';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
@@ -170,6 +174,8 @@ export class Game {
       a.count = 1;
       if (a.kind === 'crit') a.kind = 'warn';
     }
+    // saves from the 34-tech tree: retired ids refunded, the queue sanitized
+    migrateTechSchema(blob.state);
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) {
@@ -432,16 +438,14 @@ export class Game {
       }
       case 'setAutomated': {
         const b = s.buildings.find((x) => x.id === a.id);
-        if (!b || BUILDINGS[b.type].crew <= 0) break;
-        if (!canToggleCrew(s.expedition, s.crew, this.mods)) {
-          alert(s, s.expedition === 'robotic'
-            ? 'CANNOT CREW — no one aboard yet; stations stay agent-run'
-            : 'CANNOT AUTOMATE — research Autonomous Operations first', 'warn');
-          break;
-        }
+        if (!b) break;
+        const rule = crewToggleRule(s, this.mods, b);
+        if (!rule.ok) { alert(s, rule.reason, 'warn'); break; }
         b.automated = a.automated;
         break;
       }
+      case 'setOverclock': this.setOverclock(a.id, a.on); break;
+      case 'downlink': this.doDownlink(); break;
       case 'crewAll': this.crewAllStations(); break;
       case 'setPriority': {
         const b = s.buildings.find((x) => x.id === a.id);
@@ -491,6 +495,7 @@ export class Game {
         if (!s.resupply) s.resupply = { pending: false, arriveAt: 0, shipments: 0 };
         const days = Math.round(orderDelayS(s) / CYCLE_S);
         s.resupply.pending = true;
+        s.resupply.downlink = false;
         s.resupply.arriveAt = s.simTime + orderDelayS(s);
         s.resupply.ordered = (s.resupply.ordered ?? 0) + 1;
         if (s.crew > 0) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
@@ -534,9 +539,10 @@ export class Game {
     this.chunks.rebuildAround(r.gx0, r.gz0, r.gx1, r.gz1);
     this.onFlattened(r.gx0, r.gz0, r.gx1, r.gz1);
     // rough terrain slows construction the same way it inflates costs;
-    // teleoperation / swarm-robotics techs speed every build
-    const buildTotal = Math.round(
-      BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult * this.mods.buildSpeedMult);
+    // teleoperation / swarm-robotics techs speed every build, and some techs
+    // slow one type (tall masts, buried racks)
+    const buildTotal = Math.round(BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult *
+      this.mods.buildSpeedMult * this.mods.buildTimeMult[type]);
     s.buildings.push({
       id: s.nextBuildingId++, type, gx, gz, rot,
       enabled: true,
@@ -592,13 +598,69 @@ export class Game {
       (left ? `; ${left} stay${left === 1 ? 's' : ''} agent-run for want of hands` : ''), 'info');
   }
 
+  /** Dynamic Clocking: ×1.5 draw, inputs, outputs and data on one machine;
+   *  it trips itself at WORN (economy step 6). */
+  private setOverclock(id: number, on: boolean) {
+    const s = this.state;
+    const b = s.buildings.find((x) => x.id === id);
+    if (!b) return;
+    const name = `${BUILDINGS[b.type].name} #${b.id}`;
+    if (!this.mods.actions.has('overclock')) {
+      alert(s, `NEEDS ${TECHS.dynamicClocking.name} — research it to overclock`, 'warn');
+    } else if (!OVERCLOCKABLE.includes(b.type)) {
+      alert(s, `CANNOT OVERCLOCK — the ${BUILDINGS[b.type].name} has no clock to push`, 'warn');
+    } else if (on && (b.construction ?? 0) > 0) {
+      alert(s, `CANNOT OVERCLOCK — ${name} is still under construction`, 'warn');
+    } else if (on && b.wear >= OVERCLOCK.tripWear) {
+      alert(s, `CANNOT OVERCLOCK — ${name} is WORN; paid upkeep heals it first`, 'warn');
+    } else {
+      b.overclock = on;
+    }
+  }
+
+  /** Sell banked data to Earth for cargo, through the one shipment slot. */
+  private doDownlink() {
+    const s = this.state;
+    const cost = downlinkCost(s);
+    if (!this.mods.actions.has('downlink')) {
+      alert(s, `NEEDS ${TECHS.teleoperation.name} — the downlink rides the teleoperation link`, 'warn');
+      return;
+    }
+    if (s.resupply?.pending) {
+      alert(s, 'SHIPMENT ALREADY EN ROUTE — one launch window at a time', 'warn');
+      return;
+    }
+    if (s.data < cost) {
+      alert(s, `DOWNLINK NEEDS ${cost}≡ BANKED — have ${Math.floor(s.data)}`, 'warn');
+      return;
+    }
+    s.data -= cost;
+    s.downlinks += 1;
+    s.resupply = { ...(s.resupply ?? { shipments: 0 }), pending: true, downlink: true, arriveAt: s.simTime + DOWNLINK.delayS };
+    const cargo = Object.entries(DOWNLINK.cargo)
+      .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
+    alert(s, `DOWNLINK SENT — ${cost}≡ to Earth; ${cargo} lands in ${fmtClock(DOWNLINK.delayS)}`,
+      'info', landerAction(s));
+  }
+
   private doLaunch() {
     const s = this.state;
-    if (!this.mods.launchArmed) return;
-    if (s.resources.foils < LAUNCH_COST_FOILS || s.resources.launch < 1 ||
-        s.powerStored < LAUNCH_POWER_BURST) return;
+    const refuse = (text: string) => alert(s, `LAUNCH ${text}`, 'warn');
+    if (!this.mods.launchArmed) { refuse(`NEEDS ${TECHS.swarmProtocol.name}`); return; }
+    if (s.resources.foils < LAUNCH_COST_FOILS) {
+      refuse(`NEEDS ${LAUNCH_COST_FOILS}${RESOURCES.foils.glyph} — have ${Math.floor(s.resources.foils)}`);
+      return;
+    }
+    if (s.resources.launch < LAUNCH_CAP_PER_VOLLEY) {
+      refuse(`NEEDS ${LAUNCH_CAP_PER_VOLLEY}${RESOURCES.launch.glyph} CAPACITY — have ${s.resources.launch.toFixed(1)}${RESOURCES.launch.glyph}`);
+      return;
+    }
+    if (s.powerStored < LAUNCH_POWER_BURST) {
+      refuse(`NEEDS ${LAUNCH_POWER_BURST} STORED ENERGY — have ${Math.floor(s.powerStored)}`);
+      return;
+    }
     s.resources.foils -= LAUNCH_COST_FOILS;
-    s.resources.launch -= 1;
+    s.resources.launch -= LAUNCH_CAP_PER_VOLLEY;
     s.powerStored -= LAUNCH_POWER_BURST;
     s.launches += 1;
     s.swarmPct += SWARM_PCT_PER_LAUNCH;
@@ -828,6 +890,11 @@ export class Game {
   /** Solar arrays in terrain shadow lose 85% output: march a ray toward the
    *  sun from each panel through the heightfield (cheap at this cadence). */
   private updateShading() {
+    // masts stand above the terrain's shadows: nothing to march
+    if (this.mods.solarShadeImmune) {
+      for (const b of this.state.buildings) if (b.type === 'solar') b.shaded = false;
+      return;
+    }
     const d = currentDay(this.state, SITES[this.state.siteId]);
     if (d.sunFactor <= 0.01 || d.sunElev <= 0.01) return;
     const dirX = Math.cos(d.sunAzim) * Math.cos(d.sunElev);
@@ -900,7 +967,7 @@ export class Game {
       }
       beds += BUILDINGS[b.type].housing ?? 0;
       if (b.enabled && b.automated && BUILDINGS[b.type].crew > 0) agentRun++;
-      if (b.enabled) upkeep += BUILDINGS[b.type].upkeepParts * this.mods.upkeepMult[b.type] * site.upkeepMult / CYCLE_S;
+      if (b.enabled) upkeep += effectiveRates(b.type, this.mods, site, b, { feed: s.feed }).upkeepPartsPerDay / CYCLE_S;
     }
     const ls = s.crew * this.mods.inputMult.habitat;
     $vitals.set({
@@ -936,7 +1003,7 @@ export class Game {
     $swarm.set({
       pct: s.swarmPct, launches: s.launches, armed: this.mods.launchArmed,
       canLaunch: this.mods.launchArmed && s.resources.foils >= LAUNCH_COST_FOILS &&
-        s.resources.launch >= 1 && s.powerStored >= LAUNCH_POWER_BURST,
+        s.resources.launch >= LAUNCH_CAP_PER_VOLLEY && s.powerStored >= LAUNCH_POWER_BURST,
       burst: LAUNCH_POWER_BURST,
       foils: s.resources.foils, launch: s.resources.launch, stored: s.powerStored,
     });
@@ -1068,11 +1135,11 @@ export class Game {
   }
 
   debugCompleteTech(id: TechId) {
-    if (!this.state.techsDone.includes(id)) {
-      this.state.techsDone.push(id);
-      this.mods = refreshDerived(this.state);
-      this.publish();
-    }
+    if (!TECHS[id] || this.state.techsDone.includes(id)) return;
+    this.state.techsDone.push(id);
+    onTechComplete(this.state, id);
+    this.mods = refreshDerived(this.state);
+    this.publish();
   }
 
   debugAdvance(gameSeconds: number) {
