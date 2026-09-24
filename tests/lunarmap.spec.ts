@@ -54,7 +54,7 @@ test('[M] opens and closes the map, Esc closes it, and the chip, Lander and clos
   await expect(page.locator('#map-thumb .cap')).toHaveText('orbital imagery only — no ground truth');
   await expect(page.locator('#mh-tier')).toHaveText('T0 LANDING SITE');
   await expect(page.locator('#mh-count')).toHaveText('0/34 surveyed');
-  await expect(page.locator('.mh-rule')).toHaveText('Look, visit, settle.');
+  await expect(page.locator('.mh-rule')).toHaveText('Look, visit, settle. · ATLAS needs T4 + 12');
   // the SITE view: the Lander, its survey and network rings, a revealed deposit, '?' leads
   const layer = page.locator('#map-layers .map-layer.cur');
   await expect(layer.locator('.mb .bld.lander')).toHaveCount(1);
@@ -137,6 +137,12 @@ test('at landing only SITE and VICINITY open; VICINITY shows the 2 local prospec
   await expect(page.locator('.op-none')).toContainText('Orbital Prospector (Era 4) opens the first slot');
   await page.locator('#map-inset').click();
   await expect(mapScreen(page)).toHaveAttribute('data-view', 'site');
+  await expect(page.locator('#mh-atlas')).toHaveText(/ATLAS needs T4 \+ 12/);
+  // a locked tier opens the research tree on the tech that reaches it
+  await page.locator('.tl[data-tier="1"]').click();
+  await expect(mapScreen(page)).toBeHidden();
+  await expect(page.locator('#tech-screen')).toBeVisible();
+  await expect(page.locator('.tech-card[data-tech="prospectingRovers"]')).toHaveClass(/pulse/);
 });
 
 test('each tier widens the map: the chip pulses while it is shut, and the view moves out to the new edge', async ({ page }) => {
@@ -254,6 +260,9 @@ test('claiming an outpost at T2 shows its card; abandoning takes a second click'
   await settled(page);
   await expect(page.locator('#mh-out')).toHaveText('outposts 0/1');
   await expect(page.locator('.op.empty')).toHaveCount(1);
+  // surveyed and claimable: a dashed square says an outpost could stand here
+  await expect(marker(page, 'moltke')).toHaveClass(/claimable/);
+  await expect(marker(page, 'moltke').locator('.frame-q')).toBeVisible();
   await page.locator('.ns-row.done[data-id="moltke"]').click();
   await expect(page.locator('#ps-reason')).toHaveText('✓ Ready to claim');
   await expect(page.locator('.ps')).toContainText('60◆ 20⚙ 5▣ · deploys 4:00');

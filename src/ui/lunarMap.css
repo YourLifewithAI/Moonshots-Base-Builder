@@ -97,6 +97,8 @@
 .pm.surveyed .g { fill: var(--ink-900); }
 .pm.blocked .ring, .pm.blocked .g { opacity: 0.55; }
 .pm .frame { fill: none; stroke: var(--paper); stroke-width: 1.5; }
+.pm .frame-q { fill: none; stroke: var(--paper); stroke-width: 1; stroke-dasharray: 3 3; display: none; }
+.pm.claimable .frame-q { display: inline; }
 .pm .spin {
   fill: none; stroke: var(--paper); stroke-width: 1.5; stroke-dasharray: 4 3;
   transform-box: fill-box; transform-origin: center;
@@ -211,6 +213,8 @@
 .ps-geo { font-size: 12px; line-height: 16px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 .ps-none { font-size: 12px; line-height: 16px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 .ps-bt { font-size: 12px; line-height: 16px; color: var(--ink-050); }
+.ps-bt .ps-tree { margin-top: 6px; display: block; padding: 2px 8px; font-size: 10px; }
+#map-head .mh-rule span { font-style: normal; }
 .ps-run { display: flex; align-items: center; gap: 8px; margin-top: 6px; font-size: 11px; color: var(--paper); }
 .ps-run .bar { flex: 1 1 auto; height: 4px; border: var(--hair); }
 .ps-run .bar i { display: block; height: 100%; width: 0; background: var(--paper); }
@@ -239,6 +243,8 @@
 .tl.cur[data-view]:hover { background: var(--ink-050); }
 .tl.locked { border-style: dashed; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 .tl.locked .tl-2 { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+.tl.locked[data-tech] { cursor: pointer; }
+.tl.locked[data-tech]:hover { border-color: rgba(var(--paper-rgb), 0.5); }
 #map-outposts { flex: 1 1 auto; min-width: 0; display: flex; gap: 6px; }
 .op {
   flex: 0 1 172px; min-width: 0; height: 56px; padding: 4px 8px; overflow: hidden;

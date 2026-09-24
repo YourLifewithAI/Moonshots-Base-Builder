@@ -21,6 +21,7 @@ import type { SurveyCost } from '../core/exploration';
 import type { Action } from '../core/actions';
 import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
+import { openTechTreeAt } from './techTree';
 import {
   $alerts, $deposits, $lunar, $menuOpen, $phase, $research, $siteId,
   type DepositView, type LunarOutpostView, type LunarProspectView, type LunarView,
@@ -374,7 +375,8 @@ function pmMarkup(p: LunarProspectView, surveying: boolean): string {
   return `<g class="${cls}" data-m="" data-id="${p.id}">` +
     `<title>${esc(p.name)} — ${KIND_LABEL[p.kind]} · ${CLASS_LABEL[p.cls]} ${p.dist}°</title>` +
     '<circle class="selr" r="15.5"/>' +
-    (p.outpost ? '<rect class="frame" x="-11.5" y="-11.5" width="23" height="23"/>' : '') +
+    (p.outpost ? '<rect class="frame" x="-11.5" y="-11.5" width="23" height="23"/>'
+      : p.surveyed && p.claim ? '<rect class="frame-q" x="-11.5" y="-11.5" width="23" height="23"/>' : '') +
     (surveying ? '<circle class="spin" r="11.5"/>' : '') +
     `<circle class="ring" r="8"/><text class="g">${KIND_GLYPH[p.kind]}</text>` +
     (p.bt ? `<text class="bt" x="7" y="-8">${p.surveyed ? `✦${TX}` : `✦${TX}?`}</text>` : '') +
@@ -469,7 +471,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     <div id="map-head">
       <div class="mh-title">
         <div class="mh-name"><b>LUNAR MAP</b> · <span id="mh-tier"></span> · <span id="mh-count"></span> · <span id="mh-out"></span><span id="mh-survey"></span></div>
-        <div class="mh-rule">Look, visit, settle.</div>
+        <div class="mh-rule">Look, visit, settle.<span id="mh-atlas"></span></div>
       </div>
       <div id="map-views"></div>
       <button class="btn" id="map-close" title="Close the map [M] · Esc">Close [M]</button>
@@ -509,7 +511,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   const insetSvg = $<SVGSVGElement>('#map-inset svg');
   const legend = $('#map-legend');
   const head = {
-    tier: $('#mh-tier'), count: $('#mh-count'), out: $('#mh-out'), survey: $('#mh-survey'),
+    tier: $('#mh-tier'), count: $('#mh-count'), out: $('#mh-out'), survey: $('#mh-survey'), atlas: $('#mh-atlas'),
   };
 
   let v: LunarView | null = null;
@@ -911,6 +913,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     set(head.out, `outposts ${lv.used}/${lv.slots}`);
     const a = lv.active ? lv.prospects.find((p) => p.id === lv.active!.id) : null;
     set(head.survey, a ? ` · survey: ${a.short} ${fmtClock(lv.active!.remaining)}` : '');
+    set(head.atlas, lv.atlas ? ' · ATLAS COMPLETE' : ` · ATLAS needs T4 + ${ATLAS.surveys}`);
     const sig = `${lv.tier}|${shownView}`;
     if (sig === viewsSig) return;
     viewsSig = sig;
@@ -1012,7 +1015,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const bt = !p.bt ? ''
       : p.surveyed
         ? `<section class="ps-bt">✦${TX} Breakthrough found here: <b>${esc(btCard?.name ?? TECHS[p.bt].name)}</b>` +
-          ` — ${btCard?.state === 'done' ? 'researched' : `researchable in Era ${btCard?.era ?? TECHS[p.bt].era}`} [T]</section>`
+          ` — ${btCard?.state === 'done' ? 'researched' : `researchable in Era ${btCard?.era ?? TECHS[p.bt].era}`}` +
+          ` <button class="btn ps-tree" data-act="tree" data-tech="${p.bt}">Research tree [T]</button></section>`
         : `<section class="ps-bt">✦${TX}? The readings hint at a breakthrough — a survey would tell</section>`;
     const x = p.claim;
     const haul = OUTPOST_CLASS[p.cls].haul;
@@ -1107,6 +1111,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const id = (btn?.dataset.id ?? selected) as ProspectId | null;
     switch (btn?.dataset.act) {
       case 'back': select(null); return;
+      case 'tree': toggle(false); openTechTreeAt(btn!.dataset.tech as TechId); return;
       case 'survey': if (id) push({ kind: 'surveyProspect', id }); return;
       case 'claim': if (id) push({ kind: 'claimOutpost', id }); return;
       case 'abandon': {
@@ -1165,7 +1170,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         const title = `T${t} ${SURVEY_TIERS[t].label} — ${tid ? `${card?.name ?? TECHS[tid].name}${card ? ` (Era ${card.era})` : ''}` : 'at landing'}` +
           ` · opens ${VIEW_NAME[view]} · reveals ${SURVEY_TIERS[t].revealM >= MAP_M ? 'the whole site' : `${SURVEY_TIERS[t].revealM} m`}` +
           ` · ${SURVEY_TIERS[t].slots} outpost slot${SURVEY_TIERS[t].slots === 1 ? '' : 's'}`;
-        return `<div class="tl ${done ? 'done' : 'locked'}${lv.tier === t ? ' cur' : ''}" data-tier="${t}"${done ? ` data-view="${view}"` : ''} title="${esc(title)}">` +
+        const act = done ? ` data-view="${view}"` : tid ? ` data-tech="${tid}"` : '';
+        return `<div class="tl ${done ? 'done' : 'locked'}${lv.tier === t ? ' cur' : ''}" data-tier="${t}"${act} title="${esc(title)}${done ? '' : ' — click to open it in the research tree'}">` +
           `<div class="tl-1"><span class="tl-mk">${done ? '■' : '□'}</span>T${t} ${SURVEY_TIERS[t].label}</div>` +
           `<div class="tl-2">${esc(name)}</div><div class="tl-3 mono" data-st="${t}"></div></div>`;
       }).join('') +
@@ -1227,6 +1233,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const t = e.target as HTMLElement;
     const tl = t.closest<HTMLElement>('.tl[data-view]');
     if (tl) { game.setMapView(tl.dataset.view as MapView); return; }
+    const tt = t.closest<HTMLElement>('.tl[data-tech]');
+    if (tt) { toggle(false); openTechTreeAt(tt.dataset.tech as TechId); return; }
     const op = t.closest<HTMLElement>('.op[data-id]');
     if (op) select(op.dataset.id as ProspectId);
   });
@@ -1255,7 +1263,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       const rows: [string, string][] = fam === 'site'
         ? [['◆◇○', 'deposit · ring = kind'], ['?', 'lead, unconfirmed'],
           ['━', 'survey ring'], ['╌', 'build network'], ...(lv.tier < 2 ? [['▨', 'unmapped'] as [string, string]] : [])]
-        : [['○', 'unsurveyed'], ['●', 'surveyed'], ['◌', 'surveying'], ['▢', 'outpost'], ['⌂', 'heritage'],
+        : [['○', 'unsurveyed'], ['●', 'surveyed'], ['◌', 'surveying'], ['⬚', 'outpost possible'], ['▢', 'outpost'], ['⌂', 'heritage'],
           [`✦${TX}?`, 'breakthrough'], ['⊞', 'home'], ...(lv.tier < 3 ? [['▨', 'beyond coverage'] as [string, string]] : [])];
       legend.innerHTML = rows.map(([g, t]) => `<div><span class="lg">${g}</span>${t}</div>`).join('');
     }
