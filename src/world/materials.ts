@@ -12,7 +12,7 @@
  *                  launches, cleared by an explicit FX-level choice) */
 import * as THREE from 'three';
 
-export type MaterialKey = 'building' | 'buildingDepth' | 'terrain' | 'rock' | 'ghost';
+export type MaterialKey = 'building' | 'buildingDepth' | 'terrain' | 'rock' | 'ghost' | 'dust';
 
 /** Installs a shader patch on its material for an FX level. Returns a cache
  *  key naming the variant, or null when that level runs the stock shader. */

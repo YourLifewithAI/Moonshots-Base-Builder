@@ -292,6 +292,7 @@ export class BuildingInstances {
       discs: this.discs.visible ? this.discs.count : 0,
       scaffold: this.scaffold.visible ? this.scaffold.geometry.getAttribute('position')?.count / 2 : 0,
       trackers: this.trackers.info(),
+      clock: buildingUniforms.uBldTime.value,
     };
   }
 

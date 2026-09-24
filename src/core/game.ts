@@ -27,6 +27,7 @@ import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
+import { BaseLife } from '../world/life';
 import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam, HOME_DIST } from '../player/buildCam';
 import { WalkController } from '../player/walk';
@@ -64,6 +65,7 @@ export class Game {
   private instances!: BuildingInstances;
   private placement!: PlacementController;
   private overlays!: BaseOverlays;
+  private life!: BaseLife;
   private buildCam: BuildCam;
   private walk!: WalkController;
   private modes!: ModeManager;
@@ -189,6 +191,7 @@ export class Game {
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.overlays = new BaseOverlays(this.hf);
+    this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
     this.walk = new WalkController(this.hf);
     this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
@@ -199,7 +202,7 @@ export class Game {
     });
     this.worldGroup = new THREE.Group();
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
-      this.overlays.group);
+      this.overlays.group, this.life.group);
     this.iceOverlay = this.buildIceOverlay();
     if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
     // constrained sites show their buildable boundary as a faint ring
@@ -512,6 +515,7 @@ export class Game {
     s.launches += 1;
     s.swarmPct += SWARM_PCT_PER_LAUNCH;
     alert(s, `COLLECTOR VOLLEY ${s.launches} AWAY — swarm ${(s.swarmPct).toFixed(4)}%`, 'info');
+    this.life.onLaunch(s);
   }
 
   // ─────────────────────────── loop ───────────────────────────
@@ -699,6 +703,10 @@ export class Game {
       $selection.get(), this.lighting.sunDirection);
     const onFoot = walking && !tweening;
     this.lighting.setHeadlamp(onFoot ? day.nightFactor : 0);
+    this.life.update({
+      dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
+      sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
+    });
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -962,6 +970,7 @@ export class Game {
       rocks: this.rocks.stats(),
       sky: this.sky.info(),
       base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
+      life: this.life.info(),
       lens: { fov: this.camera.fov, near: this.camera.near },
       headlamp: this.lighting.headlamp.intensity,
     };
