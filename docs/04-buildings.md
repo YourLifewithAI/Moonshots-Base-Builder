@@ -44,7 +44,7 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
 |---|---|---|---|---|---|
-| Regolith Excavator (1) | S | 1 crew, −6 kW → 1.5 regolith/s | Highest dust wear on the base (halved by Dust Mitigation) | Feeds every industry on the Moon | Thrown dust abrades everything — the highest parts wear on the base |
+| Regolith Excavator (1) | S | no crew (teleoperated from the start), −6 kW → 1.5 regolith/s | Highest dust wear on the base (halved by Dust Mitigation) | Feeds every industry on the Moon | Thrown dust abrades everything — the highest parts wear on the base |
 | Ice Harvester (1) | S | 1 crew, −8 kW → 0.4 water/s | Ice sites only (`requiresIce`) | Water from permanently shadowed ice — the pole's great gift | Useless anywhere without polar ice deposits |
 | HRI Ilmenite Reduction Plant (1) | M | regolith (ilmenite-rich) → iron/titanium + **oxygen** | The oxygen-rich half of the merged Smelter; strongest on mare sites | Breathes for the base as a side effect of making metal | Feeble on ilmenite-poor highland and KREEP regolith |
 | MRE Electrolyzer (2) | M | any regolith + heavy power → metals + oxygen trickle | The site-agnostic half of the merged Smelter | Eats any dirt on the Moon — no geology required | Power cost per ton is brutal; the night hits it first |
