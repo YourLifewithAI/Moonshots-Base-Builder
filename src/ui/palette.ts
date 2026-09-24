@@ -200,12 +200,47 @@ export function mountPalette(root: HTMLElement, game: Game) {
   hint.id = 'place-hint';
   hint.style.display = 'none';
   palette.insertBefore(hint, items);
-  $placing.subscribe((p) => {
-    if (!p) { hint.style.display = 'none'; return; }
+  // 'SOLAR ARRAY · 12◆ (128→116) · +10 kW · R rotate · ⇧ keep placing',
+  // then the reason a spot is blocked, or a warning about a valid one
+  const costPart = (amt: number, glyph: string, have: number) =>
+    have >= amt ? `${amt}${glyph} (${fmt(have)}→${fmt(have - amt)})` : `${amt}${glyph} (have ${fmt(have)})`;
+  const hintLine = (type: BuildingId | 'grade'): string => {
+    if (type === 'grade') {
+      return ['GRADE SITE', costPart(GRADE_COST_ENERGY, '▮', $power.get().stored), 'each click grades deeper',
+        'right-click done'].join(' · ');
+    }
+    const res = $resources.get();
+    const site = SITES[$siteId.get() ?? 'mare'];
+    const parts = [BUILDINGS[type].name.toUpperCase()];
+    const cost = Object.entries(buildCost(type, site))
+      .map(([rid, amt]) => costPart(amt ?? 0, RESOURCES[rid as ResourceId].glyph, res[rid as ResourceId] ?? 0));
+    if (cost.length) parts.push(cost.join(' '));
+    const def = effectiveDef(type, game.mods);
+    const robotic = $vitals.get().expedition === 'robotic';
+    const p = effectiveRates(type, game.mods, site, undefined, { agentRun: robotic && def.crew > 0, robotic }).powerKW;
+    if (Math.abs(p) >= 0.05) parts.push(`${p > 0 ? '+' : '−'}${kw(Math.abs(p))} kW`);
+    parts.push('R rotate', '⇧ keep placing');
+    return parts.join(' · ');
+  };
+  let hintHtml = '';
+  const renderHint = () => {
+    const p = $placing.get();
+    if (!p) { hint.style.display = 'none'; hintHtml = ''; return; }
     hint.style.display = 'block';
-    hint.innerHTML = p.valid || !p.reason
-      ? `<span class="label">Click place · R rotate · right-click cancel</span>${p.valid && p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
-      : `<span class="blocked">${p.reason}</span>`;
+    const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
+      ? (p.warn ? `<div class="caution">${p.warn}</div>` : '')
+      : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
+    if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
+  };
+  $placing.subscribe(renderHint);
+  $resources.subscribe(() => { if ($placing.get()) renderHint(); });
+  // a click on a blocked spot: the hint flashes (restarting the animation)
+  $placeFlash.subscribe((n) => {
+    if (!n) return;
+    hint.classList.remove('flash');
+    void hint.offsetWidth;
+    hint.classList.add('flash');
+    hint.dataset.flash = String(n);
   });
 
   // ── inspector: beneath the time controls and alerts. Rebuilt only when its

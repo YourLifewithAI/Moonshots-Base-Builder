@@ -313,7 +313,7 @@ export class Game {
       if (!this.playing || this.modes.mode !== 'build' || this.modes.transitioning) return;
       const moved = Math.hypot(e.clientX - this.downPos.x, e.clientY - this.downPos.y);
       if (moved > 5) return; // drag = camera, not click
-      if (e.button === 0) this.onWorldClick();
+      if (e.button === 0) this.onWorldClick(e.shiftKey);
       if (e.button === 2 && this.placement.active) this.cancelPlacement();
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -399,16 +399,22 @@ export class Game {
     });
   }
 
-  private onWorldClick() {
+  /** `keep` (Shift held): stay in placing mode after this building */
+  private onWorldClick(keep = false) {
     if (this.placement.active) {
       const p = this.placement.probe!;
-      if (!p.valid) return;
+      if (!p.valid) {
+        // say no out loud: the hint flashes its reason, the radio blips
+        $placeFlash.set($placeFlash.get() + 1);
+        sfx.play('invalid');
+        return;
+      }
       if (p.type === 'grade') {
         // grading stays active: multiple passes are the point
         this.actions.push({ kind: 'grade', gx: p.gx, gz: p.gz });
       } else {
         this.actions.push({ kind: 'place', type: p.type, gx: p.gx, gz: p.gz, rot: p.rot });
-        this.cancelPlacement();
+        if (!keep) this.cancelPlacement();
       }
       return;
     }
@@ -464,7 +470,15 @@ export class Game {
       case 'place': {
         const chk = checkPlacement(s, SITES[s.siteId], this.hf, this.mods.unlocked, a.type, a.gx, a.gz, a.rot);
         if (!chk.valid) { alert(s, `CANNOT BUILD — ${chk.reason}`, 'warn'); break; }
+        const cost = buildCost(a.type, SITES[s.siteId]);
         this.commitPlace(a.type, a.gx, a.gz, a.rot, false);
+        sfx.play('place');
+        // the price floats up from the pad it was paid for
+        const [cx, cz] = centerOf(a);
+        const at = this.screenOf(cx, this.hf.sample(cx, cz) + BUILDINGS[a.type].height * 0.6, cz);
+        const text = Object.entries(cost).filter(([, n]) => (n ?? 0) > 0)
+          .map(([rid, n]) => `−${n}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
+        if (at.visible && text) spawnFloater(text, at.x, at.y);
         break;
       }
       case 'demolish': {
@@ -769,6 +783,17 @@ export class Game {
         this.nextProbe = this.playFrames + 900;      // healthy — routine re-check
       }
     }
+  }
+
+  /** CSS-pixel position of a world point under the live camera. */
+  private screenOf(x: number, y: number, z: number) {
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const r = this.canvas.getBoundingClientRect();
+    return {
+      x: r.left + ((v.x + 1) / 2) * r.width,
+      y: r.top + ((1 - v.y) / 2) * r.height,
+      visible: v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1,
+    };
   }
 
   /** Terrain height anywhere: the grid inside the map, the horizon ring past it. */
@@ -1408,13 +1433,7 @@ export class Game {
   /** Build-camera pose and its clearance over the ground (tests, probes). */
   /** CSS-pixel position of the ground at world (x, z) under the live camera. */
   debugScreenOf(x: number, z: number) {
-    const v = new THREE.Vector3(x, this.hf.sample(x, z), z).project(this.camera);
-    const r = this.canvas.getBoundingClientRect();
-    return {
-      x: r.left + ((v.x + 1) / 2) * r.width,
-      y: r.top + ((1 - v.y) / 2) * r.height,
-      visible: v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1,
-    };
+    return this.screenOf(x, this.hf.sample(x, z), z);
   }
 
   debugCamera() {
