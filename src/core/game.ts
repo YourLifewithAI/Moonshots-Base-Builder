@@ -22,6 +22,7 @@ import { Horizon } from '../terrain/horizon';
 import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
+import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
 import { Sky } from '../world/sky';
@@ -62,6 +63,7 @@ export class Game {
   private rocks!: Rocks;
   private instances!: BuildingInstances;
   private placement!: PlacementController;
+  private overlays!: BaseOverlays;
   private buildCam: BuildCam;
   private walk!: WalkController;
   private modes!: ModeManager;
@@ -185,6 +187,7 @@ export class Game {
     this.lighting.requestShadowUpdate();
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
+    this.overlays = new BaseOverlays(this.hf);
     this.walk = new WalkController(this.hf);
     this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
@@ -194,7 +197,8 @@ export class Game {
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
     });
     this.worldGroup = new THREE.Group();
-    this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group);
+    this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
+      this.overlays.group);
     this.iceOverlay = this.buildIceOverlay();
     if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
     // constrained sites show their buildable boundary as a faint ring
@@ -690,6 +694,8 @@ export class Game {
         : [],
       day.nightFactor,
     );
+    this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
+      $selection.get(), this.lighting.sunDirection);
 
     // autosave (real time)
     this.autosaveAcc += dt;
