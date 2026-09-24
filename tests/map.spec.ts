@@ -346,7 +346,7 @@ test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty de
     g.surveyProspect('moltke');
     g.advanceGameSeconds(0);
     const busy = g.getState();
-    g.advanceGameSeconds(97);
+    g.advanceGameSeconds(96); // 97 s gone: the tick that closes the 98th brings it home
     const almost = g.getState();
     g.advanceGameSeconds(1);
     const done = g.getState();
@@ -528,6 +528,111 @@ test('outposts: a slot from orbit, a claim in chips, a stream, a grounded hopper
   expect(ab.lunar.used).toBe(0);
   expect(ab.lunar.prospects.find((p: any) => p.id === 'moltke').claimable).toBe(true);
   expect(ab.ticked.power.supply).toBeCloseTo(3, 6);
+});
+
+test('grounded hopper: a KREEP outpost without fuel is offline — its modifier and the Era 7 deed stop, its link stays', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  await complete(page, ['prospectingRovers', 'orbitalProspector', 'thoriumPower']);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ oxygen: 300, water: 200, metals: 400, parts: 150, chips: 20 });
+    const trip = g.getLunar().prospects.find((p: any) => p.id === 'fraMauro').survey.timeS;
+    g.surveyProspect('fraMauro'); // near side from the mare: a hopper outpost
+    powered(trip + 1);
+    g.claimOutpost('fraMauro');
+    powered(361);
+    const c = near('reactor', 16, -2, undefined, 3, 3);
+    g.placeBuilding('reactor', c!.gx, c!.gz);
+    g.finishConstruction();
+    powered(10);
+    const live = g.getState();
+    g.grantResources({ oxygen: -g.getState().resources.oxygen });
+    g.advanceGameSeconds(1); // grounded on this tick; the mods follow it
+    const g0 = g.getState();
+    g.grantPower(5000);
+    g.advanceGameSeconds(10);
+    const grounded = g.getState();
+    const lunar = g.getLunar();
+    g.grantResources({ oxygen: 100 });
+    g.grantPower(5000);
+    g.advanceGameSeconds(2);
+    return { live, g0, grounded, lunar, back: g.getState() };
+  });
+  expect(r.live.survey.outposts[0]).toMatchObject({ id: 'fraMauro', kind: 'kreep', cls: 'near', live: true, fuelOk: true });
+  // the agent-run reactor: 40 kW less the agents' 15% = 34, ×1.15 on KREEP;
+  // the Lander nets 6 − 1 (rovers) − 2 (orbiter) − 1.5 (the outpost's link)
+  expect(r.live.power.supply).toBeCloseTo(1.5 + 34 * 1.15, 6);
+  expect(r.grounded.survey.outposts[0]).toMatchObject({ live: true, fuelOk: false });
+  expect(hasAlert(r.grounded, /^HOPPER GROUNDED — Fra Mauro needs 0\.02○\/s \+ 0\.004≈\/s \(have 0○\)$/)).toBe(true);
+  // grounded: no KREEP bonus, but the link still draws
+  expect(r.grounded.power.supply).toBeCloseTo(1.5 + 34, 6);
+  // and no outpost is operating: the Era 7 deed holds still
+  expect(r.grounded.stats.outpostOpS).toBe(r.g0.stats.outpostOpS);
+  expect(r.lunar.outposts[0]).toMatchObject({
+    id: 'fraMauro', live: true, fuelOk: false, stream: 'grounded — no hopper fuel', linkKW: -1.5,
+  });
+  // fuel back: the hopper flies, the bonus and the deed return
+  expect(r.back.survey.outposts[0].fuelOk).toBe(true);
+  expect(r.back.power.supply).toBeCloseTo(1.5 + 34 * 1.15, 6);
+  expect(r.back.stats.outpostOpS).toBeGreaterThan(r.grounded.stats.outpostOpS);
+});
+
+test('fast-forward ticks as play does: the clock moves first, then the tick reads it', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.surveyProspect('moltke'); // a 60 s micro-rover trip
+    g.advanceGameSeconds(0);
+    const trip = g.getState().survey.active;
+    let n = 0;
+    while (g.getState().survey.active && n < 70) { g.advanceGameSeconds(1); n++; }
+    const s = g.getState();
+    return { trip, n, s, home: s.alerts.find((a: any) => a.text.startsWith('SURVEY COMPLETE')) };
+  });
+  expect(r.trip.endsAt - r.trip.startedAt).toBeCloseTo(60, 6);
+  // the tick that brings the rover home is stamped with the second it closes —
+  // the clock the fast-forward stops on, as in the live loop
+  expect(r.home.at).toBe(r.s.simTime);
+  expect(r.home.at).toBeGreaterThanOrEqual(r.trip.endsAt - 1e-6);
+  expect(r.n).toBeLessThanOrEqual(61);
+});
+
+test('launch doctrine: Rail to Orbit follows the choice, and a Propellant Plant completes it', async ({ page }) => {
+  await start(page, 'southpole', 'robotic');
+  const goal = () => page.evaluate(() => window.__game.getObjectives().find((o: any) => o.id === 'driver-online'));
+  const open = await goal();
+  expect(open.hint).toBe('Choose a launch doctrine and build its launcher: research the Electromagnetic Mass Driver ' +
+    'and build one, or research Propellant Depot and build a Propellant Plant.');
+  expect(open.progress).toBe('◻ Electromagnetic Mass Driver or ◻ Propellant Depot');
+  await complete(page, ['propellantDepot']);
+  const chosen = await goal();
+  expect(chosen.hint).toBe('Research Propellant Depot and build a Propellant Plant: rockets steer where rails can’t.');
+  expect(chosen.progress).toBe('✓ Propellant Depot · ◻ Propellant Plant');
+  // the Objectives panel reads the same hint
+  await page.locator('#milestones').click();
+  await expect(page.locator('#milestones')).toContainText('Research Propellant Depot and build a Propellant Plant');
+  await page.locator('#milestones').click();
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 200, parts: 60, silicon: 40, water: 300, oxygen: 200 });
+    const c = near('propellantPlant', 14, -2, undefined, 3, 2);
+    g.placeBuilding('propellantPlant', c!.gx, c!.gz);
+    powered(20);
+    const rising = g.getObjectives().find((o: any) => o.id === 'driver-online');
+    powered(320);
+    return { rising, s: g.getState(), after: g.getObjectives().find((o: any) => o.id === 'driver-online') };
+  });
+  expect(r.rising.progress).toMatch(/^✓ Propellant Depot · ◻ Propellant Plant \d+%$/);
+  expect(r.s.milestonesDone).toContain('driver-online');
+  expect(hasAlert(r.s, /^MILESTONE — Rail to Orbit$/)).toBe(true);
+  expect(r.after.done).toBe(true);
+
+  // a driver run reads as it always did
+  await start(page, 'mare', 'robotic');
+  await complete(page, ['massDriver']);
+  const driver = await goal();
+  expect(driver.hint).toBe('Research and build the Electromagnetic Mass Driver.');
+  expect(driver.progress).toBe('✓ Electromagnetic Mass Driver · ◻ Mass Driver');
 });
 
 test('atlas: T4 and 12 surveyed prospects add a slot and discount Swarm Protocol', async ({ page }) => {

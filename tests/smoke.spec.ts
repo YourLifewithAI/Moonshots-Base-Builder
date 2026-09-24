@@ -1063,6 +1063,47 @@ test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page })
   expect(s2.resources.regolith).toBeLessThanOrEqual(700); // lander + yard
 });
 
+test('a shut-down Battery Bank stores nothing and costs nothing, and its charge goes with it', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('batteryStorage'));
+  await page.evaluate(() => window.__game.grantResources({ metals: 60, silicon: 10 }));
+  expect(await page.evaluate(() => window.__game.placeBuilding('battery', 132, 126))).toBe(true);
+  // measure inside one evaluate so the live frame loop can't slip a tick in
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.finishConstruction();
+    g.grantPower(3000);
+    g.advanceGameSeconds(1);
+    const on = g.getState();
+    const bank = on.buildings.find((b: any) => b.type === 'battery');
+    const parts0 = on.resources.parts;
+    g.advanceGameSeconds(72);
+    const onUpkeep = parts0 - g.getState().resources.parts;
+    g.setEnabled(bank.id, false);
+    g.advanceGameSeconds(1);
+    const off = g.getState();
+    const parts1 = off.resources.parts;
+    g.advanceGameSeconds(72);
+    const offUpkeep = parts1 - g.getState().resources.parts;
+    g.setEnabled(bank.id, true);
+    g.advanceGameSeconds(1);
+    return { on, off, onUpkeep, offUpkeep, again: g.getState() };
+  });
+  // the Lander's 800 and the bank's 3,000
+  expect(r.on.power.capacity).toBe(3800);
+  // shut down, as a Storage Yard's caps go: no storage, and the charge it held is lost
+  expect(r.off.power.capacity).toBe(800);
+  expect(r.off.powerStored).toBeLessThanOrEqual(800);
+  expect(r.off.alerts.some((a: any) => /^CHARGE LOST — \d+ stored energy went with the bank; the grid holds 800 now$/.test(a.text))).toBe(true);
+  // and no upkeep: a tenth of a day costs the Lander's 0.05⚙ alone, not the bank's 0.1⚙ too
+  expect(r.onUpkeep).toBeCloseTo(0.15, 6);
+  expect(r.offUpkeep).toBeCloseTo(0.05, 6);
+  // powered on again it stores again, starting from what the grid kept
+  expect(r.again.power.capacity).toBe(3800);
+  expect(r.again.powerStored).toBeLessThanOrEqual(800 + 10);
+});
+
 test('full stockpiles: producers stand by, tanks cap, shipment overflow is reported', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

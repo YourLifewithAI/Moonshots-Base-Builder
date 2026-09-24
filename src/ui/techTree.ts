@@ -13,7 +13,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
 import type { Expedition } from '../data/techs';
 import {
-  previewTech, producerOf,
+  previewTech, producerName, producerOf,
   type GateProgress, type ResearchCard, type ResearchView, type TechState,
 } from '../core/research';
 import type { Game } from '../core/game';
@@ -812,8 +812,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const goods = Object.entries(c.cost.goods);
     if (goods.length) {
       rows.push(`<div><span class="k">Goods</span>${goods.map(([r, a]) => {
-        const p = producerOf(r as ResourceId, ctx().siteId);
-        return `<span class="mono g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span> <span data-live="have:${r}"></span>${p ? ` · ${esc(BUILDINGS[p].name)}` : ''}`;
+        const p = producerOf(r as ResourceId, game.state, game.mods);
+        return `<span class="mono g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span> <span data-live="have:${r}"></span>${p ? ` · ${esc(producerName(p))}` : ''}`;
       }).join(' · ')}</div>`);
     }
     if (c.state !== 'done') rows.push(`<div><span class="k">ETA</span><span data-live="eta"></span></div>`);

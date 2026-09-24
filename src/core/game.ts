@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteId } from '../data/sites';
 import { TECHS, type TechId } from '../data/techs';
-import { MILESTONES } from '../data/milestones';
+import { MILESTONES, milestoneHint } from '../data/milestones';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
   ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY,
@@ -1396,6 +1396,7 @@ export class Game {
     const next = MILESTONES.find((m) => !s.milestonesDone.includes(m.id));
     $milestones.set({
       done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
+      hints: Object.fromEntries(MILESTONES.map((m) => [m.id, milestoneHint(m, s)])),
     });
     $swarm.set({
       pct: s.swarmPct, launches: s.launches, armed: this.mods.launchArmed,
@@ -1598,12 +1599,13 @@ export class Game {
     for (const a of acts) this.applyAction(a);
     let victory = false;
     let defeat = false;
-    // as in play: shading follows the sun (every 5 game-seconds, the live
-    // loop's cadence at 10×), and a lost base never ticks again
+    // as in play: the clock moves first and the tick reads the second it
+    // closes, shading follows the sun (every 5 game-seconds, the live loop's
+    // cadence at 10×), and a lost base never ticks again
     for (let i = 0; i < gameSeconds && !missionLost(this.state); i++) {
       if (i % 5 === 0) this.updateShading();
-      const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
+      const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       if (ev.modsChanged) this.mods = modsFor(this.state);
       this.syncDeposits(true);
       if (ev.victory && !this.state.victoryShown) {

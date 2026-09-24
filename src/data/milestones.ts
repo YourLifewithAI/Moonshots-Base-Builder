@@ -12,6 +12,8 @@ export interface MilestoneDef {
   hint: string;
   /** the hint on a robotic mission, when it differs */
   hintRobotic?: string;
+  /** the hint when it follows the run's choices (a doctrine); wins over both */
+  hintFor?: (s: GameState) => string;
   check: (s: GameState) => boolean;
   /** one status line: the steps done and the one in progress */
   progress?: (s: GameState) => string;
@@ -40,6 +42,16 @@ function researched(s: GameState, id: TechId): string {
 
 const stock = (s: GameState, rid: 'regolith' | 'metals' | 'foils', goal: number) =>
   `${rid[0].toUpperCase()}${rid.slice(1)} ${Math.floor(s.resources[rid])}/${goal}`;
+
+/** The launch doctrine this run chose — done first, then queued — or null
+ *  while it is open: each tech names the launcher it unlocks. */
+const LAUNCHERS = [['propellantDepot', 'propellantPlant'], ['massDriver', 'massDriver']] as const;
+function launcher(s: GameState): (typeof LAUNCHERS)[number] | null {
+  return LAUNCHERS.find(([t]) => s.techsDone.includes(t))
+    ?? LAUNCHERS.find(([t]) => s.researchQueue.includes(t)) ?? null;
+}
+const LAUNCH_OPEN_HINT = `Choose a launch doctrine and build its launcher: research the ${TECHS.massDriver.name} ` +
+  `and build one, or research ${TECHS.propellantDepot.name} and build a ${BUILDINGS.propellantPlant.name}.`;
 
 export const MILESTONES: MilestoneDef[] = [
   {
@@ -103,10 +115,21 @@ export const MILESTONES: MilestoneDef[] = [
     progress: (s) => `${researched(s, 'humanCohabitation')} · ${built(s, 'habitat')}`,
   },
   {
+    // either launch doctrine: the rail or the depot's rockets
     id: 'driver-online', title: 'Rail to Orbit',
-    hint: 'Research and build the Electromagnetic Mass Driver.',
-    check: (s) => count(s, 'massDriver') >= 1,
-    progress: (s) => `${researched(s, 'massDriver')} · ${built(s, 'massDriver')}`,
+    hint: LAUNCH_OPEN_HINT,
+    hintFor: (s) => {
+      const l = launcher(s);
+      if (!l) return LAUNCH_OPEN_HINT;
+      return l[0] === 'massDriver' ? `Research and build the ${TECHS.massDriver.name}.`
+        : `Research ${TECHS.propellantDepot.name} and build a ${BUILDINGS.propellantPlant.name}: rockets steer where rails can’t.`;
+    },
+    check: (s) => count(s, 'massDriver') + count(s, 'propellantPlant') >= 1,
+    progress: (s) => {
+      const l = launcher(s);
+      return l ? `${researched(s, l[0])} · ${built(s, l[1])}`
+        : `${researched(s, 'massDriver')} or ${researched(s, 'propellantDepot')}`;
+    },
   },
   {
     id: 'foils-ready', title: 'Harvest of Light',
@@ -128,6 +151,11 @@ export const MILESTONES: MilestoneDef[] = [
     progress: (s) => `${researched(s, 'deepSounding')} · ${Object.keys(s.survey?.prospects ?? {}).length}/${ATLAS.surveys} surveyed`,
   },
 ];
+
+/** The hint this run shows for a milestone (its doctrine, then its expedition). */
+export function milestoneHint(m: MilestoneDef, s: GameState): string {
+  return m.hintFor?.(s) ?? ((s.expedition === 'robotic' && m.hintRobotic) || m.hint);
+}
 
 /** Swarm % milestone bands (post-victory long game; see docs/09-roadmap.md). */
 export const SWARM_BANDS = [0.0001, 0.001, 0.01, 0.1, 1];

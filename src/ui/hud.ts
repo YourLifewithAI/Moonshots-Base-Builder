@@ -316,10 +316,11 @@ export function mountHud(root: HTMLElement, game: Game) {
   const renderGoals = () => {
     const m = $milestones.get();
     const robotic = $vitals.get().expedition === 'robotic';
-    const sig = `${m.done.join(',')}|${goalsOpen}|${m.progress}|${robotic}`;
+    const sig = `${m.done.join(',')}|${goalsOpen}|${m.progress}|${robotic}|${Object.values(m.hints).join('|')}`;
     if (sig === goalsSig) return;
     goalsSig = sig;
-    const hint = (x: MilestoneDef) => (robotic && x.hintRobotic) || x.hint;
+    // the run's own hint (doctrine, expedition), published with the goals
+    const hint = (x: MilestoneDef) => m.hints[x.id] ?? ((robotic && x.hintRobotic) || x.hint);
     const next = MILESTONES.find((x) => !m.done.includes(x.id));
     const progress = m.progress ? `<div class="goal-progress mono">${m.progress}</div>` : '';
     const label = `<span class="label">Objectives <span class="done-count mono">${m.done.length}/${m.total}</span><span class="caret">${goalsOpen ? '▾' : '▸'}</span></span>`;

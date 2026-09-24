@@ -552,3 +552,124 @@ test('launch capacity: a volley needs 3↑, and each shortfall says so', async (
   expect(r.fired.resources.launch).toBeCloseTo(0, 6);
   expect(r.fired.resources.foils).toBeCloseTo(0, 6);
 });
+
+test('goods leave the crew’s reserve: Fuel Cells wait until 80≈ is spare, and name what makes it', async ({ page }) => {
+  await start(page, 'mare');
+  // Molten Regolith Electrolysis: the smelter makes no water here
+  await complete(page, ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication',
+    'batteryStorage', 'moltenElectrolysis']);
+  await placeNear(page, [['solar', 2], ['lab', 2]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.finishConstruction();
+    g.research('regenFuelCells');
+    g.grantData(500);
+    g.grantResources({ water: 40 - g.getState().resources.water });
+    powered(240); // 180≡ at 2 × 0.4/s: paid, but the water is short
+    const dry = g.getState();
+    const dryCard = g.getResearch().cards.regenFuelCells;
+    g.completeTech('regolithVolatiles'); // excavators sweat water now
+    g.grantResources({ water: 83 - g.getState().resources.water });
+    g.advanceGameSeconds(1);
+    const held = g.getState();
+    const heldCard = g.getResearch().cards.regenFuelCells;
+    g.grantResources({ water: 87 - held.resources.water });
+    g.advanceGameSeconds(1);
+    return { dry, dryCard, held, heldCard, done: g.getState() };
+  });
+  // four crew drink 0.02≈/s: five minutes of it, 6≈, is the reserve
+  expect(r.dry.crew).toBe(4);
+  expect(r.dry.researchStalled).toEqual(['regenFuelCells']);
+  expect(r.dryCard.stalledNeed).toMatch(/^80≈ water \(have \d+, 6 held for the crew\) · nothing here makes water yet$/);
+  expect(hasAlert(r.dry, /^RESEARCH WAITING — Regenerative Fuel Cells needs 80≈ water \(have \d+, 6 held for the crew\) · nothing here makes water yet$/)).toBe(true);
+  // 82 in the tanks covers 80, but not 80 above the crew's 6: it waits, and says so
+  expect(r.held.resources.water).toBeCloseTo(82.98, 6);
+  expect(r.held.researchStalled).toEqual(['regenFuelCells']);
+  expect(r.held.techsDone).not.toContain('regenFuelCells');
+  expect(r.heldCard.stalledNeed).toBe('80≈ water (have 82, 6 held for the crew) · made by Regolith Excavator');
+  // 86.98 after the crew drinks: 80 above the reserve, and the reserve stays
+  expect(r.done.techsDone).toContain('regenFuelCells');
+  expect(r.done.resources.water).toBeCloseTo(6.98, 6);
+});
+
+test('producers follow the recipes: the held rotation names what really makes water here', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('moltenElectrolysis'); // the MRE smelter makes metals, oxygen and silicon — no water
+    g.grantResources({ water: -g.getState().resources.water, food: 50 });
+    g.completeTech('humanCohabitation');
+    powered(241);
+    const none = g.getState();
+    g.completeTech('prospectingRovers');
+    g.completeTech('orbitalProspector'); // an outpost slot, and the ice at Cabeus in coverage
+    powered(65);
+    const outpost = g.getState();
+    g.completeTech('regolithVolatiles');
+    powered(65);
+    return { none, outpost, volatiles: g.getState() };
+  });
+  const held = (s: any) => s.alerts.filter((a: any) => a.text.startsWith('CREW ROTATION HELD')).map((a: any) => a.text);
+  expect(held(r.none)).toEqual(['CREW ROTATION HELD — needs 8 water (have 0) · nothing here makes water yet']);
+  expect(held(r.outpost)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · claim an ice outpost');
+  expect(held(r.volatiles)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · build Regolith Excavator');
+});
+
+test('insight: none for a tech a done doctrine rival has foreclosed for good', async ({ page }) => {
+  // while the launch doctrine is open, 300≈ banked earns the Depot its insight
+  await start(page, 'mare');
+  const open = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ water: 300 });
+    g.advanceGameSeconds(1);
+    return g.getState();
+  });
+  expect(open.insights.propellantDepot).toBe(0.4);
+  // once the Mass Driver is done, the Depot never opens: no insight, no alert
+  await start(page, 'mare');
+  await complete(page, ['massDriver']);
+  const shut = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ water: 300 });
+    g.advanceGameSeconds(1);
+    return { s: g.getState(), card: g.getResearch().cards.propellantDepot };
+  });
+  expect(shut.card.state).toBe('foreclosed');
+  expect(shut.card.reason).toBe('foreclosed — you chose Electromagnetic Mass Driver');
+  expect(shut.s.insights.propellantDepot).toBeUndefined();
+  expect(hasAlert(shut.s, /^INSIGHT — Propellant Depot/)).toBe(false);
+  // other insights still fire on the same tick
+  expect(shut.s.insights.regenFuelCells).toBe(0.4);
+});
+
+test('insight: Regolith Shielding has a deed the flare-proof lava tube can meet', async ({ page }) => {
+  await start(page, 'mare');
+  const mare = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setStats({ wornSeen: true });
+    g.advanceGameSeconds(1);
+    return { s: g.getState(), card: g.getResearch().cards.regolithShielding };
+  });
+  // on the surface it takes a radiation storm; a worn machine is not one
+  expect(mare.card.insight.hint).toBe('a flare goes active with ≥6 structures running');
+  expect(mare.s.insights.regolithShielding).toBeUndefined();
+  expect(mare.s.insights.safetyProtocols).toBe(0.5);
+
+  await start(page, 'lavatube');
+  await placeNear(page, [['solar', 1]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const before = g.getResearch().cards.regolithShielding;
+    g.finishConstruction();
+    g.grantResources({ parts: -g.getState().resources.parts });
+    powered(450); // unpaid upkeep wears the array 0.5 a day: past 0.3 in 432 s
+    return { before, s: g.getState(), card: g.getResearch().cards.regolithShielding };
+  });
+  expect(r.before.insight).toEqual({ discount: 0.4, hint: 'a building worn past 0.3', earned: false });
+  expect(r.s.stats.flaresWithSix).toBe(0);
+  expect(r.s.stats.wornSeen).toBe(true);
+  expect(r.s.insights.regolithShielding).toBe(0.4);
+  expect(r.card.cost).toMatchObject({ base: 140, data: 84, insightLabel: 'a building worn past 0.3' });
+  expect(hasAlert(r.s,
+    /^INSIGHT — Regolith Shielding 40% cheaper: a machine wore out under the skylight — bury what the tube’s roof leaves open$/)).toBe(true);
+});

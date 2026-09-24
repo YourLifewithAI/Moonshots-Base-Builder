@@ -2,7 +2,10 @@
  *  earned by in-base deeds, checked every tick after research (research.ts
  *  insightTick). They fire even while the tech is locked; Era 1 has none. */
 import type { GameState } from '../core/state';
+import type { SiteId } from './sites';
 import type { TechId } from './techs';
+
+export type InsightDeed = Pick<InsightDef, 'hint' | 'lesson' | 'check'>;
 
 export interface InsightDef {
   tech: TechId;
@@ -13,6 +16,8 @@ export interface InsightDef {
   /** the alert's second half: `INSIGHT — Battery Banks 40% cheaper: <lesson>` */
   lesson: string;
   check: (s: GameState) => boolean;
+  /** a site where the deed cannot happen gets its own (every shown insight is reachable) */
+  at?: Partial<Record<SiteId, InsightDeed>>;
 }
 
 const built = (s: GameState, type: string) =>
@@ -39,7 +44,15 @@ export const INSIGHTS: InsightDef[] = [
   { tech: 'constructionRobotics', discount: 0.4, hint: '5 buildings completed',
     lesson: 'five builds taught the robots the routine', check: (s) => s.stats.built >= 5 },
   { tech: 'regolithShielding', discount: 0.4, hint: 'a flare goes active with ≥6 structures running',
-    lesson: 'a radiation storm swept an exposed base — bury it', check: (s) => s.stats.flaresWithSix >= 1 },
+    lesson: 'a radiation storm swept an exposed base — bury it', check: (s) => s.stats.flaresWithSix >= 1,
+    // no flare reaches the tube floor (flaresWithSix never counts there): its lesson is wear
+    at: {
+      lavatube: {
+        hint: 'a building worn past 0.3',
+        lesson: 'a machine wore out under the skylight — bury what the tube’s roof leaves open',
+        check: (s) => s.stats.wornSeen,
+      },
+    } },
   { tech: 'moltenElectrolysis', discount: 0.3, hint: '300◆ smelted',
     lesson: 'three hundred smelts mapped the furnace’s limits', check: (s) => s.stats.produced.metals >= 300 },
   { tech: 'ilmeniteBeneficiation', discount: 0.4, hint: 'an excavator digging ilmenite for 60 s',
@@ -98,3 +111,15 @@ export const INSIGHTS: InsightDef[] = [
 
 export const INSIGHT_BY_TECH: Partial<Record<TechId, InsightDef>> =
   Object.fromEntries(INSIGHTS.map((i) => [i.tech, i]));
+
+const siteCache = new Map<string, InsightDef>();
+/** A tech's insight as this site shows and checks it (its site deed applied). */
+export function insightAt(tid: TechId, siteId: SiteId): InsightDef | undefined {
+  const ins = INSIGHT_BY_TECH[tid];
+  const deed = ins?.at?.[siteId];
+  if (!ins || !deed) return ins;
+  const key = `${tid}|${siteId}`;
+  let r = siteCache.get(key);
+  if (!r) { r = { ...ins, ...deed }; siteCache.set(key, r); }
+  return r;
+}

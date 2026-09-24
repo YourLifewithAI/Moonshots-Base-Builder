@@ -8,6 +8,7 @@ import type { ResourceId } from './data/resources';
 import type { GameStats } from './core/state';
 import { researchView } from './core/research';
 import { recipeTriangles } from './buildings/recipes';
+import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 
@@ -61,6 +62,11 @@ function api(game: Game) {
     /** the $research payload: cards, gates, queue, rates */
     getResearch: () => clone(researchView(game.state, game.mods)),
     auditTechs: () => clone(auditTechs()),
+    /** every objective as this run reads it: its hint (doctrine, expedition) and status line */
+    getObjectives: () => MILESTONES.map((m) => ({
+      id: m.id, done: game.state.milestonesDone.includes(m.id),
+      hint: milestoneHint(m, game.state), progress: m.progress?.(game.state) ?? '',
+    })),
     techRelevanceMatrix: () => techRelevanceMatrix(),
     /** force charter / insight counters (tests of deed routes) */
     setStats: (patch: Partial<GameStats>) => { Object.assign(game.state.stats, patch); game.publish(); },
