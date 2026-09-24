@@ -234,6 +234,7 @@ export function createInitialState(
     resources: {
       ...START.resources,
       metals: Math.round(START.resources.metals * SITES[siteId].buildCostMult),
+      parts: Math.round(START.resources.parts * SITES[siteId].buildCostMult),
     },
     powerStored: START.powerStored,
     power: { supply: 0, demand: 0, served: 0, capacity: START.powerStored, brownout: false, shed: false },

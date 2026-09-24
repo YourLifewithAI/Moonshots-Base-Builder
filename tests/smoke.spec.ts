@@ -327,7 +327,7 @@ test('construction stalls without welding parts and resumes on delivery', async 
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
   // no parts in stock; solar costs metals only, so the site opens but can't weld
-  await page.evaluate(() => window.__game.grantResources({ parts: -70 }));
+  await page.evaluate(() => window.__game.grantResources({ parts: -window.__game.getState().resources.parts }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
   const s = await page.evaluate(() => window.__game.getState());
@@ -588,14 +588,17 @@ test('Earth shipments ordered by hand wait longer each time and cost morale when
 test('parts loop: an honest robotic run never softlocks on parts, no shipment button needed', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
-  // a greedy opening that burns the spares cache before the fab is researched;
+  // a greedy opening that burns the spares cache before the fab is researched
+  // (five labs and four excavators: the cache is sized for a reasonable one);
   // only placements and research — no grants, no completeTech, no orderResupply
   const run = await page.evaluate(() => {
     const g = window.__game!;
     const plan: [string, number, number][] = [
       ['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133], ['excavator', 120, 126],
       ['smelter', 120, 132], ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
-      ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126], ['partsFab', 138, 128],
+      ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126],
+      ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
+      ['partsFab', 138, 128],
     ];
     const research = ['regolithProcessing', 'teleoperation', 'siliconRefining', 'partsFabrication'];
     let dryWithoutRemedy = 0;
@@ -809,7 +812,7 @@ test('alerts: conditions clear and snooze, events merge and fade, a click opens 
   const s1 = await page.evaluate(() => {
     const g = window.__game!;
     g.setPaused(true);
-    g.grantResources({ parts: -70 });
+    g.grantResources({ parts: -g.getState().resources.parts });
     g.placeBuilding('solar', 132, 126);
     g.advanceGameSeconds(3);
     return g.getState();
@@ -897,7 +900,7 @@ for (const vp of [{ width: 1366, height: 768 }, { width: 1600, height: 900 }]) {
     await page.evaluate(() => {
       const g = window.__game!;
       g.setPaused(true);
-      g.grantResources({ chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45, parts: -70 });
+      g.grantResources({ chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45, parts: -g.getState().resources.parts });
       g.placeBuilding('solar', 132, 126);
       g.advanceGameSeconds(3);
       g.select(g.getState().buildings[0].id); // the Lander: the tallest inspector
