@@ -360,6 +360,11 @@ test('live numbers: the launch row reads 3↑, agent tax and research transfer f
   await expect(name).toHaveText('Researching Regolith Smelting');
   await expect(page.locator('#chip-res-pct')).toHaveText(/^\d+% · ETA \d+:\d\d$/);
   await page.locator('#resource-strip .chip[data-key="data"]').click();
-  await expect(page.locator('#res-panel')).toContainText('feeding research 24/min · 1 lab');
+  // the sim's own transfer (its 30 s average), held against the lab's 24/min cap
+  await g(page, 'setPaused', true);
+  await expect.poll(() => paused(page)).toBe(true);
+  const moved = (await g(page, 'getResearch')).rate * 60;
+  const shown = moved >= 10 ? String(Math.floor(moved)) : (Math.floor(moved * 10) / 10).toString();
+  await expect(page.locator('#res-panel')).toContainText(`feeding research ${shown}/min of 24/min · 1 lab`);
   await expect(page.locator('#res-panel')).toContainText('A Data Center moves 150/min, 6 labs');
 });

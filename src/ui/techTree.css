@@ -14,7 +14,12 @@
   overflow: hidden;
   container-type: size;
   --sheet-h: 148px;
+  /* its own stacking context: the cards' z-index never climbs over the
+     victory or defeat overlay */
+  isolation: isolate;
 }
+/* focused on open so keys stay in the tree; no ring round the whole screen */
+#tech-screen:focus { outline: none; }
 #tech-screen.sheet-collapsed { --sheet-h: 28px; }
 
 /* ── header ── */

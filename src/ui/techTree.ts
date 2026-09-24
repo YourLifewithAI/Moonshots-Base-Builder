@@ -19,7 +19,9 @@ import {
 import type { Game } from '../core/game';
 import type { Action } from '../core/actions';
 import { el, fmt } from './hud';
-import { $alerts, $counts, $lunar, $phase, $research, $resources, $siteId, $time, $vitals } from './stores';
+import {
+  $alerts, $counts, $defeat, $lunar, $mode, $phase, $research, $resources, $siteId, $time, $victory, $vitals, overlayUp,
+} from './stores';
 
 // ─────────────────────────── geometry ───────────────────────────
 
@@ -223,6 +225,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   const screen = el('div', 'interactive');
   screen.id = 'tech-screen';
+  screen.tabIndex = -1; // takes focus on open, so Enter and Space never reach the chip
   screen.style.display = 'none';
   screen.innerHTML = `
     <div id="tech-head">
@@ -289,9 +292,17 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     hover = null;
     screen.style.display = open ? 'flex' : 'none';
     game.setTechOpen(open);
-    if (open) { structSig = ''; queueSig = ''; sheetSig = ''; refresh(); }
+    if (open) {
+      structSig = ''; queueSig = ''; sheetSig = ''; refresh();
+      // the chip (or a palette card) that opened it lets go of the keyboard
+      if (!screen.contains(document.activeElement)) screen.focus({ preventScroll: true });
+    }
   };
-  chip.addEventListener('click', () => toggle(!open));
+  // a command-view screen: the chip never opens it on foot or mid-flight
+  chip.addEventListener('click', () => {
+    if (open) toggle(false);
+    else if (game.commandView && !overlayUp()) toggle(true);
+  });
   $('#tech-close').addEventListener('click', () => toggle(false));
   $('#tech-map').addEventListener('click', () => {
     toggle(false);
@@ -1069,24 +1080,32 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   // capture phase, so the build camera never pans on the arrows the tree uses
   window.addEventListener('keydown', (e) => {
-    if ($phase.get() !== 'playing' || (e.target as HTMLElement)?.tagName === 'INPUT') return;
+    // under a victory or defeat overlay the tree stays shut
+    if ($phase.get() !== 'playing' || overlayUp() || (e.target as HTMLElement)?.tagName === 'INPUT') return;
     if (e.code === 'KeyT' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.stopPropagation();
-      toggle(!open);
+      if (!e.repeat) toggle(!open); // a held T toggles once
       return;
     }
     if (!open) return;
     const arrows: Record<string, [number, number]> = {
       ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
     };
-    if (e.code === 'Escape') { e.stopPropagation(); e.preventDefault(); toggle(false); return; }
+    if (e.code === 'Escape') {
+      e.stopPropagation(); e.preventDefault();
+      if (!e.repeat) toggle(false);
+      return;
+    }
     if (e.code in arrows) {
       e.stopPropagation(); e.preventDefault();
       moveSel(...arrows[e.code]);
       return;
     }
     if (e.code === 'Enter' || e.code === 'NumpadEnter') {
-      if ((e.target as HTMLElement)?.tagName === 'BUTTON') { e.stopPropagation(); return; }
+      // a focused button of the tree's own takes its Enter; any other (the
+      // chip that opened it) must not close the tree instead of queueing
+      const target = e.target as HTMLElement | null;
+      if (target?.tagName === 'BUTTON' && screen.contains(target)) { e.stopPropagation(); return; }
       e.stopPropagation(); e.preventDefault();
       if (!selected) return;
       const c = view?.cards[selected];
@@ -1105,7 +1124,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   new ResizeObserver(() => { if (open && layout) drawLinks(); }).observe(grid);
 
   focusHook = (tid) => {
-    if (!game.commandView) return;
+    if (!game.commandView || overlayUp()) return;
     toggle(true);
     if (!tid || !layout?.items.has(tid)) return;
     selected = tid;
@@ -1123,8 +1142,12 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   $resources.subscribe(() => { if (open && view) { updateCards(); renderSheet(); } });
   $alerts.subscribe(renderAlerts);
   $phase.subscribe((p) => {
-    chip.style.display = p === 'playing' ? 'block' : 'none';
+    // '' lets the stylesheet decide: walk mode hides the chip
+    chip.style.display = p === 'playing' ? '' : 'none';
     if (p !== 'playing') toggle(false);
   });
+  // on foot, or under a victory or defeat overlay, the tree is shut
+  $mode.subscribe((m) => { if (m === 'walk' && open) toggle(false); });
+  for (const store of [$victory, $defeat]) store.subscribe((up) => { if (up && open) toggle(false); });
   renderChip(null);
 }

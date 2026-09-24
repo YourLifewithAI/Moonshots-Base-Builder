@@ -169,6 +169,8 @@ export const $selection = atom<BuildingState | null>(null);
 export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string; note?: string } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
+/** a victory or defeat overlay is up: the world's screens and keys wait under it */
+export const overlayUp = () => $victory.get() || $defeat.get();
 
 /** ice survey state (legacy saves) */
 export const $ice = atom<{ hasIce: boolean; surveyed: boolean }>({ hasIce: false, surveyed: false });

@@ -23,7 +23,7 @@ import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
 import { openTechTreeAt } from './techTree';
 import {
-  $alerts, $deposits, $lunar, $menuOpen, $phase, $research, $siteId,
+  $alerts, $defeat, $deposits, $lunar, $menuOpen, $mode, $phase, $research, $siteId, $victory, overlayUp,
   type DepositView, type LunarOutpostView, type LunarProspectView, type LunarView,
 } from './stores';
 
@@ -1349,19 +1349,24 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     }
   }
 
-  chip.addEventListener('click', () => toggle(!isOpen));
-  $('#map-close').addEventListener('click', () => toggle(false));
-  window.addEventListener('moonshots:open-map', () => {
-    if ($phase.get() === 'playing' && !$menuOpen.get()) toggle(true);
+  // like the tree, a command-view screen: never opened on foot or mid-flight
+  // (pointer lock would strand it), nor under a victory or defeat overlay
+  const canOpen = () => $phase.get() === 'playing' && !$menuOpen.get() && !overlayUp() && game.commandView;
+  chip.addEventListener('click', () => {
+    if (isOpen) toggle(false);
+    else if (canOpen()) toggle(true);
   });
+  $('#map-close').addEventListener('click', () => toggle(false));
+  window.addEventListener('moonshots:open-map', () => { if (canOpen()) toggle(true); });
 
   // capture phase, after the menu's: while the map is open, Esc closes it and
   // goes no further (the game's Esc would open the menu underneath)
   window.addEventListener('keydown', (e) => {
-    if ($phase.get() !== 'playing' || $menuOpen.get() || (e.target as HTMLElement)?.tagName === 'INPUT') return;
+    if ($phase.get() !== 'playing' || $menuOpen.get() || overlayUp() ||
+      (e.target as HTMLElement)?.tagName === 'INPUT') return;
     if (e.code === 'KeyM' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.stopImmediatePropagation();
-      // like the tree, a command-view screen: not on foot (pointer lock would strand it)
+      if (e.repeat) return; // a held M toggles once
       if (isOpen) toggle(false);
       else if (game.commandView) {
         const tree = document.getElementById('tech-screen');
@@ -1371,7 +1376,11 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       return;
     }
     if (!isOpen) return;
-    if (e.code === 'Escape') { e.stopImmediatePropagation(); e.preventDefault(); toggle(false); return; }
+    if (e.code === 'Escape') {
+      e.stopImmediatePropagation(); e.preventDefault();
+      if (!e.repeat) toggle(false);
+      return;
+    }
     if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); return; }
     if (e.code === 'KeyT') toggle(false); // the tree opens in its place
   }, true);
@@ -1390,4 +1399,6 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   $alerts.subscribe(() => { if (isOpen) renderAlert(); });
   $siteId.subscribe(() => { reset(); schedule(); });
   $phase.subscribe((p) => { if (p !== 'playing') toggle(false); });
+  $mode.subscribe((m) => { if (m === 'walk') toggle(false); });
+  for (const store of [$victory, $defeat]) store.subscribe((up) => { if (up) toggle(false); });
 }

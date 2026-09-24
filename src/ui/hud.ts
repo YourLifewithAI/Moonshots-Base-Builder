@@ -9,7 +9,7 @@ import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
-  $milestones, $mode,
+  $milestones, $mode, $phase,
   $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
@@ -131,7 +131,9 @@ export function mountHud(root: HTMLElement, game: Game) {
     const drain = p.demand - p.supply;
     const runway = drain > 0.01 ? p.stored / drain : Infinity;
     const nightRun = t.isNight && runway < Infinity;
-    put('stored', fmt(p.stored), nightRun ? `· ${fmtClock(runway)}` : `/${fmt(p.capacity)}`,
+    // the cap slot is reserved 7ch wide ('/12.5k', '· 12:34'): a runway past an
+    // hour reads '1h+', so dusk never reflows the strip (the tooltip has it exact)
+    put('stored', fmt(p.stored), nightRun ? `· ${runway >= 3600 ? '1h+' : fmtClock(runway)}` : `/${fmt(p.capacity)}`,
       nightRun ? runway < t.phaseLeft : p.stored < 200 && drain > 0,
       nightRun
         ? `Stored energy — lasts ${fmtClock(runway)} at ${fmt(drain)} kW short; dawn in ${fmtClock(t.phaseLeft)} — click for details`
@@ -147,9 +149,11 @@ export function mountHud(root: HTMLElement, game: Game) {
     }
     put('crew', `${v.crew}`, `/${v.housing}`, v.crew > v.housing,
       `Crew / housing — ${v.beds} beds built · ${v.housing} powered`);
-    put('bots', `${v.botsFree}`, `/${v.botsTotal}${v.surveying ? ` · ${v.surveying} surveying` : ''}`,
+    // a survey's borrowed robot is told in the tooltip (and on the map chip), not
+    // appended to the chip: the strip never reflows when a survey starts
+    put('bots', `${v.botsFree}`, `/${v.botsTotal}`,
       v.botsFree === 0 && v.botsTotal > 0,
-      `Construction robots free / fleet${v.surveying ? ` — ${v.surveying} lent to a survey` : ''} — click for details`);
+      `Construction robots free / fleet${v.surveying ? ` — ${v.surveying} more lent to a survey` : ''} — click for details`);
     put('morale', `${v.morale}%`, '', v.morale < 40, 'Morale — click for details');
     put('data', fmt(v.data), '', false, 'Research data — click for details');
     put('deposits', 'DEPOSITS [I]', '', $depositOverlay.get(),
@@ -212,7 +216,6 @@ export function mountHud(root: HTMLElement, game: Game) {
   const right = el('div', '');
   right.id = 'hud-right';
   root.appendChild(right);
-  $selection.subscribe((sel) => right.classList.toggle('inspecting', sel !== null));
 
   // ── time controls ──
   const time = el('div', '');
@@ -262,12 +265,15 @@ export function mountHud(root: HTMLElement, game: Game) {
   alerts.appendChild(more);
   const alertEls = new Map<number, { root: HTMLElement; text: HTMLElement; n: HTMLElement }>();
   const RANK = { crit: 0, warn: 1, info: 2 } as const;
+  /** rows the stack keeps while a building is inspected (see $selection below) */
+  let inspRows = ALERTS.shown;
+  const inspecting = () => $selection.get() !== null && $mode.get() !== 'walk';
   const renderAlerts = () => {
     const list = $alerts.get().filter((a) => !a.quiet)
       // conditions keep their places; the newest event leads its severity
       .sort((a, b) => RANK[a.kind] - RANK[b.kind] || Number(!a.cond) - Number(!b.cond) ||
         (a.cond ? a.id - b.id : b.at - a.at || b.id - a.id));
-    const shown = list.slice(0, ALERTS.shown);
+    const shown = list.slice(0, inspecting() ? inspRows : ALERTS.shown);
     const keep = new Set(shown.map((a) => a.id));
     for (const [id, e] of alertEls) {
       if (!keep.has(id)) { e.root.remove(); alertEls.delete(id); }
@@ -292,6 +298,26 @@ export function mountHud(root: HTMLElement, game: Game) {
     more.style.display = more.textContent ? 'block' : 'none';
   };
   $alerts.subscribe(renderAlerts);
+  // Inspecting: the stack is sized once per building opened — to the alerts
+  // standing then (at least one row; two at most on a short screen, so the
+  // inspector's buttons stay above the fold) — and holds that height while
+  // it is open: alerts coming and going never move the inspector. The rest
+  // count in '+N more'
+  let inspId: number | null = null;
+  $selection.subscribe((sel) => {
+    right.classList.toggle('inspecting', sel !== null);
+    const id = sel?.id ?? null;
+    if (id === inspId) return;
+    inspId = id;
+    if (id !== null) {
+      const standing = $alerts.get().filter((a) => !a.quiet).length;
+      const cap = window.matchMedia('(max-height: 700px)').matches ? 2 : ALERTS.shown;
+      inspRows = Math.max(1, Math.min(cap, standing));
+      alerts.style.setProperty('--alert-rows', String(inspRows));
+    }
+    renderAlerts();
+  });
+  $mode.subscribe(renderAlerts);
   alerts.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     const id = Number((target.closest('.alert') as HTMLElement | null)?.dataset.id);
@@ -340,7 +366,16 @@ export function mountHud(root: HTMLElement, game: Game) {
     }).join('');
     goals.innerHTML = label + rows;
   };
-  goals.addEventListener('click', () => { goalsOpen = !goalsOpen; renderGoals(); });
+  // the expanded roadmap and a resource info panel share the left side of the
+  // screen: one open at a time, so neither covers the other's Close
+  const setGoalsOpen = (v: boolean) => {
+    goalsOpen = v;
+    goals.classList.toggle('open', v);
+    if (v && $resourcePanel.get()) $resourcePanel.set(null);
+    renderGoals();
+  };
+  goals.addEventListener('click', () => setGoalsOpen(!goalsOpen));
+  $resourcePanel.subscribe((key) => { if (key && goalsOpen) setGoalsOpen(false); });
   $milestones.subscribe(renderGoals);
   $vitals.subscribe(renderGoals);
 
@@ -368,25 +403,32 @@ export function mountHud(root: HTMLElement, game: Game) {
     const r = $resources.get();
     const p = $power.get();
     const v = $vitals.get();
+    // as on the strip: an uncrewed robotic base has no morale to read
+    const crewAboard = v.expedition !== 'robotic' || v.crew > 0;
     helmet.innerHTML = `
       <div class="chip panel"><span class="glyph">○</span><span class="val mono">${fmt(r.oxygen)}</span><span class="cap">O₂</span></div>
       <div class="chip panel"><span class="glyph">▮</span><span class="val mono">${fmt(p.stored)}</span><span class="cap">PWR</span></div>
-      <div class="chip panel"><span class="glyph">◐</span><span class="val mono">${v.morale}%</span></div>`;
+      ${crewAboard ? `<div class="chip panel" data-slot="morale"><span class="glyph">◐</span><span class="val mono">${v.morale}%</span></div>` : ''}`;
   };
   $mode.subscribe((m) => {
     walkHud.style.display = m === 'walk' ? 'block' : 'none';
     root.classList.toggle('mode-walk', m === 'walk');
+    // a HUD button left focused would take the next Space (jump, pause) as a press
+    (document.activeElement as HTMLElement | null)?.blur?.();
     renderHelmet();
   });
   $resources.subscribe(renderHelmet);
   // the tech tree is a command-view screen: T does not open it on foot or on
-  // the way there (pointer lock would leave it unclickable), and Tab does not
-  // leave for walk mode while it is open. The tree's own T handler is also a
-  // window capture listener, so only stopImmediatePropagation holds it off
+  // the way there (pointer lock would leave it unclickable), but always closes
+  // an open one; Tab does not leave for walk mode while it is open. The tree's
+  // own T handler is also a window capture listener, so only
+  // stopImmediatePropagation holds it off. No world before play: no modes to ask
   window.addEventListener('keydown', (e) => {
+    if ($phase.get() !== 'playing') return;
     const tree = document.getElementById('tech-screen');
-    if (e.code === 'KeyT' && !game.commandView) e.stopImmediatePropagation();
-    if (e.code === 'Tab' && tree && tree.style.display !== 'none') { e.preventDefault(); e.stopPropagation(); }
+    const treeOpen = !!tree && tree.style.display !== 'none';
+    if (e.code === 'KeyT' && !treeOpen && !game.commandView) e.stopImmediatePropagation();
+    if (e.code === 'Tab' && treeOpen) { e.preventDefault(); e.stopPropagation(); }
   }, { capture: true });
   $lookAt.subscribe((la) => {
     if (!la) { nameplate.style.display = 'none'; return; }

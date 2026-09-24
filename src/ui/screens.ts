@@ -125,6 +125,20 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   $phase.subscribe((p) => { screen.style.display = p === 'playing' ? 'none' : 'flex'; });
 }
 
+/** While `screen` is up, Tab stays on its buttons: focus never walks onto
+ *  the HUD under it. */
+function trapTab(screen: HTMLElement) {
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Tab' || screen.style.display === 'none') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const btns = [...screen.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (!btns.length) return;
+    const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+    btns[(i + (e.shiftKey ? btns.length - 1 : 1)) % btns.length].focus({ preventScroll: true });
+  }, true);
+}
+
 // ─────────────────────────── defeat ───────────────────────────
 
 export function mountDefeat(root: HTMLElement) {
@@ -132,6 +146,7 @@ export function mountDefeat(root: HTMLElement) {
   screen.id = 'defeat-screen';
   screen.style.display = 'none';
   root.appendChild(screen);
+  trapTab(screen);
 
   $defeat.subscribe((d) => {
     if (!d) { screen.style.display = 'none'; return; }
@@ -162,12 +177,18 @@ export function mountVictory(root: HTMLElement, game: Game) {
   screen.id = 'victory-screen';
   screen.style.display = 'none';
   root.appendChild(screen);
+  trapTab(screen);
 
   $victory.subscribe((v) => {
     if (!v) { screen.style.display = 'none'; return; }
     const t = $time.get();
     const vit = $vitals.get();
     const s = $swarm.get();
+    // a robotic base with no one aboard has no crew or morale to report
+    const uncrewed = vit.expedition === 'robotic' && vit.crew <= 0;
+    const who = uncrewed
+      ? `${vit.botsTotal} robot${vit.botsTotal === 1 ? '' : 's'}, no one aboard`
+      : `crew of ${vit.crew}, morale ${vit.morale}%`;
     screen.style.display = 'flex';
     screen.innerHTML = `
       <div class="sub">Volley one is away</div>
@@ -175,7 +196,7 @@ export function mountVictory(root: HTMLElement, game: Game) {
       <div class="stats">
         Ten thin-film collectors are riding a rail-launched arc to solar orbit.<br/>
         The swarm stands at <span class="mono">${s.pct.toFixed(4)}%</span> — day ${t.dayIndex + 1},
-        crew of ${vit.crew}, morale ${vit.morale}%.<br/><br/>
+        ${who}.<br/><br/>
         A Dyson swarm is not built. It is <i>begun</i>.<br/>
         Keep launching. Watch the curve bend.
       </div>
