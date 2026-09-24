@@ -117,16 +117,13 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // built at 72s
   await page.keyboard.press('KeyT');
   await expect(page.locator('#tech-screen')).toBeVisible();
-  await expect(page.locator('.era-col')).toHaveCount(8);
+  await expect(page.locator('.era-head')).toHaveCount(8);
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
   // era 1 tech is clickable; era 2 techs locked until 2 era-1 techs done
-  // match on the card title, not full text — lock-reason lines on other cards
-  // ("⬑ needs Regolith Smelting") would double-match a plain hasText filter
-  const smelting = page.locator('.tech-card').filter({
-    has: page.locator('.nm', { hasText: 'Regolith Smelting' }),
-  });
+  const smelting = page.locator('.tech-card[data-tech="regolithProcessing"]');
   await expect(smelting).toHaveClass(/available/);
+  await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/locked/);
   await smelting.click();
   await page.evaluate(() => window.__game.grantData(50));
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
@@ -136,9 +133,11 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   const s1 = await page.evaluate(() => window.__game.getState());
   expect(s1.techsDone).toContain('regolithProcessing');
 
-  await page.evaluate(() => window.__game.completeTech('iceExtraction'));
+  // Ice Extraction is a pole tech now; Teleoperation is the second era-1 tech on the mare
+  await page.evaluate(() => window.__game.completeTech('teleoperation'));
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.era).toBe(2);
+  await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/available/);
 });
 
 test('research progress is banked across queue changes', async ({ page }) => {
