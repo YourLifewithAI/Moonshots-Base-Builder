@@ -348,6 +348,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${sel.type === 'lander' ? `<section>
         <span class="label">Lander services — mission HQ</span>
         <div class="prio" style="margin-top:6px; flex-wrap:wrap">
+          <button class="btn" id="insp-map">◎ Open Lunar Map [M]</button>
           <span class="label">◎ Deposits are mapped inside the survey radius — overlay [I]</span>
         </div>
         <div class="prio" style="margin-top:6px">
@@ -414,6 +415,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       case 'insp-buildnext': game.actions.push({ kind: 'buildNext', id: sel.id }); break;
       case 'insp-toggle': game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }); break;
       case 'insp-order': game.actions.push({ kind: 'orderResupply' }); break;
+      case 'insp-map': window.dispatchEvent(new CustomEvent('moonshots:open-map')); break;
       case 'insp-crewall': game.actions.push({ kind: 'crewAll' }); break;
       case 'insp-crewed': game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }); break;
       case 'insp-auto': game.actions.push({ kind: 'setAutomated', id: sel.id, automated: true }); break;
