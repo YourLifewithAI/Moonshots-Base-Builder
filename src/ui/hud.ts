@@ -2,6 +2,7 @@
  *  milestone goals, pause veil, walk-mode helmet HUD, floating deltas. */
 import { RESOURCE_ORDER, RESOURCES } from '../data/resources';
 import { MILESTONES } from '../data/milestones';
+import { ALERTS } from '../data/balance';
 import type { Game } from '../core/game';
 import {
   $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $milestones, $mode,
@@ -144,21 +145,57 @@ export function mountHud(root: HTMLElement, game: Game) {
   };
   $time.subscribe(renderTime);
 
-  // ── alerts ──
+  // ── alerts: one element per alert id, updated in place; conditions and
+  // the most severe first; clicking one opens what it is about ──
   const alerts = el('div', 'interactive');
   alerts.id = 'alerts';
+  alerts.style.setProperty('--alert-rows', String(ALERTS.shown));
   time.appendChild(alerts);
-  let alertSig = '';
-  $alerts.subscribe((list) => {
-    const sig = list.map((a) => a.id).join(',');
-    if (sig === alertSig) return;
-    alertSig = sig;
-    alerts.innerHTML = '';
-    for (const a of list.slice(-4)) {
-      const d = el('div', `alert panel ${a.kind}`, a.text);
-      d.title = 'Dismiss';
-      d.addEventListener('click', () => game.actions.push({ kind: 'dismissAlert', id: a.id }));
-      alerts.appendChild(d);
+  const more = el('div', 'label alert-more');
+  alerts.appendChild(more);
+  const alertEls = new Map<number, { root: HTMLElement; text: HTMLElement; n: HTMLElement }>();
+  const RANK = { crit: 0, warn: 1, info: 2 } as const;
+  const renderAlerts = () => {
+    const list = $alerts.get().filter((a) => !a.quiet)
+      // conditions keep their places; the newest event leads its severity
+      .sort((a, b) => RANK[a.kind] - RANK[b.kind] || Number(!a.cond) - Number(!b.cond) ||
+        (a.cond ? a.id - b.id : b.at - a.at || b.id - a.id));
+    const shown = list.slice(0, ALERTS.shown);
+    const keep = new Set(shown.map((a) => a.id));
+    for (const [id, e] of alertEls) {
+      if (!keep.has(id)) { e.root.remove(); alertEls.delete(id); }
+    }
+    shown.forEach((a, i) => {
+      let e = alertEls.get(a.id);
+      if (!e) {
+        const d = el('div', '', '<span class="alert-text"></span><span class="alert-n mono"></span><button class="alert-x" title="Dismiss">✕</button>');
+        d.dataset.id = String(a.id);
+        e = { root: d, text: d.querySelector('.alert-text') as HTMLElement, n: d.querySelector('.alert-n') as HTMLElement };
+        alertEls.set(a.id, e);
+      }
+      const cls = `alert panel ${a.kind}${a.action ? ' actionable' : ''}`;
+      if (e.root.className !== cls) e.root.className = cls;
+      if (e.text.textContent !== a.text) e.text.textContent = a.text;
+      const n = a.count > 1 ? `×${a.count}` : '';
+      if (e.n.textContent !== n) e.n.textContent = n;
+      e.root.title = `${a.text} — ${a.action ? 'click for details' : 'click to dismiss'}`;
+      if (alerts.children[i] !== e.root) alerts.insertBefore(e.root, alerts.children[i] ?? more);
+    });
+    more.textContent = list.length > shown.length ? `+${list.length - shown.length} more` : '';
+    more.style.display = more.textContent ? 'block' : 'none';
+  };
+  $alerts.subscribe(renderAlerts);
+  alerts.addEventListener('click', (e) => {
+    const target = e.target as HTMLElement;
+    const id = Number((target.closest('.alert') as HTMLElement | null)?.dataset.id);
+    const a = $alerts.get().find((x) => x.id === id);
+    if (!a) return;
+    if (!a.action || target.closest('.alert-x')) {
+      game.actions.push({ kind: 'dismissAlert', id });
+    } else if ('panel' in a.action) {
+      $resourcePanel.set(a.action.panel);
+    } else {
+      game.select(a.action.select);
     }
   });
 

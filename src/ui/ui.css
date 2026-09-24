@@ -49,12 +49,22 @@
 #time-controls .clock .night { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 #alerts { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; max-width: 340px; }
 .alert {
-  padding: 6px 10px; font-size: 12px; cursor: pointer;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 6px 6px 10px; font-size: 12px; cursor: pointer;
   transition: opacity var(--dur-fast) var(--ease);
 }
 .alert.crit { background: var(--paper); color: var(--ink-900); font-weight: 600; }
 .alert.warn { border-color: rgba(var(--paper-rgb), 0.4); }
 .alert:hover { opacity: 0.7; }
+.alert.actionable .alert-text::after { content: ' ▸'; opacity: 0.6; }
+.alert .alert-n { font-size: 11px; opacity: 0.72; }
+.alert .alert-n:empty { display: none; }
+.alert .alert-x {
+  background: none; border: none; color: inherit; font: inherit; font-size: 10px;
+  opacity: 0.52; cursor: pointer; padding: 0 3px;
+}
+.alert .alert-x:hover { opacity: 1; }
+.alert-more { font-size: 10px; line-height: 14px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 
 /* ── bottom-left: milestones ── */
 #milestones {

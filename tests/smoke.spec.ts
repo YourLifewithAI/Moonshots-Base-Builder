@@ -744,6 +744,92 @@ test('net rates are the economy\'s smoothed flow; housing counts only powered be
   await expect(crewChip).toHaveAttribute('title', /12 beds built · 8 powered/);
 });
 
+test('alerts: conditions clear and snooze, events merge and fade, a click opens what it is about', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // no parts to weld with: construction stalls — a live condition
+  const s1 = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(true);
+    g.grantResources({ parts: -70 });
+    g.placeBuilding('solar', 132, 126);
+    g.advanceGameSeconds(3);
+    return g.getState();
+  });
+  const stalled = s1.alerts.filter((a: any) => a.key === 'stalled');
+  expect(stalled).toHaveLength(1);
+  expect(stalled[0].cond).toBe(true);
+  expect(stalled[0].text).toBe('CONSTRUCTION STALLED — no parts for welding');
+  // clicking it opens the parts panel
+  const row = page.locator('#alerts .alert', { hasText: 'CONSTRUCTION STALLED' });
+  await row.locator('.alert-text').click();
+  await expect(page.locator('#res-panel')).toContainText('Parts');
+  // dismissing snoozes it: it does not return the next tick...
+  await row.locator('.alert-x').click();
+  await expect(row).toHaveCount(0);
+  const snoozed = await page.evaluate(() => { const g = window.__game!; g.advanceGameSeconds(10); return g.getState(); });
+  expect(snoozed.alerts.some((a: any) => a.key === 'stalled')).toBe(false);
+  expect(snoozed.alertSnooze.stalled).toBeGreaterThan(snoozed.simTime);
+  // ...but after the snooze, a condition that still holds is back
+  const back = await page.evaluate(() => { const g = window.__game!; g.advanceGameSeconds(120); return g.getState(); });
+  expect(back.alerts.some((a: any) => a.key === 'stalled')).toBe(true);
+  // resolved: gone within a few ticks, no dismissal needed
+  const resolved = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ parts: 60 });
+    g.advanceGameSeconds(4);
+    return g.getState();
+  });
+  expect(resolved.alerts.some((a: any) => a.key === 'stalled' || a.key === 'parts')).toBe(false);
+
+  // a repeated event merges into one line with a count
+  const merged = await page.evaluate(() => {
+    const g = window.__game!;
+    g.orderResupply(); // Earth's rescue is already under way
+    g.orderResupply();
+    g.advanceGameSeconds(0);
+    return g.getState();
+  });
+  const repeats = merged.alerts.filter((a: any) => a.text.startsWith('SHIPMENT ALREADY EN ROUTE'));
+  expect(repeats).toHaveLength(1);
+  expect(repeats[0].count).toBe(2);
+  await expect(page.locator('#alerts .alert', { hasText: 'SHIPMENT ALREADY EN ROUTE' }).locator('.alert-n'))
+    .toHaveText('×2');
+  // info events fade in real time, whatever the game clock does
+  await expect.poll(async () => (await page.evaluate(() => window.__game.getState()))
+    .alerts.some((a: any) => a.text.startsWith('TOUCHDOWN')), { timeout: 40_000 }).toBe(false);
+
+  // a save from before keyed alerts loads: old lines become fading events
+  // (rewritten on the title screen, after the old page's unload save)
+  await page.evaluate(() => window.__game.save());
+  await page.goto(URL_DEBUG);
+  await expect(page.locator('#btn-continue')).toBeVisible();
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open('keyval-store');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+    const tx = db.transaction('keyval', 'readwrite');
+    const store = tx.objectStore('keyval');
+    const blob = await new Promise<any>((res) => {
+      const r = store.get('mbb-save-v1');
+      r.onsuccess = () => res(r.result);
+    });
+    blob.state.alerts = [{ id: 900, text: 'BROWNOUT — night demand exceeds stored power', kind: 'crit', at: 100 }];
+    delete blob.state.alertSnooze;
+    store.put(blob, 'mbb-save-v1');
+    await new Promise((res) => { tx.oncomplete = res; });
+  });
+  await page.locator('#btn-continue').click();
+  await game(page);
+  const loaded = await page.evaluate(() => window.__game.getState());
+  const old = loaded.alerts.find((a: any) => a.id === 900);
+  expect(old).toMatchObject({ key: 'BROWNOUT — night demand exceeds stored power', kind: 'warn', count: 1 });
+  expect(old.cond).toBeUndefined();
+  expect(loaded.alertSnooze).toEqual({});
+});
+
 test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

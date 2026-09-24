@@ -127,3 +127,17 @@ export const SWARM_PCT_PER_LAUNCH = 0.0001;
 export const BEAM_KW_PER_LAUNCH = 4;   // power-beaming return per volley launched
 
 export const AUTOSAVE_S = 60;          // real seconds
+
+/** the alert stack: a dismissed condition stays quiet snoozeS game-seconds;
+ *  one that stops being raised lingers lingerTicks economy ticks (so a
+ *  threshold hovered over does not strobe); events fade after REAL seconds
+ *  (info fadeInfoS, warn fadeWarnS — crit waits for the player), and at most
+ *  maxEvents are kept, the least severe and oldest dropped first */
+export const ALERTS = {
+  snoozeS: 120,
+  lingerTicks: 3,
+  fadeInfoS: 20,
+  fadeWarnS: 60,
+  maxEvents: 8,
+  shown: 4,
+};

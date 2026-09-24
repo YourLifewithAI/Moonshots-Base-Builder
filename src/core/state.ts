@@ -42,11 +42,27 @@ export interface FlareState {
   nextAt: number;            // game-time (s) of next telegraph start
 }
 
+/** what clicking an alert does: open a resource info panel, or select a building */
+export type AlertAction = { panel: string } | { select: number };
+
+/** One line of the alert stack. A condition (cond) is re-raised by every
+ *  economy tick while it holds and leaves soon after it stops; an event is
+ *  raised once, and a repeat while it is still listed merges into it. */
 export interface AlertMsg {
   id: number;
   text: string;
   kind: 'info' | 'warn' | 'crit';
-  at: number;                // game time
+  at: number;                // game time last raised
+  /** repeats merge on this: a condition's name, an event's text */
+  key: string;
+  cond?: boolean;
+  /** events: times raised while listed; conditions: instances this tick */
+  count: number;
+  /** conditions: economy ticks left before an unraised condition is cleared */
+  ttl?: number;
+  /** an info alert that has had its moment on screen: listed, not shown */
+  quiet?: boolean;
+  action?: AlertAction;
 }
 
 export interface GameState {
@@ -109,6 +125,8 @@ export interface GameState {
   storageCaps: Partial<Record<import('../data/resources').ResourceId, number>>;
   alerts: AlertMsg[];
   nextAlertId: number;
+  /** dismissed conditions: key → game time the snooze ends */
+  alertSnooze: Record<string, number>;
   milestonesDone: string[];
 
   victoryShown: boolean;
@@ -160,6 +178,7 @@ export function createInitialState(
     storageCaps: {},
     alerts: [],
     nextAlertId: 1,
+    alertSnooze: {},
     milestonesDone: [],
     victoryShown: false,
     defeatShown: false,

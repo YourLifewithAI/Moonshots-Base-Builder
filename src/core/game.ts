@@ -6,7 +6,7 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, CYCLE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  ALERTS, AUTOSAVE_S, CYCLE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
@@ -14,8 +14,8 @@ import { createInitialState, type BuildingState, type GameState } from './state'
 import { canToggleCrew } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
-  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, missionLost, orderDelayS,
-  queuePos, settlersWelcome, type Mods,
+  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction, missionLost,
+  orderDelayS, queuePos, settlersWelcome, type Mods,
 } from './economy';
 import { Heightfield } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
@@ -134,6 +134,15 @@ export class Game {
     legacy.rates ??= {};
     legacy.housingActive ??= legacy.buildings.reduce((n, b) =>
       n + (b.enabled && (b.construction ?? 0) <= 0 ? BUILDINGS[b.type].housing ?? 0 : 0), 0);
+    // saves from before keyed alerts: an old line cannot tell whether it still
+    // holds, so it becomes an event that fades — nothing stale stays pinned
+    legacy.alertSnooze ??= {};
+    for (const a of legacy.alerts) {
+      if (a.key !== undefined) continue;
+      a.key = a.text;
+      a.count = 1;
+      if (a.kind === 'crit') a.kind = 'warn';
+    }
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
@@ -152,6 +161,7 @@ export class Game {
 
   private bootWorld(state: GameState) {
     this.state = state;
+    this.alertClock.clear();
     this.mods = refreshDerived(state);
     if (this.worldGroup) this.scene.remove(this.worldGroup);
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
@@ -297,6 +307,12 @@ export class Game {
     $placing.set(null);
   }
 
+  /** open the inspector on a building (null closes it) */
+  select(id: number | null) {
+    const b = id === null ? undefined : this.state.buildings.find((x) => x.id === id);
+    $selection.set(b ? { ...b } : null);
+  }
+
   // ─────────────────────────── actions ───────────────────────────
 
   private applyAction(a: Action) {
@@ -401,7 +417,8 @@ export class Game {
         s.resupply.arriveAt = s.simTime + orderDelayS(s);
         s.resupply.ordered = (s.resupply.ordered ?? 0) + 1;
         if (s.crew > 0) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
-        alert(s, `SHIPMENT ORDERED — Earth launch confirmed, arrival in ${days} lunar day${days === 1 ? '' : 's'}`, 'info');
+        alert(s, `SHIPMENT ORDERED — Earth launch confirmed, arrival in ${days} lunar day${days === 1 ? '' : 's'}`,
+          'info', landerAction(s));
         break;
       }
       case 'surveyIce': {
@@ -416,7 +433,13 @@ export class Game {
         alert(s, 'SURVEY COMPLETE — ice deposits mapped. Toggle the overlay with [I]', 'info');
         break;
       }
-      case 'dismissAlert': s.alerts = s.alerts.filter((al) => al.id !== a.id); break;
+      case 'dismissAlert': {
+        // a dismissed condition keeps quiet a while instead of returning next tick
+        const al = s.alerts.find((x) => x.id === a.id);
+        if (al?.cond) (s.alertSnooze ??= {})[al.key] = s.simTime + ALERTS.snoozeS;
+        s.alerts = s.alerts.filter((x) => x.id !== a.id);
+        break;
+      }
     }
   }
 
@@ -452,7 +475,8 @@ export class Game {
     if (!free && !s.buildings.some((b) => b.type === 'smelter')) {
       const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * SITES[s.siteId].buildCostMult);
       if (s.resources.metals < smelterCost + 20) {
-        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`, 'warn');
+        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`,
+          'warn', { panel: 'metals' });
       }
     }
   }
@@ -506,6 +530,9 @@ export class Game {
   // ─────────────────────────── loop ───────────────────────────
 
   private shadeAcc = 0;
+  private alertAcc = 0;
+  /** alert id → real time (ms) it was last raised, as seen by this session */
+  private alertClock = new Map<number, { t: number; count: number }>();
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
@@ -514,7 +541,11 @@ export class Game {
     requestAnimationFrame((tt) => this.frame(tt));
     const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
-    if (this.playing) this.step(realDt);
+    if (this.playing) {
+      this.step(realDt);
+      this.alertAcc += realDt;
+      if (this.alertAcc > 0.5) { this.alertAcc = 0; this.ageAlerts(t); }
+    }
     this.post.render(Math.min(realDt, 0.1));
     // black-screen sentinel: some drivers fail shaders silently instead of
     // throwing. Probe the rendered output during daylight — first drop the
@@ -656,6 +687,33 @@ export class Game {
       this.autosaveAcc = 0;
       void this.doSave();
     }
+  }
+
+  /** Alerts age in real time, whatever the game speed: info events leave
+   *  after ALERTS.fadeInfoS, warn events after ALERTS.fadeWarnS, and an info
+   *  condition goes quiet (still listed while it holds). Crit waits. */
+  private ageAlerts(nowMs: number) {
+    const s = this.state;
+    let changed = false;
+    const listed = new Set<number>();
+    s.alerts = s.alerts.filter((a) => {
+      listed.add(a.id);
+      const c = this.alertClock.get(a.id);
+      if (!c || (!a.cond && c.count !== a.count)) {
+        this.alertClock.set(a.id, { t: nowMs, count: a.count });
+        return true;
+      }
+      const life = a.kind === 'info' ? ALERTS.fadeInfoS : a.kind === 'warn' && !a.cond ? ALERTS.fadeWarnS : Infinity;
+      if ((nowMs - c.t) / 1000 < life) return true;
+      if (a.cond) {
+        if (!a.quiet) { a.quiet = true; changed = true; }
+        return true;
+      }
+      changed = true;
+      return false;
+    });
+    for (const id of this.alertClock.keys()) if (!listed.has(id)) this.alertClock.delete(id);
+    if (changed) this.publish();
   }
 
   /** Solar arrays in terrain shadow lose 85% output: march a ray toward the
@@ -892,7 +950,8 @@ export class Game {
 
   debugAdvance(gameSeconds: number) {
     // apply anything the UI/debug API queued this frame before ticking
-    for (const a of this.actions.drain()) this.applyAction(a);
+    const acts = this.actions.drain();
+    for (const a of acts) this.applyAction(a);
     let victory = false;
     let defeat = false;
     // as in play: shading follows the sun (every 5 game-seconds, the live
@@ -911,7 +970,7 @@ export class Game {
         defeat = true;
       }
     }
-    if (gameSeconds > 0) {
+    if (gameSeconds > 0 || acts.length) {
       this.instances.rebuild(this.state);
       this.publish();
     }
@@ -932,11 +991,6 @@ export class Game {
 
   get walkController() { return this.walk; }
   get iceDepositList() { return this.hf.iceDeposits; }
-
-  debugSelect(id: number | null) {
-    const b = id === null ? undefined : this.state.buildings.find((x) => x.id === id);
-    $selection.set(b ? { ...b } : null);
-  }
 
   debugCheckPlace(type: BuildingId, gx: number, gz: number) {
     return checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, 0);

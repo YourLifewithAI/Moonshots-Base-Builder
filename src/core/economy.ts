@@ -9,14 +9,14 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AGENT_GEN_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
+  AGENT_GEN_TAX, ALERTS, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
   CREW, CYCLE_S, FLARE,
   LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START, WEAR,
 } from '../data/balance';
 import type { ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
-import type { GameState, BuildingState } from './state';
+import type { AlertAction, AlertMsg, GameState, BuildingState } from './state';
 import { computeEra, computeMods, type Mods } from './mods';
 import { dayInfo, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
@@ -36,11 +36,74 @@ export interface EconEvents {
   defeat: boolean;
 }
 
-export function alert(s: GameState, text: string, kind: 'info' | 'warn' | 'crit' = 'info') {
-  // dedupe identical live alerts
-  if (s.alerts.some((a) => a.text === text)) return;
-  s.alerts.push({ id: s.nextAlertId++, text, kind, at: s.simTime });
-  if (s.alerts.length > 6) s.alerts.shift();
+type AlertKind = AlertMsg['kind'];
+const SEVERITY: Record<AlertKind, number> = { info: 0, warn: 1, crit: 2 };
+
+/** A one-shot event. Repeating one still listed merges into it (×N). */
+export function alert(s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction) {
+  const i = s.alerts.findIndex((a) => !a.cond && a.key === text);
+  if (i >= 0) {
+    const [a] = s.alerts.splice(i, 1);
+    a.count += 1;
+    a.at = s.simTime;
+    a.quiet = false;
+    s.alerts.push(a);
+    return;
+  }
+  s.alerts.push({ id: s.nextAlertId++, text, kind, at: s.simTime, key: text, count: 1, action });
+  // bounded: the least severe, then the oldest, event makes room
+  const events = s.alerts.filter((a) => !a.cond);
+  if (events.length > ALERTS.maxEvents) {
+    const out = events.reduce((m, a) => (SEVERITY[a.kind] < SEVERITY[m.kind] ? a : m));
+    s.alerts.splice(s.alerts.indexOf(out), 1);
+  }
+}
+
+/** conditions raised during the economy tick in progress: key → times */
+let raised: Map<string, number> | null = null;
+
+/** A recurring condition: raise it every tick it holds, with its current
+ *  wording; it clears itself shortly after it stops being raised. A
+ *  dismissed condition is snoozed rather than re-raised the next tick. */
+export function condition(
+  s: GameState, key: string, text: string, kind: AlertKind, action?: AlertAction,
+) {
+  if ((s.alertSnooze?.[key] ?? 0) > s.simTime) return;
+  const n = (raised?.get(key) ?? 0) + 1;
+  raised?.set(key, n);
+  const live = s.alerts.find((a) => a.cond && a.key === key);
+  if (!live) {
+    s.alerts.push({
+      id: s.nextAlertId++, text, kind, at: s.simTime, key, cond: true, count: 1,
+      ttl: ALERTS.lingerTicks, action,
+    });
+    return;
+  }
+  if (live.kind !== kind) live.quiet = false;
+  live.text = text;
+  live.kind = kind;
+  live.at = s.simTime;
+  live.count = n;
+  live.ttl = ALERTS.lingerTicks;
+  live.action = action;
+}
+
+/** clicking an alert about Earth traffic opens the Lander */
+export function landerAction(s: GameState): AlertAction | undefined {
+  const lander = s.buildings.find((b) => b.type === 'lander');
+  return lander ? { select: lander.id } : undefined;
+}
+
+/** end of tick: conditions nobody raised count down and leave */
+function settleConditions(s: GameState, seen: Map<string, number>) {
+  s.alerts = s.alerts.filter((a) => {
+    if (!a.cond || seen.has(a.key)) return true;
+    a.ttl = (a.ttl ?? 1) - 1;
+    return a.ttl > 0;
+  });
+  for (const [key, until] of Object.entries(s.alertSnooze ?? {})) {
+    if (until <= s.simTime) delete s.alertSnooze[key];
+  }
 }
 
 export function moraleWorkMult(morale: number): number {
@@ -98,8 +161,17 @@ export function currentDay(s: GameState, site: SiteDef): DayInfo {
 
 /** Advance the economy by dt game-seconds (call at 1 Hz of game time). */
 export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
+  if (missionLost(s)) return { modsChanged: false, victory: false, defeat: false };
+  const seen = new Map<string, number>();
+  raised = seen;
+  const ev = runTick(s, site, mods, dt);
+  raised = null;
+  settleConditions(s, seen);
+  return ev;
+}
+
+function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
   const ev: EconEvents = { modsChanged: false, victory: false, defeat: false };
-  if (missionLost(s)) return ev;
   const before = { ...s.resources };
   const day = currentDay(s, site);
   const robotic = s.expedition === 'robotic';
@@ -264,7 +336,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     const weld = CONSTRUCTION_PARTS_PER_S * dt;
     if (s.resources.parts < weld) {
       b.idleReason = 'inputs'; // welding consumables ran dry
-      alert(s, 'CONSTRUCTION STALLED — no parts for welding', 'warn');
+      condition(s, 'stalled', 'CONSTRUCTION STALLED — no parts for welding', 'warn', { panel: 'parts' });
       continue;
     }
     s.resources.parts -= weld;
@@ -272,7 +344,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     b.construction = Math.max(0, (b.construction ?? 0) - dt);
     if (b.construction === 0) {
       b.idleReason = '';
-      alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info');
+      alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info', { select: b.id });
     }
   }
   // settle storage: net energy this tick
@@ -280,9 +352,13 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * BATTERY_EFF);
   else s.powerStored = Math.max(0, s.powerStored + net);
   s.power = { supply, demand, served: drawn / dt, capacity, brownout, shed };
-  if (brownout && day.isNight) alert(s, 'BROWNOUT — night demand exceeds stored power', 'crit');
-  else if (brownout) alert(s, 'BROWNOUT — grid demand exceeds supply', 'crit');
-  else if (shed) alert(s, 'LOAD SHED — low-priority systems idled to protect the grid', 'info');
+  if (brownout) {
+    condition(s, 'brownout', day.isNight
+      ? 'BROWNOUT — night demand exceeds stored power'
+      : 'BROWNOUT — grid demand exceeds supply', 'crit', { panel: 'power' });
+  } else if (shed) {
+    condition(s, 'shed', 'LOAD SHED — low-priority systems idled to protect the grid', 'info', { panel: 'power' });
+  }
 
   // ── 3 · worker allocation (priority order) ─────────────────────────
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
@@ -363,13 +439,13 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   // ── 4.5 · stockpile caps: excess production is lost on the ground ──
   for (const [rid, cap] of Object.entries(caps)) {
     const r = rid as ResourceId;
-    if (s.resources[r] > (cap ?? 0)) {
-      if (s.resources[r] > (cap ?? 0) + 0.5) {
-        // a byproduct tank topping off is routine; a full yard is waste
-        if (r === 'oxygen' || r === 'water') alert(s, `TANKS FULL — surplus ${r} vented`, 'info');
-        else alert(s, `STORAGE FULL — ${r} at capacity, build a Storage Yard`, 'warn');
-      }
-      s.resources[r] = cap ?? 0;
+    if (s.resources[r] > (cap ?? 0)) s.resources[r] = cap ?? 0;
+    // full within a couple of percent: producers top up and stand by there
+    if (s.resources[r] >= (cap ?? 0) - Math.max(1, (cap ?? 0) * 0.02)) {
+      // a byproduct tank topping off is routine; a full yard idles its producers
+      condition(s, `full:${r}`, r === 'oxygen' || r === 'water'
+        ? `TANKS FULL — surplus ${r} vented`
+        : `STORAGE FULL — ${r} at capacity; its producers stand by until a Storage Yard adds room`, 'info', { panel: r });
     }
   }
 
@@ -393,9 +469,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   s.housingActive = housing;
   if (!o2ok || !foodok || !waterok) {
     s.starveT += dt;
-    alert(s, !o2ok ? 'OXYGEN DEPLETED — crew is suffocating'
+    const gone = !o2ok ? 'oxygen' : !waterok ? 'water' : 'food';
+    condition(s, 'depleted', !o2ok ? 'OXYGEN DEPLETED — crew is suffocating'
       : !waterok ? 'WATER DEPLETED — crew is dehydrating'
-      : 'FOOD DEPLETED — crew is starving', 'crit');
+      : 'FOOD DEPLETED — crew is starving', 'crit', { panel: gone });
     if (s.starveT > CREW.starveGraceS) {
       const losses = Math.floor((s.starveT - CREW.starveGraceS) / CREW.lossPeriodS);
       if (losses > 0) {
@@ -403,7 +480,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         if (s.crew > 0) {
           s.crew -= 1;
           s.morale = Math.max(0, s.morale - 15);
-          alert(s, 'CREW LOST — life support failure', 'crit');
+          alert(s, 'CREW LOST — life support failure', 'crit', { panel: 'crew' });
         }
       }
     }
@@ -418,9 +495,9 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const o2Anxious = s.crew > 0 && s.resources.oxygen / o2Rate < LOW_SUPPLY_S;
   const foodAnxious = s.crew > 0 && s.resources.food / foodRate < LOW_SUPPLY_S;
   const waterAnxious = s.crew > 0 && s.resources.water / waterRate < LOW_SUPPLY_S;
-  if (o2Anxious) alert(s, 'OXYGEN RESERVES LOW — the crew is anxious', 'warn');
-  if (foodAnxious) alert(s, 'FOOD RESERVES LOW — the crew is anxious', 'warn');
-  if (waterAnxious) alert(s, 'WATER RESERVES LOW — the crew is anxious', 'warn');
+  if (o2Anxious) condition(s, 'low:oxygen', 'OXYGEN RESERVES LOW — the crew is anxious', 'warn', { panel: 'oxygen' });
+  if (foodAnxious) condition(s, 'low:food', 'FOOD RESERVES LOW — the crew is anxious', 'warn', { panel: 'food' });
+  if (waterAnxious) condition(s, 'low:water', 'WATER RESERVES LOW — the crew is anxious', 'warn', { panel: 'water' });
   // the base falls silent when the last crewmember dies (humans only —
   // a robotic mission has no one to lose)
   if (!robotic && s.crew <= 0 && !s.defeatShown) {
@@ -437,9 +514,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     if (s.growthT >= CREW.growthPeriod) {
       s.growthT = 0;
       s.crew += 1;
-      alert(s, 'ARRIVAL — a new crewmember has joined the base', 'info');
+      alert(s, 'ARRIVAL — a new crewmember has joined the base', 'info', { panel: 'crew' });
       if (robotic && s.crew === 1 && s.buildings.some((b) => b.automated && BUILDINGS[b.type].crew > 0)) {
-        alert(s, 'SETTLERS ABOARD — stations are still agent-run; crew them from the Lander to save power and lift the labs’ agent cap', 'info');
+        alert(s, 'SETTLERS ABOARD — stations are still agent-run; crew them from the Lander to save power and lift the labs’ agent cap',
+          'info', landerAction(s));
       }
     }
   } else {
@@ -468,9 +546,9 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     }
   }
   if (partsShort) {
-    alert(s, s.resupply?.pending
+    condition(s, 'parts', s.resupply?.pending
       ? 'PARTS DEPLETED — equipment wearing down until the Earth shipment lands at the Lander'
-      : 'PARTS DEPLETED — equipment wearing down; order an Earth shipment at the Lander', 'warn');
+      : 'PARTS DEPLETED — equipment wearing down; order an Earth shipment at the Lander', 'warn', { panel: 'parts' });
   }
 
   // ── 6.5 · net flow rates (before deliveries and research goods) ──────
@@ -507,9 +585,6 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
       if (s.simTime >= s.flare.nextAt) {
         s.flare.phase = 'telegraph';
         s.flare.timer = FLARE.telegraphS;
-        alert(s, site.flareImmune
-          ? 'SOLAR FLARE INBOUND — lava tube shielding will hold'
-          : 'SOLAR FLARE INBOUND — radiation storm in 60s', 'crit');
       }
       break;
     case 'telegraph':
@@ -528,6 +603,14 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         s.flare.nextAt = s.simTime + (FLARE.periodDays + (jitter - 0.5) * 2 * FLARE.jitterDays) * CYCLE_S;
       }
       break;
+  }
+  if (s.flare.phase === 'telegraph') {
+    condition(s, 'flare', site.flareImmune
+      ? 'SOLAR FLARE INBOUND — lava tube shielding will hold'
+      : `SOLAR FLARE INBOUND — radiation storm in ${Math.ceil(s.flare.timer)} s`, site.flareImmune ? 'info' : 'crit');
+  } else if (s.flare.phase === 'active' && !site.flareImmune) {
+    condition(s, 'flare', `SOLAR FLARE — solar arrays dark, crew sheltering for ${Math.ceil(s.flare.timer)} s`, 'crit',
+      { panel: 'power' });
   }
 
   // ── 8.5 · emergency Earth resupply (the anti-softlock) ─────────────
@@ -554,7 +637,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         if (amt - room >= 1) lost.push(`${Math.floor(amt - room)} ${rid}`);
       }
       alert(s, `RESUPPLY LANDED — +${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts from Earth` +
-        (lost.length ? ` · ${lost.join(' and ')} lost to full storage` : ''), lost.length ? 'warn' : 'info');
+        (lost.length ? ` · ${lost.join(' and ')} lost to full storage` : ''), lost.length ? 'warn' : 'info', landerAction(s));
     }
   } else if (stranded) {
     s.resupply.pending = true;
@@ -563,7 +646,7 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
     alert(s, stranded === 'metals'
       ? 'STRANDED — Earth resupply launched, arrival in 1 lunar day'
       : 'STRANDED — spare parts nearly gone and no Parts Fabricator; Earth resupply launched, arrival in 1 lunar day',
-    'crit');
+    'crit', landerAction(s));
   }
 
   // ── 9 · research ───────────────────────────────────────────────────
@@ -600,7 +683,10 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
         ev.modsChanged = true;
         alert(s, `RESEARCH COMPLETE — ${def.name}`, 'info');
       } else {
-        alert(s, `RESEARCH STALLED — ${def.name} needs manufactured goods`, 'warn');
+        const missing = Object.keys(def.costGoods ?? {}).find((rid) =>
+          s.resources[rid as ResourceId] < (def.costGoods?.[rid as ResourceId] ?? 0));
+        condition(s, 'research', `RESEARCH STALLED — ${def.name} needs manufactured goods`, 'warn',
+          missing ? { panel: missing } : undefined);
       }
     }
   }

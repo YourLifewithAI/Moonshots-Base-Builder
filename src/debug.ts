@@ -31,7 +31,7 @@ function api(game: Game) {
     demolish: (id: number) => game.actions.push({ kind: 'demolish', id }),
     buildNext: (id: number) => game.actions.push({ kind: 'buildNext', id }),
     /** open the inspector on a building (null closes it) */
-    select: (id: number | null) => game.debugSelect(id),
+    select: (id: number | null) => game.select(id),
     completeTech: (id: TechId) => game.debugCompleteTech(id),
     research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
     cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),
