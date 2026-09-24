@@ -309,3 +309,78 @@ test('keys and live updates: T toggles, arrows move, Enter queues, Esc closes; p
   await expect(page.locator('#era-chip')).toContainText(/ERA 1/);
   await expect(page.locator('#chip-res-pct')).toHaveText(/%/);
 });
+
+test('goods chips follow the sim: water the crew is holding is short, on the card and in the sheet', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, 'mare', 'human');
+  const setup = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(true);
+    g.advanceGameSeconds(0);
+    // Molten Regolith Electrolysis: the smelter makes no water, so the tanks hold still
+    for (const t of ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication',
+      'batteryStorage', 'moltenElectrolysis']) g.completeTech(t);
+    const spots: [number, number][] = [];
+    for (let gz = 112; gz <= 143; gz++) for (let gx = 112; gx <= 143; gx++) spots.push([gx, gz]);
+    spots.sort((a, b) => Math.hypot(a[0] - 127, a[1] - 127) - Math.hypot(b[0] - 127, b[1] - 127));
+    const placed: Record<string, number> = {};
+    for (const [type, n] of [['solar', 2], ['lab', 2]] as const) {
+      placed[type] = 0;
+      for (const [gx, gz] of spots) {
+        if (placed[type] >= n) break;
+        if (g.placeBuilding(type, gx, gz)) placed[type]++;
+      }
+    }
+    g.finishConstruction();
+    // 80.5≈ covers the 80 in raw stock, but not 80 above the crew's reserve
+    g.grantResources({ water: 80.5 - g.getState().resources.water });
+    const s = g.getState();
+    return { placed, crew: s.crew, water: s.resources.water, card: g.getResearch().cards.regenFuelCells };
+  });
+  expect(setup.placed).toEqual({ solar: 2, lab: 2 });
+  expect(setup.crew).toBeGreaterThan(0);
+  expect(setup.water).toBeGreaterThanOrEqual(80);
+  expect(setup.card.state).toBe('available');
+  expect(setup.card.goodsShort).toEqual(['water']);
+
+  await openTree(page);
+  // an unqueued card: its line-2 chip
+  await expect(card(page, 'regenFuelCells').locator('.g[data-res="water"]')).toHaveClass(/\bshort\b/);
+
+  // queue it and pay its data with the tanks low, so it cannot finish meanwhile
+  const paid = await page.evaluate(() => {
+    const g = window.__game!;
+    g.research('regenFuelCells');
+    g.grantData(500);
+    g.grantResources({ water: 40 - g.getState().resources.water });
+    for (let t = 0; t < 240; t += 10) { g.grantPower(5000); g.advanceGameSeconds(10); }
+    g.grantResources({ water: 80.5 - g.getState().resources.water });
+    const s = g.getState();
+    return { stalled: s.researchStalled, done: s.techsDone, water: s.resources.water, card: g.getResearch().cards.regenFuelCells };
+  });
+  expect(paid.stalled).toEqual(['regenFuelCells']);
+  expect(paid.done).not.toContain('regenFuelCells');
+  expect(paid.water).toBeGreaterThanOrEqual(80);
+  expect(paid.card.state).toBe('stalled');
+  expect(paid.card.pct).toBe(1);
+  expect(paid.card.goodsShort).toEqual(['water']);
+  expect(paid.card.stalledNeed).toMatch(/^80≈ water \(have 80, \d+ held for the crew\)/);
+
+  // the queued, paid card: a doctrine, so the sheet shows both members side by
+  // side; Fuel Cells' water chip is short although 80.5 ≥ 80
+  await card(page, 'regenFuelCells').hover();
+  const chip = page.locator('#tech-sheet-body .doc-side[data-tech="regenFuelCells"] .g[data-res="water"]');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveClass(/\bshort\b/);
+  // each side answers for its own tech: the rival's chips follow its own shortfall
+  const rival = await page.evaluate(() => {
+    const c = window.__game!.getResearch().cards.thoriumPower;
+    return { goods: Object.keys(c.cost.goods), short: c.goodsShort };
+  });
+  expect(rival.goods.length).toBeGreaterThan(0);
+  for (const r of rival.goods) {
+    const rc = page.locator(`#tech-sheet-body .doc-side[data-tech="thoriumPower"] .g[data-res="${r}"]`);
+    if (rival.short.includes(r)) await expect(rc).toHaveClass(/\bshort\b/);
+    else await expect(rc).not.toHaveClass(/\bshort\b/);
+  }
+});

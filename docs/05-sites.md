@@ -112,8 +112,8 @@ is finite, and heavy exports climb back out.
 |---|---|
 | Solar (day / night fraction) | **×0.7** / 0.0 |
 | Water ice | None |
-| ISRU output | ×0.9 |
-| Build cost | ×1.2 |
+| ISRU output | ×1.0 (Procellarum mare basalt) |
+| Build cost | ×1.1 |
 | Mass-driver launch | ×1.0 |
 | Flare immunity / upkeep | **YES — flare-immune** / **×0.85** (thermal stability) |
 | Morale baseline / footprint | **72 — highest on the Moon** / **220 m radius** around the skylight |

@@ -165,7 +165,7 @@ test('thorium reactor needs its operator; agent-run reactors pay the agent tax',
   expect(reactors(s).every((b: any) => b.active)).toBe(true);
   expect(s.power.supply).toBeCloseTo(6 + 40 + 40, 0);
   // one operator left for two reactors: the second one goes cold
-  await page.evaluate(() => window.__game.grantCrew(-3));
+  await page.evaluate(() => window.__game.grantCrew(1 - window.__game.getState().crew));
   await page.evaluate(() => window.__game.advanceGameSeconds(2));
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(reactors(s2).map((b: any) => b.idleReason).sort()).toEqual(['', 'crew']);
@@ -327,7 +327,7 @@ test('construction stalls without welding parts and resumes on delivery', async 
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
   // no parts in stock; solar costs metals only, so the site opens but can't weld
-  await page.evaluate(() => window.__game.grantResources({ parts: -70 }));
+  await page.evaluate(() => window.__game.grantResources({ parts: -window.__game.getState().resources.parts }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
   const s = await page.evaluate(() => window.__game.getState());
@@ -588,14 +588,17 @@ test('Earth shipments ordered by hand wait longer each time and cost morale when
 test('parts loop: an honest robotic run never softlocks on parts, no shipment button needed', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
-  // a greedy opening that burns the spares cache before the fab is researched;
+  // a greedy opening that burns the spares cache before the fab is researched
+  // (five labs and four excavators: the cache is sized for a reasonable one);
   // only placements and research — no grants, no completeTech, no orderResupply
   const run = await page.evaluate(() => {
     const g = window.__game!;
     const plan: [string, number, number][] = [
       ['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133], ['excavator', 120, 126],
       ['smelter', 120, 132], ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
-      ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126], ['partsFab', 138, 128],
+      ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126],
+      ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
+      ['partsFab', 138, 128],
     ];
     const research = ['regolithProcessing', 'teleoperation', 'siliconRefining', 'partsFabrication'];
     let dryWithoutRemedy = 0;
@@ -675,15 +678,15 @@ test('life support first: a farm never drinks the crew dry', async ({ page }) =>
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('hydroponics', 120, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // farm built at 72s
-  // leave the crew just their five-minute reserve (4 × 0.005/s × 300 s = 6)
+  // leave the crew just their five-minute reserve (7 × 0.005/s × 300 s = 10.5)
   const held = await page.evaluate(() => {
     const g = window.__game!;
-    g.grantResources({ water: 6.05 - g.getState().resources.water });
+    g.grantResources({ water: 10.55 - g.getState().resources.water });
     g.advanceGameSeconds(2);
     return g.getState();
   });
   expect(held.buildings.find((b: any) => b.type === 'hydroponics').idleReason).toBe('reserve');
-  expect(held.resources.water).toBeGreaterThan(5.9); // only the crew drank
+  expect(held.resources.water).toBeGreaterThan(10.4); // only the crew drank
 
   // the standard opening that used to die of thirst inside ten minutes
   await page.goto(`${URL_DEBUG}&site=mare`);
@@ -697,7 +700,7 @@ test('life support first: a farm never drinks the crew dry', async ({ page }) =>
   for (let m = 0; m < 25; m++) {
     await page.evaluate(() => window.__game.advanceGameMinutes(1));
     const s = await page.evaluate(() => window.__game.getState());
-    expect(s.crew).toBeGreaterThanOrEqual(4);
+    expect(s.crew).toBeGreaterThanOrEqual(7); // nobody is lost
     expect(s.alerts.some((a: any) => a.text.includes('WATER DEPLETED'))).toBe(false);
   }
   const end = await page.evaluate(() => window.__game.getState());
@@ -809,7 +812,7 @@ test('alerts: conditions clear and snooze, events merge and fade, a click opens 
   const s1 = await page.evaluate(() => {
     const g = window.__game!;
     g.setPaused(true);
-    g.grantResources({ parts: -70 });
+    g.grantResources({ parts: -g.getState().resources.parts });
     g.placeBuilding('solar', 132, 126);
     g.advanceGameSeconds(3);
     return g.getState();
@@ -897,7 +900,7 @@ for (const vp of [{ width: 1366, height: 768 }, { width: 1600, height: 900 }]) {
     await page.evaluate(() => {
       const g = window.__game!;
       g.setPaused(true);
-      g.grantResources({ chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45, parts: -70 });
+      g.grantResources({ chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45, parts: -g.getState().resources.parts });
       g.placeBuilding('solar', 132, 126);
       g.advanceGameSeconds(3);
       g.select(g.getState().buildings[0].id); // the Lander: the tallest inspector
@@ -962,7 +965,7 @@ test('night: the clock counts to dusk, a warning names the runway, the bank chip
 test('info panels: live values, life support in seconds, shipments and construction, time to empty', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
-  // water warns on seconds of supply: four crew drink 6 in five minutes
+  // water warns on seconds of supply: seven crew drink 10.5 in five minutes
   const water = page.locator('#resource-strip .chip[data-key="water"]');
   await expect(water).not.toHaveClass(/warn/);
   await page.evaluate(() => {
@@ -974,7 +977,7 @@ test('info panels: live values, life support in seconds, shipments and construct
   await expect(water).toHaveClass(/warn/);
   await water.click();
   const panel = page.locator('#res-panel');
-  await expect(panel).toContainText('Crew ×4');
+  await expect(panel).toContainText('Crew ×7');
   await expect(panel).toContainText(/empties in \d+:\d\d/);
   await expect(panel.locator('.row', { hasText: 'Ice Harvester' })).toHaveCount(0); // no ice on the mare
   await expect(panel).toContainText('No ice at this site');
@@ -1061,6 +1064,47 @@ test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page })
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.resources.regolith).toBeGreaterThan(500);
   expect(s2.resources.regolith).toBeLessThanOrEqual(700); // lander + yard
+});
+
+test('a shut-down Battery Bank stores nothing and costs nothing, and its charge goes with it', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('batteryStorage'));
+  await page.evaluate(() => window.__game.grantResources({ metals: 60, silicon: 10 }));
+  expect(await page.evaluate(() => window.__game.placeBuilding('battery', 132, 126))).toBe(true);
+  // measure inside one evaluate so the live frame loop can't slip a tick in
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.finishConstruction();
+    g.grantPower(3000);
+    g.advanceGameSeconds(1);
+    const on = g.getState();
+    const bank = on.buildings.find((b: any) => b.type === 'battery');
+    const parts0 = on.resources.parts;
+    g.advanceGameSeconds(72);
+    const onUpkeep = parts0 - g.getState().resources.parts;
+    g.setEnabled(bank.id, false);
+    g.advanceGameSeconds(1);
+    const off = g.getState();
+    const parts1 = off.resources.parts;
+    g.advanceGameSeconds(72);
+    const offUpkeep = parts1 - g.getState().resources.parts;
+    g.setEnabled(bank.id, true);
+    g.advanceGameSeconds(1);
+    return { on, off, onUpkeep, offUpkeep, again: g.getState() };
+  });
+  // the Lander's 800 and the bank's 3,000
+  expect(r.on.power.capacity).toBe(3800);
+  // shut down, as a Storage Yard's caps go: no storage, and the charge it held is lost
+  expect(r.off.power.capacity).toBe(800);
+  expect(r.off.powerStored).toBeLessThanOrEqual(800);
+  expect(r.off.alerts.some((a: any) => /^CHARGE LOST — \d+ stored energy went with the bank; the grid holds 800 now$/.test(a.text))).toBe(true);
+  // and no upkeep: a tenth of a day costs the Lander's 0.05⚙ alone, not the bank's 0.1⚙ too
+  expect(r.onUpkeep).toBeCloseTo(0.15, 6);
+  expect(r.offUpkeep).toBeCloseTo(0.05, 6);
+  // powered on again it stores again, starting from what the grid kept
+  expect(r.again.power.capacity).toBe(3800);
+  expect(r.again.powerStored).toBeLessThanOrEqual(800 + 10);
 });
 
 test('full stockpiles: producers stand by, tanks cap, shipment overflow is reported', async ({ page }) => {
@@ -1377,7 +1421,8 @@ test('settlers board only a base that can keep one more alive', async ({ page })
 test('robotic handover: settlers take stations from the Lander; one crew-toggle rule', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
-  for (const [t, x, z] of [['solar', 132, 126], ['excavator', 120, 126], ['lab', 135, 133]] as const) {
+  await page.evaluate(() => window.__game.completeTech('partsFabrication'));
+  for (const [t, x, z] of [['solar', 132, 126], ['partsFab', 120, 126], ['lab', 135, 133]] as const) {
     expect(await page.evaluate(([tt, xx, zz]) => window.__game.placeBuilding(tt, xx, zz), [t, x, z] as const)).toBe(true);
   }
   await page.evaluate(() => window.__game.advanceGameSeconds(120)); // all built
@@ -1406,11 +1451,11 @@ test('robotic handover: settlers take stations from the Lander; one crew-toggle 
   expect(arrived.alerts.some((a: any) =>
     a.text.startsWith('CREW ROTATION — 2 settlers aboard') && a.text.includes('agent-run'))).toBe(true);
 
-  // two settlers, two stations: the excavator (priority 2, one seat) is crewed,
-  // the two-seat lab stays agent-run rather than idle
+  // two settlers, two stations: the Parts Fabricator (priority 2, one seat) is
+  // crewed, the two-seat lab stays agent-run rather than idle
   await page.evaluate((id) => window.__game.select(id), by(s0, 'lander').id);
   await page.locator('#insp-crewall').click();
-  await expect.poll(async () => by(await page.evaluate(() => window.__game.getState()), 'excavator').automated)
+  await expect.poll(async () => by(await page.evaluate(() => window.__game.getState()), 'partsFab').automated)
     .toBe(false);
   const crewed = await page.evaluate(() => window.__game.getState());
   expect(by(crewed, 'lab').automated).toBe(true);

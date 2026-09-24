@@ -100,7 +100,7 @@ Opens with 2 techs of era 1, or 1 plus the deed: **100◆ smelted**.
 | **Battery Banks** | ⚡ | 110<br><sub>✎ −40%: a night with any load shed</sub> | — | — | UNLOCK Battery Bank<br>stores 3,000 energy | 15% round-trip loss<br>1⚙/day upkeep<br>50◆ 10◇ to build |
 | **Thermal Wadis**<br><sub>sites: ILMENITE PLAINS</sub> | ⚡ | 120<br><sub>✎ −40%: a building held dark ≥60 s at night</sub> | — | — | −15% draw at night | +5% draw by day |
 | **Vertical Solar Masts**<br><sub>sites: SHACKLETON RIM</sub> | ⚡ | 130<br><sub>✎ −40%: an array shaded ≥60 s</sub> | 20◆ | Prospecting Rovers | solar arrays ignore terrain shade<br>+10% power: Solar Array | build time ×1.5: Solar Array<br>+30% upkeep: Solar Array |
-| **Skylight Heliostats**<br><sub>sites: MARIUS HILLS TUBE</sub> | ⚡ | 130<br><sub>✎ −40%: a daytime brownout</sub> | 10◇ | Prospecting Rovers | +25% power: Solar Array | +50% solar dust |
+| **Skylight Heliostats**<br><sub>sites: MARIUS HILLS TUBE</sub> | ⚡ | 130<br><sub>✎ −40%: a daytime brownout</sub> | 20◆ | Prospecting Rovers | +25% power: Solar Array | +50% solar dust |
 | **Silicon Refining** | ▣ | 130<br><sub>✎ −30%: 150▲ in stock</sub> | — | Regolith Smelting | UNLOCK Silicon Refinery<br>makes 0.4◇/s | −14 kW<br>eats 2▲/s<br>2⚙/day upkeep<br>2 crew<br>50◆ 15⚙ to build |
 | **Parts Fabrication** | ◉ | 110<br><sub>✎ −40%: parts below 20</sub> | — | Regolith Smelting | UNLOCK Parts Fabricator<br>makes 0.2⚙/s | −10 kW<br>eats 0.3◆/s<br>1⚙/day upkeep<br>1 crew<br>60◆ to build |
 | **Construction Robotics** | ◉ | 130<br><sub>✎ −40%: 5 buildings completed</sub> | — | any of Earth Teleoperation / Prospecting Rovers | UNLOCK Robotics Bay<br>+2 robots<br>NEW TOGGLE Crewed / Autonomous on every station | −3 kW<br>1⚙/day upkeep<br>40◆ 10⚙ to build<br>agent-run stations draw ×1.6 |
@@ -143,7 +143,7 @@ Opens with 2 techs of era 4, or 1 plus the deed: **20▣ chips fabbed**.
 | **Lunar Data Center** | ▣ | 420<br><sub>✎ −40%: 6 labs operating</sub> | 10▣ | Wafer Fabrication | UNLOCK Data Center | −30 kW<br>2.5⚙/day upkeep<br>80◆ 15▣ 30⚙ to build |
 | **Dynamic Clocking** | ▣ | 440 | 5▣ | any of Accelerator Design / Rad-Hard Process | NEW ACTION overclock: output ×1.5 per building | overclocked: kW and inputs ×1.5, wear +0.35/day, trips at WORN |
 | **Cryo Radiators** | ⚡ | 480<br><sub>✎ −30%: a Data Center has operated 720 s</sub> | 60◆ | Lunar Data Center | −35% draw: Data Center | +60% upkeep: Data Center |
-| **Crew Wellness Program**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 460<br><sub>robotic → E7 · 1250</sub><br><sub>✎ −40%: morale below 50</sub> | — | — | UNLOCK Recreation Dome<br>+14 morale | −4 kW<br>eats 0.05✳/s<br>1⚙/day upkeep<br>1 crew<br>50◆ 5◇ to build |
+| **Crew Wellness Program**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 460<br><sub>robotic → E7 · 1000</sub><br><sub>✎ −40%: morale below 50</sub> | — | — | UNLOCK Recreation Dome<br>+14 morale | −4 kW<br>eats 0.05✳/s<br>1⚙/day upkeep<br>1 crew<br>50◆ 5◇ to build |
 
 ### Era 6 · HUMAN HABITATION
 

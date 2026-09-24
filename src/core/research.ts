@@ -6,18 +6,19 @@ import {
   DOCTRINES, ERA_GATES, ERA_NAMES, RETIRED_TECHS, TECHS, TECH_ORDER, techRelevance,
   type DoctrineId, type Era, type Expedition, type Lane, type TechDef, type TechId,
 } from '../data/techs';
-import { INSIGHTS, INSIGHT_BY_TECH } from '../data/insights';
+import { INSIGHTS, insightAt } from '../data/insights';
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
-import type { ProspectId } from '../data/lunarMap';
+import { PROSPECTS, PROSPECT_IDS, type OutpostKind, type ProspectId } from '../data/lunarMap';
 import {
   CHARTER_TECHS, CREW_ROTATION, ERA_COST_SCALE, INSIGHT_MAX, LAB_UPLINK_WEIGHTS, QUEUE_MAX,
   RESEARCH_RATE_EMA_S, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB,
 } from '../data/balance';
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
-import { computeMods, effectiveRates, isAgentRun, type Mods } from './mods';
-import { alert, moraleWorkMult } from './economy';
+import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, type Mods } from './mods';
+import { alert, crewReserve, moraleWorkMult } from './economy';
+import { KIND_LABEL, baseStream, outpostSlots, surveyCost } from './exploration';
 
 export type TechState =
   | 'hidden' | 'done' | 'queued' | 'stalled' | 'foreclosed'
@@ -100,7 +101,7 @@ export interface TechCost {
   insightLabel: string;
 }
 
-export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insights'>): TechCost {
+export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insights' | 'siteId'>): TechCost {
   const def = R(tid, s.expedition);
   const scaled = def.costData * ERA_COST_SCALE[def.era];
   const discount = Math.min(INSIGHT_MAX, s.insights?.[tid] ?? 0);
@@ -109,40 +110,80 @@ export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insight
     base: Math.round(scaled),
     goods: { ...(def.costGoods ?? {}) },
     discount,
-    insightLabel: discount > 0 ? INSIGHT_BY_TECH[tid]?.hint ?? '' : '',
+    insightLabel: discount > 0 ? insightAt(tid, s.siteId)?.hint ?? '' : '',
   };
 }
 
-export interface GoodsShort { res: ResourceId; need: number; have: number }
-export function goodsShortfall(goods: Partial<Record<ResourceId, number>>, s: GameState): GoodsShort[] {
+/** `reserve`: the crew's life-support share of it, which goods never take */
+export interface GoodsShort { res: ResourceId; need: number; have: number; reserve: number }
+/** Goods a tech cannot take yet: oxygen, water and food count only above the
+ *  crew's reserve (economy step 4's rule: the crew drinks first). */
+export function goodsShortfall(goods: Partial<Record<ResourceId, number>>, s: GameState, mods: Mods): GoodsShort[] {
   const out: GoodsShort[] = [];
   for (const [r, amt] of Object.entries(goods)) {
-    const have = s.resources[r as ResourceId] ?? 0;
-    if (have < (amt ?? 0)) out.push({ res: r as ResourceId, need: amt ?? 0, have });
+    const res = r as ResourceId;
+    const have = s.resources[res] ?? 0;
+    const reserve = crewReserve(s, mods, res);
+    if (have - reserve < (amt ?? 0)) out.push({ res, need: amt ?? 0, have, reserve });
   }
   return out;
 }
 
-/** The building that makes a resource here (for WAITING lines). */
-export function producerOf(res: ResourceId, siteId: SiteId): BuildingId | null {
-  for (const b of BUILD_ORDER) {
-    const d = BUILDINGS[b];
-    if ((d.outputs[res] ?? 0) <= 0) continue;
-    if (d.requiresIce && !SITES[siteId].hasIce) continue;
-    return b;
+export type Producer = { kind: 'building'; id: BuildingId } | { kind: 'outpost'; id: OutpostKind };
+
+/** What makes a resource here under these mods (WAITING and HELD lines): the
+ *  building whose effective recipe outputs it — one already unlocked first,
+ *  then the biggest — never an Ice Harvester without ice; else, once there is
+ *  an outpost slot, the outpost kind streaming the most of it from a prospect
+ *  in coverage; null when nothing here can make it. */
+export function producerOf(res: ResourceId, s: GameState, mods: Mods): Producer | null {
+  const out = (b: BuildingId) => effectiveDef(b, mods).outputs[res] ?? 0;
+  const makers = BUILD_ORDER
+    .filter((b) => out(b) > 0 && !(BUILDINGS[b].requiresIce && !SITES[s.siteId].hasIce))
+    .sort((a, b) => Number(mods.unlocked.has(b)) - Number(mods.unlocked.has(a)) || out(b) - out(a));
+  if (makers.length) return { kind: 'building', id: makers[0] };
+  if (outpostSlots(mods, s) <= 0) return null;
+  let best: OutpostKind | null = null;
+  let rate = 0;
+  for (const pid of PROSPECT_IDS) {
+    const kind = PROSPECTS[pid].kind;
+    if (kind === 'heritage' || kind === 'anomaly' || surveyCost(s.siteId, pid).tier > mods.surveyTier) continue;
+    const r = baseStream(pid).res[res] ?? 0;
+    if (r > rate) { rate = r; best = kind; }
   }
-  return null;
+  return best ? { kind: 'outpost', id: best } : null;
 }
 
-/** `10▣ chips (have 3) · made by Chip Fab` */
-export function shortfallText(tid: TechId, s: GameState): string {
-  const short = goodsShortfall(techCost(tid, s).goods, s);
+/** `Chip Fab`, `ice outpost` */
+export function producerName(p: Producer): string {
+  return p.kind === 'building' ? BUILDINGS[p.id].name : `${KIND_LABEL[p.id]} outpost`;
+}
+const article = (name: string) => `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name}`;
+/** ` · build Hydroponics Farm`, ` · claim an ice outpost`, or ` · nothing here makes water yet` */
+export function producerHint(res: ResourceId, s: GameState, mods: Mods): string {
+  const p = producerOf(res, s, mods);
+  if (!p) return ` · nothing here makes ${RESOURCES[res].name.toLowerCase()} yet`;
+  return p.kind === 'building' ? ` · build ${producerName(p)}` : ` · claim ${article(producerName(p))}`;
+}
+
+/** `10▣ chips (have 3) · made by Chip Fab`; life support names the crew's
+ *  reserve: `80≈ water (have 90, 12 held for the crew) · made by Ice Harvester` */
+export function shortfallText(tid: TechId, s: GameState, mods: Mods = modsFor(s)): string {
+  const short = goodsShortfall(techCost(tid, s).goods, s, mods);
   if (!short.length) return '';
   const parts = short.map((g) =>
-    `${g.need}${RESOURCES[g.res].glyph} ${RESOURCES[g.res].name.toLowerCase()} (have ${Math.floor(g.have)})`);
-  const makers = [...new Set(short.map((g) => producerOf(g.res, s.siteId)).filter((b): b is BuildingId => !!b))]
-    .map((b) => BUILDINGS[b].name);
-  return `${parts.join(', ')}${makers.length ? ` · made by ${makers.join(', ')}` : ''}`;
+    `${g.need}${RESOURCES[g.res].glyph} ${RESOURCES[g.res].name.toLowerCase()} (have ${Math.floor(g.have)}` +
+    `${g.reserve > 0 ? `, ${Math.ceil(g.reserve)} held for the crew` : ''})`);
+  const makers: string[] = [];
+  const none: string[] = [];
+  for (const g of short) {
+    const p = producerOf(g.res, s, mods);
+    const name = p ? (p.kind === 'building' ? producerName(p) : article(producerName(p))) : '';
+    if (!p) none.push(RESOURCES[g.res].name.toLowerCase());
+    else if (!makers.includes(name)) makers.push(name);
+  }
+  return `${parts.join(', ')}${makers.length ? ` · made by ${makers.join(', ')}` : ''}` +
+    `${none.length ? ` · nothing here makes ${none.join(' or ')} yet` : ''}`;
 }
 
 // ─────────────────────────── availability ───────────────────────────
@@ -150,7 +191,7 @@ export function shortfallText(tid: TechId, s: GameState): string {
 /** First matching rule wins: hidden → done → queued/stalled → foreclosed →
  *  crewLocked → eraLocked → requires → requiresAny → full → available.
  *  Missing goods never block queueing. */
-export function techAvailability(tid: TechId, s: GameState): Availability {
+export function techAvailability(tid: TechId, s: GameState, mods?: Mods): Availability {
   const raw = TECHS[tid];
   if (!raw) return { state: 'hidden', reason: 'retired tech' };
   const def = resolveTech(raw, s.expedition);
@@ -159,7 +200,7 @@ export function techAvailability(tid: TechId, s: GameState): Availability {
   const qi = s.researchQueue.indexOf(tid);
   if (qi >= 0) {
     return s.researchStalled.includes(tid)
-      ? { state: 'stalled', reason: `waiting: ${shortfallText(tid, s)}` }
+      ? { state: 'stalled', reason: `waiting: ${shortfallText(tid, s, mods)}` }
       : { state: 'queued', reason: `queued #${qi + 1}` };
   }
   const rv = rival(def, s);
@@ -424,7 +465,7 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   for (const tid of [...s.researchQueue]) {
     const cost = techCost(tid, s);
     if ((s.researchSpent[tid] ?? 0) + 1e-9 < cost.data) continue;
-    if (goodsShortfall(cost.goods, s).length === 0) {
+    if (goodsShortfall(cost.goods, s, mods).length === 0) {
       for (const [r, amt] of Object.entries(cost.goods)) s.resources[r as ResourceId] -= amt ?? 0;
       completeTech(s, tid, cost);
       completed.push(tid);
@@ -434,7 +475,7 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   }
   for (const tid of stalled) {
     if (!s.researchStalled.includes(tid)) {
-      alert(s, `RESEARCH WAITING — ${nameOf(tid)} needs ${shortfallText(tid, s)}`, 'warn');
+      alert(s, `RESEARCH WAITING — ${nameOf(tid)} needs ${shortfallText(tid, s, mods)}`, 'warn');
     }
   }
   s.researchStalled = stalled;
@@ -471,13 +512,17 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   return { modsChanged: completed.length > 0, completed };
 }
 
-/** Insights: checked each tick after researchTick; they fire even while the tech is locked. */
+/** Insights: checked each tick after researchTick; they fire even while the
+ *  tech is locked, never once a done rival has foreclosed it for good. Each
+ *  uses its site's deed. */
 export function insightTick(s: GameState): TechId[] {
   const fired: TechId[] = [];
-  for (const ins of INSIGHTS) {
+  for (const base of INSIGHTS) {
+    const ins = insightAt(base.tech, s.siteId) ?? base;
     const def = TECHS[ins.tech];
     if (s.techsDone.includes(ins.tech)) continue;
     if (!techVisible(def, s)) continue;
+    if (rival(def, s)?.state === 'done') continue;
     const d = Math.min(INSIGHT_MAX, ins.discount);
     if ((s.insights[ins.tech] ?? 0) >= d || !ins.check(s)) continue;
     s.insights[ins.tech] = d;
@@ -660,6 +705,9 @@ export interface ResearchCard {
   eta: number | null;
   /** stalled only: `10▣ chips (have 3) · made by Chip Fab` */
   stalledNeed: string;
+  /** goods the tech cannot take yet, by goodsShortfall's rule (O₂, water and
+   *  food count only above the crew's reserve); [] once done */
+  goodsShort: ResourceId[];
   insight: { discount: number; hint: string; earned: boolean } | null;
   /** set only where the doctrine really is a choice (≥2 visible members) */
   doctrine: DoctrineId | null;
@@ -700,16 +748,17 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
   const cards = {} as Record<TechId, ResearchCard>;
   for (const tid of TECH_ORDER) {
     const def = R(tid, s.expedition);
-    const av = techAvailability(tid, s);
+    const av = techAvailability(tid, s, mods);
     const cost = techCost(tid, s);
     const spent = s.researchSpent[tid] ?? 0;
-    const ins = INSIGHT_BY_TECH[tid];
+    const ins = insightAt(tid, s.siteId);
     cards[tid] = {
       tid, state: av.state, reason: av.reason, era: def.era, lane: def.lane ?? null,
       name: def.name, short: def.short, cost, spent,
       pct: av.state === 'done' ? 1 : cost.data > 0 ? Math.min(1, spent / cost.data) : 1,
       eta: av.state === 'done' ? 0 : queueEta.has(tid) ? queueEta.get(tid)! : etaOf(cost.data - spent),
-      stalledNeed: av.state === 'stalled' ? shortfallText(tid, s) : '',
+      stalledNeed: av.state === 'stalled' ? shortfallText(tid, s, mods) : '',
+      goodsShort: av.state === 'done' ? [] : goodsShortfall(cost.goods, s, mods).map((g) => g.res),
       insight: ins ? { discount: ins.discount, hint: ins.hint, earned: (s.insights[tid] ?? 0) > 0 } : null,
       doctrine: isDoctrineHere(def, s) ? def.exclusive! : null,
       breakthrough: def.breakthrough ? { slot: def.breakthrough.slot, hosts: [...def.breakthrough.hosts] } : null,
@@ -727,7 +776,7 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
       pct: cards[tid].pct,
       eta: queueEta.get(tid) ?? null,
       stalled: s.researchStalled.includes(tid),
-      need: s.researchStalled.includes(tid) ? shortfallText(tid, s) : '',
+      need: s.researchStalled.includes(tid) ? shortfallText(tid, s, mods) : '',
     })),
     queueMax: QUEUE_MAX,
     rate,

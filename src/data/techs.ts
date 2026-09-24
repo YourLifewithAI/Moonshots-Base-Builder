@@ -194,7 +194,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   skylightHeliostats: {
     id: 'skylightHeliostats', era: 2, lane: 'power', name: 'Skylight Heliostats', short: 'Heliostats',
-    costData: 130, costGoods: { silicon: 10 }, requires: ['prospectingRovers'], sites: [L],
+    costData: 130, costGoods: { metals: 20 }, requires: ['prospectingRovers'], sites: [L],
     effects: [
       { kind: 'powerMult', buildings: ['solar'], mult: 1.25 },
       { kind: 'dustMult', mult: 1.5 },
@@ -413,7 +413,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   crewWellness: {
     id: 'crewWellness', era: 5, lane: 'habitat', name: 'Crew Wellness Program', short: 'Crew Wellness',
-    costData: 460, requires: [], crewTech: true, robotic: { era: 7, costData: 1250 },
+    costData: 460, requires: [], crewTech: true, robotic: { era: 7, costData: 1000 },
     effects: [{ kind: 'unlock', building: 'recDome' }],
     desc: 'Plants, a screen, low-g handball.',
     tradeoff: 'A pure cost centre.',

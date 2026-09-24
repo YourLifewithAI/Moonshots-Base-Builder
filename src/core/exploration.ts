@@ -6,7 +6,7 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteDef, type SiteId } from '../data/sites';
 import { TECHS, type TechId } from '../data/techs';
 import { RESOURCES, type ResourceId } from '../data/resources';
-import { ATLAS, CELL_M, CREW, CYCLE_S, INSIGHT_MAX, LOW_SUPPLY_S, MAP_M, SURVEY_TIERS } from '../data/balance';
+import { ATLAS, CELL_M, CYCLE_S, INSIGHT_MAX, MAP_M, SURVEY_TIERS } from '../data/balance';
 import { DEPOSIT_INFO, LEAD_RANGE_M } from '../data/deposits';
 import {
   ANOMALY_BONUS_DATA, HOPPER, NOVELTY, OUTPOST_CLASS, OUTPOST_KINDS, OUTPOST_LINK_KW, PROSPECTS, PROSPECT_IDS,
@@ -18,7 +18,7 @@ import type { DepositView, LunarOutpostView, LunarProspectView, LunarView } from
 import { centerOf, footprintRect } from '../buildings/instances';
 import type { GameState, OutpostState } from './state';
 import type { Mods, SurveyTier } from './mods';
-import { alert, condition } from './economy';
+import { alert, condition, crewReserve } from './economy';
 import { resolveTech } from './research';
 import { fmtClock } from './daynight';
 
@@ -208,12 +208,8 @@ export function surveyPayout(s: GameState, mods: Mods, pid: ProspectId): number 
   return Math.round(base * novelty * crewMult);
 }
 
-/** The crew's life-support reserve of a resource (surveys and hoppers leave it). */
-function reserve(s: GameState, mods: Mods, rid: ResourceId): number {
-  const per = rid === 'oxygen' ? CREW.oxygenPerCrew : rid === 'water' ? CREW.waterPerCrew : rid === 'food' ? CREW.foodPerCrew : 0;
-  return s.crew * per * mods.inputMult.habitat * LOW_SUPPLY_S;
-}
-const spare = (s: GameState, mods: Mods, rid: ResourceId) => Math.max(0, s.resources[rid] - reserve(s, mods, rid));
+/** What is left of a resource above the crew's reserve (surveys and hoppers leave it). */
+const spare = (s: GameState, mods: Mods, rid: ResourceId) => Math.max(0, s.resources[rid] - crewReserve(s, mods, rid));
 
 /** Why a survey of pid cannot start now ('' = it can). */
 export function surveyRefusal(s: GameState, mods: Mods, pid: ProspectId): string {
@@ -231,7 +227,7 @@ export function surveyRefusal(s: GameState, mods: Mods, pid: ProspectId): string
   for (const [rid, need] of [['oxygen', c.oxygen], ['water', c.water], ['parts', c.parts]] as [ResourceId, number][]) {
     const have = rid === 'parts' ? s.resources.parts : spare(s, mods, rid);
     if (have < need) {
-      const held = rid !== 'parts' && reserve(s, mods, rid) > 0 ? ' spare — the crew’s reserve stays' : '';
+      const held = rid !== 'parts' && crewReserve(s, mods, rid) > 0 ? ' spare — the crew’s reserve stays' : '';
       return `SURVEY NEEDS ${need}${glyph(rid)} — have ${Math.floor(have)}${held}`;
     }
   }
@@ -258,7 +254,7 @@ export function outpostSlots(mods: Mods, s: GameState): number {
   return mods.outpostSlots + (s.survey.atlas ? ATLAS.extraSlots : 0);
 }
 
-const KIND_LABEL: Record<OutpostKind, string> = {
+export const KIND_LABEL: Record<OutpostKind, string> = {
   ice: 'ice', volatiles: 'volatiles', ilmenite: 'ilmenite', glass: 'glass', silica: 'silica', kreep: 'KREEP', radio: 'radio',
 };
 
@@ -407,6 +403,8 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     // toward the fuel (an ice hopper carries its water home)
     const fuel = Object.entries(oc.fuel ?? {}) as [ResourceId, number][];
     const short = fuel.find(([rid, rate]) => spare(s, mods, rid) + (res[rid] ?? 0) * k * dt < rate * dt);
+    // grounded is offline: a KREEP outpost's modifier goes, and comes back with the fuel
+    if (o.fuelOk !== !short) out.modsChanged = true;
     o.fuelOk = !short;
     if (short) {
       condition(s, `grounded:${o.id}`, `HOPPER GROUNDED — ${p.short} needs ${fuelText(o.cls, true)} ` +
@@ -481,7 +479,8 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
     const mult = (s.survey.atlas ? ATLAS.streamMult : 1) * (o.upkeepOk ? 1 : 0.5);
     return {
       id: o.id, kind: o.kind, readyAt: o.readyAt, fuelOk: o.fuelOk, upkeepOk: o.upkeepOk,
-      stream: streamText(o.id, mult),
+      // grounded, it streams nothing and its modifier is off
+      stream: o.live && !o.fuelOk ? 'grounded — no hopper fuel' : streamText(o.id, mult),
       name: PROSPECTS[o.id].short, cls: o.cls, live: o.live,
       deployLeft: o.live ? 0 : secsLeft(s, o.readyAt),
       fuel: fuelText(o.cls), upkeep: `${oc.upkeepPerDay}⚙/day`, linkKW: OUTPOST_LINK_KW[o.cls],
