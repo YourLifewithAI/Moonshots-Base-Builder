@@ -67,6 +67,7 @@ export class Game {
   private econAcc = 0;
   private autosaveAcc = 0;
   private lookAcc = 0;
+  private lookId: number | null = null;   // the building under the walk-mode reticle
   private mouse = new THREE.Vector2();      // NDC
   private mousePx = { x: 0, y: 0 };
   private downPos = { x: 0, y: 0 };
@@ -258,6 +259,14 @@ export class Game {
         case 'Digit3': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[2] }); break;
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
         case 'KeyI': if (this.state?.iceSurveyed) $iceOverlay.set(!$iceOverlay.get()); break;
+        case 'KeyE':
+          // inspect what the reticle rests on: back to command view, selected
+          if (this.modes.mode === 'walk' && this.lookId !== null && !this.modes.transitioning) {
+            const id = this.lookId;
+            this.modes.toggle();
+            this.select(id);
+          }
+          break;
         case 'Escape':
           this.cancelPlacement();
           $selection.set(null);
@@ -759,9 +768,10 @@ export class Game {
     this.raycaster.far = 60;
     const id = this.instances.pick(this.raycaster);
     this.raycaster.far = Infinity;
+    this.lookId = id;
     if (id === null) { $lookAt.set(null); return; }
     const b = this.state.buildings.find((x) => x.id === id);
-    if (!b) { $lookAt.set(null); return; }
+    if (!b) { this.lookId = null; $lookAt.set(null); return; }
     $lookAt.set({ name: BUILDINGS[b.type].name, x: window.innerWidth / 2, y: window.innerHeight / 2 - 40 });
   }
 
@@ -818,12 +828,16 @@ export class Game {
       automation: this.mods.automation, grading: this.mods.grading,
     });
     $alerts.set([...s.alerts]);
-    $milestones.set({ done: [...s.milestonesDone], total: MILESTONES.length });
+    const next = MILESTONES.find((m) => !s.milestonesDone.includes(m.id));
+    $milestones.set({
+      done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
+    });
     $swarm.set({
       pct: s.swarmPct, launches: s.launches, armed: this.mods.launchArmed,
       canLaunch: this.mods.launchArmed && s.resources.foils >= LAUNCH_COST_FOILS &&
         s.resources.launch >= 1 && s.powerStored >= LAUNCH_POWER_BURST,
       burst: LAUNCH_POWER_BURST,
+      foils: s.resources.foils, launch: s.resources.launch, stored: s.powerStored,
     });
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $caps.set({ ...(s.storageCaps ?? {}) });
@@ -1002,6 +1016,8 @@ export class Game {
   }
 
   get walkController() { return this.walk; }
+  /** settled in command view: not walking, not flying between the two */
+  get commandView() { return this.modes.mode === 'build' && !this.modes.transitioning; }
   get iceDepositList() { return this.hf.iceDeposits; }
 
   debugCheckPlace(type: BuildingId, gx: number, gz: number) {

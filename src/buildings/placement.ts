@@ -177,6 +177,13 @@ function gradeCenter(gx: number, gz: number): [number, number] {
   ];
 }
 
+/** the build-perimeter refusal, naming what the distance is measured from */
+function beyondPerimeter(state: GameState): string {
+  return state.buildings.some((b) => b.type === 'habitat')
+    ? `Beyond ${BUILD_RADIUS_M} m of the Lander and habitats`
+    : `Beyond ${BUILD_RADIUS_M} m of the Lander`;
+}
+
 /** Grading validity: in bounds, near the habitat network, no structure on top,
  *  and enough stored energy for the dozer pass. */
 export function checkGrade(
@@ -202,7 +209,7 @@ export function checkGrade(
     const [bx, bz] = centerOf(b);
     if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
   }
-  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (!near) return { valid: false, reason: beyondPerimeter(state) };
   if (state.powerStored < GRADE_COST_ENERGY) {
     return { valid: false, reason: `Need ${GRADE_COST_ENERGY} stored energy — have ${Math.floor(state.powerStored)}` };
   }
@@ -252,7 +259,7 @@ export function checkPlacement(
     const [bx, bz] = centerOf(b);
     if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
   }
-  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (!near) return { valid: false, reason: beyondPerimeter(state) };
   for (const [rid, amt] of Object.entries(buildCost(type, site))) {
     const have = state.resources[rid as keyof typeof state.resources];
     if (have < (amt ?? 0)) {

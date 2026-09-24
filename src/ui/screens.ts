@@ -21,6 +21,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   root.appendChild(screen);
   let selected: SiteId | null = null;
   let step: 'site' | 'expedition' = 'site';
+  let landing = false;
   // robots first — the realistic default; a crewed landing is the what-if
   let expedition: 'human' | 'robotic' = 'robotic';
 
@@ -98,8 +99,8 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
         </div>
       </div>
       <div style="display:flex; gap:12px">
-        <button class="btn" id="btn-back">◂ Back</button>
-        <button class="btn primary" id="btn-launch-exp">Land ▸</button>
+        <button class="btn" id="btn-back" ${landing ? 'disabled' : ''}>◂ Back</button>
+        <button class="btn primary" id="btn-launch-exp" ${landing ? 'disabled' : ''}>${landing ? 'DESCENDING…' : 'Land ▸'}</button>
       </div>`;
     screen.querySelectorAll<HTMLElement>('[data-exp]').forEach((card) => {
       card.addEventListener('click', () => {
@@ -109,7 +110,15 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
     });
     screen.querySelector('#btn-back')?.addEventListener('click', () => { step = 'site'; render(); });
     screen.querySelector('#btn-launch-exp')?.addEventListener('click', () => {
-      if (selected) void game.newGame(selected, expedition);
+      if (!selected || landing) return;
+      // building the world stalls the page for a few seconds: paint the
+      // descent first, and take no second click meanwhile
+      landing = true;
+      render();
+      const site = selected;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        void game.newGame(site, expedition).finally(() => { landing = false; });
+      }));
     });
   };
   render();

@@ -113,6 +113,7 @@
 #milestones .goal-item.done .goal-title { opacity: 0.38; font-weight: 400; }
 #milestones .goal-item.future .goal-title { opacity: 0.62; }
 #milestones .goal-item.future .goal-hint { opacity: 0.6; }
+#milestones .goal-progress { font-size: 11px; line-height: 15px; margin-top: 5px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 
 /* inline person glyph (crew) */
 .pglyph { vertical-align: -1px; }

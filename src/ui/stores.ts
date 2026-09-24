@@ -58,8 +58,12 @@ export const $tech = atom<{
   grading: boolean;
 }>({ era: 1, done: [], queue: [], progress: 0, unlocked: [], automation: false, grading: false });
 export const $alerts = atom<AlertMsg[]>([]);
-export const $milestones = atom<{ done: string[]; total: number }>({ done: [], total: 0 });
-export const $swarm = atom({ pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0 });
+/** progress = the earliest open objective's status line ('' = none) */
+export const $milestones = atom<{ done: string[]; total: number; progress: string }>({ done: [], total: 0, progress: '' });
+/** foils / launch / stored: what the next volley would spend, as held now */
+export const $swarm = atom({
+  pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0, foils: 0, launch: 0, stored: 0,
+});
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
 export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string } | null>(null);

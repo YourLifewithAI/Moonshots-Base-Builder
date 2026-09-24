@@ -989,6 +989,54 @@ test('info panels: live values, life support in seconds, shipments and construct
   await expect(panel).toBeHidden();
 });
 
+test('robotic mission copy: landing, objectives, perimeter, launch reasons, T under walk mode', async ({ page }) => {
+  await page.goto(URL_DEBUG);
+  await page.locator('.site-card', { hasText: 'ILMENITE' }).click();
+  await page.locator('#btn-land').click();
+  await page.locator('.site-card', { hasText: 'ROBOTIC MISSION' }).click();
+  // the Land button shows the descent at once and takes no second click
+  const land = page.locator('#btn-launch-exp');
+  await land.dblclick();
+  await expect(land).toBeDisabled();
+  await expect(land).toHaveText('DESCENDING…');
+  await game(page);
+  await expect(page.locator('#resource-strip')).toBeVisible();
+  const s0 = await page.evaluate(() => window.__game.getState());
+  expect(s0.expedition).toBe('robotic');
+  expect(s0.buildings).toHaveLength(1);
+  // objectives speak to a crewless base, and acknowledge progress
+  await page.locator('#milestones').click();
+  await expect(page.locator('#milestones')).toContainText('Field a fleet of 6 construction robots');
+  await expect(page.locator('#milestones')).not.toContainText('crew breathing');
+  await page.locator('#milestones').click();
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  await expect(page.locator('#milestones .goal-progress')).toContainText(/◻ Solar Array \d+%/);
+  // the perimeter is measured from the Lander — robots have no habitats
+  const far = await page.evaluate(() => {
+    for (let gx = 150; gx < 250; gx += 4) {
+      const r = window.__game.canPlace('solar', gx, 126).reason;
+      if (r.startsWith('Beyond')) return r;
+    }
+    return 'no spot';
+  });
+  expect(far).toBe('Beyond 60 m of the Lander');
+  // the launch row says what a volley still lacks
+  await page.evaluate(() => window.__game.completeTech('swarmProtocol'));
+  await expect(page.locator('#launch-cost')).toContainText('foils 0/10 ✗');
+  await expect(page.locator('#launch-cost')).toContainText('launch 0/1 ✗');
+  await expect(page.locator('#launch-cost')).toContainText('stored 400/400 ✓');
+  await expect(page.locator('#btn-launch')).toHaveAttribute('title', 'Needs 10 more foils, 1 more launch capacity');
+  // T is a command-view key: under walk mode's pointer lock the tree stays shut
+  await page.evaluate(() => window.__game.setMode('walk'));
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('#tech-screen')).toBeHidden();
+  await page.evaluate(() => window.__game.setMode('build'));
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('#tech-screen')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#tech-screen')).toBeHidden();
+});
+
 test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);

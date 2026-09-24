@@ -1,9 +1,9 @@
 /** HUD components: resource strip, swarm meter, time controls, alerts,
  *  milestone goals, pause veil, walk-mode helmet HUD, floating deltas. */
-import { MILESTONES } from '../data/milestones';
 import { RESOURCE_ORDER, RESOURCES, type ResourceId } from '../data/resources';
 import { BUILDINGS } from '../data/buildings';
-import { ALERTS, LOW_SUPPLY_S } from '../data/balance';
+import { MILESTONES, type MilestoneDef } from '../data/milestones';
+import { ALERTS, LAUNCH_COST_FOILS, LOW_SUPPLY_S } from '../data/balance';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
@@ -190,7 +190,16 @@ export function mountHud(root: HTMLElement, game: Game) {
     mFill.style.width = `${s.launches ? Math.max(0.15, Math.min(100, s.pct * 1000)) : 0}%`;
     mRow.style.display = s.armed ? 'flex' : 'none';
     mBtn.disabled = !s.canLaunch;
-    mCost.textContent = `10 foils · 1 launch · ${s.burst} stored`;
+    // each part of a volley, held against what it takes: the disabled button explains itself
+    const parts: [string, number, number][] = [
+      ['foils', s.foils, LAUNCH_COST_FOILS], ['launch', s.launch, 1], ['stored', s.stored, s.burst],
+    ];
+    const cost = parts.map(([n, have, need]) =>
+      `${n} ${fmt(Math.min(have, need))}/${need} ${have >= need ? '✓' : '✗'}`).join(' · ');
+    if (mCost.textContent !== cost) mCost.textContent = cost;
+    const missing = parts.filter(([, have, need]) => have < need)
+      .map(([n, have, need]) => `${fmt(need - have)} more ${n === 'stored' ? 'stored energy' : n === 'launch' ? 'launch capacity' : n}`);
+    mBtn.title = missing.length ? `Needs ${missing.join(', ')}` : 'Launch a collector volley';
   });
 
   // right column: time controls and alerts, the inspector beneath them.
@@ -301,15 +310,18 @@ export function mountHud(root: HTMLElement, game: Game) {
   let goalsSig = '';
   const renderGoals = () => {
     const m = $milestones.get();
-    const sig = `${m.done.join(',')}|${goalsOpen}`;
+    const robotic = $vitals.get().expedition === 'robotic';
+    const sig = `${m.done.join(',')}|${goalsOpen}|${m.progress}|${robotic}`;
     if (sig === goalsSig) return;
     goalsSig = sig;
+    const hint = (x: MilestoneDef) => (robotic && x.hintRobotic) || x.hint;
     const next = MILESTONES.find((x) => !m.done.includes(x.id));
+    const progress = m.progress ? `<div class="goal-progress mono">${m.progress}</div>` : '';
     const label = `<span class="label">Objectives <span class="done-count mono">${m.done.length}/${m.total}</span><span class="caret">${goalsOpen ? '▾' : '▸'}</span></span>`;
     if (!goalsOpen) {
       goals.innerHTML = `${label}
         ${next
-          ? `<div class="goal-title">◻ ${next.title}</div><div class="goal-hint">${next.hint}</div>`
+          ? `<div class="goal-title">◻ ${next.title}</div><div class="goal-hint">${hint(next)}</div>${progress}`
           : '<div class="goal-title">✓ All objectives complete</div><div class="goal-hint">The swarm grows. Keep launching.</div>'}`;
       return;
     }
@@ -318,12 +330,13 @@ export function mountHud(root: HTMLElement, game: Game) {
       const current = x.id === next?.id;
       const cls = done ? 'done' : current ? 'current' : 'future';
       const mark = done ? '✓' : current ? '◻' : '○';
-      return `<div class="goal-item ${cls}"><div class="goal-title">${mark} ${x.title}</div>${done ? '' : `<div class="goal-hint">${x.hint}</div>`}</div>`;
+      return `<div class="goal-item ${cls}"><div class="goal-title">${mark} ${x.title}</div>${done ? '' : `<div class="goal-hint">${hint(x)}</div>`}${current ? progress : ''}</div>`;
     }).join('');
     goals.innerHTML = label + rows;
   };
   goals.addEventListener('click', () => { goalsOpen = !goalsOpen; renderGoals(); });
   $milestones.subscribe(renderGoals);
+  $vitals.subscribe(renderGoals);
 
   // ── pause veil ──
   const veil = el('div', 'panel label', 'Paused');
@@ -338,7 +351,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   walkHud.style.display = 'none';
   walkHud.innerHTML = `
     <div id="reticle"></div>
-    <div id="walk-exit" class="panel">TAB — return to command view · WASD move · Space jump</div>
+    <div id="walk-exit" class="panel">TAB — return to command view · WASD move · Space jump · E inspect</div>
     <div id="helmet"></div>
     <div id="nameplate" class="panel" style="display:none"></div>`;
   root.appendChild(walkHud);
@@ -360,10 +373,18 @@ export function mountHud(root: HTMLElement, game: Game) {
     renderHelmet();
   });
   $resources.subscribe(renderHelmet);
+  // the tech tree is a command-view screen: T does not open it on foot or on
+  // the way there (pointer lock would leave it unclickable), and Tab does not
+  // leave for walk mode while it is open
+  window.addEventListener('keydown', (e) => {
+    const tree = document.getElementById('tech-screen');
+    if (e.code === 'KeyT' && !game.commandView) e.stopPropagation();
+    if (e.code === 'Tab' && tree && tree.style.display !== 'none') { e.preventDefault(); e.stopPropagation(); }
+  }, { capture: true });
   $lookAt.subscribe((la) => {
     if (!la) { nameplate.style.display = 'none'; return; }
     nameplate.style.display = 'block';
-    nameplate.textContent = `${la.name} — hold position to inspect from command view`;
+    nameplate.textContent = `${la.name} · E inspect`;
     nameplate.style.left = `${la.x}px`;
     nameplate.style.top = `${la.y}px`;
   });

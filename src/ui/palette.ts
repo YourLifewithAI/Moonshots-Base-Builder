@@ -65,7 +65,7 @@ function ioRows(type: BuildingId): string {
   if (def.housing) extras.push(`houses ${def.housing}`);
   if (def.storageKWh) extras.push(`stores ${def.storageKWh}`);
   if (def.moraleDelta) extras.push(`morale ${def.moraleDelta > 0 ? '+' : ''}${def.moraleDelta}`);
-  if (def.crew) extras.push(`${def.crew} crew`);
+  if (def.crew) extras.push(agentRun && $vitals.get().crew <= 0 ? 'agent-run, no crew' : `${def.crew} crew`);
   return `
     <div class="io">
       <span class="k">Build</span><span class="mono">${cost}</span>
