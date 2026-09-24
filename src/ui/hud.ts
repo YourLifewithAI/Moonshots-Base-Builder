@@ -377,10 +377,11 @@ export function mountHud(root: HTMLElement, game: Game) {
   $resources.subscribe(renderHelmet);
   // the tech tree is a command-view screen: T does not open it on foot or on
   // the way there (pointer lock would leave it unclickable), and Tab does not
-  // leave for walk mode while it is open
+  // leave for walk mode while it is open. The tree's own T handler is also a
+  // window capture listener, so only stopImmediatePropagation holds it off
   window.addEventListener('keydown', (e) => {
     const tree = document.getElementById('tech-screen');
-    if (e.code === 'KeyT' && !game.commandView) e.stopPropagation();
+    if (e.code === 'KeyT' && !game.commandView) e.stopImmediatePropagation();
     if (e.code === 'Tab' && tree && tree.style.display !== 'none') { e.preventDefault(); e.stopPropagation(); }
   }, { capture: true });
   $lookAt.subscribe((la) => {
