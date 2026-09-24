@@ -1499,12 +1499,13 @@ export class Game {
     for (const a of acts) this.applyAction(a);
     let victory = false;
     let defeat = false;
-    // as in play: shading follows the sun (every 5 game-seconds, the live
-    // loop's cadence at 10×), and a lost base never ticks again
+    // as in play: the clock moves first and the tick reads the second it
+    // closes, shading follows the sun (every 5 game-seconds, the live loop's
+    // cadence at 10×), and a lost base never ticks again
     for (let i = 0; i < gameSeconds && !missionLost(this.state); i++) {
       if (i % 5 === 0) this.updateShading();
-      const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
+      const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       if (ev.modsChanged) this.mods = modsFor(this.state);
       this.syncDeposits(true);
       if (ev.victory && !this.state.victoryShown) {

@@ -346,7 +346,7 @@ test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty de
     g.surveyProspect('moltke');
     g.advanceGameSeconds(0);
     const busy = g.getState();
-    g.advanceGameSeconds(97);
+    g.advanceGameSeconds(96); // 97 s gone: the tick that closes the 98th brings it home
     const almost = g.getState();
     g.advanceGameSeconds(1);
     const done = g.getState();
@@ -528,6 +528,26 @@ test('outposts: a slot from orbit, a claim in chips, a stream, a grounded hopper
   expect(ab.lunar.used).toBe(0);
   expect(ab.lunar.prospects.find((p: any) => p.id === 'moltke').claimable).toBe(true);
   expect(ab.ticked.power.supply).toBeCloseTo(3, 6);
+});
+
+test('fast-forward ticks as play does: the clock moves first, then the tick reads it', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.surveyProspect('moltke'); // a 60 s micro-rover trip
+    g.advanceGameSeconds(0);
+    const trip = g.getState().survey.active;
+    let n = 0;
+    while (g.getState().survey.active && n < 70) { g.advanceGameSeconds(1); n++; }
+    const s = g.getState();
+    return { trip, n, s, home: s.alerts.find((a: any) => a.text.startsWith('SURVEY COMPLETE')) };
+  });
+  expect(r.trip.endsAt - r.trip.startedAt).toBeCloseTo(60, 6);
+  // the tick that brings the rover home is stamped with the second it closes —
+  // the clock the fast-forward stops on, as in the live loop
+  expect(r.home.at).toBe(r.s.simTime);
+  expect(r.home.at).toBeGreaterThanOrEqual(r.trip.endsAt - 1e-6);
+  expect(r.n).toBeLessThanOrEqual(61);
 });
 
 test('atlas: T4 and 12 surveyed prospects add a slot and discount Swarm Protocol', async ({ page }) => {
