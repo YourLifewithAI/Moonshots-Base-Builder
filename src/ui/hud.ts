@@ -9,7 +9,7 @@ import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
-  $milestones, $mode,
+  $milestones, $mode, $phase,
   $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
@@ -376,17 +376,22 @@ export function mountHud(root: HTMLElement, game: Game) {
   $mode.subscribe((m) => {
     walkHud.style.display = m === 'walk' ? 'block' : 'none';
     root.classList.toggle('mode-walk', m === 'walk');
+    // a HUD button left focused would take the next Space (jump, pause) as a press
+    (document.activeElement as HTMLElement | null)?.blur?.();
     renderHelmet();
   });
   $resources.subscribe(renderHelmet);
   // the tech tree is a command-view screen: T does not open it on foot or on
-  // the way there (pointer lock would leave it unclickable), and Tab does not
-  // leave for walk mode while it is open. The tree's own T handler is also a
-  // window capture listener, so only stopImmediatePropagation holds it off
+  // the way there (pointer lock would leave it unclickable), but always closes
+  // an open one; Tab does not leave for walk mode while it is open. The tree's
+  // own T handler is also a window capture listener, so only
+  // stopImmediatePropagation holds it off. No world before play: no modes to ask
   window.addEventListener('keydown', (e) => {
+    if ($phase.get() !== 'playing') return;
     const tree = document.getElementById('tech-screen');
-    if (e.code === 'KeyT' && !game.commandView) e.stopImmediatePropagation();
-    if (e.code === 'Tab' && tree && tree.style.display !== 'none') { e.preventDefault(); e.stopPropagation(); }
+    const treeOpen = !!tree && tree.style.display !== 'none';
+    if (e.code === 'KeyT' && !treeOpen && !game.commandView) e.stopImmediatePropagation();
+    if (e.code === 'Tab' && treeOpen) { e.preventDefault(); e.stopPropagation(); }
   }, { capture: true });
   $lookAt.subscribe((la) => {
     if (!la) { nameplate.style.display = 'none'; return; }

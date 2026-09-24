@@ -244,7 +244,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
   const renderHint = () => {
     const p = $placing.get();
     if (!p) { hint.style.display = 'none'; hintHtml = ''; return; }
-    hint.style.display = 'block';
+    hint.style.display = '';
     const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
       ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
       : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
@@ -399,7 +399,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       inspSig = sig;
       buildInspector(sel);
     }
-    insp.style.display = 'block';
+    insp.style.display = ''; // the stylesheet decides: walk mode hides it
     refreshInspector(sel);
   });
   // one listener for every inspector button, acting on the live selection

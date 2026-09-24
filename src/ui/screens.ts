@@ -125,6 +125,20 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   $phase.subscribe((p) => { screen.style.display = p === 'playing' ? 'none' : 'flex'; });
 }
 
+/** While `screen` is up, Tab stays on its buttons: focus never walks onto
+ *  the HUD under it. */
+function trapTab(screen: HTMLElement) {
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Tab' || screen.style.display === 'none') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const btns = [...screen.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
+    if (!btns.length) return;
+    const i = btns.indexOf(document.activeElement as HTMLButtonElement);
+    btns[(i + (e.shiftKey ? btns.length - 1 : 1)) % btns.length].focus({ preventScroll: true });
+  }, true);
+}
+
 // ─────────────────────────── defeat ───────────────────────────
 
 export function mountDefeat(root: HTMLElement) {
@@ -132,6 +146,7 @@ export function mountDefeat(root: HTMLElement) {
   screen.id = 'defeat-screen';
   screen.style.display = 'none';
   root.appendChild(screen);
+  trapTab(screen);
 
   $defeat.subscribe((d) => {
     if (!d) { screen.style.display = 'none'; return; }
@@ -162,6 +177,7 @@ export function mountVictory(root: HTMLElement, game: Game) {
   screen.id = 'victory-screen';
   screen.style.display = 'none';
   root.appendChild(screen);
+  trapTab(screen);
 
   $victory.subscribe((v) => {
     if (!v) { screen.style.display = 'none'; return; }

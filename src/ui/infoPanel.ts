@@ -250,7 +250,7 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
     const key = $resourcePanel.get();
     const html = key ? panelHtml(key, game.mods) : null;
     if (html === null) { panel.style.display = 'none'; lastHtml = ''; return; }
-    panel.style.display = 'flex';
+    panel.style.display = ''; // the stylesheet's flex column; walk mode hides it
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
   const schedule = perFrame(render);
