@@ -21,7 +21,7 @@ import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, typ
 import {
   computeMods, effectiveDef, effectiveRates, modsFor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
-import { computeEra, eraTick, insightTick, producerOf, researchTick, uplinkShare } from './research';
+import { computeEra, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
 import { explorationTick } from './exploration';
 import { FEED_KINDS, emptyFeed, feedKindOf } from '../data/deposits';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -131,6 +131,15 @@ export function settlersWelcome(s: GameState): boolean {
 const LIFE_SUPPORT: ['oxygen' | 'food' | 'water', number][] = [
   ['oxygen', CREW.oxygenPerCrew], ['food', CREW.foodPerCrew], ['water', CREW.waterPerCrew],
 ];
+
+/** The crew's life-support reserve of a resource: LOW_SUPPLY_S of what they
+ *  breathe, eat and drink (0 for anything else). Production, surveys, hoppers
+ *  and research goods all leave it in the tanks. */
+export function crewReserve(s: Pick<GameState, 'crew'>, mods: Pick<Mods, 'inputMult'>, rid: ResourceId): number {
+  const per = rid === 'oxygen' ? CREW.oxygenPerCrew : rid === 'water' ? CREW.waterPerCrew
+    : rid === 'food' ? CREW.foodPerCrew : 0;
+  return s.crew * per * mods.inputMult.habitat * LOW_SUPPLY_S;
+}
 
 /** The life-support supply that cannot carry one more settler, or '' when all
  *  can: at the current net flow, each must keep crew+1 alive for a lunar day,
@@ -451,9 +460,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // life support, so a farm idles before it takes the crew's water
   const lsMult = mods.inputMult['habitat'];
   const reserve: Partial<Record<ResourceId, number>> = {
-    oxygen: s.crew * CREW.oxygenPerCrew * lsMult * LOW_SUPPLY_S,
-    food: s.crew * CREW.foodPerCrew * lsMult * LOW_SUPPLY_S,
-    water: s.crew * CREW.waterPerCrew * lsMult * LOW_SUPPLY_S,
+    oxygen: crewReserve(s, mods, 'oxygen'),
+    food: crewReserve(s, mods, 'food'),
+    water: crewReserve(s, mods, 'water'),
   };
   const byType = new Map<BuildingId, BuildingState[]>();
   for (const b of s.buildings) {
@@ -786,7 +795,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const [rid, f] of Object.entries(ex.flow) as [ResourceId, number][]) s.rates[rid] = (s.rates[rid] ?? 0) + f * k;
   // the Era 7 deed: an outpost has operated (a grounded hopper is not operating)
   if (s.survey.outposts.some((o) => o.live && o.fuelOk)) st.outpostOpS += dt;
-  crewRotationTick(s, smelterO2);
+  crewRotationTick(s, mods, smelterO2);
 
   // ── 9 · research (queue, transfer cap, goods pass: core/research.ts) ──
   if (researchTick(s, mods, dt).modsChanged) ev.modsChanged = true;
@@ -822,14 +831,11 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
 }
 
 /** The first check of CREW_ROTATION the base fails, as an alert tail, or ''. */
-export function rotationShortfall(s: GameState, smelterO2: number, count: number): string {
+export function rotationShortfall(s: GameState, mods: Mods, smelterO2: number, count: number): string {
   const R = CREW_ROTATION;
-  const fix = (res: ResourceId) => {
-    const b = producerOf(res, s.siteId);
-    return b ? ` · build ${BUILDINGS[b].name}` : '';
-  };
+  // what makes it under these mods (an MRE smelter makes no water)
   const need = (res: ResourceId, amt: number) =>
-    `needs ${amt} ${RESOURCES[res].name.toLowerCase()} (have ${Math.floor(s.resources[res])})${fix(res)}`;
+    `needs ${amt} ${RESOURCES[res].name.toLowerCase()} (have ${Math.floor(s.resources[res])})${producerHint(res, s, mods)}`;
   if (s.resources.oxygen < R.minO2 && smelterO2 < R.minO2Rate) return need('oxygen', R.minO2);
   if (s.resources.food < R.minFood) return need('food', R.minFood);
   if (s.resources.water < R.minWater) return need('water', R.minWater);
@@ -843,11 +849,11 @@ export function rotationShortfall(s: GameState, smelterO2: number, count: number
 /** At its time, the rotation boards if the base can keep them, else it is held
  *  and re-checked every CREW_ROTATION.retryS. It brings a robotic base its
  *  first crew; if someone is already aboard, it is not needed. */
-function crewRotationTick(s: GameState, smelterO2: number) {
+function crewRotationTick(s: GameState, mods: Mods, smelterO2: number) {
   const rot = s.crewRotation;
   if (!rot || s.simTime < rot.at) return;
   if (s.crew > 0) { s.crewRotation = null; return; }
-  const short = rotationShortfall(s, smelterO2, rot.count);
+  const short = rotationShortfall(s, mods, smelterO2, rot.count);
   if (short) {
     rot.at = s.simTime + CREW_ROTATION.retryS;
     alert(s, `CREW ROTATION HELD — ${short}`, 'warn', { panel: 'crew' });

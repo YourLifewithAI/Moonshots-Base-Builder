@@ -552,3 +552,65 @@ test('launch capacity: a volley needs 3↑, and each shortfall says so', async (
   expect(r.fired.resources.launch).toBeCloseTo(0, 6);
   expect(r.fired.resources.foils).toBeCloseTo(0, 6);
 });
+
+test('goods leave the crew’s reserve: Fuel Cells wait until 80≈ is spare, and name what makes it', async ({ page }) => {
+  await start(page, 'mare');
+  // Molten Regolith Electrolysis: the smelter makes no water here
+  await complete(page, ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication',
+    'batteryStorage', 'moltenElectrolysis']);
+  await placeNear(page, [['solar', 2], ['lab', 2]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.finishConstruction();
+    g.research('regenFuelCells');
+    g.grantData(500);
+    g.grantResources({ water: 40 - g.getState().resources.water });
+    powered(240); // 180≡ at 2 × 0.4/s: paid, but the water is short
+    const dry = g.getState();
+    const dryCard = g.getResearch().cards.regenFuelCells;
+    g.completeTech('regolithVolatiles'); // excavators sweat water now
+    g.grantResources({ water: 83 - g.getState().resources.water });
+    g.advanceGameSeconds(1);
+    const held = g.getState();
+    const heldCard = g.getResearch().cards.regenFuelCells;
+    g.grantResources({ water: 87 - held.resources.water });
+    g.advanceGameSeconds(1);
+    return { dry, dryCard, held, heldCard, done: g.getState() };
+  });
+  // four crew drink 0.02≈/s: five minutes of it, 6≈, is the reserve
+  expect(r.dry.crew).toBe(4);
+  expect(r.dry.researchStalled).toEqual(['regenFuelCells']);
+  expect(r.dryCard.stalledNeed).toMatch(/^80≈ water \(have \d+, 6 held for the crew\) · nothing here makes water yet$/);
+  expect(hasAlert(r.dry, /^RESEARCH WAITING — Regenerative Fuel Cells needs 80≈ water \(have \d+, 6 held for the crew\) · nothing here makes water yet$/)).toBe(true);
+  // 82 in the tanks covers 80, but not 80 above the crew's 6: it waits, and says so
+  expect(r.held.resources.water).toBeCloseTo(82.98, 6);
+  expect(r.held.researchStalled).toEqual(['regenFuelCells']);
+  expect(r.held.techsDone).not.toContain('regenFuelCells');
+  expect(r.heldCard.stalledNeed).toBe('80≈ water (have 82, 6 held for the crew) · made by Regolith Excavator');
+  // 86.98 after the crew drinks: 80 above the reserve, and the reserve stays
+  expect(r.done.techsDone).toContain('regenFuelCells');
+  expect(r.done.resources.water).toBeCloseTo(6.98, 6);
+});
+
+test('producers follow the recipes: the held rotation names what really makes water here', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('moltenElectrolysis'); // the MRE smelter makes metals, oxygen and silicon — no water
+    g.grantResources({ water: -g.getState().resources.water, food: 50 });
+    g.completeTech('humanCohabitation');
+    powered(241);
+    const none = g.getState();
+    g.completeTech('prospectingRovers');
+    g.completeTech('orbitalProspector'); // an outpost slot, and the ice at Cabeus in coverage
+    powered(65);
+    const outpost = g.getState();
+    g.completeTech('regolithVolatiles');
+    powered(65);
+    return { none, outpost, volatiles: g.getState() };
+  });
+  const held = (s: any) => s.alerts.filter((a: any) => a.text.startsWith('CREW ROTATION HELD')).map((a: any) => a.text);
+  expect(held(r.none)).toEqual(['CREW ROTATION HELD — needs 8 water (have 0) · nothing here makes water yet']);
+  expect(held(r.outpost)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · claim an ice outpost');
+  expect(held(r.volatiles)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · build Regolith Excavator');
+});
