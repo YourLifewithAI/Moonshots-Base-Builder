@@ -1193,18 +1193,19 @@ test('site grading: era-1 tech flattens rough terrain for construction', async (
     return fallback;
   });
   expect(target).not.toBeNull();
-  // grade and tick in one evaluate, so the live frame loop can't slip in a
-  // second tick of recharge between the pass and the reading
+  // advanceGameSeconds(0) applies the queued grade without an economy tick,
+  // and one evaluate keeps the live frame loop from ticking in between — so
+  // no recharge muddies the reading
   const { before, after } = await page.evaluate((t) => {
     const g = window.__game!;
     const before = g.getState();
     g.gradeAt(t.gx, t.gz);
-    g.advanceGameSeconds(1);
+    g.advanceGameSeconds(0);
     return { before, after: g.getState() };
   }, target!);
   // grading spends stored energy, banks the dozed spoil, and records the cut
   expect(after.flattens.length).toBe(before.flattens.length + 1);
-  expect(after.powerStored).toBeLessThanOrEqual(before.powerStored - 30); // −40, minus a tick of recharge
+  expect(after.powerStored).toBeCloseTo(before.powerStored - 40, 5);
   expect(after.resources.regolith).toBeGreaterThanOrEqual(before.resources.regolith + 5);
   // the once-blocked pad now takes a solar array
   const post = await page.evaluate(
