@@ -1,7 +1,11 @@
 /** The research tree screen (docs/11 §6, §9 tests 1, 2, 5–9 UI parts):
  *  layout budget at 1280×720, hover closure, doctrine commit, Shift-click
  *  paths, the full queue, keys and in-place updates. */
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect as baseExpect, type Page } from '@playwright/test';
+
+// UI actions reach the sim on the next rendered frame; under software GL on a
+// loaded machine a frame can take seconds, so assertions get a wider window
+const expect = baseExpect.configure({ timeout: 20_000 });
 
 declare global {
   interface Window { __game?: any }
