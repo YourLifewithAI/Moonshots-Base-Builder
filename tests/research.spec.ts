@@ -494,3 +494,61 @@ test('save migration: a 34-tech save loads with retired ids refunded and the que
   expect(hasAlert(s, /^RESEARCH TREE UPDATED — 5 retired techs refunded 990≡$/)).toBe(true);
   expect(errors).toEqual([]);
 });
+
+test('crop loss: a farm dark 30 s at night loses its crop and regrows for 150 s', async ({ page }) => {
+  await start(page, 'mare');
+  await placeNear(page, [['hydroponics', 1], ['lab', 1]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const farm = () => g.getState().buildings.find((b: any) => b.type === 'hydroponics');
+    const lab = g.getState().buildings.find((b: any) => b.type === 'lab');
+    g.setPriority(lab.id, 0); // the lab now outranks the farm for the Lander's 6 kW
+    g.advanceGameSeconds(490 - g.getState().simTime); // night
+    g.grantPower(-g.getState().powerStored);
+    // the brownout hold lets the farm back on for a tick now and then: still dark
+    let t = 0;
+    while (!(farm().cropRegrowT > 0) && t++ < 60) g.advanceGameSeconds(1);
+    const lost = { s: g.getState(), sinceDusk: g.getState().simTime - 480 };
+    g.setEnabled(lab.id, false);
+    g.grantPower(3000);
+    g.advanceGameSeconds(20);
+    const regrowing = g.getState();
+    g.advanceGameSeconds(farm().cropRegrowT + 1);
+    const grown = g.getState();
+    g.advanceGameSeconds(10);
+    return { lost, regrowing, grown, fed: g.getState(), id: farm().id };
+  });
+  const farmOf = (s: any) => s.buildings.find((b: any) => b.id === r.id);
+  expect(r.lost.sinceDusk).toBeGreaterThan(30); // dark more than 30 s of the night
+  expect(r.lost.sinceDusk).toBeLessThan(50);
+  expect(farmOf(r.lost.s).cropRegrowT).toBe(150);
+  expect(hasAlert(r.lost.s, new RegExp(`^CROP LOST — Hydroponics #${r.id} went dark 30 s; regrowing 2:30$`))).toBe(true);
+  // powered again, it runs but grows no food until the crop is back
+  expect(farmOf(r.regrowing).active).toBe(true);
+  expect(farmOf(r.regrowing).cropRegrowT).toBeGreaterThanOrEqual(129);
+  expect(farmOf(r.regrowing).cropRegrowT).toBeLessThanOrEqual(131);
+  expect(r.regrowing.stats.produced.food).toBe(r.lost.s.stats.produced.food);
+  expect(farmOf(r.grown).cropRegrowT).toBe(0);
+  expect(r.fed.stats.produced.food).toBeGreaterThan(r.grown.stats.produced.food + 0.3);
+});
+
+test('launch capacity: a volley needs 3↑, and each shortfall says so', async ({ page }) => {
+  await start(page, 'mare');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('swarmProtocol');
+    g.grantResources({ foils: 10, launch: 2 });
+    g.launch();
+    g.advanceGameSeconds(0);
+    const short = g.getState();
+    g.grantResources({ launch: 1 });
+    g.launch();
+    g.advanceGameSeconds(0);
+    return { short, fired: g.getState() };
+  });
+  expect(r.short.launches).toBe(0);
+  expect(hasAlert(r.short, /^LAUNCH NEEDS 3↑ CAPACITY — have 2\.0↑$/)).toBe(true);
+  expect(r.fired.launches).toBe(1);
+  expect(r.fired.resources.launch).toBeCloseTo(0, 6);
+  expect(r.fired.resources.foils).toBeCloseTo(0, 6);
+});
