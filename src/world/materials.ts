@@ -3,18 +3,21 @@
  *  material itself, so the render-safety switches reach meshes created at any
  *  time — including the first building of a type placed after safe mode:
  *
- *    safe mode   → an unlit MeshBasicMaterial twin (vertex colors kept)
+ *    safe mode   → an unlit MeshBasicMaterial twin (vertex colors kept); a
+ *                  patched helper material (shadow depth, placement ghost)
+ *                  gets a stock, unpatched copy instead
  *    FX level    → which shader-patch variant a lit material compiles with
  *    patch fault → a GPU rejected a patched shader: every patch is stripped
  *                  back to the stock three.js shader (remembered across
  *                  launches, cleared by an explicit FX-level choice) */
 import * as THREE from 'three';
 
-export type MaterialKey = 'building' | 'terrain' | 'rock';
+export type MaterialKey = 'building' | 'buildingDepth' | 'terrain' | 'rock' | 'ghost';
 
 /** Installs a shader patch on its material for an FX level. Returns a cache
  *  key naming the variant, or null when that level runs the stock shader. */
-export type ShaderPatch = (mat: THREE.MeshStandardMaterial, level: number) => string | null;
+export type ShaderPatch<M extends THREE.Material = THREE.MeshStandardMaterial> =
+  (mat: M, level: number) => string | null;
 
 /** Every patched shader carries this define; a compile error whose source
  *  contains it is a patch fault, not a driver/post-chain fault. */
@@ -22,10 +25,30 @@ export const PATCH_MARKER = 'MBB_PATCHED';
 
 const FAULT_KEY = 'mbb-patch-fault';
 
+type Edit = [anchor: string, add: string, before?: boolean];
+
+/** Replace every anchor or none: a partial patch would not compile. */
+export function injectAll(src: string, edits: Edit[]): string | null {
+  let out = src;
+  for (const [anchor, add, before] of edits) {
+    if (!out.includes(anchor)) return null;
+    out = out.replace(anchor, before ? `${add}\n${anchor}` : `${anchor}\n${add}`);
+  }
+  return out;
+}
+
+/** Do a stock template's anchors all exist? A patch checks before claiming a
+ *  variant, so an upgrade that moves an anchor leaves the stock shader (and
+ *  its fallbacks) in charge instead of a variant that never injected. */
+export function hasAnchors(template: string, edits: Edit[]): boolean {
+  return edits.every(([anchor]) => template.includes(anchor));
+}
+
 interface Entry {
-  lit: THREE.MeshStandardMaterial;
-  patch?: ShaderPatch;
-  basic?: THREE.MeshBasicMaterial;
+  lit: THREE.Material;
+  patch?: ShaderPatch<THREE.Material>;
+  /** safe-mode twin: unlit MeshBasic for a lit material, else a stock copy */
+  basic?: THREE.Material;
   variant: string | null;
 }
 
@@ -41,9 +64,12 @@ class MaterialRegistry {
   private level = 0;
   private safe = false;
   private faulted = storedFault();
+  /** bumped on every change of variant, fault or safe mode — meshes that
+   *  render differently with and without a patch poll it */
+  revision = 0;
 
-  define(key: MaterialKey, lit: THREE.MeshStandardMaterial, patch?: ShaderPatch) {
-    const e: Entry = { lit, patch, variant: null };
+  define<M extends THREE.Material>(key: MaterialKey, lit: M, patch?: ShaderPatch<M>) {
+    const e: Entry = { lit, patch: patch as ShaderPatch<THREE.Material> | undefined, variant: null };
     this.entries.set(key, e);
     this.install(e);
   }
@@ -56,11 +82,17 @@ class MaterialRegistry {
   }
 
   /** The lit material, whatever mode is active (for per-frame uniform tweaks). */
-  lit(key: MaterialKey): THREE.MeshStandardMaterial | undefined {
+  lit(key: MaterialKey): THREE.Material | undefined {
     return this.entries.get(key)?.lit;
   }
 
+  /** Is `key` drawing with its shader patch right now (not stock, not safe)? */
+  patched(key: MaterialKey): boolean {
+    return !this.safe && (this.entries.get(key)?.variant ?? null) !== null;
+  }
+
   get safeMode(): boolean { return this.safe; }
+  get fxLevel(): number { return this.level; }
   get patchesFaulted(): boolean { return this.faulted; }
 
   /** Active shader-patch variant per material (debug/probes). */
@@ -70,10 +102,19 @@ class MaterialRegistry {
     return out;
   }
 
-  private twin(e: Entry): THREE.MeshBasicMaterial {
-    e.basic ??= new THREE.MeshBasicMaterial({
-      vertexColors: e.lit.vertexColors, color: e.lit.color, side: e.lit.side,
-    });
+  private twin(e: Entry): THREE.Material {
+    if (!e.basic) {
+      const lit = e.lit as THREE.MeshStandardMaterial;
+      if (lit.isMeshStandardMaterial) {
+        e.basic = new THREE.MeshBasicMaterial({
+          vertexColors: lit.vertexColors, color: lit.color, side: lit.side,
+        });
+      } else {
+        e.basic = e.lit.clone();
+        e.basic.onBeforeCompile = STOCK_COMPILE;
+        e.basic.customProgramCacheKey = STOCK_KEY;
+      }
+    }
     return e.basic;
   }
 
@@ -85,7 +126,10 @@ class MaterialRegistry {
     } else {
       e.lit.customProgramCacheKey = () => variant;
     }
-    if (variant !== e.variant) e.lit.needsUpdate = true;
+    if (variant !== e.variant) {
+      e.lit.needsUpdate = true;
+      this.revision++;
+    }
     e.variant = variant;
   }
 
@@ -116,6 +160,7 @@ class MaterialRegistry {
    *  creator makes from here on (they all come through get()). */
   enableSafe(root: THREE.Object3D) {
     this.safe = true;
+    this.revision++;
     const twins = new Map<THREE.Material, THREE.Material>();
     for (const e of this.entries.values()) twins.set(e.lit, this.twin(e));
     root.traverse((o) => {
