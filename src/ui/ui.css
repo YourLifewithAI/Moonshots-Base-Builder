@@ -1,20 +1,29 @@
 /* HUD layout — five regions over the canvas; panels are dark and quiet,
    the world stays the star. 24px gutters, 8px rhythm. */
 
-/* ── top-left: resource strip ── */
-#resource-strip {
+/* ── top-left: resource strip, its info panel directly beneath however
+   many rows the strip wraps to; the column stops above the objectives ── */
+#hud-left {
   position: absolute; top: var(--gutter); left: var(--gutter);
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2);
+  max-height: calc(100vh - 2 * var(--gutter) - 140px);
+}
+#resource-strip {
   display: flex; flex-wrap: wrap; gap: var(--s2);
   /* never reach the centered swarm meter */
   max-width: calc(50vw - 200px);
+  flex: 0 0 auto;
 }
 .chip {
   display: flex; align-items: baseline; gap: 6px;
   padding: 5px 10px;
 }
 .chip .glyph { color: rgba(var(--paper-rgb), var(--op-tertiary)); font-size: 11px; }
+/* fixed-width slots: values tick without reflowing the strip */
 .chip .val { font-size: 13px; color: var(--ink-050); min-width: 4ch; text-align: right; }
 .chip .cap { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-muted)); min-width: 4ch; }
+.chip[data-slot="power"] .cap { min-width: 7ch; }
+.chip[data-slot="stored"] .cap { min-width: 6ch; }
 .chip.warn .val { color: var(--paper); }
 .chip.warn { border-color: rgba(var(--paper-rgb), 0.5); }
 
@@ -39,22 +48,55 @@
 #swarm-meter .mono { font-size: 12px; }
 #swarm-meter .launch-row { margin-top: 8px; display: flex; gap: 8px; justify-content: center; align-items: center; }
 
-/* ── top-right: time + alerts ── */
-#time-controls {
+/* ── top-right: time + alerts, the inspector beneath them ── */
+#hud-right {
   position: absolute; top: var(--gutter); right: var(--gutter);
   display: flex; flex-direction: column; gap: var(--s2); align-items: flex-end;
+  max-height: calc(100vh - 2 * var(--gutter));
+}
+/* narrow screens: the widest palette tab reaches under the column — stop above it */
+@media (max-width: 1240px) {
+  #hud-right { max-height: calc(100vh - var(--gutter) - 180px); }
+}
+#time-controls {
+  display: flex; flex-direction: column; gap: var(--s2); align-items: flex-end;
+  flex: 0 0 auto;
 }
 #time-controls .row { display: flex; gap: 4px; align-items: center; }
 #time-controls .clock { padding: 5px 10px; font-size: 12px; }
 #time-controls .clock .night { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 #alerts { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; max-width: 340px; }
 .alert {
-  padding: 6px 10px; font-size: 12px; cursor: pointer;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 6px 6px 6px 10px; font-size: 12px; cursor: pointer;
   transition: opacity var(--dur-fast) var(--ease);
 }
 .alert.crit { background: var(--paper); color: var(--ink-900); font-weight: 600; }
 .alert.warn { border-color: rgba(var(--paper-rgb), 0.4); }
 .alert:hover { opacity: 0.7; }
+.alert.actionable .alert-text::after { content: ' ▸'; opacity: 0.6; }
+.alert .alert-n { font-size: 11px; opacity: 0.72; }
+.alert .alert-n:empty { display: none; }
+.alert .alert-x {
+  background: none; border: none; color: inherit; font: inherit; font-size: 10px;
+  opacity: 0.52; cursor: pointer; padding: 0 3px;
+}
+.alert .alert-x:hover { opacity: 1; }
+.alert-more { font-size: 10px; line-height: 14px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+/* inspector open: a fixed-height stack of one-line alerts (full text on
+   hover), so alerts coming and going never shift the inspector beneath */
+#hud-layer:not(.mode-walk) #hud-right.inspecting #alerts {
+  --alert-row: 28px;
+  height: calc(var(--alert-rows, 4) * (var(--alert-row) + 4px) + 14px);
+  overflow: hidden;
+}
+#hud-layer:not(.mode-walk) #hud-right.inspecting .alert {
+  box-sizing: border-box; height: var(--alert-row); max-width: 100%;
+  align-items: center; white-space: nowrap; flex: 0 0 auto;
+}
+#hud-layer:not(.mode-walk) #hud-right.inspecting .alert-text {
+  overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
 
 /* ── bottom-left: milestones ── */
 #milestones {
@@ -71,6 +113,7 @@
 #milestones .goal-item.done .goal-title { opacity: 0.38; font-weight: 400; }
 #milestones .goal-item.future .goal-title { opacity: 0.62; }
 #milestones .goal-item.future .goal-hint { opacity: 0.6; }
+#milestones .goal-progress { font-size: 11px; line-height: 15px; margin-top: 5px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 
 /* inline person glyph (crew) */
 .pglyph { vertical-align: -1px; }
@@ -95,11 +138,10 @@
 .bld-btn .nm { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; line-height: 13px; margin-top: 3px; }
 .bld-btn .cost { font-size: 10px; margin-top: 3px; color: rgba(var(--paper-rgb), var(--op-muted)); }
 
-#place-hint {
-  position: absolute; bottom: 138px; left: 50%; transform: translateX(-50%);
-  padding: 6px 12px; font-size: 12px; text-align: center;
-}
+/* inside the palette column, above the cards: it can never cover them */
+#place-hint { padding: 6px 12px; font-size: 12px; text-align: center; }
 #place-hint .blocked { color: var(--paper); font-weight: 600; }
+#place-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
 
 /* ── tooltip (fixed template) ── */
 #tooltip {
@@ -120,8 +162,8 @@
 
 /* ── right: inspector ── */
 #inspector {
-  position: absolute; right: var(--gutter); top: 50%; transform: translateY(-50%);
   width: 280px; padding: 0; font-size: 12px;
+  flex: 0 1 auto; min-height: 120px; overflow-y: auto;
 }
 #inspector section { padding: 10px 14px; border-top: var(--hair); }
 #inspector section:first-child { border-top: none; }
@@ -255,10 +297,13 @@
 
 /* ── resource info panel (chip click) ── */
 #res-panel {
-  position: absolute; top: 104px; left: var(--gutter);
-  width: 330px; max-height: 64vh; overflow-y: auto;
+  width: 330px; max-height: 64vh;
+  flex: 0 1 auto; min-height: 120px; flex-direction: column;
   font-size: 12px; line-height: 17px;
 }
+/* the body scrolls; Close stays in view */
+#res-panel .res-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+#res-panel .actions { flex: 0 0 auto; }
 #res-panel section { padding: 9px 13px; border-top: var(--hair); }
 #res-panel section:first-child { border-top: none; }
 #res-panel .row { display: flex; justify-content: space-between; gap: 10px; margin: 3px 0; }

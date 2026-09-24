@@ -7,7 +7,7 @@ import { resolveTech, techAvailability, techCost } from '../core/research';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { Game } from '../core/game';
 import { el, fmt, PERSON_SVG } from './hud';
-import { $defeat, $hasSave, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
+import { $defeat, $hasSave, $lostMission, $phase, $swarm, $tech, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
 
 function rate(n: number): string {
@@ -22,17 +22,21 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   root.appendChild(screen);
   let selected: SiteId | null = null;
   let step: 'site' | 'expedition' = 'site';
+  let landing = false;
   // robots first — the realistic default; a crewed landing is the what-if
   let expedition: 'human' | 'robotic' = 'robotic';
 
   const render = () => {
     if (step === 'expedition') { renderExpedition(); return; }
+    const lost = $lostMission.get();
     screen.innerHTML = `
       <h1>MOONSHOTS</h1>
       <div class="sub">Base Builder · From regolith to Dyson swarm</div>
       <div id="sites"></div>
-      <div style="display:flex; gap:12px">
-        ${$hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
+      <div style="display:flex; gap:12px; align-items:center">
+        ${lost
+          ? `<span class="label" id="lost-mission">✕ Mission lost — ${SITES[lost.siteId].name}, day ${lost.day}. The base fell silent.</span>`
+          : $hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
         <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose expedition ▸</button>
       </div>
       <div class="sub" style="margin-top:26px">Every site is a trade-off. Choose where your story gets hard.</div>`;
@@ -96,8 +100,8 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
         </div>
       </div>
       <div style="display:flex; gap:12px">
-        <button class="btn" id="btn-back">◂ Back</button>
-        <button class="btn primary" id="btn-launch-exp">Land ▸</button>
+        <button class="btn" id="btn-back" ${landing ? 'disabled' : ''}>◂ Back</button>
+        <button class="btn primary" id="btn-launch-exp" ${landing ? 'disabled' : ''}>${landing ? 'DESCENDING…' : 'Land ▸'}</button>
       </div>`;
     screen.querySelectorAll<HTMLElement>('[data-exp]').forEach((card) => {
       card.addEventListener('click', () => {
@@ -107,11 +111,20 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
     });
     screen.querySelector('#btn-back')?.addEventListener('click', () => { step = 'site'; render(); });
     screen.querySelector('#btn-launch-exp')?.addEventListener('click', () => {
-      if (selected) void game.newGame(selected, expedition);
+      if (!selected || landing) return;
+      // building the world stalls the page for a few seconds: paint the
+      // descent first, and take no second click meanwhile
+      landing = true;
+      render();
+      const site = selected;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        void game.newGame(site, expedition).finally(() => { landing = false; });
+      }));
     });
   };
   render();
   $hasSave.subscribe(render);
+  $lostMission.subscribe(render);
   $phase.subscribe((p) => { screen.style.display = p === 'playing' ? 'none' : 'flex'; });
 }
 

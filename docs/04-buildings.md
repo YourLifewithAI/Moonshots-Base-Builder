@@ -15,7 +15,15 @@ intent only; their numbers are targets for the balancing pass when they land.
   day — the universal maintenance sink (02).
 - **Crew seats** (`crew`): under-crewed buildings idle.
 - **Brownout priority** (0–3): under power shortage the grid sheds priority 3
-  first (labs), then industry, then food, and life support (0) last.
+  first (labs), then industry, then food, and life support (0) last. Idling
+  only priority 2–3 loads is a *load shed* (morale −3); a dark priority 0–1
+  load is a *brownout* (morale −15). Construction sites weld (4 kW) at their
+  building's priority, after running loads of the same priority; a site held
+  dark is shed load, never a brownout.
+- **Construction**: one robot per site, in placement order unless *Build next*
+  moves a queued site to the front. A shut-down site pauses and frees its
+  robot. Demolition refunds half the site-scaled price paid, or all of it for
+  a site no robot has touched.
 - **Placement**: 4 m grid cells, within 60 m of the Lander or any Habitat
   (coverage model, Cities: Skylines — no wires, no pipes).
 
@@ -51,7 +59,7 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 | **Lander** (1) | S | — → +6 kW; stores 800 energy units | Pre-placed, free; houses 8; carries the starting cache; build anchor | Home. Power, housing, and the supply cache you arrived with | There is only one, and it is not enough |
 | Habitat Module (1) | S | −4 kW → houses 4 | Extends the buildable perimeter (60 m radius) | Room for four more; extends the buildable perimeter | Draws life support every second of the night, forever |
 | Buried Habitat (2) | C | −power → houses crew under regolith berm | Flare-proof housing (Regolith Shielding tech); thermal-stable | Radiation and thermal swings simply stop mattering | Costlier, slower to build, and windowless — morale dims underground |
-| Hydroponics Farm (1) | S | 1 crew, −6 kW, 0.2 water/s → 0.35 food/s | Morale +5 while running | Fresh food, green light — the crew's favorite corridor | Crops die if power drops through the night. It holds your grid hostage |
+| Hydroponics Farm (1) | S | 1 crew, −6 kW, 0.03 water/s → 0.10 food/s (idles rather than drink the crew's 5-minute reserve) | Morale +5 while running | Fresh food, green light — the crew's favorite corridor | Crops die if power drops through the night. It holds your grid hostage |
 | Algae Bioreactor (2) | C | water + power → food + oxygen trickle | O₂ redundancy independent of smelting; compact | Two life-support loops from one tank — and it shrugs off brownouts | Nobody dreams of algae for dinner; higher crew tiers demand variety |
 | Medical Bay (3) | C | crew, power, parts → crew-health coverage | Heals flare/micrometeorite injuries; softens starvation losses; Technician-tier need | Turns disasters from deaths into recoveries | Staffed by exactly the skilled crew your industry is short of |
 | Recreation Dome (3) | S | 1 crew, −4 kW, 0.05 food/s → — | Morale +14 — the largest single lever | The biggest single lever on morale — and morale multiplies everything | A pure cost center. It consumes and produces nothing but goodwill |
@@ -60,7 +68,7 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
 |---|---|---|---|---|---|
-| Parts Fabricator (3) | S | 3 crew, −10 kW, 0.4 metals/s → 0.3 parts/s | Ends dependence on the lander's spares cache | Ends your dependence on the lander's spare-parts cache | Three crew on the line — your scarcest resource, standing at a bench |
+| Parts Fabricator (3) | S | 1 crew, −10 kW, 0.3 metals/s → 0.2 parts/s; stands by when the parts yard is full | Ends dependence on the lander's spares cache | Ends your dependence on the lander's spare-parts cache | Three metals in, two parts out — metals your next building was counting on |
 | Electronics Assembler (3) | C | silicon + metals + rare earths → electronics | Gates advanced buildings/techs in the full design (02) | The chokepoint that makes automation, comms, and Cores possible | Three input chains converge here — any one starving stalls them all |
 | Foundry / Structural Mill (3) | C | bulk metals + heavy power → structural sections | Cuts build cost of large late buildings; wants a Radiator Field | Big buildings stop devouring your raw-metal stockpile | A heat monster: the grid and the radiators both remember it |
 | Foil Factory (4) | S | 3 crew, −20 kW, 0.6 silicon + 0.2 metals/s → 0.05 foils/s | Makes the literal substance of the swarm | Thin-film collector foils: the actual substance of the Dyson swarm | The largest power draw on the Moon. Your grid will remember this purchase |

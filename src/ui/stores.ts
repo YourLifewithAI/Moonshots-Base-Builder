@@ -15,22 +15,39 @@ export type Phase = 'title' | 'site' | 'playing';
 
 export const $phase = atom<Phase>('title');
 export const $hasSave = atom<boolean>(false);
+/** the saved mission was lost (human crew gone): the title shows it instead of 'Continue' */
+export const $lostMission = atom<{ siteId: SiteId; day: number } | null>(null);
 export const $siteId = atom<SiteId | null>(null);
 
 export const $resources = atom<Record<ResourceId, number>>({
   regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
 });
-export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false });
-export const $vitals = atom({
-  crew: 0, housing: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
-  expedition: 'human' as 'human' | 'robotic',
+/** kW: supply = generation, demand = what every running load requested,
+ *  served = what the grid delivered (the bank makes up supply's shortfall) */
+export const $power = atom({
+  supply: 0, demand: 0, served: 0, stored: 0, capacity: 0, brownout: false, shed: false,
 });
-/** Lander services status (shipment en route etc.) */
-export const $lander = atom<{ resupplyPending: boolean; etaS: number }>({ resupplyPending: false, etaS: 0 });
+/** housing = beds the economy counts (enabled, complete, powered); beds = all completed;
+ *  boardingHold = the life-support supply keeping the next settler away ('' = none);
+ *  lifeSupport = the crew's draw per game-second; sites = construction sites,
+ *  welding = those being built this tick; upkeep = parts per game-second */
+export const $vitals = atom({
+  crew: 0, housing: 0, beds: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
+  expedition: 'human' as 'human' | 'robotic',
+  boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
+  lifeSupport: { oxygen: 0, food: 0, water: 0 },
+  sites: 0, welding: 0, upkeep: 0,
+});
+/** Lander services status (shipment en route, the next order's transit in
+ *  lunar days, agent-run stations the crew could take) */
+export const $lander = atom<{ resupplyPending: boolean; etaS: number; orderDays: number; agentRun: number }>({
+  resupplyPending: false, etaS: 0, orderDays: 1, agentRun: 0,
+});
 /** on-screen condition bars over damaged buildings */
 export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: number }[]>([]);
+/** phaseLeft = game-seconds to the next dusk (by day) or dawn (by night) */
 export const $time = atom({
-  dayIndex: 0, tCycle: 0, isNight: false, sunFactor: 1,
+  dayIndex: 0, tCycle: 0, isNight: false, sunFactor: 1, phaseLeft: 0,
   speed: 1, paused: false,
   flare: 'idle' as 'idle' | 'telegraph' | 'active', flareTimer: 0,
 });
@@ -81,11 +98,15 @@ export interface DepositView {
 export const $deposits = atom<DepositView[]>([]);
 
 export const $alerts = atom<AlertMsg[]>([]);
-export const $milestones = atom<{ done: string[]; total: number }>({ done: [], total: 0 });
-export const $swarm = atom({ pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0 });
+/** progress = the earliest open objective's status line ('' = none) */
+export const $milestones = atom<{ done: string[]; total: number; progress: string }>({ done: [], total: 0, progress: '' });
+/** foils / launch / stored: what the next volley would spend, as held now */
+export const $swarm = atom({
+  pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0, foils: 0, launch: 0, stored: 0,
+});
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
-export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string } | null>(null);
+export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 
@@ -94,9 +115,9 @@ export const $ice = atom<{ hasIce: boolean; surveyed: boolean }>({ hasIce: false
 export const $iceOverlay = atom<boolean>(false);
 /** stockpile caps for capped resources */
 export const $caps = atom<Partial<Record<ResourceId, number>>>({});
-/** building counts (total / active) for the resource info panels */
-export const $counts = atom<Partial<Record<BuildingId, { total: number; active: number }>>>({});
-/** per-game-second resource deltas (informational) */
+/** building counts (total / active / dark for lack of power) for the resource info panels */
+export const $counts = atom<Partial<Record<BuildingId, { total: number; active: number; dark: number }>>>({});
+/** smoothed net flow per resource, per game-second (from the economy tick) */
 export const $rates = atom<Partial<Record<ResourceId, number>>>({});
 /** which resource info panel is open (chip click) */
 export const $resourcePanel = atom<string | null>(null);

@@ -97,14 +97,25 @@ hitting zero before self-sufficiency is the full design's true early fail state.
 
 The slice substitutes a generous lander stockpile (140 metals, 120 food, 120
 oxygen, 70 parts, 50 water, 800 stored energy) — same function, no arc. The
-Era-2 beat survives only implicitly (batteries + first night survived).
+Era-2 beat survives only implicitly (batteries + first night survived). What
+survives of Earth's thinning patience: shipments ordered by hand at the Lander
+(+60 metals, +40 parts) take one lunar day, then two, then three — each order a
+day longer than the last — and cost −5 morale whenever anyone is aboard. The
+automatic rescue of a stranded base (no smelter and no metals for one, or no
+fabricator and the spares nearly gone) stays one day out and never escalates.
 
 ## Crew and labor
 
 Shipped model: an undifferentiated crew pool. Buildings declare `crew` seats;
-under-crewed buildings idle. Growth (+1 per lunar day) requires morale ≥ 60 and
-free housing; starvation gives a 60 s grace, then losses every 30 s — Banished's
-quiet death spiral, on a timer you can see.
+under-crewed buildings idle. Growth (+1 per lunar day) requires morale ≥ 60,
+a free powered bed, and a base that can keep one more alive: at the current net
+flow, oxygen, food and water must each last crew+1 a lunar day, with five
+minutes of it in the tanks (a day's reserve with nothing producing, or
+production that covers the newcomer). Starvation gives a 60 s grace, then
+losses every 30 s — Banished's quiet death spiral, on a timer you can see.
+Settlers who reach a robotic base find its stations agent-run; the Lander's
+"Crew all eligible stations" hands them over in priority order while free
+hands last.
 
 **Crew tiers (CUT — the Anno 1800 model).** Full design: three tiers, each more
 productive and more demanding, each *requiring the lower tiers to keep existing*:
@@ -155,7 +166,7 @@ both numbers printed on it — pillar 1 applied to governance.
 
 | # | System | Status | Design |
 |---|---|---|---|
-| 1 | **Lunar-night power crunch** | SHIPPED | The signature. Solar dies for 240 s (14 in-fiction days); stockpile stored energy (Timberborn drought model), spend on priorities: habitats → food → industry → labs (`priority` 0–3 brownout order). |
+| 1 | **Lunar-night power crunch** | SHIPPED | The signature. Solar dies for 240 s (14 in-fiction days); stockpile stored energy (Timberborn drought model), spend on priorities: habitats → food → industry → labs (`priority` 0–3 brownout order). Shedding only priority 2–3 loads is a LOAD SHED (morale −3); a dark priority 0–1 load is a BROWNOUT (morale −15). |
 | 2 | **Solar flare radiation events** | SHIPPED | Telegraphed 60 s out, 45 s active; first at day 2.4, then every ~2.0 ± 0.8 days. Crew shelters (work stops), morale −10. Lava-tube site is immune. Full design adds Buried Habitats and the Regolith Shielding tech as mitigation elsewhere. |
 | 3 | **Micrometeorite strikes** | CUT | Rare, unannounced single-building breach: building offline + parts cost + small crew-injury risk (Medical Bay demand). Punishes complacency between telegraphed events. Cut for slice pacing; needs Medical Bay to land fairly. |
 | 4 | **Dust abrasion** | SHIPPED | Persistent, not episodic: solar output −8%/lunar day (cap −50%), recovering 20%/day while parts upkeep is paid; excavators carry the highest wear. Dust Mitigation tech ×0.4. **There are no dust storms — the Moon is airless; that is a Mars trope.** |

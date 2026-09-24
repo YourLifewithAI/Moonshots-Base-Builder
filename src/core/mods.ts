@@ -344,15 +344,24 @@ export function effectiveRates(
   };
 }
 
-/** Crewed/Autonomous toggle rule (spec S8.6). */
+/** Whether stations may switch between crewed and agent-run — the one rule
+ *  both the action handler and the inspector use. Construction Robotics
+ *  (automation) allows it anywhere; a robotic base runs on agents from the
+ *  start, so once settlers are aboard they may take stations over. */
 export function canToggleCrew(
+  expedition: Expedition,
+  crew: number,
+  mods: Pick<Mods, 'automation'>,
+): boolean {
+  return mods.automation || (expedition === 'robotic' && crew > 0);
+}
+
+/** canToggleCrew for one building, with the reason when it is refused (spec S8.6). */
+export function crewToggleRule(
   s: Pick<GameState, 'expedition' | 'crew'>, mods: Mods, b: BuildingState,
 ): { ok: boolean; reason: string } {
   if (BUILDINGS[b.type].crew <= 0) return { ok: false, reason: 'NO CREW STATION — this structure runs itself' };
-  if (mods.automation) return { ok: true, reason: '' };
-  if (s.expedition === 'robotic') {
-    return s.crew > 0 ? { ok: true, reason: '' }
-      : { ok: false, reason: 'NO CREW ABOARD — Human Cohabitation brings a crew rotation' };
-  }
+  if (canToggleCrew(s.expedition, s.crew, mods)) return { ok: true, reason: '' };
+  if (s.expedition === 'robotic') return { ok: false, reason: 'NO CREW ABOARD — Human Cohabitation brings a crew rotation' };
   return { ok: false, reason: 'NEEDS CONSTRUCTION ROBOTICS (automation)' };
 }

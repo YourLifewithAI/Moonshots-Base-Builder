@@ -9,7 +9,7 @@ import {
   MAX_SLOPE_DELTA,
 } from '../data/balance';
 import type { SiteDef } from '../data/sites';
-import type { GameState } from '../core/state';
+import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { recipeGeometry } from './recipes';
 import { centerOf, footprintRect } from './instances';
@@ -21,6 +21,8 @@ export interface PlacementProbe {
   gx: number; gz: number; rot: 0 | 1 | 2 | 3;
   valid: boolean;
   reason: string;
+  /** soft warning on a valid placement ('' = none) */
+  warn: string;
 }
 
 const GHOST_VALID = new THREE.MeshBasicMaterial({
@@ -34,6 +36,33 @@ export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<strin
   const out: Partial<Record<string, number>> = {};
   for (const [rid, amt] of Object.entries(BUILDINGS[type].buildCost)) {
     out[rid] = Math.ceil(amt * site.buildCostMult);
+  }
+  return out;
+}
+
+/** Before any smelter exists, a placement that would leave too few metals to
+ *  build one — without it there is no making more. A soft warning, never a block. */
+export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId): string {
+  if (type === 'smelter' || state.buildings.some((b) => b.type === 'smelter')) return '';
+  const cost = buildCost(type, site).metals ?? 0;
+  if (cost <= 0) return '';
+  const smelter = buildCost('smelter', site).metals ?? 0;
+  const left = Math.floor(state.resources.metals - cost);
+  return left < smelter ? `Leaves ${left}◆ — a Smelter needs ${smelter}◆` : '';
+}
+
+/** a site no robot has welded on yet: demolishing it cancels the order */
+export function untouchedSite(b: BuildingState): boolean {
+  return b.buildTotal > 0 && (b.construction ?? 0) >= b.buildTotal;
+}
+
+/** what demolition returns: half the site-scaled price paid, or all of it
+ *  for an untouched site */
+export function demolishRefund(b: BuildingState, site: SiteDef): Partial<Record<string, number>> {
+  const full = untouchedSite(b);
+  const out: Partial<Record<string, number>> = {};
+  for (const [rid, amt] of Object.entries(buildCost(b.type, site))) {
+    out[rid] = full ? amt : Math.floor((amt ?? 0) * 0.5);
   }
   return out;
 }
@@ -64,7 +93,7 @@ export class PlacementController {
     this.ghost = new THREE.Mesh(geo, GHOST_VALID);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
-    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '' };
+    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '' };
   }
 
   rotate() {
@@ -131,11 +160,12 @@ export class PlacementController {
 
   validate(state: GameState, unlocked: Set<BuildingId>): boolean {
     const p = this.probe!;
-    const res = p.type === 'grade'
+    const res: { valid: boolean; reason: string; warn?: string } = p.type === 'grade'
       ? checkGrade(state, this.hf, p.gx, p.gz)
       : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot);
     p.valid = res.valid;
     p.reason = res.reason;
+    p.warn = res.warn ?? '';
     return p.valid;
   }
 }
@@ -145,6 +175,13 @@ function gradeCenter(gx: number, gz: number): [number, number] {
     (gx + GRADE_CELLS / 2) * CELL_M - MAP_M / 2,
     (gz + GRADE_CELLS / 2) * CELL_M - MAP_M / 2,
   ];
+}
+
+/** the build-perimeter refusal, naming what the distance is measured from */
+function beyondPerimeter(state: GameState): string {
+  return state.buildings.some((b) => b.type === 'habitat')
+    ? `Beyond ${BUILD_RADIUS_M} m of the Lander and habitats`
+    : `Beyond ${BUILD_RADIUS_M} m of the Lander`;
 }
 
 /** Grading validity: in bounds, near the habitat network, no structure on top,
@@ -172,7 +209,7 @@ export function checkGrade(
     const [bx, bz] = centerOf(b);
     if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
   }
-  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (!near) return { valid: false, reason: beyondPerimeter(state) };
   if (state.powerStored < GRADE_COST_ENERGY) {
     return { valid: false, reason: `Need ${GRADE_COST_ENERGY} stored energy — have ${Math.floor(state.powerStored)}` };
   }
@@ -180,7 +217,7 @@ export function checkGrade(
 }
 
 /** Standalone validity check — shared by the ghost controller, the action
- *  handler, and the debug API. */
+ *  handler, and the debug API. A valid placement may carry a soft warning. */
 export function checkPlacement(
   state: GameState,
   site: SiteDef,
@@ -190,7 +227,7 @@ export function checkPlacement(
   gx: number,
   gz: number,
   rot: 0 | 1 | 2 | 3,
-): { valid: boolean; reason: string } {
+): { valid: boolean; reason: string; warn?: string } {
   const def = BUILDINGS[type];
   const probe = { type, gx, gz, rot };
   const r = footprintRect(probe);
@@ -222,12 +259,12 @@ export function checkPlacement(
     const [bx, bz] = centerOf(b);
     if (Math.hypot(cx - bx, cz - bz) <= BUILD_RADIUS_M) { near = true; break; }
   }
-  if (!near) return { valid: false, reason: 'Too far from habitat network' };
+  if (!near) return { valid: false, reason: beyondPerimeter(state) };
   for (const [rid, amt] of Object.entries(buildCost(type, site))) {
     const have = state.resources[rid as keyof typeof state.resources];
     if (have < (amt ?? 0)) {
       return { valid: false, reason: `Need ${amt} ${rid} — have ${Math.floor(have)}` };
     }
   }
-  return { valid: true, reason: '' };
+  return { valid: true, reason: '', warn: smelterWarning(state, site, type) };
 }

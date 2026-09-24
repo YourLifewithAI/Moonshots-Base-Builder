@@ -6,14 +6,17 @@ import { SITES, type SiteId } from '../data/sites';
 import type { TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  AUTOSAVE_S, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
-import type { ResourceId } from '../data/resources';
-import { createInitialState, type GameState } from './state';
+import { createInitialState, type BuildingState, type GameState } from './state';
+import { canToggleCrew } from './mods';
 import { ActionQueue, type Action } from './actions';
-import { economyTick, currentDay, refreshDerived, alert, type Mods } from './economy';
+import {
+  boardingShortfall, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction, missionLost,
+  orderDelayS, queuePos, settlersWelcome, type Mods,
+} from './economy';
 import { modsFor } from './mods';
 import { cancel, enqueue, enqueuePath, moveInQueue, researchView } from './research';
 import { Heightfield } from '../terrain/heightfield';
@@ -21,7 +24,9 @@ import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
 import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
-import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
+import {
+  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, type PlaceableType,
+} from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
@@ -34,7 +39,7 @@ import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
   $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
-  $lander, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
+  $lander, $lostMission, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
   $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
 } from '../ui/stores';
 
@@ -71,6 +76,7 @@ export class Game {
   private econAcc = 0;
   private autosaveAcc = 0;
   private lookAcc = 0;
+  private lookId: number | null = null;   // the building under the walk-mode reticle
   private mouse = new THREE.Vector2();      // NDC
   private mousePx = { x: 0, y: 0 };
   private downPos = { x: 0, y: 0 };
@@ -78,7 +84,6 @@ export class Game {
   private lastT = performance.now();
   private worldGroup: THREE.Group | null = null;
   private iceOverlay: THREE.Group | null = null;
-  private lastResources: Record<ResourceId, number> | null = null;
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.renderer = createRenderer(canvas);
@@ -121,7 +126,7 @@ export class Game {
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
     requestAnimationFrame((t) => this.frame(t));
-    void loadGame().then((blob) => $hasSave.set(blob !== null));
+    void loadGame().then((blob) => this.publishSaveSlot(blob));
   }
 
   // ─────────────────────────── lifecycle ───────────────────────────
@@ -152,6 +157,19 @@ export class Game {
     }
     // saves from before the chip era lack the chips stockpile
     legacy.resources.chips ??= 0;
+    // saves from before economy-side rates and live housing
+    legacy.rates ??= {};
+    legacy.housingActive ??= legacy.buildings.reduce((n, b) =>
+      n + (b.enabled && (b.construction ?? 0) <= 0 ? BUILDINGS[b.type].housing ?? 0 : 0), 0);
+    // saves from before keyed alerts: an old line cannot tell whether it still
+    // holds, so it becomes an event that fades — nothing stale stays pinned
+    legacy.alertSnooze ??= {};
+    for (const a of legacy.alerts) {
+      if (a.key !== undefined) continue;
+      a.key = a.text;
+      a.count = 1;
+      if (a.kind === 'crit') a.kind = 'warn';
+    }
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) {
@@ -169,10 +187,12 @@ export class Game {
       this.modes.set('walk');
     }
     this.publish();
+    if (missionLost(this.state)) $defeat.set(true);
   }
 
   private bootWorld(state: GameState) {
     this.state = state;
+    this.alertClock.clear();
     this.mods = refreshDerived(state);
     if (this.worldGroup) this.scene.remove(this.worldGroup);
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
@@ -219,7 +239,6 @@ export class Game {
     this.scene.add(this.worldGroup);
     this.sky.setSite(site);
     this.buildCam.groundAt = this.groundAnywhere;
-    this.lastResources = null;
     this.buildCam.enabled = true;
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
@@ -281,6 +300,14 @@ export class Game {
         case 'Digit3': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[2] }); break;
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
         case 'KeyI': if (this.state?.iceSurveyed) $iceOverlay.set(!$iceOverlay.get()); break;
+        case 'KeyE':
+          // inspect what the reticle rests on: back to command view, selected
+          if (this.modes.mode === 'walk' && this.lookId !== null && !this.modes.transitioning) {
+            const id = this.lookId;
+            this.modes.toggle();
+            this.select(id);
+          }
+          break;
         case 'Escape':
           this.cancelPlacement();
           $selection.set(null);
@@ -343,7 +370,7 @@ export class Game {
     $selection.set(null);
     this.placement.begin(type);
     if (type === 'iceHarvester' && this.state.iceSurveyed) $iceOverlay.set(true);
-    $placing.set({ type, valid: false, reason: '' });
+    $placing.set({ type, valid: false, reason: '', warn: '' });
   }
 
   cancelPlacement() {
@@ -368,6 +395,12 @@ export class Game {
     this.horizon.onFlatten(x0, z0, x1, z1);
   }
 
+  /** open the inspector on a building (null closes it) */
+  select(id: number | null) {
+    const b = id === null ? undefined : this.state.buildings.find((x) => x.id === id);
+    $selection.set(b ? { ...b } : null);
+  }
+
   // ─────────────────────────── actions ───────────────────────────
 
   private applyAction(a: Action) {
@@ -383,8 +416,8 @@ export class Game {
         const i = s.buildings.findIndex((b) => b.id === a.id);
         if (i < 0 || s.buildings[i].type === 'lander') break;
         const b = s.buildings[i];
-        for (const [rid, amt] of Object.entries(BUILDINGS[b.type].buildCost)) {
-          s.resources[rid as keyof typeof s.resources] += Math.floor(amt * 0.5);
+        for (const [rid, amt] of Object.entries(demolishRefund(b, SITES[s.siteId]))) {
+          s.resources[rid as keyof typeof s.resources] += amt ?? 0;
         }
         s.buildings.splice(i, 1);
         this.instances.rebuild(s);
@@ -399,12 +432,28 @@ export class Game {
       }
       case 'setAutomated': {
         const b = s.buildings.find((x) => x.id === a.id);
-        if (b && this.mods.automation && BUILDINGS[b.type].crew > 0) b.automated = a.automated;
+        if (!b || BUILDINGS[b.type].crew <= 0) break;
+        if (!canToggleCrew(s.expedition, s.crew, this.mods)) {
+          alert(s, s.expedition === 'robotic'
+            ? 'CANNOT CREW — no one aboard yet; stations stay agent-run'
+            : 'CANNOT AUTOMATE — research Autonomous Operations first', 'warn');
+          break;
+        }
+        b.automated = a.automated;
         break;
       }
+      case 'crewAll': this.crewAllStations(); break;
       case 'setPriority': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (b) b.priority = a.priority;
+        break;
+      }
+      case 'buildNext': {
+        const b = s.buildings.find((x) => x.id === a.id);
+        if (!b || (b.construction ?? 0) <= 0) break;
+        const sites = s.buildings.filter((x) => (x.construction ?? 0) > 0 && x.id !== b.id);
+        const head = Math.min(...sites.map(queuePos));
+        if (queuePos(b) >= head) b.buildSeq = head - 1;
         break;
       }
       case 'research': case 'researchPath': case 'cancelResearch': case 'moveResearch': {
@@ -417,7 +466,10 @@ export class Game {
         break;
       }
       case 'setSpeed': s.speed = a.speed; break;
-      case 'setPaused': s.paused = a.paused; break;
+      case 'setPaused':
+        // a lost base stays frozen under its defeat screen
+        if (!missionLost(s)) s.paused = a.paused;
+        break;
       case 'launch': this.doLaunch(); break;
       case 'grade': {
         if (!this.mods.grading) break;
@@ -437,10 +489,13 @@ export class Game {
           break;
         }
         if (!s.resupply) s.resupply = { pending: false, arriveAt: 0, shipments: 0 };
+        const days = Math.round(orderDelayS(s) / CYCLE_S);
         s.resupply.pending = true;
-        s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
-        if (s.expedition !== 'robotic') s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
-        alert(s, 'SHIPMENT ORDERED — Earth launch confirmed, arrival in 1 lunar day', 'info');
+        s.resupply.arriveAt = s.simTime + orderDelayS(s);
+        s.resupply.ordered = (s.resupply.ordered ?? 0) + 1;
+        if (s.crew > 0) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
+        alert(s, `SHIPMENT ORDERED — Earth launch confirmed, arrival in ${days} lunar day${days === 1 ? '' : 's'}`,
+          'info', landerAction(s));
         break;
       }
       case 'surveyIce': {
@@ -455,7 +510,13 @@ export class Game {
         alert(s, 'SURVEY COMPLETE — ice deposits mapped. Toggle the overlay with [I]', 'info');
         break;
       }
-      case 'dismissAlert': s.alerts = s.alerts.filter((al) => al.id !== a.id); break;
+      case 'dismissAlert': {
+        // a dismissed condition keeps quiet a while instead of returning next tick
+        const al = s.alerts.find((x) => x.id === a.id);
+        if (al?.cond) (s.alertSnooze ??= {})[al.key] = s.simTime + ALERTS.snoozeS;
+        s.alerts = s.alerts.filter((x) => x.id !== a.id);
+        break;
+      }
     }
   }
 
@@ -492,9 +553,43 @@ export class Game {
     if (!free && !s.buildings.some((b) => b.type === 'smelter')) {
       const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * SITES[s.siteId].buildCostMult);
       if (s.resources.metals < smelterCost + 20) {
-        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`, 'warn');
+        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`,
+          'warn', { panel: 'metals' });
       }
     }
+  }
+
+  /** Settlers take agent-run stations in the order the economy staffs them,
+   *  as far as free hands reach; the rest stay agent-run rather than idle. */
+  private crewAllStations() {
+    const s = this.state;
+    if (s.crew <= 0 || !canToggleCrew(s.expedition, s.crew, this.mods)) {
+      alert(s, 'CANNOT CREW — no one aboard yet; stations stay agent-run', 'warn');
+      return;
+    }
+    const seats = (b: BuildingState) => Math.max(0, BUILDINGS[b.type].crew + this.mods.crewDelta[b.type]);
+    const stations = s.buildings.filter((b) =>
+      BUILDINGS[b.type].crew > 0 && b.enabled && (b.construction ?? 0) <= 0);
+    let free = s.crew;
+    for (const b of stations) if (!b.automated) free -= seats(b);
+    let crewed = 0;
+    let left = 0;
+    for (const b of stations.sort((x, y) => x.priority - y.priority || x.id - y.id)) {
+      if (!b.automated) continue;
+      if (seats(b) <= free) {
+        free -= seats(b);
+        b.automated = false;
+        crewed++;
+      } else {
+        left++;
+      }
+    }
+    if (crewed === 0) {
+      alert(s, 'NO FREE HANDS — every settler already has a station', 'warn');
+      return;
+    }
+    alert(s, `CREWED — ${crewed} station${crewed === 1 ? '' : 's'} handed to the settlers` +
+      (left ? `; ${left} stay${left === 1 ? 's' : ''} agent-run for want of hands` : ''), 'info');
   }
 
   private doLaunch() {
@@ -513,6 +608,9 @@ export class Game {
   // ─────────────────────────── loop ───────────────────────────
 
   private shadeAcc = 0;
+  private alertAcc = 0;
+  /** alert id → real time (ms) it was last raised, as seen by this session */
+  private alertClock = new Map<number, { t: number; count: number }>();
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
   private safeMode = false;
@@ -520,10 +618,14 @@ export class Game {
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
-    const dt = Math.min((t - this.lastT) / 1000, 0.1);
+    const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
-    if (this.playing) this.tick(dt);
-    this.post.render(dt);
+    if (this.playing) {
+      this.step(realDt);
+      this.alertAcc += realDt;
+      if (this.alertAcc > 0.5) { this.alertAcc = 0; this.ageAlerts(t); }
+    }
+    this.post.render(Math.min(realDt, 0.1));
     if (this.shaderFault) this.recoverFromShaderFault();
     // black-screen sentinel: some drivers fail shaders silently instead of
     // throwing. Probe the rendered output during daylight — first drop the
@@ -588,7 +690,14 @@ export class Game {
     }
   }
 
-  private tick(dt: number) {
+  /** One frame of play. Camera, walk physics and effects step at most 0.1 s,
+   *  but game time takes up to 0.5 s of it, so a slow GPU still runs the clock
+   *  at full speed (the tick loop's guard bounds the catch-up). */
+  private step(realDt: number) {
+    this.tick(Math.min(realDt, 0.1), Math.min(realDt, 0.5));
+  }
+
+  private tick(dt: number, simDt: number) {
     // actions first, every frame, so the UI feels immediate
     const acts = this.actions.drain();
     for (const a of acts) this.applyAction(a);
@@ -602,7 +711,7 @@ export class Game {
           this.placement.update(this.state, this.mods.unlocked,
             this.raycaster.ray.origin, this.raycaster.ray.direction);
           const p = this.placement.probe!;
-          $placing.set({ type: p.type, valid: p.valid, reason: p.reason });
+          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn });
         }
       } else {
         this.walk.update(dt);
@@ -614,7 +723,7 @@ export class Game {
 
     // game time + economy at fixed 1 Hz (of game time)
     if (!this.state.paused) {
-      const gdt = dt * this.state.speed;
+      const gdt = simDt * this.state.speed;
       this.state.simTime += gdt;
       this.econAcc += gdt;
       let publish = acts.length > 0;
@@ -642,28 +751,18 @@ export class Game {
         this.publish();
       }
       if (victory) $victory.set(true); // after publish so the overlay reads fresh stats
-      if (defeat) $defeat.set(true);
+      if (defeat) {
+        $defeat.set(true);
+        void this.recordLoss();
+      }
     } else if (acts.length) {
       this.publish();
     }
 
-    // solar arrays in terrain shadow lose 85% output: march a ray toward the
-    // sun from each panel through the heightfield (cheap at this cadence)
     this.shadeAcc += dt;
     if (this.shadeAcc > 0.5) {
       this.shadeAcc = 0;
-      const d = currentDay(this.state, SITES[this.state.siteId]);
-      if (d.sunFactor > 0.01 && d.sunElev > 0.01) {
-        const dirX = Math.cos(d.sunAzim) * Math.cos(d.sunElev);
-        const dirY = Math.sin(d.sunElev);
-        const dirZ = Math.sin(d.sunAzim) * Math.cos(d.sunElev);
-        for (const b of this.state.buildings) {
-          if (b.type !== 'solar' || (b.construction ?? 0) > 0) continue;
-          const [cx, cz] = centerOf(b);
-          const y = this.hf.sample(cx, cz);
-          b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
-        }
-      }
+      this.updateShading();
       this.updateWearMarkers();
     }
 
@@ -699,6 +798,49 @@ export class Game {
     }
   }
 
+  /** Alerts age in real time, whatever the game speed: info events leave
+   *  after ALERTS.fadeInfoS, warn events after ALERTS.fadeWarnS, and an info
+   *  condition goes quiet (still listed while it holds). Crit waits. */
+  private ageAlerts(nowMs: number) {
+    const s = this.state;
+    let changed = false;
+    const listed = new Set<number>();
+    s.alerts = s.alerts.filter((a) => {
+      listed.add(a.id);
+      const c = this.alertClock.get(a.id);
+      if (!c || (!a.cond && c.count !== a.count)) {
+        this.alertClock.set(a.id, { t: nowMs, count: a.count });
+        return true;
+      }
+      const life = a.kind === 'info' ? ALERTS.fadeInfoS : a.kind === 'warn' && !a.cond ? ALERTS.fadeWarnS : Infinity;
+      if ((nowMs - c.t) / 1000 < life) return true;
+      if (a.cond) {
+        if (!a.quiet) { a.quiet = true; changed = true; }
+        return true;
+      }
+      changed = true;
+      return false;
+    });
+    for (const id of this.alertClock.keys()) if (!listed.has(id)) this.alertClock.delete(id);
+    if (changed) this.publish();
+  }
+
+  /** Solar arrays in terrain shadow lose 85% output: march a ray toward the
+   *  sun from each panel through the heightfield (cheap at this cadence). */
+  private updateShading() {
+    const d = currentDay(this.state, SITES[this.state.siteId]);
+    if (d.sunFactor <= 0.01 || d.sunElev <= 0.01) return;
+    const dirX = Math.cos(d.sunAzim) * Math.cos(d.sunElev);
+    const dirY = Math.sin(d.sunElev);
+    const dirZ = Math.sin(d.sunAzim) * Math.cos(d.sunElev);
+    for (const b of this.state.buildings) {
+      if (b.type !== 'solar' || (b.construction ?? 0) > 0) continue;
+      const [cx, cz] = centerOf(b);
+      const y = this.hf.sample(cx, cz);
+      b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
+    }
+  }
+
   /** Damaged buildings get an on-screen condition bar (build mode only). */
   private updateWearMarkers() {
     if (!this.playing || this.modes.mode !== 'build') { $wearMarkers.set([]); return; }
@@ -726,9 +868,10 @@ export class Game {
     this.raycaster.far = 60;
     const id = this.instances.pick(this.raycaster);
     this.raycaster.far = Infinity;
+    this.lookId = id;
     if (id === null) { $lookAt.set(null); return; }
     const b = this.state.buildings.find((x) => x.id === id);
-    if (!b) { $lookAt.set(null); return; }
+    if (!b) { this.lookId = null; $lookAt.set(null); return; }
     $lookAt.set({ name: BUILDINGS[b.type].name, x: window.innerWidth / 2, y: window.innerHeight / 2 - 40 });
   }
 
@@ -739,23 +882,44 @@ export class Game {
     const day = currentDay(s, SITES[s.siteId]);
     $resources.set({ ...s.resources });
     $power.set({
-      supply: s.power.supply, demand: s.power.demand,
-      stored: s.powerStored, capacity: s.power.capacity, brownout: s.power.brownout,
+      supply: s.power.supply, demand: s.power.demand, served: s.power.served ?? s.power.demand,
+      stored: s.powerStored, capacity: s.power.capacity,
+      brownout: s.power.brownout, shed: s.power.shed ?? false,
     });
-    let housing = 0;
-    for (const b of s.buildings) housing += BUILDINGS[b.type].housing ?? 0;
+    const site = SITES[s.siteId];
+    let beds = 0;
+    let agentRun = 0;
+    let sites = 0;
+    let welding = 0;
+    let upkeep = 0;
+    for (const b of s.buildings) {
+      if ((b.construction ?? 0) > 0) {
+        sites++;
+        if (b.idleReason === 'building') welding++;
+        continue;
+      }
+      beds += BUILDINGS[b.type].housing ?? 0;
+      if (b.enabled && b.automated && BUILDINGS[b.type].crew > 0) agentRun++;
+      if (b.enabled) upkeep += BUILDINGS[b.type].upkeepParts * this.mods.upkeepMult[b.type] * site.upkeepMult / CYCLE_S;
+    }
+    const ls = s.crew * this.mods.inputMult.habitat;
     $vitals.set({
-      crew: s.crew, housing, morale: Math.round(s.morale), data: s.data,
+      crew: s.crew, housing: s.housingActive ?? 0, beds, morale: Math.round(s.morale), data: s.data,
       botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
       expedition: s.expedition ?? 'human',
+      boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
+      lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
+      sites, welding, upkeep,
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,
       etaS: s.resupply?.pending ? Math.max(0, Math.ceil(s.resupply.arriveAt - s.simTime)) : 0,
+      orderDays: Math.round(orderDelayS(s) / CYCLE_S),
+      agentRun,
     });
     $time.set({
       dayIndex: day.dayIndex, tCycle: day.tCycle, isNight: day.isNight, sunFactor: day.sunFactor,
-      speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
+      phaseLeft: day.phaseLeft, speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
     });
     $tech.set({
       era: s.era, done: [...s.techsDone], queue: [...s.researchQueue],
@@ -765,30 +929,28 @@ export class Game {
     });
     $research.set(researchView(s, this.mods));
     $alerts.set([...s.alerts]);
-    $milestones.set({ done: [...s.milestonesDone], total: MILESTONES.length });
+    const next = MILESTONES.find((m) => !s.milestonesDone.includes(m.id));
+    $milestones.set({
+      done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
+    });
     $swarm.set({
       pct: s.swarmPct, launches: s.launches, armed: this.mods.launchArmed,
       canLaunch: this.mods.launchArmed && s.resources.foils >= LAUNCH_COST_FOILS &&
         s.resources.launch >= 1 && s.powerStored >= LAUNCH_POWER_BURST,
       burst: LAUNCH_POWER_BURST,
+      foils: s.resources.foils, launch: s.resources.launch, stored: s.powerStored,
     });
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $caps.set({ ...(s.storageCaps ?? {}) });
-    const counts: Partial<Record<BuildingId, { total: number; active: number }>> = {};
+    const counts: Partial<Record<BuildingId, { total: number; active: number; dark: number }>> = {};
     for (const b of s.buildings) {
-      const c = counts[b.type] ?? (counts[b.type] = { total: 0, active: 0 });
+      const c = counts[b.type] ?? (counts[b.type] = { total: 0, active: 0, dark: 0 });
       c.total += 1;
       if (b.active) c.active += 1;
+      if (b.idleReason === 'power' && (b.construction ?? 0) <= 0) c.dark += 1;
     }
     $counts.set(counts);
-    if (this.lastResources) {
-      const rates: Partial<Record<ResourceId, number>> = {};
-      for (const rid of Object.keys(s.resources) as ResourceId[]) {
-        rates[rid] = s.resources[rid] - this.lastResources[rid];
-      }
-      $rates.set(rates);
-    }
-    this.lastResources = { ...s.resources };
+    $rates.set({ ...(s.rates ?? {}) });
     const sel = $selection.get();
     if (sel) {
       const live = s.buildings.find((b) => b.id === sel.id);
@@ -836,9 +998,8 @@ export class Game {
 
   // ─────────────────────────── persistence ───────────────────────────
 
-  async doSave() {
-    if (!this.playing) return;
-    const blob: SaveBlob = {
+  private saveBlob(): SaveBlob {
+    return {
       state: this.state,
       player: {
         mode: this.modes.mode,
@@ -847,19 +1008,40 @@ export class Game {
       },
       savedAt: Date.now(),
     };
-    await saveGame(blob);
+  }
+
+  async doSave() {
+    // a lost base is written once, at the moment of loss, and never again
+    if (!this.playing || missionLost(this.state)) return;
+    await saveGame(this.saveBlob());
     $hasSave.set(true);
+  }
+
+  private async recordLoss() {
+    const blob = this.saveBlob();
+    await saveGame(blob);
+    this.publishSaveSlot(blob);
+  }
+
+  /** the title screen's view of the save slot: a lost mission is shown, not continued */
+  private publishSaveSlot(blob: SaveBlob | null) {
+    const lost = blob !== null && missionLost(blob.state);
+    $hasSave.set(blob !== null && !lost);
+    $lostMission.set(lost
+      ? { siteId: blob.state.siteId, day: Math.floor(blob.state.simTime / CYCLE_S) + 1 }
+      : null);
   }
 
   async continueSave(): Promise<boolean> {
     const blob = await loadGame();
-    if (!blob) return false;
+    if (!blob || missionLost(blob.state)) { this.publishSaveSlot(blob); return false; }
     this.loadFrom(blob);
     return true;
   }
 
   async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
     await clearSave();
+    this.publishSaveSlot(null);
     this.startNew(siteId, expedition);
   }
 
@@ -880,6 +1062,11 @@ export class Game {
     return true;
   }
 
+  /** run one frame of play as if `realDt` wall-seconds had passed (no render) */
+  debugFrame(realDt: number) {
+    if (this.playing) this.step(realDt);
+  }
+
   debugCompleteTech(id: TechId) {
     if (!this.state.techsDone.includes(id)) {
       this.state.techsDone.push(id);
@@ -890,10 +1077,14 @@ export class Game {
 
   debugAdvance(gameSeconds: number) {
     // apply anything the UI/debug API queued this frame before ticking
-    for (const a of this.actions.drain()) this.applyAction(a);
+    const acts = this.actions.drain();
+    for (const a of acts) this.applyAction(a);
     let victory = false;
     let defeat = false;
-    for (let i = 0; i < gameSeconds; i++) {
+    // as in play: shading follows the sun (every 5 game-seconds, the live
+    // loop's cadence at 10×), and a lost base never ticks again
+    for (let i = 0; i < gameSeconds && !missionLost(this.state); i++) {
+      if (i % 5 === 0) this.updateShading();
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
       if (ev.modsChanged) this.mods = modsFor(this.state);
@@ -906,12 +1097,15 @@ export class Game {
         defeat = true;
       }
     }
-    if (gameSeconds > 0) {
+    if (gameSeconds > 0 || acts.length) {
       this.instances.rebuild(this.state);
       this.publish();
     }
     if (victory) $victory.set(true);
-    if (defeat) $defeat.set(true);
+    if (defeat) {
+      $defeat.set(true);
+      void this.recordLoss();
+    }
   }
 
   setModeInstant(m: 'build' | 'walk') {
@@ -974,11 +1168,6 @@ export class Game {
   }
 
   /** Select a building as a click would (tests). */
-  debugSelect(id: number) {
-    const b = this.state.buildings.find((x) => x.id === id);
-    $selection.set(b ? { ...b } : null);
-  }
-
   /** Hide the terrain so a screenshot masks the buildings (probe pixel stats).
    *  The black-frame sentinel is held off meanwhile — a terrain-less frame is
    *  mostly black sky by construction. */
@@ -988,6 +1177,8 @@ export class Game {
   }
 
   get walkController() { return this.walk; }
+  /** settled in command view: not walking, not flying between the two */
+  get commandView() { return this.modes.mode === 'build' && !this.modes.transitioning; }
   get iceDepositList() { return this.hf.iceDeposits; }
 
   debugCheckPlace(type: BuildingId, gx: number, gz: number) {

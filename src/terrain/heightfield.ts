@@ -4,7 +4,7 @@
  *  by placement, walking, and the chunk meshes; flatten() writes building pads
  *  back into the field. */
 import { createNoise2D, type NoiseFunction2D } from 'simplex-noise';
-import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
+import { CELL_M, MAP_CELLS, MAP_M, MAX_SLOPE_DELTA } from '../data/balance';
 import type { SiteDef } from '../data/sites';
 import { mulberry32 } from '../core/rng';
 
@@ -70,8 +70,11 @@ export class Heightfield {
         this.h[iz * N + ix] = this.baseHeight(x, z);
       }
     }
-    // ice: 6 cold-trap patches scattered past the landing zone (ice sites)
+    // ice: 6 cold-trap patches scattered past the landing zone (ice sites),
+    // after one small starter deposit inside the Lander's build radius — the
+    // first harvester must not wait on a chain of habitats
     if (this.site.hasIce) {
+      this.iceDeposits.push(this.starterDeposit(mulberry32(this.seed ^ 0x1ce5)));
       const irng = mulberry32(this.seed ^ 0x1ce);
       for (let i = 0; i < 6; i++) {
         const ang = irng() * Math.PI * 2;
@@ -83,6 +86,24 @@ export class Heightfield {
         });
       }
     }
+  }
+
+  /** A small deposit 40–55 m from the Lander (which sits ~3 m off the map
+   *  heart), on the flattest of a few seeded spots, so a harvester centred on
+   *  it passes the placement slope check. */
+  private starterDeposit(rng: () => number): IceDeposit {
+    let best: IceDeposit = { cx: 0, cz: 0, r: 0 };
+    let bestDelta = Infinity;
+    for (let i = 0; i < 16 && bestDelta > MAX_SLOPE_DELTA * 0.5; i++) {
+      const ang = rng() * Math.PI * 2;
+      const dist = 43 + rng() * 9;
+      const d = { cx: Math.cos(ang) * dist, cz: Math.sin(ang) * dist, r: 10 + rng() * 3 };
+      const gx = Math.round((d.cx + MAP_M / 2) / CELL_M - 1);
+      const gz = Math.round((d.cz + MAP_M / 2) / CELL_M - 1);
+      const delta = this.maxDelta(gx, gz, gx + 2, gz + 2);
+      if (delta < bestDelta) { best = d; bestDelta = delta; }
+    }
+    return best;
   }
 
   /** is this world point inside a (surveyed or not) ice deposit? */

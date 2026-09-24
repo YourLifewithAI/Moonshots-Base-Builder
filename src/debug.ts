@@ -25,6 +25,13 @@ function api(game: Game) {
     grantData: (n: number) => { game.state.data += n; game.publish(); },
     grantCrew: (n: number) => { game.state.crew += n; game.publish(); },
     grantPower: (n: number) => { game.state.powerStored += n; game.publish(); },
+    setPriority: (id: number, priority: 0 | 1 | 2 | 3) => game.actions.push({ kind: 'setPriority', id, priority }),
+    setEnabled: (id: number, enabled: boolean) => game.actions.push({ kind: 'setEnabled', id, enabled }),
+    setAutomated: (id: number, automated: boolean) => game.actions.push({ kind: 'setAutomated', id, automated }),
+    demolish: (id: number) => game.actions.push({ kind: 'demolish', id }),
+    buildNext: (id: number) => game.actions.push({ kind: 'buildNext', id }),
+    /** open the inspector on a building (null closes it) */
+    select: (id: number | null) => game.select(id),
     completeTech: (id: TechId) => game.debugCompleteTech(id),
     research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
     cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),
@@ -33,6 +40,8 @@ function api(game: Game) {
     setPaused: (p: boolean) => game.actions.push({ kind: 'setPaused', paused: p }),
     advanceGameMinutes: (min: number) => game.debugAdvance(Math.round(min * 60)),
     advanceGameSeconds: (s: number) => game.debugAdvance(Math.round(s)),
+    /** one live frame of `realDt` wall-seconds, through the real loop's clamps */
+    stepFrame: (realDt: number) => game.debugFrame(realDt),
     setMode: (m: 'build' | 'walk') => game.setModeInstant(m),
     setView: (pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) =>
       game.debugSetView(pos, target),
@@ -55,7 +64,6 @@ function api(game: Game) {
     getRenderInfo: () => game.debugRenderInfo(),
     getCamera: () => game.debugCamera(),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
-    select: (id: number) => game.debugSelect(id),
   };
 }
 

@@ -10,6 +10,8 @@ export type Action =
   | { kind: 'setEnabled'; id: number; enabled: boolean }
   | { kind: 'setAutomated'; id: number; automated: boolean }
   | { kind: 'setPriority'; id: number; priority: 0 | 1 | 2 | 3 }
+  | { kind: 'buildNext'; id: number }          // construction site → front of the robot queue
+  | { kind: 'crewAll' }                        // settlers take agent-run stations, seats permitting
   | { kind: 'research'; tech: TechId }         // enqueue (QUEUE_MAX deep)
   | { kind: 'researchPath'; tech: TechId }     // enqueue the prerequisite closure too
   | { kind: 'cancelResearch'; tech: TechId }   // transitive: dependents drop with alerts

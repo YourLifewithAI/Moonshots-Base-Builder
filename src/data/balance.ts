@@ -36,6 +36,7 @@ export const START = {
   morale: 70,
   data: 0,
   powerStored: 800,                    // energy units (kW·gs) in the lander bank
+  /** metals are scaled by the site's buildCostMult at landing */
   resources: {
     regolith: 0, metals: 140, silicon: 0, water: 50, oxygen: 120,
     food: 120, parts: 70, chips: 0, foils: 0, launch: 0,
@@ -56,8 +57,27 @@ export const MORALE = {
   lerp: 0.05,                          // approach rate toward target per econ tick
   fed: 8, starving: -30,
   housed: 0, crowded: -20,
-  blackout: -15, flare: -10,
+  blackout: -15,                       // a priority 0–1 load is dark
+  shed: -3,                            // only priority 2–3 loads were idled
+  flare: -10,
   workMultMin: 0.5, workMultSpan: 0.7, // work mult = 0.5 + morale/100 * 0.7
+};
+
+/** brownout hysteresis: a load that loses power stays dark this many ticks
+ *  before retrying — unless the budget covers it with the release margin */
+export const BROWNOUT_HOLD_S = 8;
+export const POWER_RELEASE_MARGIN = 1.2;
+
+/** crewed generators run by agents lose this share of their output to the
+ *  agents' own control load (the generator side of the ×1.6 agent tax) */
+export const AGENT_GEN_TAX = 0.15;
+
+/** equipment wear (0..1): rises while upkeep goes unpaid, heals while it is
+ *  paid; output scales by 1 − derate × wear. The Lander never wears. */
+export const WEAR = {
+  risePerDay: 0.5,
+  healPerDay: 0.4,
+  derate: 0.5,
 };
 
 export const BATTERY_EFF = 0.85;       // round-trip
@@ -68,21 +88,33 @@ export const SOLAR_DUST_RECOVER = 0.2; // per day, when parts upkeep is being pa
 /** low-reserve anxiety: below this many seconds of remaining supply, morale sinks */
 export const LOW_SUPPLY_S = 300;
 
+/** net resource rates are an exponential average over about this many game-seconds */
+export const RATE_SMOOTH_S = 20;
+
 /** research transfer cap: each OPERATING lab feeds this much banked data per
  *  game-second into the active tech — no lab, no progress; big techs want
  *  research campuses */
 export const RESEARCH_RATE_PER_LAB = 0.4;
 
+/** research data made per game-second: a lab (crewed output scales with
+ *  morale^1.5; agent-run labs on a robotic mission hold agentLabCap of it)
+ *  and a data center (immune to moods and staffing) */
+export const DATA_RATE = { lab: 0.3, agentLabCap: 0.75, dataCenter: 1.0 };
+
 /** one-time ice survey from the Lander, paid in stored energy */
 export const ICE_SURVEY_COST = 150;
 
 /** emergency Earth resupply — the anti-softlock: no smelter and no metals for
- *  one means a shipment is ordered, and Earth is a full lunar day away */
+ *  one, or no Parts Fabricator and the spares cache nearly gone, means a
+ *  shipment is ordered, and Earth is a full lunar day away. Orders placed by
+ *  hand at the Lander each wait a lunar day longer than the last. */
 export const RESUPPLY = {
   metals: 60,
-  parts: 20,
+  parts: 40,
+  partsFloor: 15,                      // auto-order below this with no fabricator
   delayS: CYCLE_S,
-  moraleHit: 5,
+  orderStepS: CYCLE_S,                 // extra wait per earlier hand-placed order
+  moraleHit: 5,                        // whenever anyone is aboard
 };
 
 export const FLARE = {
@@ -174,3 +206,20 @@ export const SURVEY_TIERS = [
   { label: 'SUBSURFACE', revealM: MAP_M, slots: 3 },
 ] as const;
 export const ATLAS = { minTier: 4, surveys: 12, extraSlots: 1, streamMult: 1.25, insight: 0.25, lateData: 500 };
+
+/** the alert stack: a dismissed condition stays quiet snoozeS game-seconds;
+ *  one that stops being raised lingers lingerTicks economy ticks (so a
+ *  threshold hovered over does not strobe); events fade after REAL seconds
+ *  (info fadeInfoS, warn fadeWarnS — crit waits for the player), and at most
+ *  maxEvents are kept, the least severe and oldest dropped first */
+export const ALERTS = {
+  snoozeS: 120,
+  lingerTicks: 3,
+  fadeInfoS: 20,
+  fadeWarnS: 60,
+  maxEvents: 8,
+  shown: 4,
+};
+
+/** game-seconds before dusk that the night-runway warning goes up */
+export const DUSK_WARN_S = 60;

@@ -15,6 +15,8 @@ export interface DayInfo {
   sunAzim: number;
   /** 0 = full day … 1 = full night (light-pool / glow driver for the renderer) */
   nightFactor: number;
+  /** game-seconds until the next dusk (by day) or dawn (by night) */
+  phaseLeft: number;
 }
 
 const BLEND_S = 35; // dusk/dawn ramp, game-seconds
@@ -62,5 +64,16 @@ export function dayInfo(simTime: number, site: SiteDef, flareActive: boolean): D
   // go fully dark, so their factor stays low
   const nightFactor = 1 - Math.min(1, sunFactor / 0.25);
 
-  return { dayIndex, tCycle, isNight, sunFactor, sunElev, sunAzim, nightFactor };
+  const phaseLeft = isNight ? CYCLE_S - tIn : DAY_S - tIn;
+
+  return { dayIndex, tCycle, isNight, sunFactor, sunElev, sunAzim, nightFactor, phaseLeft };
+}
+
+/** game-seconds as m:ss (h:mm:ss past an hour) — clocks, countdowns, runways */
+export function fmtClock(sec: number): string {
+  const t = Math.max(0, Math.ceil(sec));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const ss = String(t % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
