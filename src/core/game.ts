@@ -22,7 +22,6 @@ import { Horizon } from '../terrain/horizon';
 import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { PlacementController, buildCost, checkGrade, checkPlacement, type PlaceableType } from '../buildings/placement';
-import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
 import { Sky } from '../world/sky';
@@ -678,14 +677,15 @@ export class Game {
     this.rocks.update(this.camera);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
       : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
-    // at night the base carries its own light: hull glow, ground pools, and
-    // exterior work lights over the structures nearest the camera
+    // at night the base carries its own light: window glow and floods in the
+    // shader patches, or (stock path) hull glow, ground discs and work lights
+    // over the structures nearest the camera
+    this.instances.update(dt, day.nightFactor, this.lighting.sunDirection);
     this.instances.setNightGlow(day.nightFactor);
-    if (BUILDING_MATERIAL.isMeshStandardMaterial) {
-      BUILDING_MATERIAL.emissive.setScalar(0.09 * day.nightFactor);
-    }
+    const stockLights = !this.instances.shaderLights;
+    this.lighting.useWorkLights(stockLights);
     this.lighting.setWorkLights(
-      day.nightFactor > 0.03
+      stockLights && day.nightFactor > 0.03
         ? this.instances.completedCenters(this.state, { x: focus.x, z: focus.z })
         : [],
       day.nightFactor,
@@ -952,6 +952,7 @@ export class Game {
       horizonSeam: this.horizon.seamError(),
       rocks: this.rocks.stats(),
       sky: this.sky.info(),
+      base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
     };
   }
 

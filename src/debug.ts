@@ -5,6 +5,7 @@ import type { BuildingId } from './data/buildings';
 import type { TechId } from './data/techs';
 import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
+import { recipeTriangles } from './buildings/recipes';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -56,6 +57,14 @@ function api(game: Game) {
     getCamera: () => game.debugCamera(),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     select: (id: number) => game.debugSelect(id),
+    recipeTriangles: () => recipeTriangles(),
+    beginPlacement: (type: BuildingId) => game.beginPlacement(type),
+    cancelPlacement: () => game.cancelPlacement(),
+    /** Complete every construction site now (one economy tick settles them). */
+    finishConstruction: () => {
+      for (const b of game.state.buildings) b.construction = 0;
+      game.debugAdvance(1);
+    },
   };
 }
 
