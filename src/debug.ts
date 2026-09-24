@@ -7,6 +7,7 @@ import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
 import type { GameStats } from './core/state';
 import { researchView } from './core/research';
+import type { MapView, ProspectId } from './data/lunarMap';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -83,7 +84,22 @@ function api(game: Game) {
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
     gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),
     getIceDeposits: () => JSON.parse(JSON.stringify(game.iceDepositList)),
-    canPlace: (type: BuildingId, gx: number, gz: number) => game.debugCheckPlace(type, gx, gz),
+    canPlace: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => game.debugCheckPlace(type, gx, gz, rot),
+    // ── the Lunar Map and local deposits (spec §5) ──
+    surveyProspect: (id: ProspectId) => game.actions.push({ kind: 'surveyProspect', id }),
+    claimOutpost: (id: ProspectId) => game.actions.push({ kind: 'claimOutpost', id }),
+    abandonOutpost: (id: ProspectId) => game.actions.push({ kind: 'abandonOutpost', id }),
+    /** the $lunar payload */
+    getLunar: () => clone(game.debugLunar()),
+    /** the $deposits payload */
+    getDeposits: () => clone(game.debugDeposits()),
+    /** the deposit under a world point (null = plain ground) */
+    depositAt: (x: number, z: number) => clone(game.debugDepositAt(x, z)),
+    revealAll: () => game.debugRevealAll(),
+    /** exactly n live outposts at the nearest claimable prospects (deed tests) */
+    forceOutposts: (n: number) => game.debugForceOutposts(n),
+    setMapOpen: (open: boolean) => game.setMapOpen(open),
+    setMapView: (view: MapView) => game.setMapView(view),
     forceRenderFallback: () => (game as any).post.forceFallback('debug'),
     enableSafeMode: () => game.enableSafeMode(),
     getFxLevel: () => (game as any).post.fxLevel as number,

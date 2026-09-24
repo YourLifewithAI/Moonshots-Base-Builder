@@ -1113,6 +1113,8 @@ test('full stockpiles: producers stand by, tanks cap, shipment overflow is repor
 });
 
 test('ice survey gates harvesters and maps deposits', async ({ page }) => {
+  // the survey radius maps deposits by itself (spec §5a): harvesters need ice
+  // the base has confirmed, and the old Lander survey is a no-op that says so
   await page.goto(`${URL_DEBUG}&site=southpole`);
   await game(page);
   await page.evaluate(() => window.__game.completeTech('iceExtraction'));
@@ -1124,21 +1126,26 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   expect(fromLander).toBeGreaterThanOrEqual(40);
   expect(fromLander).toBeLessThanOrEqual(55);
   const cell = { gx: Math.round((dep.cx + 512) / 4 - 1), gz: Math.round((dep.cz + 512) / 4 - 1) };
-  // before the survey: placement blocked with the survey hint
-  const pre = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
-  expect(pre.reason).toContain('survey');
-  // survey from the Lander costs stored energy
+  // inside the 120 m landing-site survey it is mapped from the start: no survey needed
+  const mapped = await page.evaluate(() => window.__game.getDeposits());
+  expect(mapped.find((d: any) => d.id === dep.id).revealed).toBe(true);
+  const onIce = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
+  expect(onIce.valid).toBe(true); // the starter patch takes a harvester with no habitat chain
+  expect(onIce.note).toBe('On confirmed ice');
+  // the retired Lander survey spends nothing and points at the map
   const before = await page.evaluate(() => window.__game.getState());
   await page.evaluate(() => window.__game.surveyIce());
-  await page.evaluate(() => window.__game.advanceGameSeconds(2));
+  await page.evaluate(() => window.__game.advanceGameSeconds(0));
   const after = await page.evaluate(() => window.__game.getState());
-  expect(after.iceSurveyed).toBe(true);
-  expect(after.powerStored).toBeLessThan(before.powerStored - 100);
-  // on a deposit the ice rule passes (any remaining reason is range/terrain)
-  const onIce = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
-  expect(onIce.reason.toLowerCase()).not.toContain('ice');
-  expect(onIce.reason.toLowerCase()).not.toContain('survey');
-  expect(onIce.valid).toBe(true); // the starter patch takes a harvester with no habitat chain
+  expect(after.iceSurveyed).toBe(false);
+  expect(after.powerStored).toBe(before.powerStored);
+  expect(after.alerts.some((a: any) =>
+    a.text === 'Deposits are mapped automatically inside your survey radius — open the map [M]')).toBe(true);
+  // ice beyond the survey radius is unconfirmed until the survey reaches it
+  const far = mapped.find((d: any) => d.kind === 'ice' && !d.revealed);
+  const farCell = { gx: Math.round((far.x + 512) / 4 - 1), gz: Math.round((far.z + 512) / 4 - 1) };
+  const unconfirmed = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), farCell);
+  expect(unconfirmed.reason).toMatch(/^ICE UNCONFIRMED — extend your survey/);
   // off-deposit near the lander: blocked for the right reason
   const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
   expect(offIce.reason).toContain('No ice beneath');

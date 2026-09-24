@@ -2,8 +2,8 @@
  *  generator staffing → power supply → stockpile caps → priority idling →
  *  worker allocation → production (tier order) → life support & crew →
  *  parts upkeep & wear → net rates → morale → flare events → Earth
- *  shipments → crew rotation → research → night tracking → charters →
- *  milestones. Every building's numbers come from mods.effectiveRates, the
+ *  shipments → exploration and the crew rotation → research → night
+ *  tracking → charters → milestones. Every building's numbers come from mods.effectiveRates, the
  *  same function the tooltips and previews read.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
@@ -22,6 +22,8 @@ import {
   computeMods, effectiveDef, effectiveRates, modsFor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
 import { computeEra, eraTick, insightTick, producerOf, researchTick, uplinkShare } from './research';
+import { explorationTick } from './exploration';
+import { FEED_KINDS, emptyFeed, feedKindOf } from '../data/deposits';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 
@@ -215,6 +217,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     // self-assembly: bays print extra workers
     if (b.type === 'roboticsBay') botsTotal += mods.botPerBay;
   }
+  // a survey borrows one robot for its trip
+  if (s.survey.active) botsTotal = Math.max(0, botsTotal - 1);
   // robot queue: placement order unless a site was moved up with Build next;
   // a shut-down site keeps its place in line but frees its robot
   const sites = s.buildings.filter(building).sort((a, b) => queuePos(a) - queuePos(b) || a.id - b.id);
@@ -463,6 +467,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const share = uplinkShare((byType.get('lab') ?? []).filter((b) => runs(b) && isAuto(b)).length);
   let smelterO2 = 0; // this tick's smelter oxygen, for the crew rotation's check
   let ilmeniteDug = false;
+  // regolith dug this tick by kind of ground: the feed every processor sees
+  const dug = emptyFeed();
   for (const type of PROD_ORDER) {
     const list = byType.get(type);
     if (!list) continue;
@@ -495,11 +501,20 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         }
       }
       if (type === 'smelter') smelterO2 += r.outputs.oxygen ?? 0;
-      if (type === 'excavator' && b.deposit === 'ilmenite') ilmeniteDug = true;
+      if (type === 'excavator') {
+        if (b.deposit === 'ilmenite') ilmeniteDug = true;
+        dug[feedKindOf(b.deposit)] += (r.outputs.regolith ?? 0) * dt;
+      }
       // labs (uplink share on agent-run ones, crewed ones scale with morale)
       // and data centers: the same numbers researchRates reports
       s.data += r.data * dt;
       b.active = true;
+    }
+    // excavators dig the ground they sit on: an instant share of this tick's
+    // dig, kept as it was when nothing was dug
+    if (type === 'excavator') {
+      const total = FEED_KINDS.reduce((sum, k) => sum + dug[k], 0);
+      if (total > 0) for (const k of FEED_KINDS) s.feed[k] = dug[k] / total;
     }
   }
   if (ilmeniteDug) st.ilmeniteDigS += dt;
@@ -515,7 +530,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const dcActive = s.buildings.some((b) => b.type === 'dataCenter' && b.active);
   if (dcActive) st.dcOpS += dt;
   if (day.isNight && !dcActive) st.nightDcAllActive = false;
-  // later steps read post-production rates (M1's feed grade lands in step 4)
+  // later steps read post-production rates (and this tick's feed grade)
   rateCache.clear();
 
   // ── 4.5 · stockpile caps: excess production is lost on the ground ──
@@ -764,7 +779,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   }
 
   // ── 8.7 · off-site operations and the crew rotation ─────────────────
-  // (the Era 7 deed; M2's explorationTick decides which outposts are live)
+  // surveys, outpost streams, hopper fuel and upkeep: their continuous flows
+  // count in the net rates as if step 6.5 had seen them
+  const ex = explorationTick(s, mods, site, dt);
+  if (ex.modsChanged) ev.modsChanged = true;
+  for (const [rid, f] of Object.entries(ex.flow) as [ResourceId, number][]) s.rates[rid] = (s.rates[rid] ?? 0) + f * k;
+  // the Era 7 deed: an outpost has operated
   if (s.survey.outposts.some((o) => o.live)) st.outpostOpS += dt;
   crewRotationTick(s, smelterO2);
 

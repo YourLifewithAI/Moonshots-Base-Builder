@@ -38,6 +38,8 @@ export const $vitals = atom({
   boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
   lifeSupport: { oxygen: 0, food: 0, water: 0 },
   sites: 0, welding: 0, upkeep: 0,
+  /** robots lent to a survey (not in botsTotal) */
+  surveying: 0,
 });
 /** Lander services status (shipment en route, the next order's transit in
  *  lunar days, agent-run stations the crew could take) */
