@@ -205,6 +205,11 @@ function prettyProspect(id: string): string {
 
 // ─────────────────────────── the screen ───────────────────────────
 
+let focusHook: ((tid: TechId | null) => void) | null = null;
+/** Open the tree on `tid`: selected (its detail sheet up) and pulsing once.
+ *  null, or a tech with no card here, just opens the tree. */
+export function openTechTreeAt(tid: TechId | null) { focusHook?.(tid); }
+
 export function mountTechTree(root: HTMLElement, game: Game) {
   const push = (a: Action) => game.actions.push(a);
 
@@ -1093,6 +1098,21 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   }, true);
 
   new ResizeObserver(() => { if (open && layout) drawLinks(); }).observe(grid);
+
+  focusHook = (tid) => {
+    if (!game.commandView) return;
+    toggle(true);
+    if (!tid || !layout?.items.has(tid)) return;
+    selected = tid;
+    hover = null;
+    refreshFocus();
+    const card = cardEls.get(tid);
+    if (!card) return;
+    card.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    card.classList.remove('pulse');
+    void card.offsetWidth;
+    card.classList.add('pulse');
+  };
 
   $research.subscribe(refresh);
   $resources.subscribe(() => { if (open && view) { updateCards(); renderSheet(); } });

@@ -288,3 +288,10 @@
 
 /* the HUD era chip's research line carries the S6 states (PAUSED, WAITING, QUEUE EMPTY) */
 #era-chip .res-name { max-width: 230px; }
+
+/* opened from a locked palette card: the tech that unlocks it pulses twice */
+@keyframes tt-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--paper-rgb), 0); }
+  40% { box-shadow: 0 0 0 4px rgba(var(--paper-rgb), 0.55); }
+}
+.tech-card.pulse { animation: tt-pulse 700ms var(--ease) 2; }
