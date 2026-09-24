@@ -413,7 +413,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   crewWellness: {
     id: 'crewWellness', era: 5, lane: 'habitat', name: 'Crew Wellness Program', short: 'Crew Wellness',
-    costData: 460, requires: [], crewTech: true, robotic: { era: 7, costData: 1250 },
+    costData: 460, requires: [], crewTech: true, robotic: { era: 7, costData: 1000 },
     effects: [{ kind: 'unlock', building: 'recDome' }],
     desc: 'Plants, a screen, low-g handball.',
     tradeoff: 'A pure cost centre.',
