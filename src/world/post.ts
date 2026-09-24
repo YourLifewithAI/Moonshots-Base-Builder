@@ -26,6 +26,8 @@ const LEVEL_ALERTS: Record<number, string> = {
   3: 'RENDER — effects disabled, using plain rendering',
 };
 
+const reasonText = (r: unknown) => (r instanceof Error ? r.message : r ? String(r) : 'render error');
+
 function storedLevel(): number {
   try {
     const v = Number(localStorage.getItem(STORE_KEY));
@@ -38,8 +40,9 @@ export class PostFX {
   private level: number;
   /** surfaced into the in-game alert stack so players see render issues without F12 */
   onIssue?: (msg: string) => void;
-  /** every level change; `explicit` = chosen (debug/settings), not a descent */
-  onLevelChange?: (level: number, explicit: boolean) => void;
+  /** every level change; `explicit` = chosen (debug/settings), not a descent,
+   *  which carries its cause */
+  onLevelChange?: (level: number, explicit: boolean, reason?: string) => void;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -47,12 +50,14 @@ export class PostFX {
     private camera: THREE.PerspectiveCamera,
     lowFx: boolean,
     fxOverride?: number,
+    /** the player's own level (menu): never boot above it */
+    fxChoice = 0,
   ) {
     if (fxOverride !== undefined && fxOverride >= 0 && fxOverride <= FX_PLAIN) {
       this.level = fxOverride;
       this.persist();
     } else {
-      this.level = Math.max(storedLevel(), lowFx ? 2 : 0);
+      this.level = Math.min(FX_PLAIN, Math.max(storedLevel(), lowFx ? 2 : 0, fxChoice));
     }
     console.log(`[MOONSHOTS] FX level ${this.level} (0=full … 3=plain)`);
     this.buildComposer();
@@ -140,7 +145,7 @@ export class PostFX {
     const msg = LEVEL_ALERTS[this.level];
     if (msg) this.onIssue?.(msg);
     this.buildComposer();
-    this.onLevelChange?.(this.level, false);
+    this.onLevelChange?.(this.level, false, reasonText(reason));
     return true;
   }
 
@@ -160,7 +165,7 @@ export class PostFX {
     console.warn('[MOONSHOTS] Post-processing disabled — plain rendering.', reason ?? '');
     this.onIssue?.(LEVEL_ALERTS[FX_PLAIN]);
     this.disposeComposer();
-    this.onLevelChange?.(this.level, false);
+    this.onLevelChange?.(this.level, false, reasonText(reason));
   }
 
   setSize(w: number, h: number) {

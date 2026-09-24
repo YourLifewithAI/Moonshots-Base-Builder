@@ -64,6 +64,8 @@ class MaterialRegistry {
   private level = 0;
   private safe = false;
   private faulted = storedFault();
+  /** meshes whose unregistered lit material safe mode replaced */
+  private replaced = new WeakMap<THREE.Object3D, THREE.Material>();
   /** bumped on every change of variant, fault or safe mode — meshes that
    *  render differently with and without a patch poll it */
   revision = 0;
@@ -170,10 +172,33 @@ class MaterialRegistry {
       const twin = twins.get(mat);
       if (twin) mesh.material = twin;
       else if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+        this.replaced.set(mesh, mat);
         mesh.material = new THREE.MeshBasicMaterial({
           vertexColors: mat.vertexColors, color: (mat as THREE.MeshStandardMaterial).color,
         });
       }
+    });
+  }
+
+  /** Back to lit materials under `root` (the player turned safe mode off).
+   *  Every material recompiles, since shadows come back with it. */
+  disableSafe(root: THREE.Object3D) {
+    if (!this.safe) return;
+    this.safe = false;
+    this.revision++;
+    const lit = new Map<THREE.Material, THREE.Material>();
+    for (const e of this.entries.values()) if (e.basic) lit.set(e.basic, e.lit);
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      const mat = mesh.material as THREE.Material | undefined;
+      if (mat && !Array.isArray(mat)) {
+        const back = lit.get(mat) ?? this.replaced.get(mesh);
+        if (back) mesh.material = back;
+        (mesh.material as THREE.Material).needsUpdate = true;
+      }
+      const depth = mesh.customDepthMaterial && lit.get(mesh.customDepthMaterial);
+      if (depth) mesh.customDepthMaterial = depth;
+      this.replaced.delete(mesh);
     });
   }
 }
