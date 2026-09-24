@@ -530,6 +530,53 @@ test('outposts: a slot from orbit, a claim in chips, a stream, a grounded hopper
   expect(ab.ticked.power.supply).toBeCloseTo(3, 6);
 });
 
+test('grounded hopper: a KREEP outpost without fuel is offline — its modifier and the Era 7 deed stop, its link stays', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  await complete(page, ['prospectingRovers', 'orbitalProspector', 'thoriumPower']);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ oxygen: 300, water: 200, metals: 400, parts: 150, chips: 20 });
+    const trip = g.getLunar().prospects.find((p: any) => p.id === 'fraMauro').survey.timeS;
+    g.surveyProspect('fraMauro'); // near side from the mare: a hopper outpost
+    powered(trip + 1);
+    g.claimOutpost('fraMauro');
+    powered(361);
+    const c = near('reactor', 16, -2, undefined, 3, 3);
+    g.placeBuilding('reactor', c!.gx, c!.gz);
+    g.finishConstruction();
+    powered(10);
+    const live = g.getState();
+    g.grantResources({ oxygen: -g.getState().resources.oxygen });
+    g.advanceGameSeconds(1); // grounded on this tick; the mods follow it
+    const g0 = g.getState();
+    g.grantPower(5000);
+    g.advanceGameSeconds(10);
+    const grounded = g.getState();
+    const lunar = g.getLunar();
+    g.grantResources({ oxygen: 100 });
+    g.grantPower(5000);
+    g.advanceGameSeconds(2);
+    return { live, g0, grounded, lunar, back: g.getState() };
+  });
+  expect(r.live.survey.outposts[0]).toMatchObject({ id: 'fraMauro', kind: 'kreep', cls: 'near', live: true, fuelOk: true });
+  // the agent-run reactor: 40 kW less the agents' 15% = 34, ×1.15 on KREEP;
+  // the Lander nets 6 − 1 (rovers) − 2 (orbiter) − 1.5 (the outpost's link)
+  expect(r.live.power.supply).toBeCloseTo(1.5 + 34 * 1.15, 6);
+  expect(r.grounded.survey.outposts[0]).toMatchObject({ live: true, fuelOk: false });
+  expect(hasAlert(r.grounded, /^HOPPER GROUNDED — Fra Mauro needs 0\.02○\/s \+ 0\.004≈\/s \(have 0○\)$/)).toBe(true);
+  // grounded: no KREEP bonus, but the link still draws
+  expect(r.grounded.power.supply).toBeCloseTo(1.5 + 34, 6);
+  // and no outpost is operating: the Era 7 deed holds still
+  expect(r.grounded.stats.outpostOpS).toBe(r.g0.stats.outpostOpS);
+  expect(r.lunar.outposts[0]).toMatchObject({
+    id: 'fraMauro', live: true, fuelOk: false, stream: 'grounded — no hopper fuel', linkKW: -1.5,
+  });
+  // fuel back: the hopper flies, the bonus and the deed return
+  expect(r.back.survey.outposts[0].fuelOk).toBe(true);
+  expect(r.back.power.supply).toBeCloseTo(1.5 + 34 * 1.15, 6);
+  expect(r.back.stats.outpostOpS).toBeGreaterThan(r.grounded.stats.outpostOpS);
+});
+
 test('fast-forward ticks as play does: the clock moves first, then the tick reads it', async ({ page }) => {
   await start(page, 'mare', 'robotic');
   const r = await page.evaluate(() => {

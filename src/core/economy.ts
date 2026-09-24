@@ -784,8 +784,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const ex = explorationTick(s, mods, site, dt);
   if (ex.modsChanged) ev.modsChanged = true;
   for (const [rid, f] of Object.entries(ex.flow) as [ResourceId, number][]) s.rates[rid] = (s.rates[rid] ?? 0) + f * k;
-  // the Era 7 deed: an outpost has operated
-  if (s.survey.outposts.some((o) => o.live)) st.outpostOpS += dt;
+  // the Era 7 deed: an outpost has operated (a grounded hopper is not operating)
+  if (s.survey.outposts.some((o) => o.live && o.fuelOk)) st.outpostOpS += dt;
   crewRotationTick(s, smelterO2);
 
   // ── 9 · research (queue, transfer cap, goods pass: core/research.ts) ──

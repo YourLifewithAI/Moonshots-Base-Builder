@@ -60,7 +60,7 @@ export interface Mods {
   dayDrawMult: number;
   /** multiplies each deposit's positive feed coefficient */
   feedBonus: Record<FeedKind, number>;
-  /** a live KREEP outpost: reactor upkeep ×0.6 (see reactorUpkeepFactor), output ×1.15, chipFab ×1.1 */
+  /** a live, fuelled KREEP outpost: reactor upkeep ×0.6 (see reactorUpkeepFactor), output ×1.15, chipFab ×1.1 */
   kreepOutpost: boolean;
 }
 
@@ -173,8 +173,10 @@ export function computeMods(
 
   for (const o of outposts) {
     if (!o.live) continue;
+    // a grounded hopper keeps its link up (it is still out there, waiting on
+    // fuel); only a fuelled outpost is online for its modifier
     m.powerDelta.lander += OUTPOST_LINK_KW[o.cls];
-    if (o.kind === 'kreep' && !m.kreepOutpost) {
+    if (o.kind === 'kreep' && o.fuelOk && !m.kreepOutpost) {
       m.kreepOutpost = true;
       m.powerMult.reactor *= FEED.kreepOutputMult;
       m.outputMult.chipFab *= FEED.kreepChipMult;

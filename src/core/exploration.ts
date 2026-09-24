@@ -407,6 +407,8 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     // toward the fuel (an ice hopper carries its water home)
     const fuel = Object.entries(oc.fuel ?? {}) as [ResourceId, number][];
     const short = fuel.find(([rid, rate]) => spare(s, mods, rid) + (res[rid] ?? 0) * k * dt < rate * dt);
+    // grounded is offline: a KREEP outpost's modifier goes, and comes back with the fuel
+    if (o.fuelOk !== !short) out.modsChanged = true;
     o.fuelOk = !short;
     if (short) {
       condition(s, `grounded:${o.id}`, `HOPPER GROUNDED — ${p.short} needs ${fuelText(o.cls, true)} ` +
@@ -481,7 +483,8 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
     const mult = (s.survey.atlas ? ATLAS.streamMult : 1) * (o.upkeepOk ? 1 : 0.5);
     return {
       id: o.id, kind: o.kind, readyAt: o.readyAt, fuelOk: o.fuelOk, upkeepOk: o.upkeepOk,
-      stream: streamText(o.id, mult),
+      // grounded, it streams nothing and its modifier is off
+      stream: o.live && !o.fuelOk ? 'grounded — no hopper fuel' : streamText(o.id, mult),
       name: PROSPECTS[o.id].short, cls: o.cls, live: o.live,
       deployLeft: o.live ? 0 : secsLeft(s, o.readyAt),
       fuel: fuelText(o.cls), upkeep: `${oc.upkeepPerDay}⚙/day`, linkKW: OUTPOST_LINK_KW[o.cls],
