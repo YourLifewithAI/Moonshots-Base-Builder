@@ -251,7 +251,7 @@
 #tech-sheet-body .sh-site { margin-top: 2px; padding-left: 6px; border-left: 2px solid rgba(var(--paper-rgb), 0.35); }
 #tech-sheet-body .fx-pro { color: var(--ink-050); }
 #tech-sheet-body .fx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
-#tech-sheet-body .sh-path > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#tech-sheet-body .sh-path > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 13px; }
 #tech-sheet-body .sh-path > .sh-btns { overflow: visible; }
 #tech-sheet-body .unl { margin-top: 2px; }
 #tech-sheet-body .yb { font-family: var(--font-mono); font-size: 10px; }
@@ -263,7 +263,7 @@
   color: rgba(var(--paper-rgb), var(--op-tertiary));
 }
 #tech-sheet-body .ins { margin-top: 2px; color: var(--ink-050); }
-#tech-sheet-body .sh-btns { display: flex; gap: 6px; margin-bottom: 4px; }
+#tech-sheet-body .sh-btns { display: flex; gap: 6px; margin-bottom: 3px; }
 #tech-sheet-body .btn { padding: 2px 8px; font-size: 10px; }
 
 /* doctrine: both members side by side */
