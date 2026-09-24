@@ -260,13 +260,12 @@ export class ResupplyFx {
     const pos = cone.getAttribute('position');
     const col = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
-      const v = Math.max(0, 1 + pos.getY(i)) ** 2.5;
+      const v = Math.max(0, 1 + pos.getY(i)) ** 3;
       col[i * 3] = v; col[i * 3 + 1] = v * 0.97; col[i * 3 + 2] = v * 0.92;
     }
     cone.setAttribute('color', new THREE.BufferAttribute(col, 3));
     this.plumeMat = new THREE.MeshBasicMaterial({
       vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false,
-      side: THREE.DoubleSide,
     });
     this.plume = new THREE.Mesh(cone, this.plumeMat);
     this.plume.frustumCulled = false;
@@ -355,7 +354,7 @@ export class ResupplyFx {
     this.plume.position.set(0, 0.55, 0).applyQuaternion(this.q).add(new THREE.Vector3(x, y, z));
     this.plume.quaternion.copy(this.q);
     this.plume.scale.set(wide, len, wide);
-    this.plumeMat.color.setScalar(0.2 * thrust);
+    this.plumeMat.color.setScalar(0.14 * thrust);
   }
 
   private setShadow(on: boolean) {

@@ -1,16 +1,22 @@
 /* Walk-mode helmet visor: pure CSS over the world, no GPU cost. A curved
    glass edge (the dark falloff of the helmet's field of view), a faint
-   specular streak and a hairline rim where the visor meets the shell. */
+   specular sheen high on one side and a hairline rim where the visor meets
+   the shell. */
 #visor {
   position: absolute; inset: 0;
   pointer-events: none;
+  background: radial-gradient(ellipse 118% 100% at 50% 44%,
+    transparent 58%, rgba(0, 0, 0, 0.22) 74%, rgba(0, 0, 0, 0.62) 90%, rgba(0, 0, 0, 0.88) 100%);
+}
+#visor::before {
+  content: '';
+  position: absolute; inset: 0;
   background:
-    radial-gradient(ellipse 118% 100% at 50% 44%,
-      transparent 58%, rgba(0, 0, 0, 0.22) 74%, rgba(0, 0, 0, 0.62) 90%, rgba(0, 0, 0, 0.88) 100%),
-    linear-gradient(112deg,
-      transparent 14%, rgba(var(--paper-rgb), 0.028) 21%, rgba(var(--paper-rgb), 0.05) 23%,
-      rgba(var(--paper-rgb), 0.018) 27%, transparent 33%),
-    linear-gradient(112deg, transparent 71%, rgba(var(--paper-rgb), 0.02) 74%, transparent 77%);
+    linear-gradient(128deg, transparent 16%, rgba(var(--paper-rgb), 0.05) 23%,
+      rgba(var(--paper-rgb), 0.02) 28%, transparent 34%),
+    linear-gradient(128deg, transparent 37%, rgba(var(--paper-rgb), 0.028) 39.5%, transparent 42%);
+  -webkit-mask-image: radial-gradient(ellipse 72% 62% at 24% 18%, #000 18%, transparent 74%);
+  mask-image: radial-gradient(ellipse 72% 62% at 24% 18%, #000 18%, transparent 74%);
 }
 #visor::after {
   content: '';
