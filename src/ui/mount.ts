@@ -27,7 +27,7 @@ export function mountUI(game: Game) {
 
   mountHud(hudLayer, game);
   mountVisor(hudLayer);
-  mountInfoPanel(hudLayer);
+  mountInfoPanel(hudLayer, game);
   mountPalette(hudLayer, game);
   mountTechTree(hudLayer, game);
   mountVictory(root, game);

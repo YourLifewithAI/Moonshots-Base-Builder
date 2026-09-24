@@ -1031,9 +1031,9 @@ test('robotic mission copy: landing, objectives, perimeter, launch reasons, T un
   // the launch row says what a volley still lacks
   await page.evaluate(() => window.__game.completeTech('swarmProtocol'));
   await expect(page.locator('#launch-cost')).toContainText('foils 0/10 ✗');
-  await expect(page.locator('#launch-cost')).toContainText('launch 0/1 ✗');
+  await expect(page.locator('#launch-cost')).toContainText('launch 0/3↑ ✗');
   await expect(page.locator('#launch-cost')).toContainText('stored 400/400 ✓');
-  await expect(page.locator('#btn-launch')).toHaveAttribute('title', 'Needs 10 more foils, 1 more launch capacity');
+  await expect(page.locator('#btn-launch')).toHaveAttribute('title', 'Needs 10 more foils, 3 more launch capacity');
   // T is a command-view key: under walk mode's pointer lock the tree stays shut
   await page.evaluate(() => window.__game.setMode('walk'));
   await page.keyboard.press('KeyT');

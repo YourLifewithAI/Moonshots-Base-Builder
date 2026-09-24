@@ -192,10 +192,11 @@ export function mountHud(root: HTMLElement, game: Game) {
     mBtn.disabled = !s.canLaunch;
     // each part of a volley, held against what it takes: the disabled button explains itself
     const parts: [string, number, number][] = [
-      ['foils', s.foils, LAUNCH_COST_FOILS], ['launch', s.launch, 1], ['stored', s.stored, s.burst],
+      ['foils', s.foils, LAUNCH_COST_FOILS], ['launch', s.launch, LAUNCH_CAP_PER_VOLLEY], ['stored', s.stored, s.burst],
     ];
+    // capacity carries its ↑ so "0/3" never reads as a count of launches
     const cost = parts.map(([n, have, need]) =>
-      `${n} ${fmt(Math.min(have, need))}/${need} ${have >= need ? '✓' : '✗'}`).join(' · ');
+      `${n} ${fmt(Math.min(have, need))}/${need}${n === 'launch' ? RESOURCES.launch.glyph : ''} ${have >= need ? '✓' : '✗'}`).join(' · ');
     if (mCost.textContent !== cost) mCost.textContent = cost;
     const missing = parts.filter(([, have, need]) => have < need)
       .map(([n, have, need]) => `${fmt(need - have)} more ${n === 'stored' ? 'stored energy' : n === 'launch' ? 'launch capacity' : n}`);

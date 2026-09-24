@@ -4,15 +4,17 @@
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  CONSTRUCTION_PARTS_PER_S, CREW, DATA_RATE, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY,
+  CONSTRUCTION_PARTS_PER_S, CREW, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, MORALE,
+  RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB, RESUPPLY,
 } from '../data/balance';
 import { SITES } from '../data/sites';
-import { computeMods } from '../core/mods';
+import { effectiveDef, effectiveRates, type EffectiveRates, type Mods } from '../core/mods';
+import type { Game } from '../core/game';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
 import {
-  $caps, $counts, $lander, $power, $rates, $resourcePanel, $resources, $siteId, $tech, $time, $vitals,
+  $caps, $counts, $lander, $power, $rates, $research, $resourcePanel, $resources, $siteId, $tech, $time, $vitals,
 } from './stores';
 import { TECHS, TECH_ORDER } from '../data/techs';
 
@@ -36,6 +38,20 @@ function buildingLine(type: BuildingId, rate: number, sign: '+' | '−'): string
     <span class="mono">${sign}${fmt(rate * 60)}/min · ${status}</span></div>`;
 }
 
+/** one building's nameplate rates under the live mods; a new station on a
+ *  robotic mission runs on agents (game.commitPlace) */
+function ratesOf(type: BuildingId, mods: Mods): EffectiveRates {
+  const robotic = $vitals.get().expedition === 'robotic';
+  const agentRun = robotic && BUILDINGS[type].crew > 0;
+  const rv = $research.get();
+  return effectiveRates(type, mods, SITES[$siteId.get() ?? 'mare'], undefined, {
+    agentRun, robotic, uplinkShare: type === 'lab' && agentRun ? rv?.uplinkShare ?? 1 : 1,
+  });
+}
+
+const mult = (v: number) => `×${Math.round(v * 100) / 100}`;
+const kw = (v: number) => String(Math.round(v * 10) / 10);
+
 const row = (name: string, value: string) =>
   `<div class="row"><span>${name}</span><span class="mono">${value}</span></div>`;
 
@@ -54,8 +70,8 @@ const NOTES: Partial<Record<string, string>> = {
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
   parts: `Made by Parts Fabricators. EVERY building burns parts as upkeep — run dry and machines wear, losing up to half their output (the Lander never wears). Paid upkeep repairs them again. No fabricator yet? Order an Earth shipment at the Lander (+${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts; the first is a lunar day out, each later order a day longer) — Earth sends one on its own when the cache drops below ${RESUPPLY.partsFloor}.`,
   chips: 'Chip Fabs turn lunar silicon into wafers and accelerators. Data Centers are built from them; late research and swarm doctrine consume them.',
-  foils: 'Foil Factories turn silicon and metals into collectors. Ten foils = one swarm volley.',
-  launch: 'Mass Drivers accrue launch capacity each window. One capacity + ten foils + stored power = one launch.',
+  foils: `Foil Factories turn silicon and metals into collectors. ${LAUNCH_COST_FOILS} foils go up with each swarm volley.`,
+  launch: `Mass Drivers accrue launch capacity each window. ${LAUNCH_CAP_PER_VOLLEY}↑ capacity + ${LAUNCH_COST_FOILS} foils + ${LAUNCH_POWER_BURST} stored energy = one launch.`,
 };
 
 /** a crewless robotic base: life support is banked for the settlers to come */
@@ -66,10 +82,9 @@ const NOTES_UNCREWED: Partial<Record<string, string>> = {
 };
 
 /** the panel's content for `key`, or null when there is none */
-function panelHtml(key: string): string | null {
+function panelHtml(key: string, mods: Mods): string | null {
   const v = $vitals.get();
   const t = $tech.get();
-  const mods = computeMods(t.done, v.expedition);
   const lsMult = mods.inputMult.habitat;
   const lander = $lander.get();
 
@@ -87,7 +102,7 @@ function panelHtml(key: string): string | null {
         ${row('Oxygen', `−${fmt(CREW.oxygenPerCrew * lsMult * 60)}/min`)}
         ${row('Food', `−${fmt(CREW.foodPerCrew * lsMult * 60)}/min`)}
         ${row('Water', `−${fmt(CREW.waterPerCrew * lsMult * 60)}/min`)}
-        <div class="goal-hint">${TECHS.closedLoopLS.name} (Era ${TECHS.closedLoopLS.era}) cuts all three by 40%. ${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets buildings run without crew at ×1.6 power.</div>
+        <div class="goal-hint">${TECHS.closedLoopLS.name} (Era ${TECHS.closedLoopLS.era}) cuts all three by 40%. ${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets buildings run without crew at ${mult(1 + mods.agentTax)} power.</div>
       </section>`;
   }
   if (key === 'power') {
@@ -96,9 +111,9 @@ function panelHtml(key: string): string | null {
     const drain = p.demand - p.supply;
     const dark = p.demand - p.served;
     const gen = (['solar', 'reactor', 'lander'] as BuildingId[])
-      .map((b) => buildingLine(b, 0, '+').replace('+0/min', `+${BUILDINGS[b].powerKW} kW`)).join('');
-    const draws = BUILD_ORDER.filter((b) => BUILDINGS[b].powerKW < 0)
-      .map((b) => buildingLine(b, 0, '−').replace('−0/min', `−${-BUILDINGS[b].powerKW} kW`)).join('');
+      .map((b) => buildingLine(b, 0, '+').replace('+0/min', `+${kw(ratesOf(b, mods).powerKW)} kW`)).join('');
+    const draws = BUILD_ORDER.filter((b) => effectiveDef(b, mods).powerKW < 0)
+      .map((b) => buildingLine(b, 0, '−').replace('−0/min', `−${kw(-ratesOf(b, mods).powerKW)} kW`)).join('');
     return `
       <section><div class="tt-name"><span>⚡ Power</span><span class="mono">+${fmt(p.supply)} / ${fmt(p.demand)} kW</span></div>
         <span class="label">${dark >= 0.1 ? `${fmt(dark)} kW of loads dark` : drain > 0.01 ? 'the bank covers the shortfall' : 'generation covers demand'}
@@ -136,20 +151,23 @@ function panelHtml(key: string): string | null {
   }
   if (key === 'data') {
     const counts = $counts.get();
+    const rv = $research.get();
     const agentLab = v.expedition === 'robotic';
-    const labs = counts.lab?.active ?? 0;
-    const dcs = counts.dataCenter?.active ?? 0;
-    const transfer = RESEARCH_RATE_PER_LAB * (labs + 3 * dcs);
+    const labs = rv?.labsActive ?? counts.lab?.active ?? 0;
+    const dcs = rv?.dcsActive ?? counts.dataCenter?.active ?? 0;
+    const transfer = RESEARCH_RATE_PER_LAB * labs + RESEARCH_RATE_PER_DC * dcs;
+    const share = rv && rv.agentLabs > 0 ? rv.uplinkShare : 1;
     return `
       <section><div class="tt-name"><span>≡ Research data</span><span class="mono">${fmt(v.data)}</span></div>
         <span class="label">${transfer > 0
           ? `feeding research ${fmt(transfer * 60)}/min · ${labs} lab${labs === 1 ? '' : 's'}, ${dcs} data center${dcs === 1 ? '' : 's'} operating`
           : t.queue.length ? 'research stalled — no operating lab or data center' : 'no operating lab or data center'}</span></section>
       <section><span class="label">Produced by</span>
-        ${buildingLine('lab', DATA_RATE.lab * (agentLab ? DATA_RATE.agentLabCap : 1), '+')}
-        ${buildingLine('dataCenter', DATA_RATE.dataCenter * mods.outputMult.dataCenter, '+')}
+        ${buildingLine('lab', ratesOf('lab', mods).data, '+')}
+        ${buildingLine('dataCenter', ratesOf('dataCenter', mods).data, '+')}
         ${agentLab ? `<div class="goal-hint">Agent-run labs hold ${Math.round(DATA_RATE.agentLabCap * 100)}% — inference is not insight; settlers staffing them lift the cap. Crewed labs scale with morale.</div>` : ''}
-        <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the active tech — no lab, no research progress. A Data Center transfers like three labs and produces data itself; big eras want compute.</div></section>`;
+        ${share < 1 ? `<div class="goal-hint">${rv!.agentLabs} agent-run labs share one Deep Space Network uplink: each keeps ${Math.round(share * 100)}% of its data.</div>` : ''}
+        <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the research queue — no lab, no research progress. A Data Center moves ${fmt(RESEARCH_RATE_PER_DC * 60)}/min, ${Math.floor(RESEARCH_RATE_PER_DC / RESEARCH_RATE_PER_LAB)} labs' worth, and produces data itself; big eras want compute.</div></section>`;
   }
 
   const rid = key as ResourceId;
@@ -159,13 +177,13 @@ function panelHtml(key: string): string | null {
   const cap = $caps.get()[rid];
   const rate = $rates.get()[rid] ?? 0;
   const hasIce = SITES[$siteId.get() ?? 'mare'].hasIce;
-  const makers = BUILD_ORDER.filter((b) => (BUILDINGS[b].outputs[rid] ?? 0) > 0);
+  const makers = BUILD_ORDER.filter((b) => (effectiveDef(b, mods).outputs[rid] ?? 0) > 0);
   const producers = makers.filter((b) => hasIce || !BUILDINGS[b].requiresIce)
-    .map((b) => buildingLine(b, BUILDINGS[b].outputs[rid]!, '+')).join('');
+    .map((b) => buildingLine(b, ratesOf(b, mods).outputs[rid] ?? 0, '+')).join('');
   const iceless = makers.some((b) => BUILDINGS[b].requiresIce) && !hasIce
     ? '<div class="goal-hint">No ice at this site — Ice Harvesters need polar deposits.</div>' : '';
-  const consumers = BUILD_ORDER.filter((b) => (BUILDINGS[b].inputs[rid] ?? 0) > 0)
-    .map((b) => buildingLine(b, BUILDINGS[b].inputs[rid]!, '−')).join('');
+  const consumers = BUILD_ORDER.filter((b) => (effectiveDef(b, mods).inputs[rid] ?? 0) > 0)
+    .map((b) => buildingLine(b, ratesOf(b, mods).inputs[rid] ?? 0, '−')).join('');
   const crewDraw = rid === 'oxygen' || rid === 'food' || rid === 'water' ? v.lifeSupport[rid] : 0;
   const shipped = rid === 'metals' ? RESUPPLY.metals : rid === 'parts' ? RESUPPLY.parts : 0;
   const extraIn = shipped ? row('Earth shipment', `+${shipped} · ${lander.resupplyPending
@@ -197,7 +215,7 @@ function panelHtml(key: string): string | null {
     ${note ? `<section><span class="label">Field notes</span><div class="goal-hint">${note}</div></section>` : ''}`;
 }
 
-export function mountInfoPanel(root: HTMLElement) {
+export function mountInfoPanel(root: HTMLElement, game: Game) {
   const panel = el('div', 'panel interactive');
   panel.id = 'res-panel';
   panel.style.display = 'none';
@@ -212,13 +230,13 @@ export function mountInfoPanel(root: HTMLElement) {
   let lastHtml = '';
   const render = () => {
     const key = $resourcePanel.get();
-    const html = key ? panelHtml(key) : null;
+    const html = key ? panelHtml(key, game.mods) : null;
     if (html === null) { panel.style.display = 'none'; lastHtml = ''; return; }
     panel.style.display = 'flex';
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
   const schedule = perFrame(render);
-  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time] as ReadableAtom<unknown>[]) {
+  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time, $research] as ReadableAtom<unknown>[]) {
     store.subscribe(schedule);
   }
 }
