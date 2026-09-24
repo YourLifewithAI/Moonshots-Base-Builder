@@ -516,8 +516,20 @@ test('the mare\'s locked Ice Harvester says why, and opens no tree', async ({ pa
   await card.hover();
   await expect(page.locator('#tooltip')).toContainText('Not buildable here — no polar ice');
   await expect(page.locator('#tooltip')).not.toContainText('Requires research');
+  // the floater lives 1.4 s: record every one rather than race it
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__floaters = [];
+    new MutationObserver((ms) => {
+      for (const m of ms) {
+        for (const n of m.addedNodes) {
+          if ((n as HTMLElement).classList?.contains('floater')) w.__floaters.push((n as HTMLElement).textContent);
+        }
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  });
   await card.click();
-  await expect(page.locator('.floater', { hasText: 'NO POLAR ICE' })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).__floaters.join('|'))).toContain('NOT BUILDABLE HERE — NO POLAR ICE');
   await frames(page, 4);
   await expect(page.locator('#tech-screen')).toBeHidden();
 });
