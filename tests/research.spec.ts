@@ -573,23 +573,23 @@ test('goods leave the crew’s reserve: Fuel Cells wait until 80≈ is spare, an
     g.advanceGameSeconds(1);
     const held = g.getState();
     const heldCard = g.getResearch().cards.regenFuelCells;
-    g.grantResources({ water: 87 - held.resources.water });
+    g.grantResources({ water: 91 - held.resources.water });
     g.advanceGameSeconds(1);
     return { dry, dryCard, held, heldCard, done: g.getState() };
   });
-  // four crew drink 0.02≈/s: five minutes of it, 6≈, is the reserve
-  expect(r.dry.crew).toBe(4);
+  // seven crew drink 0.035≈/s: five minutes of it, 10.5≈, is the reserve
+  expect(r.dry.crew).toBe(7);
   expect(r.dry.researchStalled).toEqual(['regenFuelCells']);
-  expect(r.dryCard.stalledNeed).toMatch(/^80≈ water \(have \d+, 6 held for the crew\) · nothing here makes water yet$/);
-  expect(hasAlert(r.dry, /^RESEARCH WAITING — Regenerative Fuel Cells needs 80≈ water \(have \d+, 6 held for the crew\) · nothing here makes water yet$/)).toBe(true);
-  // 82 in the tanks covers 80, but not 80 above the crew's 6: it waits, and says so
-  expect(r.held.resources.water).toBeCloseTo(82.98, 6);
+  expect(r.dryCard.stalledNeed).toMatch(/^80≈ water \(have \d+, 11 held for the crew\) · nothing here makes water yet$/);
+  expect(hasAlert(r.dry, /^RESEARCH WAITING — Regenerative Fuel Cells needs 80≈ water \(have \d+, 11 held for the crew\) · nothing here makes water yet$/)).toBe(true);
+  // 82 in the tanks covers 80, but not 80 above the crew's 10.5: it waits, and says so
+  expect(r.held.resources.water).toBeCloseTo(82.965, 6);
   expect(r.held.researchStalled).toEqual(['regenFuelCells']);
   expect(r.held.techsDone).not.toContain('regenFuelCells');
-  expect(r.heldCard.stalledNeed).toBe('80≈ water (have 82, 6 held for the crew) · made by Regolith Excavator');
-  // 86.98 after the crew drinks: 80 above the reserve, and the reserve stays
+  expect(r.heldCard.stalledNeed).toBe('80≈ water (have 82, 11 held for the crew) · made by Regolith Excavator');
+  // 90.965 after the crew drinks: 80 above the reserve, and the reserve stays
   expect(r.done.techsDone).toContain('regenFuelCells');
-  expect(r.done.resources.water).toBeCloseTo(6.98, 6);
+  expect(r.done.resources.water).toBeCloseTo(10.965, 6);
 });
 
 test('producers follow the recipes: the held rotation names what really makes water here', async ({ page }) => {
