@@ -10,7 +10,7 @@ import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
   AGENT_GEN_TAX, ALERTS, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
-  CREW, CYCLE_S, FLARE,
+  CREW, CYCLE_S, DATA_RATE, FLARE,
   LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START, WEAR,
 } from '../data/balance';
@@ -419,10 +419,11 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       // human insight beats agent inference: agent-run labs on a robotic
       // mission hold 75% — staffing them after cohabitation lifts the cap
       if (type === 'lab') {
-        s.data += 0.3 * dt * derate * (isAuto(b) ? (robotic ? 0.75 : 1) : Math.pow(workMult, 1.5));
+        s.data += DATA_RATE.lab * dt * derate *
+          (isAuto(b) ? (robotic ? DATA_RATE.agentLabCap : 1) : Math.pow(workMult, 1.5));
       }
       // data centers research at machine speed, immune to moods and staffing
-      if (type === 'dataCenter') s.data += 1.0 * dt * derate * mods.outputMult['dataCenter'];
+      if (type === 'dataCenter') s.data += DATA_RATE.dataCenter * dt * derate * mods.outputMult['dataCenter'];
       b.active = true;
     }
   }

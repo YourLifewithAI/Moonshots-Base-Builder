@@ -1,12 +1,15 @@
 /** HUD components: resource strip, swarm meter, time controls, alerts,
  *  milestone goals, pause veil, walk-mode helmet HUD, floating deltas. */
-import { RESOURCE_ORDER, RESOURCES } from '../data/resources';
 import { MILESTONES } from '../data/milestones';
-import { ALERTS } from '../data/balance';
+import { RESOURCE_ORDER, RESOURCES, type ResourceId } from '../data/resources';
+import { BUILDINGS } from '../data/buildings';
+import { ALERTS, LOW_SUPPLY_S } from '../data/balance';
+import { fmtClock } from '../core/daynight';
+import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
   $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $milestones, $mode,
-  $power, $resourcePanel, $resources, $swarm, $time, $vitals, $wearMarkers,
+  $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
 export function fmt(n: number): string {
@@ -26,55 +29,134 @@ export function el(tag: string, cls = '', html = ''): HTMLElement {
   return e;
 }
 
+/** run `fn` at most once per animation frame, however many stores fire */
+export function perFrame(fn: () => void): () => void {
+  let queued = false;
+  return () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; fn(); });
+  };
+}
+
+/** game-seconds of supply left at `draw` per second (Infinity = no draw) */
+export function secondsLeft(stock: number, draw: number): number {
+  return draw > 0 ? stock / draw : Infinity;
+}
+
+/** stockpiles any structure caps: their chips carry a cap slot from the first frame */
+const CAPPED = new Set(Object.values(BUILDINGS).flatMap((b) => Object.keys(b.caps ?? {})));
+/** stockpiles that stay off the strip until the base first makes them */
+const LATE = new Set<ResourceId>(['chips', 'foils', 'launch']);
+const LIFE = new Set<ResourceId>(['oxygen', 'food', 'water']);
+
+interface ChipSlot { slot: string; key: string; glyph: string; cap: boolean }
+interface ChipEls { root: HTMLElement; val: HTMLElement; cap: HTMLElement | null }
+
 export function mountHud(root: HTMLElement, game: Game) {
-  // ── resource strip ──
+  // left column: the strip, with the resource info panel directly beneath it
+  const left = el('div', '');
+  left.id = 'hud-left';
+  root.appendChild(left);
+
+  // ── resource strip: built once per shape (the ordered set of chips shown),
+  // then updated in place — a chip under the cursor is never replaced ──
   const strip = el('div', '', '');
   strip.id = 'resource-strip';
-  root.appendChild(strip);
-  let stripHtml = '';
-  const renderStrip = () => {
+  left.appendChild(strip);
+  const seenLate = new Set<ResourceId>();
+  let shapeSig = '';
+  const chips = new Map<string, ChipEls>();
+  const shape = (): ChipSlot[] => {
     const r = $resources.get();
-    const p = $power.get();
     const v = $vitals.get();
-    const caps = $caps.get();
-    const chips: string[] = [];
-    const chip = (key: string, glyph: string, label: string, val: string, warn = false, cap = '') =>
-      chips.push(`<div class="chip panel interactive${warn ? ' warn' : ''}" data-key="${key}" title="${label} — click for details">
-        <span class="glyph">${glyph}</span><span class="val mono">${val}</span>${cap ? `<span class="cap mono">${cap}</span>` : ''}</div>`);
-    chip('power', '⚡', 'Power supply / requested demand (kW)', `${fmt(p.supply)}`, p.brownout || p.shed, `/${fmt(p.demand)} kW`);
-    chip('power', '▮', 'Stored energy', fmt(p.stored), p.stored < 200, `/${fmt(p.capacity)}`);
+    const out: ChipSlot[] = [
+      { slot: 'power', key: 'power', glyph: '⚡', cap: true },
+      { slot: 'stored', key: 'power', glyph: '▮', cap: true },
+    ];
     for (const rid of RESOURCE_ORDER) {
-      if ((rid === 'chips' || rid === 'foils' || rid === 'launch') && r[rid] < 0.01) continue;
-      const low = (rid === 'oxygen' || rid === 'food') && r[rid] < 25;
-      const cap = caps[rid];
-      chip(rid, RESOURCES[rid].glyph, RESOURCES[rid].name, fmt(r[rid]),
-        low || (cap !== undefined && r[rid] >= cap - 1), cap !== undefined ? `/${fmt(cap)}` : '');
+      if (LATE.has(rid) && r[rid] >= 0.01) seenLate.add(rid);
+      if (LATE.has(rid) && !seenLate.has(rid)) continue;
+      out.push({ slot: rid, key: rid, glyph: RESOURCES[rid].glyph, cap: CAPPED.has(rid) });
     }
     // a robotic base hides crew vitals until Human Cohabitation brings settlers
     const crewAboard = v.expedition !== 'robotic' || v.crew > 0;
-    if (crewAboard) {
-      chip('crew', PERSON_SVG, `Crew / housing — ${v.beds} beds built · ${v.housing} powered`,
-        `${v.crew}`, v.crew > v.housing, `/${v.housing}`);
-    }
-    chip('bots', '◉', 'Construction robots free / fleet', `${v.botsFree}`, v.botsFree === 0 && v.botsTotal > 0, `/${v.botsTotal}`);
-    if (crewAboard) {
-      chip('morale', '◐', 'Morale', `${v.morale}%`, v.morale < 40);
-    }
-    chip('data', '≡', 'Research data', fmt(v.data));
-    if ($ice.get().surveyed) {
-      chips.push(`<div class="chip panel interactive${$iceOverlay.get() ? ' warn' : ''}" data-key="ice" title="Toggle the ice deposit overlay [I]">
-        <span class="glyph">❄</span><span class="val mono">ICE</span></div>`);
-    }
-    // several stores publish per tick: skip redraws that change nothing, so a
-    // chip under the cursor is not replaced mid-click
-    const html = chips.join('');
-    if (html !== stripHtml) { stripHtml = html; strip.innerHTML = html; }
+    if (crewAboard) out.push({ slot: 'crew', key: 'crew', glyph: PERSON_SVG, cap: true });
+    out.push({ slot: 'bots', key: 'bots', glyph: '◉', cap: true });
+    if (crewAboard) out.push({ slot: 'morale', key: 'morale', glyph: '◐', cap: false });
+    out.push({ slot: 'data', key: 'data', glyph: '≡', cap: false });
+    if ($ice.get().surveyed) out.push({ slot: 'ice', key: 'ice', glyph: '❄', cap: false });
+    return out;
   };
-  $resources.subscribe(renderStrip);
-  $power.subscribe(renderStrip);
-  $vitals.subscribe(renderStrip);
-  $ice.subscribe(renderStrip);
-  $iceOverlay.subscribe(renderStrip);
+  const build = (slots: ChipSlot[]) => {
+    strip.innerHTML = '';
+    chips.clear();
+    for (const c of slots) {
+      const chipEl = el('div', 'chip panel interactive',
+        `<span class="glyph">${c.glyph}</span><span class="val mono"></span>${c.cap ? '<span class="cap mono"></span>' : ''}`);
+      chipEl.dataset.key = c.key;
+      chipEl.dataset.slot = c.slot;
+      strip.appendChild(chipEl);
+      chips.set(c.slot, {
+        root: chipEl,
+        val: chipEl.querySelector('.val') as HTMLElement,
+        cap: chipEl.querySelector('.cap') as HTMLElement | null,
+      });
+    }
+  };
+  const put = (slot: string, val: string, cap: string, warn: boolean, title: string) => {
+    const c = chips.get(slot);
+    if (!c) return;
+    if (c.val.textContent !== val) c.val.textContent = val;
+    if (c.cap && c.cap.textContent !== cap) c.cap.textContent = cap;
+    c.root.classList.toggle('warn', warn);
+    if (c.root.title !== title) c.root.title = title;
+  };
+  const renderStrip = () => {
+    const slots = shape();
+    const sig = slots.map((c) => c.slot).join(',');
+    if (sig !== shapeSig) { shapeSig = sig; build(slots); }
+    const r = $resources.get();
+    const p = $power.get();
+    const v = $vitals.get();
+    const t = $time.get();
+    const caps = $caps.get();
+    const dark = Math.max(0, p.demand - p.served);
+    put('power', `+${fmt(p.supply)}`, `/${fmt(p.demand)} kW`, p.brownout || p.shed,
+      `Power — generating ${fmt(p.supply)} kW for ${fmt(p.demand)} kW requested` +
+      (dark >= 0.1 ? ` · ${fmt(dark)} kW of loads dark` : p.supply < p.demand ? ' · the bank makes up the rest' : '') +
+      ' — click for details');
+    // at night a draining bank shows how long it lasts, and warns if not till dawn
+    const drain = p.demand - p.supply;
+    const runway = drain > 0.01 ? p.stored / drain : Infinity;
+    const nightRun = t.isNight && runway < Infinity;
+    put('stored', fmt(p.stored), nightRun ? `· ${fmtClock(runway)}` : `/${fmt(p.capacity)}`,
+      nightRun ? runway < t.phaseLeft : p.stored < 200 && drain > 0,
+      nightRun
+        ? `Stored energy — lasts ${fmtClock(runway)} at ${fmt(drain)} kW short; dawn in ${fmtClock(t.phaseLeft)} — click for details`
+        : `Stored energy / capacity — click for details`);
+    for (const rid of RESOURCE_ORDER) {
+      if (!chips.has(rid)) continue;
+      const cap = caps[rid];
+      const full = cap !== undefined && r[rid] >= cap - 1;
+      const supplyS = LIFE.has(rid) ? secondsLeft(r[rid], v.lifeSupport[rid as 'oxygen']) : Infinity;
+      put(rid, fmt(r[rid]), cap !== undefined ? `/${fmt(cap)}` : '', full || supplyS < LOW_SUPPLY_S,
+        `${RESOURCES[rid].name}${supplyS < Infinity ? ` — ${fmtClock(supplyS)} of the crew's supply` : ''}` +
+        `${full ? ' — at capacity' : ''} — click for details`);
+    }
+    put('crew', `${v.crew}`, `/${v.housing}`, v.crew > v.housing,
+      `Crew / housing — ${v.beds} beds built · ${v.housing} powered`);
+    put('bots', `${v.botsFree}`, `/${v.botsTotal}`, v.botsFree === 0 && v.botsTotal > 0,
+      'Construction robots free / fleet — click for details');
+    put('morale', `${v.morale}%`, '', v.morale < 40, 'Morale — click for details');
+    put('data', fmt(v.data), '', false, 'Research data — click for details');
+    put('ice', 'ICE', '', $iceOverlay.get(), 'Toggle the ice deposit overlay [I]');
+  };
+  const scheduleStrip = perFrame(renderStrip);
+  for (const store of [$resources, $power, $vitals, $caps, $time, $ice, $iceOverlay] as ReadableAtom<unknown>[]) {
+    store.subscribe(scheduleStrip);
+  }
+  $siteId.subscribe(() => { seenLate.clear(); scheduleStrip(); });
   // chips are informational buttons: click opens the matching info panel
   strip.addEventListener('click', (e) => {
     const chipEl = (e.target as HTMLElement).closest('.chip') as HTMLElement | null;
@@ -111,10 +193,18 @@ export function mountHud(root: HTMLElement, game: Game) {
     mCost.textContent = `10 foils · 1 launch · ${s.burst} stored`;
   });
 
+  // right column: time controls and alerts, the inspector beneath them.
+  // While it is open the alert stack keeps one fixed height (one line per
+  // alert), so alerts coming and going never move the inspector's buttons
+  const right = el('div', '');
+  right.id = 'hud-right';
+  root.appendChild(right);
+  $selection.subscribe((sel) => right.classList.toggle('inspecting', sel !== null));
+
   // ── time controls ──
   const time = el('div', '');
   time.id = 'time-controls';
-  root.appendChild(time);
+  right.appendChild(time);
   const clockRow = el('div', 'row');
   const clock = el('div', 'clock panel mono');
   const btnRow = el('div', 'row interactive');
@@ -205,8 +295,12 @@ export function mountHud(root: HTMLElement, game: Game) {
   goals.title = 'Click to see all objectives';
   root.appendChild(goals);
   let goalsOpen = false;
+  let goalsSig = '';
   const renderGoals = () => {
     const m = $milestones.get();
+    const sig = `${m.done.join(',')}|${goalsOpen}`;
+    if (sig === goalsSig) return;
+    goalsSig = sig;
     const next = MILESTONES.find((x) => !m.done.includes(x.id));
     const label = `<span class="label">Objectives <span class="done-count mono">${m.done.length}/${m.total}</span><span class="caret">${goalsOpen ? '▾' : '▸'}</span></span>`;
     if (!goalsOpen) {

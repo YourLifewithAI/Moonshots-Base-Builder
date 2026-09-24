@@ -19,13 +19,21 @@ export const $siteId = atom<SiteId | null>(null);
 export const $resources = atom<Record<ResourceId, number>>({
   regolith: 0, metals: 0, silicon: 0, water: 0, oxygen: 0, food: 0, parts: 0, chips: 0, foils: 0, launch: 0,
 });
-export const $power = atom({ supply: 0, demand: 0, stored: 0, capacity: 0, brownout: false, shed: false });
+/** kW: supply = generation, demand = what every running load requested,
+ *  served = what the grid delivered (the bank makes up supply's shortfall) */
+export const $power = atom({
+  supply: 0, demand: 0, served: 0, stored: 0, capacity: 0, brownout: false, shed: false,
+});
 /** housing = beds the economy counts (enabled, complete, powered); beds = all completed;
- *  boardingHold = the life-support supply keeping the next settler away ('' = none) */
+ *  boardingHold = the life-support supply keeping the next settler away ('' = none);
+ *  lifeSupport = the crew's draw per game-second; sites = construction sites,
+ *  welding = those being built this tick; upkeep = parts per game-second */
 export const $vitals = atom({
   crew: 0, housing: 0, beds: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
   expedition: 'human' as 'human' | 'robotic',
   boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
+  lifeSupport: { oxygen: 0, food: 0, water: 0 },
+  sites: 0, welding: 0, upkeep: 0,
 });
 /** Lander services status (shipment en route, the next order's transit in
  *  lunar days, agent-run stations the crew could take) */
@@ -34,8 +42,9 @@ export const $lander = atom<{ resupplyPending: boolean; etaS: number; orderDays:
 });
 /** on-screen condition bars over damaged buildings */
 export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: number }[]>([]);
+/** phaseLeft = game-seconds to the next dusk (by day) or dawn (by night) */
 export const $time = atom({
-  dayIndex: 0, tCycle: 0, isNight: false, sunFactor: 1,
+  dayIndex: 0, tCycle: 0, isNight: false, sunFactor: 1, phaseLeft: 0,
   speed: 1, paused: false,
   flare: 'idle' as 'idle' | 'telegraph' | 'active', flareTimer: 0,
 });

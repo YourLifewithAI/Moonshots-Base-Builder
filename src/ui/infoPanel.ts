@@ -3,9 +3,17 @@
  *  answer to "I'm out of oxygen, what do I build?" */
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
-import { CREW, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY } from '../data/balance';
-import { el, fmt, PERSON_SVG } from './hud';
-import { $caps, $counts, $rates, $resourcePanel, $resources, $tech, $vitals } from './stores';
+import {
+  CONSTRUCTION_PARTS_PER_S, CREW, DATA_RATE, MORALE, RESEARCH_RATE_PER_LAB, RESUPPLY,
+} from '../data/balance';
+import { SITES } from '../data/sites';
+import { computeMods } from '../core/mods';
+import { fmtClock } from '../core/daynight';
+import type { ReadableAtom } from 'nanostores';
+import { el, fmt, perFrame, PERSON_SVG } from './hud';
+import {
+  $caps, $counts, $lander, $power, $rates, $resourcePanel, $resources, $siteId, $tech, $time, $vitals,
+} from './stores';
 import { TECHS, TECH_ORDER } from '../data/techs';
 
 function techThatUnlocks(b: BuildingId): string | null {
@@ -28,6 +36,15 @@ function buildingLine(type: BuildingId, rate: number, sign: '+' | '−'): string
     <span class="mono">${sign}${fmt(rate * 60)}/min · ${status}</span></div>`;
 }
 
+const row = (name: string, value: string) =>
+  `<div class="row"><span>${name}</span><span class="mono">${value}</span></div>`;
+
+/** signed per-minute rate: '+4.2', '−0.8', '0' */
+function perMin(ratePerS: number): string {
+  const m = ratePerS * 60;
+  return fmt(Math.abs(m)) === '0' ? '0' : (m >= 0 ? '+' : '−') + fmt(Math.abs(m));
+}
+
 const NOTES: Partial<Record<string, string>> = {
   oxygen: 'Smelters exhale oxygen while smelting regolith — industry keeps the crew breathing. Crew consume it constantly; Closed-Loop Life Support cuts that 40%.',
   food: 'Hydroponics grow food from water and power. Crew eat around the clock; low reserves make everyone anxious.',
@@ -41,116 +58,167 @@ const NOTES: Partial<Record<string, string>> = {
   launch: 'Mass Drivers accrue launch capacity each window. One capacity + ten foils + stored power = one launch.',
 };
 
+/** a crewless robotic base: life support is banked for the settlers to come */
+const NOTES_UNCREWED: Partial<Record<string, string>> = {
+  oxygen: `Smelters exhale oxygen while smelting regolith. Nobody breathes it yet — the tanks bank it for ${TECHS.humanCohabitation.name}, when settlers board only with a lunar day of oxygen, food and water for each, or production that covers them.`,
+  food: `Hydroponics grow food from water and power. Nobody eats yet — a stocked larder is what lets settlers board after ${TECHS.humanCohabitation.name}.`,
+  water: `Ice Harvesters mine polar deposits (survey first); smelting regolith recovers a trickle everywhere. Hydroponics drink it now; settlers will after ${TECHS.humanCohabitation.name}.`,
+};
+
+/** the panel's content for `key`, or null when there is none */
+function panelHtml(key: string): string | null {
+  const v = $vitals.get();
+  const t = $tech.get();
+  const mods = computeMods(t.done, v.expedition);
+  const lsMult = mods.inputMult.habitat;
+  const lander = $lander.get();
+
+  if (key === 'crew') {
+    return `
+      <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div>
+        ${v.beds > v.housing ? `<span class="label">${v.beds - v.housing} of ${v.beds} beds dark — shut down or unpowered</span>` : ''}</section>
+      <section>
+        <span class="label">How settlers arrive</span>
+        <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, a powered bed is free, and nobody is starving. Nobody boards unless oxygen, food and water can each keep one more person alive for a lunar day at the current rates — a day's reserve, or production that covers them. Habitats add 4 beds each and extend the build perimeter.</div>
+        ${v.boardingHold ? `<div class="goal-hint">Arrivals on hold — not enough ${RESOURCES[v.boardingHold].name.toLowerCase()} for another settler.</div>` : ''}
+      </section>
+      <section>
+        <span class="label">Each settler consumes</span>
+        ${row('Oxygen', `−${fmt(CREW.oxygenPerCrew * lsMult * 60)}/min`)}
+        ${row('Food', `−${fmt(CREW.foodPerCrew * lsMult * 60)}/min`)}
+        ${row('Water', `−${fmt(CREW.waterPerCrew * lsMult * 60)}/min`)}
+        <div class="goal-hint">${TECHS.closedLoopLS.name} (Era ${TECHS.closedLoopLS.era}) cuts all three by 40%. ${TECHS.autonomousOps.name} (Era ${TECHS.autonomousOps.era}) lets buildings run without crew at ×1.6 power.</div>
+      </section>`;
+  }
+  if (key === 'power') {
+    const p = $power.get();
+    const time = $time.get();
+    const drain = p.demand - p.supply;
+    const dark = p.demand - p.served;
+    const gen = (['solar', 'reactor', 'lander'] as BuildingId[])
+      .map((b) => buildingLine(b, 0, '+').replace('+0/min', `+${BUILDINGS[b].powerKW} kW`)).join('');
+    const draws = BUILD_ORDER.filter((b) => BUILDINGS[b].powerKW < 0)
+      .map((b) => buildingLine(b, 0, '−').replace('−0/min', `−${-BUILDINGS[b].powerKW} kW`)).join('');
+    return `
+      <section><div class="tt-name"><span>⚡ Power</span><span class="mono">+${fmt(p.supply)} / ${fmt(p.demand)} kW</span></div>
+        <span class="label">${dark >= 0.1 ? `${fmt(dark)} kW of loads dark` : drain > 0.01 ? 'the bank covers the shortfall' : 'generation covers demand'}
+          · stored ${fmt(p.stored)} / ${fmt(p.capacity)}${drain > 0.01 ? ` · lasts ${fmtClock(p.stored / drain)}` : ''}
+          · ${time.isNight ? `dawn in ${fmtClock(time.phaseLeft)}` : `dusk in ${fmtClock(time.phaseLeft)}`}</span></section>
+      <section><span class="label">Generation</span>${gen}
+        <div class="goal-hint">Solar dies at night; batteries store the day (15% round-trip loss); reactors don't care.</div></section>
+      <section><span class="label">Draws</span>${draws}
+        <div class="goal-hint">Construction sites pull 4 kW each while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
+  }
+  if (key === 'bots') {
+    return `
+      <section><div class="tt-name"><span>◉ Construction robots</span><span class="mono">${v.botsFree}/${v.botsTotal} free</span></div></section>
+      <section><span class="label">Fleet sources</span>
+        ${buildingLine('lander', 0, '+').replace('+0/min', '+2 robots')}
+        ${buildingLine('roboticsBay', 0, '+').replace('+0/min', '+2 robots')}
+        <div class="goal-hint">Each site under construction occupies one robot and draws 4 kW. More robots = more parallel construction.</div></section>`;
+  }
+  if (key === 'morale') {
+    return `
+      <section><div class="tt-name"><span>◐ Morale</span><span class="mono">${v.morale}%</span></div></section>
+      <section><span class="label">Raises it</span>
+        ${row('Fed & breathing', `+${MORALE.fed}`)}
+        ${row('Hydroponics (fresh food)', '+5')}
+        ${row('Recreation Dome', '+14')}</section>
+      <section><span class="label">Sinks it</span>
+        ${row('Low oxygen/food/water reserves', '−10 each')}
+        ${row('Brownouts (priority 0–1 dark)', `−${-MORALE.blackout}`)}
+        ${row('Load shedding (priority 2–3 idled)', `−${-MORALE.shed}`)}
+        ${row('Overcrowding', `−${-MORALE.crowded}`)}
+        ${row('Solar flare, while it lasts', `−${-MORALE.flare}`)}
+        ${row('Earth shipment ordered', `−${RESUPPLY.moraleHit} once`)}
+        ${row('Reactor next door', '−5')}
+        <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;
+  }
+  if (key === 'data') {
+    const counts = $counts.get();
+    const agentLab = v.expedition === 'robotic';
+    const labs = counts.lab?.active ?? 0;
+    const dcs = counts.dataCenter?.active ?? 0;
+    const transfer = RESEARCH_RATE_PER_LAB * (labs + 3 * dcs);
+    return `
+      <section><div class="tt-name"><span>≡ Research data</span><span class="mono">${fmt(v.data)}</span></div>
+        <span class="label">${transfer > 0
+          ? `feeding research ${fmt(transfer * 60)}/min · ${labs} lab${labs === 1 ? '' : 's'}, ${dcs} data center${dcs === 1 ? '' : 's'} operating`
+          : t.queue.length ? 'research stalled — no operating lab or data center' : 'no operating lab or data center'}</span></section>
+      <section><span class="label">Produced by</span>
+        ${buildingLine('lab', DATA_RATE.lab * (agentLab ? DATA_RATE.agentLabCap : 1), '+')}
+        ${buildingLine('dataCenter', DATA_RATE.dataCenter * mods.outputMult.dataCenter, '+')}
+        ${agentLab ? `<div class="goal-hint">Agent-run labs hold ${Math.round(DATA_RATE.agentLabCap * 100)}% — inference is not insight; settlers staffing them lift the cap. Crewed labs scale with morale.</div>` : ''}
+        <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the active tech — no lab, no research progress. A Data Center transfers like three labs and produces data itself; big eras want compute.</div></section>`;
+  }
+
+  const rid = key as ResourceId;
+  const def = RESOURCES[rid];
+  if (!def) return null;
+  const stock = $resources.get()[rid] ?? 0;
+  const cap = $caps.get()[rid];
+  const rate = $rates.get()[rid] ?? 0;
+  const hasIce = SITES[$siteId.get() ?? 'mare'].hasIce;
+  const makers = BUILD_ORDER.filter((b) => (BUILDINGS[b].outputs[rid] ?? 0) > 0);
+  const producers = makers.filter((b) => hasIce || !BUILDINGS[b].requiresIce)
+    .map((b) => buildingLine(b, BUILDINGS[b].outputs[rid]!, '+')).join('');
+  const iceless = makers.some((b) => BUILDINGS[b].requiresIce) && !hasIce
+    ? '<div class="goal-hint">No ice at this site — Ice Harvesters need polar deposits.</div>' : '';
+  const consumers = BUILD_ORDER.filter((b) => (BUILDINGS[b].inputs[rid] ?? 0) > 0)
+    .map((b) => buildingLine(b, BUILDINGS[b].inputs[rid]!, '−')).join('');
+  const crewDraw = rid === 'oxygen' || rid === 'food' || rid === 'water' ? v.lifeSupport[rid] : 0;
+  const shipped = rid === 'metals' ? RESUPPLY.metals : rid === 'parts' ? RESUPPLY.parts : 0;
+  const extraIn = shipped ? row('Earth shipment', `+${shipped} · ${lander.resupplyPending
+    ? `lands in ${fmtClock(lander.etaS)}`
+    : `order at the Lander, ${lander.orderDays} day${lander.orderDays === 1 ? '' : 's'}`}`) : '';
+  const extraOut = [
+    crewDraw > 0 ? row(`Crew ×${v.crew}`, `−${fmt(crewDraw * 60)}/min`) : '',
+    rid === 'parts' ? row('Upkeep · every structure', `−${fmt(v.upkeep * 60)}/min`) : '',
+    rid === 'parts' && v.welding > 0
+      ? row(`Welding · ${v.welding} site${v.welding === 1 ? '' : 's'}`, `−${fmt(v.welding * CONSTRUCTION_PARTS_PER_S * 60)}/min`) : '',
+    rid === 'metals' || rid === 'parts'
+      ? row('Construction', `paid at placement${v.sites ? ` · ${v.sites} site${v.sites === 1 ? '' : 's'} underway` : ''}`) : '',
+  ].join('');
+  const note = (v.expedition === 'robotic' && v.crew <= 0 && NOTES_UNCREWED[rid]) || NOTES[rid];
+  // how long until the stock runs out, or the store fills, at the net rate
+  const eta = rate < -1e-4 && stock > 0.01 ? ` · empties in ${fmtClock(stock / -rate)}`
+    : rate > 1e-4 && cap !== undefined ? (stock >= cap - 1 ? ' · full' : ` · fills in ${fmtClock((cap - stock) / rate)}`)
+    : '';
+  return `
+    <section><div class="tt-name"><span>${def.glyph} ${def.name}</span>
+      <span class="mono">${fmt(stock)}${cap ? ` / ${fmt(cap)}` : ''}</span></div>
+      <span class="label">net ${perMin(rate)}/min${eta} · ${def.desc}</span></section>
+    <section><span class="label">Produced by</span>${producers}${extraIn}${iceless}
+      ${!producers && !extraIn && !iceless ? '<div class="goal-hint">Nothing on the Moon makes this yet.</div>' : ''}</section>
+    <section><span class="label">Consumed by</span>${consumers}${extraOut}
+      ${!consumers && !extraOut ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
+    ${cap !== undefined ? `<section><span class="label">Storage</span>
+      <div class="goal-hint">Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground; a producer whose every output is full stands by instead of burning its inputs.</div></section>` : ''}
+    ${note ? `<section><span class="label">Field notes</span><div class="goal-hint">${note}</div></section>` : ''}`;
+}
+
 export function mountInfoPanel(root: HTMLElement) {
   const panel = el('div', 'panel interactive');
   panel.id = 'res-panel';
   panel.style.display = 'none';
-  root.appendChild(panel);
+  // the body re-renders when its html changes; Close is built once, so it
+  // never detaches under the cursor
+  const body = el('div', 'res-body');
+  const actions = el('section', 'actions', '<button class="btn" id="res-panel-close">Close</button>');
+  panel.append(body, actions);
+  (root.querySelector('#hud-left') ?? root).appendChild(panel);
+  actions.querySelector('#res-panel-close')!.addEventListener('click', () => $resourcePanel.set(null));
 
+  let lastHtml = '';
   const render = () => {
     const key = $resourcePanel.get();
-    if (!key) { panel.style.display = 'none'; return; }
-    panel.style.display = 'block';
-    const v = $vitals.get();
-    let html = '';
-
-    if (key === 'crew' ) {
-      html = `
-        <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div>
-          ${v.beds > v.housing ? `<span class="label">${v.beds - v.housing} of ${v.beds} beds dark — shut down or unpowered</span>` : ''}</section>
-        <section>
-          <span class="label">How settlers arrive</span>
-          <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, a powered bed is free, and nobody is starving. Nobody boards unless oxygen, food and water can each keep one more person alive for a lunar day at the current rates — a day's reserve, or production that covers them. Habitats add 4 beds each and extend the build perimeter.</div>
-          ${v.boardingHold ? `<div class="goal-hint">Arrivals on hold — not enough ${RESOURCES[v.boardingHold].name.toLowerCase()} for another settler.</div>` : ''}
-        </section>
-        <section>
-          <span class="label">Each settler consumes</span>
-          <div class="row"><span>Oxygen</span><span class="mono">−${fmt(CREW.oxygenPerCrew * 60)}/min</span></div>
-          <div class="row"><span>Food</span><span class="mono">−${fmt(CREW.foodPerCrew * 60)}/min</span></div>
-          <div class="row"><span>Water</span><span class="mono">−${fmt(CREW.waterPerCrew * 60)}/min</span></div>
-          <div class="goal-hint">Closed-Loop Life Support (Era 6) cuts all three by 40%. Autonomous Operations (Era 3) lets buildings run without crew at ×1.6 power.</div>
-        </section>`;
-    } else if (key === 'power') {
-      const gen = (['solar', 'reactor', 'lander'] as BuildingId[])
-        .map((t) => buildingLine(t, 0, '+').replace('+0/min', `+${BUILDINGS[t].powerKW} kW`)).join('');
-      const draws = BUILD_ORDER.filter((t) => BUILDINGS[t].powerKW < 0)
-        .map((t) => buildingLine(t, 0, '−').replace('−0/min', `${BUILDINGS[t].powerKW} kW`)).join('');
-      html = `
-        <section><div class="tt-name"><span>⚡ Power</span></div></section>
-        <section><span class="label">Generation</span>${gen}
-          <div class="goal-hint">Solar dies at night; batteries store the day (15% round-trip loss); reactors don't care.</div></section>
-        <section><span class="label">Draws</span>${draws}
-          <div class="goal-hint">Construction sites pull 4 kW each while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
-    } else if (key === 'bots') {
-      html = `
-        <section><div class="tt-name"><span>◉ Construction robots</span><span class="mono">${v.botsFree}/${v.botsTotal} free</span></div></section>
-        <section><span class="label">Fleet sources</span>
-          ${buildingLine('lander', 0, '+').replace('+0/min', '+2 robots')}
-          ${buildingLine('roboticsBay', 0, '+').replace('+0/min', '+2 robots')}
-          <div class="goal-hint">Each site under construction occupies one robot and draws 4 kW. More robots = more parallel construction.</div></section>`;
-    } else if (key === 'morale') {
-      html = `
-        <section><div class="tt-name"><span>◐ Morale</span><span class="mono">${v.morale}%</span></div></section>
-        <section><span class="label">Raises it</span>
-          <div class="row"><span>Fed & breathing</span><span class="mono">+8</span></div>
-          <div class="row"><span>Hydroponics (fresh food)</span><span class="mono">+5</span></div>
-          <div class="row"><span>Recreation Dome</span><span class="mono">+14</span></div></section>
-        <section><span class="label">Sinks it</span>
-          <div class="row"><span>Low oxygen/food/water reserves</span><span class="mono">−10 each</span></div>
-          <div class="row"><span>Brownouts (priority 0–1 dark)</span><span class="mono">−${-MORALE.blackout}</span></div>
-          <div class="row"><span>Load shedding (priority 2–3 idled)</span><span class="mono">−${-MORALE.shed}</span></div>
-          <div class="row"><span>Overcrowding</span><span class="mono">−20</span></div>
-          <div class="row"><span>Reactor next door</span><span class="mono">−5</span></div>
-          <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;
-    } else if (key === 'data') {
-      html = `
-        <section><div class="tt-name"><span>≡ Research data</span><span class="mono">${fmt(v.data)}</span></div></section>
-        <section><span class="label">Produced by</span>
-          ${buildingLine('lab', 0.3, '+')}
-          <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the active tech — no lab, no research progress. A Data Center transfers like three labs and produces data itself; big eras want compute.</div></section>`;
-    } else {
-      const rid = key as ResourceId;
-      const def = RESOURCES[rid];
-      if (!def) { panel.style.display = 'none'; return; }
-      const stock = $resources.get()[rid] ?? 0;
-      const cap = $caps.get()[rid];
-      const rate = ($rates.get()[rid] ?? 0) * 60;
-      const producers = BUILD_ORDER.filter((t) => (BUILDINGS[t].outputs[rid] ?? 0) > 0)
-        .map((t) => buildingLine(t, BUILDINGS[t].outputs[rid]!, '+')).join('');
-      const consumers = BUILD_ORDER.filter((t) => (BUILDINGS[t].inputs[rid] ?? 0) > 0)
-        .map((t) => buildingLine(t, BUILDINGS[t].inputs[rid]!, '−')).join('');
-      const perCrew = rid === 'oxygen' ? CREW.oxygenPerCrew
-        : rid === 'food' ? CREW.foodPerCrew
-        : rid === 'water' ? CREW.waterPerCrew : 0;
-      const crewLine = perCrew
-        ? `<div class="row"><span>Crew ×${v.crew}</span><span class="mono">−${fmt(perCrew * v.crew * 60)}/min</span></div>`
-        : '';
-      html = `
-        <section><div class="tt-name"><span>${def.glyph} ${def.name}</span>
-          <span class="mono">${fmt(stock)}${cap ? ` / ${fmt(cap)}` : ''}</span></div>
-          <span class="label">net ${fmt(Math.abs(rate)) === '0' ? '0' : (rate >= 0 ? '+' : '−') + fmt(Math.abs(rate))}/min · ${def.desc}</span></section>
-        <section><span class="label">Produced by</span>${producers || '<div class="goal-hint">Nothing on the Moon makes this yet.</div>'}</section>
-        <section><span class="label">Consumed by</span>${consumers || ''}${crewLine}
-          ${!consumers && !crewLine ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
-        ${cap !== undefined ? `<section><span class="label">Storage</span>
-          <div class="goal-hint">Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground; a producer whose every output is full stands by instead of burning its inputs.</div></section>` : ''}
-        ${NOTES[rid] ? `<section><span class="label">Field notes</span><div class="goal-hint">${NOTES[rid]}</div></section>` : ''}`;
-    }
-
-    panel.innerHTML = `${html}
-      <section class="actions"><button class="btn" id="res-panel-close">Close</button></section>`;
-    panel.querySelector('#res-panel-close')?.addEventListener('click', () => $resourcePanel.set(null));
+    const html = key ? panelHtml(key) : null;
+    if (html === null) { panel.style.display = 'none'; lastHtml = ''; return; }
+    panel.style.display = 'flex';
+    if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
-
-  $resourcePanel.subscribe(render);
-  // refresh open panel when counts/values move, at most on economy cadence
-  let sig = '';
-  $counts.subscribe(() => {
-    const key = $resourcePanel.get();
-    if (!key) return;
-    const v = $vitals.get();
-    const perMin = ($rates.get()[key as ResourceId] ?? 0) * 60;
-    const next = `${key}|${JSON.stringify($counts.get())}|${v.crew}|${v.housing}|${v.beds}|${v.boardingHold}|${Math.floor(($resources.get()[key as ResourceId] ?? 0) / 5)}|${perMin < 0 ? '-' : ''}${fmt(Math.abs(perMin))}`;
-    if (next !== sig) { sig = next; render(); }
-  });
+  const schedule = perFrame(render);
+  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time] as ReadableAtom<unknown>[]) {
+    store.subscribe(schedule);
+  }
 }

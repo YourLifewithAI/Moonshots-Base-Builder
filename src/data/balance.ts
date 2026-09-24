@@ -96,6 +96,11 @@ export const RATE_SMOOTH_S = 20;
  *  research campuses */
 export const RESEARCH_RATE_PER_LAB = 0.4;
 
+/** research data made per game-second: a lab (crewed output scales with
+ *  morale^1.5; agent-run labs on a robotic mission hold agentLabCap of it)
+ *  and a data center (immune to moods and staffing) */
+export const DATA_RATE = { lab: 0.3, agentLabCap: 0.75, dataCenter: 1.0 };
+
 /** one-time ice survey from the Lander, paid in stored energy */
 export const ICE_SURVEY_COST = 150;
 

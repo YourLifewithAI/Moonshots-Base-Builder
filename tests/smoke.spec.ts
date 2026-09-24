@@ -744,6 +744,55 @@ test('net rates are the economy\'s smoothed flow; housing counts only powered be
   await expect(crewChip).toHaveAttribute('title', /12 beds built · 8 powered/);
 });
 
+test('HUD: chip and inspector clicks register at 10× while the economy ticks', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  // count every time the strip or the inspector is rebuilt
+  await page.evaluate(() => {
+    const w = window as any;
+    w.__rebuilds = { strip: 0, insp: 0 };
+    new MutationObserver(() => { w.__rebuilds.strip++; })
+      .observe(document.querySelector('#resource-strip')!, { childList: true });
+    new MutationObserver(() => { w.__rebuilds.insp++; })
+      .observe(document.querySelector('#inspector')!, { childList: true });
+    window.__game.setSpeed(10);
+  });
+  const t0 = await page.evaluate(() => window.__game.getState().simTime);
+  const chip = page.locator('#resource-strip .chip[data-key="metals"]');
+  const panel = page.locator('#res-panel');
+  for (let i = 0; i < 6; i++) {
+    await chip.click({ delay: 250 }); // each press spans economy ticks at 10×
+    if (i % 2 === 0) await expect(panel).toBeVisible();
+    else await expect(panel).toBeHidden();
+  }
+  const ticked = await page.evaluate(() => window.__game.getState());
+  expect(ticked.simTime - t0).toBeGreaterThan(10); // the game really ran under the clicks
+  expect(await page.evaluate(() => (window as any).__rebuilds.strip)).toBe(0);
+
+  // a long construction site's inspector updates its progress in place
+  const site = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('thoriumPower');
+    g.grantResources({ metals: 300, parts: 100 });
+    g.placeBuilding('reactor', 132, 130);
+    return g.getState().buildings.find((b: any) => b.type === 'reactor');
+  });
+  expect(site.construction).toBeGreaterThan(100);
+  await page.evaluate((id) => window.__game.select(id), site.id);
+  await expect(page.locator('#insp-status')).toContainText(/UNDER CONSTRUCTION — \d+%/);
+  const built = await page.evaluate(() => (window as any).__rebuilds.insp);
+  const status0 = await page.locator('#insp-status').textContent();
+  await expect(page.locator('#insp-status')).not.toHaveText(status0!); // progress moved...
+  expect(await page.evaluate(() => (window as any).__rebuilds.insp)).toBe(built); // ...in place
+  await page.locator('#insp-toggle').click({ delay: 250 });
+  await expect(page.locator('#insp-toggle')).toHaveText('Resume');
+  await expect.poll(async () => (await page.evaluate(() => window.__game.getState()))
+    .buildings.find((b: any) => b.id === site.id).enabled).toBe(false);
+  await page.evaluate(() => window.__game.setSpeed(1));
+});
+
 test('alerts: conditions clear and snooze, events merge and fade, a click opens what it is about', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
@@ -828,6 +877,84 @@ test('alerts: conditions clear and snooze, events merge and fade, a click opens 
   expect(old).toMatchObject({ key: 'BROWNOUT — night demand exceeds stored power', kind: 'warn', count: 1 });
   expect(old.cond).toBeUndefined();
   expect(loaded.alertSnooze).toEqual({});
+});
+
+for (const vp of [{ width: 1366, height: 768 }, { width: 1600, height: 900 }]) {
+  test(`layout ${vp.width}×${vp.height}: inspector, resource panel and placement hint overlap nothing`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    // the human pole shows the most chips; late stockpiles and a full alert stack on top
+    await page.goto(`${URL_DEBUG}&site=southpole`);
+    await game(page);
+    await page.evaluate(() => {
+      const g = window.__game!;
+      g.setPaused(true);
+      g.grantResources({ chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45, parts: -70 });
+      g.placeBuilding('solar', 132, 126);
+      g.advanceGameSeconds(3);
+      g.select(g.getState().buildings[0].id); // the Lander: the tallest inspector
+    });
+    await page.locator('#resource-strip .chip[data-key="parts"]').click();
+    await expect(page.locator('#res-panel')).toBeVisible();
+    await expect(page.locator('#inspector')).toBeVisible();
+    await expect(page.locator('#alerts .alert')).toHaveCount(4);
+    type Box = { x: number; y: number; width: number; height: number };
+    const box = async (sel: string) => (await page.locator(sel).boundingBox()) as Box;
+    const overlap = (a: Box, b: Box) =>
+      Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
+      Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+    const insp = await box('#inspector');
+    expect(overlap(insp, await box('#time-controls'))).toBe(0);
+    expect(insp.y + insp.height).toBeLessThanOrEqual(vp.height);
+    const res = await box('#res-panel');
+    expect(overlap(res, await box('#resource-strip'))).toBe(0);
+    expect(overlap(res, await box('#milestones'))).toBe(0);
+    // the placement hint sits in the palette column, above the cards
+    await page.keyboard.press('Escape');
+    await page.locator('.bld-btn', { hasText: 'Solar Array' }).click();
+    await page.mouse.move(vp.width / 2 + 120, vp.height / 2);
+    await expect(page.locator('#place-hint')).toBeVisible();
+    expect(overlap(await box('#place-hint'), await box('#palette .items'))).toBe(0);
+    await page.screenshot({ path: `test-results/08-layout-${vp.width}.png` });
+  });
+}
+
+test('info panels: live values, life support in seconds, shipments and construction, time to empty', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await game(page);
+  // water warns on seconds of supply: four crew drink 6 in five minutes
+  const water = page.locator('#resource-strip .chip[data-key="water"]');
+  await expect(water).not.toHaveClass(/warn/);
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(true);
+    g.grantResources({ water: 5 - g.getState().resources.water });
+    g.advanceGameSeconds(30);
+  });
+  await expect(water).toHaveClass(/warn/);
+  await water.click();
+  const panel = page.locator('#res-panel');
+  await expect(panel).toContainText('Crew ×4');
+  await expect(panel).toContainText(/empties in \d+:\d\d/);
+  await expect(panel.locator('.row', { hasText: 'Ice Harvester' })).toHaveCount(0); // no ice on the mare
+  await expect(panel).toContainText('No ice at this site');
+  // metals: construction and the Earth shipment are part of the picture
+  await page.locator('#resource-strip .chip[data-key="metals"]').click();
+  await expect(panel).toContainText('Earth shipment');
+  await expect(panel).toContainText('order at the Lander, 1 day');
+  await expect(panel).toContainText('Construction');
+  // data: labs and data centers both, following the live value
+  await page.locator('#resource-strip .chip[data-key="data"]').click();
+  await expect(panel).toContainText('Research Lab');
+  await expect(panel).toContainText('Data Center');
+  await page.evaluate(() => window.__game.grantData(100));
+  await expect(panel.locator('.tt-name')).toContainText('100');
+  await page.evaluate(() => window.__game.grantData(400));
+  await expect(panel.locator('.tt-name')).toContainText('500');
+  // the crew panel lists water among what each settler consumes
+  await page.locator('#resource-strip .chip[data-key="crew"]').click();
+  await expect(panel).toContainText('Water');
+  await panel.locator('#res-panel-close').click();
+  await expect(panel).toBeHidden();
 });
 
 test('storage caps clamp stockpiles; Storage Yard raises them', async ({ page }) => {

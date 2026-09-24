@@ -6,7 +6,7 @@ import { SITES, type SiteId } from '../data/sites';
 import { TECHS, techExpeditionLock, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
-  ALERTS, AUTOSAVE_S, CYCLE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
+  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
   ICE_SURVEY_COST, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
@@ -772,22 +772,34 @@ export class Game {
     const day = currentDay(s, SITES[s.siteId]);
     $resources.set({ ...s.resources });
     $power.set({
-      supply: s.power.supply, demand: s.power.demand,
+      supply: s.power.supply, demand: s.power.demand, served: s.power.served ?? s.power.demand,
       stored: s.powerStored, capacity: s.power.capacity,
       brownout: s.power.brownout, shed: s.power.shed ?? false,
     });
+    const site = SITES[s.siteId];
     let beds = 0;
     let agentRun = 0;
+    let sites = 0;
+    let welding = 0;
+    let upkeep = 0;
     for (const b of s.buildings) {
-      if ((b.construction ?? 0) > 0) continue;
+      if ((b.construction ?? 0) > 0) {
+        sites++;
+        if (b.idleReason === 'building') welding++;
+        continue;
+      }
       beds += BUILDINGS[b.type].housing ?? 0;
       if (b.enabled && b.automated && BUILDINGS[b.type].crew > 0) agentRun++;
+      if (b.enabled) upkeep += BUILDINGS[b.type].upkeepParts * this.mods.upkeepMult[b.type] * site.upkeepMult / CYCLE_S;
     }
+    const ls = s.crew * this.mods.inputMult.habitat;
     $vitals.set({
       crew: s.crew, housing: s.housingActive ?? 0, beds, morale: Math.round(s.morale), data: s.data,
       botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
       expedition: s.expedition ?? 'human',
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
+      lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
+      sites, welding, upkeep,
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,
@@ -797,7 +809,7 @@ export class Game {
     });
     $time.set({
       dayIndex: day.dayIndex, tCycle: day.tCycle, isNight: day.isNight, sunFactor: day.sunFactor,
-      speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
+      phaseLeft: day.phaseLeft, speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
     });
     $tech.set({
       era: s.era, done: [...s.techsDone], queue: [...s.researchQueue],
