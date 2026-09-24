@@ -142,6 +142,13 @@
 #place-hint { padding: 6px 12px; font-size: 12px; text-align: center; }
 #place-hint .blocked { color: var(--paper); font-weight: 600; }
 #place-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
+#place-hint .deposit-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; }
+
+/* regolith panel: the excavators' last dig as a stacked bar (segments are
+   labelled; alternating fill separates neighbours) */
+.feed-bar { display: flex; height: 6px; margin: 6px 0 4px; border: var(--hair); }
+.feed-bar .feed-seg { display: block; height: 100%; background: rgba(var(--paper-rgb), var(--op-secondary)); }
+.feed-bar .feed-seg.alt { background: rgba(var(--paper-rgb), var(--op-muted)); }
 
 /* ── tooltip (fixed template) ── */
 #tooltip {
@@ -214,6 +221,18 @@
   pointer-events: none;
 }
 .wear-bar i { display: block; height: 100%; background: rgba(245, 247, 249, 0.8); }
+
+/* ── deposit overlay labels: a glyph over each mapped deposit, '?' at leads ── */
+.deposit-mark {
+  position: absolute; transform: translate(-50%, -100%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  pointer-events: none; white-space: nowrap;
+  text-shadow: 0 0 3px rgba(14, 15, 17, 0.9);
+}
+.deposit-mark .g { font-size: 14px; color: var(--paper); line-height: 1; }
+.deposit-mark .t { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+.deposit-mark.lead .g { font-size: 13px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+.deposit-mark.lead .t { font-style: italic; color: rgba(var(--paper-rgb), var(--op-muted)); }
 
 /* ── floaters ── */
 @keyframes float-up {

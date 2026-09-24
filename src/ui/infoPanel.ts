@@ -12,8 +12,9 @@ import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
 import {
-  $caps, $counts, $lander, $power, $rates, $resourcePanel, $resources, $siteId, $tech, $time, $vitals,
+  $caps, $counts, $feed, $lander, $power, $rates, $resourcePanel, $resources, $siteId, $tech, $time, $vitals,
 } from './stores';
+import { FEED_KINDS, FEED_LABEL } from '../data/deposits';
 import { TECHS, TECH_ORDER } from '../data/techs';
 
 function techThatUnlocks(b: BuildingId): string | null {
@@ -38,6 +39,21 @@ function buildingLine(type: BuildingId, rate: number, sign: '+' | '−'): string
 
 const row = (name: string, value: string) =>
   `<div class="row"><span>${name}</span><span class="mono">${value}</span></div>`;
+
+/** The regolith panel's stacked bar of what the excavators dug last. */
+function feedSection(): string {
+  const g = $feed.get();
+  const dug = FEED_KINDS.filter((k) => g[k] > 0.005);
+  if (!dug.length) {
+    return '<section><span class="label">Feed (last dug)</span><div class="goal-hint">Nothing dug yet. Excavators dig the ground they sit on: the deposit under each one sets the smelter and refinery feed.</div></section>';
+  }
+  const segs = dug.map((k, i) =>
+    `<i class="feed-seg${i % 2 ? ' alt' : ''}" style="width:${(g[k] * 100).toFixed(1)}%" title="${FEED_LABEL[k]}"></i>`).join('');
+  const legend = dug.map((k) => `${Math.round(g[k] * 100)}% ${FEED_LABEL[k]}`).join(' · ');
+  return `<section><span class="label">Feed (last dug)</span>
+    <div class="feed-bar">${segs}</div><div class="goal-hint mono">${legend}</div>
+    <div class="goal-hint">Excavators dig the ground they sit on. High-Ti basalt lifts the H₂ smelter, highland anorthosite the refinery; the overlay [I] shows the deposits.</div></section>`;
+}
 
 /** signed per-minute rate: '+4.2', '−0.8', '0' */
 function perMin(ratePerS: number): string {
@@ -192,6 +208,7 @@ function panelHtml(key: string): string | null {
       ${!producers && !extraIn && !iceless ? '<div class="goal-hint">Nothing on the Moon makes this yet.</div>' : ''}</section>
     <section><span class="label">Consumed by</span>${consumers}${extraOut}
       ${!consumers && !extraOut ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
+    ${rid === 'regolith' ? feedSection() : ''}
     ${cap !== undefined ? `<section><span class="label">Storage</span>
       <div class="goal-hint">Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground; a producer whose every output is full stands by instead of burning its inputs.</div></section>` : ''}
     ${note ? `<section><span class="label">Field notes</span><div class="goal-hint">${note}</div></section>` : ''}`;
@@ -218,7 +235,7 @@ export function mountInfoPanel(root: HTMLElement) {
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
   const schedule = perFrame(render);
-  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time] as ReadableAtom<unknown>[]) {
+  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time, $feed] as ReadableAtom<unknown>[]) {
     store.subscribe(schedule);
   }
 }
