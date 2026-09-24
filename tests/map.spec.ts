@@ -597,6 +597,44 @@ test('fast-forward ticks as play does: the clock moves first, then the tick read
   expect(r.n).toBeLessThanOrEqual(61);
 });
 
+test('launch doctrine: Rail to Orbit follows the choice, and a Propellant Plant completes it', async ({ page }) => {
+  await start(page, 'southpole', 'robotic');
+  const goal = () => page.evaluate(() => window.__game.getObjectives().find((o: any) => o.id === 'driver-online'));
+  const open = await goal();
+  expect(open.hint).toBe('Choose a launch doctrine and build its launcher: research the Electromagnetic Mass Driver ' +
+    'and build one, or research Propellant Depot and build a Propellant Plant.');
+  expect(open.progress).toBe('◻ Electromagnetic Mass Driver or ◻ Propellant Depot');
+  await complete(page, ['propellantDepot']);
+  const chosen = await goal();
+  expect(chosen.hint).toBe('Research Propellant Depot and build a Propellant Plant: rockets steer where rails can’t.');
+  expect(chosen.progress).toBe('✓ Propellant Depot · ◻ Propellant Plant');
+  // the Objectives panel reads the same hint
+  await page.locator('#milestones').click();
+  await expect(page.locator('#milestones')).toContainText('Research Propellant Depot and build a Propellant Plant');
+  await page.locator('#milestones').click();
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 200, parts: 60, silicon: 40, water: 300, oxygen: 200 });
+    const c = near('propellantPlant', 14, -2, undefined, 3, 2);
+    g.placeBuilding('propellantPlant', c!.gx, c!.gz);
+    powered(20);
+    const rising = g.getObjectives().find((o: any) => o.id === 'driver-online');
+    powered(320);
+    return { rising, s: g.getState(), after: g.getObjectives().find((o: any) => o.id === 'driver-online') };
+  });
+  expect(r.rising.progress).toMatch(/^✓ Propellant Depot · ◻ Propellant Plant \d+%$/);
+  expect(r.s.milestonesDone).toContain('driver-online');
+  expect(hasAlert(r.s, /^MILESTONE — Rail to Orbit$/)).toBe(true);
+  expect(r.after.done).toBe(true);
+
+  // a driver run reads as it always did
+  await start(page, 'mare', 'robotic');
+  await complete(page, ['massDriver']);
+  const driver = await goal();
+  expect(driver.hint).toBe('Research and build the Electromagnetic Mass Driver.');
+  expect(driver.progress).toBe('✓ Electromagnetic Mass Driver · ◻ Mass Driver');
+});
+
 test('atlas: T4 and 12 surveyed prospects add a slot and discount Swarm Protocol', async ({ page }) => {
   await start(page, 'mare', 'robotic');
   await complete(page, ['prospectingRovers', 'orbitalProspector', 'farSideRelay', 'deepSounding']);

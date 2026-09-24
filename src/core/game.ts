@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteId } from '../data/sites';
 import { TECHS, type TechId } from '../data/techs';
-import { MILESTONES } from '../data/milestones';
+import { MILESTONES, milestoneHint } from '../data/milestones';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
   ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY,
@@ -1297,6 +1297,7 @@ export class Game {
     const next = MILESTONES.find((m) => !s.milestonesDone.includes(m.id));
     $milestones.set({
       done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
+      hints: Object.fromEntries(MILESTONES.map((m) => [m.id, milestoneHint(m, s)])),
     });
     $swarm.set({
       pct: s.swarmPct, launches: s.launches, armed: this.mods.launchArmed,

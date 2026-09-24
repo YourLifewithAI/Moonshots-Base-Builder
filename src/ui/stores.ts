@@ -154,8 +154,11 @@ export const $depositMarkers = atom<{ id: string; x: number; y: number; glyph: s
 export const $feed = atom<FeedGrade>(emptyFeed());
 
 export const $alerts = atom<AlertMsg[]>([]);
-/** progress = the earliest open objective's status line ('' = none) */
-export const $milestones = atom<{ done: string[]; total: number; progress: string }>({ done: [], total: 0, progress: '' });
+/** progress = the earliest open objective's status line ('' = none); hints =
+ *  each objective's hint for this run (expedition and doctrine applied) */
+export const $milestones = atom<{ done: string[]; total: number; progress: string; hints: Record<string, string> }>({
+  done: [], total: 0, progress: '', hints: {},
+});
 /** foils / launch / stored: what the next volley would spend, as held now */
 export const $swarm = atom({
   pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0, foils: 0, launch: 0, stored: 0,
