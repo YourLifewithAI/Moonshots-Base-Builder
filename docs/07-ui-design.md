@@ -228,10 +228,17 @@ resumes as it was. It holds Resume · Save now · New mission (confirmed; the
 save is erased) · Graphics · Audio · the Controls list. Graphics is a 0–3
 segmented control showing the level the render ladder is actually running,
 marked `AUTO` with its cause when the black-frame check lowered it; the
-player's own choice carries a ◆. Lowering is one click; a level that drew
-black this session asks for a second. Safe render mode toggles both ways.
-The choices live in `localStorage` (`core/settings.ts`) and apply at boot
-before the first frame.
+player's own choice carries a ◆. Lowering is one click; a level that failed
+a render check on this GPU (in any session) asks for a second. A raise shows
+"Checking…" until the black-frame check has seen it draw, and is stored only
+then — a black frame puts the old level back. Safe render mode toggles both
+ways: on at once (plain forward rendering, no effects), off as the same
+kind of checked raise back to the ladder's level; a safe mode the render
+check turned on says so and holds across launches. The choices live in
+`localStorage` (`core/settings.ts`) and apply at boot before the first
+frame. A browser without WebGL2 gets a page saying the game needs it, that
+hardware acceleration must be on, and that Chrome or Edge is recommended on
+Windows.
 
 Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio
 nodes only: a switch click on every control, a thunk on placement, a blip on
