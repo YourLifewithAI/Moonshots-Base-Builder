@@ -2,8 +2,9 @@
  *  draw them alike):
  *   - a 4 m cell grid under the placement footprint, fading out past it;
  *   - dashed build-radius rings around every network structure while placing
- *     (`buildRadiusM` where a type defines one, else the Lander/Habitat
- *     radius), so "Too far from habitat network" has an in-world answer;
+ *     (`buildRadiusM` where a type defines one — completed ones only, as the
+ *     relay-mast design reads — else the Lander/Habitat radius), so "Too far
+ *     from habitat network" has an in-world answer;
  *   - corner brackets around the selected structure. */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
@@ -116,8 +117,9 @@ export class BaseOverlays {
   }
 
   private updateRings(state: GameState, p: PlacementProbe | null) {
-    const nodes = p ? state.buildings.filter((b) => networkRadius(b.type) > 0) : [];
-    const key = nodes.map((b) => `${b.id}:${b.gx},${b.gz}`).join(';');
+    const nodes = p ? state.buildings.filter((b) => networkRadius(b.type) > 0 &&
+      (BUILDINGS[b.type].buildRadiusM === undefined || (b.construction ?? 0) <= 0)) : [];
+    const key = p ? nodes.map((b) => `${b.id}:${b.gx},${b.gz}`).join(';') || '-' : '';
     if (key === this.ringKey) return;
     this.ringKey = key;
     const pos: number[] = [];

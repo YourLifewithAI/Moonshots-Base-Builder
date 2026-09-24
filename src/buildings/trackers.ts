@@ -27,6 +27,7 @@ export class Trackers {
   readonly group = new THREE.Group();
   readonly meshes: Record<PartId, THREE.InstancedMesh>;
   private slots: Record<PartId, Slot[]> = { wing: [], dish: [] };
+  private seated = '';
   private sunSeen = new THREE.Vector3(0, -2, 0);
   private stowSeen = -1;
   private earthQ = new THREE.Quaternion();
@@ -52,9 +53,13 @@ export class Trackers {
     this.meshes = { wing: make('wing'), dish: make('dish') };
   }
 
-  /** Re-seat the parts on the completed structures (after any rebuild). */
+  /** Re-seat the parts on the completed structures (after any rebuild);
+   *  matrices are only recomposed when the set of mounts changed. */
   rebuild(placed: readonly Placed[]) {
     const rot = new THREE.Quaternion();
+    const seated = placed.map(({ b }) => `${b.id}:${b.gx},${b.gz},${b.rot}`).join(';');
+    const moved = seated !== this.seated;
+    this.seated = seated;
     for (const part of ['wing', 'dish'] as PartId[]) this.slots[part] = [];
     for (const { b, x, y, z } of placed) {
       rot.setFromAxisAngle(UP, -b.rot * Math.PI / 2);
@@ -74,6 +79,7 @@ export class Trackers {
       mesh.count = this.slots[part].length;
       mesh.geometry.getAttribute('iState').needsUpdate = true;
     }
+    if (!moved) return;
     const dishes = this.meshes.dish;
     this.slots.dish.forEach((sl, i) => {
       dishes.setMatrixAt(i, this.m.compose(sl.pivot, this.earthQ, new THREE.Vector3(sl.s, sl.s, sl.s)));
