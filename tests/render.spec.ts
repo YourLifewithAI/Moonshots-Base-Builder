@@ -7,8 +7,13 @@
  *  floods and window glow at FX 0–2, discs and point lights below that).
  *  The motion layer (rovers, dust, launch and resupply, research visuals)
  *  is checked at FX 0, FX 3 and in safe mode, and walk mode for its lens,
- *  headlamp, bootprints and visor. */
-import { test, expect, type Page } from '@playwright/test';
+ *  headlamp, bootprints and visor. The render-safety contract: safe mode
+ *  draws plain with the black-frame check still on, a return to a patched
+ *  level recompiles with live uniforms, the check reads night frames and
+ *  keeps a raise only once it draws, each frame draws the scene once, and a
+ *  browser without WebGL2 gets a page that says so. */
+import { chromium, test, expect, type Page } from '@playwright/test';
+import { existsSync } from 'node:fs';
 
 declare global {
   interface Window { __game?: any }
@@ -384,4 +389,297 @@ test('walk mode: wider lens, a headlamp at night, bootprints, a visor', async ({
   // beacons blink on the building shader's clock
   const t0 = i.base.clock;
   await expect.poll(async () => (await info()).base.clock, { timeout: 10_000 }).not.toBe(t0);
+});
+
+/** Scene renders per drawn frame over `ms` (the render pass counts one). */
+async function rendersPerFrame(page: Page, ms = 2500) {
+  const a = await page.evaluate(() => window.__game.getRenderInfo());
+  await page.waitForTimeout(ms);
+  const b = await page.evaluate(() => window.__game.getRenderInfo());
+  const frames = b.framesDrawn - a.framesDrawn;
+  return { frames, perFrame: (b.sceneRenders - a.sceneRenders) / Math.max(1, frames) };
+}
+
+const status = (page: Page) => page.evaluate(() => window.__game.getRenderStatus());
+const renderInfo = (page: Page) => page.evaluate(() => window.__game.getRenderInfo());
+/** software GL recompiles a whole chain on the first frame after a switch */
+const SLOW = { timeout: 60_000 };
+
+/** Run the black-frame check on the next drawn frame and wait for its verdict. */
+async function probeNow(page: Page) {
+  const before = (await renderInfo(page)).probes;
+  const n = (p: typeof before) => p.ok + p.black + p.unknown;
+  await page.evaluate(() => window.__game.probeNext());
+  await expect.poll(async () => n((await renderInfo(page)).probes), SLOW).toBeGreaterThan(n(before));
+  const after = (await renderInfo(page)).probes;
+  return after.black > before.black ? 'black' : after.ok > before.ok ? 'ok' : 'unknown';
+}
+
+test('safe mode draws the plain path from boot and at runtime, and the black-frame check stays on', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.setViewportSize({ width: 800, height: 450 });
+  // from boot: no composer is ever built, one scene render a frame
+  await page.goto('/?debug&seed=42&nolock&site=mare&safe');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await expect.poll(async () => (await renderInfo(page)).framesDrawn).toBeGreaterThan(3);
+  let info = await renderInfo(page);
+  expect(info.safeMode).toBe(true);
+  expect(info.firstFrame).toEqual({ fx: 3, safe: true });
+  expect(info.fxLevel, 'safe mode draws plain').toBe(3);
+  expect(info.postChain, 'no composer in safe mode').toBe(false);
+  let r = await rendersPerFrame(page);
+  expect(r.frames).toBeGreaterThan(0);
+  expect(r.perFrame).toBe(1);
+
+  // at runtime: switching on drops the FX 0 chain at once
+  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await expect.poll(async () => (await renderInfo(page)).framesDrawn).toBeGreaterThan(2);
+  expect((await renderInfo(page)).postChain).toBe(true);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(true);
+    g.grantPower(200000);
+    g.advanceGameSeconds(610 - g.getState().simTime); // mid-night: safe mode is read at any hour
+    g.grantPower(200000);
+    g.enableSafeMode();
+  });
+  info = await renderInfo(page);
+  expect(info.fxLevel).toBe(3);
+  expect(info.postChain).toBe(false);
+  r = await rendersPerFrame(page);
+  expect(r.perFrame).toBe(1);
+  // an FX pick in safe mode is the level leaving it returns to: still no composer
+  await page.evaluate(() => window.__game.setFxLevel(1));
+  expect((await status(page)).ladder).toBe(1);
+  expect((await renderInfo(page)).postChain).toBe(false);
+
+  // the check still reads safe-mode frames: a silent terrain failure there
+  // can at most keep the effects off for good
+  await page.evaluate(() => window.__game.setTerrainVisible(false));
+  expect(await probeNow(page)).toBe('black');
+  expect((await status(page)).ladder).toBe(3);
+  expect((await renderInfo(page)).fxStored).toBe(3);
+  expect((await status(page)).safe).toBe(true);
+  await page.evaluate(() => window.__game.setTerrainVisible(true));
+
+  // leaving safe mode is a checked raise: black goes straight back to safe mode…
+  await page.evaluate(() => {
+    window.__game.setFxLevel(0);
+    window.__game.setTerrainVisible(false);
+    window.__game.disableSafeMode();
+  });
+  let st = await status(page);
+  expect(st.safe).toBe(false);
+  expect(st.checking).toBe(true);
+  expect((await renderInfo(page)).postChain, 'the chain is built for the ladder level').toBe(true);
+  expect(await probeNow(page)).toBe('black');
+  st = await status(page);
+  expect(st.safe).toBe(true);
+  expect(st.safeAuto).toBe(true);
+  expect(st.failed).toContain(0);
+  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('mbb-settings') ?? '{}'));
+  expect((await saved()).safeAuto, 'the render check\'s safe mode holds across launches').toBe(true);
+
+  // …and a frame that draws keeps it off (at night, on the earthshine floor)
+  await page.evaluate(() => { window.__game.setTerrainVisible(true); window.__game.disableSafeMode(); });
+  await expect.poll(async () => (await status(page)).checking, SLOW).toBe(false);
+  st = await status(page);
+  expect(st.safe).toBe(false);
+  expect(st.level).toBe(0);
+  expect((await renderInfo(page)).fxStored).toBe(0);
+  expect(await saved()).toMatchObject({ safe: false, safeAuto: false });
+  expect(errors).toEqual([]);
+});
+
+test('auto safe mode holds across a reload; the player turning it on or off clears the flag', async ({ page }) => {
+  await page.goto('/?debug&seed=42&nolock&site=mare&lowfx');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await page.evaluate(() => window.__game.enableSafeMode()); // as the render check does
+  await page.reload();
+  await page.waitForFunction(() => window.__game !== undefined);
+  let info = await renderInfo(page);
+  expect(info.firstFrame).toEqual({ fx: 3, safe: true });
+  expect(info.postChain).toBe(false);
+  expect((await status(page)).safeAuto, 'still the render check\'s').toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#menu-safe-note')).toContainText('Switched on by the render check');
+  await page.locator('#menu-safe').click();
+  await expect(page.locator('#menu-safe')).toHaveText('Off');
+  await expect.poll(async () => (await status(page)).checking, SLOW).toBe(false);
+  await page.reload();
+  await page.waitForFunction(() => window.__game !== undefined);
+  info = await renderInfo(page);
+  expect(info.firstFrame.safe).toBe(false);
+  expect(info.postChain).toBe(true);
+});
+
+test('a patched level recompiles with live uniforms after the stock one: FX 0 → 3 → 0 lights the night', async ({ page }) => {
+  test.setTimeout(240_000);
+  const shaderErrors: string[] = [];
+  page.on('console', (m) => { if (m.text().includes('THREE.WebGLProgram')) shaderErrors.push(m.text()); });
+  page.on('pageerror', (e) => shaderErrors.push(String(e)));
+  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(true);
+    g.grantResources({ metals: 2000, parts: 800 });
+    for (const [t, x, z] of [['habitat', 126, 132], ['lab', 135, 133], ['solar', 132, 126]] as const) {
+      g.placeBuilding(t, x, z);
+    }
+    g.finishConstruction();
+    g.advanceGameSeconds(120);
+  });
+  // every patched program compiles at FX 0, then the stock ones at FX 3
+  await page.waitForTimeout(2000);
+  await page.evaluate(() => window.__game.setFxLevel(3));
+  await page.waitForTimeout(2000);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setFxLevel(0);
+    g.grantPower(200000);
+    g.advanceGameSeconds(610 - g.getState().simTime);
+    g.grantPower(200000);
+    g.setView({ x: 50, y: 34, z: 62 }, { x: 4, y: 0, z: 8 });
+  });
+  await page.waitForTimeout(2500);
+  const stats = await frameStats(page, 40);
+  const info = await renderInfo(page);
+  expect(info.fxLevel).toBe(0);
+  expect(info.patches.terrain).toBe('regolith-2');
+  expect(info.base.nightLights).toBe('shader');
+  expect(info.base.floods.live).toBeGreaterThan(0);
+  expect(stats.blackFrac, 'pure-black share: the earthshine floor is live again').toBeLessThan(0.05);
+  expect(stats.litFrac, 'the floods are live again').toBeGreaterThan(0.08);
+  expect(shaderErrors).toEqual([]);
+});
+
+test('the black-frame check reads night frames; a raise is stored only once it draws', async ({ page }) => {
+  test.setTimeout(300_000);
+  await page.setViewportSize({ width: 800, height: 450 });
+  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(true);
+    g.grantPower(200000);
+    g.advanceGameSeconds(460 - g.getState().simTime); // dusk: the sun has set, the floor is not up yet
+  });
+  await page.waitForTimeout(1000);
+  // dusk is inconclusive, never a false alarm
+  expect(await probeNow(page)).toBe('unknown');
+  expect((await renderInfo(page)).fxLevel, 'a set sun at dusk is no black frame').toBe(0);
+
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.advanceGameSeconds(610 - g.getState().simTime); // mid-night
+    g.grantPower(200000);
+  });
+  await page.waitForTimeout(1000);
+  // a working night frame reads as one: open ground sits on the earthshine floor
+  expect(await probeNow(page)).toBe('ok');
+  // a silent terrain failure at night is caught (the check used to sleep until day)
+  await page.evaluate(() => window.__game.setTerrainVisible(false));
+  expect(await probeNow(page)).toBe('black');
+  expect((await renderInfo(page)).fxLevel).toBe(1);
+  expect((await status(page)).failed).toEqual([0]);
+  expect((await renderInfo(page)).fxStored).toBe(1);
+
+  // a raise runs at once but is not stored until it draws…
+  await page.evaluate(() => window.__game.setFxLevel(0));
+  let info = await renderInfo(page);
+  expect(info.fxLevel).toBe(0);
+  expect(info.fxStored, 'the raise waits for its check').toBe(1);
+  expect((await status(page)).checking).toBe(true);
+  // …and one that comes out black goes straight back, and says so
+  expect(await probeNow(page)).toBe('black');
+  expect((await renderInfo(page)).fxLevel).toBe(1);
+  expect((await status(page)).checking).toBe(false);
+  expect((await renderInfo(page)).fxStored).toBe(1);
+  const alerts = (await page.evaluate(() => window.__game.getState())).alerts.map((a: any) => a.text);
+  expect(alerts.some((t: string) => /FX 0 did not draw/.test(t))).toBe(true);
+  await page.evaluate(() => window.__game.setTerrainVisible(true));
+
+  // the failed level is remembered across launches: the menu asks twice
+  await page.reload();
+  await page.waitForFunction(() => window.__game !== undefined);
+  expect((await status(page)).failed).toEqual([0]);
+  expect((await renderInfo(page)).fxLevel, 'boots at the stored level').toBe(1);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(true);
+    g.grantPower(200000);
+    g.advanceGameSeconds(610 - g.getState().simTime);
+    g.grantPower(200000);
+  });
+  await page.keyboard.press('Escape');
+  await page.locator('#menu [data-fx="0"]').click();
+  await expect(page.locator('#menu-fx-note')).toContainText('drew a black frame or failed to build on this GPU before');
+  expect((await renderInfo(page)).fxLevel).toBe(1);
+  await page.locator('#menu-fx-try').click();
+  // at night, on the earthshine floor, the raise passes and is stored
+  await expect.poll(async () => (await status(page)).checking, SLOW).toBe(false);
+  info = await renderInfo(page);
+  expect(info.fxLevel).toBe(0);
+  expect(info.fxStored).toBe(0);
+  expect((await status(page)).failed, 'a level that draws is cleared').toEqual([]);
+});
+
+test('every FX level draws the scene once a frame; the tech tree and map rest the GPU', async ({ page }) => {
+  test.setTimeout(240_000);
+  await page.setViewportSize({ width: 800, height: 450 });
+  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.waitForFunction(() => window.__game !== undefined);
+  // the placement ghost is transparent: N8AO's auto-detect would have turned
+  // its transparency pass (two more scene renders a frame) on for it
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.beginPlacement('habitat'); });
+  await page.mouse.move(400, 300);
+  for (const fx of [0, 1, 2, 3]) {
+    await page.evaluate((n) => window.__game.setFxLevel(n), fx);
+    await page.waitForTimeout(1500);
+    const r = await rendersPerFrame(page, 3000);
+    expect(r.frames, `FX ${fx}: frames drawn`).toBeGreaterThan(0);
+    expect(r.perFrame, `FX ${fx}: scene renders per frame`).toBe(1);
+  }
+  await page.evaluate(() => window.__game.cancelPlacement());
+  // an opaque full-screen screen: the sim runs on, the scene is not drawn
+  await page.keyboard.press('KeyT');
+  await expect(page.locator('#tech-screen')).toBeVisible();
+  await page.waitForTimeout(500);
+  expect((await rendersPerFrame(page, 1500)).frames, 'nothing drawn under the tech tree').toBe(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#tech-screen')).toBeHidden();
+  await expect.poll(async () => (await rendersPerFrame(page, 1000)).frames).toBeGreaterThan(0);
+  await page.evaluate(() => window.__game.setMapOpen(true));
+  await page.waitForTimeout(500);
+  expect((await rendersPerFrame(page, 1500)).frames, 'nothing drawn under the Lunar Map').toBe(0);
+  await page.evaluate(() => window.__game.setMapOpen(false));
+  await expect.poll(async () => (await rendersPerFrame(page, 1000)).frames).toBeGreaterThan(0);
+});
+
+test('without WebGL2 the page says what the game needs instead of staying blank', async ({}, info) => {
+  const preinstalled = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+  const browser = await chromium.launch({
+    ...(existsSync(preinstalled) ? { executablePath: preinstalled } : {}),
+    args: ['--disable-webgl2'],
+  });
+  try {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(`${info.project.use.baseURL}/?debug&seed=42&site=mare`);
+    const fatal = page.locator('#fatal');
+    await expect(fatal).toBeVisible({ timeout: 30_000 });
+    await expect(fatal).toContainText('NEEDS WEBGL2');
+    await expect(fatal).toContainText('hardware acceleration');
+    await expect(fatal).toContainText('Chrome or Edge');
+    expect(await page.evaluate(() => window.__game === undefined)).toBe(true);
+    expect(errors, 'no uncaught error').toEqual([]);
+  } finally {
+    await browser.close();
+  }
 });
