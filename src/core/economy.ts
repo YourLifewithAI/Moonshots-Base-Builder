@@ -269,8 +269,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const b of s.buildings) {
     if (building(b)) continue;
     const def = eff(b.type);
-    if (def.storageKWh) capacity += def.storageKWh * (b.type === 'battery' ? mods.batteryCapMult : 1);
+    // shut down is off, as for a Storage Yard's caps: no upkeep, no storage
     if (!b.enabled) continue;
+    if (def.storageKWh) capacity += def.storageKWh * (b.type === 'battery' ? mods.batteryCapMult : 1);
     if (def.powerKW > 0) {
       if (crewedGen(b) && !staffed.has(b.id)) continue;
       // multipliers, wear, the agents' skim and a ridge's extra light
@@ -291,6 +292,16 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   }
   // the beam comes from the swarm, and a flare blinds it
   if (mods.powerBeam && s.flare.phase !== 'active') supply += s.launches * BEAM_KW_PER_LAUNCH;
+  // a bank shut down or demolished takes the charge the rest cannot hold
+  // (only when capacity drops: a debug grant above it still carries a night)
+  const spilled = s.powerStored - capacity;
+  if (capacity < (s.power?.capacity ?? capacity) && spilled > 0) {
+    s.powerStored = capacity;
+    if (spilled >= 1) {
+      alert(s, `CHARGE LOST — ${Math.floor(spilled)} stored energy went with the bank; the grid holds ${Math.floor(capacity)} now`,
+        'warn', { panel: 'power' });
+    }
+  }
 
   // ── 1.5 · stockpile caps (this tick's structures) ──────────────────
   const caps: Partial<Record<ResourceId, number>> = {};
