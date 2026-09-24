@@ -184,6 +184,11 @@ export function mountVictory(root: HTMLElement, game: Game) {
     const t = $time.get();
     const vit = $vitals.get();
     const s = $swarm.get();
+    // a robotic base with no one aboard has no crew or morale to report
+    const uncrewed = vit.expedition === 'robotic' && vit.crew <= 0;
+    const who = uncrewed
+      ? `${vit.botsTotal} robot${vit.botsTotal === 1 ? '' : 's'}, no one aboard`
+      : `crew of ${vit.crew}, morale ${vit.morale}%`;
     screen.style.display = 'flex';
     screen.innerHTML = `
       <div class="sub">Volley one is away</div>
@@ -191,7 +196,7 @@ export function mountVictory(root: HTMLElement, game: Game) {
       <div class="stats">
         Ten thin-film collectors are riding a rail-launched arc to solar orbit.<br/>
         The swarm stands at <span class="mono">${s.pct.toFixed(4)}%</span> — day ${t.dayIndex + 1},
-        crew of ${vit.crew}, morale ${vit.morale}%.<br/><br/>
+        ${who}.<br/><br/>
         A Dyson swarm is not built. It is <i>begun</i>.<br/>
         Keep launching. Watch the curve bend.
       </div>

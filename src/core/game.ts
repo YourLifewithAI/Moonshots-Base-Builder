@@ -103,6 +103,9 @@ export class Game {
   state!: GameState;
   mods!: Mods;
   readonly actions = new ActionQueue();
+  /** set while the menu holds the sim paused: saves record this paused
+   *  state (the game as the player left it), not the menu's pause */
+  savePausedAs: boolean | null = null;
 
   private renderer: THREE.WebGLRenderer;
   private camera: THREE.PerspectiveCamera;
@@ -1532,6 +1535,7 @@ export class Game {
   // ─────────────────────────── persistence ───────────────────────────
 
   private saveBlob(): SaveBlob {
+    const held = this.savePausedAs;
     return {
       state: this.state,
       player: {

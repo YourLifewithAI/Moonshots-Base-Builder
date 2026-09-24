@@ -163,13 +163,16 @@ export function mountMenu(root: HTMLElement, game: Game) {
     renderGfx();
   };
 
-  // open: pause (remembering how it was); close: put it back
+  // open: pause (remembering how it was); close: put it back. A save made
+  // meanwhile (Save now, autosave, tab hidden) records the game as it was
+  // before the menu, not paused by it
   let resumePaused: boolean | null = null;
   let poll = 0;
   const show = (open: boolean) => {
     if (open === (veil.style.display === 'flex')) return;
     if (open) {
       resumePaused = $time.get().paused;
+      game.savePausedAs = resumePaused;
       if (!resumePaused) game.actions.push({ kind: 'setPaused', paused: true });
       confirmFx = null;
       confirmRow.style.display = 'none';
@@ -184,6 +187,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
       window.clearInterval(poll);
       if (resumePaused === false) game.actions.push({ kind: 'setPaused', paused: false });
       resumePaused = null;
+      game.savePausedAs = null;
       (document.activeElement as HTMLElement | null)?.blur?.();
     }
   };

@@ -85,8 +85,8 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'survive-the-night', title: 'Survive the Night',
-    hint: 'The lunar night lasts 14 days and kills solar power. Stockpile stored kWh — batteries help.',
-    hintRobotic: 'The lunar night lasts 14 days and kills solar power. Stockpile stored kWh — batteries help — or let industry idle until dawn.',
+    hint: 'The lunar night (4 min at 1×) kills solar power. Stockpile stored kWh — batteries help.',
+    hintRobotic: 'The lunar night (4 min at 1×) kills solar power. Stockpile stored kWh — batteries help — or let industry idle until dawn.',
     check: (s) => s.nightsSurvived >= 1,
   },
   {

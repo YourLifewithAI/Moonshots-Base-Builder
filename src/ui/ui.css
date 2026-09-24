@@ -23,7 +23,7 @@
 .chip .val { font-size: 13px; color: var(--ink-050); min-width: 4ch; text-align: right; }
 .chip .cap { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-muted)); min-width: 4ch; }
 .chip[data-slot="power"] .cap { min-width: 7ch; }
-.chip[data-slot="stored"] .cap { min-width: 6ch; }
+.chip[data-slot="stored"] .cap { min-width: 7ch; }   /* '/12.5k' by day, '· 12:34' at night */
 .chip.warn .val { color: var(--paper); }
 .chip.warn { border-color: rgba(var(--paper-rgb), 0.5); }
 
@@ -84,7 +84,9 @@
 .alert .alert-x:hover { opacity: 1; }
 .alert-more { font-size: 10px; line-height: 14px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 /* inspector open: a fixed-height stack of one-line alerts (full text on
-   hover), so alerts coming and going never shift the inspector beneath */
+   hover), so alerts coming and going never shift the inspector beneath.
+   Its row count is set once as each building opens (hud.ts): the alerts
+   standing then, at least one, fewer on a short screen */
 #hud-layer:not(.mode-walk) #hud-right.inspecting #alerts {
   --alert-row: 28px;
   height: calc(var(--alert-rows, 4) * (var(--alert-row) + 4px) + 14px);
@@ -167,17 +169,27 @@
 .con { color: rgba(var(--paper-rgb), var(--op-secondary)); }
 .pro, .con { margin: 2px 0; line-height: 16px; }
 
-/* ── right: inspector ── */
+/* ── right: inspector — head and foot (every button) always in view, the
+   stat body between them scrolls on a short screen ── */
 #inspector {
   width: 280px; padding: 0; font-size: 12px;
-  flex: 0 1 auto; min-height: 120px; overflow-y: auto;
+  flex: 0 1 auto; min-height: 120px;
+  display: flex; flex-direction: column; overflow: hidden;
 }
+#inspector .insp-head, #inspector .insp-foot { flex: 0 0 auto; }
+#inspector .insp-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; border-top: var(--hair); }
+#inspector .insp-foot { border-top: var(--hair); }
 #inspector section { padding: 10px 14px; border-top: var(--hair); }
 #inspector section:first-child { border-top: none; }
+/* the foot is compact: one-line buttons, tighter rhythm */
+#inspector .insp-foot section { padding: 7px 14px; }
+#inspector .insp-foot .prio { margin-top: 4px; }
+#inspector .insp-foot .btn { font-size: 11px; padding: 4px 9px; }
 #inspector .row { display: flex; justify-content: space-between; margin: 3px 0; }
 #inspector .prio { display: flex; gap: 4px; margin-top: 6px; }
 #inspector .prio .btn { padding: 3px 8px; font-size: 11px; }
 #inspector .actions { display: flex; gap: 6px; }
+#inspector .actions .btn { white-space: nowrap; }
 
 /* walk mode strips the HUD to a helmet readout */
 #hud-layer.mode-walk #res-panel,

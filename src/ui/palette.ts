@@ -109,14 +109,16 @@ function ioRows(type: BuildingId, mods: Mods, b?: BuildingState): string {
 
 export function tooltipHtml(type: BuildingId, locked: boolean, mods: Mods): string {
   const def = BUILDINGS[type];
-  const unlock = locked ? unlockingTech(type) : null;
+  const never = locked ? notBuildableHere(type) : '';
+  const unlock = locked && !never ? unlockingTech(type) : null;
   return `
     <section><div class="tt-name"><span>${def.name}</span>
       <span class="label">${CATEGORY_LABEL[def.category]}</span></div>
       <span class="label">${def.footprint[0] * 4}×${def.footprint[1] * 4} m · Era ${def.era}</span></section>
     <section>${ioRows(type, mods)}</section>
     <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
-    ${unlock ? `<section><span class="label">⧗ Requires research — ${TECHS[unlock].name} · click to find it in the tree</span></section>` : ''}`;
+    ${unlock ? `<section><span class="label">⧗ Requires research — ${TECHS[unlock].name} · click to find it in the tree</span></section>` : ''}
+    ${never ? `<section><span class="label">✕ ${never}</span></section>` : ''}`;
 }
 
 /** 'Feed (last dug): 64% high-Ti · 8% highland → yield +17%' for the smelter
@@ -178,8 +180,15 @@ export function mountPalette(root: HTMLElement, game: Game) {
       b.addEventListener('mouseleave', hideTooltip);
       b.dataset.type = type;
       b.addEventListener('click', (e) => {
-        // a locked card answers with the research that opens it
-        if (locked) { hideTooltip(); openTechTreeAt(unlockingTech(type)); return; }
+        // a locked card answers with the research that opens it — or, where
+        // no research ever will, says so and leaves the tree shut
+        if (locked) {
+          const never = notBuildableHere(type);
+          if (never) { spawnFloater(never.toUpperCase(), e.clientX, e.clientY - 20); return; }
+          hideTooltip();
+          openTechTreeAt(unlockingTech(type));
+          return;
+        }
         game.beginPlacement(type);
         spawnFloater(BUILDINGS[type].name.toUpperCase(), e.clientX, e.clientY - 20);
       });
@@ -300,6 +309,37 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const e = insp.querySelector(`#${id}`);
     if (e && e.textContent !== text) e.textContent = text;
   };
+  /** Dynamic Clocking's line: the running countdown to WORN, or why it cannot
+   *  be pushed. Overclocked, paid upkeep no longer heals; short of parts, the
+   *  ordinary wear adds on top (economy step 6). */
+  const overclockLine = (sel: BuildingState): string => {
+    const ocRate = OVERCLOCK.wearPerDay / CYCLE_S;
+    const shortRate = sel.type !== 'lander' && $resources.get().parts <= 0.01 ? WEAR.risePerDay / CYCLE_S : 0;
+    const eta = (rate: number) => fmtClock(Math.max(0, OVERCLOCK.tripWear - sel.wear) / rate);
+    if (sel.overclock) {
+      return sel.active
+        ? `OVERCLOCKED ×${OVERCLOCK.mult} · WORN in ${eta(ocRate + shortRate)}`
+        : `OVERCLOCKED ×${OVERCLOCK.mult} · idle — wears only while it runs`;
+    }
+    if ((sel.construction ?? 0) > 0) return 'Nameplate · a site under construction has no clock to push yet';
+    if (sel.wear >= OVERCLOCK.tripWear) return 'Nameplate · WORN — paid upkeep heals it before it can overclock';
+    return `Nameplate · overclocked it would reach WORN in ${eta(ocRate + shortRate)}`;
+  };
+  /** '⇪ Downlink 150≡ → 60◆ 20⚙ 5▣ (½ day)', and why the Lander would refuse it */
+  const downlinkText = (): { label: string; title: string } => {
+    const cost = downlinkCost(game.state);
+    const cargo = Object.entries(DOWNLINK.cargo)
+      .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
+    const days = DOWNLINK.delayS / CYCLE_S;
+    const when = days === 0.5 ? '½ day' : days === 1 ? '1 day' : fmtClock(DOWNLINK.delayS);
+    const have = Math.floor($vitals.get().data);
+    const why = $lander.get().resupplyPending ? ' — waits: one shipment at a time, and one is en route'
+      : have < cost ? ` — needs ${cost}≡ banked, have ${have}` : '';
+    return {
+      label: `⇪ Downlink ${cost}≡ → ${cargo} (${when})`,
+      title: `Sell ${cost}≡ of banked research data to Earth for ${cargo}, landing in ${fmtClock(DOWNLINK.delayS)}${why}`,
+    };
+  };
   const refreshInspector = (sel: BuildingState) => {
     setText('insp-status', statusLine(sel));
     const cond = Math.round((1 - sel.wear) * 100);
@@ -315,7 +355,18 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : 'Repairs draw automatically from the parts stockpile.');
     setText('insp-eta', `▲ Shipment en route — lands in ${fmtClock($lander.get().etaS)}`);
     setText('insp-feed', feedLine(game, sel.type, $feed.get()));
+    setText('insp-oc', overclockLine(sel));
+    const dl = insp.querySelector<HTMLButtonElement>('#insp-downlink');
+    if (dl) {
+      const t = downlinkText();
+      if (dl.textContent !== t.label) dl.textContent = t.label;
+      if (dl.title !== t.title) dl.title = t.title;
+    }
   };
+  const NOTE = 'class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)"';
+  /** Head (name, status) and foot (every button) stay in view; the stat body
+   *  between them scrolls when the screen is short, so no button is ever
+   *  below the fold. */
   const buildInspector = (sel: BuildingState) => {
     const def = BUILDINGS[sel.type];
     const conRemaining = sel.construction ?? 0;
@@ -324,9 +375,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
       .map(([rid, amt]) => `${amt} ${RESOURCES[rid as ResourceId].name.toLowerCase()}`).join(' · ');
     const vit = $vitals.get();
     const crewToggle = canToggleCrew(vit.expedition, vit.crew, $tech.get());
-    const orderDays = $lander.get().orderDays;
+    const lander = $lander.get();
+    const orderDays = lander.orderDays;
+    const isLander = sel.type === 'lander';
+    const crewAll = isLander && crewToggle && vit.crew > 0 && lander.agentRun > 0;
+    const downlink = isLander && game.mods.actions.has('downlink');
+    const overclock = OVERCLOCKABLE.includes(sel.type) && game.mods.actions.has('overclock');
     insp.innerHTML = `
-      <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
+      <div class="insp-head"><section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
         <span class="label" id="insp-status"></span></section>
       <section>${ioRows(sel.type, game.mods, sel)}</section>
@@ -356,17 +412,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
             ? '<span class="label" id="insp-eta"></span>'
             : `<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in ${orderDays} day${orderDays === 1 ? '' : 's'}</button>`}
         </div>
-        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Shipment: +${RESUPPLY.metals} metals · +${RESUPPLY.parts} parts${vit.crew > 0 ? ` · morale −${RESUPPLY.moraleHit} (the crew resents the umbilical)` : ''}. Each order waits a lunar day longer than the last; Earth's rescue of a stranded base does not.</div>
-        ${crewToggle && vit.crew > 0 && $lander.get().agentRun > 0 ? `<div class="prio" style="margin-top:6px">
-          <button class="btn" id="insp-crewall">${PERSON_SVG} Crew all eligible stations</button>
-        </div>
-        <div class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)">Settlers take agent-run stations in priority order while free hands last; the rest stay agent-run.</div>` : ''}
       </section>` : ''}
       ${def.crew > 0 && crewToggle ? `<section>
         <span class="label">Operations — ${def.powerKW > 0
           ? `agents keep ${Math.round((1 - AGENT_GEN_TAX) * 100)}% of the output`
           : `agents draw ${mult(1 + game.mods.agentTax)} power`}, need no crew or morale</span>
-        <div class="prio" style="margin-top:6px">
+        <div class="prio">
           <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">${PERSON_SVG} Crewed</button>
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
         </div>
@@ -415,10 +466,13 @@ export function mountPalette(root: HTMLElement, game: Game) {
       case 'insp-buildnext': game.actions.push({ kind: 'buildNext', id: sel.id }); break;
       case 'insp-toggle': game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }); break;
       case 'insp-order': game.actions.push({ kind: 'orderResupply' }); break;
+      case 'insp-downlink': game.actions.push({ kind: 'downlink' }); break;
       case 'insp-map': window.dispatchEvent(new CustomEvent('moonshots:open-map')); break;
       case 'insp-crewall': game.actions.push({ kind: 'crewAll' }); break;
       case 'insp-crewed': game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }); break;
       case 'insp-auto': game.actions.push({ kind: 'setAutomated', id: sel.id, automated: true }); break;
+      case 'insp-oc-on': game.actions.push({ kind: 'setOverclock', id: sel.id, on: true }); break;
+      case 'insp-oc-off': game.actions.push({ kind: 'setOverclock', id: sel.id, on: false }); break;
       case 'insp-demolish': game.actions.push({ kind: 'demolish', id: sel.id }); break;
       case 'insp-close': $selection.set(null); break;
     }

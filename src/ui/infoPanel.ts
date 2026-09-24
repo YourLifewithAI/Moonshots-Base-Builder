@@ -4,8 +4,8 @@
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  CONSTRUCTION_PARTS_PER_S, CREW, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, MORALE,
-  RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB, RESUPPLY,
+  CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, CREW, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS,
+  LAUNCH_POWER_BURST, MORALE, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB, RESUPPLY,
 } from '../data/balance';
 import { SITES } from '../data/sites';
 import { effectiveDef, effectiveRates, type EffectiveRates, type Mods } from '../core/mods';
@@ -104,6 +104,8 @@ function panelHtml(key: string, mods: Mods): string | null {
   const t = $tech.get();
   const lsMult = mods.inputMult.habitat;
   const lander = $lander.get();
+  // what the sim runs on (economy.ts): each site's draw, each Bay's robots
+  const siteKW = kw(CONSTRUCTION_KW * mods.constructionKWMult);
 
   if (key === 'crew') {
     return `
@@ -137,9 +139,9 @@ function panelHtml(key: string, mods: Mods): string | null {
           · stored ${fmt(p.stored)} / ${fmt(p.capacity)}${drain > 0.01 ? ` · lasts ${fmtClock(p.stored / drain)}` : ''}
           · ${time.isNight ? `dawn in ${fmtClock(time.phaseLeft)}` : `dusk in ${fmtClock(time.phaseLeft)}`}</span></section>
       <section><span class="label">Generation</span>${gen}
-        <div class="goal-hint">Solar dies at night; batteries store the day (15% round-trip loss); reactors don't care.</div></section>
+        <div class="goal-hint">Solar dies at night; batteries store the day (${Math.round((1 - mods.storageEff) * 100)}% round-trip loss); reactors don't care.</div></section>
       <section><span class="label">Draws</span>${draws}
-        <div class="goal-hint">Construction sites pull 4 kW each while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
+        <div class="goal-hint">Construction sites pull ${siteKW} kW each while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
   }
   if (key === 'bots') {
     return `
@@ -176,9 +178,11 @@ function panelHtml(key: string, mods: Mods): string | null {
     const share = rv && rv.agentLabs > 0 ? rv.uplinkShare : 1;
     return `
       <section><div class="tt-name"><span>≡ Research data</span><span class="mono">${fmt(v.data)}</span></div>
-        <span class="label">${transfer > 0
-          ? `feeding research ${fmt(transfer * 60)}/min · ${labs} lab${labs === 1 ? '' : 's'}, ${dcs} data center${dcs === 1 ? '' : 's'} operating`
-          : t.queue.length ? 'research stalled — no operating lab or data center' : 'no operating lab or data center'}</span></section>
+        <span class="label">${!t.queue.length
+          ? `no research queued${cap > 0 ? ` · ${operating}` : ''}`
+          : cap > 0
+            ? `feeding research ${fmt(moved * 60)}/min of ${fmt(cap * 60)}/min · ${operating}`
+            : 'research stalled — no operating lab or data center'}</span></section>
       <section><span class="label">Produced by</span>
         ${buildingLine('lab', ratesOf('lab', mods).data, '+')}
         ${buildingLine('dataCenter', ratesOf('dataCenter', mods).data, '+')}

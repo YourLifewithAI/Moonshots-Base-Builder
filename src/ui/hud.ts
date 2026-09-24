@@ -131,7 +131,9 @@ export function mountHud(root: HTMLElement, game: Game) {
     const drain = p.demand - p.supply;
     const runway = drain > 0.01 ? p.stored / drain : Infinity;
     const nightRun = t.isNight && runway < Infinity;
-    put('stored', fmt(p.stored), nightRun ? `· ${fmtClock(runway)}` : `/${fmt(p.capacity)}`,
+    // the cap slot is reserved 7ch wide ('/12.5k', '· 12:34'): a runway past an
+    // hour reads '1h+', so dusk never reflows the strip (the tooltip has it exact)
+    put('stored', fmt(p.stored), nightRun ? `· ${runway >= 3600 ? '1h+' : fmtClock(runway)}` : `/${fmt(p.capacity)}`,
       nightRun ? runway < t.phaseLeft : p.stored < 200 && drain > 0,
       nightRun
         ? `Stored energy — lasts ${fmtClock(runway)} at ${fmt(drain)} kW short; dawn in ${fmtClock(t.phaseLeft)} — click for details`
@@ -147,9 +149,11 @@ export function mountHud(root: HTMLElement, game: Game) {
     }
     put('crew', `${v.crew}`, `/${v.housing}`, v.crew > v.housing,
       `Crew / housing — ${v.beds} beds built · ${v.housing} powered`);
-    put('bots', `${v.botsFree}`, `/${v.botsTotal}${v.surveying ? ` · ${v.surveying} surveying` : ''}`,
+    // a survey's borrowed robot is told in the tooltip (and on the map chip), not
+    // appended to the chip: the strip never reflows when a survey starts
+    put('bots', `${v.botsFree}`, `/${v.botsTotal}`,
       v.botsFree === 0 && v.botsTotal > 0,
-      `Construction robots free / fleet${v.surveying ? ` — ${v.surveying} lent to a survey` : ''} — click for details`);
+      `Construction robots free / fleet${v.surveying ? ` — ${v.surveying} more lent to a survey` : ''} — click for details`);
     put('morale', `${v.morale}%`, '', v.morale < 40, 'Morale — click for details');
     put('data', fmt(v.data), '', false, 'Research data — click for details');
     put('deposits', 'DEPOSITS [I]', '', $depositOverlay.get(),
@@ -292,6 +296,26 @@ export function mountHud(root: HTMLElement, game: Game) {
     more.style.display = more.textContent ? 'block' : 'none';
   };
   $alerts.subscribe(renderAlerts);
+  // Inspecting: the stack is sized once per building opened — to the alerts
+  // standing then (at least one row; two at most on a short screen, so the
+  // inspector's buttons stay above the fold) — and holds that height while
+  // it is open: alerts coming and going never move the inspector. The rest
+  // count in '+N more'
+  let inspId: number | null = null;
+  $selection.subscribe((sel) => {
+    right.classList.toggle('inspecting', sel !== null);
+    const id = sel?.id ?? null;
+    if (id === inspId) return;
+    inspId = id;
+    if (id !== null) {
+      const standing = $alerts.get().filter((a) => !a.quiet).length;
+      const cap = window.matchMedia('(max-height: 700px)').matches ? 2 : ALERTS.shown;
+      inspRows = Math.max(1, Math.min(cap, standing));
+      alerts.style.setProperty('--alert-rows', String(inspRows));
+    }
+    renderAlerts();
+  });
+  $mode.subscribe(renderAlerts);
   alerts.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     const id = Number((target.closest('.alert') as HTMLElement | null)?.dataset.id);
