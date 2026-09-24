@@ -614,3 +614,62 @@ test('producers follow the recipes: the held rotation names what really makes wa
   expect(held(r.outpost)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · claim an ice outpost');
   expect(held(r.volatiles)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · build Regolith Excavator');
 });
+
+test('insight: none for a tech a done doctrine rival has foreclosed for good', async ({ page }) => {
+  // while the launch doctrine is open, 300≈ banked earns the Depot its insight
+  await start(page, 'mare');
+  const open = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ water: 300 });
+    g.advanceGameSeconds(1);
+    return g.getState();
+  });
+  expect(open.insights.propellantDepot).toBe(0.4);
+  // once the Mass Driver is done, the Depot never opens: no insight, no alert
+  await start(page, 'mare');
+  await complete(page, ['massDriver']);
+  const shut = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ water: 300 });
+    g.advanceGameSeconds(1);
+    return { s: g.getState(), card: g.getResearch().cards.propellantDepot };
+  });
+  expect(shut.card.state).toBe('foreclosed');
+  expect(shut.card.reason).toBe('foreclosed — you chose Electromagnetic Mass Driver');
+  expect(shut.s.insights.propellantDepot).toBeUndefined();
+  expect(hasAlert(shut.s, /^INSIGHT — Propellant Depot/)).toBe(false);
+  // other insights still fire on the same tick
+  expect(shut.s.insights.regenFuelCells).toBe(0.4);
+});
+
+test('insight: Regolith Shielding has a deed the flare-proof lava tube can meet', async ({ page }) => {
+  await start(page, 'mare');
+  const mare = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setStats({ wornSeen: true });
+    g.advanceGameSeconds(1);
+    return { s: g.getState(), card: g.getResearch().cards.regolithShielding };
+  });
+  // on the surface it takes a radiation storm; a worn machine is not one
+  expect(mare.card.insight.hint).toBe('a flare goes active with ≥6 structures running');
+  expect(mare.s.insights.regolithShielding).toBeUndefined();
+  expect(mare.s.insights.safetyProtocols).toBe(0.5);
+
+  await start(page, 'lavatube');
+  await placeNear(page, [['solar', 1]]);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const before = g.getResearch().cards.regolithShielding;
+    g.finishConstruction();
+    g.grantResources({ parts: -g.getState().resources.parts });
+    powered(450); // unpaid upkeep wears the array 0.5 a day: past 0.3 in 432 s
+    return { before, s: g.getState(), card: g.getResearch().cards.regolithShielding };
+  });
+  expect(r.before.insight).toEqual({ discount: 0.4, hint: 'a building worn past 0.3', earned: false });
+  expect(r.s.stats.flaresWithSix).toBe(0);
+  expect(r.s.stats.wornSeen).toBe(true);
+  expect(r.s.insights.regolithShielding).toBe(0.4);
+  expect(r.card.cost).toMatchObject({ base: 140, data: 84, insightLabel: 'a building worn past 0.3' });
+  expect(hasAlert(r.s,
+    /^INSIGHT — Regolith Shielding 40% cheaper: a machine wore out under the skylight — bury what the tube’s roof leaves open$/)).toBe(true);
+});

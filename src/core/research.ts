@@ -6,7 +6,7 @@ import {
   DOCTRINES, ERA_GATES, ERA_NAMES, RETIRED_TECHS, TECHS, TECH_ORDER, techRelevance,
   type DoctrineId, type Era, type Expedition, type Lane, type TechDef, type TechId,
 } from '../data/techs';
-import { INSIGHTS, INSIGHT_BY_TECH } from '../data/insights';
+import { INSIGHTS, insightAt } from '../data/insights';
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
@@ -101,7 +101,7 @@ export interface TechCost {
   insightLabel: string;
 }
 
-export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insights'>): TechCost {
+export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insights' | 'siteId'>): TechCost {
   const def = R(tid, s.expedition);
   const scaled = def.costData * ERA_COST_SCALE[def.era];
   const discount = Math.min(INSIGHT_MAX, s.insights?.[tid] ?? 0);
@@ -110,7 +110,7 @@ export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insight
     base: Math.round(scaled),
     goods: { ...(def.costGoods ?? {}) },
     discount,
-    insightLabel: discount > 0 ? INSIGHT_BY_TECH[tid]?.hint ?? '' : '',
+    insightLabel: discount > 0 ? insightAt(tid, s.siteId)?.hint ?? '' : '',
   };
 }
 
@@ -512,13 +512,17 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   return { modsChanged: completed.length > 0, completed };
 }
 
-/** Insights: checked each tick after researchTick; they fire even while the tech is locked. */
+/** Insights: checked each tick after researchTick; they fire even while the
+ *  tech is locked, never once a done rival has foreclosed it for good. Each
+ *  uses its site's deed. */
 export function insightTick(s: GameState): TechId[] {
   const fired: TechId[] = [];
-  for (const ins of INSIGHTS) {
+  for (const base of INSIGHTS) {
+    const ins = insightAt(base.tech, s.siteId) ?? base;
     const def = TECHS[ins.tech];
     if (s.techsDone.includes(ins.tech)) continue;
     if (!techVisible(def, s)) continue;
+    if (rival(def, s)?.state === 'done') continue;
     const d = Math.min(INSIGHT_MAX, ins.discount);
     if ((s.insights[ins.tech] ?? 0) >= d || !ins.check(s)) continue;
     s.insights[ins.tech] = d;
@@ -744,7 +748,7 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
     const av = techAvailability(tid, s, mods);
     const cost = techCost(tid, s);
     const spent = s.researchSpent[tid] ?? 0;
-    const ins = INSIGHT_BY_TECH[tid];
+    const ins = insightAt(tid, s.siteId);
     cards[tid] = {
       tid, state: av.state, reason: av.reason, era: def.era, lane: def.lane ?? null,
       name: def.name, short: def.short, cost, spent,
