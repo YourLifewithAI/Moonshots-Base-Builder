@@ -175,7 +175,9 @@ function panelHtml(key: string, mods: Mods): string | null {
     const agentLab = v.expedition === 'robotic';
     const labs = rv?.labsActive ?? counts.lab?.active ?? 0;
     const dcs = rv?.dcsActive ?? counts.dataCenter?.active ?? 0;
-    const transfer = RESEARCH_RATE_PER_LAB * labs + RESEARCH_RATE_PER_DC * dcs;
+    // the cap is what the labs could move; the sim's own average is what they do
+    const cap = rv?.cap ?? RESEARCH_RATE_PER_LAB * labs + RESEARCH_RATE_PER_DC * dcs;
+    const moved = rv?.rate ?? 0;
     const share = rv && rv.agentLabs > 0 ? rv.uplinkShare : 1;
     const operating = `${labs} lab${labs === 1 ? '' : 's'}, ${dcs} data center${dcs === 1 ? '' : 's'} operating`;
     return `
