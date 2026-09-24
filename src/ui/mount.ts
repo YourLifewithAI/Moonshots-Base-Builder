@@ -4,6 +4,7 @@ import './ui.css';
 import type { Game } from '../core/game';
 import { mountHud } from './hud';
 import { mountInfoPanel } from './infoPanel';
+import { mountLunarMap } from './lunarMap';
 import { mountPalette } from './palette';
 import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
@@ -30,6 +31,7 @@ export function mountUI(game: Game) {
   mountInfoPanel(hudLayer, game);
   mountPalette(hudLayer, game);
   mountTechTree(hudLayer, game);
+  mountLunarMap(hudLayer, game);
   mountVictory(root, game);
   mountDefeat(root);
   mountSiteSelect(root, game);
