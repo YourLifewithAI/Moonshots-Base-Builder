@@ -773,7 +773,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 10 · night survival tracking ───────────────────────────────────
   if (s.wasNight && !day.isNight) {
     if (st.nightLoadShed) st.nightBrownouts += 1;
-    st.cleanNightStreak = st.nightCritDark ? 0 : st.cleanNightStreak + 1;
+    // clean: nothing went dark all night, not even a lab
+    st.cleanNightStreak = st.nightLoadShed ? 0 : st.cleanNightStreak + 1;
     // the Era 6 deed: compute held the whole night and no critical load went dark
     if (st.nightDcAllActive && !st.nightCritDark) st.dcCleanNight = true;
     if (s.crew > 0 || robotic) {
