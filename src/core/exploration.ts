@@ -112,7 +112,7 @@ export function strikeEffect(kind: Deposit['kind'], mods: Mods): string {
     case 'anorthosite': return `refinery feed +${Math.round(40 * mods.feedBonus.anorthosite)}%`;
     case 'glass': return `smelter O₂ +${Math.round(60 * mods.feedBonus.glass)}%`;
     case 'kreep': return 'reactor fuel make-up · no habitats';
-    case 'volatiles': return 'water ×2.5 with Volatile Extraction';
+    case 'volatiles': return 'water ×2.5 with Solar-Wind Volatiles';
     case 'ice': return 'Ice Harvesters can work it';
     case 'ridge': return 'solar ×1.2, never shaded';
   }

@@ -111,28 +111,64 @@ panel adds its services: the ice survey, Earth shipments (showing the transit
 and morale cost the next order would actually take), and *Crew all eligible
 stations* once settlers are aboard. Same template everywhere; nothing to relearn.
 
-## 6. Tech tree screen (`screens.ts`)
+## 6. Research tree and Lunar Map (`techTree.ts`, `lunarMap.ts`)
 
-Full-screen overlay (T key, or the era chip under the time controls):
+Both are opaque full-screen DOM/SVG overlays over a still-running sim. They
+render a published view (`$research`, `$lunar`) and dispatch actions; neither
+recomputes availability, cost or reach. The world stops rendering while
+either one covers it. Full layout rules are in
+[11-research-and-map-spec.md](11-research-and-map-spec.md) §5b and §6.
 
-- **Era columns, left to right**: FIRST LANDING → SELF-SUFFICIENCY →
-  INDUSTRIALIZATION → EXPORT ECONOMY → SELF-REPLICATION → **DYSON SWARM** at
-  the far right — the capstone is always visible at the end of the road, the
-  Civ V/VI trick for making the endgame feel inevitable.
-- **HTML cards over one SVG line layer.** Cards are DOM (free layout, hover,
-  text wrap); dependencies are orthogonally-routed paths in a single `<svg>`
-  behind them, redrawn from card `getBoundingClientRect` after layout.
-  Satisfied links: solid @ 0.5 opacity. Unsatisfied: dashed @ 0.22.
-- **State by shape and fill, never color**: done = solid fill + ✓ suffix;
-  queued = brightened border + "⧗ queued n" + in-place progress bar;
-  available = normal card; locked = dashed border @ 38% opacity. Locked eras
-  dim their whole column header.
-- Each card carries cost (`data≡` + goods glyphs for era 3+), description,
-  and its **trade-off line** (`−` prefixed) — the tree never sells a free
-  lunch.
-- **3-deep research queue** rail at the bottom; head shows live %; clicking a
-  queued item cancels it (canceling a prerequisite also drops its dependents,
-  handled sim-side).
+### 6a. Research tree ([T], or the era chip)
+
+- **Swimlanes × eras.** Seven lane rows (⚡ POWER, ◆ MATERIALS,
+  ◉ ROBOTS & FAB, ▣ SILICON & COMPUTE, ⌂ HABITAT, ◎ EXPLORATION, ↑ EXPORT)
+  across eight era columns, plus a lane-free Era 8 capstone column that is
+  always on screen: the Civ trick of keeping the end of the road visible.
+  Lane heights come from the techs visible on this run, so a site's own
+  techs never leave holes.
+- **Era headers** show both charter routes live: `◼◻ 1/2 · or 1 + 20▣ fabbed
+  (12/20)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
+- **Cards** are two lines: state glyph and short name, then cost and the
+  first generated pro. Markers: ◇ and a bracket for a doctrine, ✦ for a
+  breakthrough (a dotted `✦ ?` placeholder until surveyed), ◬ for a site
+  tech, `✎−40%` for an earned insight, ⚠ for a tech waiting on goods.
+- **State by shape and value, never hue alone:** done = solid border + ✓;
+  queued = `#n` + a 2 px bar; available = hairline; locked = dashed @ 38%;
+  foreclosed = struck through @ 25%; full = ⊘.
+- **Links** are one SVG layer routed through the gutters: solid from a done
+  source, dashed from a pending one, `requiresAny` edges meeting at an OR
+  diamond. Hovering a card highlights its prerequisite closure and
+  dependents and dims everything else.
+- **Detail sheet** (hover, or the sticky selection) has three columns:
+  1. identity and the exact lock reason;
+  2. the generated ⊕/⊖ lines and a **YOUR BASE** preview diffed from the
+     buildings you actually have (`Your 2 Data Centers: −21 kW`);
+  3. cost after insights, goods as have/need with the producer, ETA, and the
+     Queue / Queue path ⇧ / Cancel buttons.
+- **Doctrines** never commit on a click. Selecting one shows both members
+  side by side, and only `[Commit to … — permanent]` queues it.
+- **Queue** of 5: click to queue, click a queued card to cancel (dependents
+  drop with an alert), shift-click queues the whole prerequisite path, and
+  ↑/↓ reorders it. Keys: arrows move, Enter queues, Shift+Enter queues the
+  path, Esc or T closes.
+- A locked palette card opens the tree on the tech that unlocks it.
+
+### 6b. Lunar Map ([M], or `[M] Map` in the tree header)
+
+- **Six views that open with research:** SITE (the 1 km build map, top
+  down, with deposits, the build-network discs and your buildings), VICINITY
+  and REGION (orthographic around home), then NEAR, FAR and MOON (discs over
+  a maria basemap). A new survey tier tweens the window outward the next
+  time the map opens, and the map chip pulses until then.
+- **Prospects** are 34 real places at real coordinates. Pins beyond coverage
+  show a lock reason naming the tech that reaches them; the sheet for a
+  visible one shows its geology, survey cost and data (novelty applied),
+  claim terms, and any breakthrough (`✦?` before its survey).
+- **Outposts** list their live stream, hopper fuel, upkeep and link power,
+  and dim when grounded for fuel or parts.
+- The header carries the tier label, outpost slots, survey count and ATLAS
+  progress. Nothing pauses; every refusal is the sim's own alert.
 
 ## 7. Site-selection screen (`screens.ts: mountSiteSelect`)
 

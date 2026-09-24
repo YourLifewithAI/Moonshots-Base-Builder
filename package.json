@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "playwright test"
+    "test": "playwright test",
+    "docs": "node scripts/gen-tech-doc.mjs",
+    "docs:check": "node scripts/gen-tech-doc.mjs --check"
   },
   "dependencies": {
     "idb-keyval": "^6.2.1",

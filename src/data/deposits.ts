@@ -97,7 +97,7 @@ export const DEPOSIT_INFO: Record<DepositKind, DepositInfo> = {
   },
   volatiles: {
     glyph: '≈', name: 'mature soil', pattern: 'thinDotted',
-    ghost: 'On mature soil — water ×2.5 with Volatile Extraction · regolith ×0.9', lead: '? unknown',
+    ghost: 'On mature soil — water ×2.5 with Solar-Wind Volatiles · regolith ×0.9', lead: '? unknown',
   },
   ice: {
     glyph: '❄', name: 'cold-trap ice', pattern: 'solid',

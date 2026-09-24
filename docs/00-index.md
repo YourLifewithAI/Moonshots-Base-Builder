@@ -49,19 +49,20 @@ A quick key used throughout:
 | **[00-index.md](00-index.md)** | Index | This file — the map, the source-of-truth rule, conventions. |
 | **[01-vision.md](01-vision.md)** | Vision | The pitch, design pillars, player fantasy, and every attributed mechanical borrowing (Surviving Mars, Frostpunk, Anno 1800, Factorio, Dyson Sphere Program, Timberborn, ONI, Cities: Skylines, RimWorld, Per Aspera, Banished, Astroneer, Stationeers). |
 | **[02-economy.md](02-economy.md)** | Economy | The full 13-resource model (the slice ships 10), resource loops, the Parts maintenance sink, all six designed failure/pressure systems, morale and the cut Unrest meter, crew tiers, policies, and the Earth-umbilical arc. |
-| **[03-tech-tree.md](03-tech-tree.md)** | Tech tree | The full ~30-tech, 6-era tree (18 shipped + designed-but-cut techs), era-gating rules, and the manufactured-science rationale. |
+| **[03-tech-tree.md](03-tech-tree.md)** | Tech tree | The shipped 47-tech, 7-lane, 8-era tree: charters, doctrines, insights, breakthroughs, the verbs research unlocks, and every tech's cost and generated pros/cons (tables regenerated from `src/data`). |
 | **[04-buildings.md](04-buildings.md)** | Buildings | The full roster in one consistent format — inputs → outputs \| secondary effect \| pro \| con — noting which 14 shipped. |
-| **[05-sites.md](05-sites.md)** | Landing sites | All five designed sites (3 shipped + Highland Anorthosite + KREEP/Procellarum), each grounded in real lunar science, with mechanical modifiers. |
+| **[05-sites.md](05-sites.md)** | Landing sites | All five designed sites (3 shipped + Highland Anorthosite + KREEP/Procellarum), each grounded in real lunar science, with mechanical modifiers, plus each shipped site's home coordinates, deposits, site techs and the survey tiers that grow the Lunar Map. |
 
 ### Written by the presentation/engineering documentation team
 
 | Doc | Title | What it covers |
 |---|---|---|
 | **[06-art-direction.md](06-art-direction.md)** | Art direction | PBR-monochrome grayscale recipe, earthshine as the only color, procedural terrain and building vocabulary, post-processing chain. |
-| **[07-ui-design.md](07-ui-design.md)** | UI design | The "living blueprint / mission-control" HUD, design tokens, tooltip template, tech-tree screen, site-selection screen, walk-mode HUD. |
+| **[07-ui-design.md](07-ui-design.md)** | UI design | The "living blueprint / mission-control" HUD, design tokens, tooltip template, the swimlane research tree and Lunar Map, site-selection screen, walk-mode HUD, menu and sound. |
 | **[08-architecture.md](08-architecture.md)** | Architecture | Vite + TS + Three.js stack, fixed-timestep sim, economy tick order, terrain pipeline, save format, test hooks. |
 | **[09-roadmap.md](09-roadmap.md)** | Roadmap | The expansion plan: in what order the CUT content in docs 02–05 comes back, and why. |
 | **[10-slice-scope.md](10-slice-scope.md)** | Slice scope | Exactly what the vertical slice contains, the cut lines drawn, and the verification story. |
+| **[11-research-and-map-spec.md](11-research-and-map-spec.md)** | Research & map spec | The implementation spec for the research tree and Lunar Map: systems, the full tech table, deposits, tree UI layout, pacing model, save migration and test plan. |
 
 ---
 
@@ -78,7 +79,7 @@ A quick key used throughout:
 
 - **Terminology follows the game.** Shipped things are named exactly as in
   `src/data` and the HUD: *Regolith Smelter*, not "ISRU plant"; *Foils*, not
-  "collector panels"; era names are the shipped all-caps six (FIRST LANDING →
+  "collector panels"; era names are the shipped all-caps eight (FIRST LANDING →
   DYSON SWARM). Cut content keeps its research name, marked CUT.
 - **Rates** are per game-second (the economy ticks at 1 Hz of game time); parts
   upkeep is per lunar day; a compressed lunar day is 480 s day + 240 s night at 1×.
