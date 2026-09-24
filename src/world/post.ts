@@ -89,6 +89,10 @@ export class PostFX {
       if (this.level < 2) {
         try {
           const ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+          // transparent layers write no depth and stay out of the AO; left on
+          // auto, N8AO finds one and draws the scene twice more every frame
+          ao.autoDetectTransparency = false;
+          ao.configuration.transparencyAware = false;
           ao.configuration.aoRadius = 3.0;
           ao.configuration.intensity = 2.5;
           ao.configuration.distanceFalloff = 1.0;
