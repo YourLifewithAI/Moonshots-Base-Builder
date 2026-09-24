@@ -216,7 +216,6 @@ export function mountHud(root: HTMLElement, game: Game) {
   const right = el('div', '');
   right.id = 'hud-right';
   root.appendChild(right);
-  $selection.subscribe((sel) => right.classList.toggle('inspecting', sel !== null));
 
   // ── time controls ──
   const time = el('div', '');
@@ -271,7 +270,7 @@ export function mountHud(root: HTMLElement, game: Game) {
       // conditions keep their places; the newest event leads its severity
       .sort((a, b) => RANK[a.kind] - RANK[b.kind] || Number(!a.cond) - Number(!b.cond) ||
         (a.cond ? a.id - b.id : b.at - a.at || b.id - a.id));
-    const shown = list.slice(0, ALERTS.shown);
+    const shown = list.slice(0, inspecting() ? inspRows : ALERTS.shown);
     const keep = new Set(shown.map((a) => a.id));
     for (const [id, e] of alertEls) {
       if (!keep.has(id)) { e.root.remove(); alertEls.delete(id); }
@@ -364,7 +363,16 @@ export function mountHud(root: HTMLElement, game: Game) {
     }).join('');
     goals.innerHTML = label + rows;
   };
-  goals.addEventListener('click', () => { goalsOpen = !goalsOpen; renderGoals(); });
+  // the expanded roadmap and a resource info panel share the left side of the
+  // screen: one open at a time, so neither covers the other's Close
+  const setGoalsOpen = (v: boolean) => {
+    goalsOpen = v;
+    goals.classList.toggle('open', v);
+    if (v && $resourcePanel.get()) $resourcePanel.set(null);
+    renderGoals();
+  };
+  goals.addEventListener('click', () => setGoalsOpen(!goalsOpen));
+  $resourcePanel.subscribe((key) => { if (key && goalsOpen) setGoalsOpen(false); });
   $milestones.subscribe(renderGoals);
   $vitals.subscribe(renderGoals);
 
@@ -392,10 +400,12 @@ export function mountHud(root: HTMLElement, game: Game) {
     const r = $resources.get();
     const p = $power.get();
     const v = $vitals.get();
+    // as on the strip: an uncrewed robotic base has no morale to read
+    const crewAboard = v.expedition !== 'robotic' || v.crew > 0;
     helmet.innerHTML = `
       <div class="chip panel"><span class="glyph">○</span><span class="val mono">${fmt(r.oxygen)}</span><span class="cap">O₂</span></div>
       <div class="chip panel"><span class="glyph">▮</span><span class="val mono">${fmt(p.stored)}</span><span class="cap">PWR</span></div>
-      <div class="chip panel"><span class="glyph">◐</span><span class="val mono">${v.morale}%</span></div>`;
+      ${crewAboard ? `<div class="chip panel" data-slot="morale"><span class="glyph">◐</span><span class="val mono">${v.morale}%</span></div>` : ''}`;
   };
   $mode.subscribe((m) => {
     walkHud.style.display = m === 'walk' ? 'block' : 'none';

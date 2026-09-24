@@ -1537,7 +1537,7 @@ export class Game {
   private saveBlob(): SaveBlob {
     const held = this.savePausedAs;
     return {
-      state: this.state,
+      state: held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held },
       player: {
         mode: this.modes.mode,
         x: this.walk.pos.x, y: this.walk.pos.y, z: this.walk.pos.z,

@@ -193,6 +193,12 @@ export function mountMenu(root: HTMLElement, game: Game) {
   };
   $menuOpen.subscribe(show);
   $phase.subscribe((p) => { if (p !== 'playing') $menuOpen.set(false); });
+  // "Simulation paused" is heard too: the hum ducks and the suit stops
+  // breathing while the menu is up or the game stands paused
+  const duck = () => sfx.setDucked($menuOpen.get() || ($phase.get() === 'playing' && $time.get().paused));
+  $menuOpen.subscribe(duck);
+  $time.subscribe(duck);
+  $phase.subscribe(duck);
 
   veil.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
@@ -245,10 +251,27 @@ export function mountMenu(root: HTMLElement, game: Game) {
   vol.addEventListener('change', () => sfx.play('tick'));
 
   // capture, registered before the other screens: while open, the menu owns
-  // the keyboard (Esc closes it; nothing reaches the camera, the tree or the sim)
+  // the keyboard (Esc closes it; nothing reaches the camera, the tree or the
+  // sim). A held Esc does not close what its first press opened. Tab walks
+  // the menu's own controls only, never onto the HUD behind the veil
   window.addEventListener('keydown', (e) => {
     if (!$menuOpen.get()) return;
     e.stopImmediatePropagation();
-    if (e.code === 'Escape') { e.preventDefault(); $menuOpen.set(false); }
+    if (e.code === 'Escape') { e.preventDefault(); if (!e.repeat) $menuOpen.set(false); return; }
+    if (e.code === 'Tab') {
+      e.preventDefault();
+      const stops = [...veil.querySelectorAll<HTMLElement>('button, input')]
+        .filter((x) => !(x as HTMLButtonElement).disabled && x.offsetParent !== null);
+      if (!stops.length) return;
+      const i = stops.indexOf(document.activeElement as HTMLElement);
+      const next = i < 0 ? (e.shiftKey ? stops.length - 1 : 0) : (i + (e.shiftKey ? stops.length - 1 : 1)) % stops.length;
+      stops[next].focus({ preventScroll: true });
+    }
   }, true);
+  // a click or script that moves focus behind the veil is brought back
+  document.addEventListener('focusin', (e) => {
+    if ($menuOpen.get() && !veil.contains(e.target as Node)) {
+      $<HTMLButtonElement>('[data-act="resume"]').focus({ preventScroll: true });
+    }
+  });
 }

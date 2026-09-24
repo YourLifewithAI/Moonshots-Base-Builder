@@ -176,6 +176,7 @@ function panelHtml(key: string, mods: Mods): string | null {
     const dcs = rv?.dcsActive ?? counts.dataCenter?.active ?? 0;
     const transfer = RESEARCH_RATE_PER_LAB * labs + RESEARCH_RATE_PER_DC * dcs;
     const share = rv && rv.agentLabs > 0 ? rv.uplinkShare : 1;
+    const operating = `${labs} lab${labs === 1 ? '' : 's'}, ${dcs} data center${dcs === 1 ? '' : 's'} operating`;
     return `
       <section><div class="tt-name"><span>≡ Research data</span><span class="mono">${fmt(v.data)}</span></div>
         <span class="label">${!t.queue.length

@@ -8,10 +8,14 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, TECH_ORDER, effectApplies, type TechId } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost, demolishRefund, untouchedSite } from '../buildings/placement';
-import { wearDerate } from '../core/economy';
-import { canToggleCrew, effectiveDef, effectiveRates, refineryFeed, smelterFeed, type Mods } from '../core/mods';
+import { downlinkCost, wearDerate } from '../core/economy';
+import {
+  OVERCLOCKABLE, canToggleCrew, effectiveDef, effectiveRates, refineryFeed, smelterFeed, type Mods,
+} from '../core/mods';
 import { uplinkShare } from '../core/research';
-import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST, RESUPPLY } from '../data/balance';
+import {
+  AGENT_GEN_TAX, CONSTRUCTION_KW, CYCLE_S, DOWNLINK, GRADE_COST_ENERGY, ICE_SURVEY_COST, OVERCLOCK, RESUPPLY, WEAR,
+} from '../data/balance';
 import { DEPOSIT_INFO, FEED_KINDS, FEED_LABEL, type FeedGrade } from '../data/deposits';
 import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
@@ -45,6 +49,13 @@ export function unlockingTech(b: BuildingId): TechId | null {
     hidden ??= tid;
   }
   return hidden;
+}
+
+/** Why a locked card can never be built on this site or mission ('' when
+ *  research unlocks it here): an ice harvester needs polar ice. */
+export function notBuildableHere(b: BuildingId): string {
+  if (BUILDINGS[b].requiresIce && !SITES[$siteId.get() ?? 'mare'].hasIce) return 'Not buildable here — no polar ice';
+  return unlockingTech(b) ? '' : 'Not buildable on this mission';
 }
 
 /** kW with one decimal where it matters: 10, 6.4 */
@@ -88,7 +99,7 @@ function ioRows(type: BuildingId, mods: Mods, b?: BuildingState): string {
     : '0 kW';
   const upkeep = r.upkeepPartsPerDay > 0 ? `${fmt(r.upkeepPartsPerDay)} parts/day` : '—';
   const buildTime = def.buildTime > 0
-    ? `${Math.round(def.buildTime * site.buildCostMult * mods.buildSpeedMult * mods.buildTimeMult[type])}s · 1 robot · ${CONSTRUCTION_KW} kW · parts to weld`
+    ? `${Math.round(def.buildTime * site.buildCostMult * mods.buildSpeedMult * mods.buildTimeMult[type])}s · 1 robot · ${kw(CONSTRUCTION_KW * mods.constructionKWMult)} kW · parts to weld`
     : 'pre-placed';
   const extras: string[] = [];
   if (def.housing) extras.push(`houses ${def.housing}`);
@@ -393,24 +404,31 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <div class="prog" style="height:4px; margin-top:5px; background:rgba(245,247,249,0.06)">
           <i id="insp-cond-bar" style="display:block; height:100%"></i>
         </div>
-        <div class="goal-hint" id="insp-cond-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)"></div>
+        <div ${NOTE} id="insp-cond-hint"></div>
       </section>
       <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
+      ${isLander ? `<section>
+        <span class="label">◎ Deposits are mapped inside the survey radius — overlay [I]</span>
+        <div ${NOTE}>Shipment: +${RESUPPLY.metals} metals · +${RESUPPLY.parts} parts${vit.crew > 0 ? ` · morale −${RESUPPLY.moraleHit} (the crew resents the umbilical)` : ''}. Each order waits a lunar day longer than the last; Earth's rescue of a stranded base does not.</div>
+        ${downlink ? `<div ${NOTE}>Downlink: banked research data sold to Earth for cargo, through the same one shipment slot; each costs ${DOWNLINK.stepData}≡ more than the last.</div>` : ''}
+        ${crewAll ? `<div ${NOTE}>Crew all: settlers take agent-run stations in priority order while free hands last; the rest stay agent-run.</div>` : ''}
+      </section>` : ''}
+      </div>
+      <div class="insp-foot">
       <section>
         <span class="label">Idle priority (0 = last to brown out)</span>
         <div class="prio">${[0, 1, 2, 3].map((p) =>
           `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
       </section>
-      ${sel.type === 'lander' ? `<section>
+      ${isLander ? `<section>
         <span class="label">Lander services — mission HQ</span>
-        <div class="prio" style="margin-top:6px; flex-wrap:wrap">
+        <div class="prio" style="flex-wrap:wrap">
           <button class="btn" id="insp-map">◎ Open Lunar Map [M]</button>
-          <span class="label">◎ Deposits are mapped inside the survey radius — overlay [I]</span>
-        </div>
-        <div class="prio" style="margin-top:6px">
-          ${$lander.get().resupplyPending
+          ${lander.resupplyPending
             ? '<span class="label" id="insp-eta"></span>'
             : `<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in ${orderDays} day${orderDays === 1 ? '' : 's'}</button>`}
+          ${downlink ? '<button class="btn" id="insp-downlink"></button>' : ''}
+          ${crewAll ? `<button class="btn" id="insp-crewall">${PERSON_SVG} Crew all eligible stations</button>` : ''}
         </div>
       </section>` : ''}
       ${def.crew > 0 && crewToggle ? `<section>
@@ -422,17 +440,26 @@ export function mountPalette(root: HTMLElement, game: Game) {
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
         </div>
       </section>` : ''}
+      ${overclock ? `<section>
+        <span class="label" title="Overclocked: ×${OVERCLOCK.mult} power draw, inputs, outputs and data; wear +${OVERCLOCK.wearPerDay}/day even with upkeep paid, and it trips itself back to nameplate at WORN">Clock — ×${OVERCLOCK.mult} everything, wear +${OVERCLOCK.wearPerDay}/day</span>
+        <div class="prio">
+          <button class="btn${sel.overclock ? '' : ' active'}" id="insp-oc-off" aria-pressed="${!sel.overclock}">Nameplate</button>
+          <button class="btn${sel.overclock ? ' active' : ''}" id="insp-oc-on" aria-pressed="${!!sel.overclock}">⏫ Overclock ×${OVERCLOCK.mult}</button>
+        </div>
+        <div ${NOTE} id="insp-oc"></div>
+      </section>` : ''}
       ${conRemaining > 0 && sel.enabled && sel.idleReason === 'queued' ? `<section>
         <span class="label">Robot queue — sites build in placement order</span>
         <div class="prio"><button class="btn" id="insp-buildnext">Build next</button></div>
       </section>` : ''}
       <section class="actions">
-        ${sel.type !== 'lander' ? `<button class="btn" id="insp-toggle">${conRemaining > 0
+        ${!isLander ? `<button class="btn" id="insp-toggle">${conRemaining > 0
           ? (sel.enabled ? 'Pause' : 'Resume')
           : (sel.enabled ? 'Shut down' : 'Power on')}</button>` : ''}
-        ${sel.type !== 'lander' ? `<button class="btn" id="insp-demolish" title="Refund: ${refund || 'nothing'}">${untouched ? 'Cancel ↩' : 'Demolish ½↩'}</button>` : ''}
+        ${!isLander ? `<button class="btn" id="insp-demolish" title="Refund: ${refund || 'nothing'}">${untouched ? 'Cancel ↩' : 'Demolish ½↩'}</button>` : ''}
         <button class="btn" id="insp-close">✕</button>
-      </section>`;
+      </section>
+      </div>`;
   };
   $selection.subscribe((sel) => {
     if (!sel) { insp.style.display = 'none'; inspSig = ''; return; }
@@ -445,6 +472,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       site && sel.idleReason === 'queued', untouchedSite(sel),
       canToggleCrew(vit.expedition, vit.crew, $tech.get()), vit.expedition, vit.crew > 0,
       sel.deposit ?? '', lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
+      [...game.mods.actions].sort().join(','),
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;
