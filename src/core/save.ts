@@ -1,6 +1,7 @@
 /** Save/load: one JSON blob in IndexedDB (idb-keyval). Terrain is never saved —
  *  it regenerates deterministically from (siteId, seed), then the flatten
- *  history is replayed in order. */
+ *  history is replayed in order. state.version stays 1: the tech tree carries
+ *  its own techSchema, migrated by research.migrateTechSchema in game.loadFrom. */
 import { get, set, del } from 'idb-keyval';
 import type { GameState } from './state';
 
