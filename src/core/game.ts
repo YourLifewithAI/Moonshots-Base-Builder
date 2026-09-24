@@ -334,6 +334,9 @@ export class Game {
             const id = this.lookId;
             this.modes.toggle();
             this.select(id);
+          } else if (this.modes.mode === 'build') {
+            e.preventDefault();
+            this.buildCam.keyDown(e.code); // in command view E orbits, opposite to Q
           }
           break;
         case 'Escape':
