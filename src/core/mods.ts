@@ -9,8 +9,8 @@ import type { ResourceId } from '../data/resources';
 import { FEED_KINDS, emptyFeed, type FeedGrade, type FeedKind } from '../data/deposits';
 import { OUTPOST_LINK_KW } from '../data/lunarMap';
 import {
-  AGENT_TAX, BATTERY_EFF, DC_DATA_PER_S, DEPOSIT_FX, FEED, LAB_DATA, OVERCLOCK,
-  SURVEY_TIERS, WEAR_DERATE,
+  AGENT_GEN_TAX, AGENT_TAX, BATTERY_EFF, DC_DATA_PER_S, DEPOSIT_FX, FEED, LAB_DATA, OVERCLOCK,
+  SURVEY_TIERS, WEAR,
 } from '../data/balance';
 import type { BuildingState, GameState, OutpostState } from './state';
 
@@ -214,6 +214,11 @@ export function effectiveDef(type: BuildingId, mods: Mods): EffectiveDef {
   return d;
 }
 
+/** output multiplier from equipment wear — linear; the Lander, the lifeboat, never wears */
+export function wearDerate(b: Pick<BuildingState, 'type' | 'wear'>): number {
+  return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
+}
+
 /** A station runs on agents when toggled Autonomous, or unmanned on a robotic run. */
 export function isAgentRun(b: BuildingState, s: Pick<GameState, 'expedition' | 'crew'>): boolean {
   return b.automated || (s.expedition === 'robotic' && s.crew <= 0);
@@ -238,6 +243,12 @@ export function reactorUpkeepFactor(mods: Mods, g: FeedGrade): number {
 }
 
 const ISRU: BuildingId[] = ['excavator', 'iceHarvester', 'smelter', 'refinery'];
+
+/** Dynamic Clocking may push these past nameplate (spec S8.1). */
+export const OVERCLOCKABLE: readonly BuildingId[] = [
+  'excavator', 'iceHarvester', 'smelter', 'refinery', 'partsFab', 'chipFab', 'lab', 'dataCenter',
+  'foilFactory', 'massDriver', 'propellantPlant',
+];
 
 export interface RateOpts {
   /** default: b ? b.automated : false */
@@ -270,8 +281,9 @@ export interface EffectiveRates {
 const NO_FEED: FeedGrade = emptyFeed();
 
 /** Exactly what one building does per second under these mods — multipliers,
- *  agent tax, feed factor, overclock, site ISRU/launch and the deposit it sits on.
- *  Sun, dust and shading are left to the caller (they vary by tick). */
+ *  agent tax, feed factor, overclock, wear, site ISRU/launch and the deposit it
+ *  sits on. The economy runs on these numbers. Sun, dust and shading are left
+ *  to the caller (they vary by tick). */
 export function effectiveRates(
   type: BuildingId, mods: Mods, site: SiteDef, b?: BuildingState, opts: RateOpts = {},
 ): EffectiveRates {
@@ -279,7 +291,7 @@ export function effectiveRates(
   const agentRun = opts.agentRun ?? b?.automated ?? false;
   const crewed = def.crew > 0 && !agentRun;
   const oc = b?.overclock ? OVERCLOCK.mult : 1;
-  const wear = b && b.wear > WEAR_DERATE.threshold ? WEAR_DERATE.mult : 1;
+  const wear = b ? wearDerate(b) : 1;
   const workMult = opts.workMult ?? 1;
   const g = opts.feed ?? NO_FEED;
   const deposit = b?.deposit;
@@ -287,6 +299,8 @@ export function effectiveRates(
   let powerKW = 0;
   if (def.powerKW > 0) {
     powerKW = def.powerKW * mods.powerMult[type] * wear;
+    // agents running a crewed generator skim its output for their own load
+    if (agentRun && def.crew > 0) powerKW *= 1 - AGENT_GEN_TAX;
     if (type === 'solar' && deposit === 'ridge') powerKW *= DEPOSIT_FX.ridgeSolar;
   } else if (def.powerKW < 0) {
     const tax = agentRun && def.crew > 0 ? 1 + mods.agentTax : 1;

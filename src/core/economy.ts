@@ -1,32 +1,35 @@
 /** The 1 Hz economy tick — deterministic resolution order:
  *  generator staffing → power supply → stockpile caps → priority idling →
  *  worker allocation → production (tier order) → life support & crew →
- *  parts upkeep & wear → net rates → morale → flare events → resupply →
- *  research → night tracking → milestones.
+ *  parts upkeep & wear → net rates → morale → flare events → Earth
+ *  shipments → crew rotation → research → night tracking → charters →
+ *  milestones. Every building's numbers come from mods.effectiveRates, the
+ *  same function the tooltips and previews read.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { MILESTONES } from '../data/milestones';
 import {
-  AGENT_GEN_TAX, ALERTS, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
-  CREW, CYCLE_S, DATA_RATE, DUSK_WARN_S, FLARE, NIGHT_S,
-  LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
-  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START, WEAR,
+  ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
+  CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, FLARE, HELIOPHYSICS_DATA, NIGHT_S,
+  LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
+  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, WEAR,
 } from '../data/balance';
-import type { ResourceId } from '../data/resources';
+import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState } from './state';
-import { computeMods, modsFor, type Mods } from './mods';
-import { computeEra, eraTick, insightTick, researchTick } from './research';
+import {
+  computeMods, effectiveDef, effectiveRates, modsFor, wearDerate, type EffectiveRates, type Mods,
+} from './mods';
+import { computeEra, eraTick, insightTick, producerOf, researchTick, uplinkShare } from './research';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 
-const ISRU_BUILDINGS: BuildingId[] = ['excavator', 'iceHarvester', 'smelter', 'refinery'];
 const PROD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',            // extraction
   'smelter', 'refinery', 'partsFab', 'chipFab', // industry (same-tick chaining)
   'hydroponics', 'recDome',               // life
-  'foilFactory', 'massDriver',            // export
+  'foilFactory', 'massDriver', 'propellantPlant', // export
   'lab', 'dataCenter',                    // science
 ];
 
@@ -116,10 +119,7 @@ export function missionLost(s: GameState): boolean {
   return s.expedition !== 'robotic' && s.defeatShown;
 }
 
-/** output multiplier from equipment wear — the Lander, the lifeboat, never wears */
-export function wearDerate(b: BuildingState): number {
-  return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
-}
+export { wearDerate };
 
 /** settlers come to any human base, and to a robotic one once it is ready for them */
 export function settlersWelcome(s: GameState): boolean {
@@ -148,6 +148,11 @@ export function boardingShortfall(s: GameState, lsMult: number): '' | 'oxygen' |
 /** transit time of a shipment ordered by hand now: Earth's patience thins */
 export function orderDelayS(s: GameState): number {
   return RESUPPLY.delayS + (s.resupply?.ordered ?? 0) * RESUPPLY.orderStepS;
+}
+
+/** banked data the next Earth downlink costs: each one asks more */
+export function downlinkCost(s: GameState): number {
+  return DOWNLINK.baseData + DOWNLINK.stepData * (s.downlinks ?? 0);
 }
 
 /** a construction site's place in the robot queue (lower builds first) */
@@ -180,6 +185,26 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const unmanned = robotic && s.crew <= 0;
   const workMult = unmanned ? 1 : moraleWorkMult(s.morale);
   const isAuto = (b: BuildingState) => b.automated || unmanned;
+  const st = s.stats;
+  // recipe overrides and flat kW deltas (a comms-loaded Lander turns consumer)
+  const eff = (t: BuildingId) => effectiveDef(t, mods);
+  // what each building does this tick, sun, dust and shade aside
+  const rateCache = new Map<number, EffectiveRates>();
+  const rateOpts = { robotic, workMult, isNight: day.isNight };
+  const rates = (b: BuildingState): EffectiveRates => {
+    let r = rateCache.get(b.id);
+    if (!r) {
+      r = effectiveRates(b.type, mods, site, b, { ...rateOpts, agentRun: isAuto(b), feed: s.feed });
+      rateCache.set(b.id, r);
+    }
+    return r;
+  };
+  // a new night: the per-night charter and insight accumulators start clean
+  if (day.isNight && !s.wasNight) {
+    st.nightCritDark = false;
+    st.nightLoadShed = false;
+    st.nightDcAllActive = true;
+  }
 
   // ── 0 · construction robots — the fleet gates concurrent builds ────
   const building = (b: BuildingState) => (b.construction ?? 0) > 0;
@@ -199,12 +224,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (site.enabled) botAssigned.add(site.id);
   }
   s.bots = { total: botsTotal, busy: botAssigned.size };
+  st.waitingSitesPeak = Math.max(st.waitingSitesPeak,
+    sites.filter((b) => b.enabled && !botAssigned.has(b.id)).length);
 
   // ── 0.5 · generator staffing — crewed generators take workers first,
   // because every other station's power depends on them ───────────────
   let workers = s.crew;
   const staffed = new Set<number>();
-  const crewedGen = (b: BuildingState) => BUILDINGS[b.type].powerKW > 0 && BUILDINGS[b.type].crew > 0;
+  const crewedGen = (b: BuildingState) => eff(b.type).powerKW > 0 && BUILDINGS[b.type].crew > 0;
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
     if (building(b) || !crewedGen(b)) continue;
     b.active = false;
@@ -225,26 +252,32 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   let capacity = 0;
   let solarNow = 0;   // this tick's solar share of supply
   let solarFull = 0;  // the same panels under a full sun (for the dusk forecast)
+  const sunUp = day.sunFactor > 0.01;
   for (const b of s.buildings) {
     if (building(b)) continue;
-    const def = BUILDINGS[b.type];
-    if (def.storageKWh) capacity += def.storageKWh;
+    const def = eff(b.type);
+    if (def.storageKWh) capacity += def.storageKWh * (b.type === 'battery' ? mods.batteryCapMult : 1);
     if (!b.enabled) continue;
     if (def.powerKW > 0) {
       if (crewedGen(b) && !staffed.has(b.id)) continue;
-      let out = def.powerKW * mods.powerMult[b.type];
+      // multipliers, wear, the agents' skim and a ridge's extra light
+      const out = rates(b).powerKW;
       if (b.type === 'solar') {
-        const panel = out * (1 - b.dust) * (b.shaded ? 0.15 : 1) * wearDerate(b);
+        // a peak of light is never in terrain shade, and masts stand above it
+        const shaded = !!b.shaded && !mods.solarShadeImmune && b.deposit !== 'ridge';
+        if (sunUp) b.shadedT = shaded ? (b.shadedT ?? 0) + dt : 0;
+        st.shadedMaxS = Math.max(st.shadedMaxS, b.shadedT ?? 0);
+        const panel = out * (1 - b.dust) * (shaded ? 0.15 : 1);
         solarFull += panel;
         solarNow += panel * day.sunFactor;
         supply += panel * day.sunFactor;
         continue;
       }
-      if (crewedGen(b) && isAuto(b)) out *= 1 - AGENT_GEN_TAX;
-      supply += out * wearDerate(b);
+      supply += out;
     }
   }
-  if (mods.powerBeam) supply += s.launches * BEAM_KW_PER_LAUNCH;
+  // the beam comes from the swarm, and a flare blinds it
+  if (mods.powerBeam && s.flare.phase !== 'active') supply += s.launches * BEAM_KW_PER_LAUNCH;
 
   // ── 1.5 · stockpile caps (this tick's structures) ──────────────────
   const caps: Partial<Record<ResourceId, number>> = {};
@@ -260,9 +293,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // (Room for a whole tick, not "below cap": upkeep nibbling a full yard
   // must not wake a fabricator every tick.)
   const outputFull = (b: BuildingState) => {
-    const outs = Object.entries(BUILDINGS[b.type].outputs) as [ResourceId, number][];
+    const outs = Object.entries(rates(b).outputs) as [ResourceId, number][];
     return outs.length > 0 && outs.every(([rid, rate]) => caps[rid] !== undefined &&
-      s.resources[rid] + rate * mods.outputMult[b.type] * dt > caps[rid]!);
+      s.resources[rid] + rate * dt > caps[rid]!);
   };
 
   // ── 2 · demand + priority idling (construction sites draw too) ─────
@@ -273,20 +306,15 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       // an active construction site pulls welding power at its building's
       // idle priority
       if (botAssigned.has(b.id)) {
-        wants.push({ b, draw: CONSTRUCTION_KW * dt, prio: b.priority, isSite: true });
+        wants.push({ b, draw: CONSTRUCTION_KW * mods.constructionKWMult * dt, prio: b.priority, isSite: true });
       }
       continue;
     }
-    if (BUILDINGS[b.type].powerKW >= 0) continue;
+    if (eff(b.type).powerKW >= 0) continue;
     if (b.enabled && outputFull(b)) { b.active = false; b.idleReason = 'full'; continue; }
-    // autonomous agents trade crew and morale for watts
-    const autoMult = isAuto(b) && BUILDINGS[b.type].crew > 0 ? 1.6 : 1;
-    wants.push({
-      b,
-      draw: -BUILDINGS[b.type].powerKW * mods.powerMult[b.type] * autoMult * dt,
-      prio: b.priority,
-      isSite: false,
-    });
+    // autonomous agents trade crew and morale for watts (1 + agentTax); night
+    // and day draw multipliers and overclock ride the same number
+    wants.push({ b, draw: -rates(b).powerKW * dt, prio: b.priority, isSite: false });
   }
   // within a priority, running loads keep their power ahead of new construction
   const drawOrder = (w: Draw) => (w.isSite ? queuePos(w.b) : w.b.id);
@@ -334,6 +362,22 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (w.prio <= 1 && !w.isSite) brownout = true;
     else shed = true;
   }
+  if (brownout && !day.isNight && !s.power.brownout) st.dayBrownouts += 1;
+  if (day.isNight && brownout) st.nightCritDark = true;
+  if (day.isNight && (brownout || shed)) st.nightLoadShed = true;
+  // seconds each load has been held dark this night; a farm dark too long loses its crop
+  const darkNow = new Set(dark.filter((w) => !w.isSite).map((w) => w.b.id));
+  for (const b of s.buildings) {
+    if (building(b)) continue;
+    const was = b.darkT ?? 0;
+    b.darkT = day.isNight && darkNow.has(b.id) ? was + dt : 0;
+    st.darkNightMaxS = Math.max(st.darkNightMaxS, b.darkT);
+    if (b.type === 'hydroponics' && was <= CROP_LOSS.darkS && b.darkT > CROP_LOSS.darkS) {
+      b.cropRegrowT = CROP_LOSS.regrowS;
+      alert(s, `CROP LOST — Hydroponics #${b.id} went dark ${CROP_LOSS.darkS} s; ` +
+        `regrowing ${fmtClock(CROP_LOSS.regrowS)}`, 'warn', { select: b.id });
+    }
+  }
 
   // ── 2.5 · construction progress: needs a robot, grid power, AND parts ──
   for (const b of sites) {
@@ -341,7 +385,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (!b.enabled) { b.idleReason = 'off'; continue; }
     if (!botAssigned.has(b.id)) { b.idleReason = 'queued'; continue; }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
-    const weld = CONSTRUCTION_PARTS_PER_S * dt;
+    const weld = CONSTRUCTION_PARTS_PER_S * mods.weldPartsMult * dt;
     if (s.resources.parts < weld) {
       b.idleReason = 'inputs'; // welding consumables ran dry
       condition(s, 'stalled', 'CONSTRUCTION STALLED — no parts for welding', 'warn', { panel: 'parts' });
@@ -349,15 +393,16 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
     s.resources.parts -= weld;
     b.idleReason = 'building';
-    b.construction = Math.max(0, (b.construction ?? 0) - dt);
+    b.construction = Math.max(0, (b.construction ?? 0) - dt * mods.weldRateMult);
     if (b.construction === 0) {
       b.idleReason = '';
+      st.built += 1;
       alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info', { select: b.id });
     }
   }
   // settle storage: net energy this tick
   const net = supply * dt - drawn;
-  if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * BATTERY_EFF);
+  if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * mods.storageEff);
   else s.powerStored = Math.max(0, s.powerStored + net);
   s.power = { supply, demand, served: drawn / dt, capacity, brownout, shed };
   if (brownout) {
@@ -387,7 +432,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 3 · worker allocation (priority order) ─────────────────────────
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
     if (building(b) || crewedGen(b)) continue;
-    const def = BUILDINGS[b.type];
+    const def = eff(b.type);
     const need = isAuto(b) ? 0 : Math.max(0, def.crew + mods.crewDelta[b.type]);
     if (!b.enabled || need === 0) { staffed.add(b.id); continue; }
     if (def.powerKW < 0 && !powered.has(b.id)) continue; // already power-idled
@@ -409,57 +454,67 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (!byType.has(b.type)) byType.set(b.type, []);
     byType.get(b.type)!.push(b);
   }
+  const runs = (b: BuildingState) => b.enabled && !building(b) && staffed.has(b.id) &&
+    (eff(b.type).powerKW >= 0 || powered.has(b.id));
+  // agent-run labs share one DSN link: the share counts every agent lab that
+  // runs this tick (labs have no inputs, so each that is powered and staffed runs)
+  const share = uplinkShare((byType.get('lab') ?? []).filter((b) => runs(b) && isAuto(b)).length);
+  let smelterO2 = 0; // this tick's smelter oxygen, for the crew rotation's check
+  let ilmeniteDug = false;
   for (const type of PROD_ORDER) {
     const list = byType.get(type);
     if (!list) continue;
-    const def = BUILDINGS[type];
     for (const b of list) {
-      if (!b.enabled || building(b)) continue;
-      if (def.powerKW < 0 && !powered.has(b.id)) continue;
-      if (!staffed.has(b.id)) continue;
+      if (!runs(b)) continue;
+      // recipe, multipliers, agents, morale, wear, overclock, feed, site and deposit
+      const r = effectiveRates(type, mods, site, b, {
+        ...rateOpts, agentRun: isAuto(b), feed: s.feed, uplinkShare: share,
+      });
       // inputs
-      const inMult = mods.inputMult[type];
       let short: '' | 'inputs' | 'reserve' = '';
-      for (const [rid, rate] of Object.entries(def.inputs)) {
-        const need = rate * inMult * dt;
+      for (const [rid, rate] of Object.entries(r.inputs)) {
+        const need = (rate ?? 0) * dt;
         const have = s.resources[rid as ResourceId];
         if (have < need) { short = 'inputs'; break; }
         if (have - (reserve[rid as ResourceId] ?? 0) < need) short = 'reserve';
       }
       if (short) { b.idleReason = short; continue; }
-      for (const [rid, rate] of Object.entries(def.inputs)) {
-        s.resources[rid as keyof typeof s.resources] -= rate * inMult * dt;
+      for (const [rid, rate] of Object.entries(r.inputs)) {
+        s.resources[rid as ResourceId] -= (rate ?? 0) * dt;
       }
-      // outputs
-      const derate = wearDerate(b);
-      let outMult = mods.outputMult[type] * dt * derate;
-      if (ISRU_BUILDINGS.includes(type)) outMult *= site.isruMult;
-      if (def.crew > 0 && !isAuto(b)) outMult *= workMult; // agents don't have moods
-      for (const [rid, rate] of Object.entries(def.outputs)) {
-        let amt = rate * outMult;
-        if (rid === 'launch') amt *= site.launchMult;
-        s.resources[rid as keyof typeof s.resources] += amt;
+      // outputs — a farm that lost its crop is regrowing and makes nothing yet
+      const regrowing = type === 'hydroponics' && (b.cropRegrowT ?? 0) > 0;
+      if (regrowing) b.cropRegrowT = Math.max(0, b.cropRegrowT! - dt);
+      else {
+        for (const [rid, rate] of Object.entries(r.outputs)) {
+          const amt = (rate ?? 0) * dt;
+          s.resources[rid as ResourceId] += amt;
+          st.produced[rid as ResourceId] += amt;
+        }
       }
-      // human insight beats agent inference: agent-run labs on a robotic
-      // mission hold 75% — staffing them after cohabitation lifts the cap
-      if (type === 'lab') {
-        s.data += DATA_RATE.lab * dt * derate *
-          (isAuto(b) ? (robotic ? DATA_RATE.agentLabCap : 1) : Math.pow(workMult, 1.5));
-      }
-      // data centers research at machine speed, immune to moods and staffing
-      if (type === 'dataCenter') s.data += DATA_RATE.dataCenter * dt * derate * mods.outputMult['dataCenter'];
+      if (type === 'smelter') smelterO2 += r.outputs.oxygen ?? 0;
+      if (type === 'excavator' && b.deposit === 'ilmenite') ilmeniteDug = true;
+      // labs (uplink share on agent-run ones, crewed ones scale with morale)
+      // and data centers: the same numbers researchRates reports
+      s.data += r.data * dt;
       b.active = true;
     }
   }
+  if (ilmeniteDug) st.ilmeniteDigS += dt;
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {
     if (building(b)) continue;
-    const def = BUILDINGS[b.type];
+    const def = eff(b.type);
     if (def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = b.enabled;
     if (b.enabled && def.powerKW < 0 && powered.has(b.id) && Object.keys(def.outputs).length === 0
         && Object.keys(def.inputs).length === 0 && staffed.has(b.id)) b.active = true;
   }
+  const dcActive = s.buildings.some((b) => b.type === 'dataCenter' && b.active);
+  if (dcActive) st.dcOpS += dt;
+  if (day.isNight && !dcActive) st.nightDcAllActive = false;
+  // later steps read post-production rates (M1's feed grade lands in step 4)
+  rateCache.clear();
 
   // ── 4.5 · stockpile caps: excess production is lost on the ground ──
   for (const [rid, cap] of Object.entries(caps)) {
@@ -523,6 +578,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   if (o2Anxious) condition(s, 'low:oxygen', 'OXYGEN RESERVES LOW — the crew is anxious', 'warn', { panel: 'oxygen' });
   if (foodAnxious) condition(s, 'low:food', 'FOOD RESERVES LOW — the crew is anxious', 'warn', { panel: 'food' });
   if (waterAnxious) condition(s, 'low:water', 'WATER RESERVES LOW — the crew is anxious', 'warn', { panel: 'water' });
+  if (s.crew > 0) {
+    st.minReserveS = Math.min(st.minReserveS,
+      s.resources.oxygen / o2Rate, s.resources.food / foodRate, s.resources.water / waterRate);
+  }
   // the base falls silent when the last crewmember dies (humans only —
   // a robotic mission has no one to lose)
   if (!robotic && s.crew <= 0 && !s.defeatShown) {
@@ -530,10 +589,11 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     s.paused = true;
     return ev;
   }
-  // growth — robotic missions attract settlers only after Human Cohabitation,
-  // and nobody boards a base that cannot keep one more alive
+  // growth — robotic missions attract settlers only after Human Cohabitation
+  // (its crew rotation boards first), and nobody boards a base that cannot
+  // keep one more alive
   const sustainable = boardingShortfall(s, lsMult) === '';
-  if (settlersWelcome(s) && sustainable && s.morale > CREW.growthMorale && s.crew < housing &&
+  if (settlersWelcome(s) && !s.crewRotation && sustainable && s.morale > CREW.growthMorale && s.crew < housing &&
       o2ok && foodok && waterok) {
     s.growthT += dt;
     if (s.growthT >= CREW.growthPeriod) {
@@ -552,12 +612,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 6 · parts upkeep, wear, dust ───────────────────────────────────
   let partsShort = false;
   for (const b of s.buildings) {
-    const def = BUILDINGS[b.type];
     if (!b.enabled || building(b)) continue;
-    const rate = (def.upkeepParts * mods.upkeepMult[b.type] * site.upkeepMult / CYCLE_S) * dt;
+    const rate = (rates(b).upkeepPartsPerDay / CYCLE_S) * dt;
     if (s.resources.parts >= rate) {
       s.resources.parts -= rate;
-      b.wear = Math.max(0, b.wear - (WEAR.healPerDay / CYCLE_S) * dt);
+      // an overclocked machine runs hot: paid upkeep no longer heals it
+      if (!(b.overclock && b.active)) b.wear = Math.max(0, b.wear - (WEAR.healPerDay * mods.repairMult / CYCLE_S) * dt);
       if (b.type === 'solar') {
         b.dust = Math.max(0, b.dust +
           ((SOLAR_DUST_PER_DAY * mods.dustMult - SOLAR_DUST_RECOVER) / CYCLE_S) * dt);
@@ -569,7 +629,17 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         b.dust = Math.min(SOLAR_DUST_MAX, b.dust + ((SOLAR_DUST_PER_DAY * mods.dustMult) / CYCLE_S) * dt);
       }
     }
+    if (b.overclock && b.active) {
+      b.wear = Math.min(1, b.wear + (OVERCLOCK.wearPerDay / CYCLE_S) * dt);
+      if (b.wear >= OVERCLOCK.tripWear) {
+        b.overclock = false;
+        alert(s, `OVERCLOCK TRIPPED — ${BUILDINGS[b.type].name} #${b.id} reached WORN`, 'warn', { select: b.id });
+      }
+    }
+    if (b.wear >= OVERCLOCK.tripWear) st.wornSeen = true;
+    if (b.type === 'solar') st.maxDust = Math.max(st.maxDust, b.dust);
   }
+  if (s.simTime > 120 && s.resources.parts < 20) st.lowPartsSeen = true;
   if (partsShort) {
     condition(s, 'parts', s.resupply?.pending
       ? 'PARTS DEPLETED — equipment wearing down until the Earth shipment lands at the Lander'
@@ -602,6 +672,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   target = Math.max(0, Math.min(100, target));
   if (unmanned) s.morale = 70; // machines hold steady
   else s.morale += (target - s.morale) * MORALE.lerp * dt;
+  if (s.crew > 0) st.minMorale = Math.min(st.minMorale, s.morale);
 
   // ── 8 · solar flare state machine ──────────────────────────────────
   if (s.flare.nextAt === 0) s.flare.nextAt = FLARE.firstAtDay * CYCLE_S;
@@ -618,6 +689,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         s.flare.phase = 'active';
         s.flare.timer = FLARE.activeS;
         if (!site.flareImmune && s.crew > 0) s.morale = Math.max(0, s.morale - FLARE.moraleHit);
+        // a flare has a pro: an operating lab reads the particle storm
+        if (s.buildings.some((b) => b.type === 'lab' && b.active)) {
+          s.data += HELIOPHYSICS_DATA;
+          alert(s, `HELIOPHYSICS — the flare was also an experiment · +${HELIOPHYSICS_DATA}≡`, 'info');
+        }
+        if (!site.flareImmune && s.buildings.filter((b) => b.active && b.type !== 'lander').length >= 6) {
+          st.flaresWithSix += 1;
+        }
       }
       break;
     case 'active':
@@ -652,20 +731,28 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     : '';
   if (s.resupply.pending) {
     if (s.simTime >= s.resupply.arriveAt) {
+      // one slot, two cargoes: a resupply, or what a data downlink bought
+      const downlink = !!s.resupply.downlink;
       s.resupply.pending = false;
+      s.resupply.downlink = false;
       s.resupply.shipments += 1;
+      const cargo: [ResourceId, number][] = downlink
+        ? Object.entries(DOWNLINK.cargo) as [ResourceId, number][]
+        : [['metals', RESUPPLY.metals], ['parts', RESUPPLY.parts]];
       // cargo that does not fit the stockpile is lost — and the log says so
       const lost: string[] = [];
-      for (const [rid, amt] of [['metals', RESUPPLY.metals], ['parts', RESUPPLY.parts]] as const) {
+      for (const [rid, amt] of cargo) {
         const room = Math.max(0, (caps[rid] ?? Infinity) - s.resources[rid]);
         s.resources[rid] += Math.min(amt, room);
         if (amt - room >= 1) lost.push(`${Math.floor(amt - room)} ${rid}`);
       }
-      alert(s, `RESUPPLY LANDED — +${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts from Earth` +
+      alert(s, `${downlink ? 'DOWNLINK CARGO LANDED' : 'RESUPPLY LANDED'} — ` +
+        `${cargo.map(([rid, amt]) => `+${amt} ${rid}`).join(', ')} from Earth` +
         (lost.length ? ` · ${lost.join(' and ')} lost to full storage` : ''), lost.length ? 'warn' : 'info', landerAction(s));
     }
   } else if (stranded) {
     s.resupply.pending = true;
+    s.resupply.downlink = false;
     s.resupply.arriveAt = s.simTime + RESUPPLY.delayS;
     if (s.crew > 0) s.morale = Math.max(0, s.morale - RESUPPLY.moraleHit);
     alert(s, stranded === 'metals'
@@ -674,14 +761,25 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     'crit', landerAction(s));
   }
 
+  // ── 8.7 · off-site operations and the crew rotation ─────────────────
+  // (the Era 7 deed; M2's explorationTick decides which outposts are live)
+  if (s.survey.outposts.some((o) => o.live)) st.outpostOpS += dt;
+  crewRotationTick(s, smelterO2);
+
   // ── 9 · research (queue, transfer cap, goods pass: core/research.ts) ──
   if (researchTick(s, mods, dt).modsChanged) ev.modsChanged = true;
   insightTick(s);
 
   // ── 10 · night survival tracking ───────────────────────────────────
-  if (s.wasNight && !day.isNight && (s.crew > 0 || robotic)) {
-    s.nightsSurvived += 1;
-    alert(s, `DAWN — night ${s.nightsSurvived} survived`, 'info');
+  if (s.wasNight && !day.isNight) {
+    if (st.nightLoadShed) st.nightBrownouts += 1;
+    st.cleanNightStreak = st.nightCritDark ? 0 : st.cleanNightStreak + 1;
+    // the Era 6 deed: compute held the whole night and no critical load went dark
+    if (st.nightDcAllActive && !st.nightCritDark) st.dcCleanNight = true;
+    if (s.crew > 0 || robotic) {
+      s.nightsSurvived += 1;
+      alert(s, `DAWN — night ${s.nightsSurvived} survived`, 'info');
+    }
   }
   s.wasNight = day.isNight;
 
@@ -698,6 +796,44 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   }
 
   return ev;
+}
+
+/** The first check of CREW_ROTATION the base fails, as an alert tail, or ''. */
+export function rotationShortfall(s: GameState, smelterO2: number, count: number): string {
+  const R = CREW_ROTATION;
+  const fix = (res: ResourceId) => {
+    const b = producerOf(res, s.siteId);
+    return b ? ` · build ${BUILDINGS[b].name}` : '';
+  };
+  const need = (res: ResourceId, amt: number) =>
+    `needs ${amt} ${RESOURCES[res].name.toLowerCase()} (have ${Math.floor(s.resources[res])})${fix(res)}`;
+  if (s.resources.oxygen < R.minO2 && smelterO2 < R.minO2Rate) return need('oxygen', R.minO2);
+  if (s.resources.food < R.minFood) return need('food', R.minFood);
+  if (s.resources.water < R.minWater) return need('water', R.minWater);
+  const beds = (s.housingActive ?? 0) - s.crew;
+  if (beds < Math.max(R.minHousing, count)) {
+    return `needs ${Math.max(R.minHousing, count)} free beds (have ${Math.max(0, beds)}) · build ${BUILDINGS.habitat.name}`;
+  }
+  return '';
+}
+
+/** At its time, the rotation boards if the base can keep them, else it is held
+ *  and re-checked every CREW_ROTATION.retryS. It brings a robotic base its
+ *  first crew; if someone is already aboard, it is not needed. */
+function crewRotationTick(s: GameState, smelterO2: number) {
+  const rot = s.crewRotation;
+  if (!rot || s.simTime < rot.at) return;
+  if (s.crew > 0) { s.crewRotation = null; return; }
+  const short = rotationShortfall(s, smelterO2, rot.count);
+  if (short) {
+    rot.at = s.simTime + CREW_ROTATION.retryS;
+    alert(s, `CREW ROTATION HELD — ${short}`, 'warn', { panel: 'crew' });
+    return;
+  }
+  s.crew += rot.count;
+  s.crewRotation = null;
+  alert(s, `CREW ROTATION — ${rot.count} settlers aboard. Stations are still agent-run: ` +
+    'switch labs to Crewed in the inspector', 'info', landerAction(s));
 }
 
 /** Recompute mods + era from scratch (load, debug completeTech). The era never goes down. */

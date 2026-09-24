@@ -161,7 +161,6 @@ export const DC_DATA_PER_S = 1.0;
 
 /** agent-run crewed stations draw ×(1 + agentTax); Rad-Hard multiplies the tax */
 export const AGENT_TAX = 0.6;
-export const WEAR_DERATE = { threshold: 0.3, mult: 0.5 };
 
 export const OVERCLOCK = { mult: 1.5, wearPerDay: 0.35, tripWear: 0.3 };
 export const DOWNLINK = {

@@ -200,8 +200,9 @@ export interface GameState {
 
   flare: FlareState;
   /** Earth shipments; arriveAt is game time, ordered counts the hand-placed
-   *  orders (the automatic anti-softlock rescue is not counted) */
-  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number };
+   *  orders (the automatic anti-softlock rescue is not counted); downlink =
+   *  the one slot carries a data downlink's cargo, not a resupply */
+  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number; downlink?: boolean };
   /** ice deposits mapped (Lander survey, ice sites only) */
   iceSurveyed: boolean;
   /** current stockpile capacities, recomputed each tick (for the HUD) */
