@@ -86,6 +86,7 @@ export class Game {
     this.camera = createCamera();
     this.lighting = new Lighting(this.scene);
     this.sky = new Sky(this.scene);
+    this.lighting.attachHeadlamp(this.scene, this.camera);
     this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
@@ -696,6 +697,8 @@ export class Game {
     );
     this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
       $selection.get(), this.lighting.sunDirection);
+    const onFoot = walking && !tweening;
+    this.lighting.setHeadlamp(onFoot ? day.nightFactor : 0);
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -959,6 +962,8 @@ export class Game {
       rocks: this.rocks.stats(),
       sky: this.sky.info(),
       base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
+      lens: { fov: this.camera.fov, near: this.camera.near },
+      headlamp: this.lighting.headlamp.intensity,
     };
   }
 
