@@ -165,6 +165,8 @@ test('menu: safe render mode toggles both ways, persists, and holds from the fir
   expect(info.terrainMaterial).toBe('MeshStandardMaterial');
   expect(info.horizonMaterial).toBe('MeshStandardMaterial');
   expect(info.buildingMaterials.lander).toBe('MeshStandardMaterial');
+  // leaving safe mode is kept once the black-frame check has seen a lit frame
+  await expect.poll(async () => (await g(page, 'getRenderStatus')).checking).toBe(false);
   await page.reload();
   await page.waitForFunction(() => window.__game !== undefined);
   expect((await g(page, 'getRenderInfo')).firstFrame.safe).toBe(false);

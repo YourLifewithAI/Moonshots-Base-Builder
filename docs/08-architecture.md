@@ -57,7 +57,7 @@ src/
     sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
     floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
-    post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; black-frame sentinel
+    post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
     rovers.ts             construction-robot fleet: docks, site assignment, corner-hopping paths
     dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)

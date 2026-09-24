@@ -129,6 +129,11 @@ class MaterialRegistry {
       e.lit.customProgramCacheKey = () => variant;
     }
     if (variant !== e.variant) {
+      // three reuses a program this material compiled before but refreshes
+      // its uniform list only on a fresh compile: returning to a patched
+      // variant would leave the patch's own uniforms frozen. Disposing drops
+      // the material's program state, so it compiles afresh.
+      e.lit.dispose();
       e.lit.needsUpdate = true;
       this.revision++;
     }

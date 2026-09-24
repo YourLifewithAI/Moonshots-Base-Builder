@@ -40,7 +40,7 @@ import {
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
-import { Lighting } from '../world/lighting';
+import { Lighting, sunStep } from '../world/lighting';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
@@ -49,6 +49,7 @@ import { BuildCam, HOME_DIST } from '../player/buildCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
+import { loadSettings, saveSettings } from './settings';
 import { sfx } from '../audio/sfx';
 import {
   $alerts, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $feed, $hasSave, $ice,
@@ -61,6 +62,8 @@ export interface GameOptions {
   nolock: boolean;
   lowfx: boolean;
   safe: boolean;
+  /** the safe mode at boot came from the render check, not the player */
+  safeAuto?: boolean;
   fx?: number;      // explicit FX-ladder level override (?fx=0..3)
   /** the player's own FX level from the menu: boot never renders above it */
   fxChoice?: number;
@@ -69,11 +72,17 @@ export interface GameOptions {
 
 /** What the menu shows about the render path. */
 export interface RenderStatus {
+  /** the level being drawn (plain in safe mode) */
   level: number;
-  /** levels the ladder stepped down from this session (black frame, shader error, throwing pass) */
+  /** the ladder's level: what leaving safe mode returns to */
+  ladder: number;
+  /** levels that failed a render check on this GPU (black frame, shader
+   *  error, throwing pass, a failed raise) — kept across sessions */
   failed: number[];
   /** why the ladder last stepped down ('' = it has not, this session) */
   reason: string;
+  /** a raise (or leaving safe mode) waits for its black-frame check */
+  checking: boolean;
   safe: boolean;
   /** safe mode came from the black-frame check, not the player */
   safeAuto: boolean;
@@ -131,23 +140,28 @@ export class Game {
     this.lighting = new Lighting(this.scene);
     this.sky = new Sky(this.scene);
     this.lighting.attachHeadlamp(this.scene, this.camera);
-    this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx, opts.fxChoice);
+    this.post = new PostFX(this.renderer, this.scene, this.camera, {
+      lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe,
+    });
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
     };
-    // scene shader patches ride the same ladder as the post chain
+    this.scene.onBeforeRender = () => { this.sceneRenders++; };
+    // scene shader patches ride the same ladder as the post chain (safe mode
+    // draws unlit twins, so the ladder level stays theirs to return to)
     if (opts.fx !== undefined) materials.clearFault();
-    materials.setFxLevel(this.post.fxLevel);
-    let prev = this.post.fxLevel;
-    this.post.onLevelChange = (level, explicit, reason) => {
-      if (explicit) materials.clearFault();
-      else {
-        for (let l = prev; l < level; l++) this.fxFailed.add(l);
+    materials.setFxLevel(this.post.ladderLevel);
+    this.post.onLevelChange = (level, cause, reason, failed = []) => {
+      if (cause === 'choice') materials.clearFault();
+      if (failed.length) {
+        for (const l of failed) this.fxFailed.add(l);
         this.fxReason = reason ?? 'render error';
+        this.saveFailed();
       }
-      prev = level;
       materials.setFxLevel(level);
       this.rocks?.setFxLevel(level);
+      // a raise is checked on the next frames that can tell; a new rung soon
+      this.reprobe(this.post.onTrial ? 2 : 40);
     };
     // a program that fails to compile is reported here (replacing three's
     // console dump); the response waits until the frame has finished
@@ -173,8 +187,9 @@ export class Game {
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
     $depositOverlay.subscribe((v) => { if (this.depositOverlay) this.depositOverlay.visible = v; });
-    // a player's safe-mode choice holds from the very first frame
-    if (opts.safe) this.enableSafeMode(false);
+    // safe mode (the player's, or the render check's from an earlier launch)
+    // holds from the very first frame
+    if (opts.safe) this.enableSafeMode(opts.safeAuto ?? false, false);
     requestAnimationFrame((t) => this.frame(t));
     void loadGame().then((blob) => this.publishSaveSlot(blob));
   }
@@ -258,7 +273,7 @@ export class Game {
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
     this.rocks = new Rocks(this.hf);
-    this.rocks.setFxLevel(this.post.fxLevel);
+    this.rocks.setFxLevel(this.post.ladderLevel);
     this.instances = new BuildingInstances(this.hf);
     this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
       this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
@@ -311,7 +326,7 @@ export class Game {
     this.nextProbe = 40;
     if (this.safeMode) {
       this.safeMode = false; // fresh world = fresh materials; re-apply
-      this.enableSafeMode(this.safeAuto);
+      this.enableSafeMode(this.safeAuto, false);
     }
     this.cueSeen = null;
     $phase.set('playing');
@@ -814,15 +829,27 @@ export class Game {
   } | null = null;
   /** alert key → real time (ms) its radio call last played */
   private cueKeyAt = new Map<string, number>();
-  /** FX levels the ladder stepped down from this session, and the last cause */
-  private fxFailed = new Set<number>();
+  /** FX levels that failed a render check on this GPU (kept in settings),
+   *  and the last cause this session */
+  private fxFailed = new Set<number>(loadSettings().fxFailed);
   private fxReason = '';
   private safeAuto = false;
+  /** the player left safe mode: back to it if the lit frame comes out black */
+  private safeTrial = false;
+  /** full-screen opaque screens over the world: the tech tree */
+  private techOpen = false;
+  /** renders of the whole scene so far: the render pass, and any pass that
+   *  draws it again (N8AO's transparency pass did, twice a frame) */
+  private sceneRenders = 0;
+  private framesDrawn = 0;
   private firstFrame: { fx: number; safe: boolean } | null = null;
   /** alert id → real time (ms) it was last raised, as seen by this session */
   private alertClock = new Map<number, { t: number; count: number }>();
   private playFrames = 0;      // frames since gameplay (not page load) began
   private nextProbe = 40;      // next black-frame probe, in playFrames
+  private probeHeld = false;   // debug: terrain hidden, the check waits for an explicit probe
+  /** black-frame probe verdicts so far (tests, probes) */
+  private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
   private shaderFault: 'patch' | 'other' | null = null;
 
@@ -836,27 +863,79 @@ export class Game {
       this.alertAcc += realDt;
       if (this.alertAcc > 0.5) { this.alertAcc = 0; this.ageAlerts(t); }
     }
-    this.post.render(Math.min(realDt, 0.1));
+    // an opaque full-screen screen hides the world: the sim ticks, the GPU rests
+    const covered = this.playing && (this.techOpen || this.lunarUi.open);
+    const drawn = !covered && this.post.render(Math.min(realDt, 0.1));
+    if (drawn) this.framesDrawn++;
     if (this.shaderFault) this.recoverFromShaderFault();
-    // black-screen sentinel: some drivers fail shaders silently instead of
-    // throwing. Probe the rendered output during daylight — first drop the
-    // post chain, then escalate to safe mode. Counted from gameplay start
-    // (the player may sit on the title screen for any length of time), and
-    // re-probed periodically to catch mid-game driver failures.
+    // Counted from gameplay start (the player may sit on the title screen for
+    // any length of time), and re-probed periodically to catch mid-game
+    // driver failures. Only a frame drawn just now can be read back.
     if (!this.playing) return;
     this.playFrames++;
-    if (this.playFrames >= this.nextProbe && !this.safeMode) {
-      const day = currentDay(this.state, SITES[this.state.siteId]);
-      if (day.sunFactor <= 0.3) {
-        this.nextProbe = this.playFrames + 120;      // night/dusk — check again soon
-      } else if (this.post.outputLooksBlack((u, v) => this.groundAt(u, v))) {
-        const stepped = this.post.degrade('black frame detected');
-        if (!stepped) this.enableSafeMode();
-        this.nextProbe = this.playFrames + 40;       // verify the next rung quickly
-      } else {
-        this.nextProbe = this.playFrames + 900;      // healthy — routine re-check
-      }
+    if (drawn && this.playFrames >= this.nextProbe) this.probeFrame();
+  }
+
+  /** Black-screen sentinel: some drivers fail shaders silently instead of
+   *  throwing. The frame just drawn is read wherever the ground cannot
+   *  legitimately be black — under a risen sun, at night where the landscape
+   *  patch lays its earthshine floor (FX 0–2, ~30 r+g+b on open ground), and
+   *  at any hour in safe mode (unlit). Dusk and dawn, FX 3 nights and views
+   *  with too little ground are inconclusive: checked again soon. A black
+   *  frame first drops the post chain (a raise on trial goes straight back),
+   *  then escalates to safe mode; in safe mode it can at most keep the
+   *  effects off. */
+  private probeFrame() {
+    const day = currentDay(this.state, SITES[this.state.siteId]);
+    const readable = this.safeMode || this.lighting.sunLight >= 0.75
+      || (day.nightFactor >= 0.9 && materials.patched('terrain'));
+    const verdict = readable ? this.post.probe((u, v) => this.groundAt(u, v)) : 'unknown';
+    this.probes[verdict]++;
+    if (verdict === 'unknown') {
+      this.nextProbe = this.playFrames + 120;
+    } else if (verdict === 'ok') {
+      this.renderVerified();
+      this.nextProbe = this.playFrames + 900;      // healthy — routine re-check
+    } else {
+      this.nextProbe = this.playFrames + 40;       // verify the next rung quickly
+      this.renderFailed('black frame detected');
     }
+    if (this.probeHeld) this.nextProbe = Number.POSITIVE_INFINITY;
+  }
+
+  /** A probe passed: a raise on trial is kept, and so is leaving safe mode. */
+  private renderVerified() {
+    if (this.safeMode) return;
+    this.post.confirm();
+    if (this.safeTrial) {
+      this.safeTrial = false;
+      saveSettings({ safe: false, safeAuto: false });
+    }
+    if (this.fxFailed.delete(this.post.fxLevel)) this.saveFailed();
+  }
+
+  /** The frame is black, or a program failed to compile. */
+  private renderFailed(reason: string) {
+    if (this.safeMode) {
+      // nothing simpler to fall back to than safe mode itself
+      this.post.forceFallback(`${reason} in safe mode`);
+      this.nextProbe = this.playFrames + 900;
+      return;
+    }
+    if (this.safeTrial) {
+      // leaving safe mode did not draw: straight back to it
+      this.safeTrial = false;
+      this.fxFailed.add(this.post.fxLevel);
+      this.fxReason = reason;
+      this.saveFailed();
+      this.enableSafeMode();
+      return;
+    }
+    if (!this.post.fail(reason)) this.enableSafeMode();
+  }
+
+  private saveFailed() {
+    saveSettings({ fxFailed: [...this.fxFailed].sort() });
   }
 
   /** CSS-pixel position of a world point under the live camera. */
@@ -891,65 +970,82 @@ export class Game {
       if (this.state) { alert(this.state, 'RENDER — detail shaders disabled (GPU limitation)', 'warn'); this.publish(); }
       return;
     }
-    if (this.safeMode) return;
-    if (!this.post.degrade('shader compile error')) this.enableSafeMode();
+    this.renderFailed('shader compile error');
   }
 
   /** Last-resort rendering: unlit vertex-color materials, no shadows, no
-   *  effects. Renders on anything that can draw a triangle — including
-   *  meshes created later, which take their material from the registry.
-   *  `auto`: the render checks turned it on (and say so), not the player. */
-  enableSafeMode(auto = true) {
+   *  effects — the plain forward path, no composer. Renders on anything that
+   *  can draw a triangle — including meshes created later, which take their
+   *  material from the registry. `auto`: the render checks turned it on (and
+   *  say so), not the player. `persist`: remember it for the next launch
+   *  (not for a boot flag or a re-apply). */
+  enableSafeMode(auto = true, persist = true) {
     if (this.safeMode) return;
     this.safeMode = true;
     this.safeAuto = auto;
-    console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows.');
+    this.safeTrial = false;
+    console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows, no effects.');
+    this.post.setSafe(true);
     this.renderer.shadowMap.enabled = false;
     materials.enableSafe(this.scene);
     this.rocks?.setSafe(true);
     this.sky.setSafe(true);
+    if (persist) saveSettings(auto ? { safeAuto: true } : { safe: true, safeAuto: false });
     if (this.state && auto) {
       alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
       this.publish();
     }
+    this.reprobe();
   }
 
-  /** Lit rendering again — only ever on the player's word. The black-frame
-   *  check re-probes at once and steps back down if the frame is black. */
+  /** Lit rendering again — only ever on the player's word — at the ladder's
+   *  level, as a checked raise: kept (in settings) once a probe passes, and
+   *  straight back to safe mode if the frame comes out black. */
   disableSafeMode() {
     if (!this.safeMode) return;
     this.safeMode = false;
     this.safeAuto = false;
+    this.safeTrial = true;
     console.warn('[MOONSHOTS] Safe render mode off — lit materials and shadows.');
     this.renderer.shadowMap.enabled = true;
     materials.disableSafe(this.scene);
     this.rocks?.setSafe(false);
     this.sky.setSafe(false);
+    this.post.setSafe(false);
     this.lighting.requestShadowUpdate();
-    this.reprobe();
+    this.reprobe(2);
   }
 
   get safeModeOn(): boolean { return this.safeMode; }
   get fxLevel(): number { return this.post.fxLevel; }
 
   /** The player's FX pick (the menu). Lowering is always safe; raising is
-   *  theirs to ask for — even to a level that drew black this session — and
-   *  the black-frame check verifies it within a second. */
+   *  theirs to ask for — even to a level that failed before — and is a
+   *  trial: the black-frame check reads the next frames that can tell, the
+   *  level is stored once one passes, and a black one goes straight back. In
+   *  safe mode the pick is the level leaving it returns to. */
   setFxLevel(n: number) {
     this.post.setLevel(n);
-    this.reprobe();
+  }
+
+  /** The tech tree covers the world (the UI calls this). */
+  setTechOpen(open: boolean) {
+    this.techOpen = open;
   }
 
   renderStatus(): RenderStatus {
     return {
-      level: this.post.fxLevel, failed: [...this.fxFailed].sort(), reason: this.fxReason,
+      level: this.post.fxLevel, ladder: this.post.ladderLevel, failed: [...this.fxFailed].sort(),
+      reason: this.fxReason, checking: !this.safeMode && (this.post.onTrial || this.safeTrial),
       safe: this.safeMode, safeAuto: this.safeAuto, floor: this.opts.lowfx ? 2 : 0,
     };
   }
 
-  /** check the next frames soon (unless a probe is holding the check off) */
-  private reprobe() {
-    if (this.playing && Number.isFinite(this.nextProbe)) this.nextProbe = this.playFrames + 40;
+  /** check `frames` from now (unless a probe is holding the check off) */
+  private reprobe(frames = 40) {
+    if (this.playing && Number.isFinite(this.nextProbe)) {
+      this.nextProbe = Math.min(this.nextProbe, this.playFrames + frames);
+    }
   }
 
   /** One frame of play. Camera, walk physics and effects step at most 0.1 s,
@@ -1042,12 +1138,15 @@ export class Game {
     this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
       this.groundAnywhere);
     this.rocks.update(this.camera);
+    // the sun step grows with game speed; the wings turn first, so their
+    // re-aim joins this frame's shadow render instead of forcing another
+    const step = sunStep(this.state.paused ? 1 : this.state.speed);
+    this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
-      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
+      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
     // at night the base carries its own light: window glow and floods in the
     // shader patches, or (stock path) hull glow, ground discs and work lights
     // over the structures nearest the camera
-    this.instances.update(dt, day.nightFactor, this.lighting.sunDirection);
     this.instances.setNightGlow(day.nightFactor);
     const stockLights = !this.instances.shaderLights;
     this.lighting.useWorkLights(stockLights);
@@ -1554,7 +1653,14 @@ export class Game {
   debugRenderInfo() {
     return {
       fxLevel: this.post.fxLevel,
+      /** the ladder level stored for the next launch (a raise on trial is not) */
+      fxStored: this.post.storedLevel,
+      postChain: this.post.chainBuilt,
       safeMode: this.safeMode,
+      /** scene renders and drawn frames so far (renders per frame = passes over the scene) */
+      sceneRenders: this.sceneRenders,
+      framesDrawn: this.framesDrawn,
+      probes: { ...this.probes },
       /** the render path the very first frame drew with */
       firstFrame: this.firstFrame,
       shadowTexel: this.lighting.shadowTexel,
@@ -1603,7 +1709,15 @@ export class Game {
    *  mostly black sky by construction. */
   debugSetTerrainVisible(v: boolean) {
     this.chunks.group.visible = v;
+    this.probeHeld = !v;
     this.nextProbe = v ? this.playFrames + 40 : Number.POSITIVE_INFINITY;
+  }
+
+  /** Run the black-frame check on the next drawn frame, even while hidden
+   *  terrain holds it off: with the terrain hidden this is a silent terrain
+   *  program failure, as the probe sees it (tests). */
+  debugProbeNext() {
+    this.nextProbe = this.playFrames + 1;
   }
 
   get walkController() { return this.walk; }

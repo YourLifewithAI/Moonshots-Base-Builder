@@ -9,7 +9,12 @@
  *  Scene shader patches follow the same ladder (see world/materials.ts). The
  *  black-frame sentinel in game.ts drives descent; a throwing composer
  *  descends too. The working level persists to localStorage so later launches
- *  boot straight into it — no black flash while re-discovering. */
+ *  boot straight into it — no black flash while re-discovering.
+ *
+ *  A raise (menu, ?fx=, debug) is a trial: the level it left stays stored
+ *  until a probe of the new one passes (confirm), and a failure goes straight
+ *  back to it (revert). Safe mode draws plain whatever the level and never
+ *  builds the composer; leaving it rebuilds the chain for the level. */
 import * as THREE from 'three';
 import {
   BlendFunction, BloomEffect, EffectComposer, EffectPass, NoiseEffect, RenderPass,
@@ -35,39 +40,85 @@ function storedLevel(): number {
   } catch { return 0; }
 }
 
+/** Why the level changed: the player's pick, a step down, a failed trial
+ *  going back. */
+export type LevelCause = 'choice' | 'descent' | 'revert';
+
+/** A probe of the frame just drawn: black, fine, or too little ground in
+ *  view to tell. */
+export type ProbeVerdict = 'black' | 'ok' | 'unknown';
+
+export interface PostOptions {
+  lowFx: boolean;
+  /** ?fx=: an explicit level for this launch (a raise is still a trial) */
+  fxOverride?: number;
+  /** the player's own level (menu): never boot above it */
+  fxChoice?: number;
+  /** safe render mode from the first frame: no composer at all */
+  safe?: boolean;
+}
+
 export class PostFX {
   private composer: EffectComposer | null = null;
+  /** the ladder's level: what the composer is built for outside safe mode */
   private level: number;
+  /** mirror of the stored level */
+  private saved = storedLevel();
+  /** a raise on trial: the level to go back to if it fails */
+  private trialFrom: number | null = null;
+  private safe: boolean;
+  /** scene render errors already reported (each is reported once) */
+  private sceneFaults = new Set<string>();
   /** surfaced into the in-game alert stack so players see render issues without F12 */
   onIssue?: (msg: string) => void;
-  /** every level change; `explicit` = chosen (debug/settings), not a descent,
-   *  which carries its cause */
-  onLevelChange?: (level: number, explicit: boolean, reason?: string) => void;
+  /** every change of the ladder level; `failed` = the levels that just
+   *  failed (a descent's rung, a trial's level), `reason` their cause */
+  onLevelChange?: (level: number, cause: LevelCause, reason?: string, failed?: number[]) => void;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
     private scene: THREE.Scene,
     private camera: THREE.PerspectiveCamera,
-    lowFx: boolean,
-    fxOverride?: number,
-    /** the player's own level (menu): never boot above it */
-    fxChoice = 0,
+    opts: PostOptions,
   ) {
-    if (fxOverride !== undefined && fxOverride >= 0 && fxOverride <= FX_PLAIN) {
-      this.level = fxOverride;
-      this.persist();
-    } else {
-      this.level = Math.min(FX_PLAIN, Math.max(storedLevel(), lowFx ? 2 : 0, fxChoice));
-    }
-    console.log(`[MOONSHOTS] FX level ${this.level} (0=full … 3=plain)`);
+    this.safe = opts.safe ?? false;
+    this.level = Math.min(FX_PLAIN, Math.max(this.saved, opts.lowFx ? 2 : 0, opts.fxChoice ?? 0));
+    const o = opts.fxOverride;
+    if (o !== undefined && Number.isFinite(o)) this.moveTo(Math.min(FX_PLAIN, Math.max(0, Math.round(o))));
+    console.log(`[MOONSHOTS] FX level ${this.fxLevel} (0=full … 3=plain)${this.safe ? ' — safe mode' : ''}`);
     this.buildComposer();
   }
 
-  get fxLevel(): number { return this.level; }
-  get usingFallback(): boolean { return this.level >= FX_PLAIN; }
+  /** The level being drawn: plain in safe mode. */
+  get fxLevel(): number { return this.safe ? FX_PLAIN : this.level; }
+  /** The ladder's level, which leaving safe mode returns to. */
+  get ladderLevel(): number { return this.level; }
+  /** The ladder level stored for the next launch. */
+  get storedLevel(): number { return this.saved; }
+  /** A raise is waiting for its probe (it is not stored yet). */
+  get onTrial(): boolean { return this.trialFrom !== null; }
+  /** Is the effect composer built (not safe mode, not plain)? */
+  get chainBuilt(): boolean { return this.composer !== null; }
+  get usingFallback(): boolean { return this.fxLevel >= FX_PLAIN; }
 
-  private persist() {
-    try { localStorage.setItem(STORE_KEY, String(this.level)); } catch { /* fine */ }
+  private store(v: number) {
+    this.saved = v;
+    try { localStorage.setItem(STORE_KEY, String(v)); } catch { /* fine */ }
+  }
+
+  /** The level on disk: a trial's origin while one runs (never below the
+   *  last level known to draw), else the level itself. */
+  private storeLevel() {
+    this.store(this.trialFrom === null ? this.level : Math.max(this.saved, this.trialFrom));
+  }
+
+  /** An explicit move: lowering is kept at once; a raise is on trial. */
+  private moveTo(n: number) {
+    const from = this.level;
+    this.level = n;
+    if (n < from) this.trialFrom ??= from;
+    if (this.trialFrom !== null && n >= this.trialFrom) this.trialFrom = null;
+    this.storeLevel();
   }
 
   private disposeComposer() {
@@ -81,7 +132,7 @@ export class PostFX {
 
   private buildComposer() {
     this.disposeComposer();
-    if (this.level >= FX_PLAIN) return;
+    if (this.safe || this.level >= FX_PLAIN) return;
     try {
       const frameBufferType = this.level === 0 ? THREE.HalfFloatType : THREE.UnsignedByteType;
       const composer = new EffectComposer(this.renderer, { frameBufferType });
@@ -89,6 +140,10 @@ export class PostFX {
       if (this.level < 2) {
         try {
           const ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
+          // transparent layers write no depth and stay out of the AO; left on
+          // auto, N8AO finds one and draws the scene twice more every frame
+          ao.autoDetectTransparency = false;
+          ao.configuration.transparencyAware = false;
           ao.configuration.aoRadius = 3.0;
           ao.configuration.intensity = 2.5;
           ao.configuration.distanceFalloff = 1.0;
@@ -139,62 +194,124 @@ export class PostFX {
   /** Step one rung down the ladder. Returns false if already at plain. */
   degrade(reason?: unknown): boolean {
     if (this.level >= FX_PLAIN) return false;
+    const failed = this.level;
     this.level++;
-    this.persist();
+    if (this.trialFrom !== null && this.level >= this.trialFrom) this.trialFrom = null;
+    this.storeLevel();
     console.warn(`[MOONSHOTS] Render degraded to FX level ${this.level}.`, reason ?? '');
     const msg = LEVEL_ALERTS[this.level];
     if (msg) this.onIssue?.(msg);
     this.buildComposer();
-    this.onLevelChange?.(this.level, false, reasonText(reason));
+    this.onLevelChange?.(this.level, 'descent', reasonText(reason), [failed]);
     return true;
+  }
+
+  /** The live level failed (black frame, shader error, throwing pass): a
+   *  raise on trial goes straight back, anything else steps one rung down.
+   *  False when there is nothing lower to go to. */
+  fail(reason?: unknown): boolean {
+    if (this.trialFrom === null) return this.degrade(reason);
+    const failed = this.level;
+    this.level = this.trialFrom;
+    this.trialFrom = null;
+    this.storeLevel();
+    console.warn(`[MOONSHOTS] FX level ${failed} failed its check — back to FX ${this.level}.`, reason ?? '');
+    this.onIssue?.(`RENDER — FX ${failed} did not draw (${reasonText(reason)}), back to FX ${this.level}`);
+    this.buildComposer();
+    this.onLevelChange?.(this.level, 'revert', reasonText(reason), [failed]);
+    return true;
+  }
+
+  /** The live level drew a healthy frame: a raise on trial is kept. */
+  confirm() {
+    if (this.trialFrom === null) return;
+    this.trialFrom = null;
+    this.storeLevel();
   }
 
   /** Explicitly set a level (debug hook / settings). */
   setLevel(n: number) {
-    this.level = Math.min(FX_PLAIN, Math.max(0, Math.round(n)));
-    this.persist();
+    this.moveTo(Math.min(FX_PLAIN, Math.max(0, Math.round(n))));
     this.buildComposer();
-    this.onLevelChange?.(this.level, true);
+    this.onLevelChange?.(this.level, 'choice');
   }
 
   /** Jump straight to plain rendering (throwing-driver path, debug hook). */
   forceFallback(reason?: unknown) {
     if (this.level >= FX_PLAIN) return;
+    const failed: number[] = [];
+    for (let l = this.level; l < FX_PLAIN; l++) failed.push(l);
     this.level = FX_PLAIN;
-    this.persist();
+    this.trialFrom = null;
+    this.storeLevel();
     console.warn('[MOONSHOTS] Post-processing disabled — plain rendering.', reason ?? '');
     this.onIssue?.(LEVEL_ALERTS[FX_PLAIN]);
     this.disposeComposer();
-    this.onLevelChange?.(this.level, false, reasonText(reason));
+    this.onLevelChange?.(this.level, 'descent', reasonText(reason), failed);
+  }
+
+  /** Safe mode draws plain, whatever the level: no composer at all. */
+  setSafe(on: boolean) {
+    if (on === this.safe) return;
+    this.safe = on;
+    this.buildComposer();
   }
 
   setSize(w: number, h: number) {
     try { this.composer?.setSize(w, h); } catch { /* plain path unaffected */ }
   }
 
-  render(dt: number) {
+  /** Draw a frame; false when nothing was drawn (the frame is not probed). */
+  render(dt: number): boolean {
     if (this.composer) {
       try {
         this.composer.render(dt);
-        return;
+        return true;
       } catch (e) {
-        this.degrade(e); // a throwing pass may work at a lower level
-        if (this.composer) return; // rebuilt — try it next frame
+        // the chain or the scene? A plain render tells them apart: only a
+        // chain that throws over a scene that draws is the chain's fault
+        if (!this.renderPlain()) return false;
+        this.fail(e);
+        return true;
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    return this.renderPlain();
+  }
+
+  /** Forward rendering straight to the canvas; a throw skips the frame and
+   *  is reported once, so one bad frame never stops the loop. */
+  private renderPlain(): boolean {
+    const r = this.renderer;
+    const autoClear = r.autoClear;
+    try {
+      r.autoClear = true;
+      r.setRenderTarget(null);
+      r.render(this.scene, this.camera);
+      return true;
+    } catch (e) {
+      const msg = reasonText(e);
+      if (!this.sceneFaults.has(msg)) {
+        this.sceneFaults.add(msg);
+        console.error('[MOONSHOTS] Scene render failed — frame skipped.', e);
+        this.onIssue?.(`RENDER — a frame failed to draw (${msg})`);
+      }
+      return false;
+    } finally {
+      r.autoClear = autoClear;
+    }
   }
 
   /** Some drivers fail shader compilation silently and render pure black —
    *  sometimes only one program (the terrain) while buildings still draw.
-   *  Called right after a daytime render: reads a 4×4 grid of the drawing
-   *  buffer and asks `expectsGround(u, v)` (0..1, origin bottom-left) which
-   *  samples should show terrain. True if most of those are exactly black
-   *  (sunlit or shadowed, lit regolith is never 0,0,0; black sky is fine). */
-  outputLooksBlack(expectsGround: (u: number, v: number) => boolean): boolean {
+   *  Called right after a render whose ground cannot legitimately be black:
+   *  reads a 4×4 grid of the drawing buffer and asks `expectsGround(u, v)`
+   *  (0..1, origin bottom-left) which samples should show terrain. Black if
+   *  most of those are black (r+g+b ≤ 2: lit or floored regolith never is;
+   *  black sky is fine), unknown with fewer than 3 such samples. */
+  probe(expectsGround: (u: number, v: number) => boolean): ProbeVerdict {
     const gl = this.renderer.getContext();
     const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
-    if (w === 0 || h === 0) return false;
+    if (w === 0 || h === 0) return 'unknown';
     const px = new Uint8Array(4);
     let expected = 0, black = 0;
     for (let j = 0; j < 4; j++) {
@@ -206,6 +323,7 @@ export class PostFX {
         if (px[0] + px[1] + px[2] <= 2) black++;
       }
     }
-    return expected >= 3 && black >= expected * 0.75;
+    if (expected < 3) return 'unknown';
+    return black >= expected * 0.75 ? 'black' : 'ok';
   }
 }

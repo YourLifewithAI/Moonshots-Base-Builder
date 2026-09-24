@@ -288,6 +288,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     open = v;
     hover = null;
     screen.style.display = open ? 'flex' : 'none';
+    game.setTechOpen(open);
     if (open) { structSig = ''; queueSig = ''; sheetSig = ''; refresh(); }
   };
   chip.addEventListener('click', () => toggle(!open));

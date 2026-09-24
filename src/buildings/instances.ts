@@ -110,9 +110,10 @@ export class BuildingInstances {
     this.discs.visible = !this.shaderLights && f > 0.02;
   }
 
-  /** Per frame: shader clocks, night level, the look switch after an FX /
-   *  fault / safe-mode change, and the sun-tracking wings. */
-  update(dt: number, nightFactor: number, sunDir: THREE.Vector3) {
+  /** Per frame, before the shadow fit: shader clocks, night level, the look
+   *  switch after an FX / fault / safe-mode change, and the sun-tracking
+   *  wings (re-aimed each `step`, see Lighting.fitShadow). */
+  update(dt: number, nightFactor: number, sunDir: THREE.Vector3, step: number) {
     buildingUniforms.uBldTime.value = (buildingUniforms.uBldTime.value + dt) % 1000;
     buildingUniforms.uBldNight.value = nightFactor;
     const shader = this.shaderLights;
@@ -124,7 +125,7 @@ export class BuildingInstances {
       setFloodSlots(floodSlots(materials.fxLevel));
       if (this.last) this.rebuild(this.last);
     }
-    if (this.trackers.update(sunDir)) this.onShadowCastersChanged?.();
+    if (this.trackers.update(sunDir, step)) this.onShadowCastersChanged?.();
   }
 
   /** World positions of completed structures, nearest to `focus` first —

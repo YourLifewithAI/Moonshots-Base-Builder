@@ -133,11 +133,18 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   light space, so edges hold still while panning. Typical texels: 0.06 m in
   a close build view or on foot, 0.12–0.18 m in the default overview (the
   old fixed ±460 m window was 0.45 m). The map is re-rendered only when the
-  sun turns 0.1°, the snapped window moves or resizes, or casters change
-  (placements, construction rise, terrain flattening, berms, a resupply
-  lander touching down or lifting off) — never at night.
-  `Lighting.requestShadowUpdate()` is the hook for anything that moves;
-  things that move *continuously* (rovers, a descending lander, dust)
+  sun turns a step (0.1° up to 3×, growing with speed past that: 0.33° at
+  10×), the view leaves the window it was drawn for (the window stands while
+  the visible ground stays inside it — slack is 6 m or 3% of its extent), or
+  casters change (placements, construction rise, terrain flattening, berms,
+  a resupply lander touching down or lifting off) — at most every 0.1 s of
+  real time, and never at night. The solar wings re-aim on the same step and
+  *before* the fit, so a re-aim joins that frame's shadow render instead of
+  forcing another one. Measured at a simulated 60 fps (three buildings, two
+  wings): 2.5 renders/s at 1× (was 6.7), 7.5 at 3× (18.9), 7.9 at 10× (45.2),
+  3.0 while panning (60, every frame), 7.8 while orbiting (60), 0 when paused
+  and still. `Lighting.requestShadowUpdate()` is the hook for anything that
+  moves; things that move *continuously* (rovers, a descending lander, dust)
   stay out of the shadow map instead (§7).
 - **Terrain casts shadows.** Back faces fill the shadow map (three's default
   `shadowSide`), so lit slopes never self-shadow; crater walls and ridges
@@ -217,7 +224,10 @@ sun.
    (cheaper than the old full-res "Low"). AO is what makes white-on-gray
    forms legible: contact shadows glue buildings to the regolith and carve
    panel joins without edge lines. Transparent decals (bootprints, rover
-   shadows, the ghost) write no depth and stay out of it.
+   shadows, the ghost) write no depth and stay out of it. N8AO's automatic
+   transparency detection is off: left on, the first transparent material
+   in the scene turned its transparency pass on — two more renders of the
+   whole scene every frame. Every level draws the scene once a frame.
 3. **Bloom** (FX 0 only, its own pass) — mipmap blur, luminance threshold
    **2.0**, intensity 0.6. A sunlit hull peaks near 1.5 in the HDR buffer,
    so only emissives, the sun disc, launch capsules and glint flashes glow.
@@ -232,7 +242,10 @@ sun.
 **Degradation ladder.** Not every GPU runs everything; the game walks down
 until something renders, and the working level persists to `localStorage`.
 Scene shader patches ride the same ladder through the material registry.
-Feature by feature:
+Safe mode is not a rung but a switch beside the ladder: it draws the plain
+forward path with unlit twins from the first frame (the composer is never
+built while it is on), and leaving it returns to the ladder's level. Feature
+by feature:
 
 | Feature | FX 0 | FX 1 | FX 2 (`?lowfx`) | FX 3 | Safe mode |
 |---|---|---|---|---|---|
@@ -273,12 +286,37 @@ stripped back to the stock shader (remembered across launches until an FX
 level is chosen explicitly) and the player sees an alert; any other program
 steps the post ladder down. The black-frame sentinel reads a 4×4 grid of the
 drawing buffer and judges only the samples whose view ray hits terrain, so a
-single failed terrain program is caught even with buildings on screen.
+single failed terrain program is caught even with buildings on screen. It
+reads only frames whose ground cannot legitimately be black: by day under a
+risen sun (≥ 75% of its light — the economy's solar factor stays high for a
+while after the disc has set, and a set sun is no black frame); at night at
+FX 0–2, where the earthshine floor holds open ground at ~30 r+g+b against a
+cut of ≤ 2 (FX 3 nights read ~5 and are not probed); and at any hour in safe
+mode, whose unlit twins do not dim. Dusk, dawn, FX 3 nights, views with
+fewer than three ground samples and frames under the tech tree or Lunar Map
+(which are not drawn at all) are inconclusive and re-checked ~120 frames
+on; a healthy frame re-checks in 900. A black frame steps the ladder down,
+then turns safe mode on; in safe mode, with nothing simpler to fall back to,
+it can at most store FX 3 for good. **A raise is a trial** — a menu pick,
+`?fx=`, or leaving safe mode: the new level runs at once, but the level it
+left stays stored (so a reload never boots into it unchecked) until the
+next readable frame passes; a black one goes straight back (to the old
+level, or to safe mode) with an alert. Levels that failed a check are kept
+in the settings across launches, and the menu asks twice before raising to
+one; a level that later draws is cleared. Safe mode the sentinel turned on
+is stored apart from the player's own choice and holds at the next launch
+until the player turns it off. A composer that throws is blamed only if a
+plain render of the same frame succeeds; a throwing scene skips the frame
+(reported once) and never stops the loop.
 Moving things (§7) add exactly one patch (`dust`); everything else reuses
 existing programs or stock unlit materials, and each part of the motion
 layer fails soft — an exception hides that part and the game carries on.
 `tests/render.spec.ts` walks all five rungs, by day and by night, and checks
-the motion layer at FX 0, FX 3 and in safe mode.
+the motion layer at FX 0, FX 3 and in safe mode; it also holds the safety
+contract above — safe mode plain with the sentinel on, a return to a patched
+level with live uniforms (FX 0 → 3 → 0, then night), night and dusk probes,
+raise trials and the remembered failures, one scene render a frame, and the
+page a browser without WebGL2 gets.
 
 ---
 
@@ -577,9 +615,9 @@ direction, not an afterthought:
 |---|---|---|
 | Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply) |
 | Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each |
-| Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (terrain, large rocks, buildings, berms, a landed resupply) |
+| Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
 | Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock night path |
-| Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx` |
+| Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
 | Per-frame CPU | small and flat | ≤ 64 rover matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms rebuilt only on change |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
 | Assets | 0 bytes binary | all procedural; fonts are system stacks (07) |

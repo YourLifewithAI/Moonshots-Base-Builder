@@ -67,18 +67,24 @@ export function demolishRefund(b: BuildingState, site: SiteDef): Partial<Record<
   return out;
 }
 
+const OUTLINE_SEG = 8; // per footprint edge: the outline drapes over the ground
+
 export class PlacementController {
   ghost: THREE.Mesh | null = null;
   probe: PlacementProbe | null = null;
   private outline: THREE.LineSegments;
+  /** 4 edges × OUTLINE_SEG segments × 2 ends, rewritten in place while placing */
+  private outlinePos = new THREE.BufferAttribute(new Float32Array(4 * OUTLINE_SEG * 2 * 3), 3);
 
   constructor(
     private scene: THREE.Scene,
     private hf: Heightfield,
     private site: SiteDef,
   ) {
+    const outline = new THREE.BufferGeometry();
+    outline.setAttribute('position', this.outlinePos);
     this.outline = new THREE.LineSegments(
-      new THREE.BufferGeometry(),
+      outline,
       new THREE.LineBasicMaterial({ color: 0xf5f7f9, transparent: true, opacity: 0.6 }),
     );
     this.outline.visible = false;
@@ -137,24 +143,24 @@ export class PlacementController {
 
   private updateOutline(w: number, d: number, cx: number, cz: number, y: number) {
     const hw = (w * CELL_M) / 2, hd = (d * CELL_M) / 2;
-    const pts: number[] = [];
-    const seg = 8;
+    const pts = this.outlinePos.array as Float32Array;
+    let k = 0;
+    const put = (x: number, z: number) => {
+      pts[k++] = x; pts[k++] = this.hf.sample(x, z) + 0.15; pts[k++] = z;
+    };
     const edge = (x0: number, z0: number, x1: number, z1: number) => {
-      for (let i = 0; i < seg; i++) {
-        const t0 = i / seg, t1 = (i + 1) / seg;
-        const xa = x0 + (x1 - x0) * t0, za = z0 + (z1 - z0) * t0;
-        const xb = x0 + (x1 - x0) * t1, zb = z0 + (z1 - z0) * t1;
-        pts.push(xa, this.hf.sample(xa, za) + 0.15, za, xb, this.hf.sample(xb, zb) + 0.15, zb);
+      for (let i = 0; i < OUTLINE_SEG; i++) {
+        const t0 = i / OUTLINE_SEG, t1 = (i + 1) / OUTLINE_SEG;
+        put(x0 + (x1 - x0) * t0, z0 + (z1 - z0) * t0);
+        put(x0 + (x1 - x0) * t1, z0 + (z1 - z0) * t1);
       }
     };
     edge(cx - hw, cz - hd, cx + hw, cz - hd);
     edge(cx + hw, cz - hd, cx + hw, cz + hd);
     edge(cx + hw, cz + hd, cx - hw, cz + hd);
     edge(cx - hw, cz + hd, cx - hw, cz - hd);
-    this.outline.geometry.dispose();
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
-    this.outline.geometry = g;
+    this.outlinePos.needsUpdate = true;
+    this.outline.geometry.computeBoundingSphere();
     this.outline.visible = true;
   }
 

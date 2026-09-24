@@ -6,8 +6,10 @@
  *
  *  Graphics: the running FX level is shown as the ladder left it. Lowering is
  *  always one click; raising is the player's explicit pick, and a level that
- *  drew black this session asks for a second click. The black-frame check
- *  stays on either way and re-probes the new level at once. */
+ *  failed a render check on this GPU (in any session) asks for a second
+ *  click. A raise — and turning safe mode off — is checked by the black-frame
+ *  check on the next frames that can tell, kept once one passes, and undone
+ *  if the frame comes out black; the game (not the menu) stores those. */
 import type { Game } from '../core/game';
 import { loadSettings, saveSettings } from '../core/settings';
 import { sfx } from '../audio/sfx';
@@ -104,7 +106,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
   const volVal = $('#menu-vol-val');
   const muteBtn = $<HTMLButtonElement>('#menu-mute');
 
-  /** a raise to a level that drew black this session waits for a second click */
+  /** a raise to a level that failed a render check waits for a second click */
   let confirmFx: number | null = null;
 
   const renderGfx = () => {
@@ -117,24 +119,29 @@ export function mountMenu(root: HTMLElement, game: Game) {
       b.classList.toggle('failed', st.failed.includes(n));
       b.classList.toggle('confirm', n === confirmFx);
     });
-    const auto = st.level > choice;
+    const auto = st.ladder > choice;
     const restore = `<button class="btn" data-act="restore" id="menu-fx-restore">Restore FX ${choice}</button>`;
     const html = confirmFx !== null
-      ? `FX ${confirmFx} drew a black frame earlier this session. Try it anyway? The render check stays on and steps back down if the frame goes black. <button class="btn" data-act="try" data-level="${confirmFx}" id="menu-fx-try">Try FX ${confirmFx}</button>`
-      : auto && !st.reason && st.level <= st.floor
-        ? `Held at FX ${st.level} by the ?lowfx address. Your setting: FX ${choice} ◆ ${restore}`
-        : auto
-          ? `<span class="menu-auto">AUTO</span> Lowered to FX ${st.level} — ${st.reason || 'a render check in an earlier session'}. Your setting: FX ${choice} ◆ ${restore}`
-          : `FX ${st.level}: ${FX_LEVELS[st.level].desc}. A black-frame check steps down on its own if the GPU cannot keep up.`;
+      ? `FX ${confirmFx} drew a black frame or failed to build on this GPU before. Try it anyway? It is checked at once, kept only if it draws, and a black frame puts FX ${st.ladder} back. <button class="btn" data-act="try" data-level="${confirmFx}" id="menu-fx-try">Try FX ${confirmFx}</button>`
+      : st.safe
+        ? `Safe mode draws with no effects. Turning it off returns to FX ${st.ladder}: ${FX_LEVELS[st.ladder].desc}.`
+        : st.checking
+          ? `Checking FX ${st.level}: ${FX_LEVELS[st.level].desc}. Kept once a frame draws; a black frame goes straight back.`
+          : auto && !st.reason && st.level <= st.floor
+            ? `Held at FX ${st.level} by the ?lowfx address. Your setting: FX ${choice} ◆ ${restore}`
+            : auto
+              ? `<span class="menu-auto">AUTO</span> Lowered to FX ${st.level} — ${st.reason || 'a render check in an earlier session'}. Your setting: FX ${choice} ◆ ${restore}`
+              : `FX ${st.level}: ${FX_LEVELS[st.level].desc}. A black-frame check steps down on its own if the frame comes out black.`;
     if (fxNote.dataset.html !== html) { fxNote.dataset.html = html; fxNote.innerHTML = html; }
     fxNote.dataset.level = String(st.level);
     safeBtn.textContent = st.safe ? 'On' : 'Off';
     safeBtn.classList.toggle('active', st.safe);
     safeBtn.setAttribute('aria-pressed', String(st.safe));
     safeNote.textContent = st.safe && st.safeAuto
-      ? 'Switched on by the render check (GPU issue detected). Turning it off retries lit rendering; the check keeps watching.'
-      : st.safe ? 'Unlit materials, no shadows, no effects — draws on any GPU.'
-      : 'The last resort for a GPU that shows black: unlit materials, no shadows.';
+      ? `Switched on by the render check (GPU issue detected). Turning it off retries lit rendering at FX ${st.ladder}; it stays off once a frame draws, and a black frame switches it back on.`
+      : st.safe ? 'Unlit materials, no shadows, no post effects — draws on any GPU.'
+      : st.checking ? 'Checking the lit frame — safe mode switches back on if it comes out black.'
+      : 'The last resort for a GPU that shows black: unlit materials, no shadows, no post effects.';
   };
 
   const renderAudio = () => {
@@ -149,10 +156,10 @@ export function mountMenu(root: HTMLElement, game: Game) {
 
   const pickFx = (n: number) => {
     const st = game.renderStatus();
-    if (n < st.level && st.failed.includes(n) && confirmFx !== n) { confirmFx = n; renderGfx(); return; }
+    if (n < st.ladder && st.failed.includes(n) && confirmFx !== n) { confirmFx = n; renderGfx(); return; }
     confirmFx = null;
     saveSettings({ fx: n });
-    if (n !== st.level) game.setFxLevel(n);
+    if (n !== st.ladder) game.setFxLevel(n);
     renderGfx();
   };
 
@@ -211,9 +218,9 @@ export function mountMenu(root: HTMLElement, game: Game) {
       case 'restore': pickFx(loadSettings().fx ?? 0); break;
       case 'try': pickFx(Number(b.dataset.level)); break;
       case 'safe':
+        // the game stores it: on at once, off once a lit frame has drawn
         if (game.safeModeOn) game.disableSafeMode();
         else game.enableSafeMode(false);
-        saveSettings({ safe: game.safeModeOn });
         renderGfx();
         break;
       case 'mute': {
