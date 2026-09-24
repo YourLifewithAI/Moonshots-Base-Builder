@@ -265,6 +265,9 @@ export function mountHud(root: HTMLElement, game: Game) {
   alerts.appendChild(more);
   const alertEls = new Map<number, { root: HTMLElement; text: HTMLElement; n: HTMLElement }>();
   const RANK = { crit: 0, warn: 1, info: 2 } as const;
+  /** rows the stack keeps while a building is inspected (see $selection below) */
+  let inspRows = ALERTS.shown;
+  const inspecting = () => $selection.get() !== null && $mode.get() !== 'walk';
   const renderAlerts = () => {
     const list = $alerts.get().filter((a) => !a.quiet)
       // conditions keep their places; the newest event leads its severity

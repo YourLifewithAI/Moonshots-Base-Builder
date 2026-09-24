@@ -395,7 +395,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     insp.innerHTML = `
       <div class="insp-head"><section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
-        <span class="label" id="insp-status"></span></section>
+        <span class="label" id="insp-status"></span></section></div>
+      <div class="insp-body">
       <section>${ioRows(sel.type, game.mods, sel)}</section>
       ${sel.deposit ? `<section><span class="label">◎ ${DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
       ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}

@@ -147,9 +147,10 @@ function panelHtml(key: string, mods: Mods): string | null {
     return `
       <section><div class="tt-name"><span>◉ Construction robots</span><span class="mono">${v.botsFree}/${v.botsTotal} free</span></div></section>
       <section><span class="label">Fleet sources</span>
-        ${buildingLine('lander', 0, '+').replace('+0/min', '+2 robots')}
-        ${buildingLine('roboticsBay', 0, '+').replace('+0/min', '+2 robots')}
-        <div class="goal-hint">Each site under construction occupies one robot and draws 4 kW. More robots = more parallel construction.</div></section>`;
+        ${buildingLine('lander', 0, '+').replace('+0/min', `+${BUILDINGS.lander.bots ?? 0} robots`)}
+        ${buildingLine('roboticsBay', 0, '+').replace('+0/min', `+${(BUILDINGS.roboticsBay.bots ?? 0) + mods.botPerBay} robots`)}
+        ${v.surveying ? `<div class="goal-hint">${v.surveying} more robot${v.surveying === 1 ? ' is' : 's are'} out on a survey — back when it ends.</div>` : ''}
+        <div class="goal-hint">Each site under construction occupies one robot and draws ${siteKW} kW. More robots = more parallel construction.</div></section>`;
   }
   if (key === 'morale') {
     return `
