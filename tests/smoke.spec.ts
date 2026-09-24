@@ -60,6 +60,9 @@ test('landing starts the game with HUD and lander', async ({ page }) => {
 test('economy: place buildings, resources tick, night sheds industry load', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
+  // paused: game time moves only by the fast-forwards below, so the night
+  // check lands on the same tick however slowly the page renders
+  await page.evaluate(() => window.__game.setPaused(true));
 
   // place via debug API on the flat mare next to the lander
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
@@ -83,7 +86,9 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // night on Mare with no batteries: industry idles by priority — the lander's
   // trickle keeps the small excavator alive; the hungry smelter goes dark.
   // Only priority-2 industry is idled, so this is load shedding, not a brownout
-  await page.evaluate(() => window.__game.advanceGameMinutes(4)); // t≈630s, mid-night
+  // t≈575s: the bank is spent, and the regolith yard not yet full (a full
+  // yard stands the excavator by, and the smelter then runs on its share)
+  await page.evaluate(() => window.__game.advanceGameMinutes(3));
   const night = await page.evaluate(() => window.__game.getState());
   expect(night.wasNight).toBe(true);
   const smelter = night.buildings.find((b: any) => b.type === 'smelter');
