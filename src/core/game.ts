@@ -192,6 +192,7 @@ export class Game {
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.overlays = new BaseOverlays(this.hf);
     this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
+    this.instances.panelDust = (b) => this.life.panelDust(b);
     this.walk = new WalkController(this.hf);
     this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {

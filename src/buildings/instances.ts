@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_M } from '../data/balance';
-import type { GameState } from '../core/state';
+import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { MOUNTS, recipeGeometry } from './recipes';
 import { BUILDING_MATERIAL, withInstanceState } from './meshKit';
@@ -59,6 +59,8 @@ export class BuildingInstances {
   private revisionSeen = -1;
   /** fired when a rebuild moved, added or removed a shadow caster */
   onShadowCastersChanged?: () => void;
+  /** dust shown on a solar array's glass (visual only; default b.dust) */
+  panelDust?: (b: BuildingState) => number;
 
   constructor(private hf: Heightfield) {
     const discGeo = new THREE.CircleGeometry(1, 24);
@@ -169,7 +171,7 @@ export class BuildingInstances {
     for (const b of state.buildings) {
       if ((b.construction ?? 0) > 0 || !MOUNTS[b.type]) continue;
       const [x, z] = centerOf(b);
-      placed.push({ b, x, y: this.hf.sample(x, z), z });
+      placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b) });
     }
     this.trackers.rebuild(placed);
     sig += `|parts:${placed.map((p) => p.b.id).join(',')}`;

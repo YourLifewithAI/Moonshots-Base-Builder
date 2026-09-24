@@ -19,7 +19,11 @@ const MIN_ELEV = 0.05; // rad: below this the wing stands vertical, not past it
 const UP = new THREE.Vector3(0, 1, 0);
 const X = new THREE.Vector3(1, 0, 0);
 
-export interface Placed { b: BuildingState; x: number; y: number; z: number }
+export interface Placed {
+  b: BuildingState; x: number; y: number; z: number;
+  /** dust to show on a solar wing (defaults to the economy's b.dust) */
+  dust?: number;
+}
 
 interface Slot { id: number; pivot: THREE.Vector3; s: number }
 
@@ -61,7 +65,7 @@ export class Trackers {
     const moved = seated !== this.seated;
     this.seated = seated;
     for (const part of ['wing', 'dish'] as PartId[]) this.slots[part] = [];
-    for (const { b, x, y, z } of placed) {
+    for (const { b, x, y, z, dust } of placed) {
       rot.setFromAxisAngle(UP, -b.rot * Math.PI / 2);
       for (const mount of MOUNTS[b.type] ?? []) {
         const list = this.slots[mount.part];
@@ -71,7 +75,7 @@ export class Trackers {
         list.push({ id: b.id, pivot, s: mount.s });
         const st = this.meshes[mount.part].geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
         const lit = b.enabled && b.idleReason !== 'power' ? 1 : 0;
-        st.setXYZW(i, lit, b.type === 'solar' ? b.dust : 0, b.wear, CUT_NONE);
+        st.setXYZW(i, lit, b.type === 'solar' ? dust ?? b.dust : 0, b.wear, CUT_NONE);
       }
     }
     for (const part of ['wing', 'dish'] as PartId[]) {
