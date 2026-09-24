@@ -484,7 +484,11 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   // the ghost's hint carries it
   await page.locator('#palette .cats .btn', { hasText: 'Science' }).click();
   await page.locator('.bld-btn', { hasText: 'Research Lab' }).click();
-  await page.mouse.move(820, 450); // open ground east of the Lander
+  // aim at the pad canPlace just approved: a 2×2 lab at cell (132, 126) is
+  // centred on world (20, −4), whatever the start camera is
+  const pad = await page.evaluate(() => window.__game.screenOf(20, -4));
+  expect(pad.visible).toBe(true);
+  await page.mouse.move(pad.x, pad.y);
   await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — a Smelter needs 50◆');
   await page.keyboard.press('Escape');
   // once a smelter stands (even as a site), spending metals is no longer a trap

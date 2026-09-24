@@ -63,6 +63,7 @@ function api(game: Game) {
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
     getCamera: () => game.debugCamera(),
+    screenOf: (x: number, z: number) => game.debugScreenOf(x, z),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
   };
 }

@@ -1150,6 +1150,17 @@ export class Game {
   }
 
   /** Build-camera pose and its clearance over the ground (tests, probes). */
+  /** CSS-pixel position of the ground at world (x, z) under the live camera. */
+  debugScreenOf(x: number, z: number) {
+    const v = new THREE.Vector3(x, this.hf.sample(x, z), z).project(this.camera);
+    const r = this.canvas.getBoundingClientRect();
+    return {
+      x: r.left + ((v.x + 1) / 2) * r.width,
+      y: r.top + ((1 - v.y) / 2) * r.height,
+      visible: v.z < 1 && Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1,
+    };
+  }
+
   debugCamera() {
     const t = this.buildCam.controls.target, p = this.camera.position;
     return {
