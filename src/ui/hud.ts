@@ -3,12 +3,13 @@
 import { RESOURCE_ORDER, RESOURCES, type ResourceId } from '../data/resources';
 import { BUILDINGS } from '../data/buildings';
 import { MILESTONES, type MilestoneDef } from '../data/milestones';
-import { ALERTS, LAUNCH_COST_FOILS, LOW_SUPPLY_S } from '../data/balance';
+import { ALERTS, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LOW_SUPPLY_S } from '../data/balance';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
-  $alerts, $caps, $depositMarkers, $depositOverlay, $floaters, $lookAt, $milestones, $mode,
+  $alerts, $caps, $depositMarkers, $depositOverlay, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
+  $milestones, $mode,
   $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
@@ -194,10 +195,11 @@ export function mountHud(root: HTMLElement, game: Game) {
     mBtn.disabled = !s.canLaunch;
     // each part of a volley, held against what it takes: the disabled button explains itself
     const parts: [string, number, number][] = [
-      ['foils', s.foils, LAUNCH_COST_FOILS], ['launch', s.launch, 1], ['stored', s.stored, s.burst],
+      ['foils', s.foils, LAUNCH_COST_FOILS], ['launch', s.launch, LAUNCH_CAP_PER_VOLLEY], ['stored', s.stored, s.burst],
     ];
+    // capacity carries its ↑ so "0/3" never reads as a count of launches
     const cost = parts.map(([n, have, need]) =>
-      `${n} ${fmt(Math.min(have, need))}/${need} ${have >= need ? '✓' : '✗'}`).join(' · ');
+      `${n} ${fmt(Math.min(have, need))}/${need}${n === 'launch' ? RESOURCES.launch.glyph : ''} ${have >= need ? '✓' : '✗'}`).join(' · ');
     if (mCost.textContent !== cost) mCost.textContent = cost;
     const missing = parts.filter(([, have, need]) => have < need)
       .map(([n, have, need]) => `${fmt(need - have)} more ${n === 'stored' ? 'stored energy' : n === 'launch' ? 'launch capacity' : n}`);
@@ -232,6 +234,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   const bS1 = mkBtn('1×', 'Speed 1 (key 1)', () => game.actions.push({ kind: 'setSpeed', speed: 1 }));
   const bS3 = mkBtn('3×', 'Speed 3 (key 2)', () => game.actions.push({ kind: 'setSpeed', speed: 3 }));
   const bS10 = mkBtn('10×', 'Speed 10 (key 3)', () => game.actions.push({ kind: 'setSpeed', speed: 10 }));
+  mkBtn('☰', 'Menu — save, graphics, audio, controls (Esc)', () => $menuOpen.set(true)).id = 'btn-menu';
   let clockHtml = '';
   const renderTime = () => {
     const t = $time.get();
@@ -377,10 +380,11 @@ export function mountHud(root: HTMLElement, game: Game) {
   $resources.subscribe(renderHelmet);
   // the tech tree is a command-view screen: T does not open it on foot or on
   // the way there (pointer lock would leave it unclickable), and Tab does not
-  // leave for walk mode while it is open
+  // leave for walk mode while it is open. The tree's own T handler is also a
+  // window capture listener, so only stopImmediatePropagation holds it off
   window.addEventListener('keydown', (e) => {
     const tree = document.getElementById('tech-screen');
-    if (e.code === 'KeyT' && !game.commandView) e.stopPropagation();
+    if (e.code === 'KeyT' && !game.commandView) e.stopImmediatePropagation();
     if (e.code === 'Tab' && tree && tree.style.display !== 'none') { e.preventDefault(); e.stopPropagation(); }
   }, { capture: true });
   $lookAt.subscribe((la) => {

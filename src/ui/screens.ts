@@ -5,6 +5,7 @@ import type { Game } from '../core/game';
 import { el, PERSON_SVG } from './hud';
 import { $defeat, $hasSave, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
+import { computeMods } from '../core/mods';
 
 function rate(n: number): string {
   return `<span class="rate">${[0, 1, 2, 3, 4].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
@@ -89,7 +90,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
           <div class="pro">No life support at all — the night can only stop machines, never kill</div>
           <div class="pro">Cannot starve, cannot mutiny, cannot be defeated</div>
           <div class="pro">Era 6 Human Cohabitation brings settlers aboard once the base is ready</div>
-          <div class="con">Every crewed station pays the agent power tax: ×1.6 draw</div>
+          <div class="con">Every crewed station pays the agent power tax: ×${Math.round((1 + computeMods([], 'robotic', selected).agentTax) * 100) / 100} draw</div>
           <div class="con">Labs research at 75% — inference is not insight</div>
           <div class="con">Human-comfort research (farms, wellness) locked until cohabitation</div>
           <div class="diff">THE MISSION PLAN · ROBOTS FIRST</div>

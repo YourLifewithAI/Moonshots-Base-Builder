@@ -132,7 +132,7 @@
   transition: background var(--dur-fast) var(--ease);
 }
 .bld-btn:hover { background: var(--ink-500); color: var(--paper); }
-.bld-btn.locked { opacity: 0.38; border-style: dashed; cursor: default; }
+.bld-btn.locked { opacity: 0.38; border-style: dashed; cursor: help; }
 .bld-btn.locked:hover { background: var(--ink-700); }
 .bld-btn .icon { font-size: 17px; line-height: 22px; }
 .bld-btn .nm { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; line-height: 13px; margin-top: 3px; }
@@ -318,4 +318,51 @@
 #pause-veil {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   padding: 8px 22px; font-size: 13px; letter-spacing: 0.3em; text-transform: uppercase;
+}
+
+/* ── in-game menu (Esc): over everything, the world dimmed behind ── */
+#menu {
+  position: absolute; inset: 0; z-index: 40;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(8, 9, 10, 0.6);
+  padding: var(--gutter);
+}
+#menu .menu-panel {
+  width: min(780px, 100%); max-height: 100%; overflow-y: auto;
+  font-size: 12px; line-height: 17px;
+}
+#menu .menu-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 12px 16px; border-bottom: var(--hair);
+  font-size: 13px; letter-spacing: 0.14em; color: var(--paper);
+}
+#menu .menu-body { display: grid; grid-template-columns: 1fr 1fr; }
+#menu .menu-col + .menu-col { border-left: var(--hair); }
+#menu section { padding: 12px 16px; border-top: var(--hair); display: flex; flex-direction: column; gap: 8px; }
+#menu .menu-col section:first-child { border-top: none; }
+#menu .menu-actions > .btn { text-align: left; }
+#menu .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+#menu .seg .btn { position: relative; padding: 5px 4px 6px; text-align: center; font-size: 10px; }
+#menu .seg .btn b { display: block; font-family: var(--font-mono); font-size: 14px; line-height: 18px; }
+/* ◆ marks the player's own setting; a dashed rung drew black this session */
+#menu .seg .btn.mine::after { content: '◆'; position: absolute; top: 3px; right: 5px; font-size: 8px; line-height: 8px; }
+#menu .seg .btn.failed { border-style: dashed; }
+#menu .seg .btn.confirm { outline: 1px solid var(--paper); outline-offset: 1px; }
+#menu .menu-auto {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  background: var(--paper); color: var(--ink-900); padding: 0 4px; margin-right: 2px;
+}
+#menu .menu-note { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#menu .menu-note:empty { display: none; }
+#menu .menu-note .btn { padding: 2px 8px; font-size: 10px; margin-left: 4px; }
+#menu .menu-confirm { display: flex; flex-direction: column; gap: 6px; }
+#menu .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#menu input[type=range] { flex: 1; accent-color: var(--paper); }
+#menu #menu-vol-val { min-width: 4ch; text-align: right; }
+#menu .keys { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; }
+#menu .keys kbd { font-family: var(--font-mono); font-size: 11px; color: var(--paper); white-space: nowrap; }
+#menu .keys span { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+@media (max-width: 720px) {
+  #menu .menu-body { grid-template-columns: 1fr; }
+  #menu .menu-col + .menu-col { border-left: none; border-top: var(--hair); }
 }

@@ -9,6 +9,7 @@ import type { GameStats } from './core/state';
 import { researchView } from './core/research';
 import { recipeTriangles } from './buildings/recipes';
 import type { MapView, ProspectId } from './data/lunarMap';
+import { sfx, type Cue } from './audio/sfx';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -107,6 +108,11 @@ function api(game: Game) {
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
+    /** what the menu shows about the render path */
+    getRenderStatus: () => game.renderStatus(),
+    /** the audio layer: context state, cues accepted per kind, the hum */
+    getAudio: () => sfx.info(),
+    playCue: (cue: Cue) => sfx.play(cue),
     getCamera: () => game.debugCamera(),
     screenOf: (x: number, z: number) => game.debugScreenOf(x, z),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),

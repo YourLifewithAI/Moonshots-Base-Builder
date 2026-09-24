@@ -4,7 +4,7 @@
 import type { GameState } from '../core/state';
 import { BUILDINGS, type BuildingId } from './buildings';
 import { TECHS, type TechId } from './techs';
-import { ATLAS } from './balance';
+import { ATLAS, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB } from './balance';
 
 export interface MilestoneDef {
   id: string;
@@ -91,7 +91,7 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'silicon-brains', title: 'Silicon Brains',
-    hint: 'Fab chips from lunar silicon (Era 4), then build a Data Center (Era 5). Compute researches like three labs and never sleeps.',
+    hint: `Fab chips from lunar silicon (Era 4), then build a Data Center (Era 5). Compute feeds research as fast as ${Math.floor(RESEARCH_RATE_PER_DC / RESEARCH_RATE_PER_LAB)} labs and never sleeps.`,
     check: (s) => count(s, 'dataCenter') >= 1,
     progress: (s) => `${built(s, 'chipFab')} · ${built(s, 'dataCenter')}`,
   },

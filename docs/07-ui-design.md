@@ -73,15 +73,19 @@ Build mode lays five persistent regions over the canvas, 24 px from each edge:
 | Region | Element | Contents |
 |---|---|---|
 | **Top-left** | `#resource-strip` | Chip row, mono digits: ⚡ supply`/`demand kW · ▮ stored`/`capacity · the nine stockpiles (▲◆◇≈○✳⚙▰↑) · ◈ crew`/`housing · ◐ morale · ≡ data. Foils/launch chips stay hidden until first production (progressive disclosure). Warn state = brighter value + stronger border — never a color |
-| **Top-center** | `#swarm-meter` | The game's spine: "Dyson Swarm · 0.0000%" with a 4 px progress bar, volley count, and — once Swarm Protocol is researched — the inverted **▲ Launch collectors** button with its cost line (`10 foils · 1 launch · 400 stored`) |
+| **Top-center** | `#swarm-meter` | The game's spine: "Dyson Swarm · 0.0000%" with a 4 px progress bar, volley count, and — once Swarm Protocol is researched — the inverted **▲ Launch collectors** button with what a volley still lacks (`foils 6/10 ✗ · launch 3/3↑ ✓ · stored 400/400 ✓`) |
 | **Top-right** | `#time-controls` + `#alerts` | Mono clock (`DAY n · ☀ 62%` / `☾ NIGHT` / `FLARE −45s`), pause + 1×/3×/10× buttons (Space, 1/2/3), and the alert stack beneath: last 4, click to dismiss, `crit` alerts inverted |
 | **Bottom-left** | `#milestones` | "Objectives n/10" + the single next milestone (title + hint). **This panel is the entire tutorial** (§9) |
 | **Bottom-center** | `#palette` | Category tabs (Power / Extraction / Industry / Life / Science / Export) over building cards: glyph icon, name, cost in resource glyphs. Locked cards are dashed at 38% opacity — visible futures, not hidden menus |
 
 Contextual, not persistent: `#inspector` (right edge, on selection),
 `#tooltip` (anchored to hovered palette card), `#place-hint` (above palette
-during placement), `#pause-veil` (center), floaters (Islanders-style mono
-deltas that rise from the cursor on placement, 1.4 s).
+during placement: `SOLAR ARRAY · 12◆ (112→100) · +10 kW · R rotate · ⇧ keep
+placing`, then the blocked reason, which flashes when a blocked spot is
+clicked), `#pause-veil` (center), floaters (Islanders-style mono deltas: the
+price rises from the pad it was paid for, 1.4 s), and `#menu` (§12).
+Shift-click keeps placing; a plain click places once. A locked card opens
+the research tree on the tech that unlocks it.
 
 ## 5. The fixed tooltip template (`palette.ts: tooltipHtml`)
 
@@ -214,6 +218,29 @@ detaches the node under the cursor and **silently eats the click**. With a
 1 Hz publisher this is not theoretical — any per-tick rebuild of a panel with
 buttons is a bug by definition. Read-only text (resource chips, clock) may
 rebuild freely.
+
+## 12. Menu and sound (`menu.ts`, `audio/sfx.ts`)
+
+**Esc** closes one thing at a time — placement, the inspector, a resource
+panel, the tree — and with nothing left to cancel opens the mission menu
+(also ☰ beside the speed buttons). The sim pauses while it is open and
+resumes as it was. It holds Resume · Save now · New mission (confirmed; the
+save is erased) · Graphics · Audio · the Controls list. Graphics is a 0–3
+segmented control showing the level the render ladder is actually running,
+marked `AUTO` with its cause when the black-frame check lowered it; the
+player's own choice carries a ◆. Lowering is one click; a level that drew
+black this session asks for a second. Safe render mode toggles both ways.
+The choices live in `localStorage` (`core/settings.ts`) and apply at boot
+before the first frame.
+
+Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio
+nodes only: a switch click on every control, a thunk on placement, a blip on
+a refused action, chimes for a finished site or tech, warn and crit alerts
+band-passed between Quindar tones (2525 Hz in, 2475 Hz out), a swell at
+nightfall, a sweep per launch. A low control-room hum detunes and beats as
+the grid's margin shrinks, so a brownout is audible before it lands; on
+foot the suit breathes. The sim stays silent: `game.publish()` diffs alert
+ids and state and plays the cues, each rate-limited in real time.
 
 ---
 

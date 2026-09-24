@@ -1,0 +1,242 @@
+/** The in-game menu — Esc with nothing left to cancel, or the ☰ button:
+ *  resume, save, new mission, graphics, audio and the controls list. The sim
+ *  pauses while it is open and resumes exactly as it was left. Choices
+ *  persist through core/settings.ts and apply at the next boot before the
+ *  first frame (main.ts).
+ *
+ *  Graphics: the running FX level is shown as the ladder left it. Lowering is
+ *  always one click; raising is the player's explicit pick, and a level that
+ *  drew black this session asks for a second click. The black-frame check
+ *  stays on either way and re-probes the new level at once. */
+import type { Game } from '../core/game';
+import { loadSettings, saveSettings } from '../core/settings';
+import { sfx } from '../audio/sfx';
+import { el } from './hud';
+import { $defeat, $menuOpen, $phase, $time } from './stores';
+
+const FX_LEVELS = [
+  { name: 'Full', desc: 'HDR buffers, ambient occlusion, bloom and film' },
+  { name: 'Standard', desc: 'standard buffers with ambient occlusion' },
+  { name: 'No AO', desc: 'standard buffers, no ambient occlusion' },
+  { name: 'Plain', desc: 'no post effects at all' },
+];
+
+export const CONTROLS: [string, string][] = [
+  ['Click', 'place · select a building'],
+  ['⇧ Click', 'keep placing'],
+  ['R', 'rotate while placing'],
+  ['Right-click · Esc', 'stop placing · close the inspector'],
+  ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
+  ['W A S D · arrows', 'pan the camera'],
+  ['Q · E', 'orbit'],
+  ['F', 'focus the selection'],
+  ['H · Home', 'back to the Lander'],
+  ['Space', 'pause'],
+  ['1 · 2 · 3', 'speed 1× · 3× · 10×'],
+  ['T', 'research tree'],
+  ['I', 'ice overlay (once surveyed)'],
+  ['Tab', 'walk the surface · command view'],
+  ['On foot', 'W A S D move · Space jump · ⇧ run · E inspect'],
+  ['Esc', 'this menu'],
+];
+
+export function mountMenu(root: HTMLElement, game: Game) {
+  const veil = el('div', 'interactive');
+  veil.id = 'menu';
+  veil.setAttribute('role', 'dialog');
+  veil.setAttribute('aria-modal', 'true');
+  veil.setAttribute('aria-label', 'Mission menu');
+  veil.innerHTML = `
+    <div class="menu-panel panel">
+      <div class="menu-head"><b>MISSION MENU</b><span class="label">Simulation paused</span></div>
+      <div class="menu-body">
+        <div class="menu-col">
+          <section class="menu-actions">
+            <button class="btn primary" data-act="resume">▸ Resume</button>
+            <button class="btn" data-act="save">Save now</button>
+            <button class="btn" data-act="new">New mission…</button>
+            <div class="menu-confirm" id="menu-confirm" style="display:none">
+              <div class="menu-note">Abandon this base? Its save is erased and you choose a new landing site.</div>
+              <div class="menu-row">
+                <button class="btn" data-act="new-yes" id="menu-new-yes">Abandon base</button>
+                <button class="btn" data-act="new-no">Keep playing</button>
+              </div>
+            </div>
+            <div class="menu-note" id="menu-note"></div>
+          </section>
+          <section>
+            <span class="label">Graphics</span>
+            <div class="seg" id="menu-fx">${FX_LEVELS.map((l, n) =>
+              `<button class="btn" data-fx="${n}" title="FX ${n} — ${l.desc}"><b>${n}</b>${l.name}</button>`).join('')}</div>
+            <div class="menu-note" id="menu-fx-note"></div>
+            <div class="menu-row">
+              <span>Safe render mode</span>
+              <button class="btn" data-act="safe" id="menu-safe" aria-pressed="false">Off</button>
+            </div>
+            <div class="menu-note" id="menu-safe-note"></div>
+          </section>
+          <section>
+            <span class="label">Audio</span>
+            <div class="menu-row">
+              <input type="range" id="menu-vol" min="0" max="100" step="5" aria-label="Volume">
+              <span class="mono" id="menu-vol-val"></span>
+              <button class="btn" data-act="mute" id="menu-mute" aria-pressed="false">Mute</button>
+            </div>
+          </section>
+        </div>
+        <div class="menu-col">
+          <section>
+            <span class="label">Controls</span>
+            <div class="keys" id="menu-keys">${CONTROLS.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
+          </section>
+        </div>
+      </div>
+    </div>`;
+  root.appendChild(veil);
+  const $ = <T extends HTMLElement = HTMLElement>(sel: string) => veil.querySelector(sel) as T;
+  const note = $('#menu-note');
+  const confirmRow = $('#menu-confirm');
+  const fxNote = $('#menu-fx-note');
+  const safeBtn = $<HTMLButtonElement>('#menu-safe');
+  const safeNote = $('#menu-safe-note');
+  const vol = $<HTMLInputElement>('#menu-vol');
+  const volVal = $('#menu-vol-val');
+  const muteBtn = $<HTMLButtonElement>('#menu-mute');
+
+  /** a raise to a level that drew black this session waits for a second click */
+  let confirmFx: number | null = null;
+
+  const renderGfx = () => {
+    const st = game.renderStatus();
+    const choice = loadSettings().fx ?? 0;
+    veil.querySelectorAll<HTMLButtonElement>('[data-fx]').forEach((b) => {
+      const n = Number(b.dataset.fx);
+      b.classList.toggle('active', n === st.level);
+      b.classList.toggle('mine', n === choice);
+      b.classList.toggle('failed', st.failed.includes(n));
+      b.classList.toggle('confirm', n === confirmFx);
+    });
+    const auto = st.level > choice;
+    const restore = `<button class="btn" data-act="restore" id="menu-fx-restore">Restore FX ${choice}</button>`;
+    const html = confirmFx !== null
+      ? `FX ${confirmFx} drew a black frame earlier this session. Try it anyway? The render check stays on and steps back down if the frame goes black. <button class="btn" data-act="try" data-level="${confirmFx}" id="menu-fx-try">Try FX ${confirmFx}</button>`
+      : auto && !st.reason && st.level <= st.floor
+        ? `Held at FX ${st.level} by the ?lowfx address. Your setting: FX ${choice} ◆ ${restore}`
+        : auto
+          ? `<span class="menu-auto">AUTO</span> Lowered to FX ${st.level} — ${st.reason || 'a render check in an earlier session'}. Your setting: FX ${choice} ◆ ${restore}`
+          : `FX ${st.level}: ${FX_LEVELS[st.level].desc}. A black-frame check steps down on its own if the GPU cannot keep up.`;
+    if (fxNote.dataset.html !== html) { fxNote.dataset.html = html; fxNote.innerHTML = html; }
+    fxNote.dataset.level = String(st.level);
+    safeBtn.textContent = st.safe ? 'On' : 'Off';
+    safeBtn.classList.toggle('active', st.safe);
+    safeBtn.setAttribute('aria-pressed', String(st.safe));
+    safeNote.textContent = st.safe && st.safeAuto
+      ? 'Switched on by the render check (GPU issue detected). Turning it off retries lit rendering; the check keeps watching.'
+      : st.safe ? 'Unlit materials, no shadows, no effects — draws on any GPU.'
+      : 'The last resort for a GPU that shows black: unlit materials, no shadows.';
+  };
+
+  const renderAudio = () => {
+    const s = loadSettings();
+    const pct = Math.round(s.volume * 100);
+    if (vol.value !== String(pct)) vol.value = String(pct);
+    volVal.textContent = `${pct}%`;
+    muteBtn.textContent = s.muted ? 'Unmute' : 'Mute';
+    muteBtn.classList.toggle('active', s.muted);
+    muteBtn.setAttribute('aria-pressed', String(s.muted));
+  };
+
+  const pickFx = (n: number) => {
+    const st = game.renderStatus();
+    if (n < st.level && st.failed.includes(n) && confirmFx !== n) { confirmFx = n; renderGfx(); return; }
+    confirmFx = null;
+    saveSettings({ fx: n });
+    if (n !== st.level) game.setFxLevel(n);
+    renderGfx();
+  };
+
+  // open: pause (remembering how it was); close: put it back
+  let resumePaused: boolean | null = null;
+  let poll = 0;
+  const show = (open: boolean) => {
+    if (open === (veil.style.display === 'flex')) return;
+    if (open) {
+      resumePaused = $time.get().paused;
+      if (!resumePaused) game.actions.push({ kind: 'setPaused', paused: true });
+      confirmFx = null;
+      confirmRow.style.display = 'none';
+      note.textContent = '';
+      renderGfx();
+      renderAudio();
+      veil.style.display = 'flex';
+      poll = window.setInterval(renderGfx, 500); // the ladder can still step while paused
+      $<HTMLButtonElement>('[data-act="resume"]').focus({ preventScroll: true });
+    } else {
+      veil.style.display = 'none';
+      window.clearInterval(poll);
+      if (resumePaused === false) game.actions.push({ kind: 'setPaused', paused: false });
+      resumePaused = null;
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    }
+  };
+  $menuOpen.subscribe(show);
+  $phase.subscribe((p) => { if (p !== 'playing') $menuOpen.set(false); });
+
+  veil.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    if (t === veil) { $menuOpen.set(false); return; } // a click outside the panel resumes
+    const fx = t.closest<HTMLElement>('[data-fx]');
+    if (fx) { pickFx(Number(fx.dataset.fx)); return; }
+    const b = t.closest<HTMLButtonElement>('button[data-act]');
+    if (!b) return;
+    switch (b.dataset.act) {
+      case 'resume': $menuOpen.set(false); break;
+      case 'save':
+        if ($defeat.get()) { note.textContent = 'A lost mission is not saved.'; break; }
+        note.textContent = 'Saving…';
+        void game.doSave().then(() => {
+          note.textContent = `Saved · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        });
+        break;
+      case 'new':
+        confirmRow.style.display = confirmRow.style.display === 'none' ? 'block' : 'none';
+        break;
+      case 'new-no': confirmRow.style.display = 'none'; break;
+      case 'new-yes':
+        b.disabled = true;
+        b.textContent = 'Leaving orbit…';
+        void game.abandonMission();
+        break;
+      case 'restore': pickFx(loadSettings().fx ?? 0); break;
+      case 'try': pickFx(Number(b.dataset.level)); break;
+      case 'safe':
+        if (game.safeModeOn) game.disableSafeMode();
+        else game.enableSafeMode(false);
+        saveSettings({ safe: game.safeModeOn });
+        renderGfx();
+        break;
+      case 'mute': {
+        const muted = !loadSettings().muted;
+        saveSettings({ muted });
+        sfx.setMuted(muted);
+        renderAudio();
+        break;
+      }
+    }
+  });
+  vol.addEventListener('input', () => {
+    const volume = Number(vol.value) / 100;
+    saveSettings({ volume });
+    sfx.setVolume(volume);
+    renderAudio();
+  });
+  vol.addEventListener('change', () => sfx.play('tick'));
+
+  // capture, registered before the other screens: while open, the menu owns
+  // the keyboard (Esc closes it; nothing reaches the camera, the tree or the sim)
+  window.addEventListener('keydown', (e) => {
+    if (!$menuOpen.get()) return;
+    e.stopImmediatePropagation();
+    if (e.code === 'Escape') { e.preventDefault(); $menuOpen.set(false); }
+  }, true);
+}

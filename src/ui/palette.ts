@@ -5,18 +5,23 @@ import {
   type BuildingId, type Category,
 } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
-import { TECHS, TECH_ORDER } from '../data/techs';
+import { TECHS, TECH_ORDER, effectApplies, type TechId } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost, demolishRefund, untouchedSite } from '../buildings/placement';
 import { wearDerate } from '../core/economy';
-import { canToggleCrew, effectiveDef, refineryFeed, smelterFeed } from '../core/mods';
-import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, RESUPPLY } from '../data/balance';
+import { canToggleCrew, effectiveDef, effectiveRates, refineryFeed, smelterFeed, type Mods } from '../core/mods';
+import { uplinkShare } from '../core/research';
+import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST, RESUPPLY } from '../data/balance';
 import { DEPOSIT_INFO, FEED_KINDS, FEED_LABEL, type FeedGrade } from '../data/deposits';
 import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
 import { fmtClock } from '../core/daynight';
 import { el, fmt, PERSON_SVG } from './hud';
-import { $feed, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloater } from './stores';
+import { openTechTreeAt } from './techTree';
+import {
+  $feed, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
+  $vitals, spawnFloater,
+} from './stores';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
@@ -25,14 +30,27 @@ const ICONS: Record<BuildingId, string> = {
   foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
 };
 
-function techThatUnlocks(b: BuildingId): string | null {
+/** The tech that unlocks `b` on this site and expedition — a visible card
+ *  first, else any (a breakthrough still to be found). */
+export function unlockingTech(b: BuildingId): TechId | null {
+  const site = $siteId.get() ?? 'mare';
+  const exp = $vitals.get().expedition;
+  const cards = $research.get()?.cards;
+  let hidden: TechId | null = null;
   for (const tid of TECH_ORDER) {
-    for (const fx of TECHS[tid].effects) {
-      if (fx.kind === 'unlock' && fx.building === b) return TECHS[tid].name;
-    }
+    const def = TECHS[tid];
+    if (!def.effects.some((fx) => fx.kind === 'unlock' && fx.building === b && effectApplies(fx, site, exp))) continue;
+    if ((def.sites && !def.sites.includes(site)) || (def.expeditions && !def.expeditions.includes(exp))) continue;
+    if (!cards || cards[tid]?.state !== 'hidden') return tid;
+    hidden ??= tid;
   }
-  return null;
+  return hidden;
 }
+
+/** kW with one decimal where it matters: 10, 6.4 */
+const kw = (v: number) => String(Math.round(v * 10) / 10);
+/** a multiplier: ×1.6, ×1.48 */
+const mult = (v: number) => `×${Math.round(v * 100) / 100}`;
 
 /** the inputs a station shares with the crew's life support ("water", "food") */
 function lifeSupportInputs(type: BuildingId): string {
@@ -42,53 +60,63 @@ function lifeSupportInputs(type: BuildingId): string {
     .join(' and ') || 'supplies';
 }
 
-function ioRows(type: BuildingId): string {
-  const def = BUILDINGS[type];
+/** The stat grid, from the live mods (tech multipliers, recipes, site ISRU,
+ *  agent tax). `b`: a placed building — its crew mode, clock and deposit
+ *  count; wear shows in its condition bar instead. */
+function ioRows(type: BuildingId, mods: Mods, b?: BuildingState): string {
+  const def = effectiveDef(type, mods);
   const site = SITES[$siteId.get() ?? 'mare'];
+  const vit = $vitals.get();
+  const robotic = vit.expedition === 'robotic';
+  // new stations on a robotic mission start agent-run (game.commitPlace)
+  const agentRun = def.crew > 0 && (b ? b.automated || (robotic && vit.crew <= 0) : robotic);
+  const rv = $research.get();
+  const share = type === 'lab' && agentRun ? (b ? rv?.uplinkShare ?? 1 : uplinkShare((rv?.agentLabs ?? 0) + 1)) : 1;
+  const r = effectiveRates(type, mods, site, b ? { ...b, wear: 0 } : undefined, { agentRun, robotic, uplinkShare: share });
   const cost = Object.entries(buildCost(type, site))
     .map(([rid, amt]) => `${amt} ${RESOURCES[rid as ResourceId].name.toLowerCase()}`)
     .join(' · ') || '—';
-  const flow = (rec: Partial<Record<ResourceId, number>>) =>
-    Object.entries(rec).map(([rid, rate]) =>
-      `${fmt((rate as number) * 60)} ${RESOURCES[rid as ResourceId].name.toLowerCase()}/min`).join(' · ') || '—';
+  const flow = (rec: Partial<Record<ResourceId, number>>, data = 0) =>
+    [...Object.entries(rec).map(([rid, rate]) =>
+      `${fmt((rate as number) * 60)} ${RESOURCES[rid as ResourceId].name.toLowerCase()}/min`),
+    ...(data > 0 ? [`${fmt(data * 60)} data/min${share < 1 ? ` (uplink share ${Math.round(share * 100)}%)` : ''}`] : []),
+    ].join(' · ') || '—';
   // on a robotic mission, crewed stations run on agents: show the real draw
-  const agentRun = $vitals.get().expedition === 'robotic' && def.crew > 0;
-  const power = def.powerKW > 0 && agentRun
-    ? `+${fmt(def.powerKW * (1 - AGENT_GEN_TAX))} kW (−${Math.round(AGENT_GEN_TAX * 100)}% agent-run)`
-    : def.powerKW >= 0 ? `+${def.powerKW} kW`
-    : agentRun ? `${(def.powerKW * 1.6).toFixed(1)} kW (×1.6 agent-run)`
-    : `${def.powerKW} kW`;
-  const upkeep = def.upkeepParts ? `${def.upkeepParts} parts/day` : '—';
+  const power = r.powerKW > 0
+    ? `+${kw(r.powerKW)} kW${agentRun ? ` (−${Math.round(AGENT_GEN_TAX * 100)}% agent-run)` : ''}`
+    : r.powerKW < 0 ? `−${kw(-r.powerKW)} kW${agentRun ? ` (${mult(1 + mods.agentTax)} agent-run)` : ''}`
+    : '0 kW';
+  const upkeep = r.upkeepPartsPerDay > 0 ? `${fmt(r.upkeepPartsPerDay)} parts/day` : '—';
   const buildTime = def.buildTime > 0
-    ? `${Math.round(def.buildTime * site.buildCostMult)}s · 1 robot · ${CONSTRUCTION_KW} kW · parts to weld`
+    ? `${Math.round(def.buildTime * site.buildCostMult * mods.buildSpeedMult * mods.buildTimeMult[type])}s · 1 robot · ${CONSTRUCTION_KW} kW · parts to weld`
     : 'pre-placed';
   const extras: string[] = [];
   if (def.housing) extras.push(`houses ${def.housing}`);
-  if (def.storageKWh) extras.push(`stores ${def.storageKWh}`);
+  if (def.storageKWh) extras.push(`stores ${fmt(def.storageKWh * mods.batteryCapMult)}`);
   if (def.moraleDelta) extras.push(`morale ${def.moraleDelta > 0 ? '+' : ''}${def.moraleDelta}`);
-  if (def.crew) extras.push(agentRun && $vitals.get().crew <= 0 ? 'agent-run, no crew' : `${def.crew} crew`);
+  if (def.crew) extras.push(agentRun && vit.crew <= 0 ? 'agent-run, no crew' : agentRun ? 'agent-run' : `${r.crew} crew`);
   return `
     <div class="io">
       <span class="k">Build</span><span class="mono">${cost}</span>
       <span class="k">Time</span><span class="mono">${buildTime}</span>
       <span class="k">Power</span><span class="mono">${power}</span>
-      <span class="k">Input</span><span class="mono">${flow(def.inputs)}</span>
-      <span class="k">Output</span><span class="mono">${flow(def.outputs)}</span>
+      <span class="k">Input</span><span class="mono">${flow(r.inputs)}</span>
+      <span class="k">Output</span><span class="mono">${flow(r.outputs, r.data)}</span>
       <span class="k">Upkeep</span><span class="mono">${upkeep}</span>
       ${extras.length ? `<span class="k">Effect</span><span class="mono">${extras.join(' · ')}</span>` : ''}
     </div>`;
 }
 
-export function tooltipHtml(type: BuildingId, locked: boolean): string {
+export function tooltipHtml(type: BuildingId, locked: boolean, mods: Mods): string {
   const def = BUILDINGS[type];
-  const unlock = locked ? techThatUnlocks(type) : null;
+  const unlock = locked ? unlockingTech(type) : null;
   return `
     <section><div class="tt-name"><span>${def.name}</span>
       <span class="label">${CATEGORY_LABEL[def.category]}</span></div>
       <span class="label">${def.footprint[0] * 4}×${def.footprint[1] * 4} m · Era ${def.era}</span></section>
-    <section>${ioRows(type)}</section>
+    <section>${ioRows(type, mods)}</section>
     <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
-    ${unlock ? `<section><span class="label">⧗ Requires research — ${unlock}</span></section>` : ''}`;
+    ${unlock ? `<section><span class="label">⧗ Requires research — ${TECHS[unlock].name} · click to find it in the tree</span></section>` : ''}`;
 }
 
 /** 'Feed (last dug): 64% high-Ti · 8% highland → yield +17%' for the smelter
@@ -124,7 +152,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
   let activeCat: Category = 'power';
 
   const showTooltip = (type: BuildingId, locked: boolean, anchor: HTMLElement) => {
-    tooltip.innerHTML = tooltipHtml(type, locked);
+    tooltip.innerHTML = tooltipHtml(type, locked, game.mods);
     tooltip.style.display = 'block';
     const r = anchor.getBoundingClientRect();
     const w = 280;
@@ -148,12 +176,13 @@ export function mountPalette(root: HTMLElement, game: Game) {
       b.innerHTML = `<div class="icon">${ICONS[type]}</div><div class="nm">${def.name}</div><div class="cost mono">${cost}</div>`;
       b.addEventListener('mouseenter', () => showTooltip(type, locked, b));
       b.addEventListener('mouseleave', hideTooltip);
-      if (!locked) {
-        b.addEventListener('click', (e) => {
-          game.beginPlacement(type);
-          spawnFloater(BUILDINGS[type].name.toUpperCase(), e.clientX, e.clientY - 20);
-        });
-      }
+      b.dataset.type = type;
+      b.addEventListener('click', (e) => {
+        // a locked card answers with the research that opens it
+        if (locked) { hideTooltip(); openTechTreeAt(unlockingTech(type)); return; }
+        game.beginPlacement(type);
+        spawnFloater(BUILDINGS[type].name.toUpperCase(), e.clientX, e.clientY - 20);
+      });
       items.appendChild(b);
     }
     // terrain tools live beside the extraction buildings
@@ -189,12 +218,47 @@ export function mountPalette(root: HTMLElement, game: Game) {
   hint.id = 'place-hint';
   hint.style.display = 'none';
   palette.insertBefore(hint, items);
-  $placing.subscribe((p) => {
-    if (!p) { hint.style.display = 'none'; return; }
+  // 'SOLAR ARRAY · 12◆ (128→116) · +10 kW · R rotate · ⇧ keep placing',
+  // then the reason a spot is blocked, or a warning about a valid one
+  const costPart = (amt: number, glyph: string, have: number) =>
+    have >= amt ? `${amt}${glyph} (${fmt(have)}→${fmt(have - amt)})` : `${amt}${glyph} (have ${fmt(have)})`;
+  const hintLine = (type: BuildingId | 'grade'): string => {
+    if (type === 'grade') {
+      return ['GRADE SITE', costPart(GRADE_COST_ENERGY, '▮', $power.get().stored), 'each click grades deeper',
+        'right-click done'].join(' · ');
+    }
+    const res = $resources.get();
+    const site = SITES[$siteId.get() ?? 'mare'];
+    const parts = [BUILDINGS[type].name.toUpperCase()];
+    const cost = Object.entries(buildCost(type, site))
+      .map(([rid, amt]) => costPart(amt ?? 0, RESOURCES[rid as ResourceId].glyph, res[rid as ResourceId] ?? 0));
+    if (cost.length) parts.push(cost.join(' '));
+    const def = effectiveDef(type, game.mods);
+    const robotic = $vitals.get().expedition === 'robotic';
+    const p = effectiveRates(type, game.mods, site, undefined, { agentRun: robotic && def.crew > 0, robotic }).powerKW;
+    if (Math.abs(p) >= 0.05) parts.push(`${p > 0 ? '+' : '−'}${kw(Math.abs(p))} kW`);
+    parts.push('R rotate', '⇧ keep placing');
+    return parts.join(' · ');
+  };
+  let hintHtml = '';
+  const renderHint = () => {
+    const p = $placing.get();
+    if (!p) { hint.style.display = 'none'; hintHtml = ''; return; }
     hint.style.display = 'block';
-    hint.innerHTML = p.valid || !p.reason
-      ? `<span class="label">Click place · R rotate · right-click cancel</span>${p.valid && p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.valid && p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
-      : `<span class="blocked">${p.reason}</span>`;
+    const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
+      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
+      : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
+    if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
+  };
+  $placing.subscribe(renderHint);
+  $resources.subscribe(() => { if ($placing.get()) renderHint(); });
+  // a click on a blocked spot: the hint flashes (restarting the animation)
+  $placeFlash.subscribe((n) => {
+    if (!n) return;
+    hint.classList.remove('flash');
+    void hint.offsetWidth;
+    hint.classList.add('flash');
+    hint.dataset.flash = String(n);
   });
 
   // ── inspector: beneath the time controls and alerts. Rebuilt only when its
@@ -226,7 +290,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
           ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''
-            : def.powerKW > 0 ? ` · −${Math.round(AGENT_GEN_TAX * 100)}% kW` : ' · ×1.6 kW'}`
+            : def.powerKW > 0 ? ` · −${Math.round(AGENT_GEN_TAX * 100)}% kW` : ` · ${mult(1 + game.mods.agentTax)} kW`}`
           : 'OPERATING')
         : 'STANDBY';
     const shadowNote = sel.type === 'solar' && sel.shaded ? ' · IN TERRAIN SHADOW −85%' : '';
@@ -265,7 +329,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       <section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}</span></div>
         <span class="label" id="insp-status"></span></section>
-      <section>${ioRows(sel.type)}</section>
+      <section>${ioRows(sel.type, game.mods, sel)}</section>
       ${sel.deposit ? `<section><span class="label">◎ ${DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
       ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
       <section>
@@ -300,7 +364,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${def.crew > 0 && crewToggle ? `<section>
         <span class="label">Operations — ${def.powerKW > 0
           ? `agents keep ${Math.round((1 - AGENT_GEN_TAX) * 100)}% of the output`
-          : 'agents draw ×1.6 power'}, need no crew or morale</span>
+          : `agents draw ${mult(1 + game.mods.agentTax)} power`}, need no crew or morale</span>
         <div class="prio" style="margin-top:6px">
           <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">${PERSON_SVG} Crewed</button>
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
@@ -324,7 +388,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const lander = $lander.get();
     const site = (sel.construction ?? 0) > 0;
     const sig = [
-      sel.id, sel.type, sel.enabled, sel.automated, sel.priority, site,
+      sel.id, sel.type, sel.enabled, sel.automated, sel.priority, site, sel.overclock, sel.deposit,
+      sel.type === 'lab' ? $research.get()?.agentLabs : '', game.mods.agentTax,
       site && sel.idleReason === 'queued', untouchedSite(sel),
       canToggleCrew(vit.expedition, vit.crew, $tech.get()), vit.expedition, vit.crew > 0,
       sel.deposit ?? '', lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
