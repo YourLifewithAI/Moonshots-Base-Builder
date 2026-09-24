@@ -1,7 +1,7 @@
 /** Placement pipeline: heightfield ray → grid snap → validity (occupancy, slope,
  *  build radius, site rules, cost, unlock) → ghost preview → commit action.
- *  Validity is shown by shape/value, never hue: pale ghost = valid,
- *  dark ghost + flat outline = blocked. */
+ *  Validity is shown by value/pattern, never hue: pale lit ghost = valid,
+ *  dark hatched ghost = blocked (buildings/ghost.ts). */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import {
@@ -11,8 +11,9 @@ import {
 import type { SiteDef } from '../data/sites';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { recipeGeometry } from './recipes';
+import { ghostGeometry } from './recipes';
 import { centerOf, footprintRect } from './instances';
+import { createGhost, setGhostBlocked } from './ghost';
 
 export type PlaceableType = BuildingId | 'grade';
 
@@ -24,13 +25,6 @@ export interface PlacementProbe {
   /** soft warning on a valid placement ('' = none) */
   warn: string;
 }
-
-const GHOST_VALID = new THREE.MeshBasicMaterial({
-  color: 0xf5f7f9, transparent: true, opacity: 0.42, depthWrite: false,
-});
-const GHOST_BLOCKED = new THREE.MeshBasicMaterial({
-  color: 0x14161a, transparent: true, opacity: 0.6, depthWrite: false,
-});
 
 export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<string, number>> {
   const out: Partial<Record<string, number>> = {};
@@ -89,8 +83,8 @@ export class PlacementController {
     this.cancel();
     const geo = type === 'grade'
       ? new THREE.PlaneGeometry(GRADE_CELLS * CELL_M, GRADE_CELLS * CELL_M).rotateX(-Math.PI / 2).translate(0, 0.25, 0)
-      : recipeGeometry(type);
-    this.ghost = new THREE.Mesh(geo, GHOST_VALID);
+      : ghostGeometry(type);
+    this.ghost = createGhost(geo);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
     this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '' };
@@ -130,7 +124,7 @@ export class PlacementController {
     const y = this.hf.sample(cx, cz);
     this.ghost.position.set(cx, y, cz);
     this.ghost.rotation.y = -this.probe.rot * Math.PI / 2;
-    this.ghost.material = this.probe.valid ? GHOST_VALID : GHOST_BLOCKED;
+    setGhostBlocked(this.ghost, !this.probe.valid);
     this.ghost.visible = true;
     this.updateOutline(w, d, cx, cz, y);
   }

@@ -5,10 +5,19 @@
  *
  *  Sun shadows: one 2048² ortho map fitted each frame to the ground the camera
  *  can see and snapped to whole texels, re-rendered only when something
- *  changed (sun moved, window moved, casters rebuilt) — never at night. */
+ *  changed (sun moved, window moved, casters rebuilt) — never at night.
+ *
+ *  Walk mode adds the suit's headlamp: a SpotLight riding on the camera. It
+ *  never leaves the scene (a light joining or leaving recompiles every lit
+ *  program); it simply sits at intensity 0 except on foot at night. */
 import * as THREE from 'three';
 
-const WORK_LIGHTS = 8; // exterior floods over the buildings nearest the camera
+const WORK_LIGHTS = 8; // stock-path floods over the buildings nearest the camera
+const HEADLAMP = 16;    // cd at full night
+// Earthshine by day is a whisper under the sun; at night the eye adapts to
+// it. The landscape gets its own floor on top (world/floodlights.ts).
+const EARTHSHINE_DAY = 0.3;
+const EARTHSHINE_NIGHT = 1.0;
 
 export const SUN_INTENSITY = 5.4;
 const SHADOW_MAP = 2048;
@@ -25,6 +34,7 @@ const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
 export class Lighting {
   readonly sun: THREE.DirectionalLight;
   readonly earthshine: THREE.HemisphereLight;
+  readonly headlamp: THREE.SpotLight;
   private workLights: THREE.PointLight[] = [];
   /** regolith albedo under the base (drives the bounce light) */
   groundAlbedo = 0.3;
@@ -60,6 +70,24 @@ export class Lighting {
 
     this.earthshine = new THREE.HemisphereLight(0x2a3a55, 0x000000, 0.42);
     scene.add(this.earthshine);
+
+    // helmet-mounted, a hand above the eye, aimed a little below the gaze
+    this.headlamp = new THREE.SpotLight(0xfff6ea, 0, 40, 0.52, 0.6, 2);
+    this.headlamp.castShadow = false;
+    this.headlamp.position.set(0, 0.12, 0);
+    this.headlamp.target.position.set(0, -0.3, -1);
+  }
+
+  /** Parent the headlamp to the camera (which then joins the scene). */
+  attachHeadlamp(scene: THREE.Scene, camera: THREE.Camera) {
+    camera.add(this.headlamp, this.headlamp.target);
+    scene.add(camera);
+  }
+
+  /** On foot: `night` 0..1 drives the lamp; 0 switches it off. */
+  setHeadlamp(night: number) {
+    const k = Math.min(1, Math.max(0, (night - 0.25) / 0.5));
+    this.headlamp.intensity = HEADLAMP * k * k * (3 - 2 * k);
   }
 
   /** Point the sun from (elevation, azimuth) radians; called per frame. */
@@ -70,10 +98,10 @@ export class Lighting {
       Math.sin(azim) * Math.cos(elev),
     ).normalize();
     // dusk: fade the sun as it sinks. Night is claustrophobic by design —
-    // earthshine drops LOW so the base's own light pools carry the scene.
+    // earthshine is only a dim floor; the base's own light pools carry it.
     const t = Math.min(1, Math.max(0, (elev + 0.03) / 0.1));
     this.sun.intensity = SUN_INTENSITY * t;
-    this.earthshine.intensity = 0.3 - nightFactor * 0.19;
+    this.earthshine.intensity = EARTHSHINE_DAY + (EARTHSHINE_NIGHT - EARTHSHINE_DAY) * nightFactor;
     // sunlit regolith lights whatever faces it — shaded walls, undersides —
     // with neutral gray, never blue; gone once the sun is
     const exitance = this.sun.intensity * Math.max(0, Math.sin(elev)) * this.groundAlbedo;
@@ -82,6 +110,9 @@ export class Lighting {
 
   /** The sun's light as a fraction of full (0 once it has set). */
   get sunLight(): number { return this.sun.intensity / SUN_INTENSITY; }
+
+  /** Unit vector toward the sun (read-only). */
+  get sunDirection(): THREE.Vector3 { return this.sunDir; }
 
   /** Later shadow casters that move (rovers, sun-tracking panels, …) call
    *  this to get the map re-rendered on the next frame. */
@@ -163,6 +194,13 @@ export class Lighting {
   /** Current shadow texel size in metres (x, y) — probes and tests. */
   get shadowTexel(): [number, number] {
     return [this.win.sx / SHADOW_MAP, this.win.sy / SHADOW_MAP];
+  }
+
+  /** The PointLights are the stock path only: while the shader floods run
+   *  they leave the scene's light count (a recompile, so only on a switch). */
+  useWorkLights(on: boolean) {
+    if (this.workLights[0].visible === on) return;
+    for (const l of this.workLights) l.visible = on;
   }
 
   /** Park the work lights above the given building positions (nearest-first).

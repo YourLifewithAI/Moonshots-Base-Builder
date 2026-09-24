@@ -7,6 +7,7 @@ import { mountInfoPanel } from './infoPanel';
 import { mountPalette } from './palette';
 import { mountDefeat, mountSiteSelect, mountTechTree, mountVictory } from './screens';
 import { $phase } from './stores';
+import { mountVisor } from './visor';
 
 export function mountUI(game: Game) {
   const root = document.getElementById('ui-root')!;
@@ -16,6 +17,7 @@ export function mountUI(game: Game) {
   root.appendChild(hudLayer);
 
   mountHud(hudLayer, game);
+  mountVisor(hudLayer);
   mountInfoPanel(hudLayer);
   mountPalette(hudLayer, game);
   mountTechTree(hudLayer, game);

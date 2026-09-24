@@ -11,10 +11,15 @@
  *     own shadow in Apollo frames. μ is floored so the blend never divides
  *     by zero at grazing view angles.
  *
- *  Variant by FX level: 0–1 both scales, 2 the coarse scale only, 3 stock. */
+ *   - night: the shared work-light array (world/floodlights.ts), so pools
+ *     drape over whatever relief they fall on, and the earthshine floor.
+ *
+ *  Variant by FX level: 0–1 both scales + 32 floods, 2 the coarse scale only
+ *  + 16 floods, 3 stock. */
 import * as THREE from 'three';
 import { mulberry32 } from '../core/rng';
-import { PATCH_MARKER, type ShaderPatch } from '../world/materials';
+import { PATCH_MARKER, hasAnchors, injectAll, type ShaderPatch } from '../world/materials';
+import { bindFloodUniforms, floodPars, floodSlots, landscapeNight } from '../world/floodlights';
 
 const TEX = 512;
 const FINE_M = 7.3;    // fine tile period (m): grain and 3–60 cm pits
@@ -115,6 +120,8 @@ uniform sampler2D uRegolithDetail;
 varying vec3 vRegolithWorld;
 `;
 
+const FRAG_FLOODS = landscapeNight('vRegolithWorld');
+
 // albedo + slope from the detail tile; runs right after vertex colors
 const FRAG_ALBEDO = /* glsl */`
 	vec2 regXZ = vRegolithWorld.xz;
@@ -159,34 +166,32 @@ void RE_Direct_Regolith( const in IncidentLight directLight, const in vec3 geome
 #define RE_Direct RE_Direct_Regolith
 `;
 
-/** Replace every anchor or none: a partial patch would not compile. */
-function injectAll(src: string, edits: [anchor: string, add: string, before?: boolean][]): string | null {
-  let out = src;
-  for (const [anchor, add, before] of edits) {
-    if (!out.includes(anchor)) return null;
-    out = out.replace(anchor, before ? `${add}\n${anchor}` : `${anchor}\n${add}`);
-  }
-  return out;
-}
+const vertEdits = (): [string, string][] => [
+  ['#include <common>', VERT_PARS],
+  ['#include <project_vertex>', VERT_MAIN],
+];
+const fragEdits = (detail: number, floods: number): [string, string][] => [
+  ['#include <common>', FRAG_PARS(detail)],
+  ['#include <color_fragment>', FRAG_ALBEDO],
+  ['#include <normal_fragment_maps>', FRAG_NORMAL],
+  ['#include <lights_physical_pars_fragment>', FRAG_LIGHT + floodPars(floods)],
+  ['#include <lights_fragment_end>', FRAG_FLOODS],
+];
+const ANCHORS_OK = hasAnchors(THREE.ShaderLib.standard.vertexShader, vertEdits())
+  && hasAnchors(THREE.ShaderLib.standard.fragmentShader, fragEdits(2, 1));
 
 export const regolithPatch: ShaderPatch = (mat, level) => {
-  if (level > 2) return null;
+  if (level > 2 || !ANCHORS_OK) return null;
   const detail = level <= 1 ? 2 : 1;
+  const floods = floodSlots(level);
   mat.onBeforeCompile = (shader) => {
-    const vs = injectAll(shader.vertexShader, [
-      ['#include <common>', VERT_PARS],
-      ['#include <project_vertex>', VERT_MAIN],
-    ]);
-    const fs = injectAll(shader.fragmentShader, [
-      ['#include <common>', FRAG_PARS(detail)],
-      ['#include <color_fragment>', FRAG_ALBEDO],
-      ['#include <normal_fragment_maps>', FRAG_NORMAL],
-      ['#include <lights_physical_pars_fragment>', FRAG_LIGHT],
-    ]);
+    const vs = injectAll(shader.vertexShader, vertEdits());
+    const fs = injectAll(shader.fragmentShader, fragEdits(detail, floods));
     if (!vs || !fs) return;
     shader.vertexShader = vs;
     shader.fragmentShader = fs;
     shader.uniforms.uRegolithDetail = { value: detailTexture ??= buildDetailTexture() };
+    bindFloodUniforms(shader.uniforms);
   };
   return `regolith-${detail}`;
 };

@@ -32,10 +32,12 @@ import {
   PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, type PlaceableType,
 } from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
+import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
+import { BaseLife } from '../world/life';
 import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam, HOME_DIST } from '../player/buildCam';
 import { WalkController } from '../player/walk';
@@ -72,6 +74,8 @@ export class Game {
   private rocks!: Rocks;
   private instances!: BuildingInstances;
   private placement!: PlacementController;
+  private overlays!: BaseOverlays;
+  private life!: BaseLife;
   private buildCam: BuildCam;
   private walk!: WalkController;
   private modes!: ModeManager;
@@ -94,6 +98,7 @@ export class Game {
     this.camera = createCamera();
     this.lighting = new Lighting(this.scene);
     this.sky = new Sky(this.scene);
+    this.lighting.attachHeadlamp(this.scene, this.camera);
     this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
@@ -212,6 +217,9 @@ export class Game {
     this.lighting.requestShadowUpdate();
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
+    this.overlays = new BaseOverlays(this.hf);
+    this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
+    this.instances.panelDust = (b) => this.life.panelDust(b);
     this.walk = new WalkController(this.hf);
     this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
@@ -221,7 +229,8 @@ export class Game {
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
     });
     this.worldGroup = new THREE.Group();
-    this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group);
+    this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
+      this.overlays.group, this.life.group);
     this.iceOverlay = this.buildIceOverlay();
     if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
     // constrained sites show their buildable boundary as a faint ring
@@ -665,6 +674,7 @@ export class Game {
     s.launches += 1;
     s.swarmPct += SWARM_PCT_PER_LAUNCH;
     alert(s, `COLLECTOR VOLLEY ${s.launches} AWAY — swarm ${(s.swarmPct).toFixed(4)}%`, 'info');
+    this.life.onLaunch(s);
   }
 
   // ─────────────────────────── loop ───────────────────────────
@@ -839,18 +849,27 @@ export class Game {
     this.rocks.update(this.camera);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
       : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
-    // at night the base carries its own light: hull glow, ground pools, and
-    // exterior work lights over the structures nearest the camera
+    // at night the base carries its own light: window glow and floods in the
+    // shader patches, or (stock path) hull glow, ground discs and work lights
+    // over the structures nearest the camera
+    this.instances.update(dt, day.nightFactor, this.lighting.sunDirection);
     this.instances.setNightGlow(day.nightFactor);
-    if (BUILDING_MATERIAL.isMeshStandardMaterial) {
-      BUILDING_MATERIAL.emissive.setScalar(0.09 * day.nightFactor);
-    }
+    const stockLights = !this.instances.shaderLights;
+    this.lighting.useWorkLights(stockLights);
     this.lighting.setWorkLights(
-      day.nightFactor > 0.03
+      stockLights && day.nightFactor > 0.03
         ? this.instances.completedCenters(this.state, { x: focus.x, z: focus.z })
         : [],
       day.nightFactor,
     );
+    this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
+      $selection.get(), this.lighting.sunDirection);
+    const onFoot = walking && !tweening;
+    this.lighting.setHeadlamp(onFoot ? day.nightFactor : 0);
+    this.life.update({
+      dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
+      sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
+    });
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -1213,6 +1232,10 @@ export class Game {
       horizonSeam: this.horizon.seamError(),
       rocks: this.rocks.stats(),
       sky: this.sky.info(),
+      base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
+      life: this.life.info(),
+      lens: { fov: this.camera.fov, near: this.camera.near },
+      headlamp: this.lighting.headlamp.intensity,
     };
   }
 

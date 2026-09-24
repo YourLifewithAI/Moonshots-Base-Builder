@@ -38,24 +38,41 @@ src/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
     chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds
     terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
+    horizon.ts            far horizon ring continuing the terrain to ~12 km, compressed curvature
+    rocks.ts              instanced boulder scatter (power-law sizes, crater blocks)
   buildings/
-    meshKit.ts            parametric primitive kit + BODY/TRIM vertex-color baking
-    recipes.ts            15 building silhouettes composed from the kit (cached)
-    instances.ts          one InstancedMesh per type, picking, walk-mode AABBs
+    meshKit.ts            parametric kit + detail helpers; bakes value + per-vertex finish (`mat`)
+    recipes.ts            21 building silhouettes + moving-part mounts (cached)
+    buildingShader.ts     building patch: finishes, seams, windows, beacons, print reveal, floods
+    instances.ts          one InstancedMesh per type + iState; floods, discs fallback, scaffold, picking, AABBs
+    trackers.ts           sun-tracking solar wings, Earth-aimed dishes (instanced apart)
+    scaffold.ts           construction scaffold line geometry
+    ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
+    overlays.ts           draped placement grid, network radius rings, selection bracket
     placement.ts          ghost preview + checkPlacement validity chain + site build costs
+    berms.ts              Regolith Shielding berms draped round shielded footprints
   world/
     renderer.ts           WebGLRenderer (AgX, PCF shadows) + camera
-    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + stars + Earth
+    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + headlamp
+    sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
+    floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; black-frame sentinel
+    life.ts               the motion layer, one call per frame; each part fails soft
+    rovers.ts             construction-robot fleet: docks, site assignment, corner-hopping paths
+    dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)
+    events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
+    swarm.ts              Dyson-swarm glints near the sun, growing with swarm %
   player/
-    buildCam.ts           MapControls overhead camera, clamped to the map
-    walk.ts               first-person controller: lunar gravity, capsule vs AABBs
-    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out)
+    buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys
+    walk.ts               first-person controller: lunar gravity, capsule vs AABBs, lope bob, landing dip
+    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° / 70°)
+    footprints.ts         instanced bootprint ring buffer
   ui/
     tokens.css / ui.css   design tokens + HUD layout (see 07)
     stores.ts             nanostores atoms — the one-way sim → UI bridge
     mount.ts              assembles the DOM overlay
+    visor.ts / visor.css  walk-mode helmet visor (pure CSS)
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
 tests/smoke.spec.ts       6-test full-loop Playwright suite
@@ -156,8 +173,12 @@ UI state that isn't economy output (`$placing` per frame during placement,
    habitat network is the growth mechanic) → affordable at site-multiplied
    cost. First failure returns its human-readable reason, which the HUD shows
    verbatim.
-4. **Ghost**: pale mesh when valid, dark when blocked (see 06/07), plus a
-   terrain-draped footprint outline (8 segments per edge, +0.15 m).
+4. **Ghost**: pale lit mesh when valid, dark hatched when blocked (see
+   06/07), drawn over a depth-only pre-pass so internal faces never double
+   up; a terrain-draped footprint outline (8 segments per edge, +0.15 m), a
+   draped 4 m cell grid fading out two cells past the footprint, and dashed
+   build-radius rings around every network structure (`buildRadiusM`, else
+   60 m for the Lander and Habitats) — `buildings/overlays.ts`.
 5. **Commit** (`commitPlace`): deduct cost → `heightfield.flatten()` the pad
    to mean height with a smoothed 1-sample skirt → **record the flatten** in
    `state.flattens` (§7) → rebuild the ≤4 affected terrain chunks → push
