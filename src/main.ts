@@ -57,7 +57,8 @@ try {
   game = new Game(canvas, {
     nolock: params.has('nolock'),
     lowfx: params.has('lowfx'),
-    safe: params.has('safe') || settings.safe,
+    safe: params.has('safe') || settings.safe || settings.safeAuto,
+    safeAuto: !params.has('safe') && !settings.safe && settings.safeAuto,
     fx: params.has('fx') ? Number(params.get('fx')) : undefined,
     fxChoice: settings.fx ?? 0,
     seed: Number(params.get('seed') ?? Math.floor(Math.random() * 1e9)),

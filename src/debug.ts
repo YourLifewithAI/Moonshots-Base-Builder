@@ -77,6 +77,9 @@ function api(game: Game) {
     setView: (pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) =>
       game.debugSetView(pos, target),
     setTerrainVisible: (v: boolean) => game.debugSetTerrainVisible(v),
+    /** run the black-frame check on the next drawn frame (with the terrain
+     *  hidden: a silent terrain failure, as the check sees it) */
+    probeNext: () => game.debugProbeNext(),
     getPlayer: () => ({
       x: game.walkController.pos.x, y: game.walkController.pos.y, z: game.walkController.pos.z,
       yaw: game.walkController.yaw,
@@ -104,6 +107,8 @@ function api(game: Game) {
     setMapView: (view: MapView) => game.setMapView(view),
     forceRenderFallback: () => (game as any).post.forceFallback('debug'),
     enableSafeMode: () => game.enableSafeMode(),
+    /** the player turning safe mode off in the menu (a checked raise) */
+    disableSafeMode: () => game.disableSafeMode(),
     getFxLevel: () => (game as any).post.fxLevel as number,
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
