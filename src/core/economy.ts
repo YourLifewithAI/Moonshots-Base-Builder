@@ -365,12 +365,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   if (brownout && !day.isNight && !s.power.brownout) st.dayBrownouts += 1;
   if (day.isNight && brownout) st.nightCritDark = true;
   if (day.isNight && (brownout || shed)) st.nightLoadShed = true;
-  // seconds each load has been held dark this night; a farm dark too long loses its crop
+  // how long each load has been held dark at night — leaky, so a load the
+  // brownout hold lets back on for one tick in nine still counts as dark;
+  // a farm dark too long loses its crop
   const darkNow = new Set(dark.filter((w) => !w.isSite).map((w) => w.b.id));
   for (const b of s.buildings) {
     if (building(b)) continue;
     const was = b.darkT ?? 0;
-    b.darkT = day.isNight && darkNow.has(b.id) ? was + dt : 0;
+    b.darkT = day.isNight && darkNow.has(b.id) ? was + dt : Math.max(0, was - dt);
     st.darkNightMaxS = Math.max(st.darkNightMaxS, b.darkT);
     if (b.type === 'hydroponics' && was <= CROP_LOSS.darkS && b.darkT > CROP_LOSS.darkS) {
       b.cropRegrowT = CROP_LOSS.regrowS;

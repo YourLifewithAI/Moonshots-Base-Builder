@@ -42,7 +42,7 @@ export interface BuildingState {
   deposit?: DepositKind;
   /** hydroponics: seconds of output lost to a dead crop (0 = growing) */
   cropRegrowT?: number;
-  /** seconds held dark (idleReason 'power') at night, reset when powered */
+  /** seconds held dark (idleReason 'power') at night; runs back down while powered */
   darkT?: number;
   /** solar: seconds continuously in terrain shade */
   shadedT?: number;
