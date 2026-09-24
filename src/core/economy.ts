@@ -10,7 +10,7 @@ import { TECHS } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import {
   AGENT_GEN_TAX, ALERTS, BATTERY_EFF, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
-  CREW, CYCLE_S, DATA_RATE, FLARE,
+  CREW, CYCLE_S, DATA_RATE, DUSK_WARN_S, FLARE, NIGHT_S,
   LOW_SUPPLY_S, MORALE, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESEARCH_RATE_PER_LAB, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, START, WEAR,
 } from '../data/balance';
@@ -18,7 +18,7 @@ import type { ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import type { AlertAction, AlertMsg, GameState, BuildingState } from './state';
 import { computeEra, computeMods, type Mods } from './mods';
-import { dayInfo, type DayInfo } from './daynight';
+import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 
 const ISRU_BUILDINGS: BuildingId[] = ['excavator', 'iceHarvester', 'smelter', 'refinery'];
@@ -223,6 +223,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 1 · power supply ───────────────────────────────────────────────
   let supply = 0;
   let capacity = 0;
+  let solarNow = 0;   // this tick's solar share of supply
+  let solarFull = 0;  // the same panels under a full sun (for the dusk forecast)
   for (const b of s.buildings) {
     if (building(b)) continue;
     const def = BUILDINGS[b.type];
@@ -231,7 +233,13 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (def.powerKW > 0) {
       if (crewedGen(b) && !staffed.has(b.id)) continue;
       let out = def.powerKW * mods.powerMult[b.type];
-      if (b.type === 'solar') out *= day.sunFactor * (1 - b.dust) * (b.shaded ? 0.15 : 1);
+      if (b.type === 'solar') {
+        const panel = out * (1 - b.dust) * (b.shaded ? 0.15 : 1) * wearDerate(b);
+        solarFull += panel;
+        solarNow += panel * day.sunFactor;
+        supply += panel * day.sunFactor;
+        continue;
+      }
       if (crewedGen(b) && isAuto(b)) out *= 1 - AGENT_GEN_TAX;
       supply += out * wearDerate(b);
     }
@@ -358,6 +366,22 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       : 'BROWNOUT — grid demand exceeds supply', 'crit', { panel: 'power' });
   } else if (shed) {
     condition(s, 'shed', 'LOAD SHED — low-priority systems idled to protect the grid', 'info', { panel: 'power' });
+  }
+  // a minute before dusk: what the bank will carry through the night
+  if (!day.isNight && day.phaseLeft <= DUSK_WARN_S) {
+    const nightSupply = supply - solarNow + solarFull * site.nightSolarFraction * site.solarDayMult;
+    const short = demand - nightSupply;
+    const runway = short > 0 ? s.powerStored / short : Infinity;
+    const lead = `NIGHTFALL IN ${Math.ceil(day.phaseLeft)} s`;
+    if (short <= 0) {
+      condition(s, 'dusk', `${lead} — night supply carries the base`, 'info', { panel: 'power' });
+    } else if (runway >= NIGHT_S) {
+      condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored carries the night at ${Math.ceil(short)} kW short`,
+        'info', { panel: 'power' });
+    } else {
+      condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored lasts ~${fmtClock(runway)} of the ` +
+        `${fmtClock(NIGHT_S)} night at ${Math.ceil(short)} kW short; lower priorities or shut down`, 'warn', { panel: 'power' });
+    }
   }
 
   // ── 3 · worker allocation (priority order) ─────────────────────────

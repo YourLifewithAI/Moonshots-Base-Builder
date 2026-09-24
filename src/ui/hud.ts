@@ -221,13 +221,16 @@ export function mountHud(root: HTMLElement, game: Game) {
   const bS1 = mkBtn('1×', 'Speed 1 (key 1)', () => game.actions.push({ kind: 'setSpeed', speed: 1 }));
   const bS3 = mkBtn('3×', 'Speed 3 (key 2)', () => game.actions.push({ kind: 'setSpeed', speed: 3 }));
   const bS10 = mkBtn('10×', 'Speed 10 (key 3)', () => game.actions.push({ kind: 'setSpeed', speed: 10 }));
+  let clockHtml = '';
   const renderTime = () => {
     const t = $time.get();
-    const pct = Math.round(t.tCycle * 100);
     const flare = t.flare === 'telegraph'
       ? ` · <b>FLARE −${t.flareTimer}s</b>`
       : t.flare === 'active' ? ' · <b>FLARE</b>' : '';
-    clock.innerHTML = `DAY ${t.dayIndex + 1} · <span class="${t.isNight ? 'night' : ''}">${t.isNight ? '☾ NIGHT' : '☀ ' + pct + '%'}</span>${flare}`;
+    const html = `DAY ${t.dayIndex + 1} · <span class="${t.isNight ? 'night' : ''}">${t.isNight
+      ? `☾ ${fmtClock(t.phaseLeft)} TO DAWN` : `☀ ${fmtClock(t.phaseLeft)} TO DUSK`}</span>${flare}`;
+    if (html !== clockHtml) { clockHtml = html; clock.innerHTML = html; }
+    clock.title = t.isNight ? 'Lunar night — solar arrays dark until dawn' : 'Lunar day — time left until nightfall';
     bPause.classList.toggle('active', t.paused);
     bS1.classList.toggle('active', !t.paused && t.speed === 1);
     bS3.classList.toggle('active', !t.paused && t.speed === 3);

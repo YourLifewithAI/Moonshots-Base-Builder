@@ -146,3 +146,6 @@ export const ALERTS = {
   maxEvents: 8,
   shown: 4,
 };
+
+/** game-seconds before dusk that the night-runway warning goes up */
+export const DUSK_WARN_S = 60;

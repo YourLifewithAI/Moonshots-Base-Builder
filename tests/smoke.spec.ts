@@ -918,6 +918,38 @@ for (const vp of [{ width: 1366, height: 768 }, { width: 1600, height: 900 }]) {
   });
 }
 
+test('night: the clock counts to dusk, a warning names the runway, the bank chip counts it down', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
+  await game(page);
+  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
+  for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133],
+    ['excavator', 120, 126], ['smelter', 120, 132]] as const) {
+    expect(await page.evaluate(([tt, xx, zz]) => window.__game.placeBuilding(tt, xx, zz), [t, x, z] as const)).toBe(true);
+  }
+  const clock = page.locator('#time-controls .clock');
+  const dusk = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(true);
+    g.advanceGameSeconds(480 - 50 - g.getState().simTime); // 50 s before nightfall
+    return g.getState();
+  });
+  await expect(clock).toContainText(/☀ 0:\d\d TO DUSK/);
+  const warning = dusk.alerts.find((a: any) => a.key === 'dusk');
+  expect(warning.cond).toBe(true);
+  expect(warning.kind).toBe('warn'); // this bank does not last the night
+  expect(warning.text).toMatch(/^NIGHTFALL IN \d+ s — \d+ stored lasts ~\d+:\d\d of the 4:00 night at \d+ kW short/);
+  // the power chip: generation over what the loads request
+  await expect(page.locator('.chip[data-slot="power"] .val')).toHaveText(/^\+\d+(\.\d)?$/);
+  await expect(page.locator('.chip[data-slot="power"] .cap')).toHaveText(/^\/\d+(\.\d)? kW$/);
+  const night = await page.evaluate(() => { const g = window.__game!; g.advanceGameSeconds(60); return g.getState(); });
+  expect(night.alerts.some((a: any) => a.key === 'dusk')).toBe(false); // over once night falls
+  await expect(clock).toContainText(/☾ \d:\d\d TO DAWN/);
+  // at night the bank chip shows how long it lasts, and warns: not till dawn
+  const stored = page.locator('.chip[data-slot="stored"]');
+  await expect(stored.locator('.cap')).toHaveText(/^· \d+:\d\d$/);
+  await expect(stored).toHaveClass(/warn/);
+});
+
 test('info panels: live values, life support in seconds, shipments and construction, time to empty', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
