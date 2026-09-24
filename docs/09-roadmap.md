@@ -143,8 +143,9 @@ minimal soundscape — UI ticks (mission-control switch clicks), a low
 habitat-interior room tone, muffled-through-structure thumps in walk mode
 (vacuum outside: sound only via conduction — the audio *is* an art
 direction), and telegraph/alarm tones for events. Plus the deferred render
-work from 06 §8: the **hairline edge/outline post pass**, **blue-noise
-dither** replacing white-noise grain, and **walk-mode helmet reflections**.
+work from 06 §11: the **hairline edge/outline post pass**, **blue-noise
+dither** replacing white-noise grain, rover tracks, and a second shadow map
+for moving casters (the walk-mode helmet visor has since shipped, 06 §9).
 
 **Why next:** Pure polish multipliers — they touch nothing mechanical, so
 they slot after systems stabilize but before any public milestone build.

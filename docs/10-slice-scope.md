@@ -71,7 +71,7 @@ Everything cut is designed (docs 02–05) and scheduled ([09-roadmap.md](09-road
 | **~14 of 28 buildings, ~12 of 30 techs** | Follow directly from the resource/system cuts above |
 | **Audio** | Nothing ships; silence is at least coherent with vacuum (roadmap Phase 7) |
 | **Terrain worker, LOD, mobile tiers, save slots/migration** | Engine scale work; 1,024 m map and one save slot fit a one-session game (roadmap Phase 8) |
-| **Edge-outline pass, blue-noise dither, helmet reflections** | Art polish; AO + SMAA carry legibility (06 §8) |
+| **Edge-outline pass, blue-noise dither, helmet reflections** | Art polish; AO + SMAA carry legibility (06 §11; the visor has since shipped, 06 §9) |
 | **Minimap, coach marks, 3D moon site globe, walk-mode inspect/flag** | UI depth beyond the five regions; each has a designed home (07) |
 
 ## 4. Pacing targets

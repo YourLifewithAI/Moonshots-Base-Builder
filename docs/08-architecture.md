@@ -38,6 +38,8 @@ src/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
     chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds
     terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
+    horizon.ts            far horizon ring continuing the terrain to ~12 km, compressed curvature
+    rocks.ts              instanced boulder scatter (power-law sizes, crater blocks)
   buildings/
     meshKit.ts            parametric kit + detail helpers; bakes value + per-vertex finish (`mat`)
     recipes.ts            21 building silhouettes + moving-part mounts (cached)
@@ -48,20 +50,29 @@ src/
     ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
     overlays.ts           draped placement grid, network radius rings, selection bracket
     placement.ts          ghost preview + checkPlacement validity chain + site build costs
+    berms.ts              Regolith Shielding berms draped round shielded footprints
   world/
     renderer.ts           WebGLRenderer (AgX, PCF shadows) + camera
-    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + stars + Earth
+    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + headlamp
+    sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
     floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; black-frame sentinel
+    life.ts               the motion layer, one call per frame; each part fails soft
+    rovers.ts             construction-robot fleet: docks, site assignment, corner-hopping paths
+    dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)
+    events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
+    swarm.ts              Dyson-swarm glints near the sun, growing with swarm %
   player/
-    buildCam.ts           MapControls overhead camera, clamped to the map
-    walk.ts               first-person controller: lunar gravity, capsule vs AABBs
-    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out)
+    buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys
+    walk.ts               first-person controller: lunar gravity, capsule vs AABBs, lope bob, landing dip
+    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° / 70°)
+    footprints.ts         instanced bootprint ring buffer
   ui/
     tokens.css / ui.css   design tokens + HUD layout (see 07)
     stores.ts             nanostores atoms — the one-way sim → UI bridge
     mount.ts              assembles the DOM overlay
+    visor.ts / visor.css  walk-mode helmet visor (pure CSS)
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
 tests/smoke.spec.ts       6-test full-loop Playwright suite
