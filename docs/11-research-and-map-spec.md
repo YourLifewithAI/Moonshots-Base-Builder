@@ -1566,6 +1566,18 @@ An honest scripted player on 3 sites × 2 expeditions, seed 42, using public act
 
 Then recalibrate `MAX_SLOPE_LARGE` against the S8.4 pad counts, and tune only `ERA_COST_SCALE`.
 
+**Measured** (`node scripts/probe-pacing.mjs --runs=all --seeds=42,7,1234 --quiet`; medians, game-min; reasonable / attentive). `ERA_COST_SCALE` stays at 1.0: once the opening was fixed, the dial moved FIRST LIGHT by under 3 min. The fixes were the landing cache (parts × build cost, 140 base), 7 crew with crewless excavators, and the lava tube's ISRU ×1.0 and build ×1.1.
+
+| Run | FIRST LIGHT | Eras E1…E8 (reasonable) |
+|---|---|---|
+| Robotic mare | 108.9 / 97.8 | 12.0 / 13.2 / 13.9 / 13.8 / 14.6 / 11.8 / 16.2 / 11.9 |
+| Robotic pole | 106.6 / 104.4 | 12.3 / 13.8 / 12.8 / 13.3 / 13.7 / 13.9 / 14.0 / 9.2 |
+| Robotic lava tube | 124.9 / 122.6 | 13.0 / 12.9 / 23.5 / 14.3 / 12.9 / 13.3 / 17.5 / 12.1 |
+| Human mare | 109.9 / 96.9 | 12.0 / 18.1 / 20.4 / 10.2 / 11.0 / 9.0 / 14.6 / 12.3 |
+| Human pole | 110.3 / 105.4 | 11.4 / 19.9 / 11.0 / 12.3 / 8.6 / 20.2 / 14.8 / 11.7 |
+
+No deaths, no softlock, worn ≤ 1%, goods stalls ≤ 11 min. Known long eras: lava E3 (Heliostats, Site Grading and full-price Shielding: a flare-immune base never earns that insight) and crewed E2 (one crewed lab until the eighth settler or Construction Robotics).
+
 ---
 
 ## 10. Implementation plan
