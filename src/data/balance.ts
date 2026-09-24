@@ -31,7 +31,7 @@ export const GRADE_CELLS = 4;          // grading footprint, cells
 export const MAX_SLOPE_DELTA = 2.5;    // max height delta (m) across a footprint
 
 export const START = {
-  crew: 4,
+  crew: 7,
   morale: 70,
   data: 0,
   powerStored: 800,                    // energy units (kW·gs) in the lander bank

@@ -103,7 +103,7 @@ shipped values:
 |---|---|---|
 | `DAY_S` / `NIGHT_S` | 480 / 240 | Session length, night severity, battery sizing |
 | `SPEEDS` | 1 / 3 / 10 | How much real time the mid-game costs |
-| `START` | 4 crew, morale 70, 800 kWh, metals 140, O₂ 120, food 120, parts 140, water 50 (metals and parts × the site's build cost) | Opening runway; how soon the first crunch |
+| `START` | 7 crew, morale 70, 800 kWh, metals 140, O₂ 120, food 120, parts 140, water 50 (metals and parts × the site's build cost) | Opening runway; how soon the first crunch |
 | `CREW.oxygenPerCrew` / `foodPerCrew` | 0.02 / 0.008 per s | Life-support pressure per head |
 | `CREW.growthMorale` / `growthPeriod` | 60 / one cycle | Population curve |
 | `CREW.starveGraceS` / `lossPeriodS` | 60 / 30 | How forgiving a life-support failure is |

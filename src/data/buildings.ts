@@ -72,7 +72,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   excavator: {
     id: 'excavator', name: 'Regolith Excavator', category: 'extraction', era: 1,
     footprint: [2, 2], height: 5, buildTime: 60,
-    buildCost: { metals: 20, parts: 5 }, crew: 1, powerKW: -6,
+    buildCost: { metals: 20, parts: 5 }, crew: 0, powerKW: -6,
     inputs: {}, outputs: { regolith: 1.5 }, upkeepParts: 2, priority: 2,
     unlockedFromStart: true,
     pro: 'Feeds every industry on the Moon.',
