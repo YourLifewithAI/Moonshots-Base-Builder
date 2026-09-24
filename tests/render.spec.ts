@@ -4,7 +4,10 @@
  *  must come up unlit like everything else). The rocks thin down the ladder,
  *  and the horizon ring and rocks go unlit with the rest in safe mode. The
  *  same ladder runs again at night, where the base lights itself (shader
- *  floods and window glow at FX 0–2, discs and point lights below that). */
+ *  floods and window glow at FX 0–2, discs and point lights below that).
+ *  The motion layer (rovers, dust, launch and resupply, research visuals)
+ *  is checked at FX 0, FX 3 and in safe mode, and walk mode for its lens,
+ *  headlamp, bootprints and visor. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -249,4 +252,135 @@ test('shadow map re-renders only on change', async ({ page }) => {
   // the fitted window is far finer than the old fixed ±460 m (0.45 m texels)
   const texel = (await page.evaluate(() => window.__game.getRenderInfo())).shadowTexel;
   expect(Math.max(...texel)).toBeLessThan(0.3);
+});
+
+test('base life: rovers, dust, launch and resupply at FX 0; static dust at FX 3; none in safe mode', async ({ page }) => {
+  test.setTimeout(300_000);
+  const shaderErrors: string[] = [];
+  page.on('console', (m) => { if (m.text().includes('THREE.WebGLProgram')) shaderErrors.push(m.text()); });
+  page.on('pageerror', (e) => shaderErrors.push(String(e)));
+  // a small canvas keeps software GL near a few frames a second
+  await page.setViewportSize({ width: 800, height: 450 });
+  await page.goto('/?debug&seed=42&nolock&site=mare&fx=0');
+  await page.waitForFunction(() => window.__game !== undefined);
+  const life = async () => (await page.evaluate(() => window.__game.getRenderInfo())).life;
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.grantResources({ metals: 5000, parts: 2000, foils: 100, launch: 5 });
+    for (const t of ['massDriver', 'foilManufacturing', 'swarmProtocol', 'regolithShielding']) g.completeTech(t);
+    g.setSpeed(10);
+    g.placeBuilding('habitat', 120, 132);
+  });
+
+  // the Lander's two bots drive out and print; their wheels and the print throw dust
+  let info = await life();
+  expect(info.rovers.count, 'one rover per bot').toBe((await page.evaluate(() => window.__game.getState())).bots.total);
+  expect(info.rovers.material).toBe('MeshStandardMaterial');
+  const start = info.rovers.positions;
+  await expect.poll(async () => (await life()).rovers.assigned, { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await life()).dust.emitters, { timeout: 60_000 }).toBeGreaterThan(0);
+  info = await life();
+  expect(info.dust.mode).toBe('gpu');
+  expect(info.dust.visible).toBe(true);
+  expect((await page.evaluate(() => window.__game.getRenderInfo())).patches.dust).toBe('dust-gpu');
+  expect(info.rovers.positions, 'the rovers left their parking spots').not.toEqual(start);
+
+  // a volley flies off the rail and the swarm shows in the sky; the habitat is bermed
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setSpeed(1);
+    g.placeBuilding('massDriver', 132, 118);
+    g.finishConstruction();
+    g.grantPower(20000);
+    g.launch();
+  });
+  await expect.poll(async () => (await life()).launch.inFlight, { timeout: 20_000 }).toBe(1);
+  const c0 = (await life()).launch.capsule;
+  await expect.poll(async () => (await life()).launch.capsule, { timeout: 20_000 }).not.toEqual(c0);
+  info = await life();
+  expect(info.swarmGlints, 'the first volley already glints').toBeGreaterThan(0);
+  expect(info.berms, 'Regolith Shielding berms the finished habitat').toBeGreaterThan(0);
+
+  // Earth resupply: on its braking burn 6 s out, then standing on the ground
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(true);
+    g.orderResupply();
+  });
+  await expect.poll(() => page.evaluate(() => window.__game.getState().resupply.pending)).toBe(true);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.advanceGameSeconds(g.getState().resupply.arriveAt - g.getState().simTime - 6);
+  });
+  await expect.poll(async () => (await life()).resupply.phase, { timeout: 20_000 }).toBe('descent');
+  info = await life();
+  expect(info.resupply.alt).toBeGreaterThan(0);
+  expect(info.resupply.alt).toBeLessThan(220);
+  await page.evaluate(() => window.__game.advanceGameSeconds(10));
+  await expect.poll(async () => (await life()).resupply.phase, { timeout: 20_000 }).toBe('landed');
+  expect((await life()).resupply.shadow, 'a lander standing still casts a shadow').toBe(true);
+
+  // FX 3: the stock points material, grains parked in static puffs
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(false);
+    g.setFxLevel(3);
+    g.setSpeed(10);
+    g.placeBuilding('lab', 135, 133);
+  });
+  await expect.poll(async () => {
+    const d = (await life()).dust;
+    return d.mode === 'static' && d.grains > 0;
+  }, { timeout: 60_000 }).toBe(true);
+  expect((await page.evaluate(() => window.__game.getRenderInfo())).patches.dust).toBeNull();
+
+  // safe mode: unlit rovers and lander, no dust at all
+  await page.evaluate(() => window.__game.enableSafeMode());
+  await page.waitForTimeout(1000);
+  info = await life();
+  expect(info.rovers.material).toBe('MeshBasicMaterial');
+  expect(info.resupply.material).toBe('MeshBasicMaterial');
+  expect(info.dust.mode).toBe('none');
+  expect(info.dust.visible).toBe(false);
+  expect(info.rovers.count).toBeGreaterThan(0);
+  expect(info.failed, 'no visual part fell over').toEqual([]);
+  expect(shaderErrors).toEqual([]);
+});
+
+test('walk mode: wider lens, a headlamp at night, bootprints, a visor', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 800, height: 450 });
+  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.waitForFunction(() => window.__game !== undefined);
+  const info = () => page.evaluate(() => window.__game.getRenderInfo());
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.setPaused(true);
+    g.grantPower(200000);
+    g.advanceGameSeconds(610 - g.getState().simTime); // mid-night
+    g.grantPower(200000);
+  });
+  let i = await info();
+  expect(i.lens).toEqual({ fov: 55, near: 0.5 });
+  expect(i.headlamp, 'no headlamp in command view').toBe(0);
+
+  await page.evaluate(() => window.__game.setMode('walk'));
+  await expect(page.locator('#visor')).toBeVisible();
+  i = await info();
+  expect(i.lens).toEqual({ fov: 70, near: 0.15 });
+  await expect.poll(async () => (await info()).headlamp, { timeout: 20_000 }).toBeGreaterThan(0);
+
+  await page.keyboard.down('KeyW');
+  await expect.poll(async () => (await info()).life.footprints, { timeout: 60_000 }).toBeGreaterThan(1);
+  await page.keyboard.up('KeyW');
+
+  await page.evaluate(() => window.__game.setMode('build'));
+  await expect(page.locator('#visor')).toBeHidden();
+  await expect.poll(async () => (await info()).headlamp, { timeout: 20_000 }).toBe(0);
+  i = await info();
+  expect(i.lens).toEqual({ fov: 55, near: 0.5 });
+  expect(i.life.footprints, 'prints stay where they were pressed').toBeGreaterThan(1);
+  // beacons blink on the building shader's clock
+  const t0 = i.base.clock;
+  await expect.poll(async () => (await info()).base.clock, { timeout: 10_000 }).not.toBe(t0);
 });
