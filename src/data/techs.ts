@@ -194,7 +194,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   skylightHeliostats: {
     id: 'skylightHeliostats', era: 2, lane: 'power', name: 'Skylight Heliostats', short: 'Heliostats',
-    costData: 130, costGoods: { silicon: 10 }, requires: ['prospectingRovers'], sites: [L],
+    costData: 130, costGoods: { metals: 20 }, requires: ['prospectingRovers'], sites: [L],
     effects: [
       { kind: 'powerMult', buildings: ['solar'], mult: 1.25 },
       { kind: 'dustMult', mult: 1.5 },
