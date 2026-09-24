@@ -132,7 +132,7 @@
   transition: background var(--dur-fast) var(--ease);
 }
 .bld-btn:hover { background: var(--ink-500); color: var(--paper); }
-.bld-btn.locked { opacity: 0.38; border-style: dashed; cursor: default; }
+.bld-btn.locked { opacity: 0.38; border-style: dashed; cursor: help; }
 .bld-btn.locked:hover { background: var(--ink-700); }
 .bld-btn .icon { font-size: 17px; line-height: 22px; }
 .bld-btn .nm { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; line-height: 13px; margin-top: 3px; }

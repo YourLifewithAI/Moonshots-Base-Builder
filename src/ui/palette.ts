@@ -158,12 +158,13 @@ export function mountPalette(root: HTMLElement, game: Game) {
       b.innerHTML = `<div class="icon">${ICONS[type]}</div><div class="nm">${def.name}</div><div class="cost mono">${cost}</div>`;
       b.addEventListener('mouseenter', () => showTooltip(type, locked, b));
       b.addEventListener('mouseleave', hideTooltip);
-      if (!locked) {
-        b.addEventListener('click', (e) => {
-          game.beginPlacement(type);
-          spawnFloater(BUILDINGS[type].name.toUpperCase(), e.clientX, e.clientY - 20);
-        });
-      }
+      b.dataset.type = type;
+      b.addEventListener('click', (e) => {
+        // a locked card answers with the research that opens it
+        if (locked) { hideTooltip(); openTechTreeAt(unlockingTech(type)); return; }
+        game.beginPlacement(type);
+        spawnFloater(BUILDINGS[type].name.toUpperCase(), e.clientX, e.clientY - 20);
+      });
       items.appendChild(b);
     }
     // terrain tools live beside the extraction buildings
