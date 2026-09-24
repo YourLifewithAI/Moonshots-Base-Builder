@@ -259,42 +259,6 @@
 .site-card .con::before { content: '− '; font-weight: 700; }
 .site-card .diff { margin-top: 10px; font-size: 10px; letter-spacing: 0.12em; color: rgba(var(--paper-rgb), var(--op-muted)); }
 
-/* tech tree */
-#tech-screen { padding: 28px; }
-#tech-wrap { position: relative; overflow-x: auto; width: 100%; flex: 1; }
-#tech-svg { position: absolute; inset: 0; pointer-events: none; }
-#tech-cols { position: relative; display: flex; gap: 28px; min-width: max-content; padding: 8px 8px 90px; }
-.era-col { width: 210px; }
-.era-col > .label { padding-bottom: 8px; border-bottom: var(--hair); margin-bottom: 12px; }
-.era-col.locked-era > .label { opacity: var(--op-muted); }
-.tech-card {
-  padding: 10px 12px; margin-bottom: 10px; cursor: pointer;
-  background: var(--ink-800); border: var(--hair); border-radius: var(--radius);
-  font-size: 11px; line-height: 15px;
-  transition: background var(--dur-fast) var(--ease);
-}
-.tech-card:hover { background: var(--ink-600); }
-.tech-card .nm { font-size: 12px; font-weight: 600; color: var(--ink-050); display: flex; justify-content: space-between; gap: 6px; }
-.tech-card .desc { margin-top: 4px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
-.tech-card .trade { margin-top: 4px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
-.tech-card .trade::before { content: '− '; font-weight: 700; }
-.tech-card.done { border-style: solid; background: var(--ink-600); }
-.tech-card.done .nm::after { content: ' ✓'; }
-.tech-card.locked { opacity: 0.38; border-style: dashed; cursor: default; }
-/* the why-is-this-locked line stays readable through the card's dimming */
-.tech-card .req { margin-top: 5px; color: var(--ink-050); font-weight: 600; letter-spacing: 0.02em; }
-.tech-card.queued { border-color: rgba(var(--paper-rgb), 0.55); }
-.tech-card .prog {
-  height: 3px; margin-top: 6px;
-  background: rgba(var(--paper-rgb), var(--op-fill));
-}
-.tech-card .prog i { display: block; height: 100%; background: var(--paper); }
-#tech-queue {
-  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-  display: flex; gap: 8px; align-items: center; padding: 8px 14px;
-}
-#tech-close { position: absolute; top: 20px; right: 24px; }
-
 /* ── resource info panel (chip click) ── */
 #res-panel {
   width: 330px; max-height: 64vh;
