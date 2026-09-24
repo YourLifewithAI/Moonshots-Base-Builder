@@ -11,7 +11,7 @@ import {
   ICE_SURVEY_COST, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
-import { createInitialState, type BuildingState, type GameState } from './state';
+import { createInitialState, type AlertMsg, type BuildingState, type GameState } from './state';
 import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveRates } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
@@ -43,10 +43,12 @@ import { BuildCam, HOME_DIST } from '../player/buildCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
+import { sfx } from '../audio/sfx';
 import {
   $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
-  $lander, $lostMission, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
-  $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
+  $lander, $lostMission, $menuOpen, $milestones, $mode, $phase, $placeFlash, $placing, $power, $rates,
+  $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals,
+  $wearMarkers, spawnFloater,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -54,8 +56,27 @@ export interface GameOptions {
   lowfx: boolean;
   safe: boolean;
   fx?: number;      // explicit FX-ladder level override (?fx=0..3)
+  /** the player's own FX level from the menu: boot never renders above it */
+  fxChoice?: number;
   seed: number;
 }
+
+/** What the menu shows about the render path. */
+export interface RenderStatus {
+  level: number;
+  /** levels the ladder stepped down from this session (black frame, shader error, throwing pass) */
+  failed: number[];
+  /** why the ladder last stepped down ('' = it has not, this session) */
+  reason: string;
+  safe: boolean;
+  /** safe mode came from the black-frame check, not the player */
+  safeAuto: boolean;
+  /** ?lowfx holds the ladder at 2 or below */
+  floor: number;
+}
+
+/** game-seconds of bank runway below which the hum starts to sag */
+const GRID_RUNWAY_S = 180;
 
 export class Game {
   state!: GameState;
@@ -99,15 +120,21 @@ export class Game {
     this.lighting = new Lighting(this.scene);
     this.sky = new Sky(this.scene);
     this.lighting.attachHeadlamp(this.scene, this.camera);
-    this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx);
+    this.post = new PostFX(this.renderer, this.scene, this.camera, opts.lowfx, opts.fx, opts.fxChoice);
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
     };
     // scene shader patches ride the same ladder as the post chain
     if (opts.fx !== undefined) materials.clearFault();
     materials.setFxLevel(this.post.fxLevel);
-    this.post.onLevelChange = (level, explicit) => {
+    let prev = this.post.fxLevel;
+    this.post.onLevelChange = (level, explicit, reason) => {
       if (explicit) materials.clearFault();
+      else {
+        for (let l = prev; l < level; l++) this.fxFailed.add(l);
+        this.fxReason = reason ?? 'render error';
+      }
+      prev = level;
       materials.setFxLevel(level);
       this.rocks?.setFxLevel(level);
     };
@@ -134,6 +161,8 @@ export class Game {
     this.buildCam.enabled = false;
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
+    // a player's safe-mode choice holds from the very first frame
+    if (opts.safe) this.enableSafeMode(false);
     requestAnimationFrame((t) => this.frame(t));
     void loadGame().then((blob) => this.publishSaveSlot(blob));
   }
@@ -258,10 +287,11 @@ export class Game {
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
     this.nextProbe = 40;
-    if (this.opts.safe || this.safeMode) {
+    if (this.safeMode) {
       this.safeMode = false; // fresh world = fresh materials; re-apply
-      this.enableSafeMode();
+      this.enableSafeMode(this.safeAuto);
     }
+    this.cueSeen = null;
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
@@ -316,16 +346,26 @@ export class Game {
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
         case 'KeyI': if (this.state?.iceSurveyed) $iceOverlay.set(!$iceOverlay.get()); break;
         case 'KeyE':
-          // inspect what the reticle rests on: back to command view, selected
-          if (this.modes.mode === 'walk' && this.lookId !== null && !this.modes.transitioning) {
-            const id = this.lookId;
-            this.modes.toggle();
-            this.select(id);
+          // on foot: inspect what the reticle rests on (back to command view,
+          // selected); in command view E orbits with Q
+          if (this.modes.mode === 'walk') {
+            if (this.lookId !== null && !this.modes.transitioning) {
+              const id = this.lookId;
+              this.modes.toggle();
+              this.select(id);
+            }
+          } else {
+            e.preventDefault();
+            this.buildCam.keyDown(e.code);
           }
           break;
         case 'Escape':
-          this.cancelPlacement();
-          $selection.set(null);
+          // one thing at a time: placement, the inspector, a resource panel —
+          // and with nothing left to cancel, the menu
+          if (this.placement.active) this.cancelPlacement();
+          else if ($selection.get()) $selection.set(null);
+          else if ($resourcePanel.get()) $resourcePanel.set(null);
+          else $menuOpen.set(true);
           break;
         case 'KeyF': {
           const sel = $selection.get();
@@ -681,6 +721,16 @@ export class Game {
 
   private shadeAcc = 0;
   private alertAcc = 0;
+  private cueSeen: {
+    alerts: Map<number, AlertMsg['kind']>; night: boolean; launches: number; techs: number; built: number;
+  } | null = null;
+  /** alert key → real time (ms) its radio call last played */
+  private cueKeyAt = new Map<string, number>();
+  /** FX levels the ladder stepped down from this session, and the last cause */
+  private fxFailed = new Set<number>();
+  private fxReason = '';
+  private safeAuto = false;
+  private firstFrame: { fx: number; safe: boolean } | null = null;
   /** alert id → real time (ms) it was last raised, as seen by this session */
   private alertClock = new Map<number, { t: number; count: number }>();
   private playFrames = 0;      // frames since gameplay (not page load) began
@@ -690,6 +740,7 @@ export class Game {
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
+    this.firstFrame ??= { fx: this.post.fxLevel, safe: this.safeMode };
     const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
     if (this.playing) {
@@ -747,19 +798,59 @@ export class Game {
 
   /** Last-resort rendering: unlit vertex-color materials, no shadows, no
    *  effects. Renders on anything that can draw a triangle — including
-   *  meshes created later, which take their material from the registry. */
-  enableSafeMode() {
+   *  meshes created later, which take their material from the registry.
+   *  `auto`: the render checks turned it on (and say so), not the player. */
+  enableSafeMode(auto = true) {
     if (this.safeMode) return;
     this.safeMode = true;
+    this.safeAuto = auto;
     console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows.');
     this.renderer.shadowMap.enabled = false;
     materials.enableSafe(this.scene);
     this.rocks?.setSafe(true);
     this.sky.setSafe(true);
-    if (this.state) {
+    if (this.state && auto) {
       alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
       this.publish();
     }
+  }
+
+  /** Lit rendering again — only ever on the player's word. The black-frame
+   *  check re-probes at once and steps back down if the frame is black. */
+  disableSafeMode() {
+    if (!this.safeMode) return;
+    this.safeMode = false;
+    this.safeAuto = false;
+    console.warn('[MOONSHOTS] Safe render mode off — lit materials and shadows.');
+    this.renderer.shadowMap.enabled = true;
+    materials.disableSafe(this.scene);
+    this.rocks?.setSafe(false);
+    this.sky.setSafe(false);
+    this.lighting.requestShadowUpdate();
+    this.reprobe();
+  }
+
+  get safeModeOn(): boolean { return this.safeMode; }
+  get fxLevel(): number { return this.post.fxLevel; }
+
+  /** The player's FX pick (the menu). Lowering is always safe; raising is
+   *  theirs to ask for — even to a level that drew black this session — and
+   *  the black-frame check verifies it within a second. */
+  setFxLevel(n: number) {
+    this.post.setLevel(n);
+    this.reprobe();
+  }
+
+  renderStatus(): RenderStatus {
+    return {
+      level: this.post.fxLevel, failed: [...this.fxFailed].sort(), reason: this.fxReason,
+      safe: this.safeMode, safeAuto: this.safeAuto, floor: this.opts.lowfx ? 2 : 0,
+    };
+  }
+
+  /** check the next frames soon (unless a probe is holding the check off) */
+  private reprobe() {
+    if (this.playing && Number.isFinite(this.nextProbe)) this.nextProbe = this.playFrames + 40;
   }
 
   /** One frame of play. Camera, walk physics and effects step at most 0.1 s,
@@ -772,7 +863,9 @@ export class Game {
   private tick(dt: number, simDt: number) {
     // actions first, every frame, so the UI feels immediate
     const acts = this.actions.drain();
+    const counts = acts.length ? new Map(this.state.alerts.map((a) => [a.id, a.count])) : null;
     for (const a of acts) this.applyAction(a);
+    if (counts) this.cueRefusals(counts);
 
     const tweening = this.modes.update(dt);
     if (!tweening) {
@@ -836,6 +929,7 @@ export class Game {
       this.shadeAcc = 0;
       this.updateShading();
       this.updateWearMarkers();
+      sfx.setAmbience({ margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening });
     }
 
     // sun follows the clock; the shadow window hugs the ground in view
@@ -877,6 +971,64 @@ export class Game {
       this.autosaveAcc = 0;
       void this.doSave();
     }
+  }
+
+  /** A refused action (a warn event raised or repeated by it) blips, and
+   *  stays off the radio: the player caused it and is looking at it. */
+  private cueRefusals(before: Map<number, number>) {
+    let refused = false;
+    for (const a of this.state.alerts) {
+      if (a.kind !== 'warn' || a.cond || (before.get(a.id) ?? 0) >= a.count) continue;
+      refused = true;
+      this.cueSeen?.alerts.set(a.id, a.kind);
+    }
+    if (refused) sfx.play('invalid');
+  }
+
+  /** Grid health for the hum: 1 surplus … 0 balanced; below 0 the bank is
+   *  draining, reaching −1 as its runway nears zero or the grid browns out. */
+  private gridMargin(): number {
+    const s = this.state;
+    const p = s.power;
+    if (p.brownout) return -1;
+    if (p.shed) return -0.7;
+    if (p.supply >= p.demand) return Math.min(1, (p.supply - p.demand) / Math.max(5, p.demand));
+    const runway = s.powerStored / Math.max(1e-6, p.demand - p.supply);
+    return -Math.min(1, Math.max(0, 1 - runway / GRID_RUNWAY_S));
+  }
+
+  /** Sound follows the published state: new warn/crit alerts come over the
+   *  radio, finished sites and techs chime, nightfall swells, launches roar.
+   *  A world's first publish only takes the baseline. */
+  private playCues(isNight: boolean) {
+    const s = this.state;
+    let built = 0;
+    for (const b of s.buildings) if ((b.construction ?? 0) <= 0) built++;
+    const seen = this.cueSeen;
+    this.cueSeen = {
+      alerts: new Map(s.alerts.map((a) => [a.id, a.kind])),
+      night: isNight, launches: s.launches, techs: s.techsDone.length, built,
+    };
+    if (!seen) return;
+    const now = performance.now();
+    // a flickering condition comes back under a new id: one call per key a while
+    const fresh = (key: string, quietMs: number) => {
+      if (now - (this.cueKeyAt.get(key) ?? -Infinity) < quietMs) return false;
+      this.cueKeyAt.set(key, now);
+      return true;
+    };
+    let warn = false, crit = false;
+    for (const a of s.alerts) {
+      const was = seen.alerts.get(a.id);
+      if (a.kind === 'crit' && was !== 'crit') crit = fresh(a.key, 15_000) || crit;
+      else if (a.kind === 'warn' && was === undefined) warn = fresh(a.key, 30_000) || warn;
+    }
+    if (crit) sfx.play('crit');
+    else if (warn) sfx.play('warn');
+    if (built > seen.built) sfx.play('built');
+    if (s.techsDone.length > seen.techs) sfx.play('research');
+    if (s.launches > seen.launches) sfx.play('launch');
+    if (isNight && !seen.night) sfx.play('nightfall');
   }
 
   /** Alerts age in real time, whatever the game speed: info events leave
@@ -1042,6 +1194,7 @@ export class Game {
       const live = s.buildings.find((b) => b.id === sel.id);
       $selection.set(live ? { ...live } : null);
     }
+    this.playCues(day.isNight);
   }
 
   /** Terrain-conforming discs marking surveyed ice deposits (toggle overlay). */
@@ -1123,6 +1276,17 @@ export class Game {
     if (!blob || missionLost(blob.state)) { this.publishSaveSlot(blob); return false; }
     this.loadFrom(blob);
     return true;
+  }
+
+  /** Give up this base: the save is erased and the page starts over at site
+   *  selection (URL site/expedition shortcuts dropped). */
+  async abandonMission() {
+    this.playing = false; // no autosave or hide-save may write it back
+    await clearSave();
+    const url = new URL(location.href);
+    url.searchParams.delete('site');
+    url.searchParams.delete('exp');
+    location.assign(url.toString());
   }
 
   async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
@@ -1222,6 +1386,8 @@ export class Game {
     return {
       fxLevel: this.post.fxLevel,
       safeMode: this.safeMode,
+      /** the render path the very first frame drew with */
+      firstFrame: this.firstFrame,
       shadowTexel: this.lighting.shadowTexel,
       shadowRenders: this.lighting.shadowRenders,
       patches: materials.variants(),

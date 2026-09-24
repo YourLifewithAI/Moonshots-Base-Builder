@@ -3,12 +3,12 @@
 import { RESOURCE_ORDER, RESOURCES, type ResourceId } from '../data/resources';
 import { BUILDINGS } from '../data/buildings';
 import { MILESTONES, type MilestoneDef } from '../data/milestones';
-import { ALERTS, LAUNCH_COST_FOILS, LOW_SUPPLY_S } from '../data/balance';
+import { ALERTS, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LOW_SUPPLY_S } from '../data/balance';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
-  $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $milestones, $mode,
+  $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen, $milestones, $mode,
   $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
@@ -230,6 +230,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   const bS1 = mkBtn('1×', 'Speed 1 (key 1)', () => game.actions.push({ kind: 'setSpeed', speed: 1 }));
   const bS3 = mkBtn('3×', 'Speed 3 (key 2)', () => game.actions.push({ kind: 'setSpeed', speed: 3 }));
   const bS10 = mkBtn('10×', 'Speed 10 (key 3)', () => game.actions.push({ kind: 'setSpeed', speed: 10 }));
+  mkBtn('☰', 'Menu — save, graphics, audio, controls (Esc)', () => $menuOpen.set(true)).id = 'btn-menu';
   let clockHtml = '';
   const renderTime = () => {
     const t = $time.get();

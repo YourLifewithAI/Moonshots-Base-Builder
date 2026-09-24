@@ -132,3 +132,8 @@ export function spawnFloater(text: string, x: number, y: number) {
   const id = floaterId - 1;
   setTimeout(() => $floaters.set($floaters.get().filter((f) => f.id !== id)), 1400);
 }
+
+/** the in-game menu (Esc with nothing left to cancel) */
+export const $menuOpen = atom<boolean>(false);
+/** bumped by a click on a blocked spot: the placement hint flashes its reason */
+export const $placeFlash = atom<number>(0);
