@@ -531,7 +531,6 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   function updateCards() {
     const v = view!;
-    const res = $resources.get();
     for (const [tid, e] of cardEls) {
       const c = v.cards[tid];
       const bar = e.querySelector('.prog i') as HTMLElement | null;
@@ -541,8 +540,9 @@ export function mountTechTree(root: HTMLElement, game: Game) {
         const t = k === 'pct' ? pct(c.pct) : k === 'eta' ? fmtClock(c.eta) : k === 'need' ? c.stalledNeed.replace(/ · made by .*$/, '') : '';
         if (s.textContent !== t) s.textContent = t;
       });
+      // the sim's rule, not raw stock: the crew's reserve is never research goods
       e.querySelectorAll<HTMLElement>('.g[data-res]').forEach((g) => {
-        g.classList.toggle('short', (res[g.dataset.res as ResourceId] ?? 0) < Number(g.dataset.need));
+        g.classList.toggle('short', c.goodsShort.includes(g.dataset.res as ResourceId));
       });
     }
   }
@@ -891,7 +891,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const eta = c.state === 'done' ? '' : c.state === 'stalled' ? ' · data paid, waiting on goods' : ` · ETA ${fmtClock(c.eta)}`;
     return `<div class="doc-side st-${STATE_CLASS(c.state).split(' ')[0]}${tid === subject() ? ' focus' : ''}" data-tech="${tid}">
       <div class="ds-head"><span class="ds-name">${esc(c.name)}</span>
-        <span class="mono ds-cost">${c.cost.data}≡${Object.entries(c.cost.goods).map(([r, a]) => ` ${a}${glyph(r)}`).join('')}${eta}</span>
+        <span class="mono ds-cost">${c.cost.data}≡${Object.entries(c.cost.goods)
+          .map(([r, a]) => ` <span class="g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span>`).join('')}${eta}</span>
         ${action}</div>
       <div class="ds-fx"><div>${pros}</div><div>${cons}</div>
         <div class="ds-yb"><div class="sh-h label">Your base</div>${c.state === 'done' ? '' : previewHtml(tid)}</div></div>
@@ -971,8 +972,11 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       else if (k.startsWith('have:')) t = `have ${Math.floor(res[k.slice(5) as ResourceId] ?? 0)}`;
       if (s.textContent !== t) s.textContent = t;
     });
+    // each chip answers for its own tech: a doctrine sheet shows both members
     sheetBody.querySelectorAll<HTMLElement>('.g[data-res]').forEach((g) => {
-      g.classList.toggle('short', (res[g.dataset.res as ResourceId] ?? 0) < Number(g.dataset.need));
+      const own = g.closest<HTMLElement>('.doc-side[data-tech]')?.dataset.tech as TechId | undefined;
+      const oc = (own && v.cards[own]) || c;
+      g.classList.toggle('short', oc.goodsShort.includes(g.dataset.res as ResourceId));
     });
   }
 

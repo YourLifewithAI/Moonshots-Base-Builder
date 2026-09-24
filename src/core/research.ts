@@ -705,6 +705,9 @@ export interface ResearchCard {
   eta: number | null;
   /** stalled only: `10▣ chips (have 3) · made by Chip Fab` */
   stalledNeed: string;
+  /** goods the tech cannot take yet, by goodsShortfall's rule (O₂, water and
+   *  food count only above the crew's reserve); [] once done */
+  goodsShort: ResourceId[];
   insight: { discount: number; hint: string; earned: boolean } | null;
   /** set only where the doctrine really is a choice (≥2 visible members) */
   doctrine: DoctrineId | null;
@@ -755,6 +758,7 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
       pct: av.state === 'done' ? 1 : cost.data > 0 ? Math.min(1, spent / cost.data) : 1,
       eta: av.state === 'done' ? 0 : queueEta.has(tid) ? queueEta.get(tid)! : etaOf(cost.data - spent),
       stalledNeed: av.state === 'stalled' ? shortfallText(tid, s, mods) : '',
+      goodsShort: av.state === 'done' ? [] : goodsShortfall(cost.goods, s, mods).map((g) => g.res),
       insight: ins ? { discount: ins.discount, hint: ins.hint, earned: (s.insights[tid] ?? 0) > 0 } : null,
       doctrine: isDoctrineHere(def, s) ? def.exclusive! : null,
       breakthrough: def.breakthrough ? { slot: def.breakthrough.slot, hosts: [...def.breakthrough.hosts] } : null,
