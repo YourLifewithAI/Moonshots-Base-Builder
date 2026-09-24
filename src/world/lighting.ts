@@ -3,9 +3,10 @@
  *  whose ground half carries the neutral bounce off sunlit regolith. The
  *  sky itself (stars, sun disc, Earth) lives in world/sky.ts.
  *
- *  Sun shadows: one 2048² ortho map fitted each frame to the ground the camera
- *  can see and snapped to whole texels, re-rendered only when something
- *  changed (sun moved, window moved, casters rebuilt) — never at night.
+ *  Sun shadows: one 2048² ortho map fitted to the ground the camera can see
+ *  and snapped to whole texels, re-rendered only when something changed (the
+ *  sun turned a step, the view left the window, casters rebuilt) and at most
+ *  every MIN_RENDER_S — never at night.
  *
  *  Walk mode adds the suit's headlamp: a SpotLight riding on the camera. It
  *  never leaves the scene (a light joining or leaving recompiles every lit
@@ -22,14 +23,36 @@ const EARTHSHINE_NIGHT = 1.0;
 export const SUN_INTENSITY = 5.4;
 const SHADOW_MAP = 2048;
 const SUN_DIST = 900;           // light sits this far sunward of the shadow window
-const SHADOW_MARGIN = 6;        // m of slack around the fitted ground
+const SHADOW_MARGIN = 6;        // m of slack around the fitted ground…
+const MARGIN_FRAC = 0.03;       // …or this share of its extent, if more (pans stay inside longer)
 const RECEIVER_H = 20;          // m: walls and roofs above the fitted ground still receive
 const SHADOW_MIN = 48, SHADOW_MAX = 1600;
-const SUN_STEP = Math.cos(0.1 * Math.PI / 180); // re-render once the sun turns 0.1°
+const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-render once the sun turns 0.1° (up to 3×)
+const MIN_RENDER_S = 0.1;       // real seconds between shadow renders, whatever asks
+const FAR_SLACK = 60;           // m of depth past the lowest receiver at the last render
 const BIAS_M = 0.04;            // depth bias in metres (back faces fill the map)
 const BOUNCE = 0.6;             // fraction of the ground's exitance reaching shaded walls
 const UP = new THREE.Vector3(0, 1, 0);
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
+
+/** The sun turn (as a cosine) that re-renders the map and re-aims the solar
+ *  wings: 0.1° up to 3× speed, growing with speed past that — so the sweep
+ *  costs about as many shadow renders a second at 10× as at 3×. */
+export function sunStep(speed: number): number {
+  return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
+}
+
+/** The ground in view, in the light-space basis of one sun direction. */
+interface ViewBox { minX: number; maxX: number; minY: number; maxY: number; minZ: number }
+
+/** Window size along one axis for extent `w`: margin, clamp, 9% steps —
+ *  holding `prev` while it still fits and is not much too big, so a
+ *  panning camera doesn't flip between sizes every frame. */
+function windowSize(w: number, prev: number): number {
+  w = Math.min(SHADOW_MAX, Math.max(SHADOW_MIN, w + 2 * Math.max(SHADOW_MARGIN, MARGIN_FRAC * w)));
+  if (w <= prev && w > prev * 0.8) return prev;
+  return 2 ** (Math.ceil(Math.log2(w) * 8) / 8);
+}
 
 export class Lighting {
   readonly sun: THREE.DirectionalLight;
@@ -42,7 +65,10 @@ export class Lighting {
   private sunDir = new THREE.Vector3(0, 1, 0);
   private shadowDirty = true;
   private shadowDir = new THREE.Vector3();
-  private win = { cx: NaN, cy: NaN, sx: 0, sy: 0 };
+  /** the window at the last render: centre and size in its light basis, and
+   *  the depth (along the light) its far plane reaches */
+  private win = { cx: NaN, cy: NaN, sx: 0, sy: 0, zFar: 0 };
+  private sinceRender = Infinity;
   /** shadow-map renders requested so far (probes) */
   shadowRenders = 0;
   private bx = new THREE.Vector3();
@@ -118,18 +144,19 @@ export class Lighting {
    *  this to get the map re-rendered on the next frame. */
   requestShadowUpdate() { this.shadowDirty = true; }
 
-  /** Fit the shadow window to the ground visible from `camera` (view rays
-   *  clamped to `reach` m, intersected with the plane through `focus`), snap
-   *  it to texels, and flag a shadow render if anything changed. */
-  fitShadow(camera: THREE.PerspectiveCamera, focus: THREE.Vector3, reach: number) {
-    const shadow = this.sun.shadow;
-    if (this.sun.intensity <= 0) { shadow.needsUpdate = false; return; }
-    const L = this.sunDir;
+  /** The light-space basis of sun direction `L` into bx, by. */
+  private basis(L: THREE.Vector3) {
     const bx = this.bx.crossVectors(UP, L);
     if (bx.lengthSq() < 1e-8) bx.set(1, 0, 0);
     bx.normalize();
-    const by = this.by.crossVectors(L, bx);
+    this.by.crossVectors(L, bx);
+  }
 
+  /** The ground visible from `camera` (view rays clamped to `reach` m,
+   *  intersected with the plane through `focus`, padded for receivers) in
+   *  the basis of `L` (call basis(L) first). */
+  private viewBox(camera: THREE.PerspectiveCamera, focus: THREE.Vector3, reach: number, L: THREE.Vector3): ViewBox {
+    const bx = this.bx, by = this.by;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity;
     const add = (q: THREE.Vector3) => {
       const x = q.dot(bx), y = q.dot(by), z = q.dot(L);
@@ -152,23 +179,46 @@ export class Lighting {
     // a camera standing among the receivers (walk mode) sees walls at its feet
     if (o.y - focus.y < RECEIVER_H) addColumn(this.p.set(o.x, focus.y, o.z));
     add(focus);
+    return { minX, maxX, minY, maxY, minZ };
+  }
 
-    const size = (w: number, prev: number) => {
-      w = Math.min(SHADOW_MAX, Math.max(SHADOW_MIN, w + 2 * SHADOW_MARGIN));
-      // hold the size while it still fits and is not much too big, so a
-      // panning camera doesn't flip between sizes every frame
-      if (w <= prev && w > prev * 0.8) return prev;
-      return 2 ** (Math.ceil(Math.log2(w) * 8) / 8);
-    };
-    const sx = size(maxX - minX, this.win.sx);
-    const sy = size(maxY - minY, this.win.sy);
+  /** Does the last render's window still cover `b` (same basis), at the
+   *  size a fresh fit would pick? */
+  private covers(b: ViewBox): boolean {
+    const w = this.win;
+    if (windowSize(b.maxX - b.minX, w.sx) !== w.sx || windowSize(b.maxY - b.minY, w.sy) !== w.sy) return false;
+    return b.minX >= w.cx - w.sx / 2 && b.maxX <= w.cx + w.sx / 2
+      && b.minY >= w.cy - w.sy / 2 && b.maxY <= w.cy + w.sy / 2 && b.minZ >= w.zFar + 10;
+  }
+
+  /** Fit the shadow window to the ground visible from `camera`, snap it to
+   *  texels, and flag a shadow render if anything changed: the sun turned by
+   *  `step` (a cosine, see sunStep), the view left the window, or casters
+   *  changed — at most once per MIN_RENDER_S of real time (`dt` s since the
+   *  last call). */
+  fitShadow(camera: THREE.PerspectiveCamera, focus: THREE.Vector3, reach: number, dt = 0,
+    step = sunStep(1)) {
+    const shadow = this.sun.shadow;
+    this.sinceRender += dt;
+    if (this.sun.intensity <= 0) { shadow.needsUpdate = false; return; }
+    const L = this.sunDir;
+    const first = !Number.isFinite(this.win.cx);
+    const turned = first || L.dot(this.shadowDir) < step;
+    if (!turned && !this.shadowDirty) {
+      // the map stands while the view stays inside the window it was drawn for
+      this.basis(this.shadowDir);
+      if (this.covers(this.viewBox(camera, focus, reach, this.shadowDir))) return;
+    }
+    if (!first && this.sinceRender < MIN_RENDER_S) return;
+
+    this.basis(L);
+    const bx = this.bx, by = this.by;
+    const { minX, maxX, minY, maxY, minZ } = this.viewBox(camera, focus, reach, L);
+    const sx = windowSize(maxX - minX, this.win.sx);
+    const sy = windowSize(maxY - minY, this.win.sy);
     const tx = sx / SHADOW_MAP, ty = sy / SHADOW_MAP;
     const cx = Math.round((minX + maxX) / 2 / tx) * tx;
     const cy = Math.round((minY + maxY) / 2 / ty) * ty;
-
-    const moved = cx !== this.win.cx || cy !== this.win.cy || sx !== this.win.sx || sy !== this.win.sy;
-    const turned = L.dot(this.shadowDir) < SUN_STEP;
-    if (!moved && !turned && !this.shadowDirty) return;
 
     const zRef = focus.dot(L);
     const anchor = this.v.copy(bx).multiplyScalar(cx).addScaledVector(by, cy).addScaledVector(L, zRef);
@@ -179,15 +229,16 @@ export class Lighting {
     const cam = shadow.camera;
     cam.left = -sx / 2; cam.right = sx / 2;
     cam.bottom = -sy / 2; cam.top = sy / 2;
-    cam.far = SUN_DIST + Math.max(0, zRef - minZ) + 60;
+    cam.far = SUN_DIST + Math.max(0, zRef - minZ) + FAR_SLACK;
     cam.updateProjectionMatrix();
     shadow.bias = -BIAS_M / (cam.far - cam.near);
     shadow.normalBias = 0.5 * Math.max(tx, ty);
     shadow.needsUpdate = true;
 
-    this.win = { cx, cy, sx, sy };
+    this.win = { cx, cy, sx, sy, zFar: Math.min(zRef, minZ) - FAR_SLACK };
     this.shadowDir.copy(L);
     this.shadowDirty = false;
+    this.sinceRender = 0;
     this.shadowRenders++;
   }
 

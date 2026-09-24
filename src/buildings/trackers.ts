@@ -14,7 +14,6 @@ import { skyDirection } from '../world/sky';
 import type { SiteDef } from '../data/sites';
 
 const MAX: Record<PartId, number> = { wing: 96, dish: 256 };
-const SUN_STEP = Math.cos(0.1 * Math.PI / 180);
 const MIN_ELEV = 0.05; // rad: below this the wing stands vertical, not past it
 const UP = new THREE.Vector3(0, 1, 0);
 const X = new THREE.Vector3(1, 0, 0);
@@ -93,13 +92,15 @@ export class Trackers {
     this.sunSeen.set(0, -2, 0); // wings re-aim next update
   }
 
-  /** Aim the wings at the sun; they fold flat once it is below the
-   *  horizon. True when anything moved (the shadow map needs a render). */
-  update(sunDir: THREE.Vector3): boolean {
+  /** Aim the wings at the sun once it has turned by `step` (a cosine — the
+   *  shadow map's own, so one re-aim costs one shadow render); they fold flat
+   *  once it is below the horizon. True when anything moved (the shadow map
+   *  needs a render). */
+  update(sunDir: THREE.Vector3, step: number): boolean {
     const wings = this.meshes.wing;
     const elev = Math.asin(Math.min(1, Math.max(-1, sunDir.y)));
     const stow = Math.round(Math.min(1, Math.max(0, (elev + 0.03) / 0.04)) * 100) / 100;
-    if (sunDir.dot(this.sunSeen) >= SUN_STEP && stow === this.stowSeen) return false;
+    if (sunDir.dot(this.sunSeen) >= step && stow === this.stowSeen) return false;
     this.sunSeen.copy(sunDir);
     this.stowSeen = stow;
     if (wings.count === 0) return false;

@@ -40,7 +40,7 @@ import {
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
-import { Lighting } from '../world/lighting';
+import { Lighting, sunStep } from '../world/lighting';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
@@ -1042,12 +1042,15 @@ export class Game {
     this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
       this.groundAnywhere);
     this.rocks.update(this.camera);
+    // the sun step grows with game speed; the wings turn first, so their
+    // re-aim joins this frame's shadow render instead of forcing another
+    const step = sunStep(this.state.paused ? 1 : this.state.speed);
+    this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
-      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))));
+      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
     // at night the base carries its own light: window glow and floods in the
     // shader patches, or (stock path) hull glow, ground discs and work lights
     // over the structures nearest the camera
-    this.instances.update(dt, day.nightFactor, this.lighting.sunDirection);
     this.instances.setNightGlow(day.nightFactor);
     const stockLights = !this.instances.shaderLights;
     this.lighting.useWorkLights(stockLights);
