@@ -42,7 +42,7 @@ export interface BuildingState {
   deposit?: DepositKind;
   /** hydroponics: seconds of output lost to a dead crop (0 = growing) */
   cropRegrowT?: number;
-  /** seconds held dark (idleReason 'power') at night, reset when powered */
+  /** seconds held dark (idleReason 'power') at night; runs back down while powered */
   darkT?: number;
   /** solar: seconds continuously in terrain shade */
   shadedT?: number;
@@ -200,8 +200,9 @@ export interface GameState {
 
   flare: FlareState;
   /** Earth shipments; arriveAt is game time, ordered counts the hand-placed
-   *  orders (the automatic anti-softlock rescue is not counted) */
-  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number };
+   *  orders (the automatic anti-softlock rescue is not counted); downlink =
+   *  the one slot carries a data downlink's cargo, not a resupply */
+  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number; downlink?: boolean };
   /** ice deposits mapped (Lander survey, ice sites only) */
   iceSurveyed: boolean;
   /** current stockpile capacities, recomputed each tick (for the HUD) */

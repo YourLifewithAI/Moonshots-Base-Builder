@@ -2,15 +2,32 @@
  *  Playwright drives the whole game loop through window.__game. */
 import type { Game } from './core/game';
 import type { BuildingId } from './data/buildings';
-import type { TechId } from './data/techs';
+import { TECH_ALIASES, auditTechs, techRelevanceMatrix, type TechId } from './data/techs';
 import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
+import type { GameStats } from './core/state';
+import { researchView } from './core/research';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
 }
 
+/** Old probe scripts may name retired techs: map them (spec §8), warning;
+ *  a retired id with no successor is a warned no-op (null). */
+function techId(id: string): TechId | null {
+  if (!(id in TECH_ALIASES)) return id as TechId;
+  const to = TECH_ALIASES[id];
+  console.warn(`[debug] ${id} is retired${to ? ` — using ${to}` : ' — ignored'}`);
+  return to;
+}
+
+const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
+
 function api(game: Game) {
+  const withTech = (id: string, fn: (t: TechId) => void) => {
+    const t = techId(id);
+    if (t) fn(t);
+  };
   return {
     getState: () => JSON.parse(JSON.stringify(game.state ?? null)),
     selectSite: (site: SiteId, exp: 'human' | 'robotic' = 'human') => game.startNew(site, exp),
@@ -32,9 +49,20 @@ function api(game: Game) {
     buildNext: (id: number) => game.actions.push({ kind: 'buildNext', id }),
     /** open the inspector on a building (null closes it) */
     select: (id: number | null) => game.select(id),
-    completeTech: (id: TechId) => game.debugCompleteTech(id),
-    research: (id: TechId) => game.actions.push({ kind: 'research', tech: id }),
-    cancelResearch: (id: TechId) => game.actions.push({ kind: 'cancelResearch', tech: id }),
+    completeTech: (id: TechId) => withTech(id, (t) => game.debugCompleteTech(t)),
+    research: (id: TechId) => withTech(id, (t) => game.actions.push({ kind: 'research', tech: t })),
+    /** shift-click: the tech and its prerequisite closure */
+    researchPath: (id: TechId) => game.actions.push({ kind: 'researchPath', tech: id }),
+    cancelResearch: (id: TechId) => withTech(id, (t) => game.actions.push({ kind: 'cancelResearch', tech: t })),
+    moveResearch: (id: TechId, delta: -1 | 1) => game.actions.push({ kind: 'moveResearch', tech: id, delta }),
+    /** the $research payload: cards, gates, queue, rates */
+    getResearch: () => clone(researchView(game.state, game.mods)),
+    auditTechs: () => clone(auditTechs()),
+    techRelevanceMatrix: () => techRelevanceMatrix(),
+    /** force charter / insight counters (tests of deed routes) */
+    setStats: (patch: Partial<GameStats>) => { Object.assign(game.state.stats, patch); game.publish(); },
+    setOverclock: (id: number, on: boolean) => game.actions.push({ kind: 'setOverclock', id, on }),
+    downlink: () => game.actions.push({ kind: 'downlink' }),
     launch: () => game.actions.push({ kind: 'launch' }),
     setSpeed: (n: number) => game.actions.push({ kind: 'setSpeed', speed: n }),
     setPaused: (p: boolean) => game.actions.push({ kind: 'setPaused', paused: p }),
