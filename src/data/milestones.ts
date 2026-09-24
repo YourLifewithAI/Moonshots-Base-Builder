@@ -4,6 +4,7 @@
 import type { GameState } from '../core/state';
 import { BUILDINGS, type BuildingId } from './buildings';
 import { TECHS, type TechId } from './techs';
+import { ATLAS } from './balance';
 
 export interface MilestoneDef {
   id: string;
@@ -118,6 +119,13 @@ export const MILESTONES: MilestoneDef[] = [
     hint: 'Research Swarm Protocol and LAUNCH your first collector volley to solar orbit.',
     check: (s) => s.launches >= 1,
     progress: (s) => researched(s, 'swarmProtocol'),
+  },
+  // non-blocking: after victory in the list, though it may latch before it
+  {
+    id: 'selenographer', title: 'SELENOGRAPHER',
+    hint: `Complete the atlas: reach ${TECHS.deepSounding.name} (T4) and survey ${ATLAS.surveys} prospects on the Lunar Map [M].`,
+    check: (s) => s.survey?.atlas ?? false,
+    progress: (s) => `${researched(s, 'deepSounding')} · ${Object.keys(s.survey?.prospects ?? {}).length}/${ATLAS.surveys} surveyed`,
   },
 ];
 

@@ -9,13 +9,14 @@ import { TECHS, TECH_ORDER } from '../data/techs';
 import { SITES } from '../data/sites';
 import { buildCost, demolishRefund, untouchedSite } from '../buildings/placement';
 import { wearDerate } from '../core/economy';
-import { canToggleCrew } from '../core/mods';
-import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, ICE_SURVEY_COST, RESUPPLY } from '../data/balance';
+import { canToggleCrew, effectiveDef, refineryFeed, smelterFeed } from '../core/mods';
+import { AGENT_GEN_TAX, CONSTRUCTION_KW, GRADE_COST_ENERGY, RESUPPLY } from '../data/balance';
+import { DEPOSIT_INFO, FEED_KINDS, FEED_LABEL, type FeedGrade } from '../data/deposits';
 import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
 import { fmtClock } from '../core/daynight';
 import { el, fmt, PERSON_SVG } from './hud';
-import { $ice, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloater } from './stores';
+import { $feed, $lander, $placing, $selection, $siteId, $tech, $vitals, spawnFloater } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
@@ -88,6 +89,23 @@ export function tooltipHtml(type: BuildingId, locked: boolean): string {
     <section>${ioRows(type)}</section>
     <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
     ${unlock ? `<section><span class="label">⧗ Requires research — ${unlock}</span></section>` : ''}`;
+}
+
+/** 'Feed (last dug): 64% high-Ti · 8% highland → yield +17%' for the smelter
+ *  and refinery inspector ('' for other buildings). */
+function feedLine(game: Game, type: BuildingId, g: FeedGrade): string {
+  if (type !== 'smelter' && type !== 'refinery') return '';
+  if (type === 'smelter' && effectiveDef('smelter', game.mods).feedInsensitive) {
+    return 'Feed: molten electrolysis melts any soil — the feed grade has no effect';
+  }
+  const dug = FEED_KINDS.filter((k) => g[k] > 0.005);
+  if (!dug.length) return 'Feed (last dug): nothing dug yet — excavators dig the ground they sit on';
+  const shown = dug.filter((k) => k !== 'plain');
+  const mix = (shown.length ? shown : dug).map((k) => `${Math.round(g[k] * 100)}% ${FEED_LABEL[k]}`).join(' · ');
+  const pct = (f: number) => `${f >= 1 ? '+' : '−'}${Math.round(Math.abs(f - 1) * 100)}%`;
+  if (type === 'refinery') return `Feed (last dug): ${mix} → yield ${pct(refineryFeed(game.mods, g))}`;
+  const f = smelterFeed(game.mods, g);
+  return `Feed (last dug): ${mix} → yield ${pct(f.all)}${f.o2 > 1.005 ? ` · O₂ ${pct(f.o2)}` : ''}`;
 }
 
 export function mountPalette(root: HTMLElement, game: Game) {
@@ -175,7 +193,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     if (!p) { hint.style.display = 'none'; return; }
     hint.style.display = 'block';
     hint.innerHTML = p.valid || !p.reason
-      ? `<span class="label">Click place · R rotate · right-click cancel</span>${p.valid && p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
+      ? `<span class="label">Click place · R rotate · right-click cancel</span>${p.valid && p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.valid && p.warn ? `<div class="caution">${p.warn}</div>` : ''}`
       : `<span class="blocked">${p.reason}</span>`;
   });
 
@@ -232,6 +250,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ? `WORN — output −${worn}%. Repairs need parts in stock.`
       : 'Repairs draw automatically from the parts stockpile.');
     setText('insp-eta', `▲ Shipment en route — lands in ${fmtClock($lander.get().etaS)}`);
+    setText('insp-feed', feedLine(game, sel.type, $feed.get()));
   };
   const buildInspector = (sel: BuildingState) => {
     const def = BUILDINGS[sel.type];
@@ -247,6 +266,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <span class="label">#${sel.id}</span></div>
         <span class="label" id="insp-status"></span></section>
       <section>${ioRows(sel.type)}</section>
+      ${sel.deposit ? `<section><span class="label">◎ ${DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
+      ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
       <section>
         <span class="label">Condition <span class="mono" style="float:right" id="insp-cond"></span></span>
         <div class="prog" style="height:4px; margin-top:5px; background:rgba(245,247,249,0.06)">
@@ -263,11 +284,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${sel.type === 'lander' ? `<section>
         <span class="label">Lander services — mission HQ</span>
         <div class="prio" style="margin-top:6px; flex-wrap:wrap">
-          ${$ice.get().hasIce
-            ? ($ice.get().surveyed
-              ? '<span class="label">✓ Ice deposits mapped — overlay [I]</span>'
-              : `<button class="btn" id="insp-survey">❄ Survey for ice — ${ICE_SURVEY_COST} stored</button>`)
-            : '<span class="label">❄ Survey: no ice at this site — polar deposits only</span>'}
+          <span class="label">◎ Deposits are mapped inside the survey radius — overlay [I]</span>
         </div>
         <div class="prio" style="margin-top:6px">
           ${$lander.get().resupplyPending
@@ -310,7 +327,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       sel.id, sel.type, sel.enabled, sel.automated, sel.priority, site,
       site && sel.idleReason === 'queued', untouchedSite(sel),
       canToggleCrew(vit.expedition, vit.crew, $tech.get()), vit.expedition, vit.crew > 0,
-      $ice.get().surveyed, lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
+      sel.deposit ?? '', lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;
@@ -331,7 +348,6 @@ export function mountPalette(root: HTMLElement, game: Game) {
     switch (btn.id) {
       case 'insp-buildnext': game.actions.push({ kind: 'buildNext', id: sel.id }); break;
       case 'insp-toggle': game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }); break;
-      case 'insp-survey': game.actions.push({ kind: 'surveyIce' }); break;
       case 'insp-order': game.actions.push({ kind: 'orderResupply' }); break;
       case 'insp-crewall': game.actions.push({ kind: 'crewAll' }); break;
       case 'insp-crewed': game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }); break;

@@ -1,17 +1,17 @@
 /** Draped build-mode overlays (lines only, so every FX level and safe mode
  *  draw them alike):
  *   - a 4 m cell grid under the placement footprint, fading out past it;
- *   - dashed build-radius rings around every network structure while placing
- *     (`buildRadiusM` where a type defines one — completed ones only, as the
- *     relay-mast design reads — else the Lander/Habitat radius), so "Too far
- *     from habitat network" has an in-world answer;
+ *   - dashed build-radius rings around every node of the build network while
+ *     placing (core/exploration.networkNodes — the same nodes placement
+ *     checks), so "Beyond 60 m of the Lander" has an in-world answer;
  *   - corner brackets around the selected structure. */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
-import { BUILD_RADIUS_M, CELL_M, GRADE_CELLS, MAP_M } from '../data/balance';
+import { CELL_M, GRADE_CELLS, MAP_M } from '../data/balance';
 import type { GameState } from '../core/state';
+import { networkNodes } from '../core/exploration';
 import type { Heightfield } from '../terrain/heightfield';
-import { centerOf, footprintRect } from './instances';
+import { footprintRect } from './instances';
 import { ghostUniforms } from './ghost';
 import type { PlacementProbe } from './placement';
 
@@ -19,13 +19,6 @@ const GRID_MARGIN = 2;     // cells of fading grid beyond the footprint
 const LIFT = 0.12;         // m above the ground
 
 type Footprinted = { id: number; type: BuildingId; gx: number; gz: number; rot: number };
-
-/** Build radius of a structure that extends the network, else 0. */
-export function networkRadius(type: BuildingId): number {
-  const r = BUILDINGS[type].buildRadiusM;
-  if (r !== undefined) return r;
-  return type === 'lander' || type === 'habitat' ? BUILD_RADIUS_M : 0;
-}
 
 export class BaseOverlays {
   readonly group = new THREE.Group();
@@ -117,15 +110,12 @@ export class BaseOverlays {
   }
 
   private updateRings(state: GameState, p: PlacementProbe | null) {
-    const nodes = p ? state.buildings.filter((b) => networkRadius(b.type) > 0 &&
-      (BUILDINGS[b.type].buildRadiusM === undefined || (b.construction ?? 0) <= 0)) : [];
-    const key = p ? nodes.map((b) => `${b.id}:${b.gx},${b.gz}`).join(';') || '-' : '';
+    const nodes = p ? networkNodes(state) : [];
+    const key = p ? nodes.map((n) => `${n.x},${n.z},${n.r}`).join(';') || '-' : '';
     if (key === this.ringKey) return;
     this.ringKey = key;
     const pos: number[] = [];
-    for (const b of nodes) {
-      const [cx, cz] = centerOf(b);
-      const r = networkRadius(b.type);
+    for (const { x: cx, z: cz, r } of nodes) {
       const n = Math.ceil((2 * Math.PI * r) / 1.5);
       for (let i = 0; i < n; i++) {
         const a0 = (i / n) * Math.PI * 2, a1 = ((i + 1) / n) * Math.PI * 2;

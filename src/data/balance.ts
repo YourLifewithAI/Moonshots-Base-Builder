@@ -23,7 +23,6 @@ export const WALK_SPEED = 3.0;         // m/s lope
 export const EYE_HEIGHT = 1.7;
 export const PLAYER_RADIUS = 0.5;
 
-export const BUILD_RADIUS_M = 60;      // buildable distance from Lander / any Habitat
 export const CONSTRUCTION_KW = 4;      // grid draw per active construction site
 export const CONSTRUCTION_PARTS_PER_S = 0.04; // welding consumables per active site
 export const GRADE_COST_ENERGY = 40;   // stored energy per 16x16 m grading pass
@@ -176,7 +175,10 @@ export const CROP_LOSS = { darkS: 30, regrowS: 150 };
 export const HELIOPHYSICS_DATA = 25;   // flare turning active while a lab operates
 
 export const LAUNCH_CAP_PER_VOLLEY = 3; // ↑ per volley — needs core-fixes sign-off
-export const MAX_SLOPE_LARGE = 1.2;     // m of relief allowed under large pads
+/** m of relief allowed under large pads (≥ 9 cells, and the mass driver).
+ *  Calibrated on 20 seeds for 3×3 pads within 60 m, ungraded (medians):
+ *  mare 40 (worst seed 11), lava tube 8, pole 2 */
+export const MAX_SLOPE_LARGE = 0.8;
 
 /** feed-grade coefficients (spec S7): factor = max(floor, 1 + Σ coef × share) */
 export const FEED = {

@@ -8,7 +8,7 @@ import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
-  $alerts, $caps, $floaters, $ice, $iceOverlay, $lookAt, $milestones, $mode,
+  $alerts, $caps, $depositMarkers, $depositOverlay, $floaters, $lookAt, $milestones, $mode,
   $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
@@ -85,7 +85,7 @@ export function mountHud(root: HTMLElement, game: Game) {
     out.push({ slot: 'bots', key: 'bots', glyph: '◉', cap: true });
     if (crewAboard) out.push({ slot: 'morale', key: 'morale', glyph: '◐', cap: false });
     out.push({ slot: 'data', key: 'data', glyph: '≡', cap: false });
-    if ($ice.get().surveyed) out.push({ slot: 'ice', key: 'ice', glyph: '❄', cap: false });
+    out.push({ slot: 'deposits', key: 'deposits', glyph: '◎', cap: false });
     return out;
   };
   const build = (slots: ChipSlot[]) => {
@@ -146,14 +146,16 @@ export function mountHud(root: HTMLElement, game: Game) {
     }
     put('crew', `${v.crew}`, `/${v.housing}`, v.crew > v.housing,
       `Crew / housing — ${v.beds} beds built · ${v.housing} powered`);
-    put('bots', `${v.botsFree}`, `/${v.botsTotal}`, v.botsFree === 0 && v.botsTotal > 0,
-      'Construction robots free / fleet — click for details');
+    put('bots', `${v.botsFree}`, `/${v.botsTotal}${v.surveying ? ` · ${v.surveying} surveying` : ''}`,
+      v.botsFree === 0 && v.botsTotal > 0,
+      `Construction robots free / fleet${v.surveying ? ` — ${v.surveying} lent to a survey` : ''} — click for details`);
     put('morale', `${v.morale}%`, '', v.morale < 40, 'Morale — click for details');
     put('data', fmt(v.data), '', false, 'Research data — click for details');
-    put('ice', 'ICE', '', $iceOverlay.get(), 'Toggle the ice deposit overlay [I]');
+    put('deposits', 'DEPOSITS [I]', '', $depositOverlay.get(),
+      'Toggle the deposit overlay [I] — rings mark mapped deposits, ? marks a lead beyond your survey');
   };
   const scheduleStrip = perFrame(renderStrip);
-  for (const store of [$resources, $power, $vitals, $caps, $time, $ice, $iceOverlay] as ReadableAtom<unknown>[]) {
+  for (const store of [$resources, $power, $vitals, $caps, $time, $depositOverlay] as ReadableAtom<unknown>[]) {
     store.subscribe(scheduleStrip);
   }
   $siteId.subscribe(() => { seenLate.clear(); scheduleStrip(); });
@@ -162,7 +164,7 @@ export function mountHud(root: HTMLElement, game: Game) {
     const chipEl = (e.target as HTMLElement).closest('.chip') as HTMLElement | null;
     const key = chipEl?.dataset.key;
     if (!key) return;
-    if (key === 'ice') { $iceOverlay.set(!$iceOverlay.get()); return; }
+    if (key === 'deposits') { $depositOverlay.set(!$depositOverlay.get()); return; }
     $resourcePanel.set($resourcePanel.get() === key ? null : key);
   });
 
@@ -401,6 +403,31 @@ export function mountHud(root: HTMLElement, game: Game) {
       d.innerHTML = `<i style="width:${Math.round(m.frac * 100)}%"></i>`;
       wearLayer.appendChild(d);
     }
+  });
+
+  // ── deposit overlay labels: glyphs at the rings' centres, '?' at leads;
+  // one element per deposit, moved in place ──
+  const depLayer = el('div', '');
+  root.appendChild(depLayer);
+  const depEls = new Map<string, HTMLElement>();
+  $depositMarkers.subscribe((ms) => {
+    const live = new Set<string>();
+    for (const m of ms) {
+      live.add(m.id);
+      let d = depEls.get(m.id);
+      if (!d) {
+        d = el('div', 'deposit-mark', '<span class="g"></span><span class="t"></span>');
+        depEls.set(m.id, d);
+        depLayer.appendChild(d);
+      }
+      d.classList.toggle('lead', m.lead);
+      d.style.left = `${m.x}px`;
+      d.style.top = `${m.y}px`;
+      const [g, t] = d.children as unknown as HTMLElement[];
+      if (g.textContent !== m.glyph) g.textContent = m.glyph;
+      if (t.textContent !== m.label) t.textContent = m.label;
+    }
+    for (const [id, d] of depEls) if (!live.has(id)) { d.remove(); depEls.delete(id); }
   });
 
   // ── floaters ──

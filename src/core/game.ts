@@ -7,10 +7,12 @@ import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES } from '../data/milestones';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DOWNLINK, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY, GRADE_REGOLITH_YIELD,
-  ICE_SURVEY_COST, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
+  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY,
+  GRADE_REGOLITH_YIELD, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
+import { DEPOSIT_INFO, type DepositKind } from '../data/deposits';
+import { TIER_VIEW, type MapView, type ProspectId } from '../data/lunarMap';
 import { createInitialState, type BuildingState, type GameState } from './state';
 import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveRates } from './mods';
 import { ActionQueue, type Action } from './actions';
@@ -23,7 +25,11 @@ import {
   cancel, enqueue, enqueuePath, migrateTechSchema, moveInQueue, onTechComplete, researchView,
 } from './research';
 import { fmtClock } from './daynight';
-import { Heightfield } from '../terrain/heightfield';
+import {
+  abandonOutpost, claimOutpost, depositRevealed, depositsView, forceOutposts, lunarView, revealDeposits,
+  startSurvey, strikeEffect, type LunarUi,
+} from './exploration';
+import { Heightfield, type Deposit } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
 import { Rocks } from '../terrain/rocks';
@@ -44,8 +50,8 @@ import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import {
-  $alerts, $caps, $counts, $defeat, $hasSave, $ice, $iceOverlay, $lookAt,
-  $lander, $lostMission, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
+  $alerts, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $feed, $hasSave, $ice, $lookAt,
+  $lander, $lostMission, $lunar, $milestones, $mode, $phase, $placing, $power, $rates, $resources,
   $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers,
 } from '../ui/stores';
 
@@ -91,7 +97,12 @@ export class Game {
   private raycaster = new THREE.Raycaster();
   private lastT = performance.now();
   private worldGroup: THREE.Group | null = null;
-  private iceOverlay: THREE.Group | null = null;
+  /** revealed deposits' rings ([I]); rebuilt when the revealed set changes */
+  private depositOverlay: THREE.Group | null = null;
+  private revealedIds = new Set<string>();
+  private markerSig = '';
+  /** Lunar Map screen bookkeeping (the view shown, the tier last seen) */
+  private lunarUi: LunarUi = { open: false, view: 'site', seenTier: 0 };
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     this.renderer = createRenderer(canvas);
@@ -134,6 +145,7 @@ export class Game {
     this.buildCam.enabled = false;
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
+    $depositOverlay.subscribe((v) => { if (this.depositOverlay) this.depositOverlay.visible = v; });
     requestAnimationFrame((t) => this.frame(t));
     void loadGame().then((blob) => this.publishSaveSlot(blob));
   }
@@ -146,6 +158,7 @@ export class Game {
     // pre-place the Lander at the map heart and pad the ground under it
     const gx = 126, gz = 126;
     this.commitPlace('lander', gx, gz, 0, true);
+    this.syncDeposits(false);
     this.homeCamera(false);
     this.publish();
     alert(this.state, 'TOUCHDOWN — begin with a Solar Array', 'info');
@@ -187,6 +200,12 @@ export class Game {
       this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
       this.onFlattened(f.x0, f.z0, f.x1, f.z1);
     }
+    // migration rule 7: a Lander ice survey mapped every ice deposit; every
+    // building's deposit comes from the regenerated heightfield
+    const struck = this.state.survey.struck;
+    if (this.state.iceSurveyed) for (const d of this.hf.iceDeposits) if (!struck.includes(d.id)) struck.push(d.id);
+    for (const b of this.state.buildings) this.stampDeposit(b);
+    this.syncDeposits(false);
     if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
     this.instances.rebuild(this.state);
     this.homeCamera(false);
@@ -231,8 +250,11 @@ export class Game {
     this.worldGroup = new THREE.Group();
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
       this.overlays.group, this.life.group);
-    this.iceOverlay = this.buildIceOverlay();
-    if (this.iceOverlay) this.worldGroup.add(this.iceOverlay);
+    for (const c of this.depositOverlay?.children ?? []) (c as THREE.LineSegments).geometry.dispose();
+    this.depositOverlay = null;
+    this.revealedIds = new Set();
+    this.markerSig = '';
+    this.lunarUi = { open: false, view: 'site', seenTier: this.mods.surveyTier };
     // constrained sites show their buildable boundary as a faint ring
     const site = SITES[state.siteId];
     if (site.buildableRadiusM > 0) {
@@ -314,13 +336,16 @@ export class Game {
         case 'Digit2': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[1] }); break;
         case 'Digit3': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[2] }); break;
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
-        case 'KeyI': if (this.state?.iceSurveyed) $iceOverlay.set(!$iceOverlay.get()); break;
+        case 'KeyI': $depositOverlay.set(!$depositOverlay.get()); break;
         case 'KeyE':
           // inspect what the reticle rests on: back to command view, selected
           if (this.modes.mode === 'walk' && this.lookId !== null && !this.modes.transitioning) {
             const id = this.lookId;
             this.modes.toggle();
             this.select(id);
+          } else if (this.modes.mode === 'build') {
+            e.preventDefault();
+            this.buildCam.keyDown(e.code); // in command view E orbits, opposite to Q
           }
           break;
         case 'Escape':
@@ -384,8 +409,9 @@ export class Game {
     if (type === 'grade' && !this.mods.grading) return;
     $selection.set(null);
     this.placement.begin(type);
-    if (type === 'iceHarvester' && this.state.iceSurveyed) $iceOverlay.set(true);
-    $placing.set({ type, valid: false, reason: '', warn: '' });
+    // where you dig is a production decision: show the ground
+    if (type === 'iceHarvester' || type === 'excavator') $depositOverlay.set(true);
+    $placing.set({ type, valid: false, reason: '', warn: '', note: '' });
   }
 
   cancelPlacement() {
@@ -422,7 +448,8 @@ export class Game {
     const s = this.state;
     switch (a.kind) {
       case 'place': {
-        const chk = checkPlacement(s, SITES[s.siteId], this.hf, this.mods.unlocked, a.type, a.gx, a.gz, a.rot);
+        const chk = checkPlacement(s, SITES[s.siteId], this.hf, this.mods.unlocked, a.type, a.gx, a.gz, a.rot,
+          this.mods.surveyTier);
         if (!chk.valid) { alert(s, `CANNOT BUILD — ${chk.reason}`, 'warn'); break; }
         this.commitPlace(a.type, a.gx, a.gz, a.rot, false);
         break;
@@ -512,16 +539,24 @@ export class Game {
           'info', landerAction(s));
         break;
       }
-      case 'surveyIce': {
-        if (!SITES[s.siteId].hasIce || s.iceSurveyed) break;
-        if (s.powerStored < ICE_SURVEY_COST) {
-          alert(s, `SURVEY NEEDS ${ICE_SURVEY_COST} STORED ENERGY — charge the banks first`, 'warn');
-          break;
-        }
-        s.powerStored -= ICE_SURVEY_COST;
-        s.iceSurveyed = true;
-        $iceOverlay.set(true);
-        alert(s, 'SURVEY COMPLETE — ice deposits mapped. Toggle the overlay with [I]', 'info');
+      case 'surveyIce':
+        // retired: the survey radius maps deposits by itself
+        alert(s, 'Deposits are mapped automatically inside your survey radius — open the map [M]', 'info');
+        break;
+      case 'surveyProspect': {
+        const r = startSurvey(s, this.mods, a.id);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      case 'claimOutpost': {
+        const r = claimOutpost(s, this.mods, a.id);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      case 'abandonOutpost': {
+        const r = abandonOutpost(s, a.id);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        else if (r.wasLive) this.mods = modsFor(s); // its link load and any KREEP modifier go with it
         break;
       }
       case 'dismissAlert': {
@@ -550,9 +585,12 @@ export class Game {
     // rough terrain slows construction the same way it inflates costs;
     // teleoperation / swarm-robotics techs speed every build, and some techs
     // slow one type (tall masts, buried racks)
+    const dep = this.hf.depositAt(...centerOf(probe));
+    // a peak of light is steep going: arrays up there take longer
+    const ridge = type === 'solar' && dep?.kind === 'ridge' ? DEPOSIT_FX.ridgeSolarBuildTime : 1;
     const buildTotal = Math.round(BUILDINGS[type].buildTime * SITES[s.siteId].buildCostMult *
-      this.mods.buildSpeedMult * this.mods.buildTimeMult[type]);
-    s.buildings.push({
+      this.mods.buildSpeedMult * this.mods.buildTimeMult[type] * ridge);
+    const b: BuildingState = {
       id: s.nextBuildingId++, type, gx, gz, rot,
       enabled: true,
       // robotic missions place every station under agent control, so arriving
@@ -561,7 +599,10 @@ export class Game {
       priority: BUILDINGS[type].priority, wear: 0, dust: 0,
       construction: free ? 0 : buildTotal, buildTotal,
       active: false, idleReason: free ? '' : 'building',
-    });
+    };
+    this.stampDeposit(b);
+    s.buildings.push(b);
+    if (dep && !free) this.strike(b, dep);
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
     // deadlock early-warning: metals gone before your first smelter exists
@@ -572,6 +613,42 @@ export class Game {
           'warn', { panel: 'metals' });
       }
     }
+  }
+
+  /** b.deposit: the deposit under the footprint centre (placement and load) */
+  private stampDeposit(b: BuildingState) {
+    const kind: DepositKind | undefined = this.hf.depositAt(...centerOf(b))?.kind;
+    if (kind) b.deposit = kind;
+    else delete b.deposit;
+  }
+
+  /** Building on unmapped ground finds out what it is: PROSPECT STRUCK. */
+  private strike(b: BuildingState, d: Deposit) {
+    const s = this.state;
+    if (depositRevealed(s, d, this.mods.surveyTier)) return;
+    s.survey.struck.push(d.id);
+    this.revealedIds.add(d.id);
+    this.rebuildDepositOverlay();
+    alert(s, `PROSPECT STRUCK — ${BUILDINGS[b.type].name} #${b.id} is on ${DEPOSIT_INFO[d.kind].name} ` +
+      `(${strikeEffect(d.kind, this.mods)})`, 'info', { select: b.id });
+  }
+
+  /** After a tick, a tech or a load: completed masts map their ground, and
+   *  anything newly revealed joins the overlay (announced unless loading). */
+  private syncDeposits(announce: boolean) {
+    const s = this.state;
+    revealDeposits(s, this.hf.deposits);
+    const tier = this.mods.surveyTier;
+    const now = this.hf.deposits.filter((d) => depositRevealed(s, d, tier));
+    const fresh = now.filter((d) => !this.revealedIds.has(d.id));
+    if (!fresh.length && this.depositOverlay) return;
+    this.revealedIds = new Set(now.map((d) => d.id));
+    this.rebuildDepositOverlay();
+    if (!announce || !fresh.length) return;
+    const count = new Map<DepositKind, number>();
+    for (const d of fresh) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
+    const list = [...count].map(([k, n]) => `${DEPOSIT_INFO[k].name}${n > 1 ? ` ×${n}` : ''}`).join(' · ');
+    alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info');
   }
 
   /** Settlers take agent-run stations in the order the economy staffs them,
@@ -781,9 +858,9 @@ export class Game {
         if (this.placement.active) {
           this.raycaster.setFromCamera(this.mouse, this.camera);
           this.placement.update(this.state, this.mods.unlocked,
-            this.raycaster.ray.origin, this.raycaster.ray.direction);
+            this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
           const p = this.placement.probe!;
-          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn });
+          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note });
         }
       } else {
         this.walk.update(dt);
@@ -807,6 +884,7 @@ export class Game {
         guard++;
         const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
         if (ev.modsChanged) this.mods = modsFor(this.state);
+        this.syncDeposits(true);
         if (ev.victory && !this.state.victoryShown) {
           this.state.victoryShown = true;
           victory = true;
@@ -837,6 +915,7 @@ export class Game {
       this.updateShading();
       this.updateWearMarkers();
     }
+    this.updateDepositMarkers();
 
     // sun follows the clock; the shadow window hugs the ground in view
     const day = currentDay(this.state, SITES[this.state.siteId]);
@@ -949,6 +1028,32 @@ export class Game {
     $wearMarkers.set(out);
   }
 
+  /** The overlay's glyph labels at the projected deposit centres and '?'
+   *  leads (build mode, overlay on); the atom changes only when they move. */
+  private updateDepositMarkers() {
+    if (!this.playing || this.modes.mode !== 'build' || !$depositOverlay.get()) {
+      if (this.markerSig) { this.markerSig = ''; $depositMarkers.set([]); }
+      return;
+    }
+    const v = new THREE.Vector3();
+    const out: { id: string; x: number; y: number; glyph: string; label: string; lead: boolean }[] = [];
+    for (const d of $deposits.get()) {
+      const at = d.revealed ? { x: d.x, z: d.z } : d.lead;
+      if (!at) continue;
+      v.set(at.x, this.hf.sample(at.x, at.z) + 2.5, at.z).project(this.camera);
+      if (v.z > 1 || v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue;
+      out.push({
+        id: d.id, glyph: d.glyph, label: d.label, lead: !d.revealed,
+        x: Math.round((v.x * 0.5 + 0.5) * window.innerWidth),
+        y: Math.round((-v.y * 0.5 + 0.5) * window.innerHeight),
+      });
+    }
+    const sig = out.map((m) => `${m.id}${m.x},${m.y}${m.glyph}`).join('|');
+    if (sig === this.markerSig) return;
+    this.markerSig = sig;
+    $depositMarkers.set(out);
+  }
+
   private updateLookAt() {
     this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
     this.raycaster.far = 60;
@@ -995,7 +1100,7 @@ export class Game {
       expedition: s.expedition ?? 'human',
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
       lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
-      sites, welding, upkeep,
+      sites, welding, upkeep, surveying: s.survey.active ? 1 : 0,
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,
@@ -1027,6 +1132,14 @@ export class Game {
       foils: s.resources.foils, launch: s.resources.launch, stored: s.powerStored,
     });
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
+    $feed.set({ ...s.feed });
+    $deposits.set(depositsView(s, this.hf.deposits, this.mods.surveyTier));
+    // a tier that grows while the map is open moves the view out at once;
+    // while it is shut the chip pulses until the next open
+    const ui = this.lunarUi;
+    if (ui.open && this.mods.surveyTier > ui.seenTier) ui.view = TIER_VIEW[this.mods.surveyTier];
+    $lunar.set(lunarView(s, this.mods, ui));
+    if (ui.open) ui.seenTier = this.mods.surveyTier;
     $caps.set({ ...(s.storageCaps ?? {}) });
     const counts: Partial<Record<BuildingId, { total: number; active: number; dark: number }>> = {};
     for (const b of s.buildings) {
@@ -1044,42 +1157,73 @@ export class Game {
     }
   }
 
-  /** Terrain-conforming discs marking surveyed ice deposits (toggle overlay). */
-  private buildIceOverlay(): THREE.Group | null {
-    if (!this.hf.iceDeposits.length) return null;
-    const group = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xdfe9f5, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide,
-    });
-    const lineMat = new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.55 });
-    for (const d of this.hf.iceDeposits) {
-      const segs = 28;
-      const verts: number[] = [d.cx, this.hf.sample(d.cx, d.cz) + 0.4, d.cz];
-      const ring: number[] = [];
-      for (let i = 0; i <= segs; i++) {
-        const a = (i / segs) * Math.PI * 2;
-        const x = d.cx + Math.cos(a) * d.r;
-        const z = d.cz + Math.sin(a) * d.r;
-        const y = this.hf.sample(x, z) + 0.4;
-        verts.push(x, y, z);
-        ring.push(x, y + 0.05, z);
-      }
-      const idx: number[] = [];
-      for (let i = 1; i <= segs; i++) idx.push(0, i, i + 1);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
-      geo.setIndex(idx);
-      const disc = new THREE.Mesh(geo, mat);
-      disc.renderOrder = 3;
-      const ringGeo = new THREE.BufferGeometry();
-      ringGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ring), 3));
-      const edge = new THREE.Line(ringGeo, lineMat);
-      edge.renderOrder = 3;
-      group.add(disc, edge);
+  private ringMats = {
+    strong: new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.7, depthWrite: false }),
+    faint: new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.34, depthWrite: false }),
+  };
+
+  /** Terrain-conforming rings around the revealed deposits. Kinds differ by
+   *  pattern (solid, dashed, dotted, double, thin, thin dotted) and by their
+   *  DOM glyphs, never by colour. */
+  private rebuildDepositOverlay() {
+    if (!this.worldGroup) return;
+    if (this.depositOverlay) {
+      this.worldGroup.remove(this.depositOverlay);
+      for (const c of this.depositOverlay.children) (c as THREE.LineSegments).geometry.dispose();
     }
-    group.visible = false;
-    $iceOverlay.subscribe((v) => { group.visible = v && (this.state?.iceSurveyed ?? false); });
-    return group;
+    const strong: number[] = [];
+    const faint: number[] = [];
+    // `on` segments of ~1.5 m drawn, then `off` skipped, around the ring
+    const ring = (out: number[], cx: number, cz: number, r: number, on: number, off: number) => {
+      const segs = Math.max(24, Math.round((2 * Math.PI * r) / 1.5));
+      const at = (i: number) => {
+        const a = (i / segs) * Math.PI * 2;
+        const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+        return [x, this.hf.sample(x, z) + 0.45, z];
+      };
+      for (let i = 0; i < segs; i++) {
+        if (i % (on + off) >= on) continue;
+        out.push(...at(i), ...at(i + 1));
+      }
+    };
+    for (const d of this.hf.deposits) {
+      if (!this.revealedIds.has(d.id)) continue;
+      switch (DEPOSIT_INFO[d.kind].pattern) {
+        case 'solid': ring(strong, d.cx, d.cz, d.r, 1, 0); break;
+        case 'dashed': ring(strong, d.cx, d.cz, d.r, 4, 2); break;
+        case 'dotted': ring(strong, d.cx, d.cz, d.r, 1, 1); break;
+        case 'double': ring(strong, d.cx, d.cz, d.r, 1, 0); ring(strong, d.cx, d.cz, d.r - 2.5, 1, 0); break;
+        case 'thin': ring(faint, d.cx, d.cz, d.r, 1, 0); break;
+        case 'thinDotted': ring(faint, d.cx, d.cz, d.r, 1, 2); break;
+      }
+    }
+    const group = new THREE.Group();
+    for (const [pts, mat] of [[strong, this.ringMats.strong], [faint, this.ringMats.faint]] as const) {
+      if (!pts.length) continue;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
+      const lines = new THREE.LineSegments(g, mat);
+      lines.renderOrder = 3;
+      group.add(lines);
+    }
+    group.visible = $depositOverlay.get();
+    this.depositOverlay = group;
+    this.worldGroup.add(group);
+  }
+
+  // ─────────────────────────── the Lunar Map ───────────────────────────
+
+  /** The map screen opened or closed (the UI calls this): an unseen tier
+   *  expansion takes the view out to the new edge as it opens. */
+  setMapOpen(open: boolean) {
+    this.lunarUi.open = open;
+    this.publish();
+  }
+
+  /** The map view the player picked (clamped to what the tier unlocks). */
+  setMapView(view: MapView) {
+    this.lunarUi.view = view;
+    this.publish();
   }
 
   // ─────────────────────────── persistence ───────────────────────────
@@ -1141,7 +1285,8 @@ export class Game {
   // ─────────────────────────── debug hooks ───────────────────────────
 
   debugPlace(type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0): boolean {
-    const chk = checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, rot);
+    const chk = checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, rot,
+      this.mods.surveyTier);
     if (!chk.valid) return false;
     this.commitPlace(type, gx, gz, rot, false);
     this.publish();
@@ -1158,6 +1303,7 @@ export class Game {
     this.state.techsDone.push(id);
     onTechComplete(this.state, id);
     this.mods = refreshDerived(this.state);
+    this.syncDeposits(true);
     this.publish();
   }
 
@@ -1174,6 +1320,7 @@ export class Game {
       const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
       this.state.simTime += 1;
       if (ev.modsChanged) this.mods = modsFor(this.state);
+      this.syncDeposits(true);
       if (ev.victory && !this.state.victoryShown) {
         this.state.victoryShown = true;
         victory = true;
@@ -1282,7 +1429,23 @@ export class Game {
   get commandView() { return this.modes.mode === 'build' && !this.modes.transitioning; }
   get iceDepositList() { return this.hf.iceDeposits; }
 
-  debugCheckPlace(type: BuildingId, gx: number, gz: number) {
-    return checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, 0);
+  debugCheckPlace(type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) {
+    return checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, rot,
+      this.mods.surveyTier);
+  }
+
+  debugDeposits() { return depositsView(this.state, this.hf.deposits, this.mods.surveyTier); }
+  debugLunar() { return lunarView(this.state, this.mods, this.lunarUi); }
+  debugDepositAt(x: number, z: number) { return this.hf.depositAt(x, z); }
+  /** every deposit struck, as if surveyed on foot */
+  debugRevealAll() {
+    for (const d of this.hf.deposits) if (!this.state.survey.struck.includes(d.id)) this.state.survey.struck.push(d.id);
+    this.syncDeposits(false);
+    this.publish();
+  }
+  debugForceOutposts(n: number) {
+    forceOutposts(this.state, n);
+    this.mods = modsFor(this.state);
+    this.publish();
   }
 }

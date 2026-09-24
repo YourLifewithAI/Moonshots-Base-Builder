@@ -289,7 +289,8 @@ test('base life: rovers, dust, launch and resupply at FX 0; static dust at FX 3;
   await page.evaluate(() => {
     const g = window.__game;
     g.setSpeed(1);
-    g.placeBuilding('massDriver', 132, 118);
+    // a mass driver needs ≤0.8 m of relief under its pad (the large-pad rule)
+    if (!g.placeBuilding('massDriver', 134, 136)) throw new Error('mass driver pad refused');
     g.finishConstruction();
     g.grantPower(20000);
     g.launch();
