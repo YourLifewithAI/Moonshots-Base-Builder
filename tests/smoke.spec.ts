@@ -155,7 +155,8 @@ test('thorium reactor needs its operator; agent-run reactors pay the agent tax',
   await game(page);
   await page.evaluate(() => window.__game.completeTech('thoriumPower'));
   await page.evaluate(() => window.__game.grantResources({ metals: 300, parts: 100 }));
-  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 132, 126))).toBe(true);
+  // large pads need ≤0.8 m of relief (MAX_SLOPE_LARGE): these two are flat enough
+  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 134, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 120, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(500)); // build 240s each, two robots
   const s = await page.evaluate(() => window.__game.getState());
@@ -175,7 +176,7 @@ test('thorium reactor needs its operator; agent-run reactors pay the agent tax',
   await game(page);
   await page.evaluate(() => window.__game.completeTech('thoriumPower'));
   await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60 }));
-  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 132, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('reactor', 134, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(260));
   const r = await page.evaluate(() => window.__game.getState());
   expect(reactors(r)[0].active).toBe(true);
@@ -786,7 +787,7 @@ test('HUD: chip and inspector clicks register at 10× while the economy ticks', 
     const g = window.__game!;
     g.completeTech('thoriumPower');
     g.grantResources({ metals: 300, parts: 100 });
-    g.placeBuilding('reactor', 132, 130);
+    g.placeBuilding('reactor', 133, 129); // a large pad flat enough for MAX_SLOPE_LARGE
     return g.getState().buildings.find((b: any) => b.type === 'reactor');
   });
   expect(site.construction).toBeGreaterThan(100);
@@ -1285,7 +1286,7 @@ test('chip fab and data center: silicon becomes chips becomes research', async (
     expect(await page.evaluate((c) => window.__game.placeBuilding('solar', c[0], c[1]), [gx, gz])).toBe(true);
   }
   expect(await page.evaluate(() => window.__game.placeBuilding('chipFab', 120, 126))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('dataCenter', 126, 138))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('dataCenter', 131, 137))).toBe(true); // ≤0.8 m relief
   const d0 = await page.evaluate(() => window.__game.getState());
   await page.evaluate(() => window.__game.advanceGameMinutes(6)); // builds ~210s, then operation
   const d1 = await page.evaluate(() => window.__game.getState());
@@ -1453,7 +1454,7 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   // A volley needs 3↑ of launch capacity, more than the driver banks in this window
   await page.evaluate(() => window.__game.grantResources({ metals: 200, parts: 60, foils: 15, launch: 3 }));
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('massDriver', 132, 134))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('massDriver', 134, 136))).toBe(true); // ≤0.8 m relief
   await page.evaluate(() => window.__game.advanceGameMinutes(6)); // driver builds ~245s, then accrues
   await page.evaluate(() => window.__game.grantPower(1000)); // launch burst budget
 
