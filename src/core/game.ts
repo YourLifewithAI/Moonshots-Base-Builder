@@ -55,7 +55,7 @@ import {
   $alerts, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $feed, $hasSave, $ice,
   $iceOverlay, $lookAt, $lander, $lostMission, $lunar, $menuOpen, $milestones, $mode, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
-  $time, $victory, $vitals, $wearMarkers, spawnFloater,
+  $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -93,10 +93,19 @@ export interface RenderStatus {
 /** game-seconds of bank runway below which the hum starts to sag */
 const GRID_RUNWAY_S = 180;
 
+/** keys that toggle or jump: a held key fires them once, not at the OS
+ *  repeat rate (camera keys keep repeating) */
+const TOGGLE_KEYS = new Set([
+  'Space', 'KeyT', 'KeyM', 'KeyI', 'Tab', 'Escape', 'Digit1', 'Digit2', 'Digit3', 'KeyF', 'KeyH', 'Home',
+]);
+
 export class Game {
   state!: GameState;
   mods!: Mods;
   readonly actions = new ActionQueue();
+  /** set while the menu holds the sim paused: saves record this paused
+   *  state (the game as the player left it), not the menu's pause */
+  savePausedAs: boolean | null = null;
 
   private renderer: THREE.WebGLRenderer;
   private camera: THREE.PerspectiveCamera;
@@ -363,6 +372,13 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if (!this.playing) return;
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+      // a victory or defeat overlay owns the screen: nothing moves under it
+      if (overlayUp()) return;
+      if (e.repeat && TOGGLE_KEYS.has(e.code)) {
+        // no focus walk, no page scroll, no button press from the repeats either
+        if (e.code === 'Tab' || e.code === 'Space') e.preventDefault();
+        return;
+      }
       switch (e.code) {
         case 'Tab':
           e.preventDefault();
@@ -370,8 +386,9 @@ export class Game {
           this.modes.toggle();
           break;
         case 'Space':
+          // Space never presses a focused HUD button: it pauses, or it jumps
+          e.preventDefault();
           if (this.modes.mode === 'build') {
-            e.preventDefault();
             this.actions.push({ kind: 'setPaused', paused: !this.state.paused });
           } else {
             this.walk.keyDown(e.code);
@@ -434,6 +451,20 @@ export class Game {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.playing) void this.doSave();
     });
+    // a victory or defeat overlay takes the screen: back to the command view
+    // with the pointer free and nothing half-placed underneath
+    const toCommandView = (up: boolean) => {
+      if (!up || !this.playing || !this.modes) return;
+      this.cancelPlacement();
+      if (this.modes.mode !== 'build' || this.modes.transitioning) {
+        this.modes.set('build'); // exits pointer lock (onModeChange)
+        this.homeCamera(false);
+      } else if (document.pointerLockElement) {
+        document.exitPointerLock();
+      }
+    };
+    $victory.subscribe(toCommandView);
+    $defeat.subscribe(toCommandView);
   }
 
   /** `keep` (Shift held): stay in placing mode after this building */
@@ -1504,8 +1535,9 @@ export class Game {
   // ─────────────────────────── persistence ───────────────────────────
 
   private saveBlob(): SaveBlob {
+    const held = this.savePausedAs;
     return {
-      state: this.state,
+      state: held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held },
       player: {
         mode: this.modes.mode,
         x: this.walk.pos.x, y: this.walk.pos.y, z: this.walk.pos.z,

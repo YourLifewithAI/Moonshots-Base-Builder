@@ -45,6 +45,8 @@ class Sfx {
   private radioFree = 0;          // ctx time the current transmission ends
   private played = Object.fromEntries(CUES.map((c) => [c, 0])) as Record<Cue, number>;
   private amb: Ambience = { margin: null, walking: false };
+  /** the sim is paused (or the menu is up): the hum drops low, the suit stops breathing */
+  private ducked = false;
   private hum: { gain: GainNode; oscs: OscillatorNode[]; beat: OscillatorNode } | null = null;
   private breath: { gain: GainNode } | null = null;
   private warned = false;
@@ -105,6 +107,13 @@ class Sfx {
     try { this.applyAmbience(); } catch (e) { this.fail(e); }
   }
 
+  /** Duck the ambience while the simulation stands still (menu, pause). */
+  setDucked(d: boolean) {
+    if (d === this.ducked) return;
+    this.ducked = d;
+    try { this.applyAmbience(); } catch (e) { this.fail(e); }
+  }
+
   /** debug/tests: what the audio layer is doing */
   info() {
     return {
@@ -112,7 +121,8 @@ class Sfx {
       volume: this.volume, muted: this.muted,
       played: { ...this.played },
       hum: this.hum ? { margin: this.amb.margin, detune: this.hum.oscs[0].detune.value } : null,
-      breathing: !!this.breath && this.amb.walking,
+      breathing: !!this.breath && this.amb.walking && !this.ducked,
+      ducked: this.ducked,
     };
   }
 
@@ -284,10 +294,10 @@ class Sfx {
       const cents = h < 0 ? h * 80 : h * 6;
       for (const o of this.hum.oscs) o.detune.setTargetAtTime(cents, now, 0.8);
       this.hum.beat.frequency.setTargetAtTime(HUM_HZ * 2 + 0.3 + strain * 4.7, now, 0.8);
-      const level = on ? (this.amb.walking ? 0.018 : 0.035) * (1 + 0.7 * strain) : 0;
-      this.hum.gain.gain.setTargetAtTime(level, now, 0.6);
+      const level = on ? (this.amb.walking ? 0.018 : 0.035) * (1 + 0.7 * strain) * (this.ducked ? 0.15 : 1) : 0;
+      this.hum.gain.gain.setTargetAtTime(level, now, this.ducked ? 0.15 : 0.6);
     }
-    if (this.breath) this.breath.gain.gain.setTargetAtTime(this.amb.walking ? 1 : 0, now, 0.4);
+    if (this.breath) this.breath.gain.gain.setTargetAtTime(this.amb.walking && !this.ducked ? 1 : 0, now, this.ducked ? 0.15 : 0.4);
   }
 
   private buildHum() {
