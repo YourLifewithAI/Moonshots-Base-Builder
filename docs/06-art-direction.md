@@ -54,31 +54,39 @@ reference; the floats are canonical.
 | Regolith clamp | `0.54 … 1.29 ×` albedo | — | keeps each site inside its own band |
 | Regolith micro-detail | `× (1 ± ~0.15)` from the detail tile | — | `terrain/terrainShader.ts`, per pixel (§5) |
 | Regolith cool bias | blue channel `× 1.005` | — | a whisper, not a tint |
-| Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — lit metal panels |
-| Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — accents, struts, stacks |
+| Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — hull panels (also radiators, MLI foil, lamps, beacons: same value, other finish) |
+| Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — frames, struts, stacks, rails, bare metal |
+| Building GLASS | `0.07` | `#121212` | `meshKit.ts` — PV cells and windows (dark glass, roughness 0.18) |
+| Window / print band / floods | `#fff4e0`-ish warm white (`1.0, 0.955, 0.88`) | — | the only light the base makes; neutral enough to stay "gray" |
 | Earthshine (sky fill) | `#2a3a55` | — | `HemisphereLight` sky color — **the only color** |
 | Earth disc | `#8fa8c8` | — | unlit `MeshBasicMaterial` sphere |
 | Stars | `#d7dbe0` | — | near-neutral, not pure white |
 | Sky | `#000000` | — | `scene.background` |
-| Ghost, valid | `#f5f7f9` @ opacity 0.42 | — | placement preview (pale = yes) |
-| Ghost, blocked | `#14161a` @ opacity 0.60 | — | placement preview (dark = no) |
+| Ghost, valid | `#f5f7f9` @ opacity 0.42 | — | placement preview (pale = yes); FX 0–2 add half-Lambert from the sun + fresnel rim |
+| Ghost, blocked | `#14161a` @ opacity 0.60 | — | placement preview (dark = no); FX 0–2 add a 45° screen-space hatch — pattern, never hue |
 
 Material response (the other half of "palette" in a PBR world):
 
 - **Regolith**: `roughness 0.96, metalness 0.0` — bone-dry powder, no specular
   glint, so form reads through shading alone.
-- **Buildings**: `roughness 0.55, metalness 0.15` — satin aluminum. With no
-  environment map there is nothing for metal to reflect, so metalness only
-  darkens; it stays low until one exists.
+- **Buildings**: per-vertex finishes (the kit's `mat` attribute, read by the
+  building patch): hull `0.55 / 0.15` satin aluminum, trim `0.62 / 0.2`,
+  glass `0.18 / 0`, radiators `0.9 / 0`, MLI foil `0.3 / 0.45`, bare metal
+  `0.45 / 0.35` (roughness / metalness). With no environment map metalness
+  only darkens, so it stays low everywhere. FX 3 and safe mode run the stock
+  material (`0.55 / 0.15` on everything) and keep the values.
 
 **Value structure.** The regolith is dark (real maria reflect 7–12%, highlands
 about twice that) and the sun is hot, so the ground renders mid-gray while
 sunlit hulls read about 2.3× brighter in linear luminance (measured: ground
 median sRGB 123, lit building faces 183 in the mare overview). The base is
-the brightest thing on the Moon, as the LM is in every Apollo frame.
+the brightest thing on the Moon, as the LM is in every Apollo frame. Glass
+sits below the ground (0.07 vs 0.125), so solar wings and window bands read
+as dark cut-outs in bright hulls, with a sharp sun glint at low roughness.
 
-Two tones per building is a hard limit. BODY carries mass; TRIM carries
-detail. There is no third value and no per-building tint.
+Three values per building is a hard limit: BODY carries mass, TRIM carries
+detail, GLASS carries function (power and people). Finishes vary roughness
+and metalness, never value; there is no per-building tint.
 
 ---
 
@@ -90,7 +98,9 @@ One sun, one fill, nothing else:
 |---|---|
 | Sun | `DirectionalLight #fffdf8`, intensity **5.4** (physically hot; AgX rolls it off) |
 | Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
-| Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 0.11 (night)** |
+| Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 1.0 (night)** (the eye adapting) |
+| Earthshine floor | landscape only (terrain, horizon ring, rocks): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy |
+| Night floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
 | Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
 | Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
 
@@ -116,6 +126,29 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   `shadowSide`), so lit slopes never self-shadow; crater walls and ridges
   throw Apollo-black shadow at low sun, and a solar array the economy marks
   as terrain-shaded now visibly sits in shadow.
+
+### Night lighting (`world/floodlights.ts`, `buildings/instances.ts`)
+
+At night the base lights itself, and only where the grid is live:
+
+- **Floods are shader data**, not scene lights: one `uniform vec4
+  uFlood[32]` (xyz = lamp, w = reach) evaluated in the terrain, rock and
+  building patches — `N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Pools drape over
+  slopes and crater walls (no flat discs cutting through the ground), and
+  never jump between buildings while the camera pans.
+- **Filled once per economy tick from every powered structure** (complete,
+  enabled, not browned out). A brownout turns that structure's pool *and*
+  its windows off: the cause is visible. Past 32 structures, lamps merge
+  into grid clusters (24 m cells, growing) instead of being dropped.
+- **Zero cost by day**: the count uniform is 0 until night, so the loop
+  exits at once; the slot count is fixed per FX level (32 at FX 0–1, 16 at
+  FX 2), so dusk never recompiles anything.
+- **Windows, not hulls, glow**: `WINDOW` parts emit warm white × lit ×
+  night; beacons blink (0.2 s every 2 s, phase per instance) day and night.
+- **Fallback** (FX 3, a patch fault, safe mode): the old path — whole-hull
+  glow 0.09, additive discs under lit structures and 8 PointLights over the
+  nearest ones. The PointLights leave the scene while the shader floods run,
+  so the lit programs don't carry `NUM_POINT_LIGHTS` all day.
 
 ### Starfield and Earth
 
@@ -156,11 +189,16 @@ working level persists to `localStorage`:
 
 | Level | Post | Scene shaders |
 |---|---|---|
-| FX 0 | half-float · AO · bloom · final pass | regolith patch, both detail scales |
-| FX 1 | 8-bit buffers · AO · final pass | regolith patch, both detail scales |
-| FX 2 (`?lowfx`) | 8-bit buffers · final pass | regolith patch, coarse scale only |
-| FX 3 | plain forward render | stock three.js materials |
-| Safe mode | plain, no shadows | unlit `MeshBasicMaterial` twins |
+| FX 0 | half-float · AO · bloom · final pass | regolith (both scales) · building (`bldg-2`: finishes, seams, windows, print reveal) · shadow-depth cut · rock floods · lit ghost; 32 flood slots |
+| FX 1 | 8-bit buffers · AO · final pass | as FX 0 |
+| FX 2 (`?lowfx`) | 8-bit buffers · final pass | regolith coarse scale only · building without seams (`bldg-1`); 16 flood slots |
+| FX 3 | plain forward render | stock three.js materials; squash-rise construction, hull glow, discs + PointLights, flat ghost |
+| Safe mode | plain, no shadows | unlit `MeshBasicMaterial` twins (stock copies for the depth and ghost materials) |
+
+Every patch checks its injection anchors against the stock three.js
+templates before claiming a variant, so an upgrade that moves an anchor
+leaves the stock shader — and its fallbacks — in charge rather than a
+variant that never injected.
 
 Every mesh creator takes its material from the registry
 (`materials.get(key)`), so safe mode also covers buildings created after it
@@ -225,13 +263,34 @@ Zero modeled assets. Every one of the 15 structures (14 buildable + the
 Lander) is merged from a tiny parametric kit:
 
 - **Primitives**: `box`, `cyl` (cylinder/cone/tank), `dome` (half-sphere),
-  `vault` (half-pipe greenhouse), `strut` (thin truss leg) — with panels and
-  tanks as parameterizations of box and cyl. Six words of vocabulary:
-  *box, cylinder, dome, vault, strut, panel.*
-- Each recipe merges its primitives into **one geometry** with BODY/TRIM baked
-  into vertex colors, UVs deleted (no textures anywhere), normals recomputed.
-  One geometry + one shared material = **one `InstancedMesh` per building
-  type = one draw call per type** (cap 96 instances/type).
+  `domeBand` (window belts, skylights), `vault` (half-pipe greenhouse),
+  `archWall`, `berm`, `lathe` (dish shells), `bar`/`pipe` (members between
+  two points), `strut`.
+- **Load-bearing details** built from them: `door` (frame, recessed leaf,
+  porthole, lamp, sill), `pane`/`windowStrip`/`windowRing`, `rail`
+  (handrails with posts and knee rails), `radiator`, `antenna` (with a
+  blinking beacon), `lattice` (masts, derricks), `ladder`, `cableTray` +
+  `junction`, `bands`.
+- Each part is baked with a **Finish**: its value into vertex colors, its
+  roughness / metalness / emissive id into a per-vertex `mat` attribute.
+  UVs deleted (no textures anywhere), normals recomputed. One geometry + one
+  shared material = **one `InstancedMesh` per building type = one draw call
+  per type** (cap 96 instances/type). 500–2,800 triangles per building.
+- **Moving parts** are instanced apart (`buildings/trackers.ts`): solar
+  wings yaw to the sun's azimuth and tilt to its elevation every time it
+  turns 0.1° (near-vertical under the pole's grazing sun, folded flat below
+  the horizon), and dishes on the Lander, Lab, Relay Mast and Data Center
+  hold on Earth. Picking maps a hit on a part back to its building.
+- **Building shader** (`buildings/buildingShader.ts`, FX 0–2): per-vertex
+  finishes; fwidth-antialiased panel seams every 1.2 m in object space on
+  the face-tangent axes (−12%, faded under a pixel and past 80–160 m);
+  per-instance state `iState = (lit, dust, wear, cut)`: dust grays and
+  mattes the glass, wear darkens, windows glow at night when lit.
+- **Construction is a 3D print**: fragments above the cut height
+  (progress × recipe height) are discarded with a warm band at the cut, and
+  a matching patched `customDepthMaterial` cuts the shadow the same way. A
+  line scaffold (standards, a ledger every 2 m lift, alternating braces)
+  stands over the site. FX 3 and safe mode keep the squash-rise + dim.
 
 **Silhouette-first identity.** In a monochrome world, shape is the only
 nameplate, and the shape grammar is consistent:
@@ -247,7 +306,7 @@ nameplate, and the shape grammar is consistent:
 
 **Restraint rules** (Rams, applied to geometry):
 
-- Two tones per building, ever (§2).
+- Three values per building, ever (§2).
 - Greebles are load-bearing only: a chimney says furnace, an airlock box says
   "people enter here," a mast says comms. No detail that doesn't explain the
   building. Chamfer/bevel detail was considered and deferred with the edge
@@ -266,8 +325,8 @@ direction, not an afterthought:
 
 | Budget | Target | Shipped reality |
 |---|---|---|
-| Draw calls | < 100 | 64 terrain chunks + ≤15 instanced building types + stars + Earth + ghost/outline ≈ **85 worst case** |
-| Triangles | ~1 M | terrain 131 k; buildings a few hundred–2 k each ×96 cap — comfortably under |
+| Draw calls | < 100 | 64 terrain chunks + ≤21 instanced building types + 2 moving-part meshes + scaffold + stars + Earth + ghost (pre-pass + colour) + grid/rings/bracket ≈ **98 worst case** |
+| Triangles | ~1 M | terrain 131 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base) |
 | Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (terrain + buildings) |
 | Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx` |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |

@@ -39,14 +39,20 @@ src/
     chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds
     terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
   buildings/
-    meshKit.ts            parametric primitive kit + BODY/TRIM vertex-color baking
-    recipes.ts            15 building silhouettes composed from the kit (cached)
-    instances.ts          one InstancedMesh per type, picking, walk-mode AABBs
+    meshKit.ts            parametric kit + detail helpers; bakes value + per-vertex finish (`mat`)
+    recipes.ts            21 building silhouettes + moving-part mounts (cached)
+    buildingShader.ts     building patch: finishes, seams, windows, beacons, print reveal, floods
+    instances.ts          one InstancedMesh per type + iState; floods, discs fallback, scaffold, picking, AABBs
+    trackers.ts           sun-tracking solar wings, Earth-aimed dishes (instanced apart)
+    scaffold.ts           construction scaffold line geometry
+    ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
+    overlays.ts           draped placement grid, network radius rings, selection bracket
     placement.ts          ghost preview + checkPlacement validity chain + site build costs
   world/
     renderer.ts           WebGLRenderer (AgX, PCF shadows) + camera
     lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + stars + Earth
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
+    floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; black-frame sentinel
   player/
     buildCam.ts           MapControls overhead camera, clamped to the map
@@ -153,8 +159,12 @@ UI state that isn't economy output (`$placing` per frame during placement,
    habitat network is the growth mechanic) → affordable at site-multiplied
    cost. First failure returns its human-readable reason, which the HUD shows
    verbatim.
-4. **Ghost**: pale mesh when valid, dark when blocked (see 06/07), plus a
-   terrain-draped footprint outline (8 segments per edge, +0.15 m).
+4. **Ghost**: pale lit mesh when valid, dark hatched when blocked (see
+   06/07), drawn over a depth-only pre-pass so internal faces never double
+   up; a terrain-draped footprint outline (8 segments per edge, +0.15 m), a
+   draped 4 m cell grid fading out two cells past the footprint, and dashed
+   build-radius rings around every network structure (`buildRadiusM`, else
+   60 m for the Lander and Habitats) — `buildings/overlays.ts`.
 5. **Commit** (`commitPlace`): deduct cost → `heightfield.flatten()` the pad
    to mean height with a smoothed 1-sample skirt → **record the flatten** in
    `state.flattens` (§7) → rebuild the ≤4 affected terrain chunks → push
