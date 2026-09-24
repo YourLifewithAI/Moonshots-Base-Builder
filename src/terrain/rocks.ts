@@ -3,8 +3,8 @@
  *
  *  - Two noise-displaced polyhedra (small: a 36-facet dodecahedron, large:
  *    an 80-facet icosahedron), varied by per-instance rotation, squash and
- *    albedo — flat-shaded, stock material from the registry (safe mode gets
- *    its unlit twin).
+ *    albedo — flat-shaded, stock material from the registry plus the night
+ *    floods (safe mode gets its unlit twin).
  *  - Sizes follow power laws (N(>D) ∝ D^−α); a sparse background field
  *    thins toward the landing site (the descent engine swept it), and the
  *    blocks crowd crater rims and ejecta, largest on the biggest craters.
@@ -20,9 +20,10 @@ import { createNoise3D } from 'simplex-noise';
 import { CELL_M, MAP_M } from '../data/balance';
 import { mulberry32, type Rng } from '../core/rng';
 import { materials } from '../world/materials';
+import { floodPatch } from '../world/floodlights';
 import type { Heightfield } from './heightfield';
 
-materials.define('rock', new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }));
+materials.define('rock', new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), floodPatch);
 
 const HALF = MAP_M / 2;
 const LARGE_D = 1.0;          // m: rocks this size and up cast shadows

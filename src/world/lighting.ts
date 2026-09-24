@@ -8,7 +8,11 @@
  *  changed (sun moved, window moved, casters rebuilt) — never at night. */
 import * as THREE from 'three';
 
-const WORK_LIGHTS = 8; // exterior floods over the buildings nearest the camera
+const WORK_LIGHTS = 8; // stock-path floods over the buildings nearest the camera
+// Earthshine by day is a whisper under the sun; at night the eye adapts to
+// it. The landscape gets its own floor on top (world/floodlights.ts).
+const EARTHSHINE_DAY = 0.3;
+const EARTHSHINE_NIGHT = 1.0;
 
 export const SUN_INTENSITY = 5.4;
 const SHADOW_MAP = 2048;
@@ -70,10 +74,10 @@ export class Lighting {
       Math.sin(azim) * Math.cos(elev),
     ).normalize();
     // dusk: fade the sun as it sinks. Night is claustrophobic by design —
-    // earthshine drops LOW so the base's own light pools carry the scene.
+    // earthshine is only a dim floor; the base's own light pools carry it.
     const t = Math.min(1, Math.max(0, (elev + 0.03) / 0.1));
     this.sun.intensity = SUN_INTENSITY * t;
-    this.earthshine.intensity = 0.3 - nightFactor * 0.19;
+    this.earthshine.intensity = EARTHSHINE_DAY + (EARTHSHINE_NIGHT - EARTHSHINE_DAY) * nightFactor;
     // sunlit regolith lights whatever faces it — shaded walls, undersides —
     // with neutral gray, never blue; gone once the sun is
     const exitance = this.sun.intensity * Math.max(0, Math.sin(elev)) * this.groundAlbedo;
@@ -82,6 +86,9 @@ export class Lighting {
 
   /** The sun's light as a fraction of full (0 once it has set). */
   get sunLight(): number { return this.sun.intensity / SUN_INTENSITY; }
+
+  /** Unit vector toward the sun (read-only). */
+  get sunDirection(): THREE.Vector3 { return this.sunDir; }
 
   /** Later shadow casters that move (rovers, sun-tracking panels, …) call
    *  this to get the map re-rendered on the next frame. */
@@ -163,6 +170,13 @@ export class Lighting {
   /** Current shadow texel size in metres (x, y) — probes and tests. */
   get shadowTexel(): [number, number] {
     return [this.win.sx / SHADOW_MAP, this.win.sy / SHADOW_MAP];
+  }
+
+  /** The PointLights are the stock path only: while the shader floods run
+   *  they leave the scene's light count (a recompile, so only on a switch). */
+  useWorkLights(on: boolean) {
+    if (this.workLights[0].visible === on) return;
+    for (const l of this.workLights) l.visible = on;
   }
 
   /** Park the work lights above the given building positions (nearest-first).
