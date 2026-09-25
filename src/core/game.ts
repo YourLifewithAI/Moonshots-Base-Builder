@@ -1178,7 +1178,9 @@ export class Game {
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
-    this.darkness.update(dt, day.nightFactor, day.sunElev, this.lighting.sunLight);
+    // the lights fade on wall time (up to 0.5 s a frame, as the clock runs), so
+    // a slow GPU does not stretch a one-second fade over many seconds
+    this.darkness.update(simDt, day.nightFactor, day.sunElev, this.lighting.sunLight);
     this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
       : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
