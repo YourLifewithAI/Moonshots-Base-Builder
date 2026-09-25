@@ -3,6 +3,8 @@
  *   node scripts/probe-pacing.mjs [--runs=mare:robotic:reasonable,southpole:human:attentive,…]
  *       [--minutes=160] [--seeds=42,7,1234] [--port=5322] [--out=file.json] [--pick=smelt:moltenElectrolysis,…]
  *       [--quiet]   (--runs=all: robotic × 3 sites and human × mare/pole, both policies)
+ *       [--auto=off|on]  (docs/13 §9: off — the Builder techs are never researched;
+ *                         on — the core ones taken early in their era, the rest in the tail)
  *
  * An honest scripted player: it reads only what the HUD shows (getState,
  * getResearch, getLunar, getDeposits, canPlace, the building and site tables)
@@ -14,6 +16,13 @@
  * seconds. Two policies: 'reasonable' (reads milestone hints and alerts, builds
  * by need, reacts every 20 s) and 'attentive' (every 10 s; reserves research
  * goods, overclocks, downlinks, crews labs first, two Chip Fabs, three DCs).
+ * A third, 'distracted' (every 120 s, one build a decision, thin margins), is a
+ * measurement only: nothing is gated on it.
+ * With --auto=on the bot researches the Builder techs as a player who wants
+ * them would, and hands each family whose rules are on to the Builder: it
+ * still founds the first of each type, but no longer adds more itself, and it
+ * raises a rule's cap by +3 (+8 for Solar Arrays) when the [B] panel shows it
+ * capped. No per-seed tuning.
  * Doctrines follow each site's natural answer (spec S3) unless --pick overrides. */
 import { writeFileSync } from 'node:fs';
 import { withGame } from './harness.mjs';
@@ -36,6 +45,7 @@ const OUT = opt('out', '');
 const PICK = Object.fromEntries(opt('pick', '').split(',').filter(Boolean).map((p) => p.split(':')));
 const QUIET = argv.includes('--quiet');
 const FLEET_VERBS = opt('fleet', 'on') !== 'off';
+const AUTO_ON = opt('auto', 'off') === 'on';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -67,6 +77,13 @@ async function installBot(cfg) {
       chipFabs: 2, dcs: 3, reactors: 2, partsLow: 15, extraSites: 2, queueFill: 1, perDecision: 3,
       surveyBuffer: 150, foilFabs: 2, yards: 4,
     },
+    // measurement only (docs/13 §9): a player who looks in once a minute
+    distracted: {
+      every: 120, labs: [0, 2, 3, 4, 4, 5, 6, 6, 6], margin: 1.05, nightCover: 0.3, recharge: 0.4,
+      overclock: false, crewLabsFirst: false, reserveGoods: false, downlink: false,
+      chipFabs: 1, dcs: 2, reactors: 1, partsLow: 5, extraSites: 1, queueFill: 2, perDecision: 1,
+      surveyBuffer: 300, foilFabs: 1, yards: 2,
+    },
   };
   const P = POLICIES[cfg.policy];
 
@@ -93,6 +110,8 @@ async function installBot(cfg) {
     'regolithVolatiles', 'dustMitigation', 'btLavaTubeCaverns', 'cryoRadiators', 'btVolcanicGlass', 'cleanroomRobotics',
     'crewWellness', 'humanCohabitation', 'farSideRelay', 'scienceCrews', 'conditionOptimization',
     'foilManufacturing', 'massDriver', 'swarmProtocol', 'btColdTrapChemistry', 'deepSounding', 'selfReplication'];
+  // the critical path: the named list (and each doctrine slot's pick, the site's special techs)
+  const MAIN0 = new Set(order);
   const move = (id, before) => { order = order.filter((x) => x !== id); order.splice(order.indexOf(before), 0, id); };
   // the small steps (docs/12): a reasonable player takes the cheap upgrades for
   // what it already runs once each era's main techs are in, not after the
@@ -145,6 +164,33 @@ async function installBot(cfg) {
   order = [...new Set(order)].filter((t) => t !== 'siteGrading');
   for (const t of TECH_ORDER) if (!order.includes(t) && t !== 'siteGrading') order.push(t); // then the rest of the tree
   order = order.filter((t) => !rejected.has(t));
+  // ── the Builder techs (docs/13): never, or the core ones early in their era ──
+  const BUILDER_KINDS = ['orders', 'autoRule', 'siting', 'governor', 'predictive', 'feedPlanner', 'maintenance', 'builder'];
+  const BUILDER = TECH_ORDER.filter((t) => TECHS[t].effects.some((fx) => BUILDER_KINDS.includes(fx.kind)));
+  if (!cfg.auto) order = order.filter((t) => !BUILDER.includes(t));
+  else {
+    // docs/13 §8.3: ahead of the optional techs of their era, never ahead of the
+    // critical path (the named list above): Build Orders after Parts Fabrication,
+    // then each after the last critical tech of its era
+    const R0 = G.getResearch();
+    const eraOf = (t) => R0.cards[t]?.era ?? TECHS[t].era;
+    const CRITICAL = new Set(order.filter((x) => MAIN0.has(x) || TECHS[x].exclusive ||
+      ['iceExtraction', 'peakLightMasts', 'skylightHeliostats', 'constructionRobotics'].includes(x)));
+    const CORE = ['buildOrders', 'autoExcavation', 'siteSurveyAI', 'autoPower', 'budgetGovernor',
+      ...(robotic ? [] : ['autoLifeSupport']), 'predictiveScheduling', 'autoSmelting', 'autoFabrication'];
+    for (const t of CORE) {
+      if (rejected.has(t)) continue;
+      order = order.filter((x) => x !== t);
+      let at;
+      if (t === 'buildOrders') at = order.indexOf('partsFabrication') + 1;
+      else if (t === 'predictiveScheduling') at = order.indexOf('lunarDataCenter') + 1;
+      else {
+        const crit = order.filter((x) => CRITICAL.has(x) && eraOf(x) === eraOf(t));
+        at = crit.length ? order.indexOf(crit[crit.length - 1]) + 1 : order.length;
+      }
+      order.splice(Math.max(at, order.indexOf(TECHS[t].requires.at(-1)) + 1), 0, t);
+    }
+  }
 
   // ── helpers over the shown state ──
   const now = () => G.getState();
@@ -195,7 +241,9 @@ async function installBot(cfg) {
     acc: {
       t: 0, brownout: 0, brownoutNight: 0, shed: 0, night: 0, partsZero: 0, worn: 0, paused: 0, pausedBrownout: 0,
       queueEmpty: 0, goodsStall: 0, goodsBy: {}, siteIdle: {}, blockedBy: {}, bankMax: 0, deaths: 0,
+      autoBy: {}, rulePhase: {},
     },
+    autoSeen: [],
     firstLight: null, swarmProtocolAt: null, milestones: {},
     lastAction: s.simTime, lastEvent: s.simTime, actionGaps: [], eventGaps: [],
   };
@@ -554,6 +602,24 @@ async function installBot(cfg) {
     }
   }
 
+  // the [B] panel: which families the Builder runs, and rules stopped at their caps
+  let AV = null;
+  const famOn = (f) => !!cfg.auto && !!AV && AV.rules.some((r) => r.family === f && r.on && !r.locked);
+  let marginSet = false;
+  function decideBuilder() {
+    if (!cfg.auto) return;
+    AV = G.getAutomation();
+    // the one documented setting (docs/13 §8.3): attentive runs a 15% power margin
+    if (cfg.policy === 'attentive' && !marginSet && famOn('power')) {
+      G.setRule('solar', { threshold: 0.15 }); marginSet = true; act('rule', 'solar margin 15%');
+    }
+    for (const r of AV.rules) {
+      if (!r.on || r.phase !== 'capped' || r.cap >= r.capRange[1]) continue;
+      G.setRule(r.id, { cap: Math.min(r.capRange[1], r.cap + (r.id === 'solar' ? 8 : 3)) });
+      act('cap', `${r.id}→${r.cap + (r.id === 'solar' ? 8 : 3)}`);
+    }
+  }
+
   function decideBuilds() {
     placedThisTick = 0;
     hold = {};
@@ -588,7 +654,7 @@ async function installBot(cfg) {
     const first = (t, why, o = {}) => unlocked(t) && nAll(t) < 1 && crewOk(t) && build(t, why, { critical: true, bypass: true, ...o });
 
     // power first: a daytime brownout, or the next loads outgrow the supply
-    if (dayBrown || powerNeed()) {
+    if (!famOn('power') && (dayBrown || powerNeed())) {
       if (unlocked('reactor') && nAll('reactor') < P.reactors && site.nightSolarFraction < 0.5 &&
           build('reactor', 'power', { urgent: dayBrown, critical: true })) return;
       build('solar', dayBrown ? 'brownout' : 'margin', { urgent: dayBrown, ignoreReserve: dayBrown, critical: dayBrown });
@@ -618,7 +684,7 @@ async function installBot(cfg) {
     // regolith for every processor — a starving smelter comes before anything else
     const procIn = nAll('smelter') * 2 * (done('ilmeniteBeneficiation') ? 0.8 : 1) + nAll('refinery') * 2;
     const excavTarget = Math.ceil(procIn / (1.5 * isru) - 0.15) + (res.regolith < 40 && (s.rates.regolith ?? 0) < 0 ? 1 : 0);
-    if (nAll('excavator') < excavTarget && res.regolith < 150 && crewOk('excavator')) {
+    if (!famOn('excavation') && nAll('excavator') < excavTarget && res.regolith < 150 && crewOk('excavator')) {
       const kind = cfg.site === 'southpole' && done('moltenElectrolysis') && nAll('refinery') > 0 ? 'anorthosite' : ilm;
       const o = { critical: res.regolith < 20, bypass: res.regolith < 20 };
       build('excavator', 'feed', { want: kind, ...o }) || build('excavator', 'feed', o);
@@ -632,15 +698,15 @@ async function installBot(cfg) {
     const metalsTight = (res.metals < 60 && (s.rates.metals ?? 0) < 0.15) || s.simTime - (lastBlocked.metals ?? -1e9) < 60 ||
       all('partsFab').some((b) => b.idleReason === 'inputs') || R.queue.some((q) => q.stalled && /metals/.test(q.need));
     const smelterTarget = era >= 5 ? 3 : era >= 2 ? 2 : 1;
-    if (unlocked('smelter') && nAll('smelter') < smelterTarget && metalsTight && nDone('smelter') === nAll('smelter') &&
+    if (!famOn('smelting') && unlocked('smelter') && nAll('smelter') < smelterTarget && metalsTight && nDone('smelter') === nAll('smelter') &&
         crewOk('smelter')) build('smelter', 'metals', { critical: true, bypass: true });
     // the night
-    if (unlocked('battery')) {
+    if (unlocked('battery') && !famOn('power')) {
       const per = 3000 * (done('regenFuelCells') ? 2 : 1);
       const target = m.nightDeficit * BAL.NIGHT_S * Math.min(1, P.nightCover + coverBoost);
       if (m.capacity + all('battery').filter((b) => !complete(b)).length * per < target && nAll('battery') < 12) build('battery', 'night');
     }
-    if (unlocked('roboticsBay') && nAll('roboticsBay') < 2 + (era >= 4 && P.dcs >= 3 ? 1 : 0)) build('roboticsBay', 'robots');
+    if (unlocked('roboticsBay') && nAll('roboticsBay') < (famOn('fabrication') ? 1 : 2 + (era >= 4 && P.dcs >= 3 ? 1 : 0))) build('roboticsBay', 'robots');
 
     // research-bound with full stockpiles: more science (a lab, or a Data Center once there is one)
     const researchBound = R.queue.length > 0 && !R.queue[0].stalled && res.metals > 250 && res.parts > 100 &&
@@ -651,7 +717,7 @@ async function installBot(cfg) {
     }
     // stockpiles at their caps (parts are fine full: the fabricators stand by)
     for (const r of ['metals', 'silicon']) {
-      if (caps[r] && res[r] >= caps[r] * 0.92 && nAll('storageYard') < P.yards &&
+      if (!famOn('smelting') && caps[r] && res[r] >= caps[r] * 0.92 && nAll('storageYard') < P.yards &&
           !sitesPending().some((b) => b.type === 'storageYard')) {
         build('storageYard', `${r} full`);
       }
@@ -662,12 +728,12 @@ async function installBot(cfg) {
     const fabs = all('partsFab');
     const weldStarved = sitesPending().some((b) => b.idleReason === 'inputs');
     const partsShort = (res.parts < 30 && (s.rates.parts ?? 0) < 0) || res.parts < 8 || weldStarved;
-    if (unlocked('partsFab') && fabs.length < (era >= 5 ? 3 : 2) + (era >= 7 ? 1 : 0) && partsShort &&
+    if (!famOn('fabrication') && unlocked('partsFab') && fabs.length < (era >= 5 ? 3 : 2) + (era >= 7 ? 1 : 0) && partsShort &&
         fabs.every(complete) && crewOk('partsFab')) build('partsFab', 'parts', { critical: true, bypass: true });
-    if (unlocked('reactor') && site.nightSolarFraction < 0.5 && nAll('reactor') < Math.min(P.reactors + (nAll('dataCenter') >= 2 ? 1 : 0), 3) &&
+    if (!famOn('power') && unlocked('reactor') && site.nightSolarFraction < 0.5 && nAll('reactor') < Math.min(P.reactors + (nAll('dataCenter') >= 2 ? 1 : 0), 3) &&
         m.nightDeficit > 25) build('reactor', 'night');
     const chipStalled = R.queue.some((q) => q.stalled && /chips/.test(q.need));
-    if (unlocked('chipFab') && nAll('chipFab') < P.chipFabs + (chipStalled ? 1 : 0) && nDone('chipFab') >= 1 &&
+    if (!famOn('fabrication') && unlocked('chipFab') && nAll('chipFab') < P.chipFabs + (chipStalled ? 1 : 0) && nDone('chipFab') >= 1 &&
         crewOk('chipFab') && nAll('chipFab') < 3) build('chipFab', 'chips 2');
     if (unlocked('dataCenter') && nAll('dataCenter') < P.dcs && s.simTime - lastDC > 240 &&
         sitesPending().every((b) => b.type !== 'dataCenter')) {
@@ -675,19 +741,19 @@ async function installBot(cfg) {
     }
     if (unlocked('habitat') && robotic && nAll('habitat') < 1) build('habitat', 'cohab');
     if (unlocked('hydroponics') && robotic && nAll('hydroponics') < 1) build('hydroponics', 'cohab');
-    if (!robotic && unlocked('habitat') && s.crew >= (s.housingActive ?? 8) - 1 && !sitesPending().some((b) => b.type === 'habitat')) {
+    if (!famOn('life') && !robotic && unlocked('habitat') && s.crew >= (s.housingActive ?? 8) - 1 && !sitesPending().some((b) => b.type === 'habitat')) {
       build('habitat', 'beds');
     }
-    if (!robotic && s.crew >= 8 && nAll('hydroponics') < Math.ceil(s.crew / 10) + 1 && crewOk('hydroponics')) build('hydroponics', 'food');
+    if (!famOn('life') && !robotic && s.crew >= 8 && nAll('hydroponics') < Math.ceil(s.crew / 10) + 1 && crewOk('hydroponics')) build('hydroponics', 'food');
     if (unlocked('recDome') && nAll('recDome') < 1 && s.crew >= 2 && crewOk('recDome')) build('recDome', 'morale');
     if (unlocked('foilFactory') && nAll('foilFactory') < P.foilFabs && crewOk('foilFactory')) build('foilFactory', 'foils');
-    if (unlocked('foilFactory') && nAll('refinery') < 2 + (nAll('foilFactory') >= 2 ? 1 : 0) && crewOk('refinery')) build('refinery', 'foil silicon');
+    if (!famOn('smelting') && unlocked('foilFactory') && nAll('refinery') < 2 + (nAll('foilFactory') >= 2 ? 1 : 0) && crewOk('refinery')) build('refinery', 'foil silicon');
     // RESEARCH WAITING names the maker: a stall on silicon (or a stock that keeps
     // falling) means another refinery
     const siStalled = R.queue.some((q) => q.stalled && /silicon/.test(q.need));
     const siTight = siStalled || (res.silicon < 30 && (s.rates.silicon ?? 0) < 0 && nAll('chipFab') > 0) ||
       s.simTime - (lastBlocked.silicon ?? -1e9) < 60;
-    if (unlocked('refinery') && siTight && nAll('refinery') < 4 && nDone('refinery') === nAll('refinery') && crewOk('refinery')) {
+    if (!famOn('smelting') && unlocked('refinery') && siTight && nAll('refinery') < 4 && nDone('refinery') === nAll('refinery') && crewOk('refinery')) {
       build('refinery', 'silicon short', { critical: true });
     }
     if (cfg.site === 'southpole' && unlocked('propellantPlant') && nAll('iceHarvester') < 2 && crewOk('iceHarvester')) {
@@ -718,6 +784,19 @@ async function installBot(cfg) {
       }
     }
     for (const b of sitesPending()) A.siteIdle[b.idleReason || 'none'] = (A.siteIdle[b.idleReason || 'none'] ?? 0) + dt;
+    // the Builder: what it placed (by rule or order), and where its live rules spent their time
+    for (const b of s.buildings) {
+      if (!b.auto || log.autoSeen.includes(b.id)) continue;
+      log.autoSeen.push(b.id);
+      const k = b.auto.by === 'rule' ? b.auto.rule : 'order';
+      A.autoBy[k] = (A.autoBy[k] ?? 0) + 1;
+    }
+    if (cfg.auto && s.auto) {
+      for (const r of Object.values(s.auto.rules)) {
+        if (!r.on) continue;
+        A.rulePhase[r.phase] = (A.rulePhase[r.phase] ?? 0) + dt;
+      }
+    }
     A.bankMax = Math.max(A.bankMax, s.data);
     // events: techs, buildings, surveys, eras, outposts, crew
     if (s.techsDone.length > prev.techs) {
@@ -755,6 +834,7 @@ async function installBot(cfg) {
         decideResearch();
         decideCrew();
         decideMap();
+        decideBuilder();
         decideBuilds();
         decideOverclock();
         decideFleet();
@@ -828,7 +908,7 @@ function summarize(log) {
   const over5 = idleGaps.filter((g) => g.len > 300).map((g) => `${fmtMin(g.len)}@${fmtMin(g.at)}`);
   const pct = (x) => `${Math.round((100 * x) / Math.max(1, A.t))}%`;
   return {
-    run: `${log.cfg.site}:${log.cfg.exp}:${log.cfg.policy}`, seed: log.cfg.seed,
+    run: `${log.cfg.site}:${log.cfg.exp}:${log.cfg.policy}${log.cfg.auto ? ':auto' : ''}`, seed: log.cfg.seed,
     flMin: log.firstLight ? log.firstLight / 60 : null,
     eras: eras.map((x) => (x == null ? null : +x.toFixed(1))),
     actGap: ag.len / 60, evtGap: eg.len / 60, brownPct: A.brownout / Math.max(1, A.t), wornPct: A.worn / Math.max(1, A.t),
@@ -852,6 +932,11 @@ function summarize(log) {
     buildings: log.final.buildings.map(([k, v]) => `${k}${v}`).join(' '),
     outposts: log.final.outposts, surveyed: log.final.surveyed.length, downlinks: log.final.downlinks,
     shipments: log.final.resupply?.shipments ?? 0, milestones: log.milestones,
+    auto: log.cfg.auto ? 'on' : 'off',
+    autoBuilt: A.autoBy, autoBuiltN: Object.values(A.autoBy).reduce((a, b) => a + b, 0),
+    builtN: log.final.stats.built ?? null,
+    rulePhaseMin: Object.fromEntries(Object.entries(A.rulePhase).map(([k, v]) => [k, fmtMin(v)])),
+    caps: log.actions.filter((a) => a[1] === 'cap').map((a) => a[2]),
   };
 }
 
@@ -873,7 +958,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     const q = `?debug&nolock&lowfx&seed=${seed}&site=${run.site}${run.exp === 'robotic' ? '&exp=robotic' : ''}`;
     await page.goto(`http://127.0.0.1:${PORT}/${q}`);
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
-    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK, fleet: FLEET_VERBS });
+    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · picks ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {
       const r = await page.evaluate((n) => window.__bot.step(n), Math.min(10, MINUTES - m));
@@ -902,7 +987,7 @@ const med = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b
 if (SEEDS.length > 1) {
   console.log('\nmedian over seeds ' + SEEDS.join(',') + '\nrun                         | FIRST LIGHT      | eras E1…E8 (min)                          | idle max | act gap | brown | worn | stall');
   for (const run of RUNS) {
-    const key = `${run.site}:${run.exp}:${run.policy}`;
+    const key = `${run.site}:${run.exp}:${run.policy}${AUTO_ON ? ':auto' : ''}`;
     const rs = results.map((x) => x.summary).filter((x) => x.run === key);
     const fl = rs.map((x) => x.flMin ?? MINUTES + 1);
     const flTxt = `${med(fl).toFixed(1)}${fl.some((x) => x > MINUTES) ? '›' : ''} [${fl.map((x) => (x > MINUTES ? '—' : x.toFixed(0))).join(',')}]`;
