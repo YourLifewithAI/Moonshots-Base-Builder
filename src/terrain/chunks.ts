@@ -1,7 +1,12 @@
 /** Terrain render meshes: 8×8 chunks over the shared heightfield (shared edge
  *  samples → no cracks). Vertex colors carry the regolith look: noise mottling,
  *  slope darkening, crater-floor basalt, bright rims — all relative to the
- *  site's albedo. Rebuilt per-chunk when a building pad flattens the field. */
+ *  site's albedo. Rebuilt per-chunk when a building pad flattens the field.
+ *
+ *  Classic style: the same grid samples (so the surface is the one
+ *  hf.sample describes), each triangle its own vertices with a face normal
+ *  — faceted Lambert with no derivative shading — coloured by the classic
+ *  ground (terrain/classicGround.ts: site tint, relief, craters, deposits). */
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
@@ -9,6 +14,8 @@ import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
 import { regolithPatch } from './terrainShader';
 import type { Crater, Heightfield } from './heightfield';
+import { classicActive } from '../core/style';
+import { classicGround, facet } from './classicGround';
 
 materials.define('terrain', new THREE.MeshStandardMaterial({
   vertexColors: true,
@@ -64,6 +71,7 @@ export class TerrainChunks {
     const gx0 = cx * CHUNK_CELLS;
     const gz0 = cz * CHUNK_CELLS;
     const albedo = this.hf.site.terrain.albedo;
+    const classic = classicActive() ? classicGround(this.hf) : null;
     let p = 0;
     for (let iz = 0; iz < n; iz++) {
       for (let ix = 0; ix < n; ix++) {
@@ -73,8 +81,12 @@ export class TerrainChunks {
         const y = this.hf.sampleGrid(gx, gz);
         pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
         this.hf.gridNormal(gx, gz, nrm, p);
-        const v = regolithAlbedo(albedo, this.hf.craters, x, z);
-        col[p] = v; col[p + 1] = v; col[p + 2] = v * 1.005; // whisper of cool
+        if (classic) {
+          classic.color(x, z, y, nrm[p + 1], col, p);
+        } else {
+          const v = regolithAlbedo(albedo, this.hf.craters, x, z);
+          col[p] = v; col[p + 1] = v; col[p + 2] = v * 1.005; // whisper of cool
+        }
         p += 3;
       }
     }
@@ -91,7 +103,7 @@ export class TerrainChunks {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
-    return geo;
+    return classic ? facet(geo) : geo;
   }
 
   /** Rebuild the (≤4) chunks covering a cell rect after a flatten. */
@@ -112,4 +124,72 @@ export class TerrainChunks {
 
   /** Material class of the terrain meshes (safe-mode checks, probes). */
   get materialType(): string { return (this.meshes[0].material as THREE.Material).type; }
+
+  /** The mesh's vertex colour at the grid corner nearest (x, z) (tests). */
+  colorAt(x: number, z: number): [number, number, number] | null {
+    const gx = Math.round((x + MAP_M / 2) / CELL_M), gz = Math.round((z + MAP_M / 2) / CELL_M);
+    const cx = Math.min(CHUNKS - 1, Math.floor(gx / CHUNK_CELLS)), cz = Math.min(CHUNKS - 1, Math.floor(gz / CHUNK_CELLS));
+    const geo = this.meshes[cz * CHUNKS + cx]?.geometry;
+    const col = geo?.getAttribute('color');
+    const pos = geo?.getAttribute('position');
+    if (!col || !pos) return null;
+    const wx = gx * CELL_M - MAP_M / 2, wz = gz * CELL_M - MAP_M / 2;
+    for (let i = 0; i < pos.count; i++) {
+      if (Math.abs(pos.getX(i) - wx) < 0.01 && Math.abs(pos.getZ(i) - wz) < 0.01) {
+        return [col.getX(i), col.getY(i), col.getZ(i)];
+      }
+    }
+    return null;
+  }
+
+  /** How far the drawn ground departs from hf.sample, which buildings,
+   *  rovers and the walker stand on: the largest vertex offset from its grid
+   *  sample (read back from the meshes), and the largest and mean gap of the
+   *  triangulated surface from the bilinear sample over `n` seeded points
+   *  (tests, probes). */
+  surfaceError(n = 4000) {
+    let vertex = 0;
+    for (let i = 0; i < this.meshes.length; i++) {
+      const pos = this.meshes[i].geometry.getAttribute('position');
+      for (let k = 0; k < pos.count; k += 7) {
+        const gx = Math.round((pos.getX(k) + MAP_M / 2) / CELL_M), gz = Math.round((pos.getZ(k) + MAP_M / 2) / CELL_M);
+        vertex = Math.max(vertex, Math.abs(pos.getY(k) - this.hf.sampleGrid(gx, gz)));
+      }
+    }
+    const rng = mulberry32(0x5e7f);
+    let max = 0, sum = 0;
+    for (let i = 0; i < n; i++) {
+      const x = (rng() - 0.5) * (MAP_M - 8), z = (rng() - 0.5) * (MAP_M - 8);
+      const e = Math.abs(this.surfaceAt(x, z) - this.hf.sample(x, z));
+      max = Math.max(max, e);
+      sum += e;
+    }
+    return { vertex, max, mean: sum / n };
+  }
+
+  /** Height of the drawn surface at (x, z): each cell's two triangles
+   *  (a c b, b c d — split on the b–c diagonal), as buildGeometry lays them. */
+  surfaceAt(x: number, z: number): number {
+    const fx = (x + MAP_M / 2) / CELL_M, fz = (z + MAP_M / 2) / CELL_M;
+    const gx = Math.min(Math.floor(fx), 255), gz = Math.min(Math.floor(fz), 255);
+    const tx = fx - gx, tz = fz - gz;
+    const a = this.hf.sampleGrid(gx, gz), b = this.hf.sampleGrid(gx + 1, gz);
+    const c = this.hf.sampleGrid(gx, gz + 1), d = this.hf.sampleGrid(gx + 1, gz + 1);
+    return tx + tz <= 1 ? a + (b - a) * tx + (c - a) * tz : d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
+  }
+
+  /** Triangles, vertices, and whether the surface is faceted (probes). */
+  info() {
+    let triangles = 0, vertices = 0;
+    for (const m of this.meshes) {
+      const g = m.geometry;
+      vertices += g.getAttribute('position').count;
+      triangles += (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+    }
+    const mat = this.meshes[0].material as THREE.MeshLambertMaterial;
+    return {
+      material: mat.type, vertexColors: mat.vertexColors, faceted: !this.meshes[0].geometry.index,
+      chunks: this.meshes.length, triangles, vertices,
+    };
+  }
 }

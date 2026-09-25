@@ -374,6 +374,8 @@
 #menu .menu-col section:first-child { border-top: none; }
 #menu .menu-actions > .btn { text-align: left; }
 #menu .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+#menu .seg.seg-2 { grid-template-columns: repeat(2, 1fr); }
+#menu .seg.seg-2 .btn { font-size: 11px; padding: 6px 4px; }
 #menu .seg .btn { position: relative; padding: 5px 4px 6px; text-align: center; font-size: 10px; }
 #menu .seg .btn b { display: block; font-family: var(--font-mono); font-size: 14px; line-height: 18px; }
 /* ◆ marks the player's own setting; a dashed rung drew black this session */

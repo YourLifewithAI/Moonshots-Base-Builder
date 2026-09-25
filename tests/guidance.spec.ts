@@ -42,8 +42,14 @@ test('deposit labels open a card: what the ground is, its numbers, and an action
   await page.keyboard.press('Escape');
   await expect(card).toBeHidden();
 
-  // an unconfirmed lead names the survey tier that would confirm it
+  // an unconfirmed lead names the survey tier that would confirm it; the
+  // isometric view frames the base tightly, so zoom out until one is in view
   const lead = page.locator('.deposit-mark.lead').first();
+  for (let i = 0; i < 4 && !(await lead.isVisible()); i++) {
+    await page.mouse.move(683, 300);
+    await page.mouse.wheel(0, 400);
+    await page.waitForTimeout(1200);
+  }
   await lead.click();
   await expect(card).toContainText(/Unconfirmed lead/);
   await expect(card).toContainText(/T1 Prospecting Rovers maps 320 m/);

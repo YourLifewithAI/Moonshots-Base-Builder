@@ -11,6 +11,20 @@ and the art items deliberately deferred. Every number here is quoted from the
 implementation (`src/world/*`, `src/terrain/*`, `src/buildings/*`,
 `src/player/*`); if code and doc disagree, the code wins.
 
+**Two render styles.** The game draws in one of two styles, chosen in the
+Esc menu (Graphics → Style) and fixed for a session:
+
+- **Classic** — *the default*: flat colours on faceted Lambert, a fixed
+  isometric camera in the SimCity 2000/3000 manner, no post chain, no
+  shadow map. Made to run well on any GPU and any browser. §12.
+- **High detail** — the Apollo-photograph look this document describes in
+  §1–11: PBR-monochrome, AgX, N8AO, bloom, fitted sun shadows, shader
+  patches on the FX ladder, the free orbit camera.
+
+Everything below §12 is the High detail path unless it says otherwise;
+the procedural geometry (terrain heights, the building kit, the things that
+move) is shared.
+
 ---
 
 ## 1. Design thesis: physics over filters
@@ -645,6 +659,211 @@ Designed during research, deliberately cut from the slice (sequencing in
 
 *Shipped since the slice plan:* the walk-mode helmet visor (formerly deferred
 item 3) is the CSS layer in §9.
+
+---
+
+## 12. Classic — the default look
+
+> A readable colour model of the base, the way the old city builders drew
+> one: white hulls, gold foil, blue cells, orange trim, a tinted ground and
+> warm windows in a blue-black night — on any GPU.
+
+**Why.** On an older laptop the High detail path fell all the way down its
+ladder (half-float buffers, then AO, then every effect) and what was left
+was flat mid-gray ground with no shading. Classic is designed from the start
+for that machine: the cheapest lit shading three.js has, colour doing the
+work that AO, shadows and tone mapping do in High detail, and nothing that
+can fail silently. It is the default; High detail stays in the menu.
+
+### 12.1 Render path (`world/renderer.ts`, `world/post.ts`, `world/classic.ts`)
+
+| | Classic |
+|---|---|
+| Target | the canvas, and only the canvas: no `EffectComposer`, no N8AO, no bloom, no render target of any kind (the debug API records every target bound: none) |
+| Antialiasing | the context's own MSAA (`antialias: true`) |
+| Shadows | none — the shadow map is off; a soft contact decal grounds each footprint (§12.4) |
+| Tone mapping | none: the palette is authored as the colours you see, sRGB output |
+| Pixel ratio | ≤ 1.5 (a HiDPI laptop does not quadruple the fill) |
+| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant |
+| FX ladder, stored level | untouched: classic never builds, reads, stores or steps a level, so it raises no "RENDER —" alert unless a frame genuinely fails to draw |
+| Black-frame check | still reads frames (by day, and at night: the classic night keeps open ground well off black); a black frame turns safe mode's unlit twins on, as in High detail |
+| Shader fault | the classic building program carries `MBB_CLASSIC`; if it fails to compile, every building, part and rover takes stock Lambert in the same palette (glow and print reveal go) with one alert |
+
+The style is read at boot — `?style=classic|detailed` for one launch, else
+the menu's setting, else classic — because the canvas's context attributes
+(`antialias`) are fixed when it is created. Switching in the menu saves the
+game, stores the choice and reloads straight back into it.
+
+### 12.2 Palette (sRGB as authored; `buildings/classicBuilding.ts`)
+
+The kit bakes each part's finish (gray value in `color`, roughness /
+metalness / emissive id in `mat`); classic maps each finish to a colour in
+the instanced view's own `color` attribute (the shared recipe buffers stay
+High detail's):
+
+| Finish | Classic colour | ≈ Hex |
+|---|---|---|
+| Hull (`BODY`) | warm white | `#ebe6dc` |
+| Radiator | white | `#f3f2ed` |
+| Panels (`PLATE`) | mid gray | `#8e9197` |
+| Trim (`TRIM`) | orange accent | `#d9772b` |
+| Decks — trim parts with a face over 5 m² (roofs, plinths, stacks) | slate, so the orange stays an accent | `#6f747c` |
+| PV cells (`GLASS`) | dark blue | `#1d3a6c` |
+| Windows (`WINDOW`) | dark blue glass by day | `#2a4c80` |
+| Lamps | warm white | `#fff1d6` |
+| Beacons | red, blinking | `#b02a22` → bright red flash |
+| MLI foil (`FOIL`) | gold | `#d8a53a` |
+| Window / lamp light | warm sodium yellow (linear 1.0, 0.66, 0.29) | ≈ `#ffd494` |
+
+Per structure: the solar wings' frames are silver (`#c4c8ce`, panels
+`#aeb2b8`), the solar array's mast and the dishes silver-gray (`#b7bbc1`),
+and the Foil Factory's trim gold (`#cf9d36`). Rovers and the cargo lander
+use the default mapping (white body, orange trim, blue roof cells).
+
+### 12.3 Terrain, ring, rocks (`terrain/classicGround.ts`)
+
+- **Geometry**: the same 4 m grid as High detail — every vertex *is* its
+  heightfield sample — with every triangle its own three vertices and a face
+  normal. Faceting comes from the geometry, not from derivative (`dFdx`)
+  shading. 64 chunks, 131 k triangles; the horizon ring (43 k) and berms
+  are faceted the same way. Measured against `hf.sample` (which buildings,
+  rovers and the walker stand on), seed 42, 4,000 points: every vertex 0 m
+  off; the triangulated surface departs from the bilinear sample by at most
+  0.12 m on the mare, 0.22 m at the pole and 0.23 m in the lava tube
+  (on crater walls), 1.5–5 mm on average — and on pads, where buildings
+  stand, by nothing. A coarser mesh was not needed: triangles are not what
+  an old GPU runs out of.
+- **Colour** (vertex colours, one function for chunks, ring, berms and
+  boulders so they agree where they meet):
+
+  | Term | Rule |
+  |---|---|
+  | Site tint | mare `#857d73` (darker, warmer), lava tube `#847a6e` (a shade redder), south-pole highland `#aeaca6` (lighter, cooler) |
+  | Mottle | ± 9% at 55 m, ± 5% at 11 m, a ± 3% warm/cool drift at 140 m (faded where the sample spacing cannot hold it) |
+  | Height | × (1 ± 6%) from low to high ground |
+  | Slope | steep, fresher walls up to +10% |
+  | Craters | floors −13% toward the centre, a bright rim (+15%), a faint ejecta apron; a pit deeper than 0.4 r (the lava tube's skylight) × (1 − 0.78 (1 − d⁴)), its walls falling into the dark long before the floor |
+  | Deposits | soft, slightly ragged patches (full at 0.6 r, gone by 1.1 r) |
+
+  Deposit tints, as orbital colour-ratio maps show them — every deposit,
+  mapped or not (the ground looks like what it is; the overlay [I] and the
+  surveys say what it means):
+
+  | Deposit | Tint (linear multiplier, or mix) |
+  |---|---|
+  | High-Ti basalt (ilmenite) | darker and bluer × (0.82, 0.84, 0.93) |
+  | Highland anorthosite | brighter × (1.22, 1.21, 1.18) |
+  | Cold-trap ice | bluish white: 45% toward (0.70, 0.79, 0.93) |
+  | Pyroclastic glass | dark amber × (0.97, 0.88, 0.74) |
+  | KREEP | faint rose × (1.06, 0.95, 0.96) |
+  | Mature soil (volatiles) | faint olive-brown × (0.94, 0.94, 0.88) |
+  | Peak of light | none |
+
+- **Rocks**: stock flat Lambert (the polyhedra are faceted already), each
+  boulder the ground's colour under it, greyed by 30% and lifted 15–40%
+  (fresh crater blocks the most); half the
+  small rocks (the FX 2 density), drawn round the isometric view's focus and
+  not at all from the two farthest zoom levels, where they would be specks.
+
+### 12.4 Buildings and night lights (`buildings/classicBuilding.ts`, `classicFloods.ts`, `contactDecals.ts`)
+
+- **The classic building shader**, per vertex, with no loops, no
+  derivatives and no extensions: Lambert from the key light plus the
+  hemisphere fill (the kit's parts are flat or smooth by geometry), times
+  the per-instance colour (brownout dimming); dust greys the PV glass, wear
+  darkens (−30% at full wear), fragments above the print cut are discarded
+  under a warm band — the 3D-print reveal, kept.
+- **Lights key on one function**, `lightLevel(building, nightFactor)`:
+  a complete, enabled, powered structure lights with the night; anything
+  else is 0. Each instance's level rides in `iGlow`; windows fade from their
+  daylight blue to the warm light at that level, lamps add it, beacons blink
+  (0.2 s every 2 s, phase per instance) whenever powered. Rovers and moving
+  parts follow the night factor (`iGlow = −1`). Unpowered — shut down or
+  browned out — means dark windows and no beacon.
+- **Floods** are cheap additive pools on the ground: one merged mesh, per
+  lit structure a disc (centre + rings every ~3 m, reaching 7 m past the
+  footprint) draped on the heightfield, warm `(1.0, 0.74, 0.42)` × 0.16 ×
+  its light level, feathered to nothing at the rim by `(1 − (d/R)²)³`.
+  Positions rebuild when the lit set moves, colours when a level changes.
+  No scene light joins the scene at night (no PointLights, no spot lamp).
+- **Contact decals** stand in for the shadow map: one merged mesh, a
+  nine-slice per footprint (full from 1.2 m inside it, feathered to 0 by
+  1.0 m outside), black at 30%, draped on the ground.
+
+### 12.5 Light and sky (`world/classicLighting.ts`)
+
+One `DirectionalLight` key and one `HemisphereLight` fill; nothing else.
+Levels in albedo units (three's lights take them × π; the building shader
+reads the same values):
+
+| | Day | Night |
+|---|---|---|
+| Key | the sun's azimuth, elevation lifted into 22–48° (the game's sun never climbs past 32° and grazes the pole; with no shadows to betray it, a higher light reads the relief better); warm white `(1.0, 0.97, 0.92)` × 1.05, golden `(1.0, 0.80, 0.58)` while the true sun is under ~14° | earthshine from Earth's side of the sky (lifted to ≥ 35°), `(0.16, 0.22, 0.38)` |
+| Fill (sky / ground) | `(0.34, 0.37, 0.43)` / `(0.24, 0.215, 0.19)` | `(0.06, 0.085, 0.15)` / `(0.018, 0.024, 0.04)` |
+
+The two blend on the night factor, the key's direction weighted by the two
+strengths; on foot at night the eye adapts (key and fill × up to 1.45) in
+place of the High detail headlamp. The result is a blue-black night where
+every building reads by its lit and shaded faces and the base's own lights
+carry the rest. The true sun still drives the sky, the solar wings and the
+rover decals. The sky is High detail's own stock-material sky — stars,
+Milky Way, sun disc, Earth — seen on foot and on the way down (the
+isometric view never looks above the horizon).
+
+### 12.6 The isometric camera (`player/isoCam.ts`)
+
+| | |
+|---|---|
+| Lens | perspective, **20°** vertical — near-orthographic, so picking, `screenOf` and the overlays work unchanged |
+| Pitch | fixed **32°** below the horizon (the top of the frame looks 22° down: never the sky) |
+| Yaw | **45° + k·90°**; Q / E turn one step in a 0.35 s ease-in-out; presses queue, a held key turns once |
+| Zoom | the wheel steps through **5 levels** — 100, 170 (home), 290, 490, 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view), eased; a trackpad's trickle adds up to a step |
+| Pan | W A S D / arrows at 1.1 view heights a second; right- or middle-drag, the ground following the pointer. The left button stays select / place / target |
+| F / H | F glides to the selection (0.6 s) and closes to the nearest level; H glides home to the Lander at the home level |
+| Limits | the target rides the terrain and stays 40 m inside the map; the camera never sits under 4 m of clearance; the clip planes track the zoom (near 0.2 d, far 6 d + 800 m) |
+
+Walk mode is unchanged and draws with the classic materials: Tab dollies
+down to the 70° suit lens and back up to the isometric one.
+
+### 12.7 Cost (measured)
+
+The mare starter base (Lander + 6 structures) at each style's home view,
+1920 × 1080, per frame with every pass summed (`getRenderInfo().frame`):
+
+| | Draw calls (day / night) | Triangles (day / night) | Render targets |
+|---|---|---|---|
+| Classic | **24 / 24** | 110 k / 112 k | none |
+| High detail FX 0 | 97 / 71 | 226 k / 177 k | half-float composer, N8AO, shadow map |
+| High detail FX 3 | 46 / 45 | 136 k / 145 k | shadow map |
+
+Classic draws each building type once, the terrain chunks in view, the ring,
+two rock meshes, the decals and pools, and nothing for the sky (the
+isometric view never sees it); no shadow pass, no post pass, one render a
+frame. Under software GL on a loaded test machine the median frame was
+~200 ms classic against ~2.4 s at FX 0 (`tests/classic.spec.ts` · frame
+cost records both); on a GPU the fragment work per pixel is one Lambert
+term and a colour-space conversion.
+
+### 12.8 Browser notes
+
+Classic asks for nothing a WebGL2 implementation may lack, so it behaves the
+same in Firefox, Chrome and Edge, on ANGLE (D3D11 or WARP), on native
+drivers and on software rasterizers:
+
+- WebGL2 core only; no `EXT_*` or `OES_*` extension is required (none is
+  requested: no float or half-float render targets, no anisotropic
+  filtering, no texture-float linear filtering);
+- the context's `antialias` attribute and nothing more — no multisampled
+  renderbuffers or resolve blits (a context without MSAA simply draws
+  aliased edges);
+- shaders are plain GLSL ES 3.0 (three's own Lambert, and one small program
+  of our own) with constant loop bounds, no derivatives and no texture
+  lookups in the building program;
+- no Chromium-only API anywhere in the render path;
+- a software context (`failIfMajorPerformanceCaveat` style, SwiftShader,
+  WARP, llvmpipe) still draws — slower, never black or blank: the frame is
+  a handful of draw calls with trivial fragment work, and the black-frame
+  check has safe mode's unlit twins to fall back to.
 
 ---
 

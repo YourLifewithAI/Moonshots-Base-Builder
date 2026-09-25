@@ -1,4 +1,7 @@
-/** Render-ladder test: every FX level, then safe mode, must draw a lit frame
+/** The High detail render path (`&style=detailed`; the classic default has
+ *  its own tests in classic.spec.ts).
+ *
+ *  Render-ladder test: every FX level, then safe mode, must draw a lit frame
  *  with no shader compile errors â€” including the first building of a type
  *  placed after each switch, which compiles a fresh program (or, in safe mode,
  *  must come up unlit like everything else). The rocks thin down the ladder,
@@ -67,7 +70,7 @@ test('render ladder: FX 0-3 and safe mode draw lit frames without shader errors'
   const shaderErrors: string[] = [];
   page.on('console', (m) => { if (m.text().includes('THREE.WebGLProgram')) shaderErrors.push(m.text()); });
   page.on('pageerror', (e) => shaderErrors.push(String(e)));
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   // the world only: HUD panels would count as lit pixels
   await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
@@ -141,7 +144,7 @@ test('night ladder: FX 0-3 and safe mode light the base at night without shader 
   const shaderErrors: string[] = [];
   page.on('console', (m) => { if (m.text().includes('THREE.WebGLProgram')) shaderErrors.push(m.text()); });
   page.on('pageerror', (e) => shaderErrors.push(String(e)));
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
   await page.evaluate(() => {
@@ -208,7 +211,7 @@ test('night ladder: FX 0-3 and safe mode light the base at night without shader 
 });
 
 test('solar wings stand near-vertical under the grazing polar night sun', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&site=southpole');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=southpole');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => window.__game.setPaused(true));
   const spot = await freeSpot(page, 'solar');
@@ -227,7 +230,7 @@ test('solar wings stand near-vertical under the grazing polar night sun', async 
 });
 
 test('safe mode from boot: buildings placed later come up unlit', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&site=mare&safe');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare&safe');
   await page.waitForFunction(() => window.__game !== undefined);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   const info = await page.evaluate(() => window.__game.getRenderInfo());
@@ -241,7 +244,7 @@ test('safe mode from boot: buildings placed later come up unlit', async ({ page 
 });
 
 test('shadow map re-renders only on change', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&site=mare&lowfx');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare&lowfx');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => window.__game.setPaused(true));
   await page.waitForTimeout(1500);
@@ -266,7 +269,7 @@ test('base life: rovers, dust, launch and resupply at FX 0; static dust at FX 3;
   page.on('pageerror', (e) => shaderErrors.push(String(e)));
   // a small canvas keeps software GL near a few frames a second
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto('/?debug&seed=42&nolock&site=mare&fx=0');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare&fx=0');
   await page.waitForFunction(() => window.__game !== undefined);
   const life = async () => (await page.evaluate(() => window.__game.getRenderInfo())).life;
   await page.evaluate(() => {
@@ -356,7 +359,7 @@ test('base life: rovers, dust, launch and resupply at FX 0; static dust at FX 3;
 test('walk mode: wider lens, a headlamp at night, bootprints, a visor', async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   const info = () => page.evaluate(() => window.__game.getRenderInfo());
   await page.evaluate(() => {
@@ -421,7 +424,7 @@ test('safe mode draws the plain path from boot and at runtime, and the black-fra
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.setViewportSize({ width: 800, height: 450 });
   // from boot: no composer is ever built, one scene render a frame
-  await page.goto('/?debug&seed=42&nolock&site=mare&safe');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare&safe');
   await page.waitForFunction(() => window.__game !== undefined);
   await expect.poll(async () => (await renderInfo(page)).framesDrawn).toBeGreaterThan(3);
   let info = await renderInfo(page);
@@ -434,7 +437,7 @@ test('safe mode draws the plain path from boot and at runtime, and the black-fra
   expect(r.perFrame).toBe(1);
 
   // at runtime: switching on drops the FX 0 chain at once
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await expect.poll(async () => (await renderInfo(page)).framesDrawn).toBeGreaterThan(2);
   expect((await renderInfo(page)).postChain).toBe(true);
@@ -495,7 +498,7 @@ test('safe mode draws the plain path from boot and at runtime, and the black-fra
 });
 
 test('auto safe mode holds across a reload; the player turning it on or off clears the flag', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&site=mare&lowfx');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare&lowfx');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => window.__game.enableSafeMode()); // as the render check does
   await page.reload();
@@ -521,7 +524,7 @@ test('a patched level recompiles with live uniforms after the stock one: FX 0 â†
   const shaderErrors: string[] = [];
   page.on('console', (m) => { if (m.text().includes('THREE.WebGLProgram')) shaderErrors.push(m.text()); });
   page.on('pageerror', (e) => shaderErrors.push(String(e)));
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
   await page.evaluate(() => {
@@ -561,7 +564,7 @@ test('a patched level recompiles with live uniforms after the stock one: FX 0 â†
 test('the black-frame check reads night frames; a raise is stored only once it draws', async ({ page }) => {
   test.setTimeout(300_000);
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => {
     const g = window.__game;
@@ -632,7 +635,7 @@ test('the black-frame check reads night frames; a raise is stored only once it d
 test('every FX level draws the scene once a frame; the tech tree and map rest the GPU', async ({ page }) => {
   test.setTimeout(240_000);
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   // the placement ghost is transparent: N8AO's auto-detect would have turned
   // its transparency pass (two more scene renders a frame) on for it

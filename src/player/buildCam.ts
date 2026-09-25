@@ -21,7 +21,33 @@ const PAN_KEYS: Record<string, [number, number]> = {
 };
 const UP = new THREE.Vector3(0, 1, 0);
 
-export class BuildCam {
+/** What the game and the mode manager need from a command-view camera:
+ *  this free one (High detail) or the classic isometric one (isoCam.ts). */
+export interface CommandCam {
+  /** the ground point the view is centred on (it rides the terrain) */
+  readonly target: THREE.Vector3;
+  enabled: boolean;
+  groundAt: (x: number, z: number) => number;
+  keyDown(code: string): void;
+  keyUp(code: string): void;
+  clearKeys(): void;
+  /** frame (x, y, z) from home, instantly */
+  home(x: number, y: number, z: number): void;
+  /** glide to (x, y, z); `exact` = at the home framing (H), else closer (F) */
+  focus(x: number, y: number, z: number, dist: number, exact?: boolean): void;
+  /** place the view exactly (debug views; the isometric view keeps its pitch) */
+  view(pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }): void;
+  update(dt: number): void;
+  /** metres from the camera down to the ground beneath it */
+  readonly clearance: number;
+}
+
+/** Keys a command camera consumes (build mode only; walk mode owns WASD). */
+export function commandKey(code: string): boolean {
+  return code in PAN_KEYS || code === 'KeyQ' || code === 'KeyE';
+}
+
+export class BuildCam implements CommandCam {
   readonly controls: MapControls;
   /** terrain height anywhere, set per world */
   groundAt: (x: number, z: number) => number = () => 0;
@@ -46,8 +72,10 @@ export class BuildCam {
 
   /** Keys the build camera consumes (build mode only; walk mode owns WASD). */
   static handles(code: string): boolean {
-    return code in PAN_KEYS || code === 'KeyQ' || code === 'KeyE';
+    return commandKey(code);
   }
+
+  get target(): THREE.Vector3 { return this.controls.target; }
 
   keyDown(code: string) { this.keys.add(code); }
   keyUp(code: string) { this.keys.delete(code); }

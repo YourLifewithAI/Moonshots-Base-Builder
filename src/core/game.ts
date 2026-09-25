@@ -41,15 +41,20 @@ import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting, sunStep } from '../world/lighting';
+import { ClassicLighting } from '../world/classicLighting';
+import { installClassic } from '../world/classic';
+import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBuilding';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
 import { materials, PATCH_MARKER } from '../world/materials';
-import { BuildCam, HOME_DIST } from '../player/buildCam';
+import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buildCam';
+import { ISO_FOV, IsoCam } from '../player/isoCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
-import { loadSettings, saveSettings } from './settings';
+import { loadSettings, saveSettings, type RenderStyle } from './settings';
+import { RESUME_KEY, setActiveStyle } from './style';
 import { sfx } from '../audio/sfx';
 import {
   $alerts, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel, $feed, $hasSave, $ice,
@@ -68,6 +73,8 @@ export interface GameOptions {
   /** the player's own FX level from the menu: boot never renders above it */
   fxChoice?: number;
   seed: number;
+  /** how the world is drawn this session (fixed at boot: a change reloads) */
+  style: RenderStyle;
 }
 
 /** What the menu shows about the render path. */
@@ -108,9 +115,11 @@ export class Game {
   savePausedAs: boolean | null = null;
 
   private renderer: THREE.WebGLRenderer;
+  /** the classic render style (no post chain, no shadows, the iso camera) */
+  readonly classic: boolean;
   private camera: THREE.PerspectiveCamera;
   private scene = new THREE.Scene();
-  private lighting: Lighting;
+  private lighting: Lighting | ClassicLighting;
   private sky: Sky;
   private post: PostFX;
   private hf!: Heightfield;
@@ -121,7 +130,8 @@ export class Game {
   private placement!: PlacementController;
   private overlays!: BaseOverlays;
   private life!: BaseLife;
-  private buildCam: BuildCam;
+  /** the command view: the free camera (High detail) or the isometric one (classic) */
+  private buildCam: CommandCam;
   private walk!: WalkController;
   private modes!: ModeManager;
 
@@ -144,13 +154,20 @@ export class Game {
   private lunarUi: LunarUi = { open: false, view: 'site', seenTier: 0 };
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
-    this.renderer = createRenderer(canvas);
+    // the style reaches every mesh creator and the material registry before
+    // the first mesh exists
+    this.classic = opts.style === 'classic';
+    setActiveStyle(opts.style);
+    materials.setClassic(this.classic);
+    this.renderer = createRenderer(canvas, this.classic);
+    this.watchRenderTargets();
+    if (this.classic) installClassic();
     this.camera = createCamera();
-    this.lighting = new Lighting(this.scene);
+    this.lighting = this.classic ? new ClassicLighting(this.scene) : new Lighting(this.scene);
     this.sky = new Sky(this.scene);
     this.lighting.attachHeadlamp(this.scene, this.camera);
     this.post = new PostFX(this.renderer, this.scene, this.camera, {
-      lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe,
+      lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe, classic: this.classic,
     });
     this.post.onIssue = (msg) => {
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
@@ -168,7 +185,7 @@ export class Game {
         this.saveFailed();
       }
       materials.setFxLevel(level);
-      this.rocks?.setFxLevel(level);
+      if (!this.classic) this.rocks?.setFxLevel(level);
       // a raise is checked on the next frames that can tell; a new rung soon
       this.reprobe(this.post.onTrial ? 2 : 40);
     };
@@ -178,8 +195,11 @@ export class Game {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
-      const patched = [vs, fs].some((s) => gl.getShaderSource(s)?.includes(PATCH_MARKER));
-      if (this.shaderFault !== 'patch') this.shaderFault = patched ? 'patch' : 'other';
+      const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
+      if (src(CLASSIC_MARKER)) this.shaderFault = 'classic';
+      else if (this.shaderFault !== 'patch' && this.shaderFault !== 'classic') {
+        this.shaderFault = src(PATCH_MARKER) ? 'patch' : 'other';
+      }
     };
     // context loss (driver reset / tab memory pressure) looks like a permanent
     // black screen with a working HUD — tell the player what happened
@@ -191,7 +211,7 @@ export class Game {
     canvas.addEventListener('webglcontextrestored', () => {
       console.warn('[MOONSHOTS] WebGL context restored.');
     });
-    this.buildCam = new BuildCam(this.camera, canvas);
+    this.buildCam = this.classic ? new IsoCam(this.camera, canvas) : new BuildCam(this.camera, canvas);
     this.buildCam.enabled = false;
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
@@ -283,12 +303,14 @@ export class Game {
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
     this.rocks = new Rocks(this.hf);
-    this.rocks.setFxLevel(this.post.ladderLevel);
+    // classic draws half the small rocks (the FX 2 density), whatever the ladder
+    this.rocks.setFxLevel(this.classic ? 2 : this.post.ladderLevel);
     this.instances = new BuildingInstances(this.hf);
     this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
       this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
     this.lighting.requestShadowUpdate();
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
+    if (this.lighting instanceof ClassicLighting) this.lighting.setSite(SITES[state.siteId]);
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.overlays = new BaseOverlays(this.hf);
     this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
@@ -300,7 +322,7 @@ export class Game {
       this.buildCam.clearKeys();
       if (m === 'walk' && !this.opts.nolock) this.canvas.requestPointerLock();
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
-    });
+    }, this.classic ? { fov: ISO_FOV, near: 20, far: 5000 } : undefined);
     this.worldGroup = new THREE.Group();
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
       this.overlays.group, this.life.group);
@@ -439,7 +461,7 @@ export class Game {
           break;
         default:
           if (this.modes.mode === 'walk') this.walk.keyDown(e.code);
-          else if (BuildCam.handles(e.code)) {
+          else if (commandKey(e.code)) {
             e.preventDefault();
             this.buildCam.keyDown(e.code);
           }
@@ -898,7 +920,39 @@ export class Game {
   /** black-frame probe verdicts so far (tests, probes) */
   private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
-  private shaderFault: 'patch' | 'other' | null = null;
+  private shaderFault: 'patch' | 'classic' | 'other' | null = null;
+  /** the last drawn frame's totals over every pass (shadow map included) */
+  private frameStats = { calls: 0, triangles: 0, points: 0, lines: 0 };
+  /** texture types of every render target bound so far (the classic style
+   *  binds none: it draws straight to the canvas) */
+  private targetTypes = new Set<number>();
+
+  /** Record each render target the renderer binds (probes, tests). */
+  private watchRenderTargets() {
+    const r = this.renderer;
+    const set = r.setRenderTarget.bind(r);
+    r.setRenderTarget = (target, ...rest) => {
+      if (target) this.targetTypes.add((target.texture as THREE.Texture).type);
+      set(target, ...rest);
+    };
+  }
+
+  /** The player picked a render style (the menu): stored, the game saved,
+   *  and the page reloaded straight back into it — the renderer's context
+   *  attributes are fixed at creation. URL shortcuts that would override
+   *  the choice or start a new game are dropped. */
+  async switchStyle(style: RenderStyle) {
+    saveSettings({ style });
+    if (style === this.opts.style) return;
+    if (this.playing && !missionLost(this.state)) {
+      await this.doSave();
+      try { sessionStorage.setItem(RESUME_KEY, '1'); } catch { /* the title screen, then */ }
+    }
+    this.playing = false; // nothing may write the save again before the reload
+    const url = new URL(location.href);
+    for (const k of ['style', 'site', 'exp', 'fx', 'safe']) url.searchParams.delete(k);
+    location.assign(url.toString());
+  }
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
@@ -912,8 +966,13 @@ export class Game {
     }
     // an opaque full-screen screen hides the world: the sim ticks, the GPU rests
     const covered = this.playing && (this.techOpen || this.lunarUi.open);
+    this.renderer.info.reset();
     const drawn = !covered && this.post.render(Math.min(realDt, 0.1));
-    if (drawn) this.framesDrawn++;
+    if (drawn) {
+      this.framesDrawn++;
+      const r = this.renderer.info.render;
+      this.frameStats = { calls: r.calls, triangles: r.triangles, points: r.points, lines: r.lines };
+    }
     if (this.shaderFault) this.recoverFromShaderFault();
     // Counted from gameplay start (the player may sit on the title screen for
     // any length of time), and re-probed periodically to catch mid-game
@@ -934,8 +993,9 @@ export class Game {
    *  effects off. */
   private probeFrame() {
     const day = currentDay(this.state, SITES[this.state.siteId]);
+    // classic nights hold open ground well off black (the earthshine key)
     const readable = this.safeMode || this.lighting.sunLight >= 0.75
-      || (day.nightFactor >= 0.9 && materials.patched('terrain'));
+      || (day.nightFactor >= 0.9 && (this.classic || materials.patched('terrain')));
     const verdict = readable ? this.post.probe((u, v) => this.groundAt(u, v)) : 'unknown';
     this.probes[verdict]++;
     if (verdict === 'unknown') {
@@ -958,7 +1018,8 @@ export class Game {
       this.safeTrial = false;
       saveSettings({ safe: false, safeAuto: false });
     }
-    if (this.fxFailed.delete(this.post.fxLevel)) this.saveFailed();
+    // the remembered failures are the High detail ladder's
+    if (!this.classic && this.fxFailed.delete(this.post.fxLevel)) this.saveFailed();
   }
 
   /** The frame is black, or a program failed to compile. */
@@ -972,9 +1033,11 @@ export class Game {
     if (this.safeTrial) {
       // leaving safe mode did not draw: straight back to it
       this.safeTrial = false;
-      this.fxFailed.add(this.post.fxLevel);
-      this.fxReason = reason;
-      this.saveFailed();
+      if (!this.classic) {
+        this.fxFailed.add(this.post.fxLevel);
+        this.fxReason = reason;
+        this.saveFailed();
+      }
       this.enableSafeMode();
       return;
     }
@@ -1012,6 +1075,12 @@ export class Game {
   private recoverFromShaderFault() {
     const fault = this.shaderFault;
     this.shaderFault = null;
+    // the classic building shader is the classic style's only custom program
+    if (fault === 'classic' && materials.replaceClassic('building', classicFallbackMaterial(), this.scene)) {
+      console.warn('[MOONSHOTS] Classic building shader failed to compile — stock Lambert.');
+      if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
+      return;
+    }
     if (fault === 'patch' && materials.stripPatches()) {
       console.warn('[MOONSHOTS] Detail shaders failed to compile — stock materials.');
       if (this.state) { alert(this.state, 'RENDER — detail shaders disabled (GPU limitation)', 'warn'); this.publish(); }
@@ -1054,7 +1123,7 @@ export class Game {
     this.safeAuto = false;
     this.safeTrial = true;
     console.warn('[MOONSHOTS] Safe render mode off — lit materials and shadows.');
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.enabled = !this.classic;
     materials.disableSafe(this.scene);
     this.rocks?.setSafe(false);
     this.sky.setSafe(false);
@@ -1182,12 +1251,21 @@ export class Game {
     // sun follows the clock; the shadow window hugs the ground in view
     const day = currentDay(this.state, SITES[this.state.siteId]);
     const walking = this.modes.mode === 'walk';
-    const focus = walking ? this.walk.pos : this.buildCam.controls.target;
+    const focus = walking ? this.walk.pos : this.buildCam.target;
     this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
     this.camera.updateMatrixWorld();
     this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
       this.groundAnywhere);
-    this.rocks.update(this.camera);
+    // the isometric view never looks above the horizon: the sky only draws
+    // on foot and on the way down
+    if (this.classic) this.sky.group.visible = walking || tweening;
+    // the isometric view stands hundreds of metres off: small rocks round its
+    // focus, and none once they would be specks
+    if (this.buildCam instanceof IsoCam && !walking) {
+      this.rocks.update(this.camera, this.buildCam.distance <= 350 ? this.buildCam.target : null);
+    } else {
+      this.rocks.update(this.camera);
+    }
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
@@ -1198,7 +1276,7 @@ export class Game {
     // shader patches, or (stock path) hull glow, ground discs and work lights
     // over the structures nearest the camera
     this.instances.setNightGlow(day.nightFactor);
-    const stockLights = !this.instances.shaderLights;
+    const stockLights = !this.classic && !this.instances.shaderLights;
     this.lighting.useWorkLights(stockLights);
     this.lighting.setWorkLights(
       stockLights && day.nightFactor > 0.03
@@ -1214,7 +1292,7 @@ export class Game {
       dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
       sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
     });
-    sfx.setRovers(this.life.rovers.sounds(this.camera));
+    sfx.setRovers(this.life.rovers.sounds(this.camera, onFoot ? null : this.buildCam.target));
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -1704,7 +1782,7 @@ export class Game {
 
   setModeInstant(m: 'build' | 'walk') {
     if (m === 'walk' && this.modes.mode !== 'walk') {
-      const t = this.buildCam.controls.target;
+      const t = this.buildCam.target;
       this.walk.spawnAt(t.x, t.z, 0);
     }
     this.modes.set(m);
@@ -1727,7 +1805,24 @@ export class Game {
 
   /** Render-path state for tests and probes. */
   debugRenderInfo() {
+    const gl = this.renderer.getContext();
     return {
+      /** 'classic' (the default) or 'detailed' (High detail) */
+      style: this.opts.style,
+      /** the last drawn frame, summed over every pass */
+      frame: { ...this.frameStats },
+      /** texture types of the render targets bound so far; any float or half-float? */
+      targets: {
+        types: [...this.targetTypes].sort(),
+        float: [...this.targetTypes].some((t) => t === THREE.FloatType || t === THREE.HalfFloatType),
+      },
+      context: {
+        antialias: gl.getContextAttributes()?.antialias ?? false,
+        samples: gl.getParameter(gl.SAMPLES) as number,
+        pixelRatio: this.renderer.getPixelRatio(),
+        toneMapping: this.renderer.toneMapping,
+        shadowMap: this.renderer.shadowMap.enabled,
+      },
       fxLevel: this.post.fxLevel,
       /** the ladder level stored for the next launch (a raise on trial is not) */
       fxStored: this.post.storedLevel,
@@ -1745,6 +1840,7 @@ export class Game {
       patchFault: materials.patchesFaulted,
       buildingMaterials: this.instances.materialTypes(),
       terrainMaterial: this.chunks.materialType,
+      terrain: this.chunks.info(),
       horizonMaterial: (this.horizon.mesh.material as THREE.Material).type,
       horizonSeam: this.horizon.seamError(),
       rocks: this.rocks.stats(),
@@ -1757,13 +1853,29 @@ export class Game {
   }
 
   /** Build-camera pose and its clearance over the ground (tests, probes). */
-  /** CSS-pixel position of the ground at world (x, z) under the live camera. */
-  debugScreenOf(x: number, z: number) {
-    return this.screenOf(x, this.hf.sample(x, z), z);
+  /** CSS-pixel position of the ground at world (x, z) — `lift` m above it —
+   *  under the live camera. */
+  debugScreenOf(x: number, z: number, lift = 0) {
+    return this.screenOf(x, this.hf.sample(x, z) + lift, z);
+  }
+
+  /** The terrain mesh's vertex colour nearest (x, z) (tests). */
+  debugTerrainColor(x: number, z: number) {
+    return this.chunks.colorAt(x, z);
+  }
+
+  /** The drawn ground against hf.sample (tests, probes). */
+  debugTerrainError() {
+    return this.chunks.surfaceError();
+  }
+
+  /** A structure's per-instance light: glow level and powered flag (tests). */
+  debugBuildingGlow(id: number) {
+    return this.instances.glowOf(id);
   }
 
   debugCamera() {
-    const t = this.buildCam.controls.target, p = this.camera.position;
+    const t = this.buildCam.target, p = this.camera.position;
     return {
       pos: { x: p.x, y: p.y, z: p.z },
       target: { x: t.x, y: t.y, z: t.z },
@@ -1771,6 +1883,9 @@ export class Game {
       clearance: this.buildCam.clearance,
       dist: p.distanceTo(t),
       azimuth: Math.atan2(p.z - t.z, p.x - t.x),
+      fov: this.camera.fov,
+      /** the classic isometric view's steps (null in High detail) */
+      iso: this.buildCam instanceof IsoCam ? this.buildCam.info() : null,
     };
   }
 
