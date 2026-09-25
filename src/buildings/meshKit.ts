@@ -45,6 +45,11 @@ function bake(geo: THREE.BufferGeometry, f: Finish): THREE.BufferGeometry {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('mat', new THREE.BufferAttribute(mat, 3));
   geo.deleteAttribute('uv'); // no textures anywhere; keeps merges compatible
+  // the part's largest face (m²): the classic palette keeps its orange
+  // accent to small parts and greys big slabs (classicBuilding.ts)
+  geo.computeBoundingBox();
+  const sz = geo.boundingBox!.getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a);
+  geo.userData.area = sz[0] * sz[1];
   return geo;
 }
 
@@ -321,6 +326,17 @@ export function ladder(x: number, z: number, y0: number, y1: number, ry = 0): TH
 export function merge(parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[]): THREE.BufferGeometry {
   const flat = parts.flat();
   const merged = mergeGeometries(flat, false)!;
+  // per-vertex part size, in merge order (not an attribute: no GPU cost)
+  const area = new Float32Array(merged.getAttribute('position').count);
+  let o = 0;
+  for (const p of flat) {
+    const n = p.getAttribute('position').count;
+    const src = p.userData.partArea as Float32Array | undefined;
+    if (src) area.set(src, o);
+    else area.fill(p.userData.area ?? 0, o, o + n);
+    o += n;
+  }
+  merged.userData = { partArea: area };
   flat.forEach((p) => p.dispose());
   merged.computeVertexNormals();
   merged.computeBoundingBox();
@@ -339,6 +355,14 @@ materials.define('building', BUILDING_MATERIAL, buildingPatch);
 export const BUILDING_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);
 
+/** Style-specific extras for every instanced view (the classic palette and
+ *  its per-instance light level — buildings/classicBuilding.ts installs it). */
+type InstanceHook = (view: THREE.BufferGeometry, src: THREE.BufferGeometry, max: number) => void;
+let instanceHook: InstanceHook | null = null;
+export function setInstanceHook(hook: InstanceHook | null) {
+  instanceHook = hook;
+}
+
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
  *  own per-instance state: iState = (lit, dust, wear, print cut height). */
 export function withInstanceState(src: THREE.BufferGeometry, max: number): THREE.BufferGeometry {
@@ -350,5 +374,6 @@ export function withInstanceState(src: THREE.BufferGeometry, max: number): THREE
   const st = new Float32Array(max * 4);
   for (let i = 0; i < max; i++) { st[i * 4] = 1; st[i * 4 + 3] = CUT_NONE; }
   g.setAttribute('iState', new THREE.InstancedBufferAttribute(st, 4));
+  instanceHook?.(g, src, max);
   return g;
 }

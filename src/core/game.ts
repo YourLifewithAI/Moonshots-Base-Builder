@@ -43,6 +43,7 @@ import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting, sunStep } from '../world/lighting';
 import { ClassicLighting } from '../world/classicLighting';
 import { installClassic } from '../world/classic';
+import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBuilding';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
@@ -194,8 +195,11 @@ export class Game {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
-      const patched = [vs, fs].some((s) => gl.getShaderSource(s)?.includes(PATCH_MARKER));
-      if (this.shaderFault !== 'patch') this.shaderFault = patched ? 'patch' : 'other';
+      const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
+      if (src(CLASSIC_MARKER)) this.shaderFault = 'classic';
+      else if (this.shaderFault !== 'patch' && this.shaderFault !== 'classic') {
+        this.shaderFault = src(PATCH_MARKER) ? 'patch' : 'other';
+      }
     };
     // context loss (driver reset / tab memory pressure) looks like a permanent
     // black screen with a working HUD — tell the player what happened
@@ -900,7 +904,7 @@ export class Game {
   /** black-frame probe verdicts so far (tests, probes) */
   private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
-  private shaderFault: 'patch' | 'other' | null = null;
+  private shaderFault: 'patch' | 'classic' | 'other' | null = null;
   /** the last drawn frame's totals over every pass (shadow map included) */
   private frameStats = { calls: 0, triangles: 0, points: 0, lines: 0 };
   /** texture types of every render target bound so far (the classic style
@@ -1055,6 +1059,12 @@ export class Game {
   private recoverFromShaderFault() {
     const fault = this.shaderFault;
     this.shaderFault = null;
+    // the classic building shader is the classic style's only custom program
+    if (fault === 'classic' && materials.replaceClassic('building', classicFallbackMaterial(), this.scene)) {
+      console.warn('[MOONSHOTS] Classic building shader failed to compile — stock Lambert.');
+      if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
+      return;
+    }
     if (fault === 'patch' && materials.stripPatches()) {
       console.warn('[MOONSHOTS] Detail shaders failed to compile — stock materials.');
       if (this.state) { alert(this.state, 'RENDER — detail shaders disabled (GPU limitation)', 'warn'); this.publish(); }
@@ -1815,6 +1825,11 @@ export class Game {
   /** The drawn ground against hf.sample (tests, probes). */
   debugTerrainError() {
     return this.chunks.surfaceError();
+  }
+
+  /** A structure's per-instance light: glow level and powered flag (tests). */
+  debugBuildingGlow(id: number) {
+    return this.instances.glowOf(id);
   }
 
   debugCamera() {

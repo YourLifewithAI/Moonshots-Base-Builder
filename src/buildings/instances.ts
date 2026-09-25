@@ -8,7 +8,13 @@
  *    patched (FX 0–2)      3D-print reveal, window glow, shader floods
  *    stock (FX 3 / fault / safe)
  *                          squash-rise + dim, whole-hull glow, additive
- *                          discs + 8 PointLights */
+ *                          discs + 8 PointLights
+ *    classic               the classic shader's print reveal and window
+ *                          glow at each structure's light level
+ *                          (classicBuilding.ts lightLevel), draped flood
+ *                          pools at the same level (classicFloods.ts), a
+ *                          contact decal under every footprint (no shadow
+ *                          map) */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_M } from '../data/balance';
@@ -23,6 +29,10 @@ import { materials } from '../world/materials';
 import {
   floodSlots, floodStats, setFloodNight, setFloodSlots, setFloodSources, type FloodSource,
 } from '../world/floodlights';
+import { classicActive } from '../core/style';
+import { lightLevel } from './classicBuilding';
+import { ContactDecals } from './contactDecals';
+import { ClassicFloods } from './classicFloods';
 
 const MAX_PER_TYPE = 96;
 
@@ -61,6 +71,15 @@ export class BuildingInstances {
   onShadowCastersChanged?: () => void;
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
+  /** classic style: per-instance light levels, contact decals */
+  private readonly classic = classicActive();
+  private decals: ContactDecals | null = null;
+  private floods: ClassicFloods | null = null;
+  private night = 0;
+  private glowNight = -1;
+  /** instance order per type as structures (the classic glow refresh) */
+  private lists = new Map<BuildingId, BuildingState[]>();
+  private litList: BuildingState[] = [];
 
   constructor(private hf: Heightfield) {
     const discGeo = new THREE.CircleGeometry(1, 24);
@@ -94,6 +113,11 @@ export class BuildingInstances {
     }));
     this.scaffold.frustumCulled = false;
     this.group.add(this.scaffold);
+    if (this.classic) {
+      this.decals = new ContactDecals(hf);
+      this.floods = new ClassicFloods(hf);
+      this.group.add(this.decals.mesh, this.floods.mesh);
+    }
   }
 
   /** Night lighting runs in the shader patches (floods + windows). */
@@ -102,12 +126,13 @@ export class BuildingInstances {
   }
 
   /** Construction shows as the print reveal rather than the squash-rise. */
-  private get reveal(): boolean { return materials.patched('building'); }
+  private get reveal(): boolean { return materials.patched('building') || materials.classicCustom('building'); }
 
-  /** 0 = day (pools invisible) … 1 = deep night. Called per frame. */
+  /** 0 = day (pools invisible) … 1 = deep night. Called per frame. Classic
+   *  draws its own draped pools instead (classicFloods.ts). */
   setNightGlow(f: number) {
     this.discMaterial.opacity = 0.5 * f;
-    this.discs.visible = !this.shaderLights && f > 0.02;
+    this.discs.visible = !this.classic && !this.shaderLights && f > 0.02;
   }
 
   /** Per frame, before the shadow fit: shader clocks, night level, the look
@@ -116,6 +141,8 @@ export class BuildingInstances {
   update(dt: number, nightFactor: number, sunDir: THREE.Vector3, step: number) {
     buildingUniforms.uBldTime.value = (buildingUniforms.uBldTime.value + dt) % 1000;
     buildingUniforms.uBldNight.value = nightFactor;
+    this.night = nightFactor;
+    if (this.classic && Math.abs(nightFactor - this.glowNight) > 0.004) this.refreshGlow();
     const shader = this.shaderLights;
     setFloodNight(shader ? nightFactor : 0);
     // the stock material has no window mask: the old whole-hull glow stands in
@@ -208,8 +235,30 @@ export class BuildingInstances {
     });
     this.discs.instanceMatrix.needsUpdate = true;
     this.discs.computeBoundingSphere();
+    this.litList = lit;
+    this.floods?.rebuild(lit);
+    if (this.classic) this.refreshGlow();
+    this.decals?.rebuild(state);
 
     this.rebuildScaffold(state);
+  }
+
+  /** Classic: every structure's light level into its windows (iGlow) and
+   *  its flood pool, at tonight's night factor. */
+  private refreshGlow() {
+    this.glowNight = this.night;
+    for (const [type, mesh] of this.meshes) {
+      const list = this.lists.get(type) ?? [];
+      const glow = mesh.geometry.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
+      if (!glow) continue;
+      for (let i = 0; i < mesh.count; i++) glow.setX(i, list[i] ? lightLevel(list[i], this.night) : 0);
+      glow.needsUpdate = true;
+    }
+    const byId = new Map(this.litList.map((b) => [b.id, b]));
+    this.floods?.setLevels((id) => {
+      const b = byId.get(id);
+      return b ? lightLevel(b, this.night) : 0;
+    });
   }
 
   private rebuildScaffold(state: GameState) {
@@ -276,7 +325,21 @@ export class BuildingInstances {
     st.needsUpdate = true;
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
+    this.lists.set(type, list.slice(0, MAX_PER_TYPE));
     return sig;
+  }
+
+  /** A structure's per-instance light (tests): its glow level (the classic
+   *  windows' iGlow; null in High detail) and the powered flag (iState.x). */
+  glowOf(id: number): { glow: number | null; powered: number } | null {
+    for (const [type, order] of this.ids) {
+      const i = order.indexOf(id);
+      if (i < 0) continue;
+      const g = this.meshes.get(type)!.geometry;
+      const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
+      return { glow: glow ? glow.getX(i) : null, powered: g.getAttribute('iState').getX(i) };
+    }
+    return null;
   }
 
   /** Material class per building type (safe-mode checks, probes). */
@@ -289,10 +352,11 @@ export class BuildingInstances {
   /** Night-lighting path, floods and moving parts (tests, probes). */
   renderInfo() {
     return {
-      nightLights: this.shaderLights ? 'shader' : 'stock',
+      nightLights: this.classic ? 'classic' : this.shaderLights ? 'shader' : 'stock',
       reveal: this.reveal,
       floods: floodStats(),
-      discs: this.discs.visible ? this.discs.count : 0,
+      discs: this.discs.visible ? this.discs.count : this.floods?.count ?? 0,
+      decals: this.decals?.count ?? 0,
       scaffold: this.scaffold.visible ? this.scaffold.geometry.getAttribute('position')?.count / 2 : 0,
       trackers: this.trackers.info(),
       clock: buildingUniforms.uBldTime.value,

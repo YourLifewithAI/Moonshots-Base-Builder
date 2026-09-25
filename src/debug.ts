@@ -131,6 +131,8 @@ function api(game: Game) {
     terrainColorAt: (x: number, z: number) => game.debugTerrainColor(x, z),
     /** the drawn ground vs hf.sample: { vertex, max, mean } (m) */
     terrainError: () => game.debugTerrainError(),
+    /** a structure's light: { glow (classic iGlow), powered } */
+    buildingGlow: (id: number) => game.debugBuildingGlow(id),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     recipeTriangles: () => recipeTriangles(),
     beginPlacement: (type: BuildingId) => game.beginPlacement(type),

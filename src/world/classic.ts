@@ -4,6 +4,8 @@
  *    terrain · ring · berms   stock Lambert, vertex colours (the geometry
  *                             is faceted; terrain/classicGround.ts colours it)
  *    rocks                    stock Lambert, per-instance colours
+ *    buildings · parts ·      the one small classic shader (palette, glow,
+ *    rovers · cargo lander    beacons, print reveal): buildings/classicBuilding.ts
  *    placement ghost          stock Lambert, translucent: the form reads by
  *                             its lit and shaded faces, pale = yes, dark = no
  *    dust                     stock points (static puffs placed on the CPU)
@@ -12,6 +14,7 @@
  *  float render targets. */
 import * as THREE from 'three';
 import { materials } from './materials';
+import { installClassicBuildings } from '../buildings/classicBuilding';
 
 materials.defineClassic('terrain', new THREE.MeshLambertMaterial({ vertexColors: true }));
 materials.defineClassic('rock', new THREE.MeshLambertMaterial());
@@ -24,5 +27,5 @@ materials.defineClassic('dust', new THREE.PointsMaterial({
 
 /** Boot-time setup for a classic session (before any world exists). */
 export function installClassic() {
-  // the buildings' palette and lights join here (buildings/classicBuilding.ts)
+  installClassicBuildings();
 }
