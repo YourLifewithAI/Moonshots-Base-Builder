@@ -45,6 +45,7 @@ src/
     recipes.ts            21 building silhouettes + moving-part mounts (cached)
     buildingShader.ts     building patch: finishes, seams, windows, beacons, print reveal, floods
     instances.ts          one InstancedMesh per type + iState; floods, discs fallback, scaffold, picking, AABBs
+    darkness.ts           per-structure darkness k (night, low or set sun, terrain shadow) for the base's own lights
     trackers.ts           sun-tracking solar wings, Earth-aimed dishes (instanced apart)
     scaffold.ts           construction scaffold line geometry
     ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
@@ -56,7 +57,7 @@ src/
     lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + headlamp
     sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
-    floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
+    floodlights.ts        flood uniform array (per-slot darkness) + night earthshine floor, shared by the patches
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
     rovers.ts             construction-robot fleet: docks, site assignment, corner-hopping paths

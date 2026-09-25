@@ -112,8 +112,8 @@ One sun, one fill, the base's own lamps, and a suit lamp on foot:
 | Sun | `DirectionalLight #fffdf8`, intensity **5.4** (physically hot; AgX rolls it off) |
 | Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
 | Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 1.0 (night)** (the eye adapting) |
-| Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy |
-| Night floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
+| Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy. Night only: a shadowed crater by day keeps the day's earthshine and bounce |
+| Floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2 × the structure's darkness *k*; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
 | Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
 | Headlamp | camera-mounted `SpotLight #fff6ea`, **16 cd** at full night, range 40 m, cone 0.52 rad, penumbra 0.6, decay 2, 0.12 m above the eye and aimed ~23° under the gaze; no shadow. Always in the scene (constant light count — a light joining would recompile every lit program), intensity 0 except on foot, ramped in over night factor 0.25 → 0.75 |
 | Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
@@ -151,29 +151,57 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   throw Apollo-black shadow at low sun, and a solar array the economy marks
   as terrain-shaded now visibly sits in shadow.
 
-### Night lighting (`world/floodlights.ts`, `buildings/instances.ts`)
+### The base's own light (`buildings/darkness.ts`, `world/floodlights.ts`, `buildings/instances.ts`)
 
-At night the base lights itself, and only where the grid is live:
+Wherever it stands dark the base lights itself, not only at night: at the
+pole the sun sits a few degrees up and the rim's shadow covers the base while
+the clock says day. It lights only where the grid is live:
 
+- **Darkness per structure, *k* ∈ 0..1** (`buildings/darkness.ts`, visual
+  only and renderer-independent: `darkness.of(id)`). The target is the
+  largest of the night factor; the sky, 1 once the sun has set (1 − the
+  sun's light), and a grazing sun counting partly dark, **0.5 at 2°** of
+  elevation and below, easing to **0 by 8°** (walls catch it, the ground
+  barely does); and terrain shadow, a march through the heightfield toward
+  the sun from **mid-height** of the structure (reach 900 m, about what the
+  shadow map holds) on the game's 0.5 s shading pass. *k* follows its
+  target with a **0.5 s** time constant of real time, so lights fade over a
+  second or two instead of popping, paused or not. `b.shaded` stays the
+  economy's solar test; nothing the sim reads changes.
 - **Floods are shader data**, not scene lights: one `uniform vec4
-  uFlood[32]` (xyz = lamp, w = reach) evaluated in the terrain, rock and
-  building patches — `N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Pools drape over
-  slopes and crater walls (no flat discs cutting through the ground), and
-  never jump between buildings while the camera pans.
+  uFlood[32]` (xyz = lamp, w = reach + darkness) evaluated in the terrain,
+  rock and building patches: `k × N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Each
+  slot packs its structure's *k* into the fraction of w (`floor(r) +
+  min(k, 0.999)`), so a structure's pool lights when it stands dark, in a
+  crater's shadow at noon as at night, and a sunlit one lays none. There is
+  no second array, so the terrain's fragment-uniform budget is unchanged.
+  Pools drape over slopes and crater walls (no flat discs cutting through
+  the ground), and never jump between buildings while the camera pans.
 - **Filled once per economy tick from every powered structure** (complete,
   enabled, not browned out). A brownout turns that structure's pool *and*
-  its windows off: the cause is visible. Past 32 structures, lamps merge
-  into grid clusters (24 m cells, growing) instead of being dropped.
-- **Zero cost by day**: the count uniform is 0 until night, so the loop
-  exits at once; the slot count is fixed per FX level (32 at FX 0–1, 16 at
-  FX 2), so dusk never recompiles anything.
-- **Windows, not hulls, glow**: `WINDOW` and `LAMP` parts emit warm white ×
-  lit × night (rover headlights included); beacons blink (0.2 s every 2 s,
-  phase per instance, on the building shader's own clock) day and night.
-- **Fallback** (FX 3, a patch fault, safe mode): the old path — whole-hull
-  glow 0.09, additive discs under lit structures and 8 PointLights over the
-  nearest ones. The PointLights leave the scene while the shader floods run,
-  so the lit programs don't carry `NUM_POINT_LIGHTS` all day.
+  its windows, lamps and beacons off at any *k*: the cause is visible. Past
+  32 structures, lamps merge into grid clusters (24 m cells, growing)
+  instead of being dropped; a cluster takes its darkest member's *k*. Per
+  frame, only while some *k* moves, the values are written into the slots
+  and the instances: nothing re-clusters and nothing is allocated.
+- **Zero cost in the light**: the count uniform runs only through the last
+  slot darker than 0.03, so a sunlit base's loop exits at once; the slot
+  count is fixed per FX level (32 at FX 0–1, 16 at FX 2), so dusk (or a
+  shadow) never recompiles anything.
+- **Windows, not hulls, glow**: the lit channel `iState.x` carries the
+  darkness (0 unlit · 1 lit at the night's, for rovers, the cargo lander and
+  the tracker parts · 2 + *k*). `WINDOW` parts emit warm white × lit ×
+  max(*k*, 0.1) × 1.6, a faint glow by day. `LAMP` parts (emit class 3) × lit
+  × *k* × 2.6: they light with their flood, rover headlights with the night.
+  Beacons blink (0.2 s every 2 s, phase per instance, on the building
+  shader's own clock) whenever powered, at 1 + 3*k* + 2 × night: readable in
+  daylight shadow, brighter still at night.
+- **Fallback** (FX 3, a patch fault, safe mode): the old path, per structure.
+  Additive discs under lit structures, each tinted by its *k*; 8 PointLights
+  (60 cd × *k*) over the dark structures nearest the camera; and the
+  whole-hull glow 0.09, still at night only. The PointLights leave the scene
+  while the shader floods run, so the lit programs don't carry
+  `NUM_POINT_LIGHTS` all day.
 
 ### The sky (`world/sky.ts`, `world/swarm.ts`)
 
@@ -255,7 +283,7 @@ by feature:
 | SMAA · AgX · grain · vignette | final pass | final pass | final pass | AgX in the materials | AgX in the materials |
 | Sun shadows | ✓ | ✓ | ✓ | ✓ | off |
 | Regolith shader (terrain, ring, berms) | `regolith-2`: both detail scales, lunar photometry | `regolith-2` | `regolith-1`: coarse scale | stock | unlit twin |
-| Night floods (slots) | 32 | 32 | 16 | discs + 8 PointLights | discs + 8 PointLights |
+| Floods (slots) | 32 | 32 | 16 | discs + 8 PointLights | discs + 8 PointLights |
 | Earthshine floor | ✓ | ✓ | ✓ | — | — |
 | Building shader | `bldg-2`: finishes, seams, windows, beacons, print reveal | `bldg-2` | `bldg-1`: no seams | stock: squash-rise, hull glow | unlit twin |
 | Shadow-depth cut | `bldg-depth` | `bldg-depth` | `bldg-depth` | stock | stock copy (no shadows drawn) |
@@ -312,7 +340,10 @@ Moving things (§7) add exactly one patch (`dust`); everything else reuses
 existing programs or stock unlit materials, and each part of the motion
 layer fails soft — an exception hides that part and the game carries on.
 `tests/render.spec.ts` walks all five rungs, by day and by night, and checks
-the motion layer at FX 0, FX 3 and in safe mode; it also holds the safety
+the motion layer at FX 0, FX 3 and in safe mode, and the base's own light
+(a pole structure in the rim's shadow lit by day, discs on the stock path,
+a sunlit mare base with no flood live, the fade at nightfall, an unpowered
+structure dark at any *k*); it also holds the safety
 contract above — safe mode plain with the sentinel on, a return to a patched
 level with live uniforms (FX 0 → 3 → 0, then night), night and dusk probes,
 raise trials and the remembered failures, one scene render a frame, and the
@@ -420,9 +451,10 @@ Lander) is merged from a tiny parametric kit:
   finishes; fwidth-antialiased panel seams every 1.2 m in object space on
   the face-tangent axes (−12%, faded under a pixel and past 80–160 m);
   per-instance state `iState = (lit, dust, wear, cut)`: dust grays and
-  mattes the glass, wear darkens, windows glow at night when lit, beacons
-  blink on a clock the frame loop advances (`uBldTime`, real time, so they
-  keep blinking while the game is paused).
+  mattes the glass, wear darkens, windows and lamps glow when lit and the
+  structure stands dark (§3, the base's own light), beacons blink on a clock
+  the frame loop advances (`uBldTime`, real time, so they keep blinking
+  while the game is paused).
 - **Construction is a 3D print**: fragments above the cut height
   (progress × recipe height) are discarded with a warm band at the cut, and
   a matching patched `customDepthMaterial` cuts the shadow the same way. A
@@ -548,7 +580,7 @@ asked ("research has no visible consequences"). All visual only.
   It opens at the doors — the gaps come from the recipes' door positions —
   tapering to the ground over 1.3 m. One merged mesh, draped on the
   heightfield (it follows later pads' skirts) in the terrain's own material
-  and albedo, so it shades, floods at night and falls back exactly like the
+  and albedo, so it shades, catches the floods and falls back exactly like the
   ground it was pushed up from. It casts shadows and is rebuilt only when the
   set of shielded structures or the ground under them changes.
 - **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors
@@ -616,7 +648,7 @@ direction, not an afterthought:
 | Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply) |
 | Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each |
 | Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
-| Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock night path |
+| Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock path |
 | Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
 | Per-frame CPU | small and flat | ≤ 64 rover matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms rebuilt only on change |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
