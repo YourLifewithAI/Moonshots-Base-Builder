@@ -1292,7 +1292,7 @@ export class Game {
       dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
       sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
     });
-    sfx.setRovers(this.life.rovers.sounds(this.camera));
+    sfx.setRovers(this.life.rovers.sounds(this.camera, onFoot ? null : this.buildCam.target));
 
     // autosave (real time)
     this.autosaveAcc += dt;
