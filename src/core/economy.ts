@@ -10,7 +10,7 @@
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { MILESTONES } from '../data/milestones';
 import {
-  ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S,
+  ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S,
   CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, FLARE, HELIOPHYSICS_DATA, NIGHT_S,
   LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, WEAR,
@@ -23,7 +23,8 @@ import {
 } from './mods';
 import { computeEra, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
 import { explorationTick } from './exploration';
-import { FEED_KINDS, emptyFeed, feedKindOf } from '../data/deposits';
+import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
+import { ensureHaul, haulTick, haulWaiting } from './haul';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 
@@ -217,28 +218,17 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     st.nightDcAllActive = true;
   }
 
-  // ── 0 · construction robots — the fleet gates concurrent builds ────
+  // ── 0 · construction rovers — the roster follows the docks; auto rovers
+  // go one per site in queue order (placement order unless Build next), a
+  // shut-down site keeps its place in line but frees its rover, pinned
+  // rovers stay put, and a survey borrows one (core/fleet.ts) ────────────
   const building = (b: BuildingState) => (b.construction ?? 0) > 0;
-  let botsTotal = 0;
-  for (const b of s.buildings) {
-    if (!b.enabled || building(b)) continue;
-    botsTotal += BUILDINGS[b.type].bots ?? 0;
-    // self-assembly: bays print extra workers
-    if (b.type === 'roboticsBay') botsTotal += mods.botPerBay;
-  }
-  // a survey borrows one robot for its trip
-  if (s.survey.active) botsTotal = Math.max(0, botsTotal - 1);
-  // robot queue: placement order unless a site was moved up with Build next;
-  // a shut-down site keeps its place in line but frees its robot
+  syncRoster(s, mods);
+  const crews = assignRovers(s);
   const sites = s.buildings.filter(building).sort((a, b) => queuePos(a) - queuePos(b) || a.id - b.id);
-  const botAssigned = new Set<number>();
-  for (const site of sites) {
-    if (botAssigned.size >= botsTotal) break;
-    if (site.enabled) botAssigned.add(site.id);
-  }
-  s.bots = { total: botsTotal, busy: botAssigned.size };
   st.waitingSitesPeak = Math.max(st.waitingSitesPeak,
-    sites.filter((b) => b.enabled && !botAssigned.has(b.id)).length);
+    sites.filter((b) => b.enabled && !crews.has(b.id)).length);
+  for (const n of crews.values()) st.crowdedSiteMax = Math.max(st.crowdedSiteMax ?? 0, n);
 
   // ── 0.5 · generator staffing — crewed generators take workers first,
   // because every other station's power depends on them ───────────────
@@ -317,6 +307,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // (Room for a whole tick, not "below cap": upkeep nibbling a full yard
   // must not wake a fabricator every tick.)
   const outputFull = (b: BuildingState) => {
+    // an excavator stands by only at the consumer, when there is no room for its load
+    if (b.type === 'excavator') return haulWaiting(s, b, caps);
     const outs = Object.entries(rates(b).outputs) as [ResourceId, number][];
     return outs.length > 0 && outs.every(([rid, rate]) => caps[rid] !== undefined &&
       s.resources[rid] + rate * dt > caps[rid]!);
@@ -328,10 +320,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const b of s.buildings) {
     if (building(b)) {
       // an active construction site pulls welding power at its building's
-      // idle priority
-      if (botAssigned.has(b.id)) {
-        wants.push({ b, draw: CONSTRUCTION_KW * mods.constructionKWMult * dt, prio: b.priority, isSite: true });
-      }
+      // idle priority: each rover on it draws its own
+      const n = crews.get(b.id) ?? 0;
+      if (n > 0) wants.push({ b, draw: crewKW(mods, n) * dt, prio: b.priority, isSite: true });
       continue;
     }
     if (eff(b.type).powerKW >= 0) continue;
@@ -405,13 +396,15 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
   }
 
-  // ── 2.5 · construction progress: needs a robot, grid power, AND parts ──
+  // ── 2.5 · construction progress: needs a rover, grid power, AND parts;
+  // n rovers build n^0.85 times as fast, on the same weld parts per build ──
   for (const b of sites) {
     b.active = false;
     if (!b.enabled) { b.idleReason = 'off'; continue; }
-    if (!botAssigned.has(b.id)) { b.idleReason = 'queued'; continue; }
+    const crew = crews.get(b.id) ?? 0;
+    if (crew === 0) { b.idleReason = 'queued'; continue; }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
-    const weld = CONSTRUCTION_PARTS_PER_S * mods.weldPartsMult * dt;
+    const weld = crewParts(mods, crew) * dt;
     if (s.resources.parts < weld) {
       b.idleReason = 'inputs'; // welding consumables ran dry
       condition(s, 'stalled', 'CONSTRUCTION STALLED — no parts for welding', 'warn', { panel: 'parts' });
@@ -419,7 +412,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
     s.resources.parts -= weld;
     b.idleReason = 'building';
-    b.construction = Math.max(0, (b.construction ?? 0) - dt * mods.weldRateMult);
+    b.construction = Math.max(0, (b.construction ?? 0) - dt * mods.weldRateMult * crewRate(crew));
     if (b.construction === 0) {
       b.idleReason = '';
       st.built += 1;
@@ -487,8 +480,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const share = uplinkShare((byType.get('lab') ?? []).filter((b) => runs(b) && isAuto(b)).length);
   let smelterO2 = 0; // this tick's smelter oxygen, for the crew rotation's check
   let ilmeniteDug = false;
-  // regolith dug this tick by kind of ground: the feed every processor sees
-  const dug = emptyFeed();
+  // excavators credit their loads on unload (core/haul.ts): the lumps, and
+  // the cycles' average delivery the smoothed net rates count instead
+  const hauled: Partial<Record<ResourceId, number>> = {};
+  const haulFlow: Partial<Record<ResourceId, number>> = {};
   for (const type of PROD_ORDER) {
     const list = byType.get(type);
     if (!list) continue;
@@ -510,6 +505,18 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       for (const [rid, rate] of Object.entries(r.inputs)) {
         s.resources[rid as ResourceId] -= (rate ?? 0) * dt;
       }
+      if (type === 'excavator') {
+        const h = haulTick(s, mods, b, r, dt, caps);
+        for (const [rid, amt] of Object.entries(h.credited) as [ResourceId, number][]) {
+          hauled[rid] = (hauled[rid] ?? 0) + amt;
+          st.produced[rid] += amt;
+        }
+        for (const [rid, f] of Object.entries(h.flow) as [ResourceId, number][]) haulFlow[rid] = (haulFlow[rid] ?? 0) + f;
+        if (h.dugS > 0 && b.deposit === 'ilmenite') ilmeniteDug = true;
+        if (h.note) alert(s, h.note, 'warn', { select: b.id });
+        b.active = true;
+        continue;
+      }
       // outputs — a farm that lost its crop is regrowing and makes nothing yet
       const regrowing = type === 'hydroponics' && (b.cropRegrowT ?? 0) > 0;
       if (regrowing) b.cropRegrowT = Math.max(0, b.cropRegrowT! - dt);
@@ -521,20 +528,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         }
       }
       if (type === 'smelter') smelterO2 += r.outputs.oxygen ?? 0;
-      if (type === 'excavator') {
-        if (b.deposit === 'ilmenite') ilmeniteDug = true;
-        dug[feedKindOf(b.deposit)] += (r.outputs.regolith ?? 0) * dt;
-      }
       // labs (uplink share on agent-run ones, crewed ones scale with morale)
       // and data centers: the same numbers researchRates reports
       s.data += r.data * dt;
       b.active = true;
-    }
-    // excavators dig the ground they sit on: an instant share of this tick's
-    // dig, kept as it was when nothing was dug
-    if (type === 'excavator') {
-      const total = FEED_KINDS.reduce((sum, k) => sum + dug[k], 0);
-      if (total > 0) for (const k of FEED_KINDS) s.feed[k] = dug[k] / total;
     }
   }
   if (ilmeniteDug) st.ilmeniteDigS += dt;
@@ -683,11 +680,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       : 'PARTS DEPLETED — equipment wearing down; order an Earth shipment at the Lander', 'warn', { panel: 'parts' });
   }
 
-  // ── 6.5 · net flow rates (before deliveries and research goods) ──────
+  // ── 6.5 · net flow rates (before deliveries and research goods; an
+  // excavator's load counts as its cycle's average, not as a lump) ──────
   if (!s.rates) s.rates = {};
   const k = Math.min(1, dt / RATE_SMOOTH_S);
   for (const rid of Object.keys(s.resources) as ResourceId[]) {
-    const r = (s.resources[rid] - before[rid]) / dt;
+    const r = (s.resources[rid] - before[rid] - (hauled[rid] ?? 0)) / dt + (haulFlow[rid] ?? 0);
     const prev = s.rates[rid];
     s.rates[rid] = prev === undefined ? r : prev + (r - prev) * k;
   }
@@ -880,7 +878,12 @@ function crewRotationTick(s: GameState, mods: Mods, smelterO2: number) {
 export function refreshDerived(s: GameState): Mods {
   fillStateDefaults(s);
   s.era = computeEra(s);
-  return modsFor(s);
+  const mods = modsFor(s);
+  // saves from before fleet control: a roster from the docks, and every
+  // excavator digging its own pad — as it did
+  fleetRefresh(s, mods);
+  for (const b of s.buildings) ensureHaul(b);
+  return mods;
 }
 
 export { computeMods };

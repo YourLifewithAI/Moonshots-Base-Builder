@@ -20,6 +20,7 @@ import type { GameState, OutpostState } from './state';
 import type { Mods, SurveyTier } from './mods';
 import { alert, condition, crewReserve } from './economy';
 import { resolveTech } from './research';
+import { borrowable } from './fleet';
 import { fmtClock } from './daynight';
 
 export interface ActionResult { ok: boolean; reason: string }
@@ -223,6 +224,7 @@ export function surveyRefusal(s: GameState, mods: Mods, pid: ProspectId): string
     return `OUT OF RANGE — ${p.short} is ${CLASS_LABEL[c.cls]}: needs T${c.tier} ${tierTech(c.tier, s)}`;
   }
   if ((s.bots?.total ?? 0) < 1) return 'SURVEY NEEDS A ROBOT — the construction fleet is empty';
+  if (s.rovers?.length && !borrowable(s)) return 'SURVEY NEEDS A FREE ROVER — every rover is pinned to a site; release one';
   if (s.powerStored < c.energy) return `SURVEY NEEDS ${c.energy} STORED ENERGY — have ${Math.floor(s.powerStored)}`;
   for (const [rid, need] of [['oxygen', c.oxygen], ['water', c.water], ['parts', c.parts]] as [ResourceId, number][]) {
     const have = rid === 'parts' ? s.resources.parts : spare(s, mods, rid);
@@ -243,7 +245,14 @@ export function startSurvey(s: GameState, mods: Mods, pid: ProspectId): ActionRe
   s.resources.oxygen -= c.oxygen;
   s.resources.water -= c.water;
   s.resources.parts -= c.parts;
-  s.survey.active = { id: pid, startedAt: s.simTime, endsAt: s.simTime + c.timeS };
+  // the rover it borrows is never a pinned one (core/fleet.ts)
+  const rover = borrowable(s)?.id;
+  s.survey.active = { id: pid, startedAt: s.simTime, endsAt: s.simTime + c.timeS, ...(rover !== undefined ? { rover } : {}) };
+  if (rover !== undefined) {
+    const r = s.rovers.find((x) => x.id === rover)!;
+    r.site = null;
+    r.pinned = false;
+  }
   alert(s, `SURVEY LAUNCHED — ${PROSPECTS[pid].short} by ${c.method}, back in ${fmtClock(c.timeS)} · 1 robot lent`, 'info');
   return OK;
 }
