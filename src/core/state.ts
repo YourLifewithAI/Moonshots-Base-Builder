@@ -7,6 +7,7 @@ import { SITES, type SiteId } from '../data/sites';
 import { emptyFeed, type DepositKind, type FeedGrade, type FeedKind } from '../data/deposits';
 import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
 import { START } from '../data/balance';
+import { RULES, RULE_ORDER, FAMILY_PRIORITY, type AutoFamily, type AutoRuleId } from '../data/automation';
 
 export interface BuildingState {
   id: number;
@@ -51,7 +52,95 @@ export interface BuildingState {
   staffedPrev?: boolean;
   /** Regolith Excavator: the mobile digger's haul cycle (core/haul.ts) */
   haul?: HaulState;
+  /** placed by the Builder (an order or a standing rule; docs/13) */
+  auto?: AutoTag;
+  /** seconds held at wear ≥ the Maintenance threshold (Maintenance Automation) */
+  wornT?: number;
+  /** its overclock tripped at WORN (Maintenance Automation re-arms it once healed) */
+  ocTripped?: boolean;
+  /** Feed Planner leaves this excavator's dig site alone (the player opted out) */
+  feedPlanOff?: boolean;
 }
+
+/** Why and by whom the Builder placed a building (the inspector's AUTO tag). */
+export interface AutoTag {
+  by: 'order' | 'rule';
+  rule?: AutoRuleId;
+  order?: number;
+  /** game time placed */
+  at: number;
+  /** why here: 'nearest free pad to Smelter #3 · 18 m' */
+  why: string;
+  /** the chooser: distance only, or Site Survey AI */
+  survey?: boolean;
+  /** a planned dig site, applied when the excavator stands (Site Survey AI) */
+  dig?: { x: number; z: number };
+  /** Maintenance: the worn building this one replaces (demolished when it stands) */
+  replaces?: number;
+}
+
+/** A standing rule's live state (core/automation.ts). */
+export type RulePhase =
+  | 'off' | 'locked' | 'ok' | 'watching' | 'building' | 'settling' | 'waiting' | 'holding'
+  | 'capped' | 'nosite' | 'vetoed' | 'founded' | 'frozen';
+export interface RuleState {
+  on: boolean;
+  /** in the rule's own unit (data/automation.ts) */
+  threshold: number;
+  cap: number;
+  phase: RulePhase;
+  /** seconds past the trigger (decays in the hysteresis band) */
+  dwell: number;
+  /** the pending site it placed (building id) */
+  site: number | null;
+  /** cooldown, settle or veto end (game time) */
+  nextAt: number;
+  /** lifetime placements */
+  built: number;
+  /** the status tail the panel prints */
+  why: string;
+  /** seconds the current refusal has held (alerts wait AUTO.refusalAlertS) */
+  holdT: number;
+  /** battery: dawns-after-a-dry-bank already answered */
+  seen?: number;
+  /** a freeze (a hazard, or Freeze rules) holds this rule until then */
+  frozenUntil?: number;
+}
+export interface AutoOrder {
+  id: number;
+  type: BuildingId;
+  count: number;
+  /** the sites placed so far (building ids) */
+  placed: number[];
+  intent: { res?: ResourceId; like?: number };
+  at: number;
+  /** what it waits for ('' = placing) */
+  waiting: string;
+}
+export interface AutoVeto { rule: AutoRuleId | 'order'; gx0: number; gz0: number; gx1: number; gz1: number; until: number }
+export interface AutoState {
+  schema: 1;
+  rules: Partial<Record<AutoRuleId, RuleState>>;
+  orders: AutoOrder[];
+  nextOrderId: number;
+  /** the Budget Governor's floors per resource (unset = the default) */
+  reserve: Partial<Record<ResourceId, number>>;
+  /** the order families act in (the Governor makes it the player's) */
+  priority: AutoFamily[];
+  vetoes: AutoVeto[];
+  log: { at: number; text: string; id?: number }[];
+  /** the day's grid margin, a 20 s EMA of full-sun samples (null = not read yet) */
+  margin: number | null;
+  /** every rule is frozen until then (Freeze rules, or a hazard) */
+  frozenUntil: number;
+  /** families whose rules were switched on when they unlocked (never again) */
+  families: AutoFamily[];
+}
+
+/** made / wanted / spent per game-second, each an EMA (economy step 8.9) —
+ *  the supply-against-demand signal the standing rules read. `acc` gathers
+ *  lump spending between ticks. */
+export interface FlowEntry { made: number; want: number; spend: number; acc: number }
 
 /** One construction rover (core/fleet.ts). Auto rovers go one per active
  *  site in queue order; a pinned rover stays at its site until it completes. */
@@ -116,6 +205,10 @@ export interface GameStats {
   outpostPairOpS: number;
   minReserveS: number;
   minMorale: number;
+  /** the night in progress shed or browned out with the bank empty (reset at dusk) */
+  nightBankEmpty: boolean;
+  /** dawns after a night whose bank ran dry (the Builder's battery rule answers each) */
+  bankDryDawns: number;
   /** the most rovers that ever worked one site at once */
   crowdedSiteMax: number;
   /** the longest haul an excavator has driven, dig site to consumer (m) */
@@ -192,6 +285,8 @@ export interface GameState {
   power: {
     supply: number; demand: number; served: number; capacity: number;
     brownout: boolean; shed: boolean;
+    /** the same panels under a full sun; supply the night would leave; construction draw (kW) */
+    supplyFull?: number; supplyNight?: number; construction?: number;
   };
 
   crew: number;
@@ -261,6 +356,10 @@ export interface GameState {
   /** dismissed conditions: key → game time the snooze ends */
   alertSnooze: Record<string, number>;
   milestonesDone: string[];
+  /** the Builder: orders, standing rules, reserves (docs/13) */
+  auto: AutoState;
+  /** supply against demand, per resource (docs/13 §3.1) */
+  flowBook: Partial<Record<ResourceId, FlowEntry>>;
 
   victoryShown: boolean;
   defeatShown: boolean;
@@ -317,6 +416,8 @@ export function createInitialState(
     nextAlertId: 1,
     alertSnooze: {},
     milestonesDone: [],
+    auto: defaultAuto(),
+    flowBook: {},
     victoryShown: false,
     defeatShown: false,
   };
@@ -336,6 +437,7 @@ export function emptyStats(): GameStats {
     minReserveS: 1e9,   // "never measured": no crew aboard yet
     minMorale: 100,
     crowdedSiteMax: 0, haulMaxM: 0,
+    nightBankEmpty: false, bankDryDawns: 0,
   };
 }
 
@@ -379,5 +481,45 @@ export function fillStateDefaults(s: GameState): GameState {
   // (core/fleet.ts syncRoster) and each excavator digs its own pad (core/haul.ts)
   legacy.rovers ??= [];
   legacy.nextRoverId ??= 1 + legacy.rovers.reduce((m, r) => Math.max(m, r.id), 0);
+  // saves from before the Builder: every rule off (a loaded save never switches
+  // one on), rules added later join with their defaults
+  legacy.auto = fillAuto(legacy.auto);
+  legacy.flowBook ??= {};
   return s;
+}
+
+/** A rule's state before it has ever run. */
+export function defaultRule(id: AutoRuleId): RuleState {
+  const d = RULES[id];
+  return {
+    on: false, threshold: d.threshold, cap: d.cap, phase: 'off', dwell: 0, site: null, nextAt: 0, built: 0,
+    why: '', holdT: 0,
+  };
+}
+
+export function defaultAuto(): AutoState {
+  return {
+    schema: 1,
+    rules: Object.fromEntries(RULE_ORDER.map((r) => [r, defaultRule(r)])),
+    orders: [], nextOrderId: 1, reserve: {}, priority: [...FAMILY_PRIORITY], vetoes: [], log: [],
+    margin: null, frozenUntil: 0, families: [],
+  };
+}
+
+/** Fill an old or partial AutoState (never switches a rule on). */
+export function fillAuto(a: Partial<AutoState> | undefined): AutoState {
+  const d = defaultAuto();
+  if (!a) return d;
+  const rules = { ...d.rules };
+  for (const id of RULE_ORDER) {
+    const r = a.rules?.[id];
+    if (r) rules[id] = { ...defaultRule(id), ...r };
+  }
+  const priority = (a.priority ?? []).filter((f) => FAMILY_PRIORITY.includes(f));
+  for (const f of FAMILY_PRIORITY) if (!priority.includes(f)) priority.push(f);
+  return {
+    schema: 1, rules, orders: a.orders ?? [], nextOrderId: a.nextOrderId ?? 1, reserve: a.reserve ?? {},
+    priority, vetoes: a.vetoes ?? [], log: a.log ?? [], margin: a.margin ?? null, frozenUntil: a.frozenUntil ?? 0,
+    families: a.families ?? [],
+  };
 }

@@ -3,7 +3,7 @@
  *  worker allocation → production (tier order) → life support & crew →
  *  parts upkeep & wear → net rates → morale → flare events → Earth
  *  shipments → exploration and the crew rotation → research → night
- *  tracking → charters → milestones. Every building's numbers come from mods.effectiveRates, the
+ *  tracking → charters → milestones → the Builder. Every building's numbers come from mods.effectiveRates, the
  *  same function the tooltips and previews read.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
@@ -26,6 +26,8 @@ import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
+import { updateFlowBook } from './flowBook';
+import { automationTick, type AutoRequest } from './automation';
 import { mulberry32 } from './rng';
 
 const PROD_ORDER: BuildingId[] = [
@@ -40,6 +42,8 @@ export interface EconEvents {
   modsChanged: boolean;
   victory: boolean;
   defeat: boolean;
+  /** step 12: what the Builder wants placed or demolished (Game.econStep resolves them) */
+  build: AutoRequest[];
 }
 
 type AlertKind = AlertMsg['kind'];
@@ -178,7 +182,7 @@ export function currentDay(s: GameState, site: SiteDef): DayInfo {
 
 /** Advance the economy by dt game-seconds (call at 1 Hz of game time). */
 export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
-  if (missionLost(s)) return { modsChanged: false, victory: false, defeat: false };
+  if (missionLost(s)) return { modsChanged: false, victory: false, defeat: false, build: [] };
   const seen = new Map<string, number>();
   raised = seen;
   const ev = runTick(s, site, mods, dt);
@@ -188,7 +192,13 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
 }
 
 function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvents {
-  const ev: EconEvents = { modsChanged: false, victory: false, defeat: false };
+  const ev: EconEvents = { modsChanged: false, victory: false, defeat: false, build: [] };
+  // the flow book's tick (docs/13 §3.1): what was made, and what was asked for
+  const made: Partial<Record<ResourceId, number>> = {};
+  const want: Partial<Record<ResourceId, number>> = {};
+  const add = (book: Partial<Record<ResourceId, number>>, rid: ResourceId, amt: number) => {
+    if (amt > 0) book[rid] = (book[rid] ?? 0) + amt;
+  };
   const before = { ...s.resources };
   const day = currentDay(s, site);
   const robotic = s.expedition === 'robotic';
@@ -216,6 +226,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     st.nightCritDark = false;
     st.nightLoadShed = false;
     st.nightDcAllActive = true;
+    st.nightBankEmpty = false;
   }
 
   // ── 0 · construction rovers — the roster follows the docks; auto rovers
@@ -282,6 +293,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   }
   // the beam comes from the swarm, and a flare blinds it
   if (mods.powerBeam && s.flare.phase !== 'active') supply += s.launches * BEAM_KW_PER_LAUNCH;
+  // the Builder's power book: the same panels under a full sun, and what a night would leave
+  const supplyFull = supply - solarNow + solarFull * site.solarDayMult;
+  const supplyNight = supply - solarNow + solarFull * site.nightSolarFraction * site.solarDayMult;
   // a bank shut down or demolished takes the charge the rest cannot hold
   // (only when capacity drops: a debug grant above it still carries a night)
   const spilled = s.powerStored - capacity;
@@ -405,6 +419,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (crew === 0) { b.idleReason = 'queued'; continue; }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
     const weld = crewParts(mods, crew) * dt;
+    add(want, 'parts', weld);
     if (s.resources.parts < weld) {
       b.idleReason = 'inputs'; // welding consumables ran dry
       condition(s, 'stalled', 'CONSTRUCTION STALLED — no parts for welding', 'warn', { panel: 'parts' });
@@ -423,7 +438,11 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const net = supply * dt - drawn;
   if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * mods.storageEff);
   else s.powerStored = Math.max(0, s.powerStored + net);
-  s.power = { supply, demand, served: drawn / dt, capacity, brownout, shed };
+  let construction = 0;
+  for (const w of wants) if (w.isSite) construction += w.draw / dt;
+  s.power = { supply, demand, served: drawn / dt, capacity, brownout, shed, supplyFull, supplyNight, construction };
+  // the bank could not carry the night (the Builder's battery rule answers at dawn)
+  if (day.isNight && (brownout || shed) && s.powerStored < Math.max(1, capacity * 0.05)) st.nightBankEmpty = true;
   if (brownout) {
     condition(s, 'brownout', day.isNight
       ? 'BROWNOUT — night demand exceeds stored power'
@@ -493,6 +512,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       const r = effectiveRates(type, mods, site, b, {
         ...rateOpts, agentRun: isAuto(b), feed: s.feed, uplinkShare: share,
       });
+      // what it asks for counts as demand, covered or not (the flow book)
+      for (const [rid, rate] of Object.entries(r.inputs)) add(want, rid as ResourceId, (rate ?? 0) * dt);
       // inputs
       let short: '' | 'inputs' | 'reserve' = '';
       for (const [rid, rate] of Object.entries(r.inputs)) {
@@ -511,7 +532,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
           hauled[rid] = (hauled[rid] ?? 0) + amt;
           st.produced[rid] += amt;
         }
-        for (const [rid, f] of Object.entries(h.flow) as [ResourceId, number][]) haulFlow[rid] = (haulFlow[rid] ?? 0) + f;
+        for (const [rid, f] of Object.entries(h.flow) as [ResourceId, number][]) {
+          haulFlow[rid] = (haulFlow[rid] ?? 0) + f;
+          add(made, rid, f * dt);
+        }
         if (h.dugS > 0 && b.deposit === 'ilmenite') ilmeniteDug = true;
         if (h.note) alert(s, h.note, 'warn', { select: b.id });
         b.active = true;
@@ -525,6 +549,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
           const amt = (rate ?? 0) * dt;
           s.resources[rid as ResourceId] += amt;
           st.produced[rid as ResourceId] += amt;
+          add(made, rid as ResourceId, amt);
         }
       }
       if (type === 'smelter') smelterO2 += r.outputs.oxygen ?? 0;
@@ -567,6 +592,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const o2Need = s.crew * CREW.oxygenPerCrew * lsMult * dt;
   const foodNeed = s.crew * CREW.foodPerCrew * lsMult * dt;
   const waterNeed = s.crew * CREW.waterPerCrew * lsMult * dt;
+  add(want, 'oxygen', o2Need);
+  add(want, 'food', foodNeed);
+  add(want, 'water', waterNeed);
   const o2ok = s.crew <= 0 || s.resources.oxygen >= o2Need;
   const foodok = s.crew <= 0 || s.resources.food >= foodNeed;
   const waterok = s.crew <= 0 || s.resources.water >= waterNeed;
@@ -645,9 +673,13 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
 
   // ── 6 · parts upkeep, wear, dust ───────────────────────────────────
   let partsShort = false;
-  for (const b of s.buildings) {
+  // Maintenance Automation's parts triage: short of parts, priority 0 is paid first
+  const upkeepOrder = mods.maintenanceWear > 0
+    ? [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id) : s.buildings;
+  for (const b of upkeepOrder) {
     if (!b.enabled || building(b)) continue;
     const rate = (rates(b).upkeepPartsPerDay / CYCLE_S) * dt;
+    add(want, 'parts', rate);
     if (s.resources.parts >= rate) {
       s.resources.parts -= rate;
       // an overclocked machine runs hot: paid upkeep no longer heals it
@@ -667,6 +699,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       b.wear = Math.min(1, b.wear + (OVERCLOCK.wearPerDay / CYCLE_S) * dt);
       if (b.wear >= OVERCLOCK.tripWear) {
         b.overclock = false;
+        b.ocTripped = true;
         alert(s, `OVERCLOCK TRIPPED — ${BUILDINGS[b.type].name} #${b.id} reached WORN`, 'warn', { select: b.id });
       }
     }
@@ -801,7 +834,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // count in the net rates as if step 6.5 had seen them
   const ex = explorationTick(s, mods, site, dt);
   if (ex.modsChanged) ev.modsChanged = true;
-  for (const [rid, f] of Object.entries(ex.flow) as [ResourceId, number][]) s.rates[rid] = (s.rates[rid] ?? 0) + f * k;
+  for (const [rid, f] of Object.entries(ex.flow) as [ResourceId, number][]) {
+    s.rates[rid] = (s.rates[rid] ?? 0) + f * k;
+    if (f > 0) add(made, rid, f * dt); else add(want, rid, -f * dt);
+  }
+  // ── 8.9 · the flow book: supply against demand (the Builder's signal) ──
+  updateFlowBook(s, made, want, dt);
   // the Era 7 deed: outposts have operated (a grounded hopper is not operating)
   const operating = s.survey.outposts.filter((o) => o.live && o.fuelOk).length;
   if (operating >= 1) st.outpostOpS += dt;
@@ -819,6 +857,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     st.cleanNightStreak = st.nightLoadShed ? 0 : st.cleanNightStreak + 1;
     // the Era 6 deed: compute held the whole night and no critical load went dark
     if (st.nightDcAllActive && !st.nightCritDark) st.dcCleanNight = true;
+    if (st.nightBankEmpty) st.bankDryDawns = (st.bankDryDawns ?? 0) + 1;
     if (s.crew > 0 || robotic) {
       s.nightsSurvived += 1;
       alert(s, `DAWN — night ${s.nightsSurvived} survived`, 'info');
@@ -837,6 +876,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     alert(s, `MILESTONE — ${m.title}`, 'info');
     if (m.id === 'first-light') ev.victory = true;
   }
+
+  // ── 12 · the Builder: standing rules, held orders, maintenance (core/automation.ts);
+  // Game.econStep places what it asks for, through the same path as a click ──
+  ev.build = automationTick(s, site, mods, day, dt);
 
   return ev;
 }

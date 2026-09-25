@@ -13,6 +13,7 @@ import {
   SURVEY_TIERS, WEAR,
 } from '../data/balance';
 import type { BuildingState, GameState, OutpostState } from './state';
+import { AUTO, type AutoFamily } from '../data/automation';
 
 export type ActionId = 'overclock' | 'downlink';
 export type SurveyTier = 0 | 1 | 2 | 3 | 4;
@@ -71,6 +72,26 @@ export interface Mods {
   /** excavator haul cycle (core/haul.ts): drive speed and bucket size */
   haulSpeedMult: number;
   haulBucketMult: number;
+  // ── the Builder (docs/13, core/automation.ts) ──
+  /** held orders the order book keeps (0 = one-shot orders only) */
+  orderBook: number;
+  /** most sites one order may ask for */
+  orderMax: number;
+  /** families of standing rules unlocked */
+  autoFamilies: Set<AutoFamily>;
+  /** Site Survey AI: sites weigh deposits, peaks of light and haul lanes */
+  siteSurvey: boolean;
+  /** Budget Governor: floors, priorities, crisis sites first */
+  governor: boolean;
+  /** Predictive Scheduling (needs an operating Data Center to act) */
+  predictive: boolean;
+  /** Feed Planner re-aims excavators */
+  feedPlanner: boolean;
+  /** Maintenance Automation: the wear that marks a machine for replacement (0 = off) */
+  maintenanceWear: number;
+  /** extension points (docs/14 Automation picks): rule dwell and cap multipliers */
+  builderDwellMult: number;
+  builderCapMult: number;
 }
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
@@ -112,6 +133,8 @@ export function computeMods(
     housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
     haulSpeedMult: 1, haulBucketMult: 1,
+    orderBook: 0, orderMax: AUTO.orderMax, autoFamilies: new Set(), siteSurvey: false, governor: false,
+    predictive: false, feedPlanner: false, maintenanceWear: 0, builderDwellMult: 1, builderCapMult: 1,
   };
 
   for (const tid of techsDone) {
@@ -184,6 +207,18 @@ export function computeMods(
           m.haulBucketMult *= fx.bucketMult ?? 1;
           break;
         case 'housing': m.housingDelta[fx.building] += fx.delta; break;
+        case 'orders': m.orderBook = Math.max(m.orderBook, fx.book); m.orderMax = Math.max(m.orderMax, fx.maxCount); break;
+        case 'autoRule': m.autoFamilies.add(fx.family); break;
+        case 'siting': m.siteSurvey = true; break;
+        case 'governor': m.governor = true; break;
+        case 'predictive': m.predictive = true; break;
+        case 'feedPlanner': m.feedPlanner = true; break;
+        case 'maintenance': m.maintenanceWear = m.maintenanceWear ? Math.min(m.maintenanceWear, fx.wear) : fx.wear; break;
+        case 'builder':
+          m.builderDwellMult *= fx.dwellMult ?? 1;
+          m.builderCapMult *= fx.capMult ?? 1;
+          for (const f of fx.families ?? []) m.autoFamilies.add(f);
+          break;
         case 'morale': m.moraleDelta[fx.building] += fx.delta; break;
       }
     }

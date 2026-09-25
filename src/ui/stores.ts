@@ -8,6 +8,7 @@ import type { TechId } from '../data/techs';
 import type { SiteId } from '../data/sites';
 import type { AlertMsg, BuildingState } from '../core/state';
 import type { ResearchView } from '../core/research';
+import type { AutomationView } from '../core/automation';
 import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
 import type { SurveyCost } from '../core/exploration';
 import type { MapView, OutpostKind, ProspectClass, ProspectId, ProspectKind } from '../data/lunarMap';
@@ -47,6 +48,10 @@ export const $vitals = atom({
 export const $lander = atom<{ resupplyPending: boolean; etaS: number; orderDays: number; agentRun: number }>({
   resupplyPending: false, etaS: 0, orderDays: 1, agentRun: 0,
 });
+/** the Builder: orders, standing rules, reserves (docs/13; the [B] panel) */
+export const $automation = atom<AutomationView | null>(null);
+/** AUTO tags over the Builder's pending sites (screen px) */
+export const $autoMarkers = atom<{ id: number; x: number; y: number }[]>([]);
 /** on-screen condition bars over damaged buildings */
 export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: number }[]>([]);
 /** phaseLeft = game-seconds to the next dusk (by day) or dawn (by night) */

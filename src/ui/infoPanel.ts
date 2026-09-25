@@ -19,6 +19,7 @@ import {
 } from './stores';
 import { FEED_KINDS, FEED_LABEL } from '../data/deposits';
 import { TECHS, TECH_ORDER } from '../data/techs';
+import { mountBuilderSection } from './builderPanel';
 
 function techThatUnlocks(b: BuildingId): string | null {
   for (const tid of TECH_ORDER) {
@@ -253,6 +254,8 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
   panel.append(body, actions);
   (root.querySelector('#hud-left') ?? root).appendChild(panel);
   actions.querySelector('#res-panel-close')!.addEventListener('click', () => $resourcePanel.set(null));
+  // the Builder's orders and rules for this resource: stable DOM, outside the re-rendered body
+  mountBuilderSection(panel, actions, game);
 
   let lastHtml = '';
   const render = () => {

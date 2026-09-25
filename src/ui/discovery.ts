@@ -9,6 +9,7 @@ import {
   ERA_BLURB, ERA_GATES, ERA_NAMES, LANES, TECHS, TECH_ORDER, describeTech, type Era, type TechEffect, type TechId,
 } from '../data/techs';
 import { resolveTech, techVisible } from '../core/research';
+import type { AutoFamily } from '../data/automation';
 import { CHARTER_DEED_TECHS, CHARTER_TECHS } from '../data/balance';
 import { loadSettings, saveSettings } from '../core/settings';
 import type { Game } from '../core/game';
@@ -18,6 +19,19 @@ import { openTechTreeAt } from './techTree';
 import { $announce, $menuOpen, $phase, $time, type Announcement } from './stores';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+/** A Builder family's Next line. */
+const BUILDER_NEXT: Record<AutoFamily, string> = {
+  excavation: 'The Builder now keeps regolith supplied: tune it with [B].',
+  power: 'The Builder now keeps the day’s grid margin and the night covered: tune it with [B].',
+  smelting: 'The Builder now keeps metals and silicon supplied, and adds yards when stock tops out: tune it with [B].',
+  fabrication: 'The Builder now keeps parts and chips coming, and adds Robotics Bays when sites wait: tune it with [B].',
+  life: 'The Builder now keeps oxygen, food and water ahead of the crew, and a bed free: tune it with [B].',
+  maintenance: 'Worn machines are replaced by the Builder: tune it with [B].',
+  network: 'The Builder now plants Relay Masts toward ground its rules need: tune it with [B].',
+  research: 'The Builder now adds labs when research waits on the transfer cap: tune it with [B].',
+  export: 'The Builder now adds Foil Factories when foils hold a volley back: tune it with [B].',
+};
 
 /** What to do with a finished tech: the first effect that asks something of the player. */
 function nextStep(fx: TechEffect[]): string {
@@ -53,6 +67,15 @@ function nextStep(fx: TechEffect[]): string {
       case 'morale':
         if (f.delta > 0) return `Every running ${BUILDINGS[f.building].name} lifts morale by ${f.delta}: keep them powered.`;
         break;
+      // the Builder (docs/13 §5.4): what the new rule or tool does for you, and [B]
+      case 'autoRule': return BUILDER_NEXT[f.family];
+      case 'orders': return 'Order more than you can afford: the Builder places the rest as stock arrives. Open the order book with [B].';
+      case 'siting': return 'Orders and rules now weigh deposits, peaks of light and haul lanes when they pick a site.';
+      case 'governor': return 'Set reserve floors and the order rules act in: [B].';
+      case 'predictive': return 'While a Data Center runs, rules act on forecasts: batteries before dusk.';
+      case 'feedPlanner': return 'Excavators now re-aim at the feed the furnaces want; opt one out in its panel.';
+      case 'maintenance': return 'Short of parts, upkeep now goes to priority 0 first, and worn machines are replaced: see the log in [B].';
+      case 'builder': return 'The Builder reaches further: see what its rules can do now in [B].';
     }
   }
   return 'It takes effect at once — no action needed.';
