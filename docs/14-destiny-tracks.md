@@ -1161,7 +1161,7 @@ section and an earlier one disagree, this one describes the code.
 - **Probe**: `--destiny`, `--picks`, the pick in each era's order, the
   destiny-aware builds, the swarm meter's volley terms, `--reuse`.
 - **Tests**: `tests/destiny.spec.ts` (21 tests), and the charter lists of
-  research, techtree, upgrades and guidance specs now include each era's pick.
+  research, techtree, upgrades, guidance, map and smoke specs now include each era’s pick.
 
 **Deviations, and why.**
 
