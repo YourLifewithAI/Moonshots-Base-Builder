@@ -9,6 +9,7 @@ import {
   type DoctrineId, type EffectLine, type Lane, type TechId,
 } from '../data/techs';
 import { BUILDINGS } from '../data/buildings';
+import { CHARTER_DEED_TECHS, CHARTER_TECHS } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
 import type { Expedition } from '../data/techs';
@@ -35,11 +36,13 @@ const LANE_IDX = new Map<Lane, number>(LANE_ORDER.map((l, i) => [l, i]));
 interface Slot {
   tid: TechId;
   col: number;
-  /** slot units from the grid top; Era 8 uses fractional rows */
+  /** slot units from the grid top; Era 8 and packed cells use fractional rows */
   row: number;
   h: number;
   indent: number;
   ph: boolean;
+  /** packed into a crowded cell: one line (glyph, name, cost) */
+  compact: boolean;
 }
 interface Bracket { group: DoctrineId; col: number; row: number; h: number }
 interface Layout {
@@ -52,8 +55,17 @@ interface Layout {
 const isVisible = (c: ResearchCard) => c.state !== 'hidden';
 /** an undiscovered breakthrough keeps its reserved slot as a placeholder */
 const isPlaceholder = (c: ResearchCard) => c.state === 'hidden' && !!c.breakthrough;
+/** the Era-8 capstone(s): the tech that arms the launch, drawn double height */
+const isCapstone = (tid: TechId) => TECHS[tid].effects.some((fx) => fx.kind === 'launchAction');
+/** the floor a slot may not fall under, and the least sheet the tree keeps (docs/12 §7) */
+export const MIN_SLOT_PX = 28;
+export const MIN_SHEET_PX = 112;
 
-function computeLayout(v: ResearchView): Layout {
+/** Lanes are as tall as their fullest cell on this run. If that is more rows
+ *  than `maxSlots` allows, the tallest lanes give up rows (the Exploration
+ *  lane keeps its two breakthrough slots) and a cell with more cards than its
+ *  lane has rows packs them at rows/count height as compact cards. */
+function computeLayout(v: ResearchView, maxSlots = Infinity): Layout {
   const cells = new Map<string, ResearchCard[]>();
   const e8: ResearchCard[] = [];
   for (const tid of TECH_ORDER) {
@@ -84,6 +96,18 @@ function computeLayout(v: ResearchView): Layout {
     const lane = k.split('|')[0] as Lane;
     laneRows.set(lane, Math.max(laneRows.get(lane) ?? 1, Math.max(...used) + 1));
   }
+  // overflow: take rows from the tallest lanes until the grid fits
+  const floor = (l: Lane) => (l === 'exploration' ? 2 : 1);
+  const total = () => LANE_ORDER.reduce((a, l) => a + (laneRows.get(l) ?? 1), 0);
+  while (total() > maxSlots) {
+    let pick: Lane | null = null;
+    for (const l of LANE_ORDER) {
+      const r = laneRows.get(l) ?? 1;
+      if (r > floor(l) && (!pick || r > (laneRows.get(pick) ?? 1))) pick = l;
+    }
+    if (!pick) break;
+    laneRows.set(pick, (laneRows.get(pick) ?? 1) - 1);
+  }
   const lanes: Layout['lanes'] = [];
   let start = 0;
   for (const lane of LANE_ORDER) {
@@ -96,36 +120,55 @@ function computeLayout(v: ResearchView): Layout {
   const brackets: Bracket[] = [];
   for (const [k, taken] of rowsIn) {
     const [lane, era] = k.split('|');
-    const base = lanes.find((l) => l.lane === lane)!.start;
-    const docs = new Map<DoctrineId, number[]>();
+    const ln = lanes.find((l) => l.lane === lane)!;
+    const need = Math.max(...taken.values()) + 1;
+    const docs = new Map<DoctrineId, [number, number][]>();
+    // a crowded cell: every card in table order (breakthroughs by slot) at rows/count
+    const packed = need > ln.rows
+      ? [...taken.keys()].sort((a, b) => taken.get(a)! - taken.get(b)!)
+      : null;
+    const h = packed ? ln.rows / packed.length : 1;
     for (const [tid, r] of taken) {
       const c = v.cards[tid];
-      items.set(tid, { tid, col: Number(era), row: base + r, h: 1, indent: c.doctrine ? DOC_INDENT : 0, ph: isPlaceholder(c) });
+      const row = packed ? ln.start + packed.indexOf(tid) * h : ln.start + r;
+      items.set(tid, {
+        tid, col: Number(era), row, h, indent: c.doctrine ? DOC_INDENT : 0, ph: isPlaceholder(c), compact: !!packed,
+      });
       if (c.doctrine) {
         if (!docs.has(c.doctrine)) docs.set(c.doctrine, []);
-        docs.get(c.doctrine)!.push(base + r);
+        docs.get(c.doctrine)!.push([row, row + h]);
       }
     }
-    for (const [group, rows] of docs) {
-      const lo = Math.min(...rows), hi = Math.max(...rows);
-      brackets.push({ group, col: Number(era), row: lo, h: hi - lo + 1 });
+    for (const [group, spans] of docs) {
+      const lo = Math.min(...spans.map((x) => x[0])), hi = Math.max(...spans.map((x) => x[1]));
+      brackets.push({ group, col: Number(era), row: lo, h: hi - lo });
     }
   }
-  // Era 8: the capstone(s) double height, centred, then each doctrine pair
-  const caps = e8.filter((c) => !c.doctrine);
+  // Era 8: the small steps, then the capstone double height, then each doctrine pair — centred
+  const minors = e8.filter((c) => !c.doctrine && !isCapstone(c.tid));
+  const caps = e8.filter((c) => !c.doctrine && isCapstone(c.tid));
   const pairs = new Map<DoctrineId, ResearchCard[]>();
   for (const c of e8) {
     if (!c.doctrine) continue;
     if (!pairs.has(c.doctrine)) pairs.set(c.doctrine, []);
     pairs.get(c.doctrine)!.push(c);
   }
-  const block = caps.length * 2 + [...pairs.values()].reduce((a, p) => a + 0.5 + p.length, 0);
+  const pairRows = [...pairs.values()].reduce((a, p) => a + 0.5 + p.length, 0);
+  const gap = minors.length ? 0.5 : 0;
+  // minors squeeze (compact) before the capstone or the pairs ever do
+  const minorH = minors.length ? Math.min(1, Math.max(0.5, (slots - caps.length * 2 - pairRows - gap) / minors.length)) : 1;
+  const block = minors.length * minorH + gap + caps.length * 2 + pairRows;
   let r = Math.max(0, (slots - block) / 2);
-  for (const c of caps) { items.set(c.tid, { tid: c.tid, col: 8, row: r, h: 2, indent: 0, ph: false }); r += 2; }
+  for (const c of minors) {
+    items.set(c.tid, { tid: c.tid, col: 8, row: r, h: minorH, indent: 0, ph: false, compact: minorH < 1 });
+    r += minorH;
+  }
+  r += gap;
+  for (const c of caps) { items.set(c.tid, { tid: c.tid, col: 8, row: r, h: 2, indent: 0, ph: false, compact: false }); r += 2; }
   for (const [group, list] of pairs) {
     r += 0.5;
     brackets.push({ group, col: 8, row: r, h: list.length });
-    for (const c of list) { items.set(c.tid, { tid: c.tid, col: 8, row: r, h: 1, indent: DOC_INDENT, ph: false }); r += 1; }
+    for (const c of list) { items.set(c.tid, { tid: c.tid, col: 8, row: r, h: 1, indent: DOC_INDENT, ph: false, compact: false }); r += 1; }
   }
   return { slots, lanes, items, brackets };
 }
@@ -199,7 +242,8 @@ for (const tid of TECH_ORDER) {
   }
 }
 
-const DEED_SHORT: Record<number, string> = { 6: 'DC night', 7: 'outpost' };
+const DEED_SHORT: Record<number, string> = { 6: 'DC night', 7: '2 outposts' };
+const CHARTER_RULE = `An era opens with ${CHARTER_TECHS} of the previous era’s techs — or ${CHARTER_DEED_TECHS} plus a deed.`;
 
 function prettyProspect(id: string): string {
   return id.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^\w/, (c) => c.toUpperCase());
@@ -231,7 +275,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     <div id="tech-head">
       <div class="th-title">
         <div class="th-name"><b>RESEARCH</b> · <span id="th-era"></span></div>
-        <div class="th-rule">An era opens with 2 of the previous era’s techs — or 1 plus a deed.</div>
+        <div class="th-rule">${CHARTER_RULE}</div>
       </div>
       <div id="tech-alerts"></div>
       <div id="tech-rate" class="mono"></div>
@@ -366,10 +410,10 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     renderChip(v);
     if (!open || !v) return;
     view = v;
-    const sig = signature(v);
+    const sig = `${signature(v)}|${slotBudget()}`;
     if (sig !== structSig) {
       structSig = sig;
-      layout = computeLayout(v);
+      layout = computeLayout(v, slotBudget());
       buildEraHeads();
       buildGrid();
       if (selected && !layout.items.has(selected)) selected = null;
@@ -381,6 +425,14 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     renderQueue();
     renderSheet();
     applyHighlight();
+  }
+
+  /** how many slots fit at MIN_SLOT_PX above the least sheet (the header,
+   *  era heads and gaps take 74 px of the screen's 12 px-padded box) */
+  function slotBudget(): number {
+    const h = screen.clientHeight - 12;
+    if (h <= 0) return Infinity;
+    return Math.max(8, Math.floor((h - 74 - (collapsed ? 28 : MIN_SHEET_PX)) / MIN_SLOT_PX));
   }
 
   // ── header ──
@@ -434,8 +486,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const cohab = g.requires ? ` Robotic runs also need ${TECHS[g.requires.tech].name} (${g.requires.done ? 'done' : 'not yet'}).` : '';
     return {
       pips,
-      line: `or 1 + ${deed}`,
-      title: `Era ${g.era} opens with ${g.techsNeed} Era-${g.era - 1} techs (${g.techs} done), or 1 + ${gate.deed} ` +
+      line: `or ${g.deedTechsNeed} + ${deed}`,
+      title: `Era ${g.era} opens with ${g.techsNeed} Era-${g.era - 1} techs (${g.techs} done), or ${g.deedTechsNeed} + ${gate.deed} ` +
         `(${fmt(g.deedValue)}/${g.deedNeed}).${cohab}`,
     };
   }
@@ -494,12 +546,22 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       l2 = `<span class="l2a">⚠ needs <span data-live="need"></span></span>`;
     } else if (c.state === 'foreclosed') {
       const chosen = c.doctrine && DOCTRINES[c.doctrine].members.find((m) => m !== c.tid && v.cards[m].state === 'done');
-      l2 = `<span class="l2a">${chosen ? `you chose ${esc(TECHS[chosen].short)}` : 'foreclosed (pending)'}</span>`;
+      // a doctrine follow-up: foreclosed with the doctrine it builds on
+      const via = !c.doctrine ? /you chose (.+)$/.exec(c.reason)?.[1] : undefined;
+      const viaShort = via ? TECH_ORDER.find((t) => TECHS[t].name === via) : undefined;
+      l2 = `<span class="l2a">${chosen ? `you chose ${esc(TECHS[chosen].short)}`
+        : viaShort ? `you chose ${esc(TECHS[viaShort].short)}` : 'foreclosed (pending)'}</span>`;
     } else {
       const goods = Object.entries(c.cost.goods)
         .map(([r, a]) => `<span class="g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span>`).join(' ');
       const ins = c.insight?.earned ? ` <span class="ins">✎−${Math.round(c.cost.discount * 100)}%</span>` : '';
       l2 = `<span class="l2a">${c.cost.data}≡${goods ? ' ' + goods : ''}${ins}</span><span class="l2b">${esc(tag(c.tid))}</span>`;
+    }
+    if (slot.compact) {
+      const right = c.state === 'done' ? '' : c.state === 'queued' || c.state === 'stalled'
+        ? '<span class="cc" data-live="pct"></span>' : `<span class="cc">${c.cost.data}≡</span>`;
+      return `<div class="l1"><span class="gl">${glyphTxt}</span><span class="nm">${esc(c.short)}</span><span class="mk">${marks.join('')}</span>${right}</div>
+        ${c.state === 'queued' || c.state === 'stalled' || c.spent > 0 ? '<div class="prog"><i></i></div>' : ''}`;
     }
     const cap = slot.h >= 2 ? `<div class="l3 label">CAPSTONE · ${esc(ERA_NAMES[8])}</div>` : '';
     return `<div class="l1"><span class="gl">${glyphTxt}</span><span class="nm">${esc(c.short)}</span><span class="mk">${marks.join('')}</span></div>
@@ -508,7 +570,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   function buildGrid() {
     const v = view!, L = layout!;
-    board.style.setProperty('--slots', String(L.slots));
+    // on the screen, not the board: the sheet's height reads it too (techTree.css)
+    screen.style.setProperty('--slots', String(L.slots));
     cardEls.clear();
     let html = '<svg id="tech-links" aria-hidden="true"></svg>';
     for (const [i, ln] of L.lanes.entries()) {
@@ -526,7 +589,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     for (const [tid, slot] of L.items) {
       const c = v.cards[tid];
       const cls = slot.ph ? 'ph' : STATE_CLASS(c.state);
-      const e = el('div', `tech-card ${cls}${c.doctrine ? ' doctrine' : ''}${slot.h >= 2 ? ' capstone' : ''}`);
+      const e = el('div', `tech-card ${cls}${c.doctrine ? ' doctrine' : ''}${slot.h >= 2 ? ' capstone' : ''}${slot.compact ? ' compact' : ''}`);
       e.dataset.tech = tid;
       e.dataset.state = slot.ph ? 'placeholder' : c.state;
       e.setAttribute('role', 'button');
@@ -930,7 +993,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
         <div class="sh-desc">Labs operating ${v.labsActive} (agent-run ${v.agentLabs}, uplink share ${Math.round(v.uplinkShare * 100)}%) ·
           Data Centers ${v.dcsActive} · production <span class="mono">${v.production.toFixed(2)}≡/s</span> ·
           transfer cap <span class="mono">${v.cap.toFixed(1)}/s</span></div>
-        <div class="sh-flavor"><i>An era opens with 2 of the previous era’s techs — or 1 plus a deed.</i></div></div>
+        <div class="sh-flavor"><i>${CHARTER_RULE}</i></div></div>
       <div class="sh-col"><div class="sh-h label">Controls</div>
         <div class="sh-desc">Hover a tech for details · Click queues · Shift-click queues the whole path ·
           Click or right-click a queued tech to cancel · Arrows move · Enter queues · Shift+Enter queues the path · Esc closes</div></div>`;
@@ -1122,6 +1185,12 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   }, true);
 
   new ResizeObserver(() => { if (open && layout) drawLinks(); }).observe(grid);
+  // a new height budget can re-pack the lanes
+  new ResizeObserver(() => {
+    if (!open || !layout || structSig.endsWith(`|${slotBudget()}`)) return;
+    structSig = '';
+    refresh();
+  }).observe(screen);
 
   focusHook = (tid) => {
     if (!game.commandView || overlayUp()) return;

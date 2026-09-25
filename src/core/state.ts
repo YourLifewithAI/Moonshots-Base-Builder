@@ -74,6 +74,8 @@ export interface GameStats {
   ilmeniteDigS: number;
   dcOpS: number;
   outpostOpS: number;
+  /** seconds with two or more outposts operating at once (the Era 7 deed) */
+  outpostPairOpS: number;
   minReserveS: number;
   minMorale: number;
 }
@@ -281,7 +283,7 @@ export function emptyStats(): GameStats {
     nightCritDark: false, nightLoadShed: false, nightDcAllActive: false,
     cleanNightStreak: 0, dcCleanNight: false, darkNightMaxS: 0, shadedMaxS: 0,
     maxDust: 0, lowPartsSeen: false, wornSeen: false, flaresWithSix: 0,
-    ilmeniteDigS: 0, dcOpS: 0, outpostOpS: 0,
+    ilmeniteDigS: 0, dcOpS: 0, outpostOpS: 0, outpostPairOpS: 0,
     minReserveS: 1e9,   // "never measured": no crew aboard yet
     minMorale: 100,
   };
@@ -289,7 +291,7 @@ export function emptyStats(): GameStats {
 
 function researchDefaults() {
   return {
-    techSchema: 2,
+    techSchema: 3,
     insights: {},
     discoveries: [] as TechId[],
     researchStalled: [] as TechId[],

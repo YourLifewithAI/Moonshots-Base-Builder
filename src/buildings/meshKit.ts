@@ -367,8 +367,12 @@ export function setInstanceHook(hook: InstanceHook | null) {
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
  *  own per-instance state: iState = (lit, dust, wear, print cut height),
  *  lit being 0 (unlit), 1 (lit at the night's darkness) or 2 + the darkness
- *  the structure stands in (buildingShader.ts litChannel). */
-export function withInstanceState(src: THREE.BufferGeometry, max: number): THREE.BufferGeometry {
+ *  the structure stands in (buildingShader.ts litChannel). `prev`: the view
+ *  an upgraded recipe replaces — its instances keep every per-instance
+ *  attribute they had (iState, classic's iGlow), while the style's
+ *  per-vertex extras (the classic palette) are made for the new recipe. */
+export function withInstanceState(src: THREE.BufferGeometry, max: number,
+  prev?: THREE.BufferGeometry): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const [name, attr] of Object.entries(src.attributes)) g.setAttribute(name, attr);
   g.setIndex(src.index);
@@ -378,5 +382,12 @@ export function withInstanceState(src: THREE.BufferGeometry, max: number): THREE
   for (let i = 0; i < max; i++) { st[i * 4] = 1; st[i * 4 + 3] = CUT_NONE; }
   g.setAttribute('iState', new THREE.InstancedBufferAttribute(st, 4));
   instanceHook?.(g, src, max);
+  if (prev) {
+    for (const [name, attr] of Object.entries(prev.attributes)) {
+      if (!(attr instanceof THREE.InstancedBufferAttribute)) continue;
+      attr.needsUpdate = true;
+      g.setAttribute(name, attr);
+    }
+  }
   return g;
 }

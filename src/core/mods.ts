@@ -49,8 +49,10 @@ export interface Mods {
   buildTimeMult: Record<BuildingId, number>;
   actions: Set<ActionId>;
   surveyTier: SurveyTier;
-  /** applies while s.crew ≥ surveyMinCrew */
+  /** survey data multiplier that always applies */
   surveyDataMult: number;
+  /** survey data multiplier that applies while s.crew ≥ surveyMinCrew */
+  surveyCrewDataMult: number;
   surveyMinCrew: number;
   /** from the tier; ATLAS adds its extra slot at runtime */
   outpostSlots: number;
@@ -60,6 +62,10 @@ export interface Mods {
   dayDrawMult: number;
   /** multiplies each deposit's positive feed coefficient */
   feedBonus: Record<FeedKind, number>;
+  /** beds added to each building of a type that houses (effectiveDef.housing) */
+  housingDelta: Record<BuildingId, number>;
+  /** morale added while each building of a type runs (effectiveDef.moraleDelta) */
+  moraleDelta: Record<BuildingId, number>;
   /** a live, fuelled KREEP outpost: reactor upkeep ×0.6 (see reactorUpkeepFactor), output ×1.15, chipFab ×1.1 */
   kreepOutpost: boolean;
 }
@@ -95,11 +101,12 @@ export function computeMods(
     solarShadeImmune: false,
     buildTimeMult: fill(1),
     actions: new Set(),
-    surveyTier: 0, surveyDataMult: 1, surveyMinCrew: 0,
+    surveyTier: 0, surveyDataMult: 1, surveyCrewDataMult: 1, surveyMinCrew: 0,
     outpostSlots: 0,
     powerDelta: fill(0),
     nightDrawMult: 1, dayDrawMult: 1,
     feedBonus: Object.fromEntries(FEED_KINDS.map((k) => [k, 1])) as Record<FeedKind, number>,
+    housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
   };
 
@@ -158,14 +165,18 @@ export function computeMods(
         case 'action': m.actions.add(fx.id); break;
         case 'survey':
           if (fx.tier && fx.tier > m.surveyTier) m.surveyTier = fx.tier;
-          if (fx.dataMult !== undefined) {
+          if (fx.dataMult !== undefined && fx.minCrew) {
+            m.surveyCrewDataMult *= fx.dataMult;
+            m.surveyMinCrew = Math.max(m.surveyMinCrew, fx.minCrew);
+          } else if (fx.dataMult !== undefined) {
             m.surveyDataMult *= fx.dataMult;
-            m.surveyMinCrew = Math.max(m.surveyMinCrew, fx.minCrew ?? 0);
           }
           break;
         case 'powerDelta': m.powerDelta[fx.building] += fx.kw; break;
         case 'nightDraw': m.nightDrawMult *= fx.night; m.dayDrawMult *= fx.day; break;
         case 'feedBonus': m.feedBonus[fx.deposit] *= fx.mult; break;
+        case 'housing': m.housingDelta[fx.building] += fx.delta; break;
+        case 'morale': m.moraleDelta[fx.building] += fx.delta; break;
       }
     }
   }
@@ -195,8 +206,9 @@ export function modsFor(s: GameState): Mods {
 export type EffectiveDef = BuildingDef & { feedInsensitive: boolean };
 const defCache = new WeakMap<Mods, Map<BuildingId, EffectiveDef>>();
 
-/** The base definition with recipe overrides and the powerDelta sum applied.
- *  Multipliers are NOT applied here (see effectiveRates). */
+/** The base definition with recipe overrides, the powerDelta sum and the
+ *  housing / morale deltas applied. Multipliers are NOT applied here (see
+ *  effectiveRates). */
 export function effectiveDef(type: BuildingId, mods: Mods): EffectiveDef {
   let cache = defCache.get(mods);
   if (!cache) { cache = new Map(); defCache.set(mods, cache); }
@@ -210,6 +222,8 @@ export function effectiveDef(type: BuildingId, mods: Mods): EffectiveDef {
       outputs: r?.outputs ?? base.outputs,
       powerKW: (r?.powerKW ?? base.powerKW) + mods.powerDelta[type],
       feedInsensitive: r?.feedInsensitive ?? false,
+      housing: base.housing ? Math.max(0, base.housing + mods.housingDelta[type]) : base.housing,
+      moraleDelta: mods.moraleDelta[type] ? (base.moraleDelta ?? 0) + mods.moraleDelta[type] : base.moraleDelta,
     };
     cache.set(type, d);
   }

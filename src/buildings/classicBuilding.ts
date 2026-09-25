@@ -67,6 +67,7 @@ const SILVER: Partial<Palette> = { trim: 0xc4c8ce, panel: 0xaeb2b8 };
 /** per structure (or moving part) */
 export const PALETTE_OVERRIDES: Partial<Record<BuildingId | PartId, Partial<Palette>>> = {
   wing: SILVER,
+  wingXL: SILVER, // Wing Extensions: the same wing, a row longer
   solar: { trim: 0xb7bbc1 },
   dish: { trim: 0xb7bbc1 },
   foilFactory: { trim: 0xcf9d36 },

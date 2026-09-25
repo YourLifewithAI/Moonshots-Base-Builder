@@ -1,4 +1,5 @@
-/** 21 building silhouettes from the primitive kit. Silhouette-first: in a
+/** 21 building silhouettes from the primitive kit, plus the research
+ *  upgrades each one grows (upgrades.ts, keyed by upgradeKey). Silhouette-first: in a
  *  monochrome world, shape is identity — dome = life, tank = industry,
  *  rail = export. Detail is load-bearing only: a door frame says "people go
  *  in here", a radiator says "this runs hot", a dish says "we talk to Earth".
@@ -15,7 +16,9 @@ import {
   antenna, archWall, bands, bar, berm, box, cableTray, circle, cyl, dome, domeBand, door, junction,
   ladder, lathe, lattice, merge, pane, pipe, radiator, rail, vault, windowRing, windowStrip,
 } from './meshKit';
+import { flatten, upgradeTechs, upgradesIn, type Mount, type PartId } from './upgrades';
 
+export type { Mount, PartId } from './upgrades';
 type Parts = (BufferGeometry | BufferGeometry[])[];
 const PI = Math.PI;
 
@@ -72,23 +75,25 @@ function solar(): Parts {
 }
 
 /** Two PV wings on a torque tube; pivot at the origin, cells facing +y,
- *  tube along x. Tracked per frame (trackers.ts). */
-function solarWing(): Parts {
+ *  tube along x. Tracked per frame (trackers.ts). `rows` 4 is the stock
+ *  wing; Wing Extensions adds a fifth row (the 'wingXL' part). */
+function solarWing(rows = 4): Parts {
   const p: Parts = [cyl(0.07, 0.07, 7.4, PLATE, 0, 0, 0, 0, PI / 2, 8)];
   for (const side of [-1, 1]) {
     const cx = side * 2.0;
+    const half = 1.45 + (rows - 4) * 0.35;
     p.push(
-      box(3.4, 0.06, 2.9, TRIM, cx, -0.02, 0),
+      box(3.4, 0.06, half * 2, TRIM, cx, -0.02, 0),
       box(3.4, 0.1, 0.06, TRIM, cx, -0.09, 0.9),
       box(3.4, 0.1, 0.06, TRIM, cx, -0.09, -0.9),
       box(0.26, 0.2, 0.26, PLATE, side * 0.36, 0, 0),
     );
     for (let i = 0; i < 5; i++) {
-      for (let j = 0; j < 4; j++) {
-        p.push(box(0.63, 0.04, 0.66, GLASS, cx + (i - 2) * 0.67, 0.03, (j - 1.5) * 0.7));
+      for (let j = 0; j < rows; j++) {
+        p.push(box(0.63, 0.04, 0.66, GLASS, cx + (i - 2) * 0.67, 0.03, (j - (rows - 1) / 2) * 0.7));
       }
     }
-    p.push(box(3.44, 0.08, 0.05, TRIM, cx, 0.0, 1.45), box(3.44, 0.08, 0.05, TRIM, cx, 0.0, -1.45));
+    p.push(box(3.44, 0.08, 0.05, TRIM, cx, 0.0, half), box(3.44, 0.08, 0.05, TRIM, cx, 0.0, -half));
   }
   return p;
 }
@@ -633,10 +638,9 @@ const R: Record<BuildingId, () => Parts> = {
   dataCenter, foilFactory, massDriver, relayMast, propellantPlant,
 };
 
-export type PartId = 'wing' | 'dish';
-
-/** Moving parts per type: pivot in building space, scale (dish radius, m). */
-export const MOUNTS: Partial<Record<BuildingId, { part: PartId; p: [number, number, number]; s: number }[]>> = {
+/** Moving parts of the stock recipes: pivot in building space, scale (dish
+ *  radius, m). Upgrades edit them per key (mountsFor). */
+export const MOUNTS: Partial<Record<BuildingId, Mount[]>> = {
   solar: [{ part: 'wing', p: [0, 2.45, 0], s: 1 }],
   lander: [{ part: 'dish', p: [0.6, 12.55, -0.4], s: 0.8 }],
   lab: [{ part: 'dish', p: [1.4, 4.85, 1.4], s: 1.3 }],
@@ -644,46 +648,101 @@ export const MOUNTS: Partial<Record<BuildingId, { part: PartId; p: [number, numb
   dataCenter: [{ part: 'dish', p: [-3.4, 4.55, 3.4], s: 1.0 }],
 };
 
-const cache = new Map<BuildingId, BufferGeometry>();
-export function recipeGeometry(id: BuildingId): BufferGeometry {
-  let g = cache.get(id);
-  if (!g) { g = merge(R[id]()); g.userData.recipe = id; cache.set(id, g); }
+/** The moving parts of a type under an upgrade key. */
+const mountCache = new Map<string, Mount[]>();
+export function mountsFor(id: BuildingId, key = ''): Mount[] {
+  const k = `${id}|${key}`;
+  let m = mountCache.get(k);
+  if (!m) {
+    m = MOUNTS[id] ?? [];
+    for (const u of upgradesIn(id, key)) if (u.mounts) m = u.mounts(m);
+    mountCache.set(k, m);
+  }
+  return m;
+}
+
+/** A type's recipe with the upgrade parts its key names ('' = stock). */
+const cache = new Map<string, BufferGeometry>();
+export function recipeGeometry(id: BuildingId, key = ''): BufferGeometry {
+  const k = `${id}|${key}`;
+  let g = cache.get(k);
+  if (!g) {
+    const parts: Parts = R[id]();
+    for (const u of upgradesIn(id, key)) if (u.parts) parts.push(...flatten(u.parts()));
+    g = merge(parts);
+    g.userData.recipe = id; // the classic palette's per-structure overrides
+    cache.set(k, g);
+  }
   return g;
 }
 
 const partCache = new Map<PartId, BufferGeometry>();
 export function partGeometry(id: PartId): BufferGeometry {
   let g = partCache.get(id);
-  if (!g) { g = merge(id === 'wing' ? solarWing() : dishPart()); g.userData.part = id; partCache.set(id, g); }
-  return g;
-}
-
-/** Recipe plus its moving parts in a rest pose — the placement ghost. */
-const ghostCache = new Map<BuildingId, BufferGeometry>();
-export function ghostGeometry(id: BuildingId): BufferGeometry {
-  if (!MOUNTS[id]) return recipeGeometry(id);
-  let g = ghostCache.get(id);
   if (!g) {
-    const parts = [recipeGeometry(id).clone()];
-    for (const m of MOUNTS[id] ?? []) {
-      const q = m.part === 'wing'
-        ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5)
-        : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), PI / 4);
-      parts.push(partGeometry(m.part).clone().applyMatrix4(new THREE.Matrix4().compose(
-        new THREE.Vector3(...m.p), q, new THREE.Vector3(m.s, m.s, m.s))));
-    }
-    g = merge(parts);
-    ghostCache.set(id, g);
+    g = merge(id === 'wing' ? solarWing() : id === 'wingXL' ? solarWing(5) : dishPart());
+    g.userData.part = id;
+    partCache.set(id, g);
   }
   return g;
 }
 
-/** Triangles per recipe (probes; the art budget in docs/06). */
-export function recipeTriangles(): Record<string, number> {
+/** Recipe plus its moving parts in a rest pose — the placement ghost. */
+const ghostCache = new Map<string, BufferGeometry>();
+export function ghostGeometry(id: BuildingId, key = ''): BufferGeometry {
+  const mounts = mountsFor(id, key);
+  if (!mounts.length) return recipeGeometry(id, key);
+  const k = `${id}|${key}`;
+  let g = ghostCache.get(k);
+  if (!g) {
+    const parts = [recipeGeometry(id, key).clone()];
+    for (const m of mounts) {
+      const q = m.part === 'dish'
+        ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), PI / 4)
+        : new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5);
+      parts.push(partGeometry(m.part).clone().applyMatrix4(new THREE.Matrix4().compose(
+        new THREE.Vector3(...m.p), q, new THREE.Vector3(m.s, m.s, m.s))));
+    }
+    g = merge(parts);
+    ghostCache.set(k, g);
+  }
+  return g;
+}
+
+const tris = (g: BufferGeometry) => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+const withMounts = (id: BuildingId, key: string) =>
+  tris(recipeGeometry(id, key)) + mountsFor(id, key).reduce((n, m) => n + tris(partGeometry(m.part)), 0);
+
+/** Triangles per recipe, stock (probes; the art budget in docs/06). */
+export function recipeTriangles(key: Partial<Record<BuildingId, string>> = {}): Record<string, number> {
   const out: Record<string, number> = {};
-  const tris = (g: BufferGeometry) => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+  for (const id of Object.keys(R) as BuildingId[]) out[id] = withMounts(id, key[id] ?? '');
+  return out;
+}
+
+export interface UpgradeBudget {
+  /** stock and fully upgraded triangles, moving parts included */
+  base: number;
+  full: number;
+  /** what each upgrade adds to the recipe mesh on its own */
+  parts: Record<string, number>;
+  /** what each upgrade adds as moving parts (an extra dish, a wider wing) */
+  movers: Record<string, number>;
+}
+/** The upgrade budget (docs/12 §6). */
+export function upgradeTriangles(): Record<string, UpgradeBudget> {
+  const out: Record<string, UpgradeBudget> = {};
   for (const id of Object.keys(R) as BuildingId[]) {
-    out[id] = tris(recipeGeometry(id)) + (MOUNTS[id] ?? []).reduce((n, m) => n + tris(partGeometry(m.part)), 0);
+    const base = withMounts(id, '');
+    const mesh0 = tris(recipeGeometry(id, ''));
+    const techs = upgradeTechs(id);
+    const parts: Record<string, number> = {};
+    const movers: Record<string, number> = {};
+    for (const t of techs) {
+      parts[t] = tris(recipeGeometry(id, t)) - mesh0;
+      movers[t] = withMounts(id, t) - base - parts[t];
+    }
+    out[id] = { base, full: withMounts(id, techs.join(',')), parts, movers };
   }
   return out;
 }

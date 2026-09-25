@@ -9,6 +9,7 @@ import {
   ERA_BLURB, ERA_GATES, ERA_NAMES, LANES, TECHS, TECH_ORDER, describeTech, type Era, type TechEffect, type TechId,
 } from '../data/techs';
 import { resolveTech, techVisible } from '../core/research';
+import { CHARTER_DEED_TECHS, CHARTER_TECHS } from '../data/balance';
 import { loadSettings, saveSettings } from '../core/settings';
 import type { Game } from '../core/game';
 import { sfx } from '../audio/sfx';
@@ -36,6 +37,13 @@ function nextStep(fx: TechEffect[]): string {
       case 'launchAction': return 'Launch collectors from the swarm meter at the top of the screen.';
       case 'automation': return 'Stations can run on agents now: toggle Crewed / Autonomous in their panels.';
       case 'grading': return 'Grade Site is in the Extraction tab: flatten rough ground for large buildings.';
+      // beds and morale act at once; a cut (a con) asks nothing of the player
+      case 'housing':
+        if (f.delta > 0) return `Every ${BUILDINGS[f.building].name} sleeps ${f.delta} more at once — room for the next arrivals.`;
+        break;
+      case 'morale':
+        if (f.delta > 0) return `Every running ${BUILDINGS[f.building].name} lifts morale by ${f.delta}: keep them powered.`;
+        break;
     }
   }
   return 'It takes effect at once — no action needed.';
@@ -101,7 +109,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `<h1 class="eb-name">${esc(ERA_NAMES[era] ?? '')}</h1>` +
       `<p class="eb-blurb">${esc(ERA_BLURB[era] ?? '')}</p>` +
       (opens.length ? `<p class="eb-line"><span class="label">Research opens</span> ${opens.length} techs — ${esc(names)}${opens.length > 4 ? '…' : ''}</p>` : '') +
-      (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> opens with 2 techs from this era, or 1 plus: ${esc(next.deed)}</p>` : '') +
+      (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> opens with ${CHARTER_TECHS} techs from this era, or ${CHARTER_DEED_TECHS} plus: ${esc(next.deed)}</p>` : '') +
       (intro ? '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>' : '') +
       `<div class="eb-foot"><button class="btn primary" data-dsc="ok">${intro ? 'Begin' : 'Continue'} ▸</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these explainers and pop-ups</label></div></div>`;

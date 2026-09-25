@@ -14,7 +14,7 @@ import {
 import { DEPOSIT_INFO, type DepositKind } from '../data/deposits';
 import { TIER_VIEW, type MapView, type ProspectId } from '../data/lunarMap';
 import { createInitialState, type AlertMsg, type BuildingState, type GameState } from './state';
-import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveRates } from './mods';
+import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveDef, effectiveRates } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
   boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction,
@@ -529,7 +529,7 @@ export class Game {
     if (this.modes.mode !== 'build') return;
     if (type === 'grade' && !this.mods.grading) return;
     $selection.set(null);
-    this.placement.begin(type);
+    this.placement.begin(type, this.state.techsDone);
     // where you dig is a production decision: show the ground
     if (type === 'iceHarvester' || type === 'excavator') $depositOverlay.set(true);
     $placing.set({ type, valid: false, reason: '', warn: '', note: '' });
@@ -1524,7 +1524,7 @@ export class Game {
         if (b.idleReason === 'building') welding++;
         continue;
       }
-      beds += BUILDINGS[b.type].housing ?? 0;
+      beds += effectiveDef(b.type, this.mods).housing ?? 0;
       if (b.enabled && b.automated && BUILDINGS[b.type].crew > 0) agentRun++;
       if (b.enabled) upkeep += effectiveRates(b.type, this.mods, site, b, { feed: s.feed }).upkeepPartsPerDay / CYCLE_S;
     }

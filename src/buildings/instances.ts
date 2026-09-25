@@ -24,7 +24,8 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_M } from '../data/balance';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { MOUNTS, recipeGeometry } from './recipes';
+import { mountsFor, recipeGeometry } from './recipes';
+import { upgradeKey } from './upgrades';
 import { BUILDING_MATERIAL, withInstanceState } from './meshKit';
 import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, litChannel } from './buildingShader';
 import { DARK_LIVE, type BuildingDarkness } from './darkness';
@@ -62,9 +63,17 @@ const MAX_DISCS = 256;
 /** A type's instances as the lit channel sees them (the rebuild's order). */
 interface Row { st: THREE.InstancedBufferAttribute; ids: number[] }
 
+/** upgradeInfo() per type (tests, probes) */
+export interface UpgradeInfo {
+  key: string; triangles: number; geometry: string; top: number;
+  vertices: number; colors: number; state: number; glow: number | null;
+}
+
 export class BuildingInstances {
   readonly group = new THREE.Group();
   private meshes = new Map<BuildingId, THREE.InstancedMesh>();
+  /** the upgrade key each type's mesh geometry was built with (upgrades.ts) */
+  private keys = new Map<BuildingId, string>();
   /** instance order per type, mirroring rebuild() — used for picking */
   private ids = new Map<BuildingId, number[]>();
   /** stock-path pools: one soft additive disc under each lit building,
@@ -233,11 +242,22 @@ export class BuildingInstances {
     return n;
   }
 
-  private meshFor(type: BuildingId): THREE.InstancedMesh {
+  private meshFor(type: BuildingId, key: string): THREE.InstancedMesh {
     let m = this.meshes.get(type);
+    if (m && this.keys.get(type) !== key) {
+      // a tech changed this type's recipe: swap in the upgraded geometry, keeping
+      // the mesh (matrices, colours, material, depth material, shadow flags)
+      // and every per-instance attribute (iState with its lit channel, classic's
+      // iGlow); the classic palette is made for the new recipe
+      const old = m.geometry;
+      m.geometry = withInstanceState(recipeGeometry(type, key), MAX_PER_TYPE, old);
+      old.dispose();
+      this.keys.set(type, key);
+    }
     if (!m) {
-      m = new THREE.InstancedMesh(withInstanceState(recipeGeometry(type), MAX_PER_TYPE),
+      m = new THREE.InstancedMesh(withInstanceState(recipeGeometry(type, key), MAX_PER_TYPE),
         materials.get('building'), MAX_PER_TYPE);
+      this.keys.set(type, key);
       m.customDepthMaterial = materials.get('buildingDepth');
       m.castShadow = true;
       m.receiveShadow = true;
@@ -258,6 +278,7 @@ export class BuildingInstances {
     let sig = '';
     for (const type of types) sig += this.rebuildType(state, type);
 
+    sig += `|keys:${[...this.keys.values()].join(';')}`;
     const lit = state.buildings.filter((b) =>
       (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled);
     this.litIds = lit.map((b) => b.id);
@@ -271,9 +292,10 @@ export class BuildingInstances {
     }
     const placed: Placed[] = [];
     for (const b of state.buildings) {
-      if ((b.construction ?? 0) > 0 || !MOUNTS[b.type]) continue;
+      const mounts = mountsFor(b.type, upgradeKey(b.type, state.techsDone));
+      if ((b.construction ?? 0) > 0 || !mounts.length) continue;
       const [x, z] = centerOf(b);
-      placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b) });
+      placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b), mounts });
     }
     this.trackers.rebuild(placed);
     sig += `|parts:${placed.map((p) => p.b.id).join(',')}`;
@@ -349,9 +371,10 @@ export class BuildingInstances {
       sites.push({
         x0: r.gx0 * CELL_M - MAP_M / 2, x1: r.gx1 * CELL_M - MAP_M / 2,
         z0: r.gz0 * CELL_M - MAP_M / 2, z1: r.gz1 * CELL_M - MAP_M / 2,
-        h: BUILDINGS[b.type].height,
+        // an upgraded recipe (a cupola, a taller mast) scaffolds to its own top
+        h: Math.max(BUILDINGS[b.type].height, this.meshes.get(b.type)?.geometry.boundingBox?.max.y ?? 0),
       });
-      sig += `${b.id}:${b.gx},${b.gz},${b.rot};`;
+      sig += `${b.id}:${b.gx},${b.gz},${b.rot}:${this.keys.get(b.type) ?? ''};`;
     }
     if (sig === this.scaffoldSig) return;
     this.scaffoldSig = sig;
@@ -366,7 +389,7 @@ export class BuildingInstances {
 
   /** Returns this type's caster signature (placements + rise). */
   private rebuildType(state: GameState, type: BuildingId): string {
-    const mesh = this.meshFor(type);
+    const mesh = this.meshFor(type, upgradeKey(type, state.techsDone));
     const list = state.buildings.filter((b) => b.type === type);
     mesh.count = Math.min(list.length, MAX_PER_TYPE);
     const st = mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
@@ -407,6 +430,27 @@ export class BuildingInstances {
     this.ids.set(type, order);
     this.lists.set(type, list.slice(0, MAX_PER_TYPE));
     return sig;
+  }
+
+  /** Each type's upgrade key and the triangles its mesh draws per instance
+   *  (tests: a tech with a visual changes its buildings' geometry), and which
+   *  per-instance attributes it carries (a swap keeps them: `state`, `glow`
+   *  are attribute ids) and whether its colours cover the new vertices. */
+  upgradeInfo(): Record<string, UpgradeInfo> {
+    const out: Record<string, UpgradeInfo> = {};
+    for (const [type, m] of this.meshes) {
+      const g = m.geometry;
+      out[type] = {
+        key: this.keys.get(type) ?? '',
+        triangles: (g.index ? g.index.count : g.getAttribute('position').count) / 3,
+        geometry: g.uuid, top: g.boundingBox?.max.y ?? 0,
+        vertices: g.getAttribute('position').count,
+        colors: g.getAttribute('color')?.count ?? 0,
+        state: (g.getAttribute('iState') as THREE.InstancedBufferAttribute).id,
+        glow: (g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined)?.id ?? null,
+      };
+    }
+    return out;
   }
 
   /** A structure's per-instance light (tests): its glow level (the classic

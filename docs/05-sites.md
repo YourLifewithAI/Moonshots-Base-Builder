@@ -240,8 +240,8 @@ Home 89.9°S 0°E
 | ◇ highland anorthosite | 3 (1 within 42–57 m) | 22–34 m | 90–340 m | On highland anorthosite — refinery feed ↑ · smelter feed ↓ |
 | ▲ peak of light | 2 | 14–20 m | 80–250 m | On a peak of light — solar ×1.2, never shaded · build ×1.3 |
 
-**Site techs:** Site Grading, Cryo Ice Extraction, Vertical Solar Masts.
-**Not here:** Solar-Wind Volatiles, Thermal Wadis, Skylight Heliostats, Ilmenite Beneficiation.
+**Site techs:** Site Grading, Cryo Ice Extraction, Vertical Solar Masts, Sublimation Tents, Heated Augers.
+**Not here:** Solar-Wind Volatiles, Thermal Wadis, Skylight Heliostats, Ilmenite Beneficiation, MLI Blankets.
 **Doctrine answers:** How hard do you push the furnace? MRE stands alone: highland soil barely reacts to H₂. How does the base survive the 14-day night? Fuel cells: ice gives water and the pole’s night is short. How does a foil reach orbit? Propellant: it ignores the pole’s ×0.6.
 
 ### ILMENITE PLAINS
@@ -254,8 +254,8 @@ Home 0.8°N 23°E
 | ◇ highland anorthosite | 1 | 22–34 m | 250–420 m | On highland anorthosite — refinery feed ↑ · smelter feed ↓ |
 | ≈ mature soil | 3 | 24–36 m | 60–350 m | On mature soil — water ×2.5 with Solar-Wind Volatiles · regolith ×0.9 |
 
-**Site techs:** Solar-Wind Volatiles, Thermal Wadis, Ilmenite Beneficiation.
-**Not here:** Site Grading, Cryo Ice Extraction, Vertical Solar Masts, Skylight Heliostats.
+**Site techs:** Solar-Wind Volatiles, Thermal Wadis, Ilmenite Beneficiation, MLI Blankets.
+**Not here:** Site Grading, Cryo Ice Extraction, Vertical Solar Masts, Skylight Heliostats, Sublimation Tents, Heated Augers.
 **Doctrine answers:** How hard do you push the furnace? Plenty of ilmenite, and MRE kills the only water trickle. How does the base survive the 14-day night? Thorium: the night is long. How does a foil reach orbit? Driver: the equator gives it ×1.5.
 
 ### MARIUS HILLS TUBE
@@ -269,8 +269,8 @@ Home 14.1°N 56.8°W
 | ☢ KREEP soil | 1 | 18 m | 60–150 m | On KREEP — reactor fuel make-up at ≥15% feed · no habitats here |
 | ≈ mature soil | 1 | 24–36 m | 60–350 m | On mature soil — water ×2.5 with Solar-Wind Volatiles · regolith ×0.9 |
 
-**Site techs:** Site Grading, Solar-Wind Volatiles, Skylight Heliostats, Ilmenite Beneficiation.
-**Not here:** Cryo Ice Extraction, Thermal Wadis, Vertical Solar Masts.
+**Site techs:** Site Grading, Solar-Wind Volatiles, Skylight Heliostats, Ilmenite Beneficiation, MLI Blankets.
+**Not here:** Cryo Ice Extraction, Thermal Wadis, Vertical Solar Masts, Sublimation Tents, Heated Augers.
 **Doctrine answers:** How hard do you push the furnace? A genuine split. How does the base survive the 14-day night? Thorium: the sun is a rumour down here. How does a foil reach orbit? A split.
 
 **Breakthrough hosts (every site):** Lava-Tube Caverns (Tranquillitatis pit, Marius tube, Ingenii pit); Volcanic Glass Reduction (Taurus–Littrow, Aristarchus, Schrödinger); Cold-Trap Chemistry (Cabeus, Hermite). 34 prospects in all.

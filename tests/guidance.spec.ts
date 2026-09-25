@@ -103,14 +103,17 @@ test('discoveries: a finished tech pops a card with its gains and next step', as
   await card.locator('[data-dsc="ok"]').click();
   await expect(card).toBeHidden();
 
-  // two era-1 techs open Era 2: its explainer, with the next era's routes
-  await g(page, 'completeTech', 'teleoperation');
-  await expect(card).toContainText('Earth Teleoperation');
-  await card.locator('[data-dsc="ok"]').click();
+  // four era-1 techs open Era 2 (the charter): its explainer, with the next era's routes
+  for (const [tid, name] of [['teleoperation', 'Earth Teleoperation'], ['grizzlyScreens', 'Grizzly Screens'],
+    ['fieldSpectrometers', 'Field Spectrometers']]) {
+    await g(page, 'completeTech', tid);
+    await expect(card).toContainText(name);
+    await card.locator('[data-dsc="ok"]').click();
+  }
   await g(page, 'advanceGameSeconds', 1);
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('EARLY CONSTRUCTION');
-  await expect(banner).toContainText(/era 3.*opens with 2 techs from this era, or 1 plus: 80⚙ fabricated/i);
+  await expect(banner).toContainText(/era 3.*opens with 4 techs from this era, or 2 plus: 200⚙ fabricated/i);
   await page.keyboard.press('Enter');
   await expect(banner).toBeHidden();
   expect((await g(page, 'getAudio')).played.era).toBeGreaterThanOrEqual(1);

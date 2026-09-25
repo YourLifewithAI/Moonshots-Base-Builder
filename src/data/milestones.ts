@@ -4,7 +4,7 @@
 import type { GameState } from '../core/state';
 import { BUILDINGS, type BuildingId } from './buildings';
 import { TECHS, type TechId } from './techs';
-import { ATLAS, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB } from './balance';
+import { ATLAS, CHARTER_DEED_TECHS, CHARTER_TECHS, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB } from './balance';
 
 export interface MilestoneDef {
   id: string;
@@ -97,9 +97,9 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'era-3', title: 'Robots Build Robots',
-    hint: 'Reach Era 3 — Robotic Fabrication. An era opens with 2 of the previous era’s techs — or 1 plus a deed.',
+    hint: `Reach Era 3 — Robotic Fabrication. An era opens with ${CHARTER_TECHS} of the previous era’s techs — or ${CHARTER_DEED_TECHS} plus a deed.`,
     check: (s) => s.era >= 3,
-    progress: (s) => `Era ${s.era} · ${s.techsDone.filter((t) => TECHS[t].era === s.era).length}/2 techs done`,
+    progress: (s) => `Era ${s.era} · ${s.techsDone.filter((t) => TECHS[t].era === s.era).length}/${CHARTER_TECHS} techs done`,
   },
   {
     id: 'silicon-brains', title: 'Silicon Brains',
