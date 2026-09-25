@@ -330,6 +330,8 @@ export class RoverFleet implements Driver {
     if (l > 1e-6 && r.inside) { r.agent.fx = dx / l; r.agent.fz = dz / l; r.yaw = Math.atan2(dx, dz); }
     this.traffic.setWay(r.agent, pts);
     r.agent.standMode = laneMode(spot.axis === 'x' ? 0 : 1, spot.side);
+    // out of the door: its cells are taken now, so the next one out waits its turn
+    if (r.inside) this.traffic.place(r.agent);
     r.spot = spot;
     r.key = spotKey(spot);
     r.site = spot.site;
@@ -419,20 +421,15 @@ export class RoverFleet implements Driver {
     return false;
   }
 
-  /** Set down on its slot if the slot is free, else back inside its dock. */
+  /** The last resort: back inside its dock (it rolls out again when the door is clear). */
   rescue(a: Agent) {
     const r = this.byId.get(a.id);
     if (!r) return;
-    const sp = r.spot;
-    if (sp && !sp.inside && this.traffic.fits(a, sp.gx, sp.gz, laneMode(sp.axis === 'x' ? 0 : 1, sp.side)) && !this.traffic.taken(a, sp.gx, sp.gz)) {
-      r.x = sp.x; r.z = sp.z; r.yaw = sp.face;
-      a.x = sp.x; a.z = sp.z; a.fx = Math.sin(sp.face); a.fz = Math.cos(sp.face);
-      this.traffic.setWay(a, [[sp.x, sp.z]]);
-      a.standMode = laneMode(sp.axis === 'x' ? 0 : 1, sp.side);
-      return;
-    }
     r.inside = true;
     r.key = '';
+    this.traffic.drop(a);
+    this.drawn = this.drawn.filter((x) => x !== r);
+    this.traffic.enlist('rover', this.drawn.map((x) => x.agent));
   }
 
   draw(_dt: number, sunDir: THREE.Vector3, sunLight: number) {

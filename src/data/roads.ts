@@ -27,8 +27,9 @@ export const DOCK_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['lander'
  *  included; dx along the front, dz outward): a two-cell run out from the
  *  door with a parking bay either side of its second cell, then a stub. The
  *  bays sit off the door, so an excavator unloading there (nose to the
- *  wall, 6 m long) passes them by. */
-export const APRON: { dx: number; dz: number; bay?: boolean }[] = [
+ *  wall, 6 m long) passes them by; new roads join only at the stub's `end`,
+ *  so nothing drives through the apron (or turns beside its bays). */
+export const APRON: { dx: number; dz: number; bay?: boolean; end?: boolean }[] = [
   { dx: 0, dz: 0 }, { dx: 0, dz: 1 }, { dx: -1, dz: 1, bay: true }, { dx: 1, dz: 1, bay: true },
-  { dx: 0, dz: 2 }, { dx: 0, dz: 3 },
+  { dx: 0, dz: 2 }, { dx: 0, dz: 3, end: true },
 ];

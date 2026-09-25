@@ -69,6 +69,10 @@ export interface Agent {
   pivotOk?: boolean;
   /** backing up: its front trails */
   reverse?: boolean;
+  /** a wide unit's way ends up a dead end: the arc of the junction before it
+   *  (it waits short of that junction until the dead end is empty), and its cells */
+  deadAt?: number;
+  deadCells?: number[];
   drv: Driver;
 }
 
@@ -210,6 +214,34 @@ export class Traffic {
     a.spans = cutSpans(a.pts, a.arcs, a.wide, (k) => this.roads.has(k));
     a.s = 0;
     a.stop = Traffic.end(a);
+    this.markDeadEnd(a);
+  }
+
+  /** road neighbours of a cell */
+  private degree(key: number): number {
+    const gx = key % 4096, gz = Math.floor(key / 4096);
+    let n = 0;
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (this.roads.has(gridKey(gx + dx, gz + dz))) n++;
+    return n;
+  }
+
+  /** A wide unit bound for a dead end (a stand up a spur): where the run of
+   *  cells to it leaves the last junction. Two excavators cannot pass in it,
+   *  so one waits outside, short of the junction, until it is empty. */
+  private markDeadEnd(a: Agent) {
+    delete a.deadAt; delete a.deadCells;
+    if (!a.wide) return;
+    const road = a.spans.filter((sp) => sp.road);
+    if (road.length < 2) return;
+    const cells: number[] = [];
+    for (let i = road.length - 1; i >= 0; i--) {
+      const sp = road[i];
+      if (i < road.length - 1 && this.degree(sp.key) >= 3) {
+        if (cells.length) { a.deadAt = sp.a0; a.deadCells = cells; }
+        return;
+      }
+      cells.push(sp.key);
+    }
   }
 
   /** The arc a way ends at. */
@@ -220,6 +252,22 @@ export class Traffic {
   /** Is this cell held (whole, or in any half) by anyone but `a`? */
   taken(a: Agent | null, gx: number, gz: number): boolean {
     return (this.occ.get(gridKey(gx, gz)) ?? []).some((o) => o.a !== a);
+  }
+  /** The cells a way's body would cover at arc u (road cells only). */
+  cellsAt(a: Agent, u: number): number[] {
+    const out: number[] = [];
+    for (const sp of a.spans) if (sp.road && sp.a1 > u - a.back && sp.a0 < u + a.front) out.push(sp.key);
+    return out;
+  }
+  /** The road cells in a unit's way ahead (from s, `ahead` metres) and those it holds. */
+  claimOf(a: Agent, ahead: number): Set<number> {
+    const out = new Set<number>(a.held.keys());
+    for (const sp of a.spans) if (sp.road && sp.a1 > a.s && sp.a0 < a.s + ahead) out.add(sp.key);
+    return out;
+  }
+  /** Is this grid key held by anyone but `a`? */
+  heldByOther(a: Agent, key: number): boolean {
+    return (this.occ.get(key) ?? []).some((o) => o.a !== a);
   }
   /** Is this cell's half free for `a` (lane mode m)? */
   fits(a: Agent | null, gx: number, gz: number, m: Mode): boolean {
@@ -378,6 +426,18 @@ export class Traffic {
         if (a.held.has(k)) continue;
         const c = this.clash(a, k, WHOLE);
         if (c) { ds = 0; limit = a.s; blocker = c; break; }
+      }
+    }
+    // bound for a dead end another unit is in: wait short of the junction before it
+    if (!this.solo && a.deadAt !== undefined && a.deadCells && limit === Infinity && a.s + Traffic.ahead(a) < a.deadAt + 1e-3) {
+      let c: Agent | null = null;
+      for (const k of a.deadCells) {
+        for (const o of this.occ.get(k) ?? []) if (o.a !== a) { c = o.a; break; }
+        if (c) break;
+      }
+      if (c) {
+        const lim = a.deadAt - Traffic.ahead(a) - 0.05;
+        if (a.s + ds > lim) { ds = Math.max(0, Math.min(ds, lim - a.s)); limit = Math.max(a.s, lim); blocker = c; }
       }
     }
     if (!this.solo && limit === Infinity) {

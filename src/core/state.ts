@@ -64,6 +64,8 @@ export interface RoadCell {
   left: number;
   /** a parking bay beside a dock or on the Lander's apron */
   bay?: boolean;
+  /** no new road joins or crosses it (the Lander's apron short of its stub's end) */
+  closed?: boolean;
 }
 
 /** A road the player drew, or a haul road to an excavator's dig: open for

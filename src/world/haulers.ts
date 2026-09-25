@@ -64,6 +64,8 @@ interface Digger {
   simX: number; simZ: number;
   /** the heading it turns (or pivots) to */
   aim: number;
+  /** backing off for another: until when (sim time) it waits before heading on */
+  yieldUntil: number;
   agent: Agent;
 }
 
@@ -171,7 +173,7 @@ export class Haulers implements Driver {
       if (!v) {
         v = {
           id: b.id, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: false, digging: false,
-          target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad, simX: h.x, simZ: h.z, aim: padYaw, agent: null!,
+          target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad, simX: h.x, simZ: h.z, aim: padYaw, yieldUntil: 0, agent: null!,
         };
         v.agent = {
           kind: 'digger', id: b.id, key: b.id, x: h.x, z: h.z, fx: Math.cos(padYaw), fz: -Math.sin(padYaw),
@@ -183,18 +185,20 @@ export class Haulers implements Driver {
         this.retrack(v, h, true);
       } else if (jumped) {
         this.retrack(v, h, true);
-      } else if (legKey(h) !== v.leg) {
+      } else if (legKey(h) !== v.leg && state.simTime >= v.yieldUntil) {
         this.retrack(v, h, false);
       }
       const a = v.agent;
-      v.target = Math.max(0, Traffic.end(a) - rem);
+      // backing off for another: out to the end of that way, then it waits
+      const yielding = state.simTime < v.yieldUntil;
+      v.target = yielding ? Traffic.end(a) : Math.max(0, Traffic.end(a) - rem);
       if (jumped) {
         a.s = Math.min(v.target, Traffic.end(a));
         const p = pointAt(a.pts, a.arcs, a.s);
         v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
         this.traffic?.place(a);
       }
-      v.simV = driving ? speed : 0;
+      v.simV = driving && !yielding ? speed : 0;
       v.pace = pace;
       v.pad = pad;
       v.padYaw = padYaw;
@@ -246,7 +250,9 @@ export class Haulers implements Driver {
     }
     if (!joined && this.state) {
       const cells = roadRoute(this.state, cellAt(v.x, v.z), cellAt(lx, lz));
-      if (cells) head.push(...routePoints(cells).slice(1));
+      // no road from here to the leg (cut, or not open yet): it waits where it is
+      if (!cells) { v.leg = ''; return; }
+      head.push(...routePoints(cells).slice(1));
     }
     const way: [number, number][] = [];
     for (const p of [...head, [lx, lz] as [number, number], ...leg.slice(1)]) {
@@ -311,9 +317,10 @@ export class Haulers implements Driver {
     if (fwd < 0.04) { a.reverse = false; a.pivot = false; v.aim = want; }
     else if (rev < 0.04 && !there) { a.reverse = true; a.pivot = false; v.aim = want + PI; }
     else {
-      // turn on the spot to whichever way round is nearer (forward on a tie)
+      // turn on the spot to face the way on (it backs up only where no turn is needed)
       a.pivot = true;
-      v.aim = fwd <= rev + 1e-6 || there ? want : want + PI;
+      a.reverse = false;
+      v.aim = want;
       a.vmax = 0;
     }
   }
@@ -330,22 +337,49 @@ export class Haulers implements Driver {
       v.yaw += clamp(wrap(v.aim - v.yaw), -TURN * dt, TURN * dt);
       if (Math.abs(wrap(v.aim - v.yaw)) < 0.04) { v.yaw = v.aim; a.pivot = false; }
     } else if (moved > 1e-6) {
-      // along the way: the heading of the piece it drives (turns come as pivots)
+      // along the way: the heading of the piece it drives; a turn waits for a pivot
       const yaw = a.reverse ? Math.atan2(p.dz, -p.dx) : Math.atan2(-p.dz, p.dx);
-      if (this.traffic?.boxFree(a, v.x, v.z, Math.cos(yaw), -Math.sin(yaw)) ?? true) v.yaw = yaw;
+      if (Math.abs(wrap(yaw - v.yaw)) < 0.2 && (this.traffic?.boxFree(a, v.x, v.z, Math.cos(yaw), -Math.sin(yaw)) ?? true)) v.yaw = yaw;
     }
     a.fx = Math.cos(v.yaw); a.fz = -Math.sin(v.yaw);
   }
 
-  /** An excavator does not back off: the rovers make way (a cycle of
-   *  excavators alone is set down on the sim's place). */
-  yieldTo(): boolean { return false; }
+  /** Back off along the way it came until its body is clear of the others'
+   *  ways, wait there a moment, then head on (true: it found such a place). */
+  yieldTo(a: Agent, others: Agent[]): boolean {
+    const v = this.all.get(a.id);
+    const t = this.traffic;
+    if (!v || !t || a.s <= 0) return false;
+    const avoid = new Set<number>();
+    for (const o of others) for (const k of t.claimOf(o, 40)) avoid.add(k);
+    // walk back a metre at a time: every cell passed must be free, the stop clear of their ways
+    for (let u = a.s - 1; u >= 0; u -= 1) {
+      const cells = t.cellsAt(a, u);
+      if (cells.some((k) => t.heldByOther(a, k) && !avoid.has(k))) return false;
+      if (cells.some((k) => avoid.has(k))) continue;
+      // back to arc u: the way reversed from here
+      const back: [number, number][] = [[v.x, v.z]];
+      for (let i = a.pts.length - 1; i >= 1; i--) if (a.arcs[i] < a.s - 1e-6 && a.arcs[i] > u + 1e-6) back.push(a.pts[i]);
+      const p = pointAt(a.pts, a.arcs, u);
+      back.push([p.x, p.z]);
+      if (back.length < 2 || Math.hypot(back[0][0] - p.x, back[0][1] - p.z) < 0.5) return false;
+      this.setWay(v, back);
+      a.reverse = true;
+      v.yieldUntil = (this.state?.simTime ?? 0) + 4;
+      v.leg = ''; // after the wait it takes up the sim's leg again from where it stands
+      return true;
+    }
+    return false;
+  }
 
-  /** Set down where the sim has it. */
+  /** Set down where the sim has it, if that ground is free (never onto another unit). */
   rescue(a: Agent) {
     const v = this.all.get(a.id);
     const h = this.state?.buildings.find((b) => b.id === a.id)?.haul;
-    if (!v || !h) return;
+    const t = this.traffic;
+    if (!v || !h || !t) return;
+    const yaw = v.yaw;
+    if (!t.boxFree(a, h.x, h.z, Math.cos(yaw), -Math.sin(yaw))) return;
     this.retrack(v, h, true);
     v.target = Traffic.end(a) - Math.max(0, pathLength(h.x, h.z, h.path));
   }
@@ -461,6 +495,8 @@ export class Haulers implements Driver {
         id: v.id, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, yaw: Math.round(v.yaw * 1000) / 1000, digging: v.digging, away: v.away,
         /** m the digger trails the sim along its track */
         lagM: Math.round((v.target - v.agent.s) * 100) / 100,
+        s: Math.round(v.agent.s * 100) / 100, end: Math.round(Traffic.end(v.agent) * 100) / 100,
+        pivot: !!v.agent.pivot, reverse: !!v.agent.reverse, way: v.agent.pts.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
       })),
       /** the most any digger trailed the sim since the last read, game-seconds of driving */
       lagMaxS: Math.round(this.takeLag() * 100) / 100,

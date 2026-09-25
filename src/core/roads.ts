@@ -246,7 +246,7 @@ function search(
       const nk = cellKey(nx, nz);
       if (done.has(nk) || blocked.has(nk)) continue;
       const road = map.get(nk);
-      if (road?.bay) continue;
+      if (road?.bay || road?.closed) continue;
       const step = Math.abs(hAt(nk) - hAt(k));
       if (step > ROAD.maxStep) continue;
       const c = cost.get(k)! + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step;
@@ -263,10 +263,26 @@ function search(
   return out.reverse();
 }
 
-/** The open network a new road may start from (bays excluded). */
-function openSources(s: GameState): number[] {
+/** The open network a new road may start from: not a bay, not the closed
+ *  apron, not a structure's door (doors stay the ends of their spurs, so no
+ *  one drives through a door another unit works or unloads at). */
+function openSources(s: GameState, doors: Set<number>): number[] {
   const out: number[] = [];
-  for (const c of s.roads ?? []) if (isOpen(c) && !c.bay) out.push(cellKey(c.gx, c.gz));
+  for (const c of s.roads ?? []) {
+    const k = cellKey(c.gx, c.gz);
+    if (isOpen(c) && !c.bay && !c.closed && !doors.has(k)) out.push(k);
+  }
+  return out;
+}
+
+/** Every structure's door cell (`skip`: the one being planned for). */
+function doorKeys(s: GameState, skip?: Placed): Set<number> {
+  const out = new Set<number>();
+  for (const b of s.buildings) {
+    if (skip && (b === skip || (b.type === skip.type && b.gx === skip.gx && b.gz === skip.gz && b.rot === skip.rot))) continue;
+    const d = doorCell(b);
+    if (d) out.add(cellKey(d[0], d[1]));
+  }
   return out;
 }
 
@@ -299,18 +315,23 @@ export function planSpur(s: GameState, hf: Heights, b: Placed): SpurPlan {
 function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const map = roadMap(s);
   const blocked = occupied(s, b);
-  const sources = openSources(s);
+  const doors = doorKeys(s, b);
+  // a new road runs through no one's door
+  for (const k of doors) blocked.add(k);
+  const sources = openSources(s, doors);
   let targets: number[];
   if (FIELD_TYPES.has(b.type)) {
     if (fieldReached(s, b)) return { cells: [], fresh: [], bays: [], reason: '' };
-    targets = ringCells(b).filter(([x, z]) => inMap(x, z) && !blocked.has(cellKey(x, z))).map(([x, z]) => cellKey(x, z));
+    targets = ringCells(b).filter(([x, z]) => inMap(x, z) && !blocked.has(cellKey(x, z)) && !map.get(cellKey(x, z))?.closed).map(([x, z]) => cellKey(x, z));
     if (!targets.length) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — boxed in: no ground beside it for a road' };
   } else {
     const d = doorCell(b)!;
     const dk = cellKey(d[0], d[1]);
     if (!inMap(d[0], d[1])) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — its door (the front) is off the map; R rotates' };
     if (blocked.has(dk)) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — its door (the front) is against a structure; R rotates' };
-    if (map.get(dk)?.bay) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — its door is on a parking bay; R rotates' };
+    if (map.get(dk)?.bay || map.get(dk)?.closed) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — its door would open onto the Lander’s apron; R rotates' };
+    if (doors.has(dk)) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — its door would share another structure’s door; R rotates' };
+    blocked.delete(dk);
     targets = [dk];
   }
   const path = search(s, hf, sources, new Set(targets), blocked);
@@ -372,7 +393,7 @@ export function layApron(s: GameState, lander: BuildingState) {
     const gx = d[0] + a.dx * px + a.dz * fx, gz = d[1] + a.dx * pz + a.dz * fz;
     const k = cellKey(gx, gz);
     if (!inMap(gx, gz) || blocked.has(k) || map.has(k)) continue;
-    s.roads.push({ gx, gz, left: 0, ...(a.bay ? { bay: true } : {}) });
+    s.roads.push({ gx, gz, left: 0, ...(a.bay ? { bay: true } : a.end ? {} : { closed: true }) });
   }
   lander.spur = [];
   bumpRoads(s);
@@ -457,18 +478,22 @@ export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell): Li
   if (!hasRoads(s)) return { cells: [], fresh: [], reason: 'NO ROADS ON THIS BASE' };
   const map = roadMap(s);
   const blocked = occupied(s);
+  const doors = doorKeys(s);
   const bk = cellKey(b[0], b[1]);
   if (!inMap(b[0], b[1])) return { cells: [], fresh: [], reason: 'OUTSIDE THE SURVEY AREA' };
+  if (doors.has(bk) || map.get(bk)?.closed) return { cells: [], fresh: [], reason: 'AT A DOOR — a door is the end of its own road; end beside it' };
   if (blocked.has(bk)) return { cells: [], fresh: [], reason: 'UNDER A STRUCTURE — end the road on open ground' };
   let sources: number[];
   if (a) {
     const ak = cellKey(a[0], a[1]);
     const c = map.get(ak);
     if (!c || c.bay) return { cells: [], fresh: [], reason: 'START ON A ROAD — drag out from an open road cell' };
+    if (c.closed || doors.has(ak)) return { cells: [], fresh: [], reason: 'START ELSEWHERE — no road branches off a door or the Lander’s apron' };
     sources = [ak];
   } else {
-    sources = openSources(s);
+    sources = openSources(s, doors);
   }
+  for (const k of doors) if (k !== bk) blocked.add(k);
   const path = search(s, hf, sources, new Set([bk]), blocked);
   if (!path) return { cells: [], fresh: [], reason: 'NO ROAD ROUTE — walled in, or too steep for a road' };
   const cells = path.filter((k) => !isOpen(map.get(k)));
