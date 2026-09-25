@@ -34,6 +34,8 @@ export interface SiteQuery {
   intent: { res?: ResourceId; like?: number; rule?: AutoRuleId | 'order'; edge?: boolean };
   /** Site Survey AI */
   survey: boolean;
+  /** 'gx,gz,rot' candidates the place action already refused (the next one is tried) */
+  skip?: string[];
 }
 
 export interface SitePick {
@@ -293,6 +295,7 @@ export function chooseSite(
   const unlocked = mods.unlocked;
   let pick: typeof scored[number] | null = null;
   for (const c of scored.slice(0, 200)) {
+    if (q.skip?.includes(`${c.gx},${c.gz},${c.rot}`)) continue;
     const chk = checkPlacement(s, site, ground as Heightfield, unlocked, type, c.gx, c.gz, c.rot, tier);
     if (chk.valid) { pick = c; break; }
   }

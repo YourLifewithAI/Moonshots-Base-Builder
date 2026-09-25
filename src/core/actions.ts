@@ -7,7 +7,9 @@ import type { ResourceId } from '../data/resources';
 import type { AutoFamily, AutoRuleId } from '../data/automation';
 
 export type Action =
-  | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }
+  | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3;
+      /** set when the Builder places (docs/13): crew it or not, and no CANNOT BUILD alert — it tries its next site */
+      builder?: { automated: boolean } }
   | { kind: 'demolish'; id: number }
   | { kind: 'setEnabled'; id: number; enabled: boolean }
   | { kind: 'setAutomated'; id: number; automated: boolean }

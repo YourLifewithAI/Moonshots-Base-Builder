@@ -79,8 +79,11 @@ test('a one-shot order from the landing: Ctrl-click a card, the rovers choose th
   page.on('pageerror', (e) => errors.push(String(e)));
   await start(page);
   const card = page.locator('#palette .bld-btn[data-type="solar"]');
+  const thunks = (await page.evaluate(() => window.__game.getAudio())).played.place ?? 0;
   await card.click({ modifiers: ['Control'] });
   await page.evaluate(() => window.__game.advanceGameSeconds(0));
+  // the player's own place action placed it: the same thunk as a click
+  expect((await page.evaluate(() => window.__game.getAudio())).played.place ?? 0).toBe(thunks + 1);
   let s = await page.evaluate(() => window.__game.getState());
   const one = s.buildings.filter((b: any) => b.auto);
   expect(one).toHaveLength(1);

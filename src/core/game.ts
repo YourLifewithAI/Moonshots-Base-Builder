@@ -170,6 +170,8 @@ export class Game {
   private markerSig = '';
   /** Lunar Map screen bookkeeping (the view shown, the tier last seen) */
   private lunarUi: LunarUi = { open: false, view: 'site', seenTier: 0 };
+  /** what the last Builder place action did: the building, or why it refused */
+  private lastPlace: BuildingState | string | null = null;
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
     // the style reaches every mesh creator and the material registry before
@@ -671,9 +673,14 @@ export class Game {
       case 'place': {
         const chk = checkPlacement(s, SITES[s.siteId], this.hf, this.mods.unlocked, a.type, a.gx, a.gz, a.rot,
           this.mods.surveyTier);
-        if (!chk.valid) { alert(s, `CANNOT BUILD — ${chk.reason}`, 'warn'); break; }
+        if (!chk.valid) {
+          if (a.builder) this.lastPlace = chk.reason; // the Builder tries its next site
+          else alert(s, `CANNOT BUILD — ${chk.reason}`, 'warn');
+          break;
+        }
         const cost = buildCost(a.type, SITES[s.siteId]);
-        this.commitPlace(a.type, a.gx, a.gz, a.rot, false);
+        const placed = this.commitPlace(a.type, a.gx, a.gz, a.rot, false, a.builder?.automated);
+        if (a.builder) this.lastPlace = placed;
         sfx.play('place');
         // the price floats up from the pad it was paid for
         const [cx, cz] = centerOf(a);
@@ -1979,22 +1986,29 @@ export class Game {
   // ─────────────────────────── the Builder ───────────────────────────
 
   /** Pick a site and place one auto building (an order's or a rule's). */
+  /** Pick a site and place there through the player's own place action (the
+   *  same validity, cost, pad, floater — and whatever else a placement does,
+   *  like its road). A site the action refuses is skipped for the next best. */
   private placeAuto(type: BuildingId, intent: SiteIntent, automated: boolean): { b: BuildingState; why: string } | string {
     const s = this.state;
     const site = SITES[s.siteId];
-    const pick = chooseSite(s, this.mods, site, this.hf, { type, intent, survey: this.mods.siteSurvey });
-    if ('refusal' in pick) return pick.refusal;
-    const cost = buildCost(type, site);
-    const b = this.commitPlace(type, pick.gx, pick.gz, pick.rot, false, automated);
-    if (pick.dig) b.auto = { by: 'rule', at: s.simTime, why: pick.why, dig: pick.dig };
-    // the price floats up from the pad it was paid for, as for a click
-    const [cx, cz] = centerOf(b);
-    const at = this.screenOf(cx, this.hf.sample(cx, cz) + BUILDINGS[type].height * 0.6, cz);
-    const text = Object.entries(cost).filter(([, n]) => (n ?? 0) > 0)
-      .map(([rid, n]) => `−${n}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
-    if (at.visible && text) spawnFloater(text, at.x, at.y);
-    sfx.play('place');
-    return { b, why: pick.why };
+    const skip: string[] = [];
+    let refused = '';
+    for (let n = 0; n < AUTO.placeTries; n++) {
+      const pick = chooseSite(s, this.mods, site, this.hf, { type, intent, survey: this.mods.siteSurvey, skip });
+      if ('refusal' in pick) return refused ? `${pick.refusal} (the nearer sites: ${refused})` : pick.refusal;
+      this.lastPlace = null;
+      this.applyAction({ kind: 'place', type, gx: pick.gx, gz: pick.gz, rot: pick.rot, builder: { automated } });
+      const b = this.lastPlace as BuildingState | string | null;
+      this.lastPlace = null;
+      if (b && typeof b !== 'string') {
+        if (pick.dig) b.auto = { by: 'rule', at: s.simTime, why: pick.why, dig: pick.dig };
+        return { b, why: pick.why };
+      }
+      refused = typeof b === 'string' ? b : 'refused';
+      skip.push(`${pick.gx},${pick.gz},${pick.rot}`);
+    }
+    return `no ${BUILDINGS[type].name} site the rovers can reach in ${AUTO.placeTries} tries: ${refused}`;
   }
 
   /** The order action: place up to `count` now; the rest skip (or, with
