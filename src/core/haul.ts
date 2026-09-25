@@ -20,7 +20,7 @@ import { FEED_KINDS, feedKindOf, type FeedGrade, type FeedKind } from '../data/d
 import type { BuildingState, GameState, HaulState } from './state';
 import { effectiveDef, type EffectiveRates, type Mods } from './mods';
 import { centerOf } from '../buildings/instances';
-import { PATH_HALF, UNIT, inside, pathLength, plan, ring, wallSpot, worldRect, type Rect } from './paths';
+import { PATH_HALF, UNIT, inside, pathLength, plan, reachableFrom, ring, wallSpot, worldRect, type Rect } from './paths';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -143,18 +143,21 @@ function rectsFor(s: GameState, self: BuildingState): Rect[] {
 /** Where digger `b` unloads at `drop`, coming from (x, z): the wall spot
  *  nearest it (as it always was) when that is clear, else the nearest clear
  *  one round the walls — clear of every other footprint by the haul
- *  clearance, and DIGGER_GAP from wherever another digger stands still
- *  (so two never unload in one place, nor on each other's dig). */
+ *  clearance, DIGGER_GAP from wherever another digger stands still (so two
+ *  never unload in one place, nor on each other's dig), and one it can
+ *  drive to (not a gap between walls too narrow for it). */
 export function standFor(s: GameState, b: BuildingState, drop: BuildingState, x: number, z: number): { x: number; z: number } {
   const r = worldRect(drop);
   const first = wallSpot(r, x, z, HAUL.unloadOut);
   const walls = s.buildings.filter((o) => o.id !== b.id && o.id !== drop.id).map(worldRect);
   const others = diggerSpots(s, b.id);
   const m = HAUL.clear * 0.9;
+  const reach = reachableFrom(x, z, rectsFor(s, b), HAUL.clear);
   const free = (px: number, pz: number) =>
     Math.abs(px) < PATH_HALF && Math.abs(pz) < PATH_HALF &&
     !walls.some((w) => inside(px, pz, w, m)) &&
-    !others.some((o) => Math.hypot(o.x - px, o.z - pz) < DIGGER_GAP);
+    !others.some((o) => Math.hypot(o.x - px, o.z - pz) < DIGGER_GAP) &&
+    reach(px, pz);
   if (free(first.x, first.z)) return { x: first.x, z: first.z };
   const rg = ring(r, HAUL.unloadOut);
   const u0 = rg.uOf(x, z);

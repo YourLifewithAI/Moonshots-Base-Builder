@@ -14,6 +14,7 @@ import { BUILDINGS } from './data/buildings';
 import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
+import { worldRect } from './core/paths';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -174,6 +175,13 @@ function api(game: Game) {
     getFleet: () => clone(game.debugFleet()),
     /** screen position of a drawn rover (roster id) or excavator (building id) */
     poseOnScreen: (kind: 'rover' | 'digger', id: number) => game.debugPoseOnScreen(kind, id),
+    /** a structure's footprint in world metres ({ x0, z0, x1, z1 }), or null */
+    footprintOf: (id: number) => {
+      const b = game.state.buildings.find((x) => x.id === id);
+      if (!b) return null;
+      const { x0, z0, x1, z1 } = worldRect(b);
+      return { x0, z0, x1, z1 };
+    },
     /** Complete every construction site now (one economy tick settles them). */
     finishConstruction: () => {
       for (const b of game.state.buildings) b.construction = 0;

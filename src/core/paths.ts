@@ -105,11 +105,86 @@ function planFresh(ax: number, az: number, bx: number, bz: number, rects: readon
   const m = clear * 0.9;
   const held = rects.some((r) => inside(ax, az, r, m) || inside(bx, bz, r, m));
   if (!held && lineClear(ax, az, bx, bz, rects, m)) return [[bx, bz]];
-  for (const w of [WINDOW, WIDE]) {
-    const p = gridPlan(ax, az, bx, bz, rects, clear, w);
-    if (p) return p;
-  }
+  const p = gridPlan(ax, az, bx, bz, rects, clear, WINDOW, false) ?? gridPlan(ax, az, bx, bz, rects, clear, WIDE, true);
+  if (p) return p;
+  planStats.fallback++;
   return hopPlan(ax, az, bx, bz, rects, clear);
+}
+/** plans that found no free ground to start from (the greedy hops took them) */
+export const planStats = { fallback: 0 };
+
+// ───────────────────────────── reachability ─────────────────────────────
+
+const reachMemo = new Map<string, (x: number, z: number) => boolean>();
+
+/** Can a unit keeping `clear` off every wall drive from a to a point? The
+ *  free ground round the footprints is flood-filled once (2 m cells, as the
+ *  planner's) and remembered; the open ground outside them is one region. */
+export function reachableFrom(ax: number, az: number, rects: readonly Rect[], clear: number): (x: number, z: number) => boolean {
+  if (!rects.length) return () => true;
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+  for (const r of rects) { x0 = Math.min(x0, r.x0); z0 = Math.min(z0, r.z0); x1 = Math.max(x1, r.x1); z1 = Math.max(z1, r.z1); }
+  const pad = clear + 2 * GRID;
+  x0 -= pad; z0 -= pad; x1 += pad; z1 += pad;
+  x0 = Math.floor(x0 / GRID) * GRID; z0 = Math.floor(z0 / GRID) * GRID;
+  const nx = Math.ceil((x1 - x0) / GRID), nz = Math.ceil((z1 - z0) / GRID);
+  const cellOf = (x: number, z: number) => Math.floor((z - z0) / GRID) * nx + Math.floor((x - x0) / GRID);
+  const within = (x: number, z: number) => x >= x0 && z >= z0 && x < x0 + nx * GRID && z < z0 + nz * GRID;
+  const key = `${clear}|${within(ax, az) ? cellOf(ax, az) : 'out'}|${rectKey(rects)}`;
+  const hit = reachMemo.get(key);
+  if (hit) return hit;
+  const blocked = new Uint8Array(nx * nz);
+  for (const r of rects) {
+    const i0 = Math.max(0, Math.floor((r.x0 - clear - x0) / GRID - 0.5) + 1);
+    const i1 = Math.min(nx - 1, Math.ceil((r.x1 + clear - x0) / GRID - 0.5) - 1);
+    const k0 = Math.max(0, Math.floor((r.z0 - clear - z0) / GRID - 0.5) + 1);
+    const k1 = Math.min(nz - 1, Math.ceil((r.z1 + clear - z0) / GRID - 0.5) - 1);
+    for (let k = k0; k <= k1; k++) for (let i = i0; i <= i1; i++) blocked[k * nx + i] = 1;
+  }
+  /** the free cell nearest a cell (a point in a margin counts from the ground beside it) */
+  const free = (c: number): number => {
+    if (!blocked[c]) return c;
+    const ci = c % nx, ck = (c / nx) | 0;
+    for (let rad = 1; rad < 6; rad++) {
+      for (let k = Math.max(0, ck - rad); k <= Math.min(nz - 1, ck + rad); k++) {
+        for (let i = Math.max(0, ci - rad); i <= Math.min(nx - 1, ci + rad); i++) {
+          if (Math.max(Math.abs(i - ci), Math.abs(k - ck)) === rad && !blocked[k * nx + i]) return k * nx + i;
+        }
+      }
+    }
+    return -1;
+  };
+  const seen = new Uint8Array(nx * nz);
+  const start = within(ax, az) ? free(cellOf(ax, az)) : 0; // outside: the corner cell is open ground
+  if (start >= 0) {
+    const stack = [start];
+    seen[start] = 1;
+    while (stack.length) {
+      const c = stack.pop()!;
+      const ci = c % nx, ck = (c / nx) | 0;
+      for (let dk = -1; dk <= 1; dk++) {
+        for (let di = -1; di <= 1; di++) {
+          if (!di && !dk) continue;
+          const i = ci + di, k = ck + dk;
+          if (i < 0 || k < 0 || i >= nx || k >= nz) continue;
+          const nb = k * nx + i;
+          if (blocked[nb] || seen[nb]) continue;
+          if (di && dk && (blocked[ck * nx + i] || blocked[k * nx + ci])) continue;
+          seen[nb] = 1;
+          stack.push(nb);
+        }
+      }
+    }
+  }
+  const outside = seen[0] === 1;
+  const fn = (x: number, z: number) => {
+    if (!within(x, z)) return outside;
+    const c = free(cellOf(x, z));
+    return c >= 0 && seen[c] === 1;
+  };
+  if (reachMemo.size >= 32) reachMemo.delete(reachMemo.keys().next().value!);
+  reachMemo.set(key, fn);
+  return fn;
 }
 
 // ───────────────────────────── grid A* ─────────────────────────────
@@ -153,8 +228,11 @@ class Heap {
   }
 }
 
+/** A* on the grid round (a, b) with margin w. No way through: null, or with
+ *  `closest`, the way to the reachable cell nearest b and a last straight
+ *  leg from there (a goal walled in: it squeezes through the narrowest gap). */
 function gridPlan(
-  ax: number, az: number, bx: number, bz: number, rects: readonly Rect[], clear: number, w: number,
+  ax: number, az: number, bx: number, bz: number, rects: readonly Rect[], clear: number, w: number, closest: boolean,
 ): [number, number][] | null {
   const m = clear * 0.9;
   const lim = PATH_HALF + GRID;
@@ -179,26 +257,31 @@ function gridPlan(
   const cz = (k: number) => z0 + (k + 0.5) * GRID;
   const cellOf = (x: number, z: number) =>
     clamp(Math.floor((z - z0) / GRID), 0, nz - 1) * nx + clamp(Math.floor((x - x0) / GRID), 0, nx - 1);
-  /** the free cell nearest (x, z): its edge, for an end inside a footprint's margin */
+  /** the free cell nearest (x, z) in a clear line from it (lines may cross
+   *  only the footprints whose margin holds the point: it leaves or enters
+   *  them at the edge), else the nearest free cell at all */
   const nearestFree = (x: number, z: number): number => {
-    const c = cellOf(x, z);
-    if (!blocked[c]) return c;
-    const ci = c % nx, ck = (c / nx) | 0;
+    const walls = local.filter((r) => !inside(x, z, r, m));
+    const sees = (c: number) => lineClear(x, z, cx(c % nx), cz((c / nx) | 0), walls, m);
+    const c0 = cellOf(x, z);
+    if (!blocked[c0] && sees(c0)) return c0;
+    const ci = c0 % nx, ck = (c0 / nx) | 0;
+    let any = -1;
     for (let rad = 1; rad < Math.max(nx, nz); rad++) {
       let best = -1, bd = Infinity;
       for (let k = Math.max(0, ck - rad); k <= Math.min(nz - 1, ck + rad); k++) {
         for (let i = Math.max(0, ci - rad); i <= Math.min(nx - 1, ci + rad); i++) {
           if (Math.max(Math.abs(i - ci), Math.abs(k - ck)) !== rad || blocked[k * nx + i]) continue;
           const d = Math.hypot(cx(i) - x, cz(k) - z);
-          if (d < bd) { bd = d; best = k * nx + i; }
+          if (d < bd && sees(k * nx + i)) { bd = d; best = k * nx + i; }
+          if (any < 0) any = k * nx + i;
         }
       }
       if (best >= 0) return best;
+      if (any >= 0 && rad > 8) return any;
     }
-    return -1;
+    return any;
   };
-  const heldA = local.some((r) => inside(ax, az, r, m));
-  const heldB = local.some((r) => inside(bx, bz, r, m));
   const s = nearestFree(ax, az), g = nearestFree(bx, bz);
   if (s < 0 || g < 0) return null;
 
@@ -239,22 +322,25 @@ function gridPlan(
       }
     }
   }
-  if (!found) return null;
+  let end = g;
+  if (!found) {
+    if (!closest) return null;
+    let bd = Infinity;
+    for (let c = 0; c < n; c++) {
+      if (!done[c]) continue;
+      const d = Math.hypot(cx(c % nx) - bx, cz((c / nx) | 0) - bz);
+      if (d < bd) { bd = d; end = c; }
+    }
+  }
   const cells: number[] = [];
-  for (let c = g; c !== -1; c = from[c]) cells.push(c);
+  for (let c = end; c !== -1; c = from[c]) cells.push(c);
   cells.reverse();
 
-  // the points to pull straight: the start (or where it leaves the footprint
-  // holding it), the cell centres between, the goal (or where it enters)
-  const pts: [number, number][] = cells.map((c) => [cx(c % nx), cz((c / nx) | 0)]);
-  if (!heldA) pts[0] = [ax, az];
-  if (!heldB) {
-    if (pts.length === 1) pts.push([bx, bz]); else pts[pts.length - 1] = [bx, bz];
-  }
-  const pulled = pts.length > 1 ? pull(pts, local, m) : pts;
-  // held: the exit point is a leg of its own, and the goal follows the entry point
-  const out: [number, number][] = heldA ? pulled : pulled.slice(1);
-  if (heldB) out.push([bx, bz]);
+  // the points to pull straight: the start, the cell centres, the goal. A
+  // start (or goal) inside a footprint's margin sees nothing past it, so its
+  // exit (entry) cell — the edge — stays a waypoint.
+  const pts: [number, number][] = [[ax, az], ...cells.map((c): [number, number] => [cx(c % nx), cz((c / nx) | 0)]), [bx, bz]];
+  const out = pull(pts, local, m).slice(1);
   // drop zero-length legs
   const clean: [number, number][] = [];
   let px = ax, pz = az;
