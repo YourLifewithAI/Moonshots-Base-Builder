@@ -238,21 +238,21 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await expect(page.locator('.era-head')).toHaveCount(8);
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
-  // era 1 tech is clickable; era 2 techs locked until 2 era-1 techs done
+  // era 1 tech is clickable; era 2 techs locked until 4 era-1 techs are done
   const smelting = page.locator('.tech-card[data-tech="regolithProcessing"]');
   await expect(smelting).toHaveClass(/available/);
   await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/locked/);
   await smelting.click();
-  await page.evaluate(() => window.__game.grantData(50));
+  await page.evaluate(() => window.__game.grantData(80));
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
   const mid = await page.evaluate(() => window.__game.getState());
   expect(mid.techsDone).not.toContain('regolithProcessing'); // no longer instant
-  await page.evaluate(() => window.__game.advanceGameSeconds(90)); // 30 data at 0.4/s
+  await page.evaluate(() => window.__game.advanceGameSeconds(130)); // 48 data at 0.4/s
   const s1 = await page.evaluate(() => window.__game.getState());
   expect(s1.techsDone).toContain('regolithProcessing');
 
   // (Ice Extraction is pole-only now; a hidden tech never counts for a charter)
-  await page.evaluate(() => window.__game.completeTech('teleoperation'));
+  await page.evaluate(() => { for (const t of ['teleoperation', 'grizzlyScreens', 'fieldSpectrometers']) window.__game.completeTech(t); });
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.era).toBe(2);
   await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/available/);
@@ -265,7 +265,7 @@ test('research progress is banked across queue changes', async ({ page }) => {
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // lab built at 72s
   await page.evaluate(() => window.__game.grantData(100));
   await page.evaluate(() => window.__game.research('regolithProcessing'));
-  await page.evaluate(() => window.__game.advanceGameSeconds(30)); // ~12 of 30 data in
+  await page.evaluate(() => window.__game.advanceGameSeconds(30)); // ~12 of 48 data in
   const mid = await page.evaluate(() => window.__game.getState());
   expect(mid.researchSpent.regolithProcessing).toBeGreaterThan(5);
   expect(mid.techsDone).not.toContain('regolithProcessing');
@@ -277,7 +277,7 @@ test('research progress is banked across queue changes', async ({ page }) => {
   expect(cancelled.researchSpent.regolithProcessing).toBeGreaterThan(5);
   // re-queue: it resumes from the bank and finishes early
   await page.evaluate(() => window.__game.research('regolithProcessing'));
-  await page.evaluate(() => window.__game.advanceGameSeconds(60)); // 18 left at 0.4/s = 45s
+  await page.evaluate(() => window.__game.advanceGameSeconds(100)); // 36 left at 0.4/s = 90s
   const done = await page.evaluate(() => window.__game.getState());
   expect(done.techsDone).toContain('regolithProcessing');
 });
@@ -600,7 +600,9 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
       ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
       ['partsFab', 138, 128],
     ];
-    const research = ['regolithProcessing', 'teleoperation', 'siliconRefining', 'partsFabrication'];
+    // an era opens with four techs of the one before
+    const research = ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',
+      'partsFabrication', 'siliconRefining'];
     let dryWithoutRemedy = 0;
     let wentDry = false;
     let partsStranded = false;
@@ -1489,13 +1491,14 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   await game(page);
 
   // fast-forward the eight-era tree to swarm protocol
-  for (const t of ['regolithProcessing', 'teleoperation', 'prospectingRovers',
+  // (four techs per era open the next; Swarm Protocol waits for a launch-cadence step)
+  for (const t of ['regolithProcessing', 'teleoperation', 'prospectingRovers', 'grizzlyScreens',
     'siliconRefining', 'partsFabrication', 'batteryStorage', 'constructionRobotics', 'regolithShielding',
-    'thoriumPower', 'swarmRobotics',
-    'waferFab', 'orbitalProspector', 'acceleratorDesign',
-    'lunarDataCenter', 'dynamicClocking',
-    'closedLoopLS', 'scienceCrews',
-    'foilManufacturing', 'massDriver', 'swarmProtocol']) {
+    'thoriumPower', 'swarmRobotics', 'stackedCells', 'slagRecycling',
+    'waferFab', 'orbitalProspector', 'acceleratorDesign', 'waferPolishing',
+    'lunarDataCenter', 'dynamicClocking', 'cryoRadiators', 'wingExtensions',
+    'closedLoopLS', 'scienceCrews', 'refractoryLinings', 'uplinkDishes',
+    'foilManufacturing', 'massDriver', 'rollToRoll', 'liquidCooling', 'railCapacitors', 'swarmProtocol']) {
     await page.evaluate((tech) => window.__game.completeTech(tech), t);
   }
   const st = await page.evaluate(() => window.__game.getState());

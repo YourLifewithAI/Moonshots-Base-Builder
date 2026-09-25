@@ -52,35 +52,68 @@ const POWERED = `window.powered = (secs) => {
   for (let t = 0; t < secs; t += 10) { g.grantPower(5000); g.advanceGameSeconds(Math.min(10, secs - t)); }
 }`;
 
-// through Era 5 on either expedition (debug completes skip prerequisites and goods)
+// an era opens with 4 techs of the one before (docs/12 §2.1); debug completes
+// skip prerequisites and goods. Four Era-1 techs visible at every site:
+const E1_4 = ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers'];
+// through Era 5 on either expedition
 const TO_ERA_5 = [
-  'regolithProcessing', 'teleoperation',
+  ...E1_4,
   'siliconRefining', 'partsFabrication', 'constructionRobotics', 'batteryStorage',
-  'regenFuelCells', 'swarmRobotics',
-  'waferFab', 'acceleratorDesign',
+  'regenFuelCells', 'swarmRobotics', 'stackedCells', 'slagRecycling',
+  'waferFab', 'acceleratorDesign', 'waferPolishing', 'oreSorting',
 ];
+/** ERA_COST_SCALE as the page runs it (costs below are base × scale) */
+const costScale = (page: Page) =>
+  page.evaluate(async () => (await import('/src/data/balance.ts')).ERA_COST_SCALE as Record<number, number>);
 
-test('charter by deed: one era-1 tech plus 100◆ smelted opens Era 2', async ({ page }) => {
+test('charter by deed: two era-1 techs plus 450◆ smelted open Era 2', async ({ page }) => {
   await start(page, 'mare');
   await complete(page, ['regolithProcessing']);
-  await placeNear(page, [['solar', 2], ['excavator', 2], ['smelter', 1]]);
+  await page.evaluate(() => window.__game.grantResources({ metals: 200 }));
+  await placeNear(page, [['solar', 2], ['excavator', 3], ['smelter', 2], ['lab', 1]]);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.finishConstruction();
     g.grantResources({ regolith: 200 });
-    let eraWhileShort = 0;
     let s = g.getState();
-    for (let i = 0; i < 80 && s.stats.produced.metals < 100; i++) {
+    let eraWhileShort = 0;
+    for (let i = 0; i < 200 && s.stats.produced.metals < 450; i++) {
       eraWhileShort = Math.max(eraWhileShort, s.era);
-      g.advanceGameSeconds(5);
+      powered(10);
       s = g.getState();
+      // keep the yard from filling, so the smelters never stand by
+      if (s.resources.metals > 150) g.grantResources({ metals: 100 - s.resources.metals });
     }
-    return { s, eraWhileShort, gate: g.getResearch().gates[0] };
+    const oneTech = { era: g.getState().era, gate: g.getResearch().gates[0] };
+    // the second tech researched for real, so the economy's era tick opens the era
+    g.research('grizzlyScreens');
+    g.grantData(200);
+    for (let i = 0; i < 60 && !g.getState().techsDone.includes('grizzlyScreens'); i++) powered(10);
+    g.advanceGameSeconds(1);
+    return { oneTech, eraWhileShort, s: g.getState(), gate: g.getResearch().gates[0] };
   });
-  expect(r.s.stats.produced.metals).toBeGreaterThanOrEqual(100);
-  expect(r.eraWhileShort).toBe(1); // one tech alone is not a charter
+  expect(r.oneTech.gate.deedValue).toBeGreaterThanOrEqual(450);
+  expect(r.oneTech.gate.deedMet).toBe(true);
+  // one tech and the deed are not a charter; nor are the smelts alone
+  expect(r.eraWhileShort).toBe(1);
+  expect(r.oneTech.era).toBe(1);
+  expect(r.oneTech.gate.techs).toBe(1);
+  expect(r.oneTech.gate.deedTechsNeed).toBe(2);
   expect(r.s.era).toBe(2);
   expect(r.gate.via).toBe('deed');
-  expect(hasAlert(r.s, /^ERA 2 OPENS — EARLY CONSTRUCTION · via 1 tech \+ 100◆ smelted$/)).toBe(true);
+  expect(hasAlert(r.s, /^ERA 2 OPENS — EARLY CONSTRUCTION · via 2 techs \+ 450◆ smelted$/)).toBe(true);
+});
+
+test('charter by techs: four era-1 techs open Era 2, three do not', async ({ page }) => {
+  await start(page, 'mare');
+  await complete(page, E1_4.slice(0, 3));
+  const three = await page.evaluate(() => { window.__game.advanceGameSeconds(1); return window.__game.getResearch(); });
+  expect(three.era).toBe(1);
+  expect(three.gates[0]).toMatchObject({ techs: 3, techsNeed: 4, open: false });
+  await complete(page, E1_4.slice(3));
+  const four = await page.evaluate(() => { window.__game.advanceGameSeconds(1); return window.__game.getResearch(); });
+  expect(four.era).toBe(2);
+  expect(four.gates[0]).toMatchObject({ techs: 4, open: true, via: 'techs' });
 });
 
 test('insight: a night with load shed makes Battery Banks 40% cheaper, even while locked', async ({ page }) => {
@@ -98,14 +131,15 @@ test('insight: a night with load shed makes Battery Banks 40% cheaper, even whil
   expect(r.dawn.stats.nightBrownouts).toBe(1);
   expect(r.dawn.insights.batteryStorage).toBe(0.4);
   expect(r.card.state).toBe('eraLocked');
-  expect(r.card.cost.data).toBe(66); // 110 × 0.6
+  expect(r.card.cost.base).toBe(Math.round(110 * (await costScale(page))[2]));
+  expect(r.card.cost.data).toBe(Math.round(r.card.cost.base * 0.6));
   expect(r.card.insight.earned).toBe(true);
   expect(hasAlert(r.dawn, /^INSIGHT — Battery Banks 40% cheaper: a night brownout/)).toBe(true);
 });
 
 test('doctrine: a queued pick forecloses its rival until cancelled, a done one for good', async ({ page }) => {
   await start(page, 'mare');
-  await complete(page, ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication']);
+  await complete(page, [...E1_4, 'constructionRobotics', 'partsFabrication', 'siliconRefining', 'batteryStorage']);
   const read = () => page.evaluate(() => {
     const g = window.__game!;
     g.advanceGameSeconds(0);
@@ -138,7 +172,7 @@ test('doctrine: a queued pick forecloses its rival until cancelled, a done one f
 test('requiresAny: either branch opens the tech; hidden members are never listed', async ({ page }) => {
   // mare: Site Grading is hidden, so only Construction Robotics is named
   await start(page, 'mare');
-  await complete(page, ['regolithProcessing', 'prospectingRovers']);
+  await complete(page, ['regolithProcessing', 'prospectingRovers', 'grizzlyScreens', 'fieldSpectrometers']);
   const mare = await page.evaluate(() => window.__game.getResearch());
   expect(mare.era).toBe(2);
   expect(mare.cards.regolithShielding.state).toBe('requiresAny');
@@ -152,7 +186,7 @@ test('requiresAny: either branch opens the tech; hidden members are never listed
 
   // pole: the grading branch alone is enough
   await start(page, 'southpole');
-  await complete(page, ['regolithProcessing', 'siteGrading']);
+  await complete(page, ['regolithProcessing', 'siteGrading', 'grizzlyScreens', 'fieldSpectrometers']);
   const pole = await page.evaluate(() => window.__game.getResearch());
   expect(pole.cards.regolithShielding.state).toBe('available');
   await page.evaluate(() => window.__game.research('regolithShielding'));
@@ -169,8 +203,8 @@ test('goods stall: a tech short of chips waits while the queue flows past it', a
     const g = window.__game!;
     g.research('lunarDataCenter');
     g.research('dustMitigation');
-    g.grantData(2000);
-    powered(600); // four agent labs outdraw the arrays
+    g.grantData(4000);
+    powered(900); // four agent labs outdraw the arrays
     const stalled = g.getState();
     g.grantResources({ chips: 10 });
     g.advanceGameSeconds(2);
@@ -187,7 +221,7 @@ test('goods stall: a tech short of chips waits while the queue flows past it', a
 
 test('cancel is transitive: dependents drop with alerts and never finish', async ({ page }) => {
   await start(page, 'mare');
-  await complete(page, ['teleoperation', 'prospectingRovers']); // Era 2 without smelting
+  await complete(page, ['teleoperation', 'prospectingRovers', 'grizzlyScreens', 'fieldSpectrometers']); // Era 2 without smelting
   await placeNear(page, [['solar', 1], ['lab', 1]]);
   const r = await page.evaluate(() => {
     const g = window.__game!;
@@ -344,8 +378,9 @@ test('crew rotation: robotic Cohabitation boards 2 settlers only when the base c
 });
 
 test('robotic charter: Era 7 waits for Human Cohabitation on either route', async ({ page }) => {
+  const TO_ERA_6 = [...TO_ERA_5, 'lunarDataCenter', 'dynamicClocking', 'cryoRadiators', 'wingExtensions'];
   await start(page, 'mare', 'robotic');
-  await complete(page, [...TO_ERA_5, 'lunarDataCenter', 'dynamicClocking']);
+  await complete(page, TO_ERA_6);
   expect((await page.evaluate(() => window.__game.getState())).era).toBe(6);
   // Crew Wellness resolves to Era 7 on robotic runs: Cohab alone is one Era-6 tech
   await complete(page, ['humanCohabitation', 'crewWellness']);
@@ -355,14 +390,14 @@ test('robotic charter: Era 7 waits for Human Cohabitation on either route', asyn
   expect(cohabOnly.gates.find((gt: any) => gt.era === 7).techs).toBe(1);
 
   await start(page, 'mare', 'robotic');
-  await complete(page, [...TO_ERA_5, 'lunarDataCenter', 'dynamicClocking']);
-  // both routes met — two Era-6 techs, and a day of outpost operation — but no Cohab
-  await complete(page, ['farSideRelay', 'closedLoopLS']);
-  await page.evaluate(() => { window.__game.setStats({ outpostOpS: 720 }); window.__game.advanceGameSeconds(1); });
+  await complete(page, TO_ERA_6);
+  // both routes met — four Era-6 techs, and two outposts a day together — but no Cohab
+  await complete(page, ['farSideRelay', 'closedLoopLS', 'refractoryLinings', 'uplinkDishes']);
+  await page.evaluate(() => { window.__game.setStats({ outpostPairOpS: 720 }); window.__game.advanceGameSeconds(1); });
   const noCohab = await page.evaluate(() => window.__game.getResearch());
   const gate = noCohab.gates.find((gt: any) => gt.era === 7);
   expect(noCohab.era).toBe(6);
-  expect(gate.techs).toBe(2);
+  expect(gate.techs).toBe(4);
   expect(gate.deedMet).toBe(true);
   expect(gate.requires).toEqual({ tech: 'humanCohabitation', done: false });
   expect(gate.open).toBe(false);
@@ -486,12 +521,69 @@ test('save migration: a 34-tech save loads with retired ids refunded and the que
   const s = await page.evaluate(() => window.__game.getState());
   expect(s.techsDone).toEqual(['regolithProcessing']);
   expect(s.researchQueue).toEqual([]);
-  expect(s.techSchema).toBe(2);
+  expect(s.techSchema).toBe(3);
   // 40 + 640 + 260 for the three done, plus the 50 banked on a queued one
   expect(s.data - legacy.data).toBeCloseTo(990, 6);
   expect(s.stats.produced.metals).toBe(0);
   expect(s.survey.outposts).toEqual([]);
   expect(hasAlert(s, /^RESEARCH TREE UPDATED — 5 retired techs refunded 990≡$/)).toBe(true);
+  expect(hasAlert(s, /^RESEARCH TREE EXPANDED — 45 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test('save migration: a 47-tech save keeps its era, research and queue; the new techs simply appear', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await start(page, 'mare', 'robotic');
+  // a techSchema-2 base in Era 5 by the old 2-tech charters: under the new
+  // rule its techs open only Era 2, but the era it reached is never taken back
+  const old = ['regolithProcessing', 'prospectingRovers', 'partsFabrication', 'constructionRobotics',
+    'thoriumPower', 'swarmRobotics', 'waferFab', 'acceleratorDesign'];
+  await complete(page, old);
+  const legacy = await page.evaluate((done) => {
+    const st = window.__game.getState();
+    st.techSchema = 2;
+    st.era = 5;
+    st.techsDone = done;
+    st.researchQueue = ['lunarDataCenter'];
+    st.researchSpent = { lunarDataCenter: 120 };
+    st.alerts = [];
+    return st;
+  }, old);
+  await page.goto(URL_DEBUG);
+  await page.evaluate((st) => new Promise((resolve, reject) => {
+    const req = indexedDB.open('keyval-store');
+    req.onsuccess = () => {
+      const tx = req.result.transaction('keyval', 'readwrite');
+      tx.objectStore('keyval').put({
+        state: st, player: { mode: 'build', x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }, savedAt: Date.now(),
+      }, 'mbb-save-v1');
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    };
+    req.onerror = () => reject(req.error);
+  }), legacy);
+  await page.reload();
+  await page.locator('#btn-continue').click();
+  await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 0);
+  const r = await page.evaluate(() => ({ s: window.__game.getState(), v: window.__game.getResearch() }));
+  expect(r.s.techSchema).toBe(3);
+  expect(r.s.era).toBe(5);
+  expect(r.s.techsDone).toEqual(old);
+  expect(r.s.researchQueue).toEqual(['lunarDataCenter']);
+  expect(r.s.researchSpent.lunarDataCenter).toBe(120);
+  expect(r.s.data).toBe(legacy.data); // nothing refunded, nothing lost
+  expect(hasAlert(r.s, /^RESEARCH TREE EXPANDED — 45 new techs; nothing you researched is lost$/)).toBe(true);
+  // new techs appear in their eras: the open ones researchable, the rest era-locked
+  expect(r.v.cards.bifacialCells.state).toBe('available');
+  expect(r.v.cards.deployableRadiators.state).toBe('available');
+  expect(r.v.cards.wingExtensions.state).toBe('requires'); // it builds on MPPT Inverters
+  expect(r.v.cards.uplinkDishes.state).toBe('eraLocked');
+  // the old Accelerator pick still forecloses its rival, and Brayton builds on the Thorium pick
+  expect(r.v.cards.radHardProcess.state).toBe('foreclosed');
+  expect(r.v.cards.braytonConverters.state).toBe('available');
+  expect(r.v.cards.pressureTanks.state).toBe('foreclosed');
+  expect(r.v.cards.pressureTanks.reason).toBe('foreclosed — needs Regenerative Fuel Cells; you chose Thorium Reactor');
   expect(errors).toEqual([]);
 });
 
@@ -556,16 +648,17 @@ test('launch capacity: a volley needs 3↑, and each shortfall says so', async (
 test('goods leave the crew’s reserve: Fuel Cells wait until 80≈ is spare, and name what makes it', async ({ page }) => {
   await start(page, 'mare');
   // Molten Regolith Electrolysis: the smelter makes no water here
-  await complete(page, ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication',
+  await complete(page, [...E1_4, 'constructionRobotics', 'partsFabrication',
     'batteryStorage', 'moltenElectrolysis']);
   await placeNear(page, [['solar', 2], ['lab', 2]]);
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.finishConstruction();
     g.research('regenFuelCells');
-    g.grantData(500);
+    g.grantData(1000);
     g.grantResources({ water: 40 - g.getState().resources.water });
-    powered(240); // 180≡ at 2 × 0.4/s: paid, but the water is short
+    // its data at 2 × 0.4/s, within the day: paid, but the water is short
+    powered(Math.ceil(g.getResearch().cards.regenFuelCells.cost.data / 0.8) + 20);
     const dry = g.getState();
     const dryCard = g.getResearch().cards.regenFuelCells;
     g.completeTech('regolithVolatiles'); // excavators sweat water now
@@ -669,7 +762,8 @@ test('insight: Regolith Shielding has a deed the flare-proof lava tube can meet'
   expect(r.s.stats.flaresWithSix).toBe(0);
   expect(r.s.stats.wornSeen).toBe(true);
   expect(r.s.insights.regolithShielding).toBe(0.4);
-  expect(r.card.cost).toMatchObject({ base: 140, data: 84, insightLabel: 'a building worn past 0.3' });
+  const base = Math.round(140 * (await costScale(page))[2]);
+  expect(r.card.cost).toMatchObject({ base, data: Math.round(base * 0.6), insightLabel: 'a building worn past 0.3' });
   expect(hasAlert(r.s,
     /^INSIGHT — Regolith Shielding 40% cheaper: a machine wore out under the skylight — bury what the tube’s roof leaves open$/)).toBe(true);
 });
