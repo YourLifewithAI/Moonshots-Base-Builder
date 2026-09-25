@@ -510,3 +510,60 @@
   color: var(--ink-050); background: rgba(14, 15, 17, 0.78);
   border: 1px dashed rgba(245, 247, 249, 0.55); cursor: pointer;
 }
+
+/* ── hazards (docs/14 §3.8): the chip, the [G] panel, counter buttons, markers.
+   Monochrome: state is shape and value — ▮▯ gauges, ✓/—, filled or hollow
+   nodes, an inverted chip while a clock runs — never hue alone ── */
+#hazard-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+#hazard-chip.flash { animation: hz-flash 0.8s var(--ease) infinite alternate; }
+#hazard-chip.solid { background: var(--paper); color: var(--ink-900); font-weight: 600; }
+@keyframes hz-flash { from { border-color: rgba(var(--paper-rgb), 0.25); } to { border-color: var(--paper); } }
+@media (prefers-reduced-motion: reduce) { #hazard-chip.flash { animation: none; border-color: var(--paper); } }
+#hud-layer.mode-walk #hazard-chip, #hud-layer.mode-walk #hazards-panel, #hud-layer.mode-walk .hz-mark { display: none; }
+#hazards-panel {
+  width: 380px; max-height: 70vh;
+  flex: 0 1 auto; min-height: 120px; display: flex; flex-direction: column;
+  font-size: 12px; line-height: 17px;
+}
+#hazards-panel .hz-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+#hazards-panel section { padding: 9px 13px; border-top: var(--hair); }
+#hazards-panel section:first-child { border-top: none; }
+#hazards-panel .actions { flex: 0 0 auto; display: flex; justify-content: flex-end; }
+#hazards-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }
+.hz-side { display: flex; justify-content: space-between; gap: 8px; margin: 2px 0; }
+.hz-side .mono { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.hz-live { padding: 5px 0 6px; border-bottom: 1px dotted rgba(var(--paper-rgb), 0.12); }
+.hz-live:last-child { border-bottom: none; }
+.hz-live .hz-livet { font-size: 11px; color: var(--ink-050); }
+.hz-live.deadly .hz-livet { font-weight: 600; }
+.hz-live.deadly .hz-livet::before { content: '⚠ '; }
+.hz-ctrs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.hz-ctr { padding: 1px 7px; font-size: 10px; line-height: 15px; }
+.hz-sub { display: block; margin-top: 8px; }
+.hz-kind { padding: 3px 0; }
+.hz-kind .hz-kn { color: var(--ink-050); }
+.hz-kind .hz-risk { float: right; font-size: 11px; }
+.hz-kind .hz-kd { font-size: 10px; line-height: 14px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+.hz-kind.off { opacity: 0.45; }
+.hz-graph { display: block; width: 100%; height: 120px; margin-top: 4px; border: var(--hair); }
+.hz-graph line { stroke: rgba(var(--paper-rgb), 0.35); stroke-width: 0.8; vector-effect: non-scaling-stroke; }
+.hz-graph .hz-n { fill: var(--ink-900, #0e0f11); stroke: var(--paper); stroke-width: 1.2; vector-effect: non-scaling-stroke; cursor: pointer; }
+.hz-graph .hz-n.inf { fill: var(--paper); }
+.hz-graph .hz-n.gap { stroke-dasharray: 2 2; }
+.hz-logs { font-size: 10px; line-height: 14px; color: rgba(var(--paper-rgb), var(--op-tertiary)); max-height: 118px; overflow-y: auto; }
+.alert .alert-ctrs { display: inline-flex; gap: 4px; flex: none; }
+.alert .alert-ctrs:empty { display: none; }
+.alert .hz-ctr { background: transparent; color: inherit; border-color: currentColor; }
+.alert.crit .hz-ctr { font-weight: 600; }
+#milestones .goal-hazard { font-size: 11px; line-height: 15px; margin: 6px 0 0; padding: 4px 6px; background: var(--paper); color: var(--ink-900); font-weight: 600; }
+.hz-mark {
+  position: absolute; transform: translate(-50%, -100%);
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 1px 5px; font-size: 11px; line-height: 13px;
+  background: rgba(14, 15, 17, 0.85); border: 1px solid rgba(245, 247, 249, 0.6); color: #f5f7f9;
+  cursor: pointer;
+}
+.hz-mark .t { font-size: 9px; }
+.hz-strip { display: block; width: 34px; height: 3px; border: 1px solid rgba(245, 247, 249, 0.5); }
+.hz-strip b { display: block; height: 100%; background: #f5f7f9; }
+#discovery-card .dsc-risk { margin-top: 6px; font-size: 11px; line-height: 15px; font-weight: 600; }

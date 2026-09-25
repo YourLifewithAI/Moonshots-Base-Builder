@@ -9,6 +9,8 @@ import type { SiteId } from '../data/sites';
 import type { AlertMsg, BuildingState } from '../core/state';
 import type { DestinyView, ResearchView } from '../core/research';
 import type { AutomationView } from '../core/automation';
+import type { HazardView } from '../core/hazards';
+import type { HazardId, HazardSide } from '../data/hazards';
 import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
 import type { SurveyCost } from '../core/exploration';
 import type { MapView, OutpostKind, ProspectClass, ProspectId, ProspectKind } from '../data/lunarMap';
@@ -17,8 +19,11 @@ export type Phase = 'title' | 'site' | 'playing';
 
 export const $phase = atom<Phase>('title');
 export const $hasSave = atom<boolean>(false);
-/** the saved mission was lost (human crew gone): the title shows it instead of 'Continue' */
-export const $lostMission = atom<{ siteId: SiteId; day: number } | null>(null);
+/** the saved mission was lost (human crew gone): the title shows it instead of 'Continue';
+ *  cause = how the last settler died, if a hazard's warning went unanswered (docs/14 §3.10) */
+export const $lostMission = atom<{ siteId: SiteId; day: number; cause?: string } | null>(null);
+/** the lost-mission screen's story (docs/14 §3.10): the last death, its missed warning, the ones before */
+export const $lossStory = atom<{ lead: string; warning: string; earlier: string } | null>(null);
 export const $siteId = atom<SiteId | null>(null);
 
 export const $resources = atom<Record<ResourceId, number>>({
@@ -57,6 +62,10 @@ export const $lander = atom<{ resupplyPending: boolean; etaS: number; orderDays:
 export const $automation = atom<AutomationView | null>(null);
 /** AUTO tags over the Builder's pending sites (screen px) */
 export const $autoMarkers = atom<{ id: number; x: number; y: number }[]>([]);
+/** the Hazards panel [G], the HUD hazard chip, the objectives line (core/hazards.ts hazardView) */
+export const $hazards = atom<HazardView | null>(null);
+/** DOM markers over hazard targets (screen px): a hiss glyph with who is aboard, a blight glyph, ⚠ NET, a strip bar */
+export const $hazardMarkers = atom<{ id: number; x: number; y: number; glyph: string; text: string; frac?: number }[]>([]);
 /** on-screen condition bars over damaged buildings */
 export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: number }[]>([]);
 /** phaseLeft = game-seconds to the next dusk (by day) or dawn (by night) */
@@ -232,7 +241,10 @@ export function spawnFloater(text: string, x: number, y: number) {
  *  (ui/discovery.ts). game.publish() queues them; the card or banner pops them. */
 export type Announcement =
   | { id: number; kind: 'tech'; tid: TechId }
-  | { id: number; kind: 'era'; era: number; intro: boolean };
+  | { id: number; kind: 'era'; era: number; intro: boolean }
+  /** docs/14 §3.10: a side's hazards go live, and the first of a kind (its drill) */
+  | { id: number; kind: 'hazardsLive'; side: HazardSide }
+  | { id: number; kind: 'hazard'; hazard: HazardId };
 export const $announce = atom<Announcement[]>([]);
 
 /** the in-game menu (Esc with nothing left to cancel) */

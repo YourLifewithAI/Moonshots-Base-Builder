@@ -24,11 +24,14 @@ import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
 import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
 import { autoTagLine } from '../core/automation';
+import { hazardStatus, isNetworkNode, occupancy, pressurizedTypes, sideTier } from '../core/hazards';
+import { HZ } from '../data/hazards';
+import { counterButton, counterClick } from './hazardsPanel';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 import {
   $automation, $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
-  $vitals, spawnFloater,
+  $vitals, spawnFloater, $hazards,
 } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
@@ -390,6 +393,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
       : sel.idleReason === 'full' ? (sel.type === 'excavator' ? 'STANDBY — waiting to unload: the store is full' : 'STANDBY — output full')
+      : sel.idleReason === 'hazard' || sel.idleReason === 'strike' ? `OFFLINE — ${hazardStatus(game.state, sel) || 'a hazard'}`
       // an excavator's head says what it is doing: its body may scroll on a short screen
       : sel.active && sel.type === 'excavator' && $fleet.get().hauls[sel.id] ? $fleet.get().hauls[sel.id].line
       : sel.active
@@ -436,8 +440,58 @@ export function mountPalette(root: HTMLElement, game: Game) {
       title: `Sell ${cost}≡ of banked research data to Earth for ${cargo}, landing in ${fmtClock(DOWNLINK.delayS)}${why}`,
     };
   };
+  /** docs/14 §3.8: the hazards on this building — what threatens it, its
+   *  counters, the infected and air-gap rows, the airlock dust, who is aboard */
+  const hazardRows = (sel: BuildingState): { html: string; sig: string } => {
+    const s = game.state;
+    const v = $hazards.get();
+    if (!v?.live) return { html: '', sig: '' };
+    const mine = v.active.filter((a) => a.target === sel.id);
+    const node = isNetworkNode(s, game.mods, sel);
+    const press = pressurizedTypes(game.mods).has(sel.type) && sideTier(s, 'colony') !== null;
+    const aboard = occupancy(s, game.mods).get(sel.id) ?? 0;
+    const rows: string[] = [];
+    const ctrs: string[] = [];
+    for (const a of mine) {
+      rows.push(`<div class="insp-hz mono" data-hzl="${a.id}"></div>`);
+      ctrs.push(...a.counters.map(counterButton));
+    }
+    if (sel.infected) {
+      rows.push('<div class="insp-hz mono">INFECTED — ×0.5 output, ×1.3 draw; it spreads to its links</div>');
+      ctrs.push(counterButton({ counter: 'reimage', id: sel.id, label: `Reimage ${HZ.malware.reimage.data}≡` }));
+    }
+    if (sel.decompressed) {
+      rows.push('<div class="insp-hz mono">DECOMPRESSED — offline until repaired</div>');
+      ctrs.push(counterButton({ counter: 'repair', id: sel.id, label: `Repair ${HZ.breach.repair}⚙` }));
+    }
+    if (press) {
+      rows.push('<div class="goal-hint mono" id="insp-dust"></div>');
+      if ((sel.airlockDust ?? 0) >= 0.3) ctrs.push(counterButton({ counter: 'clean', id: sel.id, label: `Clean ${HZ.dust.clean}⚙` }));
+    }
+    if (node) {
+      rows.push(`<div class="goal-hint mono">Network node · ${sel.airGapped ? 'air-gapped: no links' : `${v.graph.links.filter(([x, y]) => x === sel.id || y === sel.id).length} links`}</div>`);
+      ctrs.push(`<button class="btn hz-ctr${sel.airGapped ? ' active' : ''}" data-ctr="airGap" data-id="${sel.id}" data-on="${!sel.airGapped}" ` +
+        `aria-pressed="${!!sel.airGapped}" title="Air-gap: no links, no spread either way (an agent-run station idles unless crewed)">${sel.airGapped ? 'Reconnect' : 'Air-gap'}</button>`);
+    }
+    if (!rows.length && !ctrs.length) return { html: '', sig: '' };
+    const head = press || aboard ? ` · ${aboard} aboard` : '';
+    const html = `<section class="insp-hzs"><span class="label">⚠ Hazards${head}</span>${rows.join('')}` +
+      (ctrs.length ? `<div class="prio hz-ctrs">${ctrs.join('')}</div>` : '') + '</section>';
+    return { html, sig: `${mine.map((a) => `${a.id}${a.phase}${a.counters.length}`).join(',')}|${!!sel.infected}|${!!sel.decompressed}|${!!sel.airGapped}|${press}|${node}|${(sel.airlockDust ?? 0) >= 0.3}|${aboard}` };
+  };
+  const refreshHazards = (sel: BuildingState) => {
+    const v = $hazards.get();
+    for (const e of insp.querySelectorAll<HTMLElement>('[data-hzl]')) {
+      const a = v?.active.find((x) => x.id === Number(e.dataset.hzl));
+      const t = a ? `${a.text}${a.clockLeft !== null ? ` · ⏱ ${fmtClock(a.clockLeft)}` : ''}` : '';
+      if (e.textContent !== t) e.textContent = t;
+    }
+    const d = sel.airlockDust ?? 0;
+    setText('insp-dust', `Airlock filters ${Math.round(d * 100)}%${d >= 1 ? ' — CLOGGED: upkeep ×2, the hull wears' : d >= HZ.dust.warnAt ? ' — clean them' : ''}`);
+  };
   const refreshInspector = (sel: BuildingState) => {
     setText('insp-status', statusLine(sel));
+    refreshHazards(sel);
     const cond = Math.round((1 - sel.wear) * 100);
     const worn = Math.round((1 - wearDerate(sel)) * 100);
     setText('insp-cond', `${cond}%`);
@@ -507,6 +561,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${sel.deposit ? `<section><span class="label">◎ ${sel.type === 'excavator'
         ? DEPOSIT_INFO[sel.deposit].ghost.replace(/^On /, 'Digs ') : DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
       ${fleetBodyHtml(sel)}
+      ${hazardRows(sel).html}
       ${sel.auto ? `<section class="insp-auto"><span class="label">${esc(autoTagLine(sel))}</span>
         ${sel.auto.survey ? '' : `<div ${NOTE}>Sites by distance only — Site Survey AI weighs deposits and haul lanes.</div>`}</section>` : ''}
       ${builderBody(sel)}
@@ -590,7 +645,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       [...game.mods.actions].sort().join(','), fleetSig(sel),
       sel.auto?.by ?? '', sel.auto?.rule ?? '', sel.feedPlanOff ?? false, game.mods.feedPlanner,
       $automation.get()?.rules.find((r) => r.id === sel.auto?.rule)?.on ?? '',
-      sel.idleReason === 'crew', sel.agentCover ?? false, vit.agentCover,
+      sel.idleReason === 'crew', sel.agentCover ?? false, vit.agentCover, hazardRows(sel).sig,
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;
@@ -604,6 +659,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
     const sel = $selection.get();
     if (!btn || !sel) return;
+    if (counterClick(game, btn)) return; // a hazard counter (docs/14 §3.7)
     if (fleetClick(game, btn, sel)) return;
     if (btn.classList.contains('prio-btn')) {
       game.actions.push({ kind: 'setPriority', id: sel.id, priority: Number(btn.dataset.p) as 0 | 1 | 2 | 3 });

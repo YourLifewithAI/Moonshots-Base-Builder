@@ -11,7 +11,9 @@ import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
   $milestones, $mode, $phase,
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
+  $hazards, $hazardMarkers,
 } from './stores';
+import { counterButton, counterClick } from './hazardsPanel';
 
 export function fmt(n: number): string {
   // always FLOOR: the HUD must never claim more than the engine will accept
@@ -264,7 +266,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   time.appendChild(alerts);
   const more = el('div', 'label alert-more');
   alerts.appendChild(more);
-  const alertEls = new Map<number, { root: HTMLElement; text: HTMLElement; n: HTMLElement }>();
+  const alertEls = new Map<number, { root: HTMLElement; text: HTMLElement; n: HTMLElement; ctrs: HTMLElement }>();
   const RANK = { crit: 0, warn: 1, info: 2 } as const;
   /** rows the stack keeps while a building is inspected (see $selection below) */
   let inspRows = ALERTS.shown;
@@ -282,11 +284,17 @@ export function mountHud(root: HTMLElement, game: Game) {
     shown.forEach((a, i) => {
       let e = alertEls.get(a.id);
       if (!e) {
-        const d = el('div', '', '<span class="alert-text"></span><span class="alert-n mono"></span><button class="alert-x" title="Dismiss">✕</button>');
+        const d = el('div', '', '<span class="alert-text"></span><span class="alert-ctrs"></span><span class="alert-n mono"></span><button class="alert-x" title="Dismiss">✕</button>');
         d.dataset.id = String(a.id);
-        e = { root: d, text: d.querySelector('.alert-text') as HTMLElement, n: d.querySelector('.alert-n') as HTMLElement };
+        e = {
+          root: d, text: d.querySelector('.alert-text') as HTMLElement, n: d.querySelector('.alert-n') as HTMLElement,
+          ctrs: d.querySelector('.alert-ctrs') as HTMLElement,
+        };
         alertEls.set(a.id, e);
       }
+      // a hazard's counters ride its alert (the free one included); rebuilt only when they change
+      const ctrs = (a.counters ?? []).map(counterButton).join('');
+      if (e.ctrs.dataset.sig !== ctrs) { e.ctrs.dataset.sig = ctrs; e.ctrs.innerHTML = ctrs; }
       const cls = `alert panel ${a.kind}${a.action ? ' actionable' : ''}`;
       if (e.root.className !== cls) e.root.className = cls;
       if (e.text.textContent !== a.text) e.text.textContent = a.text;
@@ -321,6 +329,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   $mode.subscribe(renderAlerts);
   alerts.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
+    if (counterClick(game, target)) return; // a counter button runs the counter
     const id = Number((target.closest('.alert') as HTMLElement | null)?.dataset.id);
     const a = $alerts.get().find((x) => x.id === id);
     if (!a) return;
@@ -343,16 +352,18 @@ export function mountHud(root: HTMLElement, game: Game) {
   const renderGoals = () => {
     const m = $milestones.get();
     const robotic = $vitals.get().expedition === 'robotic';
-    const sig = `${m.done.join(',')}|${goalsOpen}|${m.progress}|${robotic}|${Object.values(m.hints).join('|')}`;
+    const hzLine = $hazards.get()?.objective ?? '';
+    const sig = `${m.done.join(',')}|${goalsOpen}|${m.progress}|${robotic}|${Object.values(m.hints).join('|')}|${hzLine}`;
     if (sig === goalsSig) return;
     goalsSig = sig;
+    const hzHtml = hzLine ? `<div class="goal-hazard mono">${hzLine.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!))}</div>` : '';
     // the run's own hint (doctrine, expedition), published with the goals
     const hint = (x: MilestoneDef) => m.hints[x.id] ?? ((robotic && x.hintRobotic) || x.hint);
     const next = MILESTONES.find((x) => !m.done.includes(x.id));
     const progress = m.progress ? `<div class="goal-progress mono">${m.progress}</div>` : '';
     const label = `<span class="label">Objectives <span class="done-count mono">${m.done.length}/${m.total}</span><span class="caret">${goalsOpen ? '▾' : '▸'}</span></span>`;
     if (!goalsOpen) {
-      goals.innerHTML = `${label}
+      goals.innerHTML = `${label}${hzHtml}
         ${next
           ? `<div class="goal-title">◻ ${next.title}</div><div class="goal-hint">${hint(next)}</div>${progress}`
           : '<div class="goal-title">✓ All objectives complete</div><div class="goal-hint">The swarm grows. Keep launching.</div>'}`;
@@ -365,7 +376,7 @@ export function mountHud(root: HTMLElement, game: Game) {
       const mark = done ? '✓' : current ? '◻' : '○';
       return `<div class="goal-item ${cls}"><div class="goal-title">${mark} ${x.title}</div>${done ? '' : `<div class="goal-hint">${hint(x)}</div>`}${current ? progress : ''}</div>`;
     }).join('');
-    goals.innerHTML = label + rows;
+    goals.innerHTML = label + hzHtml + rows;
   };
   // the expanded roadmap and a resource info panel share the left side of the
   // screen: one open at a time, so neither covers the other's Close
@@ -379,6 +390,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   $resourcePanel.subscribe((key) => { if (key && goalsOpen) setGoalsOpen(false); });
   $milestones.subscribe(renderGoals);
   $vitals.subscribe(renderGoals);
+  $hazards.subscribe(renderGoals);
 
   // ── pause veil ──
   const veil = el('div', 'panel label', 'Paused');
@@ -451,6 +463,20 @@ export function mountHud(root: HTMLElement, game: Game) {
       d.innerHTML = `<i style="width:${Math.round(m.frac * 100)}%"></i>`;
       wearLayer.appendChild(d);
     }
+  });
+
+  // ── hazard markers over targets (docs/14 §3.8): the hiss with who is aboard,
+  // a blight glyph, ⚠ NET, the strip bar — click selects ──
+  const hzLayer = el('div', '');
+  root.prepend(hzLayer);
+  $hazardMarkers.subscribe((ms) => {
+    hzLayer.innerHTML = ms.map((m) => `<div class="hz-mark interactive" data-id="${m.id}" style="left:${m.x}px;top:${m.y}px">` +
+      `<span class="g">${m.glyph}</span><span class="t mono">${m.text}</span>` +
+      (m.frac !== undefined ? `<i class="hz-strip"><b style="width:${Math.round(m.frac * 100)}%"></b></i>` : '') + '</div>').join('');
+  });
+  hzLayer.addEventListener('click', (e) => {
+    const m = (e.target as HTMLElement).closest<HTMLElement>('.hz-mark[data-id]');
+    if (m) { e.stopPropagation(); game.select(Number(m.dataset.id)); }
   });
 
   // ── AUTO tags over the Builder's pending sites (click selects) ──

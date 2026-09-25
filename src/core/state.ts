@@ -6,8 +6,9 @@ import { LANDING_TECH, type TechId } from '../data/techs';
 import { SITES, type SiteId } from '../data/sites';
 import { emptyFeed, type DepositKind, type FeedGrade, type FeedKind } from '../data/deposits';
 import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
-import { START } from '../data/balance';
+import { CYCLE_S, START } from '../data/balance';
 import { RULES, RULE_ORDER, FAMILY_PRIORITY, type AutoFamily, type AutoRuleId } from '../data/automation';
+import type { CounterId, HazardId, HazardSide, Tier } from '../data/hazards';
 
 export interface BuildingState {
   id: number;
@@ -41,7 +42,9 @@ export interface BuildingState {
    *  'reserve' = the inputs on hand are the crew's life-support reserve,
    *  'full' = no stockpile room for a tick of any of its outputs */
   active: boolean;
-  idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued' | 'road';
+  idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued' | 'road'
+    /** a hazard holds it offline (core/hazards.ts hazardOff says why); 'strike': a cabin-fever crisis */
+    | 'hazard' | 'strike';
   /** Dynamic Clocking: ×1.5 draw, inputs, outputs and data; extra wear */
   overclock?: boolean;
   /** deposit under the footprint centre (stamped on placement, recomputed on
@@ -68,6 +71,37 @@ export interface BuildingState {
   /** its road from the network to its door, in order (cell keys, core/roads.ts);
    *  the site's rovers sinter what is still closed before they weld */
   spur?: number[];
+  // ── hazards (docs/14 §3, core/hazards.ts) ──
+  /** pressurized: airlock filter dust 0..1 (clogged at 1) */
+  airlockDust?: number;
+  /** malware: an infected network node (since infectedAt) */
+  infected?: boolean;
+  infectedAt?: number;
+  /** air-gapped: no links (an agent-run station idles unless crewed) */
+  airGapped?: boolean;
+  /** evacuated until then (game time; its beds and seats are off) */
+  evacT?: number;
+  /** rogue drones: stripping since then (0 = not); wear climbs until it is wrecked */
+  stripT?: number;
+  /** a breach venting through it (the live hazard's id), or a decompressed section awaiting repair */
+  breached?: number;
+  decompressed?: boolean;
+  /** a farm blighted until then */
+  blightUntil?: number;
+  /** offline while reimaging (malware), until then */
+  reimageUntil?: number;
+  /** intrusion detection: a new infection isolates itself until then */
+  isolatedUntil?: number;
+  /** a kill switch holds this dock offline until then */
+  killUntil?: number;
+  /** cabin fever: on strike until then */
+  strikeUntil?: number;
+  /** a runaway rule's junk site (the hazard's id): never commissions */
+  junk?: number;
+  junkAt?: number;
+  /** a dock's slots emptied by lost rovers, and the reprint under way */
+  slotsLost?: number;
+  reprintAt?: number;
 }
 
 /** One 4 m road cell (core/roads.ts, docs/15-roads.md). */
@@ -184,6 +218,11 @@ export interface RoverUnit {
   /** the construction site it is working (or waiting at), null = free */
   site: number | null;
   pinned: boolean;
+  /** hazards: bricked until re-flashed, lost at this deadline (0 = fine) */
+  brickedUntil?: number;
+  brickedBy?: number;
+  /** held at its dock until then (Dock fleet, Land drones, a kill switch) */
+  heldUntil?: number;
 }
 
 /** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
@@ -267,6 +306,8 @@ export interface OutpostState {
   live: boolean;
   fuelOk: boolean;
   upkeepOk: boolean;
+  /** HACKED OUTPOST: the stream is diverted (docs/14 §3.5) */
+  hacked?: boolean;
 }
 export interface SurveyState {
   /** deposit ids revealed outside the tier radius (placement strike, relay mast, legacy ice survey) */
@@ -304,6 +345,116 @@ export interface AlertMsg {
   /** an info alert that has had its moment on screen: listed, not shown */
   quiet?: boolean;
   action?: AlertAction;
+  /** hazard counters shown as buttons on the alert (docs/14 §3.8) */
+  counters?: AlertCounter[];
+}
+
+/** a counter button on an alert: the counter action it pushes */
+export interface AlertCounter { counter: CounterId | 'airGap'; id?: number; label: string }
+
+// ─────────────────────────── hazards (docs/14 §3) ───────────────────────────
+
+/** One live hazard: telegraphed until `at`, then active until it resolves. */
+export interface LiveHazard {
+  id: number;
+  kind: HazardId;
+  side: HazardSide;
+  tier: Tier;
+  /** the first of its kind: minor, a longer telegraph, and it cannot kill or destroy */
+  drill: boolean;
+  phase: 'telegraph' | 'active';
+  /** the warning went up then */
+  warnedAt: number;
+  /** the telegraph's deadline: the hazard opens then */
+  at: number;
+  /** the building (or dock) it names; null: base-wide */
+  target: number | null;
+  targetName: string;
+  /** hacked outpost: the prospect it names */
+  outpost?: ProspectId;
+  /** buildings it has reached (a blight's farms, the infected nodes, a cascade's habitats, strip targets) */
+  hit: number[];
+  /** the second clock: a death or a loss at this game time (0 = none) */
+  clockAt: number;
+  clockText: string;
+  /** counters used, and when */
+  used: Partial<Record<CounterId, number>>;
+  /** a counter under way finishes then (a seal, a patch) */
+  doneAt?: number;
+  /** firmware from the flare's bit flips, not a window */
+  flare?: boolean;
+  /** kind-specific numbers (occupants warned of, the next spread, sites placed …) */
+  n: Record<string, number>;
+}
+export interface HazardLogEntry {
+  at: number; id: number; kind: HazardId; tier: Tier; drill: boolean; target: string;
+  /** 'near miss', 'answered: Seal', 'ignored: 1 crew lost', … */
+  outcome: string;
+}
+/** a death: its cause, the hazard, and when its warning went up (null: none) */
+export interface DeathRecord { at: number; cause: string; hazard: HazardId | null; warnedAt: number | null }
+/** a machine loss (docs/14 §3.10): Automation's counterpart to a death */
+export interface LossRecord {
+  at: number; what: 'rover' | 'drone' | 'building' | 'data' | 'stock' | 'outpost';
+  name: string; cause: string; hazard: HazardId; warnedAt: number; amount?: number;
+}
+export interface GriefRecord { until: number; amount: number }
+/** crew with no bed breathing suit air, from `from` */
+export interface SuitAir { hazard: number; from: number; n: number; until: number; nextDeath: number }
+export interface HazardState {
+  schema: 1;
+  /** Era 3 opened then (the scheduler starts a lunar day later) */
+  era3At: number | null;
+  /** a loaded save's grace: nothing before then */
+  graceUntil: number;
+  /** the next window (0 = not yet scheduled) and how many have come */
+  nextAt: number;
+  windows: number;
+  /** the side round-robin's credit */
+  credit: Record<HazardSide, number>;
+  /** each side's last window kind (variety) */
+  lastKind: Record<HazardSide, HazardId | null>;
+  /** the last hazard's warning (the 240 s spacing) */
+  lastStartAt: number;
+  flarePrev: 'idle' | 'telegraph' | 'active';
+  flareEndAt: number;
+  live: LiveHazard[];
+  nextId: number;
+  /** kinds whose drill has run: the next one is real */
+  drilled: HazardId[];
+  log: HazardLogEntry[];
+  /** CABIN FEVER 0–100, crisis times, crew who leave at the next Earth contact */
+  isolation: number;
+  crises: number[];
+  leaving: number;
+  crisisUntil: number;
+  callHomeAt: number;
+  /** CONTAMINATION: lunar days since the last flush */
+  loopAge: number;
+  /** DOSE: crew-doses in the window (falls 1 a lunar day) */
+  doseLoad: number;
+  /** crew off work until then (a dose, sick bay) */
+  sick: { n: number; until: number }[];
+  suit: SuitAir[];
+  /** Shed loads: priority 2–3 loads off until then */
+  shedUntil: number;
+  /** Patch: every node immune until then */
+  immuneUntil: number;
+  /** Land drones: hive rovers held until then */
+  dronesHeldUntil: number;
+  /** seconds each crewed habitat has been dark for power (building id → s) */
+  darkS: Record<string, number>;
+  /** compute (Data Centers, Monoliths) dark for, and running for since a drop */
+  computeDarkS: number;
+  computeUpS: number;
+  /** Earth contact watch: shipments landed, the rotation, the last downlink cargo */
+  shipments: number;
+  rotation: boolean;
+  downlinkAt: number;
+  /** sides whose HAZARDS ARE LIVE banner has shown */
+  liveSides: HazardSide[];
+  /** debug: no hazard starts while set (tests that are not about hazards) */
+  hold?: boolean;
 }
 
 export interface GameState {
@@ -396,7 +547,9 @@ export interface GameState {
   /** Earth shipments; arriveAt is game time, ordered counts the hand-placed
    *  orders (the automatic anti-softlock rescue is not counted); downlink =
    *  the one slot carries a data downlink's cargo, not a resupply */
-  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number; downlink?: boolean };
+  resupply: { pending: boolean; arriveAt: number; shipments: number; ordered?: number; downlink?: boolean;
+    /** the slot flies a lethally dosed crew member home (docs/14 §3.4): no cargo */
+    medevac?: boolean };
   /** ice deposits mapped (Lander survey, ice sites only) */
   iceSurveyed: boolean;
   /** current stockpile capacities, recomputed each tick (for the HUD) */
@@ -420,6 +573,14 @@ export interface GameState {
   launchDayUntil: number;
   /** EVA crews out this tick (economy step 3; the walkers read it later) */
   evaCrew: number;
+  // ── hazards (docs/14 §3, core/hazards.ts) ──
+  hazards: HazardState;
+  /** every death, with its cause and missed warning */
+  deaths: DeathRecord[];
+  /** every machine loss, the same way */
+  losses: LossRecord[];
+  /** each death's grief: −10 on the morale target until then */
+  grief: GriefRecord[];
 
   victoryShown: boolean;
   defeatShown: boolean;
@@ -480,6 +641,7 @@ export function createInitialState(
     auto: defaultAuto(),
     flowBook: {},
     ...destinyDefaults(),
+    ...hazardDefaults(0),
     victoryShown: false,
     defeatShown: false,
   };
@@ -505,6 +667,28 @@ export function emptyStats(): GameStats {
 
 function destinyDefaults() {
   return { forwarded: [] as TechId[], crewHome: false, launchDayUntil: 0, evaCrew: 0 };
+}
+
+/** A new run's (or a migrated save's) hazards: nothing fires before
+ *  `graceUntil`, nor before Era 3 opens plus a lunar day (docs/14 §3.2, §7). */
+export function defaultHazards(graceUntil: number): HazardState {
+  return {
+    schema: 1, era3At: null, graceUntil, nextAt: 0, windows: 0,
+    credit: { colony: 0, automation: 0 }, lastKind: { colony: null, automation: null },
+    lastStartAt: -1e9, flarePrev: 'idle', flareEndAt: -1e9,
+    live: [], nextId: 1, drilled: [], log: [],
+    isolation: 0, crises: [], leaving: 0, crisisUntil: 0, callHomeAt: -1e9,
+    loopAge: 0, doseLoad: 0, sick: [], suit: [],
+    shedUntil: 0, immuneUntil: 0, dronesHeldUntil: 0, darkS: {}, computeDarkS: 0, computeUpS: 0,
+    shipments: 0, rotation: false, downlinkAt: -1e9, liveSides: [],
+  };
+}
+
+function hazardDefaults(graceUntil: number) {
+  return {
+    hazards: defaultHazards(graceUntil),
+    deaths: [] as DeathRecord[], losses: [] as LossRecord[], grief: [] as GriefRecord[],
+  };
 }
 
 function researchDefaults() {
@@ -557,6 +741,21 @@ export function fillStateDefaults(s: GameState): GameState {
   legacy.crewHome ??= dd.crewHome;
   legacy.launchDayUntil ??= dd.launchDayUntil;
   legacy.evaCrew ??= dd.evaCrew;
+  // saves from before the hazards (docs/14 §7): a lunar day's grace, every
+  // kind still owed its drill; old fields filled, never overwritten
+  const hz = defaultHazards(legacy.simTime + CYCLE_S);
+  legacy.hazards = legacy.hazards ? { ...hz, ...legacy.hazards } : hz;
+  legacy.deaths ??= [];
+  legacy.losses ??= [];
+  legacy.grief ??= [];
+  for (const b of legacy.buildings ?? []) {
+    b.airlockDust ??= 0;
+    b.infected ??= false;
+    b.airGapped ??= false;
+    b.evacT ??= 0;
+    b.stripT ??= 0;
+  }
+  for (const r of legacy.rovers) r.brickedUntil ??= 0;
   return s;
 }
 

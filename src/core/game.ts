@@ -43,6 +43,8 @@ import { digAtHome, digRefusal, setDigSite } from './haul';
 import { dropSpur, layApron, laySpur, migrateRoads } from './roads';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
+import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
+import { HAZARDS, HAZARD_NAME, type HazardId, type Tier } from '../data/hazards';
 import { FleetTarget } from '../player/fleetTarget';
 import { RoadTool } from '../player/roadTool';
 import { Heightfield, type Deposit } from '../terrain/heightfield';
@@ -79,7 +81,7 @@ import {
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
   $fleet, $fleetTarget, $roverSel,
-  $destiny,
+  $destiny, $hazards, $hazardMarkers, $lossStory,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -413,6 +415,8 @@ export class Game {
     }
     this.cueSeen = null;
     this.announceSeen = null;
+    this.announceDrilled = null;
+    this.hazardSeen = null;
     $announce.set([]);
     $phase.set('playing');
     $siteId.set(state.siteId);
@@ -489,6 +493,10 @@ export class Game {
         case 'KeyB':
           // the Builder: orders and standing rules (one panel at a time, like the resource panels)
           if (this.modes.mode === 'build') $resourcePanel.set($resourcePanel.get() === 'builder' ? null : 'builder');
+          break;
+        case 'KeyG':
+          // the Hazards panel (docs/14 §3.8): risks, counters, the network
+          if (this.modes.mode === 'build') $resourcePanel.set($resourcePanel.get() === 'hazards' ? null : 'hazards');
           break;
         case 'Enter': case 'NumpadEnter':
           // while placing: let the rovers choose the site for this one
@@ -797,6 +805,17 @@ export class Game {
       case 'setFeedPlan': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (b && b.type === 'excavator') b.feedPlanOff = !a.on;
+        break;
+      }
+      // hazards (core/hazards.ts, docs/14 §3.7): a counter works while paused, as placement does
+      case 'counter': {
+        const r = applyCounter(s, this.mods, a.counter, a.id);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      case 'airGap': {
+        const r = setAirGap(s, this.mods, a.id, a.on);
+        if (!r.ok) alert(s, r.reason, 'warn');
         break;
       }
       case 'setEnabled': {
@@ -1150,6 +1169,8 @@ export class Game {
   } | null = null;
   /** what the discovery queue has already seen (null = take the baseline) */
   private announceSeen: { techs: number; era: number } | null = null;
+  /** hazard kinds already drilled when the discovery queue last looked */
+  private announceDrilled: number | null = null;
   private announceId = 1;
   /** a brand-new mission: its first publish opens with the Era 1 explainer */
   private introPending = false;
@@ -1503,6 +1524,7 @@ export class Game {
       this.updateDarkness();
       this.updateWearMarkers();
       this.updateAutoMarkers();
+      this.updateHazardMarkers();
       sfx.setAmbience({
         margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening,
         night: currentDay(this.state, SITES[this.state.siteId]).nightFactor > 0.5,
@@ -1640,6 +1662,18 @@ export class Game {
       for (const tid of s.techsDone.slice(seen.techs)) add.push({ id: this.announceId++, kind: 'tech', tid });
       for (let e = seen.era + 1; e <= s.era; e++) add.push({ id: this.announceId++, kind: 'era', era: e, intro: false });
     }
+    // hazards (docs/14 §3.10): a side's first 2 picks put it live; the first of each kind is its drill
+    const hzs = s.hazards;
+    for (const side of ['colony', 'automation'] as const) {
+      const d = $destiny.get();
+      if ((side === 'colony' ? d.c : d.a) >= 2 && !hzs.liveSides.includes(side)) {
+        hzs.liveSides.push(side);
+        if (seen) add.push({ id: this.announceId++, kind: 'hazardsLive', side });
+      }
+    }
+    const drilled = this.announceDrilled ?? hzs.drilled.length;
+    if (seen) for (const k of hzs.drilled.slice(drilled)) add.push({ id: this.announceId++, kind: 'hazard', hazard: k as HazardId });
+    this.announceDrilled = hzs.drilled.length;
     if (add.length) $announce.set([...$announce.get(), ...add]);
   }
 
@@ -1718,6 +1752,24 @@ export class Game {
     if (out.length !== prev.length || out.some((m, i) => m.id !== prev[i].id || Math.abs(m.x - prev[i].x) > 0.5 || Math.abs(m.y - prev[i].y) > 0.5)) {
       $autoMarkers.set(out);
     }
+  }
+
+  /** DOM markers over hazard targets (docs/14 §3.8): the hiss with who is aboard, blight, ⚠ NET, the strip bar */
+  private updateHazardMarkers() {
+    const ms = $hazards.get()?.markers ?? [];
+    if (!this.playing || this.modes.mode !== 'build' || !ms.length) { if ($hazardMarkers.get().length) $hazardMarkers.set([]); return; }
+    const v = new THREE.Vector3();
+    const out: { id: number; x: number; y: number; glyph: string; text: string; frac?: number }[] = [];
+    for (const m of ms) {
+      const b = this.state.buildings.find((x) => x.id === m.id);
+      if (!b) continue;
+      const [cx, cz] = centerOf(b);
+      v.set(cx, this.hf.sample(cx, cz) + BUILDINGS[b.type].height + 5, cz).project(this.camera);
+      if (v.z > 1 || v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue;
+      out.push({ ...m, x: Math.round((v.x * 0.5 + 0.5) * window.innerWidth), y: Math.round((-v.y * 0.5 + 0.5) * window.innerHeight) });
+      if (out.length >= 12) break;
+    }
+    $hazardMarkers.set(out);
   }
 
   private updateWearMarkers() {
@@ -1864,6 +1916,8 @@ export class Game {
       needFoils: vt.foils, needLaunch: vt.launch, auto: this.mods.autoLaunch, crewed: vt.crewed, minCrew: vt.minCrew,
     });
     $destiny.set(destinyOf(s));
+    $hazards.set(hazardView(s, this.mods));
+    $lossStory.set(lossStory(s));
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $feed.set({ ...s.feed });
     $deposits.set(depositsView(s, this.hf.deposits, this.mods.surveyTier));
@@ -1894,6 +1948,31 @@ export class Game {
     }
     this.playCues(day.isNight);
     this.queueAnnouncements();
+    this.hazardPauses();
+  }
+
+  /** hazards the session has seen (the pause-on settings, docs/14 §3.8) */
+  private hazardSeen: { live: Set<number>; clocks: Set<string>; drilled: number; sides: number } | null = null;
+
+  /** Pause on a new hazard (menu setting, on by default), or on every lethal
+   *  warning (off by default). Test runs (?debug) pause only when they ask (&hzpause). */
+  private hazardPauses() {
+    const s = this.state;
+    const v = $hazards.get();
+    if (!v) return;
+    const seen = this.hazardSeen;
+    const clocks = new Set(v.active.filter((a) => a.deadly && a.clockLeft !== null).map((a) => `${a.id}`));
+    this.hazardSeen = { live: new Set(v.active.map((a) => a.id)), clocks, drilled: s.hazards.drilled.length, sides: s.hazards.liveSides.length };
+    if (!seen) return;
+    const q = new URLSearchParams(location.search);
+    if (q.has('debug') && !q.has('hzpause')) return;
+    const set = loadSettings();
+    const fresh = v.active.filter((a) => !seen.live.has(a.id));
+    const lethal = fresh.some((a) => a.deadly) || [...clocks].some((c) => !seen.clocks.has(c));
+    if (!s.paused && ((set.pauseHazards && fresh.length) || (set.pauseLethal && lethal))) {
+      this.actions.push({ kind: 'setPaused', paused: true });
+      alert(s, `PAUSED — ${fresh[0] ? `${HAZARD_NAME[fresh[0].kind]}: ${fresh[0].targetName}` : 'a lethal warning'} · Space resumes (the menu sets when hazards pause)`, 'info');
+    }
   }
 
   private ringMats = {
@@ -1997,8 +2076,9 @@ export class Game {
   private publishSaveSlot(blob: SaveBlob | null) {
     const lost = blob !== null && missionLost(blob.state);
     $hasSave.set(blob !== null && !lost);
+    const last = lost ? blob.state.deaths?.[blob.state.deaths.length - 1] : undefined;
     $lostMission.set(lost
-      ? { siteId: blob.state.siteId, day: Math.floor(blob.state.simTime / CYCLE_S) + 1 }
+      ? { siteId: blob.state.siteId, day: Math.floor(blob.state.simTime / CYCLE_S) + 1, ...(last?.hazard ? { cause: deathClause(last.cause) } : {}) }
       : null);
   }
 
@@ -2167,6 +2247,17 @@ export class Game {
       if (short) { recordRefused(s, req, short); continue; }
       const crew = crewPlan(s, this.mods, req.type);
       const r = this.placeAuto(req.type, req.intent, crew.automated);
+      // a runaway rule's junk site (docs/14 §3.5): tagged, never the rule's own bookkeeping
+      if (req.junk !== undefined) {
+        if (typeof r === 'string') continue;
+        r.b.junk = req.junk;
+        r.b.junkAt = s.simTime;
+        r.b.auto = { by: 'rule', rule: req.rule, at: s.simTime, why: `RULE DRIFT — junk, ${r.why}` };
+        logAuto(s, `junk ${BUILDINGS[r.b.type].name} #${r.b.id} · the drifting rule · ${r.why}`, r.b.id);
+        alert(s, `JUNK SITE — ${BUILDINGS[r.b.type].name} #${r.b.id} ordered by the drifting rule · cancel it within 20 s for a full refund`,
+          'warn', { select: r.b.id });
+        continue;
+      }
       if (typeof r === 'string') {
         recordRefused(s, req, r);
         if (req.by === 'order') continue;
@@ -2188,6 +2279,11 @@ export class Game {
     // Autonomous Cadence fired a volley inside the tick: the rail shows it
     if (this.state.launches > launches) this.life.onLaunch(this.state);
     if (ev.modsChanged) this.mods = modsFor(this.state);
+    // a hazard wrecked something (docs/14 §3.10): the world forgets it
+    if (ev.wrecked?.length) {
+      this.walk.colliders = this.instances.colliders(this.state);
+      if (ev.wrecked.includes($selection.get()?.id ?? -1)) $selection.set(null);
+    }
     if (ev.build.length) this.resolveBuild(ev.build);
     this.syncDeposits(true);
     return ev;
@@ -2419,9 +2515,64 @@ export class Game {
     this.syncDeposits(false);
     this.publish();
   }
+  // ── hazards (docs/14 §3) ──
+  debugHazards() { return hazardView(this.state, this.mods); }
+  debugForceHazard(kind: HazardId, target?: number, opts: { drill?: boolean; tier?: Tier } = {}) {
+    const r = forceHazard(this.state, this.mods, SITES[this.state.siteId], kind, target, opts);
+    this.publish();
+    return typeof r === 'string' ? r : r.id;
+  }
+  /** the next window in `seconds` (and the scheduler started); with `id`, that live hazard's clock ends in `seconds` */
+  debugHazardClock(seconds: number, id?: number) {
+    const hz = this.state.hazards;
+    if (id !== undefined) {
+      const h = hz.live.find((x) => x.id === id);
+      if (!h) return false;
+      if (h.phase === 'telegraph') h.at = this.state.simTime + seconds;
+      else h.clockAt = this.state.simTime + seconds;
+    } else {
+      hz.era3At = Math.min(hz.era3At ?? this.state.simTime, this.state.simTime - 720);
+      hz.graceUntil = Math.min(hz.graceUntil, this.state.simTime);
+      hz.nextAt = this.state.simTime + seconds;
+      hz.lastStartAt = -1e9;
+    }
+    this.publish();
+    return true;
+  }
+  debugHoldHazards(on: boolean) { this.state.hazards.hold = on; }
+
   debugForceOutposts(n: number) {
     forceOutposts(this.state, n);
     this.mods = modsFor(this.state);
     this.publish();
   }
+}
+
+/** 'Habitat #7 decompressed' → the title line's clause. */
+function deathClause(cause: string): string {
+  return cause.replace(/^./, (c) => c.toUpperCase());
+}
+
+/** The lost-mission screen's story (docs/14 §3.10): the last death and its
+ *  missed warning, and the ones before it. */
+function lossStory(s: GameState): { lead: string; warning: string; earlier: string } | null {
+  const deaths = s.deaths ?? [];
+  const last = deaths[deaths.length - 1];
+  if (!last || !s.defeatShown) return null;
+  const day = (t: number) => Math.floor(t / CYCLE_S) + 1;
+  const warned = last.warnedAt !== null ? `The warning came ${fmtClock(Math.max(0, last.at - last.warnedAt))} before; nobody answered it in time.` : '';
+  const before = deaths.slice(0, -1);
+  const groups = new Map<string, { n: number; day: number }>();
+  for (const d of before) {
+    const k = d.cause;
+    const g = groups.get(k) ?? { n: 0, day: day(d.at) };
+    g.n++;
+    groups.set(k, g);
+  }
+  const earlier = [...groups].map(([cause, g]) => `${g.n} crew — ${cause} (day ${g.day})`).join(' · ');
+  return {
+    lead: `The base fell silent. The last settler died: ${last.cause}.`,
+    warning: warned,
+    earlier: earlier ? `Earlier: ${earlier}` : '',
+  };
 }

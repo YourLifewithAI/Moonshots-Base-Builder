@@ -18,6 +18,7 @@ import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { accessCell, doorCell, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import type { AutoFamily, AutoRuleId } from './data/automation';
+import type { CounterId, HazardId, Tier } from './data/hazards';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -272,6 +273,21 @@ function api(game: Game) {
     /** the save as written, and a load of one (the migration tests) */
     saveBlob: () => clone((game as unknown as { saveBlob(): unknown }).saveBlob()),
     loadBlob: (blob: Parameters<Game['loadFrom']>[0]) => game.loadFrom(blob),
+    // ── hazards (docs/14 §3) ──
+    /** the Hazards panel's payload (hazardView) plus the raw state: live, log, meters, deaths, losses, grief */
+    getHazards: () => clone({
+      ...game.debugHazards(), state: game.state.hazards, deaths: game.state.deaths, losses: game.state.losses, grief: game.state.grief,
+    }),
+    /** start a hazard now (bypassing the scheduler); the first of a kind is its drill unless opts say.
+     *  Returns the live hazard's id, or why it cannot start */
+    forceHazard: (kind: HazardId, target?: number, opts?: { drill?: boolean; tier?: Tier }) => game.debugForceHazard(kind, target, opts),
+    /** the next window in `seconds` (the scheduler started now); with `id`, that live hazard's clock ends in `seconds` */
+    setHazardClock: (seconds: number, id?: number) => game.debugHazardClock(seconds, id),
+    /** hold every hazard (tests that are not about them), or let them run */
+    holdHazards: (on = true) => game.debugHoldHazards(on),
+    /** a counter, as its button pushes it */
+    counter: (counter: CounterId, id?: number) => game.actions.push({ kind: 'counter', counter, id }),
+    airGap: (id: number, on = true) => game.actions.push({ kind: 'airGap', id, on }),
     /** the road tool's actions: a road from an open road cell to a cell; remove cells */
     layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
     removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),

@@ -3,7 +3,8 @@
 import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
 import type { Game } from '../core/game';
 import { el, PERSON_SVG } from './hud';
-import { $counts, $defeat, $destiny, $hasSave, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
+import { $siteId as $siteIdAtom } from './stores';
+import { $counts, $defeat, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
 import { DESTINY_SUBTITLE, expeditionCopy } from './expeditionCopy';
 import { BAND_ENDING, BAND_LABEL, type Band } from '../data/techs';
@@ -34,7 +35,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       <div id="sites"></div>
       <div style="display:flex; gap:12px; align-items:center">
         ${lost
-          ? `<span class="label" id="lost-mission">✕ Mission lost — ${SITES[lost.siteId].name}, day ${lost.day}. The base fell silent.</span>`
+          ? `<span class="label" id="lost-mission">✕ Mission lost — ${SITES[lost.siteId].name}, day ${lost.day}${lost.cause ? `: ${lost.cause}.` : '. The base fell silent.'}</span>`
           : $hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
         <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose expedition ▸</button>
       </div>
@@ -134,6 +135,9 @@ function trapTab(screen: HTMLElement) {
 
 // ─────────────────────────── defeat ───────────────────────────
 
+/** the site of the run under the defeat screen */
+function $siteIdOf(): SiteId { return ($siteIdAtom.get() ?? 'mare') as SiteId; }
+
 export function mountDefeat(root: HTMLElement) {
   const screen = el('div', 'screen interactive');
   screen.id = 'defeat-screen';
@@ -145,14 +149,18 @@ export function mountDefeat(root: HTMLElement) {
     if (!d) { screen.style.display = 'none'; return; }
     const t = $time.get();
     const s = $swarm.get();
+    // the cause and the warning that was missed (docs/14 §3.10)
+    const story = $lossStory.get();
+    const esc = (x: string) => x.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
     screen.style.display = 'flex';
     screen.style.justifyContent = 'center';
     screen.style.textAlign = 'center';
     screen.innerHTML = `
-      <div class="sub">Day ${t.dayIndex + 1}</div>
+      <div class="sub">MISSION LOST — ${SITES[$siteIdOf()]?.name?.toUpperCase() ?? ''} · day ${t.dayIndex + 1}</div>
       <h1>THE BASE FALLS SILENT</h1>
-      <div class="stats" style="margin:22px 0 30px; font-size:13px; line-height:22px; color:rgba(245,247,249,0.72)">
-        The last crewmember is gone. Machines idle under the work lights;<br/>
+      <div class="stats" id="defeat-story" style="margin:22px 0 30px; font-size:13px; line-height:22px; color:rgba(245,247,249,0.72)">
+        ${story ? `<span id="defeat-cause">${esc(story.lead)}</span><br/>${story.warning ? `<span id="defeat-warning">${esc(story.warning)}</span><br/>` : ''}` +
+          `${story.earlier ? `<span id="defeat-earlier">${esc(story.earlier)}</span><br/>` : ''}<br/>` : 'The last crewmember is gone. '}Machines idle under the work lights;<br/>
         the swarm holds at <span class="mono">${s.pct.toFixed(4)}%</span>, waiting for hands that will not come.<br/><br/>
         The Moon keeps what it is given.
       </div>
