@@ -62,6 +62,9 @@ export interface Mods {
   feedBonus: Record<FeedKind, number>;
   /** a live, fuelled KREEP outpost: reactor upkeep ×0.6 (see reactorUpkeepFactor), output ×1.15, chipFab ×1.1 */
   kreepOutpost: boolean;
+  /** excavator haul cycle (core/haul.ts): drive speed and bucket size */
+  haulSpeedMult: number;
+  haulBucketMult: number;
 }
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
@@ -101,6 +104,7 @@ export function computeMods(
     nightDrawMult: 1, dayDrawMult: 1,
     feedBonus: Object.fromEntries(FEED_KINDS.map((k) => [k, 1])) as Record<FeedKind, number>,
     kreepOutpost: false,
+    haulSpeedMult: 1, haulBucketMult: 1,
   };
 
   for (const tid of techsDone) {
@@ -166,6 +170,10 @@ export function computeMods(
         case 'powerDelta': m.powerDelta[fx.building] += fx.kw; break;
         case 'nightDraw': m.nightDrawMult *= fx.night; m.dayDrawMult *= fx.day; break;
         case 'feedBonus': m.feedBonus[fx.deposit] *= fx.mult; break;
+        case 'haul':
+          m.haulSpeedMult *= fx.speedMult ?? 1;
+          m.haulBucketMult *= fx.bucketMult ?? 1;
+          break;
       }
     }
   }
