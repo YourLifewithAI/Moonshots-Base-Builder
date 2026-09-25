@@ -11,6 +11,8 @@ const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 
 async function game(page: Page) {
   await page.waitForFunction(() => window.__game !== undefined);
+  // roads open as they are laid: these tests time the builds themselves (roads: avoidance.spec)
+  await page.evaluate(() => window.__game.openRoads(true));
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -68,7 +70,6 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
-  await page.evaluate(() => window.__game.finishRoads()); // their roads open: the timeline below is the builds' (docs/15)
 
   const before = await page.evaluate(() => window.__game.getState());
   // the excavator stands at ~80 s; its first bucket lands at the Lander a
@@ -81,7 +82,6 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // smelter needs research → complete tech, place, verify metals + oxygen byproduct
   await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
-  await page.evaluate(() => window.__game.finishRoads());
   const m0 = await page.evaluate(() => window.__game.getState());
   await page.evaluate(() => window.__game.advanceGameMinutes(3)); // build 96s, then smelt
   const m1 = await page.evaluate(() => window.__game.getState());
@@ -612,7 +612,7 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
       ['smelter', 120, 132], ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
       ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126],
       ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
-      ['partsFab', 138, 128],
+      ['partsFab', 138, 129], // (a cell south of 128: an array's road runs there now, docs/15)
     ];
     // an era opens with four techs of the one before
     const research = ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',

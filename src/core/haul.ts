@@ -199,27 +199,27 @@ export function tripFor(
 ): Trip {
   const spec = haulSpec(mods);
   const drop = dropFor(s, mods, x, z);
-  let routeM = 0;
-  if (drop) {
-    const [px, pz] = centerOf(b);
-    const home = Math.hypot(x - px, z - pz) < 0.5;
-    const stand = hasRoads(s) ? standFor(s, b, drop) : null;
-    if (stand) {
-      let from: [number, number] = [x, z], extra = 0;
-      if (!home && !roadMap(s).has(cellKey(...cellAt(x, z)))) {
-        const n = nearestRoad(s, x, z);
-        if (n) { const c = cellCentre(n[0], n[1]); extra = Math.hypot(c[0] - x, c[1] - z); from = c; }
-      }
-      const path = legPath(s, b, { x: from[0], z: from[1] }, stand, drop);
-      routeM = path ? extra + pathLength(from[0], from[1], path) : Math.hypot(...wallDelta(drop, x, z));
-    } else {
-      routeM = Math.hypot(...wallDelta(drop, x, z));
-    }
-  }
+  const routeM = drop ? routeTo(s, b, x, z, drop) : 0;
   const speed = roadHaulSpeed(spec, mods, false);
   const load = regolithOut * GAIN * spec.digS;
   const cycleS = spec.digS + spec.unloadS + (2 * routeM) / speed;
   return { drop, routeM, cycleS, rate: load / cycleS, load };
+}
+
+/** A loaded leg's length from (x, z) to `drop`: its road route (and the
+ *  step from open ground onto the nearest road), else the straight way. */
+function routeTo(s: GameState, b: BuildingState, x: number, z: number, drop: BuildingState): number {
+  const [px, pz] = centerOf(b);
+  const home = Math.hypot(x - px, z - pz) < 0.5;
+  const stand = hasRoads(s) ? standFor(s, b, drop) : null;
+  if (!stand) return Math.hypot(...wallDelta(drop, x, z));
+  let from: [number, number] = [x, z], extra = 0;
+  if (!home && !roadMap(s).has(cellKey(...cellAt(x, z)))) {
+    const n = nearestRoad(s, x, z);
+    if (n) { const c = cellCentre(n[0], n[1]); extra = Math.hypot(c[0] - x, c[1] - z); from = c; }
+  }
+  const path = legPath(s, b, { x: from[0], z: from[1] }, stand, drop);
+  return path ? extra + pathLength(from[0], from[1], path) : Math.hypot(...wallDelta(drop, x, z));
 }
 
 /** the straight way from (x, z) to where it would unload at `drop` */
@@ -389,8 +389,8 @@ export function haulTick(
     startDig(s, b, h);
   }
   // the smoothed flow: this route's average, at this tick's rates
-  const routeM = routeEstimate(s, mods, h);
-  const cycleS = spec.digS + spec.unloadS + (2 * routeM) / spec.speed;
+  const routeM = routeEstimate(s, mods, b, h);
+  const cycleS = spec.digS + spec.unloadS + (2 * routeM) / speed;
   for (const [rid, rate] of Object.entries(r.outputs) as [ResourceId, number][]) {
     out.flow[rid] = (rate * GAIN * spec.digS) / cycleS;
   }
@@ -399,11 +399,10 @@ export function haulTick(
 
 /** straight-line estimate of the dig → drop leg (for the per-tick flow; the
  *  inspector's trip estimate plans the real route) */
-function routeEstimate(s: GameState, mods: Mods, h: HaulState): number {
+function routeEstimate(s: GameState, mods: Mods, b: BuildingState, h: HaulState): number {
   const drop = (h.drop !== null && s.buildings.find((x) => x.id === h.drop)) || dropFor(s, mods, h.digX, h.digZ);
   if (!drop) return 0;
-  const p = wallSpot(worldRect(drop), h.digX, h.digZ, HAUL.unloadOut);
-  return Math.hypot(p.x - h.digX, p.z - h.digZ);
+  return routeTo(s, b, h.digX, h.digZ, drop);
 }
 
 /** Why the excavator cannot dig at (x, z) ('' = it can). `mapped`: the

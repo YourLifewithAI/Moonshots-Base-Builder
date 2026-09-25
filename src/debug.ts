@@ -215,6 +215,8 @@ function api(game: Game) {
     beginRoadTool: () => game.beginRoadTool(),
     cancelRoadTool: () => game.cancelRoadTool(),
     getRoadTool: () => clone(game.debugRoadTool()),
+    /** from now on a placement's road is laid open, no sintering (tests that time builds) */
+    openRoads: (on = true) => { game.debugOpenRoads = on; },
     /** open every road cell now (sites stay as they are) */
     finishRoads: () => { openAll(game.state); game.publish(); },
     /** each structure's way in by road (docs/15-roads.md): its door (fields: none),

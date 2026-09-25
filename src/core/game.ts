@@ -157,6 +157,8 @@ export class Game {
   private fleetTarget!: FleetTarget;
   /** the road tool (player/roadTool.ts) */
   private roadTool!: RoadTool;
+  /** debug: a placement's road is laid open (tests that time builds, not roads) */
+  debugOpenRoads = false;
 
   private playing = false;
   private econAcc = 0;
@@ -962,7 +964,7 @@ export class Game {
     this.stampDeposit(b);
     s.buildings.push(b);
     // its road (core/roads.ts): the Lander lands with its apron, the rest get a spur
-    if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else laySpur(s, this.hf, b, free);
+    if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
     if (dep && !free) this.strike(b, dep);
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
