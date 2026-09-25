@@ -710,3 +710,45 @@ test('migration: a techSchema-3 save in Era 5 gains its landing pick, keeps its 
   expect(r.v.gates.find((x: any) => x.era === 6).open).toBe(false);
   expect(errors).toEqual([]);
 });
+
+// ───────────────────────────── the four buildings ─────────────────────────────
+
+for (const style of ['classic', 'detailed']) {
+  test(`${style}: the four destiny buildings stand and render, on budget; a hive docks four rovers, a monolith counts as a Data Center`, async ({ page }) => {
+    await start(page, 'mare', 'robotic', `&style=${style}`);
+    expect((await g(page, 'getRenderInfo')).style).toBe(style);
+    const r = await page.evaluate(() => {
+      const g = window.__game!;
+      for (const t of ['droneHives', 'greenhouseRings', 'gardenDomes', 'fleetOS', 'lunarDataCenter']) g.completeTech(t);
+      g.grantResources({ metals: 900, silicon: 200, parts: 300, chips: 100 });
+      const placed: Record<string, boolean> = {};
+      for (const type of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+        placed[type] = false;
+        for (let r = 5; r < 30 && !placed[type]; r++) {
+          for (let dx = -r; dx <= r && !placed[type]; dx += 2) {
+            if (g.placeBuilding(type, 127 + dx, 127 - r) || g.placeBuilding(type, 127 + dx, 127 + r)) placed[type] = true;
+          }
+        }
+      }
+      const bots0 = g.getState().bots.total;
+      g.finishConstruction();
+      g.grantPower(5000);
+      g.advanceGameSeconds(2);
+      const s = g.getState();
+      return {
+        placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: g.getUpgrades().meshes,
+        rates: g.getResearch(), mono: s.buildings.find((b: any) => b.type === 'serverMonolith'),
+      };
+    });
+    expect(r.placed).toEqual({ droneHive: true, greenhouseRing: true, gardenDome: true, serverMonolith: true });
+    for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+      expect(r.tris[t], t).toBeGreaterThan(100);
+      expect(r.tris[t], t).toBeLessThanOrEqual(3500);
+      expect(r.meshes[t]?.triangles, t).toBe(r.tris[t]);
+    }
+    expect(r.bots - r.bots0).toBe(4); // the hive's dock
+    expect(r.mono.active).toBe(true);
+    expect(r.rates.dcsActive).toBe(1); // counted with the Data Centers
+    expect(r.rates.cap).toBeCloseTo(0.4 * r.rates.labsActive + 2.2, 6);
+  });
+}
