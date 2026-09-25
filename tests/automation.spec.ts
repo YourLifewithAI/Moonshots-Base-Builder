@@ -493,6 +493,152 @@ test('siting: masts go to the network edge, and Site Survey AI puts an excavator
   expect(r.survey.why).toMatch(/high-Ti basalt/);
 });
 
+// ───────────────────────────── siting on roads (docs/15) ─────────────────────────────
+
+/** In-page: comb(r) lays open road over the ground within r cells of the
+ *  Lander — rows every other cell, joined by a spine through the apron's
+ *  stub end — as a crafted save, loaded and paused. No pad there is free of
+ *  road: a sprawl of roads, as a long game lays them. Returns cells added.
+ *  fullSun() reads the day as the solar rule does. */
+declare function comb(r: number): number;
+declare function fullSun(): Promise<boolean>;
+const SITING = `(() => {
+const G = window.__game;
+window.comb = (r) => {
+  const blob = G.saveBlob();
+  const st = blob.state;
+  const L = st.buildings.find((b) => b.type === 'lander');
+  const foot = new Set();
+  for (const b of st.buildings) {
+    const f = G.footprintOf(b.id);
+    for (let x = Math.round((f.x0 + 512) / 4); x < Math.round((f.x1 + 512) / 4); x++)
+      for (let z = Math.round((f.z0 + 512) / 4); z < Math.round((f.z1 + 512) / 4); z++) foot.add(z * 256 + x);
+  }
+  const have = new Set(st.roads.map((c) => c.gz * 256 + c.gx));
+  const end = st.roads.find((c) => !c.bay && !c.closed && c !== st.roads[0]);
+  let n = 0;
+  const add = (gx, gz) => { const k = gz * 256 + gx; if (foot.has(k) || have.has(k)) return; have.add(k); st.roads.push({ gx, gz, left: 0 }); n++; };
+  for (let gz = L.gz - r; gz <= L.gz + r; gz += 2) for (let gx = L.gx - r; gx <= L.gx + r; gx++) add(gx, gz);
+  for (let gz = L.gz - r; gz <= L.gz + r; gz++) add(end.gx, gz);
+  st.roadRev = (st.roadRev ?? 0) + 1;
+  G.loadBlob(blob);
+  G.setPaused(true);
+  G.advanceGameSeconds(0);
+  return n;
+};
+window.fullSun = async () => {
+  const { dayInfo } = await import('/src/core/daynight.ts');
+  const { SITES } = await import('/src/data/sites.ts');
+  const s = G.getState();
+  const site = SITES[s.siteId];
+  const d = dayInfo(s.simTime, site, s.flare.phase === 'active');
+  return !d.isNight && d.sunFactor >= site.solarDayMult * 0.95 && s.flare.phase !== 'active';
+};
+})()`;
+
+/** the crewed pole on a rough seed, paused, with the helpers */
+async function roughPole(page: Page) {
+  await page.goto('/?debug&seed=1234&nolock&lowfx&site=southpole');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  await page.evaluate(HELPERS);
+  await page.evaluate(SITING);
+}
+
+test('siting on rough pole ground: an order walks out to flat ground and lays its road; past a sprawl of roads the solar rule still finds a pad', async ({ page }) => {
+  test.setTimeout(150_000);
+  await roughPole(page);
+  const r = await page.evaluate(() => {
+    const G = window.__game;
+    G.grantResources({ metals: 3000, parts: 500 });
+    // the landing: the ground by the Lander is too rough, so the pick is out on flat ground, a road away
+    const L = G.getState().buildings.find((b: any) => b.type === 'lander');
+    const rough = [];
+    for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+      const c = G.canPlace('solar', L.gx + dx, L.gz + dz, 0);
+      if (/^Terrain too rough/.test(c.reason)) rough.push(c.reason);
+    }
+    G.order('solar', 1);
+    G.advanceGameSeconds(0);
+    const first = autos()[0];
+    // a load for the margin to read
+    G.completeTech('regolithProcessing');
+    place('smelter', 1);
+    G.finishConstruction();
+    const firstAccess = G.roadAccess().find((a: any) => a.id === first.id);
+    // the rule, founded on that array, with every pad within 14 cells of the Lander on a road
+    G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoPower');
+    G.setRule('solar', { threshold: 0.5 });
+    G.advanceGameSeconds(1);
+    const added = comb(14);
+    const plan = G.planSite('solar');
+    const t = until(() => autos().some((b: any) => b.auto.rule === 'solar'), 900, 5);
+    const site = autos().find((b: any) => b.auto.rule === 'solar');
+    const chk = site ? null : G.canPlace('solar', plan.gx, plan.gz, plan.rot);
+    G.finishConstruction();
+    const access = site ? G.roadAccess().find((a: any) => a.id === site.id) : null;
+    return { L, rough: rough.length, first, firstAccess, added, plan, t, site, access, chk, rule: rule('solar') };
+  });
+  // the Lander's own ground is rough; the order says how far it went and the road it lays
+  expect(r.rough).toBeGreaterThan(10);
+  expect(r.first.auto.why).toMatch(/nearest free pad to the base centre · \d+ m · a \d+-cell road to it/);
+  expect(r.first.spur.length).toBeGreaterThan(0);
+  expect(r.firstAccess).toMatchObject({ served: true, linked: true });
+  // past the sprawl: before, the chooser looked at the first 200 pads only, all on roads, and gave up
+  expect(r.added).toBeGreaterThan(400);
+  expect(r.plan.refusal).toBeUndefined();
+  expect(Math.max(Math.abs(r.plan.gx - r.L.gx), Math.abs(r.plan.gz - r.L.gz))).toBeGreaterThan(13);
+  expect(r.site, `${r.rule.phase}: ${r.rule.status}`).toBeTruthy();
+  expect(r.site.auto.why).toMatch(/nearest free pad to the base centre · \d+ m/);
+  expect(r.access).toMatchObject({ served: true, linked: true });
+});
+
+test('no ground a road can serve: the solar rule says why in [B] and in a warning, and keeps saying it while the margin cannot be read', async ({ page }) => {
+  test.setTimeout(150_000);
+  await roughPole(page);
+  const r = await page.evaluate(async () => {
+    const G = window.__game;
+    G.grantResources({ metals: 3000, parts: 500 });
+    G.order('solar', 1);
+    G.advanceGameSeconds(0);
+    G.completeTech('regolithProcessing');
+    place('smelter', 1);
+    G.finishConstruction();
+    G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoPower');
+    G.setRule('solar', { threshold: 0.5 });
+    G.advanceGameSeconds(1);
+    // road over every pad in the network (the Lander's 60 m)
+    comb(18);
+    const plan = G.planSite('solar');
+    until(() => rule('solar').phase === 'nosite', 900, 5);
+    const first = rule('solar');
+    // a lunar stretch: while the margin cannot be read, the rule still says it has no ground
+    const seen: string[] = [];
+    let dark = 0;
+    for (let i = 0; i < 480 && dark < 12; i++) {
+      G.grantPower(5000); G.advanceGameSeconds(5);
+      if (!(await fullSun())) { dark++; seen.push(rule('solar').phase); }
+    }
+    const s = G.getState();
+    const alert = s.alerts.find((a: any) => /^AUTO NO SITE — Power:/.test(a.text));
+    return { plan, first, seen, dark, alert, autos: autos().filter((b: any) => b.auto.rule === 'solar').length, end: rule('solar') };
+  });
+  expect(r.plan.refusal).toMatch(/^no valid ground for a Solar Array inside the build network \(of \d+ open pads: .*\d+ on roads.*\) — a Relay Mast or Habitat extends it$/);
+  expect(r.first.phase).toBe('nosite');
+  expect(r.first.status).toBe(r.plan.refusal);
+  expect(r.autos).toBe(0);
+  expect(r.dark).toBeGreaterThan(0);
+  expect(r.seen.every((p: string) => p === 'nosite'), r.seen.join(' ')).toBe(true);
+  expect(r.alert?.kind).toBe('warn');
+  expect(r.alert?.text).toContain('on roads');
+  // the panel's row says the same
+  await page.keyboard.press('b');
+  const row = page.locator('#builder-panel .bp-rule[data-rule="solar"]');
+  await expect(row).toHaveAttribute('data-phase', 'nosite');
+  await expect(row.locator('.bp-status')).toContainText('no valid ground for a Solar Array');
+  await expect(row.locator('.bp-status')).toContainText('on roads');
+});
+
 // ───────────────────────────── saves ─────────────────────────────
 
 async function putSave(page: Page, st: any) {
