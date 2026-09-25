@@ -128,6 +128,7 @@ Opens with 4 techs of era 1, or 2 plus the deed: **450◆ smelted**.
 | **Sublimation Tents**<br><sub>sites: SHACKLETON RIM</sub> | ⌂ | 240 | — | Cryo Ice Extraction | +15% output: Ice Harvester | +20% draw: Ice Harvester | Ice Harvesters pitch a foil sublimation tent over the dig. |
 | **Neutron Spectrometry** | ◎ | 220<br><sub>✎ −40%: 3 prospects surveyed</sub> | — | Sample-Return Caches | survey data ×1.2 | +40% draw: Relay Mast | Relay Masts hang a neutron-spectrometer boom. |
 | **Bench Robots**<br><sub>human only</sub> | ▣ | 200 | — | — | −1 crew: Research Lab | +25% draw: Research Lab | Research Labs fit a robot sample bench behind a new window bay. |
+| **Build Orders** | ◉ | 240 | — | Earth Teleoperation | NEW ORDER BOOK: 4 held orders, up to ×10 each — orders wait for stock instead of skipping | held orders take stock the moment it lands<br>−1 kW: Lander | The Lander raises a planning mast: a pole with a work lamp beside its top deck. |
 
 ### Era 3 · ROBOTIC FABRICATION
 
@@ -146,6 +147,8 @@ Opens with 4 techs of era 2, or 2 plus the deed: **200⚙ fabricated**.
 | **Reflux Columns** | ▣ | 296<br><sub>✎ −30%: 300◇ refined</sub> | — | Silicon Refining | +12% output: Silicon Refinery | +12% draw: Silicon Refinery | Silicon Refineries raise a fourth distillation column. |
 | **Cryo Sample Store** | ▣ | 278<br><sub>✎ −30%: 4 labs operating</sub> | — | Field Spectrometers | +10% output: Research Lab | +40% upkeep: Research Lab | Research Labs stand a cryogenic sample dewar on the roof. |
 | **Bunk Racks**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 278 | — | — | +1 housing: Habitat Module | −2 morale: Habitat Module | Habitats bolt a bunk annex onto their airlock. |
+| **Automated Excavation** | ◉ | 278 | 10⚙ | Build Orders | NEW RULE Excavation: +1 Regolith Excavator when regolith demand outruns supply by 6▲/min for 60 s (cap 6)<br>NEW RULE Excavation: +1 Ice Harvester when water demand outruns supply by 1.2≈/min for 60 s (cap 3) | the builder spends your stock unasked: 16◆ 4⚙ per Regolith Excavator<br>−1 kW: Robotics Bay | Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof. |
+| **Site Survey AI** | ▣ | 278 | — | Build Orders, Prospecting Rovers | auto sites weigh deposits, peaks of light and haul lanes (before: distance only) | +20% upkeep: Robotics Bay | A survey drone rests on a pad on each Robotics Bay roof. |
 
 ### Era 4 · CHIP FABRICATION
 
@@ -167,6 +170,9 @@ Opens with 4 techs of era 3, or 2 plus the deed: **600◇ refined**.
 | **Optical Ore Sorting** | ◆ | 418<br><sub>✎ −30%: 4 excavators operating</sub> | — | Grizzly Screens | +10% output: Regolith Excavator | +30% upkeep: Regolith Excavator | Excavators mount an optical ore-sorting hood over the bucket wheel. |
 | **Heated Augers**<br><sub>sites: SHACKLETON RIM</sub> | ⌂ | 437 | — | Sublimation Tents | +15% output: Ice Harvester | +30% upkeep: Ice Harvester | Ice Harvesters sink a second, heated auger. |
 | **LED Grow Lights**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 418 | — | — | +15% output: Hydroponics Farm | +20% draw: Hydroponics Farm | Hydroponics vaults glow with LED grow-light strips. |
+| **Automated Power** | ⚡ | 456 | 20◆ | Automated Excavation | NEW RULE Power: +1 Solar Array when the day’s grid margin, the bank’s recharge paid, is under 10% for 30 s (cap 24)<br>NEW RULE Power: +1 Battery Bank at dawn after the bank ran dry (cap 6)<br>NEW RULE Power: a Thorium Reactor when the night runs 25 kW short (cap 1: raise it to let the builder add one) | the builder spends your stock unasked: 12◆ per Solar Array<br>+10% upkeep: Solar Array | Solar Arrays gain a combiner box with a status lamp at the foot of the mast. |
+| **Budget Governor** | ▣ | 456 | 5▣ | Automated Excavation | RESERVES and PRIORITIES: floors the builder never spends below; queued research goods kept; rules act in your order; crisis sites jump the rover queue | rules wait for your floors — the builder acts later<br>+50% upkeep: Storage Yard | Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks. |
+| **Automated Life Support**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ◉ | 456<br><sub>robotic → E7 · 1294</sub> | 10⚙ | Automated Excavation | NEW RULE Life support: the oxygen maker when oxygen would last under 20 min (cap 5)<br>NEW RULE Life support: +1 Hydroponics Farm when food would last under 20 min (cap 4)<br>NEW RULE Life support: the water maker when water would last under 20 min (cap 3)<br>NEW RULE Life support: +1 Habitat Module when no bed is free for the next settler (cap 4) | the builder spends your stock unasked: the maker’s build cost<br>+10% draw: Habitat Module | Each Habitat Module gets an air-monitor mast by its door. |
 
 ### Era 5 · LUNAR COMPUTE
 
@@ -186,6 +192,8 @@ Opens with 4 techs of era 4, or 2 plus the deed: **50▣ chips fabbed**.
 | **Tool Changers** | ◉ | 551<br><sub>✎ −30%: 500⚙ fabricated</sub> | — | Parts Fabrication | +15% output: Parts Fabricator | +10% inputs: Parts Fabricator | Parts Fabricators add a tool-changer carousel on the roof. |
 | **Nutrient Recirculation**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 551 | — | LED Grow Lights | −30% inputs: Hydroponics Farm | +30% upkeep: Hydroponics Farm | Hydroponics farms add a row of nutrient recirculation tanks. |
 | **Gravity Gradiometry** | ◎ | 522 | — | Neutron Spectrometry | survey data ×1.2 | −1 kW: Lander | The Lander raises a gravimeter mast. |
+| **Automated Smelting & Refining** | ◉ | 580 | 20⚙ | Automated Excavation, Silicon Refining | NEW RULE Smelting: +1 Regolith Smelter when metals demand, builds included, outruns supply for 90 s (cap 4)<br>NEW RULE Smelting: +1 Silicon Refinery when silicon demand outruns supply for 90 s (cap 3)<br>NEW RULE Smelting: +1 Storage Yard when a full store idles its producers and is too small for the research queued (60 s) (cap 4) | the builder spends your stock unasked: 32◆ 8⚙ per Regolith Smelter<br>+10% upkeep: Regolith Smelter, Silicon Refinery | Silicon Refineries grow an ore-sampler arm over the feed hopper. |
+| **Feed Planner** | ▣ | 580 | — | Site Survey AI | excavators re-aimed at the feed the furnaces want, as far as the haul pays (opt one out in its panel) | longer hauls carry less<br>+10% draw: Regolith Excavator | Excavators carry an assay drill beside the bucket. |
 
 ### Era 6 · HUMAN HABITATION
 
@@ -207,6 +215,8 @@ Opens with 4 techs of era 5, or 2 plus the deed: **a Data Center held a full nig
 | **Lab Uplink Dishes** | ▣ | 1615 | 10▣ | Cryo Sample Store | +10% output: Research Lab | +15% draw: Research Lab | Research Labs raise a second uplink dish. |
 | **Galley Garden**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 1530<br><sub>robotic → E7 · 1150</sub> | — | LED Grow Lights | +3 morale: Hydroponics Farm | +15% draw: Hydroponics Farm | Hydroponics farms open a galley bay with a picture window. |
 | **Launch-Site Survey** | ↑ | 1530 | — | Orbital Prospector | build time ×0.75: Mass Driver, Propellant Plant | −1 kW: Lander | Mass Drivers and Propellant Plants rise on staked, surveyed pads with reflector posts. |
+| **Automated Fabrication** | ◉ | 1700 | 10▣ | Automated Smelting & Refining, Parts Fabrication | NEW RULE Fabrication: +1 Parts Fabricator when parts demand outruns supply for 90 s (cap 3)<br>NEW RULE Fabrication: +1 Chip Fab when research waits on chips for 120 s (cap 3)<br>NEW RULE Fabrication: +1 Robotics Bay when 2 sites wait for a rover for 120 s (cap 3) | the builder spends your stock unasked: 48◆ per Parts Fabricator<br>+20% upkeep: Parts Fabricator | Parts Fabricators get a gantry crane across the roof. |
+| **Predictive Scheduling** | ▣ | 1700 | 10▣ | Automated Power, Lunar Data Center | rules act on forecasts while a Data Center runs: batteries before dusk, sites still welding counted, dwell ×0.5 | reactive again whenever no Data Center runs<br>+10% draw: Data Center | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. |
 
 ### Era 7 · SWARM INDUSTRY
 
@@ -226,8 +236,10 @@ Opens with 4 techs of era 6, or 2 plus the deed: **two outposts operated a full 
 | **Rack Densification** | ▣ | 1323 | 10▣ | Lunar Data Center | +12% output: Data Center | +15% draw: Data Center | Data Centers add a rack annex at the berm. |
 | **Low-G Court**<br><sub>human only</sub> | ⌂ | 1150 | — | Crew Wellness Program | +4 morale: Recreation Dome | +40% inputs: Recreation Dome | Recreation Domes add a low-g court annex under a glass vault. |
 | **Laser Ranging** | ◎ | 1150 | — | Far-Side Relay | survey data ×1.2 | −1.5 kW: Lander | The Lander adds a laser-ranging telescope dome. |
+| **Self-Expanding Base** | ◉ | 1294 | 10▣ 40⚙ | Automated Fabrication, Site Survey AI | NEW RULE Network: +1 Relay Mast at the network edge when a rule finds no ground for 60 s (cap 4) | the builder spends your stock unasked: 16◆ 4⚙ per Relay Mast<br>+30% draw: Relay Mast | Relay Masts wear a beacon crown and a cable reel at the foot. |
+| **Maintenance Automation** | ▣ | 1294 | 30⚙ | Automated Fabrication | parts triage: short of parts, priority 0 is paid first · machines worn ≥40% for a lunar day replaced · tripped overclocks re-armed once healed | a replacement costs a new build, less half the old one’s price<br>+30% upkeep: Robotics Bay | Robotics Bays get a service crane arm over the charging rover. |
 
-On robotic runs Crew Wellness Program, Galley Garden also resolve into this era.
+On robotic runs Automated Life Support, Crew Wellness Program, Galley Garden also resolve into this era.
 
 ### Era 8 · DYSON SWARM
 
@@ -253,7 +265,7 @@ Opens with 4 techs of era 7, or 2 plus the deed: **25▰ manufactured**.
 | 7 | How does a foil reach orbit? | Electromagnetic Mass Driver / Propellant Depot | ILMENITE PLAINS: Driver: the equator gives it ×1.5.<br>SHACKLETON RIM: Propellant: it ignores the pole’s ×0.6.<br>MARIUS HILLS TUBE: A split. |
 | 8 | What is the swarm for? | Power Beaming Return / Von Neumann Foundry | — |
 
-94 techs: 91 researchable from the start of their era, 3 breakthroughs,
+106 techs: 103 researchable from the start of their era, 3 breakthroughs,
 6 doctrines, 47 insights.
 <!-- END GENERATED -->
 

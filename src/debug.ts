@@ -16,6 +16,7 @@ import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { openAll } from './core/roads';
+import type { AutoFamily, AutoRuleId } from './data/automation';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -183,6 +184,27 @@ function api(game: Game) {
       const { x0, z0, x1, z1 } = worldRect(b);
       return { x0, z0, x1, z1 };
     },
+    // ── the Builder (docs/13) ──
+    order: (type: BuildingId, count = 1, intent?: { res?: ResourceId; like?: number }) =>
+      game.actions.push({ kind: 'order', type, count, intent }),
+    cancelOrder: (id: number) => game.actions.push({ kind: 'cancelOrder', id }),
+    orderNext: (id: number) => game.actions.push({ kind: 'orderNext', id }),
+    setRule: (rule: AutoRuleId, patch: { on?: boolean; threshold?: number; cap?: number }) =>
+      game.actions.push({ kind: 'setRule', rule, ...patch }),
+    setReserve: (res: ResourceId, amount: number | null) => game.actions.push({ kind: 'setReserve', res, amount }),
+    moveFamily: (family: AutoFamily, delta: -1 | 1) => game.actions.push({ kind: 'moveFamily', family, delta }),
+    freezeRules: (seconds: number) => game.actions.push({ kind: 'freezeRules', seconds }),
+    setFeedPlan: (id: number, on: boolean) => game.actions.push({ kind: 'setFeedPlan', id, on }),
+    /** the $automation payload: rules and their status lines, orders, reserves, the log */
+    getAutomation: () => clone(game.debugAutomation()),
+    /** set a building's wear (0..1) — the Maintenance tests */
+    setWear: (id: number, wear: number) => {
+      const b = game.state.buildings.find((x) => x.id === id);
+      if (b) b.wear = Math.max(0, Math.min(1, wear));
+      game.publish();
+    },
+    /** where the Builder would put one of `type` now (a dry run) */
+    planSite: (type: BuildingId, intent?: { res?: ResourceId; like?: number; edge?: boolean }) => clone(game.debugPlanSite(type, intent)),
     /** Complete every construction site now, and open every road (one economy tick settles them). */
     finishConstruction: () => {
       for (const b of game.state.buildings) { b.construction = 0; b.spur = []; }

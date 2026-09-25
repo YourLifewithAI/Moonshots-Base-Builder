@@ -221,6 +221,17 @@ const lander: Upgrade[] = [
       return out;
     },
   },
+  { // Build Orders: a planning mast beside the pad — a pole, the work-list board, a lamp
+    tech: 'buildOrders',
+    parts: () => [
+      cyl(0.3, 0.36, 0.14, TRIM, 4.9, 0.07, -2.6, 0, 0, 8),
+      cyl(0.06, 0.08, 4.0, TRIM, 4.9, 2.1, -2.6, 0, 0, 6),
+      box(1.0, 0.7, 0.06, PLATE, 4.9, 3.1, -2.52),
+      box(0.8, 0.08, 0.02, WINDOW, 4.9, 3.25, -2.48),
+      box(0.8, 0.08, 0.02, WINDOW, 4.9, 3.0, -2.48),
+      box(0.3, 0.16, 0.2, LAMP, 4.9, 4.15, -2.5),
+    ],
+  },
 ];
 
 const solar: Upgrade[] = [
@@ -281,6 +292,15 @@ const solar: Upgrade[] = [
   { // a fifth row of cells on every wing
     tech: 'wingExtensions',
     mounts: (m) => m.map((x) => (x.part === 'wing' ? { ...x, part: 'wingXL' as const } : x)),
+  },
+  { // Automated Power: a combiner box with a status lamp at the mast's foot
+    tech: 'autoPower',
+    parts: () => [
+      box(0.7, 0.8, 0.36, BODY, -1.0, 0.4, 1.0),
+      box(0.74, 0.06, 0.4, TRIM, -1.0, 0.83, 1.0),
+      box(0.16, 0.08, 0.03, LAMP, -1.0, 0.62, 1.2),
+      bar([-1.0, 0.8, 1.0], [-0.12, 1.1, 0.12], 0.05, TRIM),
+    ],
   },
 ];
 
@@ -349,6 +369,16 @@ const excavator: Upgrade[] = [
       return out;
     },
   },
+  { // Feed Planner: an assay drill on the rear frame
+    tech: 'feedPlanner',
+    parts: () => [
+      box(0.5, 0.12, 0.5, TRIM, -2.1, 1.35, -0.8),
+      bar([-2.1, 0.1, -0.8], [-2.1, 2.5, -0.8], 0.08, PLATE),
+      box(0.3, 0.36, 0.3, BODY, -2.1, 1.9, -0.8),
+      box(0.12, 0.05, 0.03, LAMP, -2.1, 2.0, -0.64),
+      cyl(0.1, 0.03, 0.3, TRIM, -2.1, 0.12, -0.8, 0, 0, 6),
+    ],
+  },
 ];
 
 const habitat: Upgrade[] = [
@@ -376,6 +406,10 @@ const habitat: Upgrade[] = [
     parts: () => [domeBand(3.3, 0.3, 0.58, TRIM, 0, 1.4, 0, 24), domeBand(3.36, 0.34, 0.5, TRIM, 0, 1.4, 0, 12)],
   },
   { tech: 'safetyProtocols', parts: () => [lampMast(-3.1, 3.2, 4.2, PI * 0.75)] },
+  { // Automated Life Support: an air-monitor mast by the door
+    tech: 'autoLifeSupport',
+    parts: () => [cyl(0.2, 0.24, 0.1, TRIM, 1.3, 0.05, 4.0, 0, 0, 8), ...sensorMast(1.3, 0.1, 4.0, 2.0)],
+  },
 ];
 
 const smelter: Upgrade[] = [
@@ -553,6 +587,16 @@ const refinery: Upgrade[] = [
     ],
   },
   { tech: 'conditionOptimization', parts: () => [sensorMast(-0.9, 4.65, -0.4, 1.4)] },
+  { // Automated Smelting & Refining: an ore-sampler arm over the feed
+    tech: 'autoSmelting',
+    parts: () => [
+      cyl(0.16, 0.2, 2.2, TRIM, -3.0, 2.1, 2.2, 0, 0, 8),
+      bar([-3.0, 3.1, 2.2], [-1.9, 2.9, 1.5], 0.12, TRIM),
+      bar([-1.9, 2.9, 1.5], [-1.9, 2.3, 1.5], 0.08, TRIM),
+      box(0.34, 0.3, 0.34, PLATE, -1.9, 2.15, 1.5),
+      box(0.16, 0.06, 0.03, LAMP, -3.0, 2.9, 2.38),
+    ],
+  },
 ];
 
 const lab: Upgrade[] = [
@@ -649,6 +693,40 @@ const roboticsBay: Upgrade[] = [
     tech: 'predictiveMaintenance',
     parts: () => [antenna(3.0, 3.1, 2.5, 3.0, 0.06), box(0.4, 0.3, 0.3, BODY, 3.0, 3.3, 2.1), box(0.16, 0.06, 0.03, LAMP, 3.0, 3.38, 2.26)],
   },
+  { // Automated Excavation: a dispatch mast — a lattice tower with a beacon
+    tech: 'autoExcavation',
+    parts: () => [
+      lattice(2.4, 0.26, 0.14, -1.0, -0.2, 3.1, 3, 1.2),
+      cyl(0.2, 0.2, 0.08, TRIM, -1.0, 5.54, -0.2, 0, 0, 8),
+      dome(0.16, BEACON, -1.0, 5.58, -0.2, 8),
+    ],
+  },
+  { // Site Survey AI: a survey drone on its roof pad
+    tech: 'siteSurveyAI',
+    parts: () => {
+      const out: Parts = [
+        box(1.1, 0.06, 1.1, PLATE, 0.55, 3.13, -0.75),
+        box(0.36, 0.14, 0.36, BODY, 0.55, 3.28, -0.75),
+        box(0.12, 0.04, 0.03, LAMP, 0.55, 3.3, -0.56),
+      ];
+      for (const [dx, dz] of [[-0.3, -0.3], [0.3, -0.3], [0.3, 0.3], [-0.3, 0.3]]) {
+        out.push(bar([0.55, 3.3, -0.75], [0.55 + dx, 3.32, -0.75 + dz], 0.04, TRIM));
+        out.push(cyl(0.16, 0.16, 0.02, TRIM, 0.55 + dx, 3.36, -0.75 + dz, 0, 0, 8));
+      }
+      return out;
+    },
+  },
+  { // Maintenance Automation: a service crane arm over the charging rover
+    tech: 'maintenanceAutomation',
+    parts: () => [
+      cyl(0.22, 0.28, 0.2, TRIM, -3.95, 0.1, -0.9, 0, 0, 8),
+      cyl(0.09, 0.11, 2.9, TRIM, -3.95, 1.55, -0.9, 0, 0, 8),
+      bar([-3.95, 2.9, -0.9], [-3.75, 2.75, 0.9], 0.1, TRIM),
+      bar([-3.75, 2.72, 0.9], [-3.75, 1.9, 0.9], 0.03, TRIM),
+      box(0.26, 0.2, 0.26, PLATE, -3.75, 1.8, 0.9),
+      box(0.14, 0.06, 0.03, LAMP, -3.95, 2.7, -0.76),
+    ],
+  },
 ];
 
 const partsFab: Upgrade[] = [
@@ -670,6 +748,17 @@ const partsFab: Upgrade[] = [
       bar([2.3, 0.3, 3.7], [1.9, 1.9, 3.5], 0.16, TRIM),
       bar([1.9, 1.9, 3.5], [1.2, 1.2, 3.6], 0.12, TRIM),
       box(0.28, 0.28, 0.28, PLATE, 1.1, 1.05, 3.6),
+    ],
+  },
+  { // Automated Fabrication: a gantry crane across the roof
+    tech: 'autoFabrication',
+    parts: () => [
+      bar([-3.75, 0, -1.0], [-3.75, 5.0, -1.0], 0.2, TRIM),
+      bar([3.75, 0, -1.0], [3.75, 5.0, -1.0], 0.2, TRIM),
+      bar([-3.85, 5.0, -1.0], [3.85, 5.0, -1.0], 0.26, TRIM),
+      box(0.6, 0.4, 0.6, PLATE, 0.8, 4.75, -1.0),
+      bar([0.8, 4.55, -1.0], [0.8, 4.4, -1.0], 0.04, TRIM),
+      box(0.16, 0.06, 0.03, LAMP, 0.8, 4.8, -0.68),
     ],
   },
 ];
@@ -808,6 +897,16 @@ const dataCenter: Upgrade[] = [
     parts: () => [box(3.0, 1.5, 1.6, BODY, 2.5, 0.75, 5.1), box(3.1, 0.12, 1.7, TRIM, 2.5, 1.56, 5.1),
       box(2.4, 0.12, 0.05, WINDOW, 2.5, 1.2, 5.91)],
   },
+  { // Predictive Scheduling: a scheduling antenna — a tall whip mast with crossbars
+    tech: 'predictiveScheduling',
+    parts: () => [
+      cyl(0.18, 0.22, 0.14, TRIM, -3.7, 3.77, -3.7, 0, 0, 8),
+      cyl(0.03, 0.06, 5.2, TRIM, -3.7, 6.3, -3.7, 0, 0, 6),
+      bar([-4.2, 7.0, -3.7], [-3.2, 7.0, -3.7], 0.04, TRIM),
+      bar([-4.0, 8.0, -3.7], [-3.4, 8.0, -3.7], 0.04, TRIM),
+      dome(0.12, BEACON, -3.7, 8.9, -3.7, 8),
+    ],
+  },
 ];
 
 const foilFactory: Upgrade[] = [
@@ -879,6 +978,22 @@ const relayMast: Upgrade[] = [
       dome(0.18, BODY, -1.65, 6.3, -0.72, 8),
     ],
   },
+  { // Self-Expanding Base: a beacon crown and a cable reel at the foot
+    tech: 'selfExpandingBase',
+    parts: () => {
+      const out: Parts = [
+        cyl(0.45, 0.45, 0.5, PLATE, -1.0, 0.65, 0.9, PI / 2, 0, 12),
+        box(0.12, 0.8, 0.7, TRIM, -1.3, 0.4, 0.9),
+        box(0.12, 0.8, 0.7, TRIM, -0.7, 0.4, 0.9),
+      ];
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * PI * 2 + PI / 6;
+        const x = Math.cos(a) * 0.75, z = Math.sin(a) * 0.75;
+        out.push(bar([0, 10.3, 0], [x, 10.45, z], 0.05, TRIM), dome(0.13, BEACON, x, 10.5, z, 8));
+      }
+      return out;
+    },
+  },
 ];
 
 const propellantPlant: Upgrade[] = [
@@ -895,10 +1010,23 @@ const propellantPlant: Upgrade[] = [
   },
 ];
 
+const storageYard: Upgrade[] = [
+  { // Budget Governor: a manifest gantry — a scanner bar on two legs across the racks
+    tech: 'budgetGovernor',
+    parts: () => [
+      bar([-2.95, 0.4, 0.05], [-2.95, 3.0, 0.05], 0.12, TRIM),
+      bar([2.95, 0.4, 0.05], [2.95, 3.0, 0.05], 0.12, TRIM),
+      bar([-3.05, 3.0, 0.05], [3.05, 3.0, 0.05], 0.16, TRIM),
+      box(0.5, 0.3, 0.4, BODY, 0.6, 2.8, 0.05),
+      box(0.4, 0.04, 0.3, LAMP, 0.6, 2.63, 0.05),
+    ],
+  },
+];
+
 export const UPGRADES: Partial<Record<BuildingId, Upgrade[]>> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery, refinery, lab,
   roboticsBay, partsFab, reactor, recDome, chipFab, dataCenter, foilFactory, massDriver, relayMast,
-  propellantPlant,
+  propellantPlant, storageYard,
 };
 
 /** Techs with a mesh part on this building type, in recipe order. */
