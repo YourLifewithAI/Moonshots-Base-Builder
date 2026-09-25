@@ -5,14 +5,14 @@
  *  the building shader reads (lit, dust, wear, print cut height).
  *
  *  The base's own light follows each structure's darkness (darkness.ts):
- *  per frame, while any k moves, it is written into the lit channel and the
- *  flood slots — nothing is re-sorted or re-clustered.
+ *  per frame, while any k moves, it is written into the lit channel, the
+ *  flood slots and the stock discs — nothing is re-sorted or re-clustered.
  *
  *  Two looks, chosen by whether the building patch is live:
  *    patched (FX 0–2)      3D-print reveal, window glow, shader floods
  *    stock (FX 3 / fault / safe)
- *                          squash-rise + dim, whole-hull glow, additive
- *                          discs + 8 PointLights */
+ *                          squash-rise + dim, whole-hull glow (night only),
+ *                          additive discs + 8 PointLights */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_M } from '../data/balance';
@@ -21,7 +21,7 @@ import type { Heightfield } from '../terrain/heightfield';
 import { MOUNTS, recipeGeometry } from './recipes';
 import { BUILDING_MATERIAL, withInstanceState } from './meshKit';
 import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, litChannel } from './buildingShader';
-import type { BuildingDarkness } from './darkness';
+import { DARK_LIVE, type BuildingDarkness } from './darkness';
 import { Trackers, type Placed } from './trackers';
 import { scaffoldGeometry, type ScaffoldSite } from './scaffold';
 import { materials } from '../world/materials';
@@ -29,6 +29,7 @@ import {
   floodSlotOf, floodSlots, floodStats, refreshFloods, setFloodNight, setFloodSlots, setFloodSources,
   type FloodSource,
 } from '../world/floodlights';
+import type { WorkSpot } from '../world/lighting';
 
 const MAX_PER_TYPE = 96;
 
@@ -56,15 +57,19 @@ export class BuildingInstances {
   private meshes = new Map<BuildingId, THREE.InstancedMesh>();
   /** instance order per type, mirroring rebuild() — used for picking */
   private ids = new Map<BuildingId, number[]>();
-  /** stock-path night pools: one soft additive disc under each lit building */
+  /** stock-path pools: one soft additive disc under each lit building,
+   *  its instance color the building's darkness */
   private discs: THREE.InstancedMesh;
   private discMaterial: THREE.MeshBasicMaterial;
   private rows: Row[] = [];
-  /** lit structures at the last rebuild: flood i stands for litIds[i] */
+  /** lit structures at the last rebuild: flood i and disc i stand for litIds[i] */
   private litIds: number[] = [];
+  private litAt: { x: number; y: number; z: number }[] = [];
   private floods: FloodSource[] = [];
   /** the darkness revision last written out (−1: write on the next frame) */
   private darkSeen = -1;
+  private darkest = 0;
+  private tint = new THREE.Color();
   private trackers: Trackers;
   private scaffold: THREE.LineSegments;
   private scaffoldSig = '';
@@ -93,10 +98,12 @@ export class BuildingInstances {
       vertexColors: true,
       blending: THREE.AdditiveBlending,
       transparent: true,
-      opacity: 0,
+      opacity: 0.5,
       depthWrite: false,
     });
     this.discs = new THREE.InstancedMesh(discGeo, this.discMaterial, MAX_DISCS);
+    // the instance colors exist from the start: the program never recompiles for them
+    this.discs.setColorAt(0, this.tint.setScalar(0));
     this.discs.count = 0;
     this.discs.renderOrder = 2;
     this.discs.visible = false;
@@ -119,12 +126,6 @@ export class BuildingInstances {
   /** Construction shows as the print reveal rather than the squash-rise. */
   private get reveal(): boolean { return materials.patched('building'); }
 
-  /** 0 = day (pools invisible) … 1 = deep night. Called per frame. */
-  setNightGlow(f: number) {
-    this.discMaterial.opacity = 0.5 * f;
-    this.discs.visible = !this.shaderLights && f > 0.02;
-  }
-
   /** Per frame, before the shadow fit (and after the darkness update): shader
    *  clocks, night level, the look switch after an FX / fault / safe-mode
    *  change, each structure's darkness into its lights, and the sun-tracking
@@ -132,7 +133,8 @@ export class BuildingInstances {
   update(dt: number, nightFactor: number, sunDir: THREE.Vector3, step: number) {
     buildingUniforms.uBldTime.value = (buildingUniforms.uBldTime.value + dt) % 1000;
     buildingUniforms.uBldNight.value = nightFactor;
-    // the stock material has no window mask: the old whole-hull glow stands in
+    // the stock material has no window mask: the old whole-hull glow stands
+    // in, at night only
     BUILDING_MATERIAL.emissive.setScalar(this.reveal ? 0 : 0.09 * nightFactor);
     if (materials.revision !== this.revisionSeen) {
       this.revisionSeen = materials.revision;
@@ -142,11 +144,12 @@ export class BuildingInstances {
     const shader = this.shaderLights;
     this.writeDarkness();
     setFloodNight(nightFactor, shader);
+    this.discs.visible = !shader && this.darkest > DARK_LIVE;
     if (this.trackers.update(sunDir, step)) this.onShadowCastersChanged?.();
   }
 
-  /** Each lit structure's darkness into its lit channel (2 + k) and its
-   *  flood — only when a k moved. Allocation-free. */
+  /** Each lit structure's darkness into its lit channel (2 + k), its flood
+   *  and its disc — only when a k moved. Allocation-free. */
   private writeDarkness() {
     const dk = this.darkness;
     if (dk.revision === this.darkSeen) return;
@@ -164,21 +167,40 @@ export class BuildingInstances {
       }
       if (dirty) st.needsUpdate = true;
     }
-    for (let i = 0; i < this.litIds.length; i++) this.floods[i].k = dk.of(this.litIds[i]);
+    let darkest = 0;
+    for (let i = 0; i < this.litIds.length; i++) {
+      const k = dk.of(this.litIds[i]);
+      this.floods[i].k = k;
+      if (k > darkest) darkest = k;
+      if (i < MAX_DISCS) this.discs.setColorAt(i, this.tint.setScalar(k));
+    }
+    this.darkest = darkest;
+    if (this.discs.instanceColor) this.discs.instanceColor.needsUpdate = true;
     refreshFloods();
   }
 
-  /** World positions of completed structures, nearest to `focus` first —
-   *  feeds the stock-path exterior work lights. */
-  completedCenters(state: GameState, focus: { x: number; z: number }): { x: number; y: number; z: number }[] {
-    return state.buildings
-      .filter((b) => (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled)
-      .map((b) => {
-        const [cx, cz] = centerOf(b);
-        return { x: cx, y: this.hf.sample(cx, cz), z: cz,
-          d: (cx - focus.x) ** 2 + (cz - focus.z) ** 2 };
-      })
-      .sort((a, b) => a.d - b.d);
+  /** The stock path's work lights: the lit structures standing dark nearest
+   *  to `focus`, nearest first, written into `out` (pooled; up to its
+   *  length). Returns how many. Allocation-free. */
+  nearestDark(focus: { x: number; z: number }, out: WorkSpot[]): number {
+    let n = 0;
+    for (let i = 0; i < this.litIds.length; i++) {
+      const k = this.darkness.of(this.litIds[i]);
+      if (k <= DARK_LIVE) continue;
+      const p = this.litAt[i];
+      const d = (p.x - focus.x) ** 2 + (p.z - focus.z) ** 2;
+      let j = n;
+      if (n < out.length) n++;
+      else if (d >= out[n - 1].d) continue;
+      else j = n - 1;
+      for (; j > 0 && out[j - 1].d > d; j--) {
+        const a = out[j], b = out[j - 1];
+        a.x = b.x; a.y = b.y; a.z = b.z; a.k = b.k; a.d = b.d;
+      }
+      const s = out[j];
+      s.x = p.x; s.y = p.y; s.z = p.z; s.k = k; s.d = d;
+    }
+    return n;
   }
 
   private meshFor(type: BuildingId): THREE.InstancedMesh {
@@ -209,6 +231,10 @@ export class BuildingInstances {
     const lit = state.buildings.filter((b) =>
       (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled);
     this.litIds = lit.map((b) => b.id);
+    this.litAt = lit.map((b) => {
+      const [x, z] = centerOf(b);
+      return { x, y: this.hf.sample(x, z), z };
+    });
     this.rows = [];
     for (const [type, m] of this.meshes) {
       this.rows.push({ st: m.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute, ids: this.ids.get(type) ?? [] });
@@ -241,6 +267,7 @@ export class BuildingInstances {
     });
     this.floods = floods;
     setFloodSources(floods);
+    this.darkSeen = -1; // discs and the darkest k are written on the next frame
     this.discs.count = Math.min(lit.length, MAX_DISCS);
     const mat = new THREE.Matrix4();
     lit.forEach((b, i) => {

@@ -1182,18 +1182,12 @@ export class Game {
     this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
       : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
-    // at night the base carries its own light: window glow and floods in the
-    // shader patches, or (stock path) hull glow, ground discs and work lights
-    // over the structures nearest the camera
-    this.instances.setNightGlow(day.nightFactor);
+    // wherever it stands dark the base carries its own light: window glow and
+    // floods in the shader patches, or (stock path) ground discs and work
+    // lights over the dark structures nearest the camera (hull glow at night)
     const stockLights = !this.instances.shaderLights;
     this.lighting.useWorkLights(stockLights);
-    this.lighting.setWorkLights(
-      stockLights && day.nightFactor > 0.03
-        ? this.instances.completedCenters(this.state, { x: focus.x, z: focus.z })
-        : [],
-      day.nightFactor,
-    );
+    this.lighting.setWorkLights(stockLights ? this.instances.nearestDark(focus, this.lighting.workSpots) : 0);
     this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
       $selection.get(), this.lighting.sunDirection);
     const onFoot = walking && !tweening;
