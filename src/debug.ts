@@ -195,6 +195,12 @@ function api(game: Game) {
       if (b) b.wear = Math.max(0, Math.min(1, wear));
       game.publish();
     },
+    /** set a solar array's dust (0..SOLAR_DUST_MAX) — the EVA tests (docs/14) */
+    setDust: (id: number, dust: number) => {
+      const b = game.state.buildings.find((x) => x.id === id);
+      if (b) b.dust = Math.max(0, Math.min(0.5, dust));
+      game.publish();
+    },
     /** where the Builder would put one of `type` now (a dry run) */
     planSite: (type: BuildingId, intent?: { res?: ResourceId; like?: number; edge?: boolean }) => clone(game.debugPlanSite(type, intent)),
     // ── destiny tracks (docs/14) ──
