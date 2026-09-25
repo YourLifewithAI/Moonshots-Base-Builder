@@ -39,10 +39,11 @@ import type { PartId } from './recipes';
 
 /** How brightly a structure's own lights burn, 0 (off) … 1 (full): the one
  *  place the classic windows and flood discs key on. A complete, enabled,
- *  powered structure lights with the night. */
-export function lightLevel(b: BuildingState, nightFactor: number): number {
+ *  powered structure lights as dark as it stands (`dark`: the structure's
+ *  darkness from darkness.ts — night, a set or grazing sun, terrain shadow). */
+export function lightLevel(b: BuildingState, dark: number): number {
   const powered = (b.construction ?? 0) <= 0 && b.enabled && b.idleReason !== 'power';
-  return powered ? nightFactor : 0;
+  return powered ? dark : 0;
 }
 
 export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell' | 'window' | 'lamp' | 'beacon' | 'foil';

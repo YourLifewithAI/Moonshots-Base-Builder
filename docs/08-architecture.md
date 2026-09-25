@@ -52,6 +52,7 @@ src/
     classicBuilding.ts    classic palette (per finish, per type), the classic building shader, lightLevel()
     classicFloods.ts      classic night floods: draped additive pools at each structure's light level
     contactDecals.ts      classic contact decals under every footprint (no shadow map)
+    darkness.ts           per-structure darkness k (night, low or set sun, terrain shadow) for the base's own lights
     trackers.ts           sun-tracking solar wings, Earth-aimed dishes (instanced apart)
     scaffold.ts           construction scaffold line geometry
     ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
@@ -65,7 +66,7 @@ src/
     classic.ts            the classic style's registry materials (stock Lambert, stock points)
     sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches, classic materials
-    floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
+    floodlights.ts        flood uniform array (per-slot darkness) + night earthshine floor, shared by the patches
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
                           classic = plain, no ladder; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
