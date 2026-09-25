@@ -762,6 +762,14 @@ export class Game {
         const rule = crewToggleRule(s, this.mods, b);
         if (!rule.ok) { alert(s, rule.reason, 'warn'); break; }
         b.automated = a.automated;
+        // a hand-crewed station stays crewed; a hand-set agent one stays agent-run
+        b.crewPinned = !a.automated;
+        b.agentCover = false;
+        break;
+      }
+      case 'setAgentCover': {
+        s.agentCover = a.on;
+        if (!a.on) for (const b of s.buildings) b.agentCover = false;
         break;
       }
       case 'setOverclock': this.setOverclock(a.id, a.on); break;
@@ -1746,6 +1754,9 @@ export class Game {
     let welding = 0;
     let weldParts = 0;
     let upkeep = 0;
+    let seats = 0;
+    let crewIdle = 0;
+    let covered = 0;
     for (const b of s.buildings) {
       if ((b.construction ?? 0) > 0) {
         sites++;
@@ -1757,6 +1768,11 @@ export class Game {
       }
       beds += effectiveDef(b.type, this.mods).housing ?? 0;
       if (b.enabled && b.automated && BUILDINGS[b.type].crew > 0) agentRun++;
+      if (b.enabled && !b.automated && BUILDINGS[b.type].crew > 0) {
+        seats += Math.max(0, BUILDINGS[b.type].crew + this.mods.crewDelta[b.type]);
+      }
+      if (b.enabled && b.idleReason === 'crew') crewIdle++;
+      if (b.agentCover && b.automated) covered++;
       if (b.enabled) upkeep += effectiveRates(b.type, this.mods, site, b, { feed: s.feed }).upkeepPartsPerDay / CYCLE_S;
     }
     const ls = s.crew * this.mods.inputMult.habitat;
@@ -1767,6 +1783,8 @@ export class Game {
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
       lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
       sites, welding, weldParts, upkeep, surveying: s.survey.active ? 1 : 0,
+      seats, crewIdle, covered,
+      canCover: canToggleCrew(s.expedition, s.crew, this.mods), agentCover: s.agentCover !== false,
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,

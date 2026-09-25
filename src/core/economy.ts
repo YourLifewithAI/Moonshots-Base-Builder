@@ -19,7 +19,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState } from './state';
 import {
-  computeMods, effectiveDef, effectiveRates, modsFor, wearDerate, type EffectiveRates, type Mods,
+  canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
 import { computeEra, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
 import { explorationTick } from './exploration';
@@ -476,6 +476,37 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (def.powerKW < 0 && !powered.has(b.id)) continue; // already power-idled
     if (workers >= need) { workers -= need; staffed.add(b.id); }
     else if (b.idleReason === '') b.idleReason = 'crew';
+  }
+
+  // ── 3.5 · agents cover the gaps: once stations can run on agents, one
+  // left short-handed goes agent-run from the next tick (at the agents'
+  // power), and every 30 s the settlers left free take covered stations
+  // back, priority first. A station the player crewed by hand stays crewed.
+  if (s.agentCover !== false && !unmanned && canToggleCrew(s.expedition, s.crew, mods)) {
+    const covered: BuildingState[] = [];
+    for (const b of s.buildings) {
+      if (b.idleReason !== 'crew' || b.automated || b.crewPinned || building(b) || !b.enabled) continue;
+      b.automated = true;
+      b.agentCover = true;
+      covered.push(b);
+    }
+    // one line per type (a repeat counts up ×n rather than stacking)
+    for (const type of new Set(covered.map((b) => b.type))) {
+      alert(s, `AGENTS COVER ${BUILDINGS[type].name.toUpperCase()} — no crew free; agent-run at ` +
+        `×${(1 + mods.agentTax).toFixed(1)} power until settlers free up`, 'info',
+        { select: covered.find((b) => b.type === type)!.id });
+    }
+    if (Math.floor(s.simTime / 30) !== Math.floor((s.simTime - dt) / 30)) {
+      const back = s.buildings.filter((b) => b.agentCover && b.automated && !building(b))
+        .sort((a, c) => a.priority - c.priority || a.id - c.id);
+      for (const b of back) {
+        const need = Math.max(0, eff(b.type).crew + mods.crewDelta[b.type]);
+        if (need > workers) continue;
+        workers -= need;
+        b.automated = false;
+        b.agentCover = false;
+      }
+    }
   }
 
   // ── 4 · production in tier order (a tick's regolith can smelt same tick) ──
