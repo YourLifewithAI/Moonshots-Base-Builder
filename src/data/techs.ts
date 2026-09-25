@@ -152,7 +152,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   prospectingRovers: {
     id: 'prospectingRovers', era: 1, lane: 'exploration', name: 'Prospecting Rovers', short: 'Prospecting Rovers',
-    costData: 120, requires: [],
+    costData: 100, requires: [],
     effects: [
       { kind: 'survey', tier: 1 },
       { kind: 'unlock', building: 'relayMast' },
@@ -396,7 +396,7 @@ export const TECHS: Record<TechId, TechDef> = {
   // ─── ERA 3 · ROBOTIC FABRICATION ───
   thoriumPower: {
     id: 'thoriumPower', era: 3, lane: 'power', name: 'Thorium Reactor', short: 'Thorium Reactor',
-    costData: 200, costGoods: { metals: 80 }, requires: ['regolithShielding'], exclusive: 'nightPower',
+    costData: 160, costGoods: { metals: 80 }, requires: ['regolithShielding'], exclusive: 'nightPower',
     effects: [{ kind: 'unlock', building: 'reactor' }],
     desc: 'Fission surface power behind a regolith berm.',
     visual: 'Thorium Reactors can rise: a domed drum ringed with radiator petals.',
@@ -404,7 +404,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   regenFuelCells: {
     id: 'regenFuelCells', era: 3, lane: 'power', name: 'Regenerative Fuel Cells', short: 'Fuel Cells',
-    costData: 180, costGoods: { water: 80 }, requires: ['batteryStorage'], exclusive: 'nightPower',
+    costData: 150, costGoods: { water: 80 }, requires: ['batteryStorage'], exclusive: 'nightPower',
     effects: [{ kind: 'storage', capacityMult: 2, efficiency: 0.6 }],
     desc: 'Split water by day and recombine it by night: bulk tanks, not cells.',
     visual: 'Battery Banks sprout paired hydrogen and oxygen tanks.',
@@ -527,7 +527,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   acceleratorDesign: {
     id: 'acceleratorDesign', era: 4, lane: 'compute', name: 'Accelerator Design', short: 'Accelerator Design',
-    costData: 300, costGoods: { silicon: 30 }, requires: ['waferFab'], exclusive: 'chipDoctrine',
+    costData: 260, costGoods: { silicon: 30 }, requires: ['waferFab'], exclusive: 'chipDoctrine',
     effects: [
       { kind: 'outputMult', buildings: ['dataCenter'], mult: 1.5 },
       { kind: 'inputMult', buildings: ['chipFab'], mult: 1.25 },
@@ -538,7 +538,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   radHardProcess: {
     id: 'radHardProcess', era: 4, lane: 'compute', name: 'Rad-Hard Process', short: 'Rad-Hard Chips',
-    costData: 300, costGoods: { silicon: 30 }, requires: ['waferFab'], exclusive: 'chipDoctrine',
+    costData: 260, costGoods: { silicon: 30 }, requires: ['waferFab'], exclusive: 'chipDoctrine',
     effects: [
       { kind: 'outputMult', buildings: ['chipFab'], mult: 1.4 },
       { kind: 'agentTax', mult: 0.6 },
@@ -779,7 +779,7 @@ export const TECHS: Record<TechId, TechDef> = {
   // ─── ERA 6 · HUMAN HABITATION ───
   humanCohabitation: {
     id: 'humanCohabitation', era: 6, lane: 'habitat', name: 'Human Cohabitation', short: 'Human Cohabitation',
-    costData: 1250, costGoods: { parts: 30, chips: 10 },
+    costData: 1050, costGoods: { parts: 30, chips: 10 },
     requires: ['regolithShielding'], requiresAny: ['thoriumPower', 'regenFuelCells'], expeditions: ['robotic'],
     effects: [
       { kind: 'unlock', building: 'habitat' },

@@ -134,8 +134,11 @@ async function installBot(cfg) {
   });
   if (pick.nightPower === 'regenFuelCells') move('regenFuelCells', 'swarmRobotics');
   if (!robotic) order = order.filter((x) => x !== 'humanCohabitation');
-  // a crewed base's attentive player wants agents on the stations hands can't reach
+  // a crewed base's attentive player wants agents on the stations hands can't reach;
+  // a reasonable one gets there once stations stand idle for want of crew (after
+  // Parts Fabrication, before the era-2 small steps)
   if (!robotic && cfg.policy === 'attentive') move('constructionRobotics', 'teleoperation');
+  else if (!robotic) move('constructionRobotics', 'batteryStorage');
   order = [...new Set(order)].filter((t) => t !== 'siteGrading');
   for (const t of TECH_ORDER) if (!order.includes(t) && t !== 'siteGrading') order.push(t); // then the rest of the tree
   order = order.filter((t) => !rejected.has(t));
@@ -413,6 +416,10 @@ async function installBot(cfg) {
     lavatube: ['mariusDomes', 'monsRumker', 'aristarchus', 'gruithuisen'],
   }[cfg.site];
   let lastDC = -1e9;
+  // RESEARCH PAUSED — labs browned out: each night it happens, the player
+  // resolves to cover more of the next one (the alert names the cause)
+  let coverBoost = 0;
+  let pausedThisNight = false;
   let crewSeen = 0;
 
   function decideResearch() {
@@ -535,6 +542,10 @@ async function installBot(cfg) {
   function decideBuilds() {
     placedThisTick = 0;
     hold = {};
+    if (day().isNight && s.researchPaused === 'brownout' && !pausedThisNight) {
+      pausedThisNight = true;
+      coverBoost = Math.min(0.5, coverBoost + 0.1);
+    } else if (!day().isNight) pausedThisNight = false;
     // the milestone buildings keep the head of the robot queue until they stand
     for (const t of ['partsFab', 'smelter']) {
       const site = s.buildings.find((b) => b.type === t && !complete(b));
@@ -611,7 +622,7 @@ async function installBot(cfg) {
     // the night
     if (unlocked('battery')) {
       const per = 3000 * (done('regenFuelCells') ? 2 : 1);
-      const target = m.nightDeficit * BAL.NIGHT_S * P.nightCover;
+      const target = m.nightDeficit * BAL.NIGHT_S * Math.min(1, P.nightCover + coverBoost);
       if (m.capacity + all('battery').filter((b) => !complete(b)).length * per < target && nAll('battery') < 12) build('battery', 'night');
     }
     if (unlocked('roboticsBay') && nAll('roboticsBay') < 2 + (era >= 4 && P.dcs >= 3 ? 1 : 0)) build('roboticsBay', 'robots');

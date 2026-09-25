@@ -145,7 +145,7 @@ export const LAB_UPLINK_WEIGHTS = [1, 1, 1, 1, 0.6, 0.6, 0.6, 0.6, 0.3];
 export const INSIGHT_MAX = 0.5;
 /** the single research-cost tuning dial, per resolved era */
 export const ERA_COST_SCALE: Record<1 | 2 | 3 | 4 | 5 | 6 | 7 | 8, number> = {
-  1: 1.4, 2: 1.8, 3: 1.75, 4: 1.8, 5: 1.45, 6: 1.6, 7: 1.15, 8: 1.0,
+  1: 1.6, 2: 2.0, 3: 1.85, 4: 1.9, 5: 1.45, 6: 1.7, 7: 1.15, 8: 1.3,
 };
 /** era N opens with this many visible done techs of resolved era N−1 … */
 export const CHARTER_TECHS = 4;
