@@ -143,13 +143,15 @@ export function floodStats() {
   return { sources: sources.length, slots: filled, live: floodUniforms.uFloodCount.value };
 }
 
-/** The slot lighting source `i` of the last setFloodSources list, and that
- *  slot's packed darkness (tests, probes). */
+/** The slot lighting source `i` of the last setFloodSources list, that
+ *  slot's packed darkness, and whether the loop reaches it lit (tests,
+ *  probes). */
 export function floodSlotOf(i: number): { slot: number; k: number; live: boolean } | null {
   const slot = members.findIndex((of) => of.includes(i));
   if (slot < 0) return null;
   const w = floodUniforms.uFlood.value[slot].w;
-  return { slot, k: w - Math.floor(w), live: slot < floodUniforms.uFloodCount.value };
+  const k = w - Math.floor(w);
+  return { slot, k, live: slot < floodUniforms.uFloodCount.value && k > LIVE_K };
 }
 
 /** Uniforms + `vec3 floodIrradiance(worldPos, worldNormal)` for a fragment
