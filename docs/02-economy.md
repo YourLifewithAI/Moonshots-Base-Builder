@@ -85,6 +85,65 @@ Parts ─ Mass Driver ─→ Launch ────────────┴─�
 The loop compounds: each volley's beamed power feeds the factories that make the
 next volley — the Dyson Sphere Program reward, with Frostpunk stakes attached.
 
+## Haul logistics — regolith moves on wheels
+
+The Regolith Excavator is a mobile digger (`core/haul.ts`, economy step 4).
+Its **home pad** is where it was placed: the pad stays occupied and is where
+it parks. Its **dig site** defaults to that pad — what an excavator always did —
+and the player can point it at any mapped ground with **Dig at…** (a revealed
+deposit, or plain ground inside the survey radius or a Relay Mast's).
+
+```
+drive to the dig site → dig a bucket (60 s) → drive to the nearest operating
+regolith consumer (a smelter or refinery; the Lander if there is none) →
+unload (4 s) → back to the dig
+```
+
+- **Credited on unload.** Regolith (and the Solar-Wind Volatiles water trickle)
+  lands in the stockpile when the bucket tips, not per second. The smoothed net
+  rate the HUD shows counts each cycle's *average* delivery instead of the lumps.
+- **The bucket** holds 105▲ at nameplate and scales with every output
+  multiplier the static excavator had (wear, overclock, techs, the site's ISRU,
+  the deposit it digs), so all of those still mean what they did.
+- **Tuning** (`HAUL` in `balance.ts`): 105▲ bucket, 60 s dig, 4 s unload,
+  5 m/s. A dig 15 m of haul road from its consumer delivers the old static
+  1.5▲/s exactly; next door +9%, 30 m −8%, 60 m −21%, 140 m −42%, 250 m −58%.
+- **The feed grade** (`$feed`: the smelter and refinery shares) is an EMA over
+  the loads delivered, weighted by amount: a load of *a* moves it
+  *a* / (*a* + 210) toward its own kind — a full bucket a third of the way.
+  One excavator on high-Ti basalt and one on plain ground feed a mix.
+- **The trade-off is distance.** Far deposits deliver less per minute but a
+  richer feed; a smelter needs 2▲/s, so a rich remote pit wants two diggers.
+  Autonomous Haulage (Era 5) drives ×1.3 and fills a ×1.25 bucket, which pays
+  most on the long hauls.
+- **Standby.** Short of room for its load, a digger waits at the consumer
+  (STANDBY — output full, no power). Its power draw is as before, while the
+  cycle runs.
+
+## The construction fleet — rovers as units
+
+Construction rovers are units the sim knows (`core/fleet.ts`, economy step 0):
+`s.rovers = { id, home, site, pinned }[]`, one per dock slot (the Lander 2,
+each Robotics Bay 2 ± its `botPerBay` techs). `s.bots` stays derived for the
+HUD, surveys and milestones.
+
+- **Auto** rovers take the construction queue one site each, in queue order
+  (placement order unless *Build next*), exactly as before.
+- **Pinned** rovers add to a site: *Summon* (at the site) pins the nearest free
+  rover, or else one from the site with the most; *Send to…* (a selected rover)
+  pins that one. The crew already there is pinned with it, so the auto layer
+  never hands it back down the queue. A pin lasts until the site completes;
+  *Release* unpins one.
+- **Rate:** n rovers build n^0.85 times as fast as one (2 → ×1.80,
+  3 → ×2.54, 4 → ×3.25), on top of the rate techs; each draws its own
+  construction kW; a build's weld parts stay the same, drawn faster.
+- A survey borrows one unpinned rover — never a pinned one.
+
+Every run can research capability on top of the doctrine fleet bonuses:
+**Rover Autonomy** (Era 4: +25% build rate per rover, construction draw ×1.3)
+and **Autonomous Haulage** (Era 5: haul speed ×1.3, bucket ×1.25; excavator
+draw +25%, upkeep +20%).
+
 ## The umbilical arc — Earth Supply Credits (CUT)
 
 Full design: you land with a finite balance of **Earth Supply Credits**,
