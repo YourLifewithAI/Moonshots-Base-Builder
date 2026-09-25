@@ -578,7 +578,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   s.resources.water = Math.max(0, s.resources.water - waterNeed);
   let housing = 0;
   for (const b of s.buildings) {
-    const def = BUILDINGS[b.type];
+    const def = effectiveDef(b.type, mods);
     if (!def.housing || !b.enabled || building(b)) continue;
     if (def.powerKW < 0 && !powered.has(b.id)) continue;
     housing += def.housing;
@@ -695,7 +695,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 7 · morale ─────────────────────────────────────────────────────
   let target = site.moraleBase;
   for (const b of s.buildings) {
-    const def = BUILDINGS[b.type];
+    const def = effectiveDef(b.type, mods);
     if (def.moraleDelta && b.active) target += def.moraleDelta;
   }
   target += o2ok && foodok && waterok ? MORALE.fed : MORALE.starving;
@@ -804,8 +804,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const ex = explorationTick(s, mods, site, dt);
   if (ex.modsChanged) ev.modsChanged = true;
   for (const [rid, f] of Object.entries(ex.flow) as [ResourceId, number][]) s.rates[rid] = (s.rates[rid] ?? 0) + f * k;
-  // the Era 7 deed: an outpost has operated (a grounded hopper is not operating)
-  if (s.survey.outposts.some((o) => o.live && o.fuelOk)) st.outpostOpS += dt;
+  // the Era 7 deed: outposts have operated (a grounded hopper is not operating)
+  const operating = s.survey.outposts.filter((o) => o.live && o.fuelOk).length;
+  if (operating >= 1) st.outpostOpS += dt;
+  if (operating >= 2) st.outpostPairOpS += dt;
   crewRotationTick(s, mods, smelterO2);
 
   // ── 9 · research (queue, transfer cap, goods pass: core/research.ts) ──
