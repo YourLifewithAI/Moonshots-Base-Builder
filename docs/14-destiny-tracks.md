@@ -884,19 +884,22 @@ Automation band, CREW HOME at FIRST LIGHT) and `CACACACA`.
   fast ones.
 - **Crewed mare** (Builder on; main 218.6 [217, 234, 219]): pure Colony
   212.3 [212, 217, 212], pure Automation 224.8 [222, 247, 225], both inside
-  +30% of robotic mare (≤ 258). Concord runs 241.3 [241, 242, 223]: after
-  its Era 5 ⌂ pick it keeps one Parts Fabricator with parts between 48 and 91
-  for 50 min, and the bot's third and fourth Data Centers wait for
-  "research-bound with parts over 100", so it researches on two Data Centers
-  through Era 6 (44.8 min). That is the bot's threshold, not a trap: the
-  base has 1200◆ and 800◇ banked the whole time.
+  +30% of robotic mare (≤ 258). Concord runs 241.3 [241, 242, 223]: from
+  Era 5 it holds parts between 48 and 91 on one Parts Fabricator for 50 min
+  (main and pure Automation dip under 30 and build their 2nd and 3rd), and
+  the bot's third and fourth Data Centers wait for "research-bound with
+  parts over 100", so it researches on two Data Centers through Era 6
+  (44.8 min). That is the bot's threshold, not a trap: the base has 1200◆
+  and 800◇ banked the whole time.
 - **Era lengths.** With the Builder, Era 3 runs 34.6–36.1 min (main 31.3):
   the Era 2 pick is the era's 2nd research, so Silicon Refining, and with it
   the 600◇ deed that opens Era 4, comes 4–7 min later. Manual runs keep Era
   3 at 30.7–31.2. Main's own Era 7 (33.3) is over 32 already; the destinies
   shorten it (19.6–28.8).
-- **Idle.** The longest idle stretch is 4.6–5.8 min with the Builder, as
-  main's (4.5–5.8). Manual crewed pole seed 7 with the ◉ Era 2 pick
+- **Idle.** The longest idle stretch with the Builder is 4.7–5.7 min on
+  robotic mare (main 4.5) and 3.9–6.5 on the crewed pole (main up to 5.8).
+  Crewed mare idles 9–12 min in Era 2 while the 450◆ deed fills (main 5–7.7
+  there, its Era 2 already 39.9 min). Manual crewed pole seed 7 with the ◉ Era 2 pick
   (Automation, Concord) idles 16 min in Era 4: the bot's second Parts
   Fabricator eats every metal for 22 min while research waits on metals.
   That is the manual bot's policy (it never pauses a fab), not a pick; the
