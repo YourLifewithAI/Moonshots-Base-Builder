@@ -1508,14 +1508,17 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   await game(page);
 
   // fast-forward the eight-era tree to swarm protocol
-  // (four techs per era open the next; Swarm Protocol waits for a launch-cadence step)
+  // (four techs per era open the next, the era's destiny pick among them from
+  // Era 2 on; Swarm Protocol waits for a launch-cadence step and the Era 8 pick.
+  // Era 6 takes ◉ Lights-Out Charter, so no settler arrives in this window)
   for (const t of ['regolithProcessing', 'teleoperation', 'prospectingRovers', 'grizzlyScreens',
-    'siliconRefining', 'partsFabrication', 'batteryStorage', 'constructionRobotics', 'regolithShielding',
-    'thoriumPower', 'swarmRobotics', 'stackedCells', 'slagRecycling',
-    'waferFab', 'orbitalProspector', 'acceleratorDesign', 'waferPolishing',
-    'lunarDataCenter', 'dynamicClocking', 'cryoRadiators', 'wingExtensions',
-    'closedLoopLS', 'scienceCrews', 'refractoryLinings', 'uplinkDishes',
-    'foilManufacturing', 'massDriver', 'rollToRoll', 'liquidCooling', 'railCapacitors', 'swarmProtocol']) {
+    'siliconRefining', 'pressureHalls', 'partsFabrication', 'batteryStorage', 'constructionRobotics', 'regolithShielding',
+    'thoriumPower', 'crewCharter', 'swarmRobotics', 'stackedCells', 'slagRecycling',
+    'waferFab', 'hydroCommons', 'orbitalProspector', 'acceleratorDesign', 'waferPolishing',
+    'lunarDataCenter', 'greenhouseRings', 'dynamicClocking', 'cryoRadiators', 'wingExtensions',
+    'closedLoopLS', 'lightsOutCharter', 'scienceCrews', 'refractoryLinings', 'uplinkDishes',
+    'foilManufacturing', 'gardenDomes', 'massDriver', 'rollToRoll', 'liquidCooling',
+    'railCapacitors', 'missionControl', 'swarmProtocol']) {
     await page.evaluate((tech) => window.__game.completeTech(tech), t);
   }
   const st = await page.evaluate(() => window.__game.getState());
