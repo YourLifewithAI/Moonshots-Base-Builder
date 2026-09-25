@@ -1,11 +1,13 @@
-/** The construction-robot fleet made visible: one instanced rover per bot in
- *  `state.bots.total`, docked at the structures that supply them (the
- *  Lander, Robotics Bays). The economy gives every assigned construction
- *  site one bot; here that bot drives out to the site, prints (a shuffle
- *  along the wall, a small bob) and drives home to park when the site is
- *  done. Paths are straight legs that hop round the corners of any
- *  footprint in the way; heading follows the velocity with a turn-rate
- *  limit, and the chassis sits on the heightfield, pitched and rolled to it.
+/** The construction-rover fleet made visible: one instanced rover per unit
+ *  in the sim's roster (`state.rovers`, core/fleet.ts), docked at the
+ *  structures that supply them (the Lander, Robotics Bays); the one lent to
+ *  a survey is away. A rover with a site drives out to it, prints (a shuffle
+ *  along the wall, a small bob) and drives home to park when the sim frees
+ *  it; several at one site spread round its walls. Paths are straight legs
+ *  that hop round the corners of any footprint in the way (core/paths.ts);
+ *  heading follows the velocity with a turn-rate limit, and the chassis sits
+ *  on the heightfield, pitched and rolled to it. The selected rover wears a
+ *  ring; rovers are picked by instance (or by nearness on screen).
  *
  *  Rovers use the building material (same program, finishes, lamps and a
  *  blinking beacon; unlit twin in safe mode) and cast no shadow-map shadow —
@@ -13,10 +15,11 @@
  *  down-sun stands in for it. Motion runs on game time: pause freezes them. */
 import * as THREE from 'three';
 import { BUILDINGS } from '../data/buildings';
-import { CELL_M, MAP_M } from '../data/balance';
+import { CELL_M } from '../data/balance';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { centerOf, footprintRect } from '../buildings/instances';
+import { centerOf } from '../buildings/instances';
+import { PATH_HALF as HALF, inside, plan, worldRect, type Rect } from '../core/paths';
 import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
 } from '../buildings/meshKit';
@@ -33,7 +36,6 @@ const CLEAR = 1.2;        // m kept off walls when planning
 const WORK_OUT = 1.8;     // m out from a site's footprint
 const PARK_OUT = 3.2;     // m out from the dock's footprint
 const PARK_PITCH = 2.8;   // m between parked rovers
-const HALF = MAP_M / 2 - 8;
 const PI = Math.PI;
 
 function roverGeometry(): THREE.BufferGeometry {
@@ -65,7 +67,7 @@ function roverGeometry(): THREE.BufferGeometry {
 }
 
 /** Soft rounded blob (alpha in G) for the contact-shadow decals. */
-function blobTexture(): THREE.DataTexture {
+export function blobTexture(): THREE.DataTexture {
   const W = 32, H = 64;
   const data = new Uint8Array(W * H * 4);
   for (let y = 0; y < H; y++) {
@@ -84,12 +86,14 @@ function blobTexture(): THREE.DataTexture {
   return t;
 }
 
-interface Rect { id: number; x0: number; z0: number; x1: number; z1: number }
-
 interface Rover {
+  /** the sim roster's id (core/fleet.ts): the voice and the selection follow it */
+  id: number;
   x: number; z: number; yaw: number; v: number;
   home: number;
   site: number | null;
+  /** where it is headed (site slot or parking slot): a new key replans */
+  key: string;
   path: [number, number][];
   /** yaw to settle to on arrival */
   face: number;
@@ -101,65 +105,6 @@ interface Rover {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-
-/** Entry parameter of segment p→q into rect r (grown by m), or null. */
-function segmentHits(px: number, pz: number, qx: number, qz: number, r: Rect, m: number): number | null {
-  let t0 = 0, t1 = 1;
-  const dx = qx - px, dz = qz - pz;
-  for (const [p, d, lo, hi] of [[px, dx, r.x0 - m, r.x1 + m], [pz, dz, r.z0 - m, r.z1 + m]]) {
-    if (Math.abs(d) < 1e-9) {
-      if (p <= lo || p >= hi) return null;
-      continue;
-    }
-    let a = (lo - p) / d, b = (hi - p) / d;
-    if (a > b) [a, b] = [b, a];
-    t0 = Math.max(t0, a);
-    t1 = Math.min(t1, b);
-    if (t0 >= t1) return null;
-  }
-  return t0;
-}
-
-const inside = (x: number, z: number, r: Rect, m: number) =>
-  x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
-
-/** Straight legs from a to b, hopping round the corner of each footprint in
- *  the way (greedy, a few hops at most). */
-function plan(ax: number, az: number, bx: number, bz: number, rects: readonly Rect[]): [number, number][] {
-  const out: [number, number][] = [];
-  let cx = ax, cz = az;
-  const skip = new Set(rects.filter((r) => inside(ax, az, r, CLEAR) || inside(bx, bz, r, CLEAR)).map((r) => r.id));
-  for (let hop = 0; hop < 6; hop++) {
-    let hit: Rect | null = null, best = Infinity;
-    for (const r of rects) {
-      if (skip.has(r.id)) continue;
-      const t = segmentHits(cx, cz, bx, bz, r, CLEAR * 0.9);
-      if (t !== null && t < best) { best = t; hit = r; }
-    }
-    if (!hit) break;
-    const m = CLEAR + 0.3;
-    let pick: [number, number] | null = null, cost = Infinity;
-    for (const [x, z] of [[hit.x0 - m, hit.z0 - m], [hit.x1 + m, hit.z0 - m], [hit.x1 + m, hit.z1 + m], [hit.x0 - m, hit.z1 + m]]) {
-      if (segmentHits(cx, cz, x, z, hit, CLEAR * 0.9) !== null) continue;
-      const c = Math.hypot(x - cx, z - cz) + Math.hypot(bx - x, bz - z);
-      if (c < cost) { cost = c; pick = [clamp(x, -HALF, HALF), clamp(z, -HALF, HALF)]; }
-    }
-    if (!pick) break;
-    out.push(pick);
-    [cx, cz] = pick;
-  }
-  out.push([bx, bz]);
-  return out;
-}
-
-function worldRect(b: BuildingState): Rect {
-  const r = footprintRect(b);
-  return {
-    id: b.id,
-    x0: r.gx0 * CELL_M - MAP_M / 2, x1: r.gx1 * CELL_M - MAP_M / 2,
-    z0: r.gz0 * CELL_M - MAP_M / 2, z1: r.gz1 * CELL_M - MAP_M / 2,
-  };
-}
 
 /** Building-local (x, z) → world, for a structure's centre and rotation. */
 function toWorld(b: BuildingState, lx: number, lz: number): [number, number] {
@@ -202,15 +147,28 @@ export class RoverFleet {
     this.decals.count = 0;
     this.decals.frustumCulled = false;
     this.decals.renderOrder = 1;
-    this.group.add(this.mesh, this.decals);
+    // the selected rover's ring: flat on the ground, unlit, over the decals
+    const ring = new THREE.RingGeometry(1.55, 1.9, 40);
+    ring.rotateX(-PI / 2);
+    this.ring = new THREE.Mesh(ring, new THREE.MeshBasicMaterial({
+      color: 0xf5f7f9, transparent: true, opacity: 0.85, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -3, polygonOffsetUnits: -6,
+    }));
+    this.ring.renderOrder = 2;
+    this.ring.visible = false;
+    this.ring.frustumCulled = false;
+    this.group.add(this.mesh, this.decals, this.ring);
   }
+
+  private ring: THREE.Mesh;
+  /** the rover the inspector shows (its ring is drawn), by roster id */
+  selected: number | null = null;
 
   /** Per frame: `dt` game seconds (0 while paused). */
   update(dt: number, state: GameState, sunDir: THREE.Vector3, sunLight: number) {
     this.clock += dt;
     this.syncRects(state);
     this.syncFleet(state);
-    this.assignSites(state);
     const steps = Math.min(40, Math.ceil(dt / 0.05));
     for (let k = 0; k < steps; k++) for (const r of this.rovers) this.step(r, dt / steps);
     this.draw(sunDir, sunLight);
@@ -223,44 +181,64 @@ export class RoverFleet {
     this.rects = state.buildings.map(worldRect);
   }
 
-  /** Fleet size follows the economy; each rover belongs to a dock. */
+  /** The visuals follow the sim roster, keyed by rover id; the one lent to a
+   *  survey is away. A rover with a site heads for its slot round that site's
+   *  walls; the rest park in a row beside their dock. */
   private syncFleet(state: GameState) {
-    const n = Math.min(MAX_ROVERS, state.bots?.total ?? 0);
-    const docks = state.buildings.filter((b) => b.enabled && (b.construction ?? 0) <= 0 &&
-      ((BUILDINGS[b.type].bots ?? 0) > 0 || b.type === 'roboticsBay'));
-    const homes: number[] = [];
-    for (const d of docks) for (let i = 0; i < (BUILDINGS[d.type].bots ?? 0) && homes.length < n; i++) homes.push(d.id);
-    // bots printed on top of the stock (self-assembly) live at the bays
-    const bays = docks.filter((d) => d.type === 'roboticsBay');
-    const extra = bays.length ? bays : docks;
-    for (let i = 0; homes.length < n && extra.length; i++) homes.push(extra[i % extra.length].id);
-    if (this.rovers.length > homes.length) this.rovers.length = homes.length;
-    for (let i = 0; i < homes.length; i++) {
-      let r = this.rovers[i];
-      if (!r) {
-        const dock = docks.find((d) => d.id === homes[i])!;
-        const [x, z] = this.parkSpot(state, dock, i, homes);
-        r = { x, z, yaw: 0, v: 0, home: dock.id, site: null, path: [], face: 0, side: [1, 0], working: false,
-          phase: i * 2.399 };
-        r.yaw = this.parkYaw(dock);
-        r.face = r.yaw;
-        this.rovers.push(r);
-      } else if (r.home !== homes[i]) {
-        r.home = homes[i];
-        if (r.site === null) this.goPark(state, r, i, homes);
-      }
+    const away = state.survey?.active?.rover;
+    const roster = (state.rovers ?? []).filter((u) => u.id !== away).slice(0, MAX_ROVERS);
+    const byId = new Map(this.rovers.map((r) => [r.id, r]));
+    const at = new Map(state.buildings.map((b) => [b.id, b]));
+    const crew = new Map<number, number[]>();
+    const parked = new Map<number, number[]>();
+    for (const u of roster) {
+      const site = u.site !== null ? at.get(u.site) : undefined;
+      if (site && (site.construction ?? 0) > 0) (crew.get(site.id) ?? crew.set(site.id, []).get(site.id)!).push(u.id);
+      else (parked.get(u.home) ?? parked.set(u.home, []).get(u.home)!).push(u.id);
     }
-    this.homes = homes;
+    const next: Rover[] = [];
+    for (const u of roster) {
+      const dock = at.get(u.home) ?? state.buildings.find((b) => b.type === 'lander');
+      if (!dock) continue;
+      let r = byId.get(u.id);
+      if (!r) {
+        const list = parked.get(u.home) ?? [u.id];
+        const [x, z] = this.parkSpot(dock, Math.max(0, list.indexOf(u.id)), list.length);
+        r = { id: u.id, x, z, yaw: this.parkYaw(dock), v: 0, home: dock.id, site: null, key: '', path: [],
+          face: this.parkYaw(dock), side: [1, 0], working: false, phase: u.id * 2.399 };
+        r.key = `park:${dock.id}:${Math.max(0, list.indexOf(u.id))}/${list.length}`;
+      }
+      r.home = dock.id;
+      const site = u.site !== null ? at.get(u.site) : undefined;
+      const team = site ? crew.get(site.id) : undefined;
+      if (site && team) {
+        const key = `site:${site.id}:${team.indexOf(u.id)}/${team.length}`;
+        if (key !== r.key) {
+          r.key = key;
+          r.site = site.id;
+          const first = at.get((state.rovers ?? []).find((x) => x.id === team[0])?.home ?? dock.id) ?? dock;
+          this.goSite(r, site, team.indexOf(u.id), team.length, centerOf(first));
+        }
+      } else {
+        const list = parked.get(u.home) ?? [u.id];
+        const k = Math.max(0, list.indexOf(u.id));
+        const key = `park:${dock.id}:${k}/${list.length}`;
+        if (key !== r.key) {
+          r.key = key;
+          r.site = null;
+          this.goPark(r, dock, k, list.length);
+        }
+      }
+      next.push(r);
+    }
+    this.rovers = next;
   }
-  private homes: number[] = [];
 
   /** Parking spots in a row beside the dock (its local −x side first). */
-  private parkSpot(state: GameState, dock: BuildingState, i: number, homes: readonly number[]): [number, number] {
-    const mine = homes.map((h, j) => (h === dock.id ? j : -1)).filter((j) => j >= 0);
-    const k = Math.max(0, mine.indexOf(i));
+  private parkSpot(dock: BuildingState, k: number, count: number): [number, number] {
     const [w, d] = BUILDINGS[dock.type].footprint;
     const hw = (w * CELL_M) / 2, hd = (d * CELL_M) / 2;
-    const off = (k - (mine.length - 1) / 2) * PARK_PITCH;
+    const off = (k - (count - 1) / 2) * PARK_PITCH;
     const sides: [number, number][] = [[-(hw + PARK_OUT), off], [hw + PARK_OUT, off], [off, -(hd + PARK_OUT)], [off, hd + PARK_OUT]];
     for (const [lx, lz] of sides) {
       const [x, z] = toWorld(dock, lx, lz);
@@ -274,55 +252,42 @@ export class RoverFleet {
   /** Parked rovers face along the dock's side, nose to its door side. */
   private parkYaw(dock: BuildingState): number { return -dock.rot * PI / 2; }
 
-  private goPark(state: GameState, r: Rover, i: number, homes: readonly number[]) {
-    const dock = state.buildings.find((b) => b.id === r.home);
+  private goPark(r: Rover, dock: BuildingState, k: number, count: number) {
     r.working = false;
-    if (!dock) { r.path = []; return; }
-    const [x, z] = this.parkSpot(state, dock, i, homes);
+    const [x, z] = this.parkSpot(dock, k, count);
     r.path = plan(r.x, r.z, x, z, this.rects);
     r.face = this.parkYaw(dock);
   }
 
-  private assignSites(state: GameState) {
-    const active = state.buildings.filter((b) => (b.construction ?? 0) > 0 && b.idleReason !== 'queued');
-    const ids = new Set(active.map((b) => b.id));
-    this.rovers.forEach((r, i) => {
-      if (r.site !== null && !ids.has(r.site)) {
-        r.site = null;
-        this.goPark(state, r, i, this.homes);
-      }
-    });
-    const taken = new Set(this.rovers.map((r) => r.site));
-    for (const site of active) {
-      if (taken.has(site.id)) continue;
-      const [cx, cz] = centerOf(site);
-      let best: Rover | null = null, bd = Infinity;
-      for (const r of this.rovers) {
-        if (r.site !== null) continue;
-        const d = Math.hypot(r.x - cx, r.z - cz);
-        if (d < bd) { bd = d; best = r; }
-      }
-      if (!best) break;
-      best.site = site.id;
-      taken.add(site.id);
-      this.goSite(best, site);
-    }
-  }
-
-  /** Work spot: just off the site's wall nearest the rover's dock side. */
-  private goSite(r: Rover, site: BuildingState) {
+  /** Work spot k of m round a site: the first just off the wall nearest the
+   *  crew's dock, the rest spread evenly round the walls, off the corners so
+   *  each shuffle stays along one wall. */
+  private goSite(r: Rover, site: BuildingState, k: number, m: number, from: [number, number]) {
     const rect = worldRect(site);
-    const [cx, cz] = centerOf(site);
     const x0 = rect.x0 - WORK_OUT, x1 = rect.x1 + WORK_OUT, z0 = rect.z0 - WORK_OUT, z1 = rect.z1 + WORK_OUT;
-    let x = clamp(r.x, x0, x1), z = clamp(r.z, z0, z1);
-    const edges = [x - x0, x1 - x, z - z0, z1 - z];
-    const e = edges.indexOf(Math.min(...edges));
-    if (e === 0) x = x0; else if (e === 1) x = x1; else if (e === 2) z = z0; else z = z1;
-    // off the corners, so the shuffle stays along one wall
-    if (e < 2) z = clamp(z, rect.z0 + 0.8, rect.z1 - 0.8); else x = clamp(x, rect.x0 + 0.8, rect.x1 - 0.8);
-    r.path = plan(r.x, r.z, x, z, this.rects);
-    r.face = Math.atan2(cx - x, cz - z);
-    r.side = e < 2 ? [0, 1] : [1, 0];
+    const w = x1 - x0, d = z1 - z0, per = 2 * (w + d);
+    // perimeter parameter, clockwise from the (x0, z0) corner: +x, +z, −x, −z
+    const toU = (x: number, z: number): number => {
+      const cx = clamp(x, x0, x1), cz = clamp(z, z0, z1);
+      const e = [cz - z0, x1 - cx, z1 - cz, cx - x0];
+      const i = e.indexOf(Math.min(...e));
+      return i === 0 ? cx - x0 : i === 1 ? w + (cz - z0) : i === 2 ? w + d + (x1 - cx) : 2 * w + d + (z1 - cz);
+    };
+    const fromU = (u: number): { x: number; z: number; e: number } => {
+      u = ((u % per) + per) % per;
+      // off the corners
+      const edge = (len: number, t: number) => clamp(t, Math.min(1.6, len / 2), Math.max(len - 1.6, len / 2));
+      if (u < w) return { x: x0 + edge(w, u), z: z0, e: 2 };
+      if (u < w + d) return { x: x1, z: z0 + edge(d, u - w), e: 1 };
+      if (u < 2 * w + d) return { x: x1 - edge(w, u - w - d), z: z1, e: 3 };
+      return { x: x0, z: z1 - edge(d, u - 2 * w - d), e: 0 };
+    };
+    const p = fromU(toU(from[0], from[1]) + (k * per) / Math.max(1, m));
+    const [cx, cz] = centerOf(site);
+    r.path = plan(r.x, r.z, p.x, p.z, this.rects);
+    // face the wall: square to it, toward the centre
+    r.face = p.e < 2 ? Math.atan2(cx - p.x, 0) : Math.atan2(0, cz - p.z);
+    r.side = p.e < 2 ? [0, 1] : [1, 0];
     r.working = false;
   }
 
@@ -395,6 +360,33 @@ export class RoverFleet {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     this.decals.instanceMatrix.needsUpdate = true;
+    // picking reads fresh bounds: the rovers moved
+    this.mesh.boundingSphere = null;
+    const sel = this.selected === null ? undefined : this.rovers.find((r) => r.id === this.selected);
+    this.ring.visible = !!sel;
+    if (sel) {
+      const pulse = 1 + 0.06 * Math.sin(this.clock * 3);
+      this.ring.position.set(sel.x, this.hf.sample(sel.x, sel.z) + 0.08, sel.z);
+      this.ring.scale.setScalar(pulse);
+    }
+  }
+
+  /** The rover under a ray (its roster id), and how far along the ray. */
+  pick(raycaster: THREE.Raycaster): { id: number; d: number } | null {
+    const hit = raycaster.intersectObject(this.mesh, false).find((h) => h.instanceId !== undefined);
+    const r = hit ? this.rovers[hit.instanceId!] : undefined;
+    return r ? { id: r.id, d: hit!.distance } : null;
+  }
+
+  /** Where a rover is drawn (world), or null if it is away or unknown. */
+  pose(id: number): { x: number; y: number; z: number; yaw: number } | null {
+    const r = this.rovers.find((x) => x.id === id);
+    return r ? { x: r.x, y: this.hf.sample(r.x, r.z), z: r.z, yaw: r.yaw } : null;
+  }
+
+  /** Every drawn rover's position (screen-space picking of a small target). */
+  poses(): { id: number; x: number; y: number; z: number }[] {
+    return this.rovers.map((r) => ({ id: r.id, x: r.x, y: this.hf.sample(r.x, r.z) + 0.8, z: r.z }));
   }
 
   /** Rooster tails behind moving rovers and print dust at working ones,
@@ -429,7 +421,7 @@ export class RoverFleet {
       const dx = r.x - p.x, dy = this.hf.sample(r.x, r.z) + 0.6 - p.y, dz = r.z - p.z;
       const d = Math.hypot(dx, dy, dz);
       const pan = (dx * this.right.x + dy * this.right.y + dz * this.right.z) / Math.max(d, 1);
-      out.push({ id: i, d, pan: clamp(pan * 0.9, -1, 1), speed: clamp(r.v / SPEED, 0, 1), working: r.working && r.v < 0.1 });
+      out.push({ id: r.id, d, pan: clamp(pan * 0.9, -1, 1), speed: clamp(r.v / SPEED, 0, 1), working: r.working && r.v < 0.1 });
     }
     out.sort((a, b) => a.d - b.d);
     if (out.length > MAX_ROVER_VOICES) out.length = MAX_ROVER_VOICES;
@@ -444,6 +436,10 @@ export class RoverFleet {
       assigned: this.rovers.filter((r) => r.site !== null).length,
       material: (this.mesh.material as THREE.Material).type,
       positions: this.rovers.map((r) => [Math.round(r.x * 10) / 10, Math.round(r.z * 10) / 10]),
+      ids: this.rovers.map((r) => r.id),
+      sites: this.rovers.map((r) => r.site),
+      selected: this.selected,
+      ring: this.ring.visible,
     };
   }
 }

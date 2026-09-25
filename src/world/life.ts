@@ -1,5 +1,6 @@
 /** Everything that moves or changes on its own around the base, in one
- *  place so the game loop makes a single call: the rover fleet, regolith
+ *  place so the game loop makes a single call: the rover fleet, the hauling
+ *  excavators, regolith
  *  dust, launch and resupply events, research made visible (berms, the
  *  swarm's glints, cleaner panels) and the astronaut's bootprints.
  *
@@ -15,6 +16,7 @@ import { Footprints, type Walker } from '../player/footprints';
 import { DUST_SLOTS, DustField, type DustEmitter } from './dust';
 import { LaunchFx, ResupplyFx } from './events';
 import { RoverFleet } from './rovers';
+import { Haulers } from './haulers';
 import { SwarmGlints } from './swarm';
 
 export interface LifeFrame {
@@ -29,6 +31,8 @@ export interface LifeFrame {
   sunLight: number;
   /** the astronaut, while walking */
   walker: Walker | null;
+  /** the part of the next economy second already gone (the haulers glide on it) */
+  tickFrac?: number;
 }
 
 // panel film (visual only): a thin coat from base traffic settles on the
@@ -39,11 +43,12 @@ const FILM_TAU = CYCLE_S;                  // uncleaned: a lunar day to settle
 const FILM_TAU_MITIGATED = 60;             // electrostatic curtains
 const NEAR_M = 45;
 
-type Part = 'rovers' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film';
+type Part = 'rovers' | 'haulers' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film';
 
 export class BaseLife {
   readonly group = new THREE.Group();
   readonly rovers: RoverFleet;
+  readonly haulers: Haulers;
   readonly dust = new DustField();
   readonly launch: LaunchFx;
   readonly resupply: ResupplyFx;
@@ -58,13 +63,14 @@ export class BaseLife {
 
   constructor(private hf: Heightfield, requestShadowUpdate: () => void) {
     this.rovers = new RoverFleet(hf);
+    this.haulers = new Haulers(hf);
     this.launch = new LaunchFx(hf);
     this.resupply = new ResupplyFx(hf);
     this.berms = new Berms(hf);
     this.prints = new Footprints(hf);
     this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
-    this.group.add(this.rovers.group, this.dust.points, this.launch.group, this.resupply.group,
+    this.group.add(this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
       this.berms.mesh, this.swarm.group, this.prints.mesh);
   }
 
@@ -73,6 +79,7 @@ export class BaseLife {
     const gdt = vdt * f.speed;
     const s = f.state;
     this.run('rovers', () => this.rovers.update(gdt, s, f.sunDir, f.sunLight));
+    this.run('haulers', () => this.haulers.update(gdt, s, f.sunLight, f.tickFrac ?? 0));
     this.run('resupply', () => this.resupply.update(s, this.earthAzim, vdt));
     this.run('launch', () => this.launch.update(vdt));
     this.run('berms', () => this.berms.update(s));
@@ -85,7 +92,7 @@ export class BaseLife {
       const cands = this.emitList;
       cands.length = 0;
       this.rovers.emitters(f.camera.position, cands);
-      this.excavators(s, f.camera.position, cands);
+      if (!this.failed.has('haulers')) this.haulers.emitters(f.camera.position, cands);
       cands.sort((a, b) => a.d - b.d);
       for (const c of cands) {
         if (list.length >= DUST_SLOTS) break;
@@ -115,26 +122,11 @@ export class BaseLife {
       this.failed.add(part);
       console.warn(`[MOONSHOTS] ${part} visuals disabled after an error.`, e);
       const objects: Partial<Record<Part, THREE.Object3D>> = {
-        rovers: this.rovers.group, dust: this.dust.points, launch: this.launch.group,
+        rovers: this.rovers.group, haulers: this.haulers.group, dust: this.dust.points, launch: this.launch.group,
         resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group, prints: this.prints.mesh,
       };
       const o = objects[part];
       if (o) o.visible = false;
-    }
-  }
-
-  /** Active excavators throw spoil off the bucket wheel's cutting face. */
-  private excavators(s: GameState, cam: THREE.Vector3, out: { e: DustEmitter; d: number }[]) {
-    for (const b of s.buildings) {
-      if (b.type !== 'excavator' || !b.active || (b.construction ?? 0) > 0) continue;
-      const [cx, cz] = centerOf(b);
-      const a = -b.rot * Math.PI / 2, c = Math.cos(a), sn = Math.sin(a);
-      const lx = 3.9, lz = 0.7; // the recipe's bucket wheel, front face
-      const x = cx + lx * c + lz * sn, z = cz - lx * sn + lz * c;
-      out.push({ d: Math.hypot(x - cam.x, z - cam.z), e: {
-        x, y: this.hf.sample(x, z), z, strength: 0.7,
-        vx: c * 0.9, vy: 1.3, vz: -sn * 0.9, hSpread: 0.9, vSpread: 1.1, h0: 0.3, size: 0.06,
-      } });
     }
   }
 
@@ -169,6 +161,7 @@ export class BaseLife {
     for (const v of this.film.values()) film = Math.max(film, v);
     return {
       rovers: this.rovers.info(),
+      haulers: this.haulers.info(),
       dust: this.dust.info(),
       launch: this.launch.info(),
       resupply: this.resupply.info(),

@@ -61,6 +61,8 @@ export class BuildingInstances {
   onShadowCastersChanged?: () => void;
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
+  /** buildings drawn elsewhere: an excavator away from its pad (world/haulers.ts) */
+  private hidden = new Set<number>();
 
   constructor(private hf: Heightfield) {
     const discGeo = new THREE.CircleGeometry(1, 24);
@@ -94,6 +96,13 @@ export class BuildingInstances {
     }));
     this.scaffold.frustumCulled = false;
     this.group.add(this.scaffold);
+  }
+
+  /** Leave these pads empty (their diggers are out); re-syncs at once. */
+  setHidden(ids: ReadonlySet<number>) {
+    if (ids.size === this.hidden.size && [...ids].every((id) => this.hidden.has(id))) return;
+    this.hidden = new Set(ids);
+    if (this.last) this.rebuild(this.last);
   }
 
   /** Night lighting runs in the shader patches (floods + windows). */
@@ -258,9 +267,10 @@ export class BuildingInstances {
       const total = b.buildTotal ?? 0;
       const progress = remaining > 0 && total > 0 ? 1 - remaining / total : 1;
       // patched: printed bottom-up at full size; stock: rises squashed from the pad
-      const sy = progress >= 1 || reveal ? 1 : 0.12 + 0.88 * progress;
+      const sy = this.hidden.has(b.id) ? 0 : progress >= 1 || reveal ? 1 : 0.12 + 0.88 * progress;
       const cut = progress >= 1 || !reveal ? CUT_NONE : progress * topY;
-      mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(1, sy, 1));
+      const sxz = this.hidden.has(b.id) ? 0 : 1;
+      mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(sxz, sy, sxz));
       mesh.setMatrixAt(i, mat);
       const powered = progress >= 1 && b.enabled && b.idleReason !== 'power';
       const color = progress < 1 && !reveal ? BuildingInstances.DIM
