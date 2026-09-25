@@ -187,24 +187,34 @@ holds 8–16 cards instead of the ~100 of the old one-screen board.
 
 - **Tabs.** Current `E3 ●` (a lit band), past `E2 ✓·3` (3 leftovers still
   queueable), future `E5 ⊘` (dimmed, dashed). `#n` counts queued items.
-  The page on show is underlined. Each tab keeps an empty destiny-pip slot.
+  The page on show is underlined. Each tab carries its destiny pip: ⌂ or ◉
+  once chosen, ○ before.
 - **Page header.**
-  - *Era:* `ERA 3 · CURRENT ERA`, the name, `ERA_BLURB`, and a count line.
-  - *Destiny* (`techDestiny.ts`, the boundary the destiny tracks replace):
-    Era 1 shows the landing expedition, chosen at landing. An era with a
-    doctrine shows its pair(s) under `DOCTRINE · choose one · permanent`;
-    a click only selects. Otherwise there is no box and the era column
-    widens.
+  - *Era:* `ERA 3 · CURRENT ERA`, the name, `ERA_BLURB` (Era 8: the
+    band's), the destiny meter (`◉◉⌂○○○○○ ⌂1 · ◉2 · pure at 6 · 5 to
+    choose`; its hover is the reach line), and a count line.
+  - *Destiny* (`techDestiny.ts`): `DESTINY · choose one · permanent` and the
+    era's question over two cards, ⌂ Colony left, ◉ Automation right. Each
+    card: name, up to two ⊕ and two ⊖ generated lines, the visual line,
+    cost and goods, and its state (`[select]`, `#1 queued`, `✓ CHOSEN`,
+    struck through when foreclosed, dashed on a future page). A click only
+    selects. Era 1 reads `DESTINY · chosen at landing`: the landing card,
+    the other expedition greyed out. Doctrine pairs stay on the board.
   - *Goals* (`techGoals.ts`): the next era's charter from `ResearchView.gates`,
-    live and in place: `◼◼◻◻ 2 of 4 Era-3 techs`, `or 2 + 600◇ refined`
-    with a bar, and robotic Cohabitation where it applies. A past page
-    reads `✓ opened Era n`; a future one what opens it. Era 8 is the
-    FIRST LIGHT checklist (Swarm Protocol, foils, launch, stored, launch).
+    live and in place: `◻ Destiny: choose ⌂ or ◉` (from Era 3's gate on),
+    `◼◼◻◻ 2 of 4 Era-3 techs (the destiny counts)`, `or the destiny, 1 more
+    + 600◇ refined` with a bar, and robotic Cohabitation where it applies
+    (`either destiny settles it`). Era 1 notes that the landing does not
+    count. A past page reads `✓ opened Era n`; a future one what opens it.
+    Era 8 is the FIRST LIGHT checklist: the destiny, Swarm Protocol, the
+    volley's foils, ↑ and charge on one line, the launch, and the band.
 - **Lane board** (`techPage.ts`). Cards run roots first, then table order;
   a doctrine pair sits side by side over one `◇ CHOOSE ONE` bracket. More
   than 5 in a row (or a row that would not fit) packs as compact one-line
   cards. Era 8 is the SWARM block: steps, the capstone double width, the
-  purpose pair. Rows shrink below 56 px only on screens under 720 px.
+  purpose pair, and a `⌂◉ DESTINY` row: a dashed placeholder until the Era 8
+  pick, then the band's capstone. Rows shrink below 56 px only on screens
+  under 720 px.
 - **Stubs.** `◂E2` on a card's left edge names off-page prerequisites,
   `E6▸` on its right edge off-page dependents. Solid once all are done,
   dashed before. A click opens that page with the tech selected.
@@ -230,8 +240,12 @@ holds 8–16 cards instead of the ~100 of the old one-screen board.
   2. the ⊕/⊖ lines and a **YOUR BASE** preview (`Your 2 Data Centers: −21 kW`);
   3. cost, goods, ETA, the Queue / Queue path ⇧ / Cancel buttons, and
      `Needs` / `Leads to` with era tags and jump links.
-- **Doctrines** never commit on a click. Selecting one shows both members
-  side by side, and only `[Commit to … — permanent]` queues it.
+- **Doctrines and destinies** never commit on a click. Selecting one shows
+  both sides at full length with their YOUR BASE, and only `[Commit to … —
+  permanent]` (`Commit to ⌂ Crew Rotation Charter — permanent`) queues it.
+  While it is queued the other side reads `foreclosed while … is queued —
+  cancel it to reopen`.
+- **The era chip** carries the destiny pips after its name.
 - **Keys.** `T` opens on the current era (or closes); `[` `]` and PgUp/PgDn
   change page; `Home` goes to the current era; arrows move within the page;
   Enter queues, Shift+Enter queues the path (on a doctrine, Enter focuses

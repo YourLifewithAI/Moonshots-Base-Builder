@@ -177,6 +177,7 @@
 .dz-card.st-foreclosed { opacity: 0.4; }
 .dz-card.st-foreclosed .nm { text-decoration: line-through; }
 .dz-card.st-future, .dz-card.st-locked { border-style: dashed; opacity: 0.6; }
+.dz-card.sel { outline: 1px solid var(--paper); outline-offset: 1px; }
 .dz-exp .dz-tag { white-space: nowrap; }
 /* the destiny meter in the era column, and on the era chip */
 .ph-era .ph-meter { flex: none; font-size: 10px; line-height: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;

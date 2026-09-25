@@ -1,6 +1,6 @@
 # 03 · Tech Tree
 
-The research tree is **94 technologies in 7 swimlanes across 8 eras**, built
+The research tree is **125 technologies in 7 swimlanes across 8 eras**, built
 around the realistic rollout of lunar construction: robots land and build
 first, and humans arrive only once the machines have made the base worth
 inhabiting. Most eras hold two or three big unlocks and a run of small,
@@ -9,7 +9,8 @@ visibly changes the buildings it affects**: its `visual` line names the part
 it adds (`src/buildings/upgrades.ts`; per building in
 [04-buildings.md](04-buildings.md)). The full design rationale, pacing model
 and test plan live in [11-research-and-map-spec.md](11-research-and-map-spec.md)
-§2–§3 and the expansion in [12-tree-expansion.md](12-tree-expansion.md); this
+§2–§3, the expansion in [12-tree-expansion.md](12-tree-expansion.md) and the
+destiny tracks in [14-destiny-tracks.md](14-destiny-tracks.md); this
 page is the player-facing summary plus tables generated from
 `src/data/techs.ts`.
 
@@ -40,38 +41,52 @@ column (★ below).
 1. **Charters.** Era N opens once **4 techs of era N−1** are done, or **2 of
    them plus that era's deed** (a production milestone such as "450◆ smelted",
    or "a Data Center held a full night with every priority-0/1 load powered").
-   The deed routes teach the loop of each era; the tree header shows both
-   routes' progress. On robotic runs, era 7 also requires Human Cohabitation.
-2. **Prerequisites** (`requires`) always apply; `requiresAny` needs one member
-   of a set (for example either night-power doctrine).
-3. **Doctrines** are six permanent either/or picks (◈). Queuing one member
+   From Era 3 on, **era N−1's destiny pick must be one of them**. The deed
+   routes teach the loop of each era; the tree header shows both routes'
+   progress. On robotic runs, era 7 also requires Human Cohabitation, which
+   either Era 6 pick settles.
+2. **Destiny.** Each era has one ⌂ Colony / ◉ Automation pick in its page
+   header (docs/14). The landing is Era 1's and never counts toward Era 2.
+   Queuing one side forecloses the other until you cancel; done is permanent.
+   Six of eight on one side make a pure destiny and its capstone (Lunar
+   Commonwealth, Selenic Mind); anything else is Concord.
+3. **Prerequisites** (`requires`) always apply; `requiresAny` needs one member
+   of a set (for example either night-power doctrine, or Swarm Protocol's
+   Era 8 pick).
+4. **Doctrines** are six permanent either/or picks (◈). Queuing one member
    forecloses the other until you cancel; completing it forecloses the other
    for the rest of the run. Data already spent on an abandoned pick is kept.
    Each site has a natural answer, shown on the bracket.
-4. **Goods.** Many techs also cost manufactured goods. Missing goods never
+5. **Goods.** Many techs also cost manufactured goods. Missing goods never
    block queueing: the data is paid first, then the tech waits for the goods
    with a `RESEARCH WAITING` alert that names the producer.
-5. **Research transfer.** Data accrues in a bank (labs, Data Centers, surveys,
+6. **Research transfer.** Data accrues in a bank (labs, Data Centers, surveys,
    flares, the Daedalus radio outpost) and flows into the queue at up to
-   0.4/s per lab plus 2.5/s per Data Center. Agent-run labs share one Earth
+   0.4/s per lab plus 2.5/s per Data Center (2.2/s per Server Monolith). Agent-run labs share one Earth
    uplink, so the fifth and later labs add less. The queue holds 5.
-6. **Insights** (✎). In-base deeds discount specific techs by up to 50%, for
+7. **Insights** (✎). In-base deeds discount specific techs by up to 50%, for
    example "a night with any load shed" makes Battery Banks 40% cheaper. They
    fire even while the tech is locked, and there are none in era 1.
-7. **Breakthroughs** (✦). Three techs are hidden until you survey a host
+8. **Breakthroughs** (✦). Three techs are hidden until you survey a host
    prospect on the Lunar Map ([M]). Each has a fixed slot in the Exploration
    lane and a fixed era; one found early waits for its era.
-8. **Robotic runs.** Some techs resolve into a different era or cost on
+9. **Robotic runs.** Some techs resolve into a different era or cost on
    robotic expeditions. Human-comfort techs (farms, wellness) are visible but
-   locked until Human Cohabitation brings a crew rotation aboard.
+   locked until Human Cohabitation brings a crew rotation aboard. The first
+   ⌂ Colony pick from Era 3 on brings Cohabitation forward (it never counts
+   toward a charter); the Era 6 ◉ pick waives it for Era 7.
 
 ## Verbs the tree unlocks
 
 - **Overclock** (inspector toggle): a station runs ×1.5 at extra power and
   wear.
 - **Downlink** (lander): sell banked data to Earth for a cargo drop.
-- **Crew rotation** (Human Cohabitation on robotic runs): settlers arrive and
-  crewed stations stop paying the agent power tax.
+- **Crew rotation** (Human Cohabitation on robotic runs, or a ⌂ pick that
+  brings it forward): settlers arrive and crewed stations stop paying the
+  agent power tax.
+- **Launch day** (⌂ Crewed Mission Control): a volley takes 2↑ with 4 crew on
+  console, and lifts morale for a lunar day. **Autonomous Cadence** (◉) fires
+  volleys itself once the bank keeps the night's reserve.
 - **Survey / claim / abandon** on the Lunar Map: surveys borrow a rover
   (never a pinned one) and pay data with novelty decay; outposts stream
   resources for hopper fuel and upkeep.
@@ -90,9 +105,13 @@ The tables below are regenerated by `node scripts/gen-tech-doc.mjs` (use
 <!-- BEGIN GENERATED: node scripts/gen-tech-doc.mjs -->
 Costs are data after `ERA_COST_SCALE`; `robotic →` marks the resolved era and cost on robotic
 runs. Pros and cons are generated by `describeTech()` exactly as the tree cards show them
-(no site filter, human crew). ✎ = an insight discount can be earned in-base; ◈ = doctrine pick.
+(no site filter, human crew). ✎ = an insight discount can be earned in-base; ◈ = doctrine pick;
+⌂ / ◉ = the era's destiny pick (docs/14), ★ in the Lane column = a pick or the Era 8 capstone column.
+Hazard hooks (`exposure`, `guard`) carry no card line until the hazards ship.
 
 ### Era 1 · FIRST LANDING
+
+**Destiny · Who goes to the Moon?** ⌂ Crewed Landing or ◉ Robotic Mission — chosen on the landing screen.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -106,10 +125,14 @@ runs. Pros and cons are generated by `describeTech()` exactly as the tree cards 
 | **Grizzly Screens** | ◆ | 112 | — | — | +10% output: Regolith Excavator | +15% draw: Regolith Excavator | Excavators carry a slotted grizzly screen over the back deck. |
 | **Sample-Return Caches** | ◎ | 144 | — | Prospecting Rovers | survey data ×1.25 | −0.5 kW: Lander | A sample-cache carousel stands beside the Lander’s ladder. |
 | **Field Spectrometers** | ▣ | 144 | — | — | +10% output: Research Lab | +20% draw: Research Lab | Research Labs bolt a spectrometer turret onto the roof. |
+| **Crewed Landing**<br><sub>human only · ⌂ COLONY · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | — | — | The Lander flies a flag, and its crew cabin shows a lit window band. |
+| **Robotic Mission**<br><sub>robotic only · ◉ AUTOMATION · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | — | — | The Lander’s cabin windows are blanked, and a rover cradle rides the deck. |
 
 ### Era 2 · EARLY CONSTRUCTION
 
 Opens with 4 techs of era 1, or 2 plus the deed: **450◆ smelted**.
+
+**Destiny · Who are these halls built for?** ⌂ Pressure-Rated Halls or ◉ Dispatch Mesh.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -129,10 +152,14 @@ Opens with 4 techs of era 1, or 2 plus the deed: **450◆ smelted**.
 | **Neutron Spectrometry** | ◎ | 220<br><sub>✎ −40%: 3 prospects surveyed</sub> | — | Sample-Return Caches | survey data ×1.2 | +40% draw: Relay Mast | Relay Masts hang a neutron-spectrometer boom. |
 | **Bench Robots**<br><sub>human only</sub> | ▣ | 200 | — | — | −1 crew: Research Lab | +25% draw: Research Lab | Research Labs fit a robot sample bench behind a new window bay. |
 | **Build Orders** | ◉ | 240 | — | Earth Teleoperation | NEW ORDER BOOK: 4 held orders, up to ×10 each — orders wait for stock instead of skipping | held orders take stock the moment it lands<br>−1 kW: Lander | The Lander raises a planning mast: a pole with a work lamp beside its top deck. |
+| **Pressure-Rated Halls**<br><sub>⌂ COLONY · the Era 2 destiny</sub> | ★ | 240 | 20◆ | — | −20% upkeep: Research Lab, Parts Fabricator, Robotics Bay<br>wear heals ×1.15<br>+2 morale: Research Lab (with crew) | build time ×1.3: Research Lab, Parts Fabricator, Robotics Bay | Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window. |
+| **Dispatch Mesh**<br><sub>◉ AUTOMATION · the Era 2 destiny</sub> | ★ | 240 | 10⚙ | — | builds 12% faster<br>Relay Masts reach 60 m (from 45) | +40% draw: Relay Mast<br>−1 kW: Lander | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. |
 
 ### Era 3 · ROBOTIC FABRICATION
 
-Opens with 4 techs of era 2, or 2 plus the deed: **200⚙ fabricated**.
+Opens with 4 techs of era 2, or 2 plus the deed: **200⚙ fabricated**; one of them must be era 2's destiny pick, ⌂ Pressure-Rated Halls or ◉ Dispatch Mesh.
+
+**Destiny · Who comes next: people, or more machines?** ⌂ Crew Rotation Charter or ◉ Drone Hives.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -149,10 +176,14 @@ Opens with 4 techs of era 2, or 2 plus the deed: **200⚙ fabricated**.
 | **Bunk Racks**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 278 | — | — | +1 housing: Habitat Module | −2 morale: Habitat Module | Habitats bolt a bunk annex onto their airlock. |
 | **Automated Excavation** | ◉ | 278 | 10⚙ | Build Orders | NEW RULE Excavation: +1 Regolith Excavator when regolith demand outruns supply by 6▲/min for 60 s (cap 6)<br>NEW RULE Excavation: +1 Ice Harvester when water demand outruns supply by 1.2≈/min for 60 s (cap 3) | the builder spends your stock unasked: 16◆ 4⚙ per Regolith Excavator<br>−1 kW: Robotics Bay | Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof. |
 | **Site Survey AI** | ▣ | 278 | — | Build Orders, Prospecting Rovers | auto sites weigh deposits, peaks of light and haul lanes (before: distance only) | +20% upkeep: Robotics Bay | A survey drone rests on a pad on each Robotics Bay roof. |
+| **Crew Rotation Charter**<br><sub>⌂ COLONY · the Era 3 destiny</sub> | ★ | 278 | 30⚙ | — | brings Human Cohabitation forward: habitats and farms unlock; 2 settlers board in 4:00 if the base can keep them<br>settlers arrive ×1.5 as often<br>EVA crews by day (10% of free hands): dust clears ×1.3, repairs ×1.1 (with crew) | the crew needs O₂, food, water and beds from now on<br>+20% draw: Habitat Module | Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast. |
+| **Drone Hives**<br><sub>◉ AUTOMATION · the Era 3 destiny</sub> | ★ | 278 | 30⚙ | — | UNLOCK Drone Hive<br>+4 construction rovers<br>wear heals ×1.15 | −7 kW<br>2⚙/day upkeep<br>60◆ 30⚙ to build | Drone Hives can rise: a honeycomb of docks under a landing deck. |
 
 ### Era 4 · CHIP FABRICATION
 
-Opens with 4 techs of era 3, or 2 plus the deed: **600◇ refined**.
+Opens with 4 techs of era 3, or 2 plus the deed: **600◇ refined**; one of them must be era 3's destiny pick, ⌂ Crew Rotation Charter or ◉ Drone Hives.
+
+**Destiny · Does a fab need a window or a network?** ⌂ Hydroponic Commons or ◉ Lights-Out Fabs.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -173,10 +204,14 @@ Opens with 4 techs of era 3, or 2 plus the deed: **600◇ refined**.
 | **Automated Power** | ⚡ | 456 | 20◆ | Automated Excavation | NEW RULE Power: +1 Solar Array when the day’s grid margin, the bank’s recharge paid, is under 10% for 30 s (cap 24)<br>NEW RULE Power: +1 Battery Bank at dawn after the bank ran dry (cap 6)<br>NEW RULE Power: a Thorium Reactor when the night runs 25 kW short (cap 1: raise it to let the builder add one) | the builder spends your stock unasked: 12◆ per Solar Array<br>+10% upkeep: Solar Array | Solar Arrays gain a combiner box with a status lamp at the foot of the mast. |
 | **Budget Governor** | ▣ | 456 | 5▣ | Automated Excavation | RESERVES and PRIORITIES: floors the builder never spends below; queued research goods kept; rules act in your order; crisis sites jump the rover queue | rules wait for your floors — the builder acts later<br>+50% upkeep: Storage Yard | Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks. |
 | **Automated Life Support**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ◉ | 456<br><sub>robotic → E7 · 1294</sub> | 10⚙ | Automated Excavation | NEW RULE Life support: the oxygen maker when oxygen would last under 20 min (cap 5)<br>NEW RULE Life support: +1 Hydroponics Farm when food would last under 20 min (cap 4)<br>NEW RULE Life support: the water maker when water would last under 20 min (cap 3)<br>NEW RULE Life support: +1 Habitat Module when no bed is free for the next settler (cap 4) | the builder spends your stock unasked: the maker’s build cost<br>+10% draw: Habitat Module | Each Habitat Module gets an air-monitor mast by its door. |
+| **Hydroponic Commons**<br><sub>⌂ COLONY · the Era 4 destiny</sub> | ★ | 456 | 30◆ | — | brings Human Cohabitation forward: habitats and farms unlock; 2 settlers board in 4:00 if the base can keep them<br>+15% output: Hydroponics Farm<br>+3 morale: Hydroponics Farm (with crew) | the crew needs O₂, food, water and beds from now on<br>+25% inputs: Hydroponics Farm | Hydroponics vaults open a glazed galley end with long tables, and a trellis runs the vault. |
+| **Lights-Out Fabs**<br><sub>◉ AUTOMATION · the Era 4 destiny</sub> | ★ | 456 | 15⚙ | — | −1 crew: Parts Fabricator, Chip Fab<br>+10% output: Chip Fab | +20% draw: Parts Fabricator, Chip Fab | Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp. |
 
 ### Era 5 · LUNAR COMPUTE
 
-Opens with 4 techs of era 4, or 2 plus the deed: **50▣ chips fabbed**.
+Opens with 4 techs of era 4, or 2 plus the deed: **50▣ chips fabbed**; one of them must be era 4's destiny pick, ⌂ Hydroponic Commons or ◉ Lights-Out Fabs.
+
+**Destiny · What grows here: gardens or compute?** ⌂ Greenhouse Rings or ◉ Fleet OS.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -194,10 +229,14 @@ Opens with 4 techs of era 4, or 2 plus the deed: **50▣ chips fabbed**.
 | **Gravity Gradiometry** | ◎ | 522 | — | Neutron Spectrometry | survey data ×1.2 | −1 kW: Lander | The Lander raises a gravimeter mast. |
 | **Automated Smelting & Refining** | ◉ | 580 | 20⚙ | Automated Excavation, Silicon Refining | NEW RULE Smelting: +1 Regolith Smelter when metals demand, builds included, outruns supply for 90 s (cap 4)<br>NEW RULE Smelting: +1 Silicon Refinery when silicon demand outruns supply for 90 s (cap 3)<br>NEW RULE Smelting: +1 Storage Yard when a full store idles its producers and is too small for the research queued (60 s) (cap 4) | the builder spends your stock unasked: 32◆ 8⚙ per Regolith Smelter<br>+10% upkeep: Regolith Smelter, Silicon Refinery | Silicon Refineries grow an ore-sampler arm over the feed hopper. |
 | **Feed Planner** | ▣ | 580 | — | Site Survey AI | excavators re-aimed at the feed the furnaces want, as far as the haul pays (opt one out in its panel) | longer hauls carry less<br>+10% draw: Regolith Excavator | Excavators carry an assay drill beside the bucket. |
+| **Greenhouse Rings**<br><sub>⌂ COLONY · the Era 5 destiny</sub> | ★ | 580 | 20◇ | — | UNLOCK Greenhouse Ring<br>makes 0.32✳/s<br>+6 morale<br>brings Human Cohabitation forward: habitats and farms unlock; 2 settlers board in 4:00 if the base can keep them | −14 kW<br>eats 0.08≈/s<br>2⚙/day upkeep<br>2 crew<br>80◆ 20◇ 10⚙ to build<br>the crew needs O₂, food, water and beds from now on | Greenhouse Rings can rise: glass vaults round a domed hub. |
+| **Fleet OS**<br><sub>◉ AUTOMATION · the Era 5 destiny</sub> | ★ | 580 | 10▣ | — | UNLOCK Server Monolith<br>agent-run draw ×1.6 → ×1.51<br>Builder: rule dwell ×0.5<br>NEW RULE Research: +1 Research Lab when research waits on the transfer cap for 120 s (cap 4) | −26 kW<br>3⚙/day upkeep<br>60◆ 20▣ 20⚙ to build<br>+15% draw: Data Center | Server Monoliths can rise: black slabs with a cold lamp stripe. |
 
 ### Era 6 · HUMAN HABITATION
 
-Opens with 4 techs of era 5, or 2 plus the deed: **a Data Center held a full night with every priority-0/1 load powered**.
+Opens with 4 techs of era 5, or 2 plus the deed: **a Data Center held a full night with every priority-0/1 load powered**; one of them must be era 5's destiny pick, ⌂ Greenhouse Rings or ◉ Fleet OS.
+
+**Destiny · Is the Moon a home, or a machine?** ⌂ Settler Charter or ◉ Lights-Out Charter.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -217,10 +256,14 @@ Opens with 4 techs of era 5, or 2 plus the deed: **a Data Center held a full nig
 | **Launch-Site Survey** | ↑ | 1530 | — | Orbital Prospector | build time ×0.75: Mass Driver, Propellant Plant | −1 kW: Lander | Mass Drivers and Propellant Plants rise on staked, surveyed pads with reflector posts. |
 | **Automated Fabrication** | ◉ | 1700 | 10▣ | Automated Smelting & Refining, Parts Fabrication | NEW RULE Fabrication: +1 Parts Fabricator when parts demand outruns supply for 90 s (cap 3)<br>NEW RULE Fabrication: +1 Chip Fab when research waits on chips for 120 s (cap 3)<br>NEW RULE Fabrication: +1 Robotics Bay when 2 sites wait for a rover for 120 s (cap 3) | the builder spends your stock unasked: 48◆ per Parts Fabricator<br>+20% upkeep: Parts Fabricator | Parts Fabricators get a gantry crane across the roof. |
 | **Predictive Scheduling** | ▣ | 1700 | 10▣ | Automated Power, Lunar Data Center | rules act on forecasts while a Data Center runs: batteries before dusk, sites still welding counted, dwell ×0.5 | reactive again whenever no Data Center runs<br>+10% draw: Data Center | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. |
+| **Settler Charter**<br><sub>⌂ COLONY · the Era 6 destiny</sub> | ★ | 1700 | 40◆ | — | brings Human Cohabitation forward: habitats and farms unlock; 2 settlers board in 4:00 if the base can keep them<br>+1 housing: Habitat Module<br>settlers arrive ×1.5 as often (with crew)<br>+10% output: Research Lab, Regolith Smelter, Silicon Refinery, Parts Fabricator, Chip Fab (crewed only) | the crew needs O₂, food, water and beds from now on<br>+20% inputs: Habitat Module | Habitats stack a second storey: a habitation terrace with a balcony rail, planters and warm windows. |
+| **Lights-Out Charter**<br><sub>◉ AUTOMATION · the Era 6 destiny</sub> | ★ | 1700 | 20▣ | — | Era 7 opens without Human Cohabitation<br>agent-run draw ×1.6 → ×1.48<br>wear heals ×1.2 | +20% draw: Data Center, Robotics Bay<br>no new settlers are invited (with crew) | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. |
 
 ### Era 7 · SWARM INDUSTRY
 
-Opens with 4 techs of era 6, or 2 plus the deed: **two outposts operated a full lunar day together** (robotic runs also need Human Cohabitation).
+Opens with 4 techs of era 6, or 2 plus the deed: **two outposts operated a full lunar day together**; one of them must be era 6's destiny pick, ⌂ Settler Charter or ◉ Lights-Out Charter (robotic runs also need Human Cohabitation, which either Era 6 pick settles).
+
+**Destiny · Domes, or replicators?** ⌂ Garden Domes or ◉ Replicator Stacks.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
@@ -238,21 +281,30 @@ Opens with 4 techs of era 6, or 2 plus the deed: **two outposts operated a full 
 | **Laser Ranging** | ◎ | 1150 | — | Far-Side Relay | survey data ×1.2 | −1.5 kW: Lander | The Lander adds a laser-ranging telescope dome. |
 | **Self-Expanding Base** | ◉ | 1294 | 10▣ 40⚙ | Automated Fabrication, Site Survey AI | NEW RULE Network: +1 Relay Mast at the network edge when a rule finds no ground for 60 s (cap 4) | the builder spends your stock unasked: 16◆ 4⚙ per Relay Mast<br>+30% draw: Relay Mast | Relay Masts wear a beacon crown and a cable reel at the foot. |
 | **Maintenance Automation** | ▣ | 1294 | 30⚙ | Automated Fabrication | parts triage: short of parts, priority 0 is paid first · machines worn ≥40% for a lunar day replaced · tripped overclocks re-armed once healed | a replacement costs a new build, less half the old one’s price<br>+30% upkeep: Robotics Bay | Robotics Bays get a service crane arm over the charging rover. |
+| **Garden Domes**<br><sub>⌂ COLONY · the Era 7 destiny</sub> | ★ | 1294 | 40◇ | — | UNLOCK Garden Dome<br>makes 0.04✳/s<br>houses 10<br>+10 morale<br>extends the build network 60 m<br>brings Human Cohabitation forward: habitats and farms unlock; 2 settlers board in 4:00 if the base can keep them | −12 kW<br>eats 0.05≈/s<br>3⚙/day upkeep<br>1 crew<br>150◆ 40◇ 25⚙ to build<br>the crew needs O₂, food, water and beds from now on | Garden Domes can rise: a glass dome over trees, ringed by lit window terraces. |
+| **Replicator Stacks**<br><sub>◉ AUTOMATION · the Era 7 destiny</sub> | ★ | 1294 | 20▣ 30⚙ | — | +20% output: Parts Fabricator, Foil Factory<br>Builder: rule caps ×2<br>NEW RULE Export: +1 Foil Factory when foils hold a volley back for 120 s (cap 3) | +20% draw: Parts Fabricator, Foil Factory<br>+30% upkeep: Robotics Bay, Drone Hive | Parts Fabricators and Foil Factories stack a second fab storey under a gantry. |
 
 On robotic runs Automated Life Support, Crew Wellness Program, Galley Garden also resolve into this era.
 
 ### Era 8 · DYSON SWARM
 
-Opens with 4 techs of era 7, or 2 plus the deed: **25▰ manufactured**.
+Opens with 4 techs of era 7, or 2 plus the deed: **25▰ manufactured**; one of them must be era 7's destiny pick, ⌂ Garden Domes or ◉ Replicator Stacks.
+
+**Destiny · Who launches the swarm?** ⌂ Crewed Mission Control or ◉ Autonomous Cadence.
 
 | Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |
 |---|---|---|---|---|---|---|---|
 | **Rail Capacitor Banks** | ★ | 2080 | — | Electromagnetic Mass Driver | −20% draw: Mass Driver | +40% upkeep: Mass Driver | Mass Drivers line their rail with capacitor banks. |
 | **Cryocooler Heads** | ★ | 2080 | — | Propellant Depot | +15% output: Propellant Plant | +20% draw: Propellant Plant | Propellant Plants cap their tanks with cryocooler heads. |
 | **Canister Press** | ★ | 2080 | — | Thin-Film Foils | +10% output: Foil Factory | +30% upkeep: Foil Factory | Foil Factories add a canister press at the loading dock. |
-| **Swarm Protocol** | ★ | 2340<br><sub>✎ −25%: ATLAS COMPLETE</sub> | 5▰ 10▣ | Thin-Film Foils, any of Rail Capacitor Banks / Cryocooler Heads | NEW ACTION launch — LAUNCH is armed | each volley costs 10▰ + 3↑ + 400 stored | Mass Drivers and Propellant Plants raise a swarm-tracking beacon mast. |
+| **Swarm Protocol** | ★ | 2340<br><sub>✎ −25%: ATLAS COMPLETE</sub> | 5▰ 10▣ | Thin-Film Foils, any of Crewed Mission Control / Autonomous Cadence | NEW ACTION launch — LAUNCH is armed | each volley costs 10▰ + 3↑ + 400 stored | Mass Drivers and Propellant Plants raise a swarm-tracking beacon mast. |
 | **Power Beaming Return**<br><sub>◈ What is the swarm for?</sub> | ★ | 4420 | — | Swarm Protocol, Battery Banks | +4 kW per volley launched | the beam drops to 0 while a flare is active | A rectenna mesh unfolds beside the Lander. |
 | **Von Neumann Foundry**<br><sub>◈ What is the swarm for?</sub> | ★ | 5200 | 20▰ | Swarm Protocol, Self-Replicating Systems | ×3 output: Foil Factory | +50% draw: Foil Factory | Foil Factories sprout seed-factory pods on the roof. |
+| **Crewed Mission Control**<br><sub>⌂ COLONY · the Era 8 destiny</sub> | ★ | 2080 | — | — | a volley needs 2↑ instead of 3<br>each volley: +8 morale for a lunar day<br>brings Human Cohabitation forward: habitats and farms unlock; 2 settlers board in 4:00 if the base can keep them | a volley needs 4 crew on console (without them: 3↑ and no ceremony)<br>the crew needs O₂, food, water and beds from now on<br>+1 crew: Mass Driver, Propellant Plant | Mass Drivers and Propellant Plants gain a glazed launch-control blockhouse with lit consoles and a viewing gallery. |
+| **Autonomous Cadence**<br><sub>◉ AUTOMATION · the Era 8 destiny</sub> | ★ | 2080 | — | — | volleys fire themselves when ready (never below the night’s reserve)<br>launch burst −25% (300 stored) | +30% draw: Mass Driver, Propellant Plant | Mass Drivers and Propellant Plants raise a black guidance monolith with a cold tracking lamp. |
+| **Lunar Commonwealth**<br><sub>destiny capstone · the ⌂ Colony band only</sub> | ★ | 4420 | — | Swarm Protocol | +10 morale everywhere (with crew)<br>+2 housing: Habitat Module<br>+2 housing: Garden Dome<br>+10% output: Research Lab, Regolith Smelter, Silicon Refinery, Parts Fabricator, Chip Fab, Foil Factory, Hydroponics Farm, Greenhouse Ring (crewed only) | +20% inputs: Habitat Module | Habitats and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole. |
+| **Selenic Mind**<br><sub>destiny capstone · the ◉ Automation band only</sub> | ★ | 4420 | — | Swarm Protocol | Builder: rule caps ×2<br>NEW RULE Research: +1 Research Lab when research waits on the transfer cap for 120 s (cap 4)<br>NEW RULE Export: +1 Foil Factory when foils hold a volley back for 120 s (cap 3)<br>Builder: every rule may build the destiny buildings too (rings, domes, hives, monoliths)<br>+25% output: Foil Factory, Data Center, Server Monolith | +25% draw: Foil Factory, Data Center, Server Monolith | Server Monoliths and Data Centers crown themselves with radiator fins. |
+| **Concord**<br><sub>destiny capstone · the Concord band only</sub> | ★ | 4420 | — | Swarm Protocol | agent-run draw ×1.6 → ×1.48<br>+5 morale everywhere (with crew) | +10% upkeep: all structures | The Lander raises a joint-operations mast: a lit crew cabin under a drone perch. |
 
 ### Doctrines
 
@@ -265,8 +317,8 @@ Opens with 4 techs of era 7, or 2 plus the deed: **25▰ manufactured**.
 | 7 | How does a foil reach orbit? | Electromagnetic Mass Driver / Propellant Depot | ILMENITE PLAINS: Driver: the equator gives it ×1.5.<br>SHACKLETON RIM: Propellant: it ignores the pole’s ×0.6.<br>MARIUS HILLS TUBE: A split. |
 | 8 | What is the swarm for? | Power Beaming Return / Von Neumann Foundry | — |
 
-106 techs: 103 researchable from the start of their era, 3 breakthroughs,
-6 doctrines, 47 insights.
+125 techs: 119 researchable from the start of their era (16 of them destiny picks, the two landings
+among them), 3 breakthroughs, 3 destiny capstones; 6 doctrines, 47 insights.
 <!-- END GENERATED -->
 
 ## Save migration
@@ -275,4 +327,6 @@ Saves from the six-era tree (tech schema 1) migrate on load: retired techs
 (Hydroponics, Autonomous Ops, Robotic Self-Assembly, Inference Optimization,
 Automated Fabrication, High-Efficiency Launch) refund their data, renamed ids
 map to their successors, and a save that already finished both members of a
-doctrine keeps both. See spec §8.
+doctrine keeps both. See spec §8. Schema 3 → 4 (docs/14 §7) adds the landing
+pick to `techsDone`, keeps the era, and leaves past eras' picks open as
+leftovers at their old prices; a pick is required only for eras still to open.

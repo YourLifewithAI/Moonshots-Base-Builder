@@ -723,6 +723,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       // the closure reaches another era: that card's stubs pulse
       e.querySelectorAll('.stub').forEach((s) => s.classList.toggle('hl', lit));
     }
+    // the header's destiny cards show the selection too
+    pageHead.querySelectorAll<HTMLElement>('.dz-card').forEach((c) => c.classList.toggle('sel', c.dataset.select === selected));
     const key = `${page}|${focusTid ?? ''}|${hover ?? ''}|${rowH}`;
     if (board.dataset.focus !== key) {
       board.dataset.focus = key;
@@ -1128,11 +1130,29 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const v = view;
     const items = [...layout.items.values()];
     const on = (t: TechId | null) => (t ? layout!.items.get(t) : undefined);
+    // the destiny cards sit above the top lane row (docs/14 §1.7): ←/→ between
+    // the two sides, ↓ back down to the board
+    const pair = page >= 2 ? TRACKS[page] : null;
+    const onPick = !!selected && !!pair && (selected === pair.colony || selected === pair.automation);
+    if (onPick && pair) {
+      if (dx) selected = dx < 0 ? pair.colony : pair.automation;
+      else if (dy > 0) selected = items.filter((s) => s.row === 0).sort((a, b) => a.x - b.x)[0]?.tid ?? selected;
+      hover = null;
+      refreshFocus();
+      return;
+    }
     const cur = on(selected) ?? on(hover)
       ?? items.find((s) => ['queued', 'stalled'].includes(v.cards[s.tid].state))
       ?? items.find((s) => v.cards[s.tid].state === 'available') ?? items[0];
     if (!cur) return;
     if (!on(selected) && !on(hover)) { selected = cur.tid; hover = null; refreshFocus(); return; }
+    if (dy < 0 && cur.row === 0 && pair) {
+      // ↑ from the top row: the destiny card on the nearer side
+      selected = cur.x + cur.w / 2 < (layout.width / 2) ? pair.colony : pair.automation;
+      hover = null;
+      refreshFocus();
+      return;
+    }
     const cx = cur.x + cur.w / 2;
     let best: PageItem | null = null, bestD = Infinity;
     for (const s of items) {

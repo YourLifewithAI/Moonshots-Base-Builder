@@ -752,3 +752,29 @@ for (const style of ['classic', 'detailed']) {
     expect(r.rates.cap).toBeCloseTo(0.4 * r.rates.labsActive + 2.2, 6);
   });
 }
+
+test('keys: ↑ from the top lane row reaches the destiny cards, ←/→ switch sides, Enter focuses Commit and never commits', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  await page.evaluate(() => window.climb!('AA', 3));
+  await openTree(page);
+  await page.keyboard.press('ArrowDown'); // selects a card on the board
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowUp');
+  const sel = page.locator('.dz-card.sel');
+  await expect(sel).toHaveCount(1);
+  const first = await sel.getAttribute('data-select');
+  expect(['crewCharter', 'droneHives']).toContain(first);
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.locator('.dz-card.sel')).toHaveAttribute('data-select', 'crewCharter');
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('.dz-card.sel')).toHaveAttribute('data-select', 'droneHives');
+  await expect(page.locator('.dst-sheet')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(page.locator('button.commit[data-tech="droneHives"]')).toBeFocused();
+  await page.waitForTimeout(400);
+  expect((await g(page, 'getState')).researchQueue).toEqual([]);
+  // ↓ goes back down to the board
+  await page.locator('#tech-screen').focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('.dz-card.sel')).toHaveCount(0);
+  await expect(page.locator('.tech-card.sel')).toHaveCount(1);
+});
