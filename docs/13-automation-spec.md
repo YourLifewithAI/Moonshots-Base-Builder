@@ -351,25 +351,25 @@ Orders can place every one of these except the Lander and Relay Masts. Masts bec
 There are twelve techs. **◉ ROBOTS & FAB** holds the physical families, **▣ SILICON & COMPUTE** the planning techs, and **⚡ POWER** holds Automated Power (coordinator decision). They span Eras 2–7.
 
 - Every tech has a generated pro, a **numeric** con that passes `auditTechs`, a `visual` line, and one visible mesh change, following work/tree's convention.
-- **Costs** below are placeholders on the current table's scale. **At merge, set each to the new tree's median data cost for its era** (coordinator decision), and scale the goods in the same proportion.
+- **Costs** are the shipped tree's median data cost for each era (coordinator decision; the displayed costs after `ERA_COST_SCALE`, as docs/03 generates them). Goods are small and fixed.
 - Median costs keep the techs **charter-neutral**: researching one instead of another tech of its era opens the next era no sooner and no later. A cheap automation tech would otherwise become a charter shortcut.
 
 | # | id · name | Era · lane | Cost | Requires | Pros (generated) | Cons (generated; numeric first) | `visual` |
 |---|---|---|---|---|---|---|---|
-| 1 | `buildOrders` · **Build Orders** | E2 · ◉ | 130≡ | teleoperation | ORDER BOOK: 4 held orders, up to ×10 each; orders wait for stock instead of skipping; Build next for a whole order | −1 kW: Lander (planning console) · held orders take stock the moment it lands | The Lander raises a planning mast: a lattice pole with a work lamp over its top deck. |
-| 2 | `autoExcavation` · **Automated Excavation** | E3 · ◉ | 180≡ + 10⚙ | buildOrders, constructionRobotics | NEW RULE Excavation: +1 Excavator when regolith demand outruns supply for 60 s (cap 6); Ice Harvester on water at the pole | −1 kW per Robotics Bay (dispatch) · the builder spends your stock unasked (16◆ 4⚙ per Excavator) | Every Robotics Bay grows a dispatch mast: a lattice tower with a beacon on the roof. |
-| 3 | `siteSurveyAI` · **Site Survey AI** | E3 · ▣ | 170≡ | buildOrders, prospectingRovers | auto sites weigh the overlay: the feed's deposits, peaks of light for solar, others' ground kept clear, haul lanes never crossed; planned dig sites | +20% upkeep: Robotics Bay (survey drones) | A survey drone rests on a pad on each Robotics Bay roof. |
-| 4 | `autoPower` · **Automated Power** | E4 · ⚡ | 260≡ + 20◆ | autoExcavation | NEW RULE Power: +1 Solar Array when the day's margin < 10% (cap 24); +1 Battery Bank at dawn after the bank ran dry (cap 6); reactor rule (cap 1: raise it to let the builder add reactors) | +10% upkeep: Solar Array (combiner boxes) · spends your stock (12◆ per array, 40◆ 8◇ per bank) | Each Solar Array gains a combiner box with a status lamp at its foot. |
-| 5 | `budgetGovernor` · **Budget Governor** | E4 · ▣ | 260≡ + 5▣ | autoExcavation | RESERVES and PRIORITIES: floors per resource; queued research goods kept; rules act in your order; crisis sites jump the rover queue | +50% upkeep: Storage Yard (manifest gantries) · rules wait for your floors, so the builder acts later | Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks. |
-| 6 | `autoLifeSupport` · **Automated Life Support** (crew tech) | E4 human · E6 robotic (1150≡) · ◉ | 280≡ + 10⚙ | autoExcavation | NEW RULE Life support: the O₂, food and water makers when a supply's runway falls under 20 min; a Habitat when no bed is free for the next settler | +10% draw: Habitat Module (air monitors) · spends your stock | Each Habitat gets an air-monitor mast by its door. |
-| 7 | `autoSmelting` · **Automated Smelting & Refining** | E5 · ◉ | 440≡ + 20⚙ | autoExcavation, siliconRefining | NEW RULE Smelting: Smelters and Refineries when metals or silicon demand (builds included) outruns supply; Storage Yards when a full stock idles its producers | +10% upkeep: Smelter, Refinery (samplers) · spends your stock (32◆ 8⚙ per Smelter) | Smelters and Refineries grow an ore-sampler arm over the hopper. |
-| 8 | `feedPlanner` · **Feed Planner** | E5 · ▣ | 420≡ | siteSurveyAI | every excavator (manual or auto, with a per-excavator opt-out) re-aimed at the feed the furnaces want, trading haul distance for grade | +10% draw: Excavator (assay drills) · longer hauls carry less | Excavators carry an assay drill beside the bucket. |
-| 9 | `predictiveScheduling` · **Predictive Scheduling** | E5 · ▣ | 460≡ + 5▣ | autoPower, lunarDataCenter | rules act on forecasts: batteries before dusk, sites under construction counted, dwell halved (needs an operating Data Center) | +10% draw: Data Center · reactive again whenever no Data Center runs | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. |
-| 10 | `autoFabrication` · **Automated Fabrication** | E6 · ◉ | 1150≡ + 10▣ | autoSmelting, partsFabrication | NEW RULE Fabrication: Parts Fabricators on parts demand; Chip Fabs when research waits on chips; Robotics Bays when sites wait for a rover | +20% upkeep: Parts Fabricator (gantry cranes) · spends your stock (a Chip Fab is 48◆ 24◇ 16⚙) | Parts Fabricators get a gantry crane over the roof. |
-| 11 | `maintenanceAutomation` · **Maintenance Automation** | E6 · ◉ | 1100≡ + 30⚙ | autoFabrication | parts triage (below); worn machines replaced; tripped overclocks re-armed once healed | +30% upkeep: Robotics Bay · a replacement costs a new build less half the old one's price | Robotics Bays get a service crane arm at the side door. |
-| 12 | `selfExpandingBase` · **Self-Expanding Base** | E7 · ◉ | 1400≡ + 20▣ 40⚙ | autoFabrication, siteSurveyAI | NEW RULE Network: Relay Masts at the network edge toward ground a rule needs (cap 4); "Extend network" orders | +30% draw: Relay Mast (beacon crowns) · spends your stock (16◆ 4⚙ and 1.5 kW per mast) | Relay Masts wear a beacon crown and a cable reel at the foot. |
+| 1 | `buildOrders` · **Build Orders** | E2 · ◉ | 240≡ | teleoperation | ORDER BOOK: 4 held orders, up to ×10 each; orders wait for stock instead of skipping; Build next for a whole order | −1 kW: Lander (planning console) · held orders take stock the moment it lands | The Lander raises a planning mast: a lattice pole with a work lamp over its top deck. |
+| 2 | `autoExcavation` · **Automated Excavation** | E3 · ◉ | 278≡ + 10⚙ | buildOrders | NEW RULE Excavation: +1 Excavator when regolith demand outruns supply for 60 s (cap 6); Ice Harvester on water at the pole | −1 kW per Robotics Bay (dispatch) · the builder spends your stock unasked (16◆ 4⚙ per Excavator) | Every Robotics Bay grows a dispatch mast: a lattice tower with a beacon on the roof. |
+| 3 | `siteSurveyAI` · **Site Survey AI** | E3 · ▣ | 278≡ | buildOrders, prospectingRovers | auto sites weigh the overlay: the feed's deposits, peaks of light for solar, others' ground kept clear, haul lanes never crossed; planned dig sites | +20% upkeep: Robotics Bay (survey drones) | A survey drone rests on a pad on each Robotics Bay roof. |
+| 4 | `autoPower` · **Automated Power** | E4 · ⚡ | 456≡ + 20◆ | autoExcavation | NEW RULE Power: +1 Solar Array when the day's margin < 10% (cap 24); +1 Battery Bank at dawn after the bank ran dry (cap 6); reactor rule (cap 1: raise it to let the builder add reactors) | +10% upkeep: Solar Array (combiner boxes) · spends your stock (12◆ per array, 40◆ 8◇ per bank) | Each Solar Array gains a combiner box with a status lamp at its foot. |
+| 5 | `budgetGovernor` · **Budget Governor** | E4 · ▣ | 456≡ + 5▣ | autoExcavation | RESERVES and PRIORITIES: floors per resource; queued research goods kept; rules act in your order; crisis sites jump the rover queue | +50% upkeep: Storage Yard (manifest gantries) · rules wait for your floors, so the builder acts later | Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks. |
+| 6 | `autoLifeSupport` · **Automated Life Support** (crew tech) | E4 human · E7 robotic (1294≡) · ◉ | 456≡ + 10⚙ | autoExcavation | NEW RULE Life support: the O₂, food and water makers when a supply's runway falls under 20 min; a Habitat when no bed is free for the next settler | +10% draw: Habitat Module (air monitors) · spends your stock | Each Habitat gets an air-monitor mast by its door. |
+| 7 | `autoSmelting` · **Automated Smelting & Refining** | E5 · ◉ | 580≡ + 20⚙ | autoExcavation, siliconRefining | NEW RULE Smelting: Smelters and Refineries when metals or silicon demand (builds included) outruns supply; Storage Yards when a full stock idles its producers | +10% upkeep: Smelter, Refinery (samplers) · spends your stock (32◆ 8⚙ per Smelter) | Smelters and Refineries grow an ore-sampler arm over the hopper. |
+| 8 | `feedPlanner` · **Feed Planner** | E5 · ▣ | 580≡ | siteSurveyAI | every excavator (manual or auto, with a per-excavator opt-out) re-aimed at the feed the furnaces want, trading haul distance for grade | +10% draw: Excavator (assay drills) · longer hauls carry less | Excavators carry an assay drill beside the bucket. |
+| 9 | `predictiveScheduling` · **Predictive Scheduling** | E6 · ▣ | 1700≡ + 10▣ | autoPower, lunarDataCenter | rules act on forecasts: batteries before dusk, sites under construction counted, dwell halved (needs an operating Data Center) | +10% draw: Data Center · reactive again whenever no Data Center runs | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. |
+| 10 | `autoFabrication` · **Automated Fabrication** | E6 · ◉ | 1700≡ + 10▣ | autoSmelting, partsFabrication | NEW RULE Fabrication: Parts Fabricators on parts demand; Chip Fabs when research waits on chips; Robotics Bays when sites wait for a rover | +20% upkeep: Parts Fabricator (gantry cranes) · spends your stock (a Chip Fab is 48◆ 24◇ 16⚙) | Parts Fabricators get a gantry crane over the roof. |
+| 11 | `maintenanceAutomation` · **Maintenance Automation** | E7 · ▣ | 1294≡ + 30⚙ | autoFabrication | parts triage (below); worn machines replaced; tripped overclocks re-armed once healed | +30% upkeep: Robotics Bay · a replacement costs a new build less half the old one's price | Robotics Bays get a service crane arm at the side door. |
+| 12 | `selfExpandingBase` · **Self-Expanding Base** | E7 · ◉ | 1294≡ + 10▣ 40⚙ | autoFabrication, siteSurveyAI | NEW RULE Network: Relay Masts at the network edge toward ground a rule needs (cap 4); "Extend network" orders | +30% draw: Relay Mast (beacon crowns) · spends your stock (16◆ 4⚙ and 1.5 kW per mast) | Relay Masts wear a beacon crown and a cable reel at the foot. |
 
-**Per era.** ◉ gets 1 / 1 / 1 / 1 / 3 / 1 techs in Eras 2–7 (counting Life Support at E4 on human runs and E6 on robotic runs). ⚡ gets Automated Power in Era 4. ▣ gets 0 / 1 / 1 / 2 / 0 / 0. If work/tree already fills ◉ in Era 6, move Maintenance Automation to Era 5; its only prerequisite would then be `autoSmelting`.
+**Per era, as shipped.** The 2× tree left one free ◉ and one free ▣ cell per era (docs/12 §5), so the ladder takes at most one of each per era: ◉ gets Build Orders (E2), Automated Excavation (E3), Automated Life Support (E4 human; E7 robotic, after Human Cohabitation), Automated Smelting & Refining (E5), Automated Fabrication (E6) and Self-Expanding Base (E7); ▣ gets Site Survey AI (E3), Budget Governor (E4), Feed Planner (E5), Predictive Scheduling (E6) and Maintenance Automation (E7). Automated Power is a fourth ⚡ card on the Era 4 page where that lane already held three; every era page still fits 1280×720 (`tests/techtree.spec.ts`). Automated Excavation needs only Build Orders (Construction Robotics would have pulled it behind a crewed-run tech).
 
 **Maintenance Automation in detail.** These are the only three ways the builder ever changes existing buildings. They use the current wear rules; if work/tree adds building aging, replacement switches to aging (coordinator decision).
 
@@ -706,6 +706,7 @@ interface AutoOrder {
 | **work/tree** | the `visual` field and the tech-gated recipe-part mechanism; each era's median cost; lane occupancy (§4, per-era note); `techSchema` if it bumps. The 12 techs are added **after** the tree merges, in its format. |
 | **work/classic**, **work/lights** | The AUTO markers are DOM, and the mesh parts use `meshKit` materials, so both render styles pick them up. The beacon parts use `LAMP` and `BEACON` and join the lights branch's per-structure darkness like any other lamp. |
 | **main** (discovery pop-ups, era explainers) | The `BUILDER — the … rule is on` alert is also a discovery moment. If main's pop-up system has a "new verb" template, the first rule of each family uses it. |
+| **work/avoid** (roads, unit movement) | Every Builder placement dispatches the player's own `place` action (with a `builder` flag: crew choice, no CANNOT BUILD alert), so a placement's road spur applies to auto sites unchanged. A site the action refuses — "no road route" or anything else — is skipped and the chooser offers the next best, up to `AUTO.placeTries` (6). The Builder never touches `paths.ts`, `haul.ts`, `rovers.ts` or `haulers.ts`; it calls `tripFor`, `setDigSite`, `digRefusal` and `plan` as they stand. |
 
 ---
 
@@ -893,3 +894,52 @@ The coordinator settled these after Phase A. The rest of this document already f
 5. **Tests.** Everything in §7, then the full suite.
 6. **Probe.** `--auto` and the *distracted* policy; run §8.3's acceptance and tune only §8.3's levers.
 7. **Docs.** 07, 08, 03 (regenerated), 02, and the index; the discovery card's `nextStep()` cases ship with step 3.
+
+---
+
+## 11. Phase B: as shipped
+
+What changed from the text above while building it, and why. Where this section and an earlier one disagree, this one describes the code.
+
+**Placement and the ladder.** The eras, lanes, costs and prerequisites in §4's table are the shipped ones: one ◉ and one ▣ per era in the free cells, Automated Life Support at E7 on robotic runs (◉ E6 holds Automated Fabrication), Maintenance Automation in ▣ E7, Predictive Scheduling in ▣ E6, Automated Excavation after Build Orders alone. Automated Power is a fourth ⚡ card on the E4 page where the lane already held three; the page still fits 1280×720. Since main's one-page-per-era tree (PR #24) reads `researchView`, the twelve techs appear on their era's page with no tree code of their own.
+
+**Rules.**
+
+- *Holding comes before the dwell.* When the signal is past its trigger but the producers are dark or short of crew, the rule holds and its dwell is zeroed. When the trouble clears, the averages get a full dwell before anything is built (otherwise the stale deficit fired at once).
+- *The day's margin pays the bank.* The solar rule's margin is `(full-sun supply − load − recharge) / load`, where `recharge` is what refilling the bank by dusk takes over the sunlit hours. Without it a 10% margin never refilled the bank: it ran dry every night, the battery rule kept adding banks, and the labs went dark (+23% FIRST LIGHT in the first probe run).
+- *Yards for research.* The Storage Yard rule adds a yard only when a store is ≥ 95% full with a producer standing by **and** its capacity is under 1.5× the largest research payment queued in that resource. A surplus that tops out a store is not a shortage of storage: the first probe run built 20 yards.
+- *Maintenance is a family.* The `maintenance` effect adds `'maintenance'` to `autoFamilies`, so its rule switches on with the family like any other.
+- *Held orders place one site per order per tick* (still ≤ 2 placements a tick in all).
+
+**The inspector.** The Builder's one button sits at the right end of the idle-priority row — *Pause rule* on a rule's site, **＋1** on a finished building — so the foot grows no taller and nothing leaves the 280 px frame. Feed Planner's per-excavator switch sits in the body.
+
+**Extension points for the destiny tracks** (work/destiny `docs/14` §0, §2.5; not implemented here):
+
+| Hook | Where | For |
+|---|---|---|
+| `mods.builderDwellMult`, `mods.builderCapMult` | `{ kind: 'builder'; dwellMult?; capMult?; families? }` effect | faster or bolder rules |
+| families `research`, `export` | `AutoFamily`; hidden in the panel until unlocked; rules `lab`, `foilFactory` | a builder that also grows science and the launch chain |
+| `freezeRules(s, seconds, rule?)` | `core/automation.ts`; the `freezeRules` action | MALWARE, CONTROL PLANE, *Freeze rules* |
+| `AutoRequest.bypass { cap?, reserve? }`, `BudgetOpts.bypassReserve` | the request and budget | RUNAWAY RULE |
+
+**Pacing** (`scripts/probe-pacing.mjs --minutes=280`, seeds 42, 7 and 1234, medians of FIRST LIGHT in game-min; placements are the bot's own per game-minute from Era 4 on — the attention metric):
+
+| Run | Manual | `--auto=on` | Δ | placements/min E4+ | `--savers=early` | Δ | placements/min E4+ |
+|---|---|---|---|---|---|---|---|
+| robotic mare · reasonable | 200.6 | 212.3 | **+5.8%** | 0.30 → 0.21 (−30%) | 220.6 | +10.0% | 0.14 (−53%) |
+| robotic mare · attentive | 180.9 | 191.4 | **+5.8%** | 0.55 → 0.41 (−25%) | 202.1 | +11.7% | 0.19 (−65%) |
+| crewed pole · reasonable | 176.3 | 190.3 | **+7.9%** | 0.53 → 0.34 (−36%) | 200.6 | +13.8% | 0.19 (−64%) |
+| crewed pole · attentive | 168.4 | 176.6 | **+4.9%** | 0.98 → 0.59 (−40%) | 185.4 | +10.1% | 0.32 (−67%) |
+| robotic mare · distracted (measured, not gated) | 233.6 | 243.6 | +4.3% | 0.26 → 0.17 | 249.6 | +6.8% | 0.17 |
+| crewed pole · distracted (measured, not gated) | 205.6 | 219.6 | +6.8% | 0.34 → 0.26 | 221.6 | +7.8% | 0.19 |
+
+- **The gate** (−5% / +8% on reasonable and attentive) **passes** with the default `--auto=on`: the Builder techs taken after their era's critical techs, as §8.3 item 2 reads. The manual baselines match the targets (≈ 200 robotic mare, ≈ 176 crewed pole). Brownout stays ≤ 1.1% everywhere; goods-stall minutes fall (pole reasonable 4.8 → 2.1).
+- **The attention gate (≥ 60% fewer placements from Era 4) does not pass together with it.** Taken after the critical path, Automated Power lands in Era 6 on the bot's list, so the rules run only the last third of the game (−25% to −40%). `--savers=early` (Automated Excavation and Power closing their era's critical block) cuts placements by 53–67% but costs +10% to +14%: the chain to Automated Power is about 970≡ researched at 1.3–1.4≡/s, ahead of the Data Center that multiplies the research rate.
+- **The cost lever is weak.** Halving Build Orders, Automated Excavation and Automated Power (§8.3's first lever, measured in a scratch build, not shipped) gains only 2–3 points: early savers become +7.5% / +8.8% / +12.1% / +12.3%. What remains is reaction: the bot builds power ahead of need from its own projection (pending sites, recharge), the rules after a deficit has held for its dwell. Costs therefore stay at the era medians (decision 7).
+- **The *distracted* bot does not gain game time either** (+4% to +8%): it still builds by need, only less often, so the rules have little to catch. The gain automation offers a human is real time and attention, which the probe's decision rate shows falling; it does not show up as FIRST LIGHT minutes for a scripted player.
+- The probe fix that made attentive runs measurable: an attentive player waiting on a next-era priority tech with an **empty** queue deadlocked robotic mare in Era 6 (main too); it now waits only while something is queued.
+
+**Debug API.** `order`, `cancelOrder`, `orderNext`, `setRule`, `setReserve`, `moveFamily`, `freezeRules`, `setFeedPlan`, `getAutomation`, `planSite(type, intent)`, `setWear(id, wear)`.
+
+**Tests.** `tests/automation.spec.ts` covers §7 in fifteen tests. Not covered as a separate test: §7 #8's hysteresis toggle, and SSAI lane avoidance; the chooser's determinism test compares two page loads.
+
