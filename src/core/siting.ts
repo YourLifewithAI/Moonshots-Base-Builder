@@ -7,16 +7,21 @@
  *  reserved for other families, never crosses an excavator's haul lane, and
  *  may plan an excavator's dig site. Both keep every door apron clear, obey
  *  the player's vetoes, and validate the winner with the real checkPlacement.
- *  No randomness: the same state, terrain and mods give the same site; ties
- *  break on (score, gz, gx, rot). It knows only what the overlay shows. */
+ *  Ground placement would refuse on sight (a road, too rough, no road can
+ *  reach it) is struck before the ranking, so the validation walks every
+ *  pad that might pass, not a fixed window; a refusal counts the pads by
+ *  reason. No randomness: the same state, terrain and mods give the same
+ *  site; ties break on (score, gz, gx, rot). It knows only what the overlay
+ *  shows. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
-import { CELL_M, FEED, HAUL, MAP_CELLS, MAP_M } from '../data/balance';
+import { CELL_M, FEED, HAUL, MAP_CELLS, MAP_M, MAX_SLOPE_DELTA } from '../data/balance';
 import type { SiteDef } from '../data/sites';
 import type { ResourceId } from '../data/resources';
 import { DEPOSIT_INFO, feedKindOf, type DepositKind } from '../data/deposits';
 import type { Deposit, Heightfield } from '../terrain/heightfield';
 import { checkPlacement } from '../buildings/placement';
 import { ROAD } from '../data/roads';
+import { roadMap, spurHopeless } from './roads';
 import { centerOf, footprintRect } from '../buildings/instances';
 import type { AutoRuleId } from '../data/automation';
 import type { BuildingState, GameState } from './state';
@@ -27,11 +32,26 @@ import { digOutput, digSpotIn } from './fleetView';
 import { pathLength, plan, segmentHits, wallSpot, worldRect, type Rect } from './paths';
 import { flowBalance } from './flowBook';
 
-export type Ground = Pick<Heightfield, 'depositAt' | 'maxDelta' | 'deposits'>;
+export type Ground = Pick<Heightfield, 'depositAt' | 'maxDelta' | 'deposits' | 'sample'>;
 
 /** A new road cell weighs this many metres of distance, over the first ROAD_PICKS valid pads. */
 const ROAD_M = 1.5;
 const ROAD_PICKS = 6;
+
+/** Why open pads (clear of footprints and door aprons) were not taken, by
+ *  reason: the words a refusal counts them in. */
+const TALLY: [key: string, words: string][] = [
+  ['rough', 'too rough'], ['road', 'on roads'], ['route', 'no road route'], ['lane', 'on haul lanes'],
+  ['veto', 'vetoed'], ['tube', 'outside the lava tube'], ['other', 'refused'],
+];
+
+/** 'of 412 open pads: 229 too rough, 150 on roads, 33 no road route' (largest first) */
+function tallyText(open: number, n: Record<string, number>, other: string): string {
+  const parts = TALLY.filter(([k]) => (n[k] ?? 0) > 0)
+    .sort((a, b) => n[b[0]] - n[a[0]] || TALLY.indexOf(a) - TALLY.indexOf(b))
+    .map(([k, w]) => `${n[k]} ${k === 'other' && other ? `refused (${other})` : w}`);
+  return open ? `of ${open} open pad${open === 1 ? '' : 's'}${parts.length ? `: ${parts.join(', ')}` : ''}` : 'no open pad';
+}
 
 export interface SiteQuery {
   type: BuildingId;
@@ -70,9 +90,11 @@ function apron(t: BuildingId, gx: number, gz: number, rot: number): [number, num
   }
 }
 
-/** occupancy: 1 footprint, 2 door apron, 4 haul lane (bits) */
+/** occupancy: 1 footprint, 2 door apron, 4 haul lane, 8 road (bits) */
 function raster(s: GameState, mods: Mods, lanes: boolean): Uint8Array {
   const g = new Uint8Array(MAP_CELLS * MAP_CELLS);
+  // nothing is built on a road cell (docs/15-roads.md), open or still sintering
+  for (const k of roadMap(s).keys()) g[k] |= 8;
   const mark = (x0: number, z0: number, x1: number, z1: number, bit: number) => {
     for (let z = Math.max(0, z0); z < Math.min(MAP_CELLS, z1); z++) {
       for (let x = Math.max(0, x0); x < Math.min(MAP_CELLS, x1); x++) g[idx(x, z)] |= bit;
@@ -234,28 +256,34 @@ export function chooseSite(
     }
   }
 
-  // score each candidate that clears the raster
+  // score each candidate that clears the raster, counting the open pads struck
+  const tally: Record<string, number> = {};
+  const strike = (k: string) => { tally[k] = (tally[k] ?? 0) + 1; };
+  let open = 0;
   const scored: { gx: number; gz: number; rot: 0 | 1; score: number; d: number; name: string; kind?: DepositKind }[] = [];
   for (const c of cands) {
     const r = footprintRect({ type, ...c });
     if (r.gx0 < 1 || r.gz0 < 1 || r.gx1 > MAP_CELLS - 1 || r.gz1 > MAP_CELLS - 1) continue;
-    let bad = false;
-    for (let z = r.gz0; z < r.gz1 && !bad; z++) {
-      for (let x = r.gx0; x < r.gx1; x++) {
-        const v = grid[idx(x, z)];
-        if (v & 3 || (q.survey && v & 4)) { bad = true; break; }
-      }
-    }
-    if (bad) continue;
+    let bits = 0;
+    for (let z = r.gz0; z < r.gz1; z++) for (let x = r.gx0; x < r.gx1; x++) bits |= grid[idx(x, z)];
+    if (bits & 3) continue;
     // its own door apron must be open ground
     const ap = apron(type, c.gx, c.gz, c.rot);
+    let bad = false;
     if (ap) {
       for (let z = ap[1]; z < ap[3] && !bad; z++) for (let x = ap[0]; x < ap[2]; x++) if (grid[idx(x, z)] & 1) { bad = true; break; }
       if (bad) continue;
     }
-    if (vetoes.some((v) => r.gx0 < v.gx1 && r.gx1 > v.gx0 && r.gz0 < v.gz1 && r.gz1 > v.gz0)) continue;
+    open++;
+    if (q.survey && bits & 4) { strike('lane'); continue; }
+    if (vetoes.some((v) => r.gx0 < v.gx1 && r.gx1 > v.gx0 && r.gz0 < v.gz1 && r.gz1 > v.gz0)) { strike('veto'); continue; }
     const [x, z] = centerOf({ type, ...c });
-    if (site.buildableRadiusM > 0 && Math.hypot(x, z) > site.buildableRadiusM) continue;
+    if (site.buildableRadiusM > 0 && Math.hypot(x, z) > site.buildableRadiusM) { strike('tube'); continue; }
+    // what placement refuses on sight: a road under it, rough ground, no road to it
+    if (bits & 8) { strike('road'); continue; }
+    const relief = ground.maxDelta(r.gx0, r.gz0, r.gx1, r.gz1);
+    if (relief > MAX_SLOPE_DELTA) { strike('rough'); continue; }
+    if (spurHopeless(s, ground, { type, ...c })) { strike('route'); continue; }
     let d = Infinity, nm = '';
     for (const p of anchor.pts) {
       const dd = Math.hypot(x - p.x, z - p.z);
@@ -277,7 +305,7 @@ export function chooseSite(
       if (kind && wanted && kind === wanted) score -= 40;
       else if (reservedFor(type, kind, target)) score += 25;
     }
-    score += 2 * ground.maxDelta(r.gx0, r.gz0, r.gx1, r.gz1);
+    score += 2 * relief;
     scored.push({ ...c, score, d, name: nm, kind });
   }
   scored.sort((a, b) => a.score - b.score || a.gz - b.gz || a.gx - b.gx || a.rot - b.rot);
@@ -299,18 +327,28 @@ export function chooseSite(
 
   const unlocked = mods.unlocked;
   let pick: typeof scored[number] | null = null;
-  // of the first few valid pads, the one whose new road (docs/15-roads.md) costs least on top of its score
-  let best = Infinity, valid = 0;
-  for (const c of scored.slice(0, 200)) {
-    if (q.skip?.includes(`${c.gx},${c.gz},${c.rot}`)) continue;
+  let pickRoad = 0;
+  // of the first few valid pads, the one whose new road (docs/15-roads.md) costs least on top of its score;
+  // every pad left is tried in order until they are found (placement stays the one truth)
+  let best = Infinity, valid = 0, other = '';
+  for (const c of scored) {
+    if (q.skip?.includes(`${c.gx},${c.gz},${c.rot}`)) { strike('other'); continue; }
     const chk = checkPlacement(s, site, ground as Heightfield, unlocked, type, c.gx, c.gz, c.rot, tier);
-    if (!chk.valid) continue;
+    if (!chk.valid) {
+      const k = /^On a road/.test(chk.reason) ? 'road' : /rough/i.test(chk.reason) ? 'rough' : /^NO ROAD ROUTE/.test(chk.reason) ? 'route' : 'other';
+      if (k === 'other' && !other) other = chk.reason;
+      strike(k);
+      continue;
+    }
     const cost = c.score + ROAD_M * (chk.roadS ?? 0) / ROAD.cellS;
-    if (cost < best) { best = cost; pick = c; }
+    if (cost < best) { best = cost; pick = c; pickRoad = chk.road?.length ?? 0; }
     if (++valid >= ROAD_PICKS) break;
   }
   if (!pick) {
-    return { refusal: `no valid ground for ${/^[AEIOU]/.test(def.name) ? 'an' : 'a'} ${def.name} inside the build network — a Relay Mast or Habitat extends it` };
+    return {
+      refusal: `no valid ground for ${/^[AEIOU]/.test(def.name) ? 'an' : 'a'} ${def.name} inside the build network ` +
+        `(${tallyText(open, tally, other)}) — a Relay Mast or Habitat extends it`,
+    };
   }
 
   const m = Math.round(pick.d);
@@ -349,6 +387,7 @@ export function chooseSite(
       }
     }
   }
+  if (pickRoad > 0) why += ` · a ${pickRoad}-cell road to it`;
   return { gx: pick.gx, gz: pick.gz, rot: pick.rot, why, score: pick.score, ...(dig ? { dig } : {}) };
 }
 

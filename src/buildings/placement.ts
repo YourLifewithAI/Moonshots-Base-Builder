@@ -320,7 +320,10 @@ export function checkPlacement(
   const large = largePadRefusal(type, r.w * r.d, relief, site);
   if (large) return { valid: false, reason: large };
   if (relief > MAX_SLOPE_DELTA) {
-    return { valid: false, reason: 'Terrain too rough' };
+    // the numbers and the fix, as for a large pad (grading is era 1 where it exists)
+    const grading = TECHS.siteGrading;
+    const fix = !grading.sites || grading.sites.includes(site.id) ? `find flatter ground, or grade it (${grading.name})` : 'find flatter ground';
+    return { valid: false, reason: `Terrain too rough (${(Math.ceil(relief * 10) / 10).toFixed(1)} m relief > ${MAX_SLOPE_DELTA} m) — ${fix}` };
   }
   if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
   for (const [rid, amt] of Object.entries(buildCost(type, site))) {

@@ -1258,7 +1258,7 @@ test('site grading: era-1 tech flattens rough terrain for construction', async (
           const distM = Math.hypot(gx + 2 - lx, gz + 2 - lz) * 4;
           if (distM > 55 || !rectClear(gx, gz)) continue;
           const p = g.canPlace('solar', gx, gz);
-          if (!p.valid && p.reason === 'Terrain too rough') return { gx, gz, rough: true };
+          if (!p.valid && /^Terrain too rough/.test(p.reason)) return { gx, gz, rough: true };
           if (!fallback && p.valid) fallback = { gx, gz, rough: false };
         }
       }
