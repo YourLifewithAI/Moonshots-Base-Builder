@@ -632,10 +632,99 @@ function propellantPlant(): Parts {
   return p;
 }
 
+// ─── destiny buildings (docs/14 §2.8): placeholder silhouettes from the stock
+// kit, sized to their footprints; the look phase (docs/14 §4.2) replaces them ───
+
+/** Greenhouse Ring (4×4 cells): eight glass vaults on sills round a domed hub, a porch at +z. */
+function greenhouseRing(): Parts {
+  const p: Parts = [
+    cyl(2.3, 2.5, 2.0, BODY, 0, 1.0, 0, 0, 0, 20),
+    dome(2.3, GLASS, 0, 2.0, 0, 20),
+    domeBand(2.33, 1.0, 1.08, TRIM, 0, 2.0, 0, 20),
+    box(1.8, 1.9, 1.4, BODY, 0, 0.95, 7.0),
+    box(1.9, 0.14, 1.5, TRIM, 0, 1.97, 7.0),
+    door(0, 7.7, 0, 1.0, 1.5),
+    antenna(1.2, 4.0, 0, 1.6),
+  ];
+  const r = 5.2;
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * PI * 2 + PI / 8;
+    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    p.push(
+      box(3.9, 0.45, 3.9, TRIM, 0, 0.22, 0).rotateY(-a).translate(x, 0, z),
+      vault(1.75, 3.7, GLASS, 0, 0.45, 0, 0, PI, 14).rotateY(-a).translate(x, 0, z),
+      vault(1.78, 0.14, TRIM, 0, 0.45, 1.8, 0, PI, 14).rotateY(-a).translate(x, 0, z),
+      box(0.3, 0.08, 0.1, LAMP, 0, 2.1, 0).rotateY(-a).translate(x, 0, z),
+    );
+  }
+  return p;
+}
+
+/** Garden Dome (5×5 cells): a glass dome on a ring wall of lit terraces, a porch at +z. */
+function gardenDome(): Parts {
+  const p: Parts = [
+    cyl(8.8, 9.1, 2.6, BODY, 0, 1.3, 0, 0, 0, 40),
+    ...bands(8.85, 0, 0, [0.9, 1.8, 2.55], TRIM, 0.12, 40),
+    ...windowRing(8.95, 1.35, 0.5, 18, 1.3),
+    dome(8.6, GLASS, 0, 2.6, 0, 36),
+    domeBand(8.64, 0.52, 0.56, TRIM, 0, 2.6, 0, 36),
+    domeBand(8.64, 1.02, 1.06, TRIM, 0, 2.6, 0, 36),
+    box(2.6, 2.4, 1.6, BODY, 0, 1.2, 9.1),
+    box(2.7, 0.14, 1.7, TRIM, 0, 2.47, 9.1),
+    ...door(0, 9.9, 0, 1.4, 2.0),
+    dome(0.2, BEACON, 0, 11.25, 0, 8),
+  ];
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * PI * 2;
+    p.push(bar([Math.cos(a) * 8.62, 2.6, Math.sin(a) * 8.62], [0, 11.1, 0], 0.1, TRIM));
+  }
+  return p;
+}
+
+/** Drone Hive (3×3 cells): a honeycomb dock wall with a lamp at each mouth, a landing deck. */
+function droneHive(): Parts {
+  const p: Parts = [
+    box(9.2, 3.6, 4.0, BODY, 0, 1.8, -2.8),
+    box(9.4, 0.3, 4.2, TRIM, 0, 3.75, -2.8),
+    box(5.4, 0.25, 4.8, PLATE, 0, 1.4, 2.7),
+    dome(0.16, BEACON, 2.3, 1.55, 4.7, 8),
+    ...radiator(3.2, 1.3, 0, 3.9, -4.4, PI),
+    door(-3.9, -0.8, 0, 1.0, 1.8),
+  ];
+  for (const [x, z] of [[-2.4, 0.5], [2.4, 0.5], [-2.4, 4.9], [2.4, 4.9]]) p.push(bar([x, 0, z], [x, 1.3, z], 0.16, TRIM));
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 4; col++) {
+      const x = -3.3 + col * 2.2 + (row % 2) * 0.55, y = 0.75 + row * 1.0;
+      p.push(
+        cyl(0.46, 0.46, 0.3, PLATE, x, y, -0.7, PI / 2, 0, 6),
+        box(0.24, 0.12, 0.06, LAMP, x, y + 0.2, -0.52),
+      );
+    }
+  }
+  return p;
+}
+
+/** Server Monolith (2×2 cells): a 16 m windowless slab, a lamp stripe, a fin stack behind. */
+function serverMonolith(): Parts {
+  const p: Parts = [
+    box(4.0, 0.5, 6.6, TRIM, 0, 0.25, 0),
+    box(3.0, 14.6, 5.2, BODY, 0, 7.8, -0.2),
+    box(3.1, 0.3, 5.3, TRIM, 0, 15.25, -0.2),
+    box(0.2, 12.6, 0.06, LAMP, 0, 7.8, 2.42),
+    ...door(0, 2.4, 0, 0.9, 1.9, 0.5),
+    dome(0.2, BEACON, 0, 15.4, -0.2, 8),
+    antenna(0.9, 15.4, -1.4, 0.5),
+  ];
+  for (let i = 0; i < 8; i++) p.push(box(2.6, 0.08, 0.9, RADIATOR, 0, 2.2 + i * 1.6, -3.2));
+  p.push(bar([1.2, 0.5, -3.3], [1.2, 13.6, -3.3], 0.1, TRIM), bar([-1.2, 0.5, -3.3], [-1.2, 13.6, -3.3], 0.1, TRIM));
+  return p;
+}
+
 const R: Record<BuildingId, () => Parts> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery,
   refinery, lab, storageYard, roboticsBay, partsFab, reactor, recDome, chipFab,
   dataCenter, foilFactory, massDriver, relayMast, propellantPlant,
+  greenhouseRing, gardenDome, droneHive, serverMonolith,
 };
 
 /** Moving parts of the stock recipes: pivot in building space, scale (dish

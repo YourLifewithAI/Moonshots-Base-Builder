@@ -6,9 +6,14 @@
  *  players who know the road. The queue is filled by game.publish(). */
 import { BUILDINGS, CATEGORY_LABEL, type BuildingId } from '../data/buildings';
 import {
-  ERA_BLURB, ERA_GATES, ERA_NAMES, LANES, TECHS, TECH_ORDER, describeTech, type Era, type TechEffect, type TechId,
+  ERA_BLURB, ERA_BLURB_8, ERA_GATES, ERA_NAMES, LANES, SIDE_GLYPH, SIDE_LABEL, TECHS, TECH_ORDER, TRACKS,
+  describeTech, effectApplies, type Era, type TechEffect, type TechId,
 } from '../data/techs';
-import { resolveTech, techVisible } from '../core/research';
+import { destinyOf, resolveTech, techVisible } from '../core/research';
+import { CREW, CREW_ROTATION, LAUNCH_COST_FOILS, PURE_AT } from '../data/balance';
+import { RESOURCES } from '../data/resources';
+import type { GameState } from '../core/state';
+import { destinyPips, reachLine } from './techDestiny';
 import type { AutoFamily } from '../data/automation';
 import { CHARTER_DEED_TECHS, CHARTER_TECHS } from '../data/balance';
 import { loadSettings, saveSettings } from '../core/settings';
@@ -33,10 +38,32 @@ const BUILDER_NEXT: Record<AutoFamily, string> = {
   export: 'The Builder now adds Foil Factories when foils hold a volley back: tune it with [B].',
 };
 
+const mmss = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
 /** What to do with a finished tech: the first effect that asks something of the player. */
-function nextStep(fx: TechEffect[]): string {
+function nextStep(fx: TechEffect[], s: GameState): string {
   for (const f of fx) {
     switch (f.kind) {
+      // ── destiny (docs/14 §2.7) ──
+      case 'bringsCrew':
+        // only when this pick is the one that brought the crew
+        if (s.crewRotation) {
+          const R = CREW_ROTATION;
+          return `Build a Hydroponics Farm and keep ${R.minFood}${RESOURCES.food.glyph}, ${R.minWater}${RESOURCES.water.glyph} and ` +
+            `${R.minO2}${RESOURCES.oxygen.glyph}: the rotation boards in ${mmss(Math.max(0, s.crewRotation.at - s.simTime))}.`;
+        }
+        break;
+      case 'growth':
+        if (f.mult > 0) return `Keep morale up and a bed free: settlers now arrive every ${mmss(CREW.growthPeriod * f.mult)}.`;
+        break;
+      case 'waive': return 'Era 7 opens without Human Cohabitation: the base can stay unmanned for good.';
+      case 'eva': return 'By day, free hands go out on EVA: leave a few crew unassigned to clear dust and mend machines.';
+      case 'radius': return `${BUILDINGS[f.building].name}s reach further now: plant the next one farther out.`;
+      case 'volley':
+        if (f.minCrew) return `Launch day: keep ${f.minCrew} crew aboard, and a volley needs only ${f.launchCap ?? 3}${RESOURCES.launch.glyph}, with morale for a lunar day.`;
+        break;
+      case 'autoLaunch':
+        return `Nothing to press: the rail fires when ${LAUNCH_COST_FOILS}${RESOURCES.foils.glyph}, the launch capacity and the charge are ready.`;
       case 'unlock': {
         const b = BUILDINGS[f.building as BuildingId];
         return `Build it: ${CATEGORY_LABEL[b.category]} tab → ${b.name}.`;
@@ -122,17 +149,18 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
     const s = game.state;
     const def = resolveTech(TECHS[tid], s.expedition);
     const lane = LANES.find((l) => l.id === def.lane);
-    const lines = describeTech(def, { siteId: s.siteId, expedition: s.expedition, agentTax: game.mods.agentTax });
+    const lines = describeTech(def, { siteId: s.siteId, expedition: s.expedition, agentTax: game.mods.agentTax, done: s.techsDone });
+    const track = def.track ? `${SIDE_GLYPH[def.track.side]} ${SIDE_LABEL[def.track.side]} · the Era ${def.track.era} destiny` : '';
     const pros = lines.filter((l) => l.sign === 'pro').slice(0, 3);
     const cons = lines.filter((l) => l.sign === 'con').slice(0, 2);
     return `<div class="dsc-head"><span class="label">Discovered</span>` +
-      `<span class="dsc-meta mono">E${def.era}${lane ? ` · ${esc(lane.label)}` : ''}${more ? ` · +${more} more` : ''}</span></div>` +
+      `<span class="dsc-meta mono">E${def.era}${lane ? ` · ${esc(lane.label)}` : ''}${track ? ` · ${esc(track)}` : ''}${more ? ` · +${more} more` : ''}</span></div>` +
       `<div class="dsc-name">${esc(def.name)}</div>` +
       `<div class="dsc-desc">${esc(def.desc)}</div>` +
       `<div class="dsc-fx">${pros.map((l) => `<div class="dsc-pro">⊕ ${esc(l.text)}</div>`).join('')}` +
       `${cons.map((l) => `<div class="dsc-con">⊖ ${esc(l.text)}</div>`).join('')}</div>` +
       (def.visual ? `<div class="dsc-look"><span class="label">Look for it</span> ${esc(def.visual)}</div>` : '') +
-      `<div class="dsc-next"><span class="label">Next</span> ${esc(smelterFirst(game, tid) + nextStep(def.effects))}</div>` +
+      `<div class="dsc-next"><span class="label">Next</span> ${esc(smelterFirst(game, tid) + nextStep(def.effects.filter((fx) => effectApplies(fx, s.siteId, s.expedition, s.techsDone)), s))}</div>` +
       `<div class="dsc-foot"><button class="btn primary" data-dsc="ok">Got it</button>` +
       `<button class="btn" data-dsc="tree" data-tech="${tid}">In the tree</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these pop-ups</label></div>`;
@@ -140,20 +168,33 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
 
   const eraHtml = (era: number, intro: boolean) => {
     const s = game.state;
-    const ctx = { siteId: s.siteId, expedition: s.expedition, discoveries: s.discoveries };
+    const ctx = { siteId: s.siteId, expedition: s.expedition, discoveries: s.discoveries, techsDone: s.techsDone };
     const opens = TECH_ORDER.filter((t) => {
       const d = resolveTech(TECHS[t], s.expedition);
-      return d.era === era && !d.breakthrough && techVisible(d, ctx);
+      return d.era === era && !d.breakthrough && !d.track && techVisible(d, ctx);
     });
     const next = ERA_GATES[(era + 1) as Era];
     const names = opens.slice(0, 4).map((t) => TECHS[t].short).join(', ');
+    // the era's destiny (docs/14 §2): the pick that opens the next era, and the meter
+    const dv = destinyOf(s);
+    const pair = era >= 2 ? TRACKS[era as Era] : null;
+    const destiny = pair
+      ? `<p class="eb-line eb-destiny"><span class="label">Destiny</span> ${esc(pair.question)} ${SIDE_GLYPH.colony} ${esc(TECHS[pair.colony].name)} ` +
+        `or ${SIDE_GLYPH.automation} ${esc(TECHS[pair.automation].name)} — one pick, permanent${next ? `, and Era ${era + 1} needs it` : ''} · ` +
+        `<span class="mono">${destinyPips(dv)}</span> ${esc(reachLine(dv))}</p>`
+      : `<p class="eb-line eb-destiny"><span class="label">Destiny</span> Your landing was the first of eight choices, one per era: ` +
+        `${PURE_AT} on one side make it your destiny · <span class="mono">${destinyPips(dv)}</span></p>`;
+    const blurb = era === 8 && dv.certain ? ERA_BLURB_8[dv.certain] : ERA_BLURB[era] ?? '';
     return `<div class="eb-panel">` +
       `<div class="label eb-k">${intro ? 'Mission start' : 'A new era opens'}</div>` +
       `<div class="eb-era mono">ERA ${era}</div>` +
       `<h1 class="eb-name">${esc(ERA_NAMES[era] ?? '')}</h1>` +
-      `<p class="eb-blurb">${esc(ERA_BLURB[era] ?? '')}</p>` +
+      `<p class="eb-blurb">${esc(blurb)}</p>` +
       (opens.length ? `<p class="eb-line"><span class="label">Research opens</span> ${opens.length} techs — ${esc(names)}${opens.length > 4 ? '…' : ''}</p>` : '') +
-      (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> opens with ${CHARTER_TECHS} techs from this era, or ${CHARTER_DEED_TECHS} plus: ${esc(next.deed)}</p>` : '') +
+      destiny +
+      (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> ${era >= 2
+        ? `opens with this era’s destiny and ${CHARTER_TECHS - 1} more of its techs, or the destiny, ${CHARTER_DEED_TECHS - 1} more and: ${esc(next.deed)}`
+        : `opens with ${CHARTER_TECHS} techs from this era, or ${CHARTER_DEED_TECHS} plus: ${esc(next.deed)}`}</p>` : '') +
       (intro ? '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>' : '') +
       `<div class="eb-foot"><button class="btn primary" data-dsc="ok">${intro ? 'Begin' : 'Continue'} ▸</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these explainers and pop-ups</label></div></div>`;

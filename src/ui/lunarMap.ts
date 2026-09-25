@@ -393,8 +393,10 @@ const DASH: Record<string, string> = { solid: '', dashed: '6 4', dotted: '1 3', 
 function siteBase(v: LunarView, deps: DepositView[], siteId: SiteId, uid: string, mpp: number): string {
   const s = v.site;
   const half = MAP_M / 2, B = half + 60;
-  const mastR = BUILDINGS.relayMast.buildRadiusM ?? 0;
   const masts = s.buildings.filter((b) => b.type === 'relayMast' && b.complete);
+  // a mast's mapped ground is its network disc (Dispatch Mesh widens it)
+  const mastR = s.network.find((n) => masts.some((m) => Math.hypot(m.x - n.x, m.z - n.z) < 0.5))?.r
+    ?? BUILDINGS.relayMast.buildRadiusM ?? 0;
   const mapped = s.revealM >= half * Math.SQRT2;
   let out = `<defs><pattern id="hp${uid}" patternUnits="userSpaceOnUse" width="6" height="6" ` +
     `patternTransform="rotate(45) scale(${mpp})"><path class="hl" d="M0 0V6"/></pattern>` +

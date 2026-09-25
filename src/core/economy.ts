@@ -7,21 +7,23 @@
  *  same function the tooltips and previews read.
  *  Timberborn-style priority idling: under shortage, low-priority buildings
  *  auto-idle first; habitats brown out last. */
-import { BUILDINGS, type BuildingId } from '../data/buildings';
+import { BUILDINGS, isCompute, type BuildingId } from '../data/buildings';
 import { MILESTONES } from '../data/milestones';
+import { TECHS } from '../data/techs';
 import {
   ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S,
   CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, FLARE, HELIOPHYSICS_DATA, NIGHT_S,
   LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, WEAR,
+  EVA, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState } from './state';
 import {
-  canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, wearDerate, type EffectiveRates, type Mods,
+  canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
-import { computeEra, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
+import { computeEra, destinyOf, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
 import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
@@ -37,6 +39,7 @@ const PROD_ORDER: BuildingId[] = [
   'hydroponics', 'recDome',               // life
   'foilFactory', 'massDriver', 'propellantPlant', // export
   'lab', 'dataCenter',                    // science
+  'greenhouseRing', 'gardenDome', 'serverMonolith', // destiny buildings (docs/14 §2.8)
 ];
 
 export interface EconEvents {
@@ -203,9 +206,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const before = { ...s.resources };
   const day = currentDay(s, site);
   const robotic = s.expedition === 'robotic';
-  // a robotic mission runs unmanned until Human Cohabitation brings settlers;
-  // once anyone is aboard, moods, life support, and crewed stations all apply
-  const unmanned = robotic && s.crew <= 0;
+  // a robotic mission runs unmanned until Human Cohabitation brings settlers
+  // (and a crewed one after its last crew rotated home, docs/14 §5); once
+  // anyone is aboard, moods, life support, and crewed stations all apply
+  const unmanned = isUnmanned(s);
   const workMult = unmanned ? 1 : moraleWorkMult(s.morale);
   const isAuto = (b: BuildingState) => b.automated || unmanned;
   const st = s.stats;
@@ -495,6 +499,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (workers >= need) { workers -= need; staffed.add(b.id); }
     else if (b.idleReason === '') b.idleReason = 'crew';
   }
+  // EVA crews (Crew Rotation Charter): by day, a share of the free hands goes
+  // outside — dust off the arrays, hands on the worn machines. Nobody walks
+  // out into a flare (docs/14 §2.7)
+  const eva = mods.evaShare > 0 && s.crew > 0 && workers > 0 && !day.isNight && s.flare.phase !== 'active'
+    ? Math.ceil(workers * mods.evaShare) : 0;
+  s.evaCrew = eva;
 
   // ── 3.5 · agents cover the gaps: once stations can run on agents, one
   // left short-handed goes agent-run from the next tick (at the agents'
@@ -618,7 +628,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (b.enabled && def.powerKW < 0 && powered.has(b.id) && Object.keys(def.outputs).length === 0
         && Object.keys(def.inputs).length === 0 && staffed.has(b.id)) b.active = true;
   }
-  const dcActive = s.buildings.some((b) => b.type === 'dataCenter' && b.active);
+  const dcActive = s.buildings.some((b) => isCompute(b.type) && b.active);
   if (dcActive) st.dcOpS += dt;
   if (day.isNight && !dcActive) st.nightDcAllActive = false;
   // later steps read post-production rates (and this tick's feed grade)
@@ -695,7 +705,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   }
   // the base falls silent when the last crewmember dies (humans only —
   // a robotic mission has no one to lose)
-  if (!robotic && s.crew <= 0 && !s.defeatShown) {
+  if (!robotic && s.crew <= 0 && !s.defeatShown && !s.crewHome) {
     ev.defeat = true;
     s.paused = true;
     return ev;
@@ -704,10 +714,13 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // (its crew rotation boards first), and nobody boards a base that cannot
   // keep one more alive
   const sustainable = boardingShortfall(s, lsMult) === '';
-  if (settlersWelcome(s) && !s.crewRotation && sustainable && s.morale > CREW.growthMorale && s.crew < housing &&
+  // a destiny sets the pace: charters invite settlers faster, a Lights-Out
+  // Charter invites none, and a crew sent home at FIRST LIGHT does not return
+  const invited = mods.growthMult > 0 && !s.crewHome;
+  if (settlersWelcome(s) && invited && !s.crewRotation && sustainable && s.morale > CREW.growthMorale && s.crew < housing &&
       o2ok && foodok && waterok) {
     s.growthT += dt;
-    if (s.growthT >= CREW.growthPeriod) {
+    if (s.growthT >= CREW.growthPeriod * mods.growthMult) {
       s.growthT = 0;
       s.crew += 1;
       alert(s, 'ARRIVAL — a new crewmember has joined the base', 'info', { panel: 'crew' });
@@ -731,11 +744,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     add(want, 'parts', rate);
     if (s.resources.parts >= rate) {
       s.resources.parts -= rate;
-      // an overclocked machine runs hot: paid upkeep no longer heals it
-      if (!(b.overclock && b.active)) b.wear = Math.max(0, b.wear - (WEAR.healPerDay * mods.repairMult / CYCLE_S) * dt);
+      // an overclocked machine runs hot: paid upkeep no longer heals it; EVA crews help
+      const heal = WEAR.healPerDay * mods.repairMult * (eva ? EVA.repairMult : 1);
+      if (!(b.overclock && b.active)) b.wear = Math.max(0, b.wear - (heal / CYCLE_S) * dt);
       if (b.type === 'solar') {
         b.dust = Math.max(0, b.dust +
-          ((SOLAR_DUST_PER_DAY * mods.dustMult - SOLAR_DUST_RECOVER) / CYCLE_S) * dt);
+          ((SOLAR_DUST_PER_DAY * mods.dustMult - SOLAR_DUST_RECOVER * (eva ? EVA.dustRecoverMult : 1)) / CYCLE_S) * dt);
       }
     } else {
       partsShort = true;
@@ -786,6 +800,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   if (s.power.brownout) target += MORALE.blackout;
   else if (s.power.shed) target += MORALE.shed;
   if (s.flare.phase === 'active') target += MORALE.flare;
+  // the destiny: a capstone's morale everywhere, and a launch day's lift
+  target += mods.moraleBase;
+  if (s.simTime < (s.launchDayUntil ?? 0)) target += mods.volleyMorale;
   target = Math.max(0, Math.min(100, target));
   if (unmanned) s.morale = 70; // machines hold steady
   else s.morale += (target - s.morale) * MORALE.lerp * dt;
@@ -914,6 +931,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   }
   s.wasNight = day.isNight;
 
+  // ── 10.5 · Autonomous Cadence: a volley fires itself once it is ready and
+  // the bank keeps the night's reserve (one a tick; docs/14 §2.7) ──
+  if (mods.autoLaunch && mods.launchArmed) autoLaunchTick(s, mods, day);
+
   // ── 11 · charters, then milestones (in order, progressive disclosure) ──
   eraTick(s);
   // ── 11 · milestones — each latches the moment it is met, in any order
@@ -931,6 +952,86 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   ev.build = automationTick(s, site, mods, day, dt);
 
   return ev;
+}
+
+// ─────────────────────────── volleys (docs/14 §2.7, §5) ───────────────────────────
+
+/** What the next volley costs under these mods: Crewed Mission Control takes
+ *  2↑ with enough crew on console (3↑ and no ceremony without them);
+ *  Autonomous Cadence trims the burst. */
+export interface VolleyTerms { foils: number; launch: number; burst: number; crewed: boolean; minCrew: number }
+export function volleyTerms(s: Pick<GameState, 'crew'>, mods: Mods): VolleyTerms {
+  const onConsole = mods.volleyMinCrew <= 0 || s.crew >= mods.volleyMinCrew;
+  return {
+    foils: LAUNCH_COST_FOILS,
+    launch: onConsole ? mods.volleyCap : LAUNCH_CAP_PER_VOLLEY,
+    burst: LAUNCH_POWER_BURST * mods.launchBurstMult,
+    crewed: mods.volleyMinCrew > 0 && onConsole,
+    minCrew: mods.volleyMinCrew,
+  };
+}
+
+/** Launch one collector volley: '' on success, else the refusal to alert.
+ *  The first volley of a pure Automation band sends the last crew home. */
+export function launchVolley(s: GameState, mods: Mods): string {
+  if (!mods.launchArmed) return `LAUNCH NEEDS ${TECHS.swarmProtocol.name}`;
+  const v = volleyTerms(s, mods);
+  if (s.resources.foils < v.foils) return `LAUNCH NEEDS ${v.foils}▰ — have ${Math.floor(s.resources.foils)}`;
+  if (s.resources.launch < v.launch) {
+    if (mods.volleyMinCrew > 0 && !v.crewed && s.resources.launch >= mods.volleyCap) {
+      return `A VOLLEY NEEDS ${v.minCrew} CREW ON CONSOLE — have ${s.crew}; without them a volley needs ${LAUNCH_CAP_PER_VOLLEY}↑`;
+    }
+    return `LAUNCH NEEDS ${v.launch}↑ CAPACITY — have ${s.resources.launch.toFixed(1)}↑`;
+  }
+  if (s.powerStored < v.burst) return `LAUNCH NEEDS ${Math.round(v.burst)} STORED ENERGY — have ${Math.floor(s.powerStored)}`;
+  s.resources.foils -= v.foils;
+  s.resources.launch -= v.launch;
+  s.powerStored -= v.burst;
+  s.launches += 1;
+  s.swarmPct += SWARM_PCT_PER_LAUNCH;
+  if (v.crewed && mods.volleyMorale > 0) s.launchDayUntil = s.simTime + CYCLE_S;
+  alert(s, `COLLECTOR VOLLEY ${s.launches} AWAY — swarm ${(s.swarmPct).toFixed(4)}%${v.crewed ? ' · a launch day' : ''}`, 'info');
+  if (s.launches === 1) crewHome(s);
+  return '';
+}
+
+/** CREW HOME (docs/14 §5): FIRST LIGHT in a pure Automation band — the last
+ *  crew boards the rotation home and every station runs on agents. Crew 0 is
+ *  then no defeat, and no settler is invited again. */
+export function crewHome(s: GameState): boolean {
+  if (s.crewHome || s.crew <= 0 || destinyOf(s).band !== 'automation') return false;
+  const n = s.crew;
+  s.crewHome = true;
+  s.crew = 0;
+  s.crewRotation = null;
+  s.growthT = 0;
+  for (const b of s.buildings) if (BUILDINGS[b.type].crew > 0) b.automated = true;
+  alert(s, `CREW HOME — the last ${n} crew board the rotation home; the Moon runs itself`, 'info', landerAction(s));
+  return true;
+}
+
+/** The stored energy the rest of the night (or the whole next one) needs
+ *  beyond what the night supply carries — never more than a full bank less
+ *  the burst, so a full bank always fires. */
+export function nightReserve(s: GameState, mods: Mods, burst: number, day: DayInfo): number {
+  const p = s.power;
+  const load = Math.max(0, p.demand - (p.construction ?? 0));
+  const nightLoad = !day.isNight && mods.dayDrawMult > 0 ? (load / mods.dayDrawMult) * mods.nightDrawMult : load;
+  const short = Math.max(0, nightLoad - (p.supplyNight ?? p.supply));
+  const left = day.isNight ? day.phaseLeft : NIGHT_S;
+  return Math.min(short * left, Math.max(0, p.capacity - burst));
+}
+
+function autoLaunchTick(s: GameState, mods: Mods, day: DayInfo) {
+  const v = volleyTerms(s, mods);
+  if (s.resources.foils < v.foils || s.resources.launch < v.launch || s.powerStored < v.burst) return;
+  const reserve = nightReserve(s, mods, v.burst, day);
+  if (s.powerStored - v.burst < reserve) {
+    condition(s, 'cadence', `AUTONOMOUS CADENCE HOLDING — the volley waits until the bank keeps ${Math.ceil(reserve)} for the night`,
+      'info', { panel: 'power' });
+    return;
+  }
+  launchVolley(s, mods);
 }
 
 /** The first check of CREW_ROTATION the base fails, as an alert tail, or ''. */

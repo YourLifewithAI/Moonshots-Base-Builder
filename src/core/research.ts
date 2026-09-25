@@ -3,20 +3,21 @@
  *  insights and previews (spec S1). game.ts actions, economy.ts, publish(),
  *  debug.ts and the tests all call these; nothing else computes them. */
 import {
-  DOCTRINES, ERA_GATES, ERA_NAMES, RETIRED_TECHS, TECHS, TECH_ORDER, techRelevance,
-  type DoctrineId, type Era, type Expedition, type Lane, type TechDef, type TechId,
+  DOCTRINES, ERA_GATES, ERA_NAMES, LANDING_TECH, RETIRED_TECHS, SIDE_GLYPH, TECHS, TECH_ORDER, TRACKS,
+  destinyCounts, effectApplies, techRelevance,
+  type Band, type DoctrineId, type Era, type Expedition, type Lane, type Side, type TechDef, type TechId,
 } from '../data/techs';
 import { INSIGHTS, insightAt } from '../data/insights';
-import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
+import { BUILDINGS, BUILD_ORDER, isCompute, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
 import { PROSPECTS, PROSPECT_IDS, type OutpostKind, type ProspectId } from '../data/lunarMap';
 import {
-  CHARTER_DEED_TECHS, CHARTER_TECHS, CREW_ROTATION, ERA_COST_SCALE, INSIGHT_MAX, LAB_UPLINK_WEIGHTS, QUEUE_MAX,
-  RESEARCH_RATE_EMA_S, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB,
+  CHARTER_DEED_TECHS, CHARTER_TECHS, CREW_ROTATION, ERA_COST_SCALE, INSIGHT_MAX, LAB_UPLINK_WEIGHTS, MONOLITH, PURE_AT,
+  QUEUE_MAX, RESEARCH_RATE_EMA_S, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB,
 } from '../data/balance';
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
-import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, type Mods } from './mods';
+import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, type Mods } from './mods';
 import { alert, crewReserve, moraleWorkMult } from './economy';
 import { KIND_LABEL, baseStream, outpostSlots, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
@@ -26,12 +27,15 @@ export type TechState =
   | 'crewLocked' | 'eraLocked' | 'requires' | 'requiresAny' | 'full' | 'available';
 export interface Availability { state: TechState; reason: string }
 export interface ActionResult { ok: boolean; reason: string }
-/** what techVisible needs — a live state, or a site/expedition pair for audits */
-export interface TechCtx { siteId: SiteId; expedition: Expedition; discoveries?: readonly TechId[] }
+/** what techVisible needs — a live state, or a site/expedition pair for audits
+ *  (no techsDone: every capstone counts as visible, as every breakthrough does
+ *  with discoveries = TECH_ORDER) */
+export interface TechCtx { siteId: SiteId; expedition: Expedition; discoveries?: readonly TechId[]; techsDone?: readonly TechId[] }
 
 const OK: ActionResult = { ok: true, reason: '' };
-/** the research tree's save schema: 2 = the 47-tech tree, 3 = the 90-tech tree */
-export const TECH_SCHEMA = 3;
+/** the research tree's save schema: 2 = the 47-tech tree, 3 = the 90-tech tree,
+ *  4 = the destiny tracks (docs/14 §7) */
+export const TECH_SCHEMA = 4;
 const TECHS_SCHEMA_2 = 47;
 const nameOf = (t: TechId) => TECHS[t]?.name ?? t;
 const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -55,10 +59,15 @@ export function techVisible(def: TechDef, ctx: TechCtx): boolean {
   if (def.sites && !def.sites.includes(ctx.siteId)) return false;
   if (def.expeditions && !def.expeditions.includes(ctx.expedition)) return false;
   if (def.breakthrough && !(ctx.discoveries ?? []).includes(def.id)) return false;
+  // a capstone shows once the Era 8 pick settles its band (and stays, once done)
+  if (def.band && ctx.techsDone && !ctx.techsDone.includes(def.id) && destinyCounts(ctx.techsDone).band !== def.band) return false;
   return true;
 }
 
 function hiddenReason(def: TechDef, ctx: TechCtx): string {
+  if (def.band && !(def.sites && !def.sites.includes(ctx.siteId))) {
+    return 'a destiny capstone — the Era 8 pick settles which one opens';
+  }
   if (def.sites && !def.sites.includes(ctx.siteId)) {
     return `${def.sites.map((id) => titleCase(SITES[id].name)).join(' / ')} only`;
   }
@@ -98,6 +107,18 @@ function foreclosedPrereq(def: TechDef, s: GameState, seen = new Set<TechId>()):
     const deeper = foreclosedPrereq(rd, s, seen);
     if (deeper) return deeper;
   }
+  return null;
+}
+
+/** A destiny is one pick per era: the other side's pick of the same era,
+ *  done or queued (the landing has no rival — the other expedition is hidden). */
+function pickRival(def: TechDef, s: GameState, queue: readonly TechId[] = s.researchQueue):
+{ tid: TechId; state: 'done' | 'queued' } | null {
+  const tr = def.track;
+  if (!tr || tr.landing) return null;
+  const other = tr.side === 'colony' ? TRACKS[tr.era].automation : TRACKS[tr.era].colony;
+  if (s.techsDone.includes(other)) return { tid: other, state: 'done' };
+  if (queue.includes(other)) return { tid: other, state: 'queued' };
   return null;
 }
 
@@ -156,10 +177,10 @@ export type Producer = { kind: 'building'; id: BuildingId } | { kind: 'outpost';
  *  then the biggest — never an Ice Harvester without ice; else, once there is
  *  an outpost slot, the outpost kind streaming the most of it from a prospect
  *  in coverage; null when nothing here can make it. */
-export function producerOf(res: ResourceId, s: GameState, mods: Mods): Producer | null {
+export function producerOf(res: ResourceId, s: GameState, mods: Mods, exclude: readonly BuildingId[] = []): Producer | null {
   const out = (b: BuildingId) => effectiveDef(b, mods).outputs[res] ?? 0;
   const makers = BUILD_ORDER
-    .filter((b) => out(b) > 0 && !(BUILDINGS[b].requiresIce && !SITES[s.siteId].hasIce))
+    .filter((b) => out(b) > 0 && !(BUILDINGS[b].requiresIce && !SITES[s.siteId].hasIce) && !exclude.includes(b))
     .sort((a, b) => Number(mods.unlocked.has(b)) - Number(mods.unlocked.has(a)) || out(b) - out(a));
   if (makers.length) return { kind: 'building', id: makers[0] };
   if (outpostSlots(mods, s) <= 0) return null;
@@ -232,6 +253,15 @@ export function techAvailability(tid: TechId, s: GameState, mods?: Mods): Availa
         : `foreclosed while ${nameOf(rv.tid)} is queued — cancel it to reopen`,
     };
   }
+  const pr = pickRival(def, s);
+  if (pr) {
+    return {
+      state: 'foreclosed',
+      reason: pr.state === 'done'
+        ? `foreclosed — your destiny chose ${nameOf(pr.tid)}`
+        : `foreclosed while ${nameOf(pr.tid)} is queued — cancel it to reopen`,
+    };
+  }
   const dead = foreclosedPrereq(def, s);
   if (dead) {
     return { state: 'foreclosed', reason: `foreclosed — needs ${nameOf(dead.req)}; you chose ${nameOf(dead.chosen)}` };
@@ -253,7 +283,12 @@ export function techAvailability(tid: TechId, s: GameState, mods?: Mods): Availa
 function gateHint(era: Era, s: GameState): string {
   const g = ERA_GATES[era];
   if (!g) return '';
-  const cohab = g.roboticRequires && s.expedition === 'robotic' ? ` (+ ${nameOf(g.roboticRequires)})` : '';
+  const cohab = g.roboticRequires && s.expedition === 'robotic' ? ` (+ ${nameOf(g.roboticRequires)}, or a destiny that settles it)` : '';
+  // from Era 3 on, the era's destiny pick is required and counts as one of the techs
+  if (era >= 3) {
+    return `Era ${era} opens with the Era-${era - 1} destiny and ${CHARTER_TECHS - 1} more Era-${era - 1} techs, ` +
+      `or the destiny, ${CHARTER_DEED_TECHS - 1} more + ${g.deed}${cohab}`;
+  }
   return `Era ${era} opens with ${CHARTER_TECHS} Era-${era - 1} techs, or ${CHARTER_DEED_TECHS} + ${g.deed}${cohab}`;
 }
 
@@ -296,12 +331,22 @@ export function enqueuePath(s: GameState, tid: TechId): ActionResult {
   }
   const picked = new Set<TechId>();
   const have = (t: TechId) => s.techsDone.includes(t) || s.researchQueue.includes(t) || picked.has(t);
+  // a path never makes a doctrine choice, nor a destiny one, for the player
   const undecided = (t: TechId) => {
     const d = TECHS[t];
+    if (d.track && !d.track.landing) {
+      const tr = TRACKS[d.track.era];
+      return !have(tr.colony) && !have(tr.automation);
+    }
     if (!d.exclusive || !isDoctrineHere(d, s)) return false;
     return !DOCTRINES[d.exclusive].members.some((m) => have(m));
   };
   const doctrineMsg = (t: TechId) => {
+    const tr = TECHS[t].track;
+    if (tr) {
+      const pair = TRACKS[tr.era];
+      return `PATH NEEDS A DESTINY — choose ${SIDE_GLYPH.colony} ${nameOf(pair.colony)} or ${SIDE_GLYPH.automation} ${nameOf(pair.automation)} first`;
+    }
     const members = doctrineMembersHere(TECHS[t].exclusive!, s);
     return `PATH NEEDS A DOCTRINE — choose ${members.map(nameOf).join(' or ')} first`;
   };
@@ -373,6 +418,8 @@ function dropReason(def: TechDef, s: GameState, earlier: readonly TechId[]): str
   if (!techVisible(def, s)) return 'is not available here';
   const rv = rival(def, s, earlier);
   if (rv) return rv.state === 'done' ? `— you chose ${nameOf(rv.tid)}` : `is foreclosed by ${nameOf(rv.tid)}`;
+  const pr = pickRival(def, s, earlier);
+  if (pr) return pr.state === 'done' ? `— your destiny chose ${nameOf(pr.tid)}` : `is foreclosed by ${nameOf(pr.tid)}`;
   if (crewLocked(def, s)) return 'needs Human Cohabitation';
   if (def.era > s.era) return `opens with Era ${def.era}`;
   const ok = (r: TechId) => s.techsDone.includes(r) || earlier.includes(r);
@@ -435,31 +482,52 @@ export interface ResearchRates {
 }
 
 export function researchRates(s: GameState, mods: Mods): ResearchRates {
-  let labsActive = 0, agentLabs = 0, dcsActive = 0;
+  // a Server Monolith counts as a Data Center (docs/14 §2.8), at its own cap
+  let labsActive = 0, agentLabs = 0, dcsActive = 0, monoliths = 0;
   for (const b of s.buildings) {
     if (!b.active) continue;
     if (b.type === 'lab') { labsActive++; if (isAgentRun(b, s)) agentLabs++; }
-    else if (b.type === 'dataCenter') dcsActive++;
+    else if (isCompute(b.type)) { dcsActive++; if (b.type === 'serverMonolith') monoliths++; }
   }
   const share = uplinkShare(agentLabs);
   const site = SITES[s.siteId];
-  const workMult = s.expedition === 'robotic' && s.crew <= 0 ? 1 : moraleWorkMult(s.morale);
+  const workMult = unmanned(s) ? 1 : moraleWorkMult(s.morale);
   let production = 0;
   for (const b of s.buildings) {
-    if (!b.active || (b.type !== 'lab' && b.type !== 'dataCenter')) continue;
+    if (!b.active || (b.type !== 'lab' && !isCompute(b.type))) continue;
     production += effectiveRates(b.type, mods, site, b, {
       agentRun: isAgentRun(b, s), robotic: s.expedition === 'robotic', workMult, uplinkShare: share,
     }).data;
   }
   return {
     production,
-    cap: RESEARCH_RATE_PER_LAB * labsActive + RESEARCH_RATE_PER_DC * dcsActive,
+    cap: RESEARCH_RATE_PER_LAB * labsActive + RESEARCH_RATE_PER_DC * (dcsActive - monoliths) + MONOLITH.capPerS * monoliths,
     labsActive, agentLabs, uplinkShare: share, dcsActive,
   };
 }
 
-/** Side effects of finishing a tech (crew rotation for robotic Cohabitation). */
+const fmtMS = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
+
+/** Side effects of finishing a tech: the crew rotation for robotic
+ *  Cohabitation, and a destiny pick that brings Cohabitation forward
+ *  (docs/14 §2.5) — done and forwarded, never counted toward a charter. */
 export function onTechComplete(s: GameState, tid: TechId) {
+  const def = TECHS[tid];
+  const brings = !!def?.effects.some((fx) => fx.kind === 'bringsCrew' && effectApplies(fx, s.siteId, s.expedition));
+  if (brings && s.expedition === 'robotic' && !s.techsDone.includes('humanCohabitation')) {
+    const co: TechId = 'humanCohabitation';
+    s.techsDone.push(co);
+    (s.forwarded ??= []).push(co);
+    // data already banked toward it goes back to the bank; the queue lets it go quietly
+    const banked = s.researchSpent[co] ?? 0;
+    if (banked > 0) s.data += banked;
+    delete s.researchSpent[co];
+    s.researchQueue = s.researchQueue.filter((t) => t !== co);
+    s.researchStalled = s.researchStalled.filter((t) => t !== co);
+    onTechComplete(s, co);
+    alert(s, `COLONY — the first crew is on its way: ${nameOf(co)} brought forward` +
+      (s.crewRotation ? ` · rotation in ${fmtMS(Math.max(0, s.crewRotation.at - s.simTime))}` : ''), 'info');
+  }
   if (tid === 'humanCohabitation' && s.expedition === 'robotic' && !s.crewRotation && s.crew <= 0) {
     s.crewRotation = { at: s.simTime + CREW_ROTATION.delayS, count: CREW_ROTATION.count };
   }
@@ -523,7 +591,7 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   let paused: GameState['researchPaused'] = '';
   if (wantsData && rates.cap <= 0) {
     const stations = s.buildings.filter((b) =>
-      (b.type === 'lab' || b.type === 'dataCenter') && b.enabled && (b.construction ?? 0) <= 0);
+      (b.type === 'lab' || isCompute(b.type)) && b.enabled && (b.construction ?? 0) <= 0);
     paused = stations.length && stations.every((b) => b.idleReason === 'power') ? 'brownout' : 'noLab';
   }
   if (paused && paused !== s.researchPaused) {
@@ -562,7 +630,8 @@ export function insightTick(s: GameState): TechId[] {
 export interface GateProgress {
   /** the era this gate opens */
   era: Era;
-  /** visible done techs whose resolved era is era − 1 */
+  /** visible done techs whose resolved era is era − 1 (the destiny pick
+   *  counts; the landing pick and forwarded techs never do) */
   techs: number;
   techsNeed: number;
   /** techs that open the era together with the deed */
@@ -571,10 +640,25 @@ export interface GateProgress {
   deedValue: number;
   deedNeed: number;
   deedMet: boolean;
-  /** robotic Era 7: Human Cohabitation, on either route */
-  requires: { tech: TechId; done: boolean } | null;
+  /** robotic Era 7: Human Cohabitation, on either route — done (forwarded
+   *  counts) or waived by a destiny (Lights-Out Charter) */
+  requires: { tech: TechId; done: boolean; waived: boolean } | null;
+  /** Eras 3–8: era − 1's destiny pick is required, on either route (docs/14 §2.6) */
+  destiny: { colony: TechId; automation: TechId; tid: TechId | null; done: boolean } | null;
   open: boolean;
   via: 'techs' | 'deed' | null;
+}
+
+/** techs that carry a charter waiver (Lights-Out Charter) */
+const WAIVERS = TECH_ORDER.filter((t) => TECHS[t].effects.some((fx) => fx.kind === 'waive'));
+/** Charter requirements waived on this run by a destiny done. */
+export function waivedTechs(s: Pick<GameState, 'techsDone' | 'siteId' | 'expedition'>): Set<TechId> {
+  const out = new Set<TechId>();
+  for (const t of WAIVERS) {
+    if (!s.techsDone.includes(t)) continue;
+    for (const fx of TECHS[t].effects) if (fx.kind === 'waive' && effectApplies(fx, s.siteId, s.expedition)) out.add(fx.tech);
+  }
+  return out;
 }
 
 export function gateProgress(s: GameState, era: Era): GateProgress {
@@ -582,24 +666,81 @@ export function gateProgress(s: GameState, era: Era): GateProgress {
   if (!gate) {
     return {
       era, techs: 0, techsNeed: 0, deedTechsNeed: 0, deed: '', deedValue: 0, deedNeed: 0, deedMet: true,
-      requires: null, open: true, via: 'techs',
+      requires: null, destiny: null, open: true, via: 'techs',
     };
   }
+  const forwarded = s.forwarded ?? [];
   let techs = 0;
   for (const tid of s.techsDone) {
     if (!TECHS[tid]) continue;
     const def = R(tid, s.expedition);
+    if (def.track?.landing || forwarded.includes(tid)) continue;
     if (def.era === era - 1 && techVisible(def, s)) techs++;
   }
   const deedValue = gate.value(s);
   const deedMet = deedValue >= gate.need;
   const requires = gate.roboticRequires && s.expedition === 'robotic'
-    ? { tech: gate.roboticRequires, done: s.techsDone.includes(gate.roboticRequires) } : null;
+    ? {
+      tech: gate.roboticRequires, done: s.techsDone.includes(gate.roboticRequires),
+      waived: waivedTechs(s).has(gate.roboticRequires),
+    } : null;
+  // the landing pick never gates Era 2; from Era 3 on, the era before's pick does
+  const pair = era >= 3 ? TRACKS[(era - 1) as Era] : null;
+  const picked = pair ? [pair.colony, pair.automation].find((t) => s.techsDone.includes(t)) ?? null : null;
+  const destiny = pair ? { colony: pair.colony, automation: pair.automation, tid: picked, done: !!picked } : null;
   const via = techs >= CHARTER_TECHS ? 'techs' : techs >= CHARTER_DEED_TECHS && deedMet ? 'deed' : null;
   return {
     era, techs, techsNeed: CHARTER_TECHS, deedTechsNeed: CHARTER_DEED_TECHS,
     deed: gate.deed, deedValue, deedNeed: gate.need, deedMet,
-    requires, open: via !== null && (!requires || requires.done), via,
+    requires, destiny,
+    open: via !== null && (!requires || requires.done || requires.waived) && (!destiny || destiny.done), via,
+  };
+}
+
+// ─────────────────────────── destiny (docs/14 §2.4) ───────────────────────────
+
+export interface DestinyView {
+  /** the pick done per era, index 0 = Era 1 (the landing) … 7 = Era 8 */
+  picks: (Side | null)[];
+  /** picks done per side, the landing included */
+  c: number;
+  a: number;
+  /** eras whose pick is not done yet */
+  left: number;
+  /** settled by the Era 8 pick: 6 of 8 on a side is pure, else Concord */
+  band: Band | null;
+  /** the only band still reachable (or the settled one), else null */
+  certain: Band | null;
+  /** −1 (all Automation) … +1 (all Colony): the look and the music follow it until the band settles */
+  lean: number;
+  /** what is still reachable: each pure side needs `need` of the `left` picks */
+  reach: { colony: { need: number; ok: boolean }; automation: { need: number; ok: boolean }; concord: boolean };
+  /** the last crew went home at FIRST LIGHT (docs/14 §5) */
+  crewHome: boolean;
+}
+
+/** The destiny meter: counts, the band, and what is still reachable. */
+export function destinyOf(s: Pick<GameState, 'techsDone'> & { crewHome?: boolean }): DestinyView {
+  const d = destinyCounts(s.techsDone);
+  const picks: (Side | null)[] = [];
+  for (let e = 1; e <= 8; e++) picks.push(d.picks[e as Era] ?? null);
+  const left = picks.filter((p) => p === null).length;
+  const need = (n: number) => Math.max(0, PURE_AT - n);
+  const colony = { need: need(d.c), ok: need(d.c) <= left };
+  const automation = { need: need(d.a), ok: need(d.a) <= left };
+  // Concord: some split of the picks left keeps both sides under PURE_AT
+  const concord = d.c < PURE_AT && d.a < PURE_AT &&
+    Math.max(0, d.a + left - (PURE_AT - 1)) <= Math.min(left, PURE_AT - 1 - d.c);
+  const reachable: Band[] = [];
+  if (colony.ok) reachable.push('colony');
+  if (automation.ok) reachable.push('automation');
+  if (concord) reachable.push('concord');
+  return {
+    picks, c: d.c, a: d.a, left, band: d.band,
+    certain: d.band ?? (reachable.length === 1 ? reachable[0] : null),
+    lean: (d.c - d.a) / 8,
+    reach: { colony, automation, concord },
+    crewHome: !!s.crewHome,
   };
 }
 
@@ -741,6 +882,10 @@ export interface ResearchCard {
   doctrine: DoctrineId | null;
   breakthrough: { slot: 1 | 2; hosts: ProspectId[] } | null;
   siteTech: boolean;
+  /** a destiny pick (it lives in its era page's header, not on a lane) */
+  track: { era: Era; side: Side; landing: boolean } | null;
+  /** a destiny capstone's band */
+  band: Band | null;
 }
 export interface ResearchQueueItem { tid: TechId; pct: number; eta: number | null; stalled: boolean; need: string }
 export interface ResearchView {
@@ -761,6 +906,8 @@ export interface ResearchView {
   uplinkShare: number;
   dcsActive: number;
   otherSites: TechId[];
+  /** the destiny meter (docs/14 §2.4) */
+  destiny: DestinyView;
 }
 
 export function researchView(s: GameState, mods: Mods): ResearchView {
@@ -791,6 +938,8 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
       doctrine: isDoctrineHere(def, s) ? def.exclusive! : null,
       breakthrough: def.breakthrough ? { slot: def.breakthrough.slot, hosts: [...def.breakthrough.hosts] } : null,
       siteTech: !!def.sites,
+      track: def.track ? { era: def.track.era, side: def.track.side, landing: !!def.track.landing } : null,
+      band: def.band ?? null,
     };
   }
   const gates: GateProgress[] = [];
@@ -817,6 +966,7 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
     uplinkShare: rates.uplinkShare,
     dcsActive: rates.dcsActive,
     otherSites: otherSiteTechs(s.siteId),
+    destiny: destinyOf(s),
   };
 }
 
@@ -826,7 +976,11 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
  *  conflicts grandfathered, hidden-at-site techs kept, the queue sanitized,
  *  the era never lowered. techSchema 2 → 3 (docs/12 §9): the 43 new techs
  *  simply appear; nothing done, banked or queued is lost, and the era is
- *  kept although the charter now asks for 4 techs. Deposit re-stamping
+ *  kept although the charter now asks for 4 techs. techSchema 3 → 4
+ *  (docs/14 §7): the landing pick joins techsDone; the era, everything done,
+ *  banked and queued is kept; past eras' picks stay open as leftovers, and a
+ *  pick is required only for eras still to open; a Swarm Protocol queued
+ *  without an Era 8 pick drops (its data stays banked). Deposit re-stamping
  *  (rule 7) needs the heightfield and is done by the caller. */
 export function migrateTechSchema(s: GameState): { refund: number; retired: string[] } {
   fillStateDefaults(s);
@@ -850,6 +1004,10 @@ export function migrateTechSchema(s: GameState): { refund: number; retired: stri
     s.researchQueue = queued.filter((t) => t in TECHS) as TechId[];
     s.data += refund;
   }
+  if (from < 4) {
+    const land = LANDING_TECH[s.expedition ?? 'human'];
+    if (!s.techsDone.includes(land)) s.techsDone.unshift(land);
+  }
   s.techSchema = TECH_SCHEMA;
   sanitizeQueue(s);
   s.era = Math.max(s.era ?? 1, computeEra(s));
@@ -858,6 +1016,9 @@ export function migrateTechSchema(s: GameState): { refund: number; retired: stri
   }
   if (from < 3) {
     alert(s, `RESEARCH TREE EXPANDED — ${TECH_ORDER.length - TECHS_SCHEMA_2} new techs; nothing you researched is lost`, 'info');
+  }
+  if (from < 4) {
+    alert(s, 'DESTINIES — every era now has a track choice (T). Past eras’ choices are open at their old prices.', 'info');
   }
   return { refund, retired };
 }

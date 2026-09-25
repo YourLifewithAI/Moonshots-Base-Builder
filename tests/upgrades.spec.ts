@@ -17,7 +17,7 @@ async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
 }
 
-test('data: 110 techs, each with a visual line, a generated pro and con, relevant wherever it shows', async ({ page }) => {
+test('data: 129 techs, each with a visual line, a generated pro and con, relevant wherever it shows', async ({ page }) => {
   await start(page, 'mare');
   const r = await page.evaluate(async () => {
     const T = await import('/src/data/techs.ts');
@@ -34,10 +34,12 @@ test('data: 110 techs, each with a visual line, a generated pro and con, relevan
       }
     }
     // every tech with a non-unlock effect on a building has a part there (unless its
-    // visual is drawn elsewhere: Shielding's berms, Grading's pads)
+    // visual is drawn elsewhere: Shielding's berms, Grading's pads). The destiny
+    // picks and capstones get their parts with the look (docs/14 §4, phase D4).
     const upgraded = new Set(Object.values(U.UPGRADES).flat().map((u: any) => u.tech));
     const partless = T.TECH_ORDER.filter((t: string) => {
       const d = T.TECHS[t];
+      if (d.track || d.band) return false;
       const touches = d.effects.some((fx: any) => fx.kind !== 'unlock' && (fx.building || fx.buildings));
       return touches && !upgraded.has(t);
     });
@@ -48,7 +50,7 @@ test('data: 110 techs, each with a visual line, a generated pro and con, relevan
       irrelevant,
     };
   });
-  expect(r.n).toBe(110);
+  expect(r.n).toBe(129); // docs/12's 92, the Builder's 12, docs/14's 19 destiny techs, docs/15's 4 road tiers … and the rest
   expect(r.noVisual).toEqual([]);
   expect(r.noPro).toEqual([]);
   expect(r.noCon).toEqual([]);

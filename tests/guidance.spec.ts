@@ -113,7 +113,8 @@ test('discoveries: a finished tech pops a card with its gains and next step', as
   await g(page, 'advanceGameSeconds', 1);
   await expect(banner).toBeVisible();
   await expect(banner).toContainText('EARLY CONSTRUCTION');
-  await expect(banner).toContainText(/era 3.*opens with 4 techs from this era, or 2 plus: 200⚙ fabricated/i);
+  await expect(banner).toContainText(/era 3.*opens with this era’s destiny and 3 more of its techs, or the destiny, 1 more and: 200⚙ fabricated/i);
+  await expect(banner).toContainText('Who are these halls built for?');
   await page.keyboard.press('Enter');
   await expect(banner).toBeHidden();
   expect((await g(page, 'getAudio')).played.era).toBeGreaterThanOrEqual(1);

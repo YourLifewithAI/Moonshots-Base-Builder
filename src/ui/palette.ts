@@ -36,6 +36,8 @@ const ICONS: Record<BuildingId, string> = {
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
   foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
+  // destiny buildings (docs/14 §2.8)
+  greenhouseRing: '❁', gardenDome: '◓', droneHive: '⬢', serverMonolith: '▥',
 };
 
 /** The tech that unlocks `b` on this site and expedition — a visible card
@@ -83,8 +85,9 @@ function ioRows(type: BuildingId, mods: Mods, b?: BuildingState): string {
   const site = SITES[$siteId.get() ?? 'mare'];
   const vit = $vitals.get();
   const robotic = vit.expedition === 'robotic';
-  // new stations on a robotic mission start agent-run (game.commitPlace)
-  const agentRun = def.crew > 0 && (b ? b.automated || (robotic && vit.crew <= 0) : robotic);
+  // new stations on a robotic mission, or after the crew went home, start agent-run (game.commitPlace)
+  const unmanned = (robotic || vit.crewHome) && vit.crew <= 0;
+  const agentRun = def.crew > 0 && (b ? b.automated || unmanned : robotic || vit.crewHome);
   const rv = $research.get();
   const share = type === 'lab' && agentRun ? (b ? rv?.uplinkShare ?? 1 : uplinkShare((rv?.agentLabs ?? 0) + 1)) : 1;
   const r = effectiveRates(type, mods, site, b ? { ...b, wear: 0 } : undefined, { agentRun, robotic, uplinkShare: share });
@@ -390,7 +393,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       // an excavator's head says what it is doing: its body may scroll on a short screen
       : sel.active && sel.type === 'excavator' && $fleet.get().hauls[sel.id] ? $fleet.get().hauls[sel.id].line
       : sel.active
-        ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
+        ? ((sel.automated || (($vitals.get().expedition === 'robotic' || $vitals.get().crewHome) && $vitals.get().crew <= 0))
           ? `OPERATING · AUTONOMOUS${sel.agentCover ? ' · COVERING FOR CREW' : ''}${def.crew <= 0 ? ''
             : def.powerKW > 0 ? ` · −${Math.round(AGENT_GEN_TAX * 100)}% kW` : ` · ${mult(1 + game.mods.agentTax)} kW`}`
           : 'OPERATING')

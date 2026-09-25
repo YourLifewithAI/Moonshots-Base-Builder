@@ -15,12 +15,12 @@
  *  `research` and `export` families, freezes (s.auto.frozenUntil and each
  *  rule's frozenUntil), and request `bypass` flags that never bypass the
  *  weld debt. */
-import { BUILDINGS, type BuildingId } from '../data/buildings';
+import { BUILDINGS, DESTINY_BUILDINGS, isCompute, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import {
-  CONSTRUCTION_PARTS_PER_S, CREW, DAY_S, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, NIGHT_S,
+  CONSTRUCTION_PARTS_PER_S, CREW, DAY_S, HAUL, NIGHT_S,
 } from '../data/balance';
 import {
   AUTO, FAMILY_LABEL, FAMILY_PRIORITY, NOT_ORDERABLE, RULES, RULE_ORDER, RULE_TEXT, rulesOf,
@@ -30,7 +30,7 @@ import type { AutoOrder, AutoTag, BuildingState, GameState, RulePhase, RuleState
 import { defaultRule } from './state';
 import { effectiveDef, effectiveRates, type Mods } from './mods';
 import { producerOf, researchRates, techCost } from './research';
-import { alert, boardingShortfall, condition, settlersWelcome } from './economy';
+import { alert, boardingShortfall, condition, settlersWelcome, volleyTerms } from './economy';
 import { flowBalance } from './flowBook';
 import { fmtClock, type DayInfo } from './daynight';
 
@@ -82,10 +82,12 @@ function unlocker(type: BuildingId): string {
   return 'research';
 }
 
-/** the tech that unlocks a family's rules */
+/** the tech that unlocks a family's rules (a lane tech, or an Automation
+ *  pick that extends the Builder: docs/14 §2.5) */
 export function familyTech(f: AutoFamily): string {
   for (const t of TECH_ORDER) {
-    if (TECHS[t].effects.some((fx) => fx.kind === 'autoRule' && fx.family === f)) return TECHS[t].name;
+    if (TECHS[t].effects.some((fx) => (fx.kind === 'autoRule' && fx.family === f) ||
+      (fx.kind === 'builder' && fx.families?.includes(f)))) return TECHS[t].name;
   }
   return 'a later tech';
 }
@@ -94,12 +96,13 @@ export function ruleState(s: GameState, id: AutoRuleId): RuleState {
   return (s.auto.rules[id] ??= defaultRule(id));
 }
 
-/** the building a rule adds here (life support: whatever makes its resource) */
+/** the building a rule adds here (life support: whatever makes its resource;
+ *  never a destiny building, until Selenic Mind lets rules build everything) */
 export function ruleBuilding(s: GameState, mods: Mods, id: AutoRuleId): BuildingId | null {
   const d = RULES[id];
   if (d.building !== 'producer') return d.building;
   if (!d.res) return null;
-  const p = producerOf(d.res, s, mods);
+  const p = producerOf(d.res, s, mods, mods.builderAll ? [] : DESTINY_BUILDINGS);
   return p?.kind === 'building' ? p.id : null;
 }
 
@@ -123,7 +126,7 @@ function nameplate(s: GameState, mods: Mods, site: SiteDef, type: BuildingId) {
 
 /** Is a Data Center running (Predictive Scheduling needs one)? */
 export const predictiveOn = (s: GameState, mods: Mods) =>
-  mods.predictive && s.buildings.some((b) => b.type === 'dataCenter' && b.active);
+  mods.predictive && s.buildings.some((b) => isCompute(b.type) && b.active);
 
 /** the power book as the rules read it */
 export function powerBook(s: GameState, mods: Mods) {
@@ -399,8 +402,9 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       return { past: waits, rearmed: s.data < 20 * rr.cap, text: waits ? `${Math.floor(s.data)}≡ banked behind a ${num(rr.cap * 60)}≡/min transfer cap` : 'research keeps up' };
     }
     case 'foilFactory': {
-      const held = mods.launchArmed && s.resources.launch >= LAUNCH_CAP_PER_VOLLEY && s.resources.foils < LAUNCH_COST_FOILS;
-      return { past: held, rearmed: !held, text: held ? `a volley waits on foils (${Math.floor(s.resources.foils)}/${LAUNCH_COST_FOILS}▰)` : 'foils keep up' };
+      const v = volleyTerms(s, mods);
+      const held = mods.launchArmed && s.resources.launch >= v.launch && s.resources.foils < v.foils;
+      return { past: held, rearmed: !held, text: held ? `a volley waits on foils (${Math.floor(s.resources.foils)}/${v.foils}▰)` : 'foils keep up' };
     }
     case 'replace':
       return { past: false, rearmed: true, text: '' };

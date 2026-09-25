@@ -180,6 +180,26 @@ the full design is [13-automation-spec.md](13-automation-spec.md)).
   for a lunar day; removing a building defers the rules that build its type;
   every rule has a switch, a trigger and a cap in the [B] panel.
 
+## Destinies — what each pick does to the economy
+
+One ⌂ Colony / ◉ Automation pick per era ([14-destiny-tracks.md](14-destiny-tracks.md)).
+The picks tilt the economy; no lane is ever removed.
+
+| Lever | Colony (⌂) | Automation (◉) |
+|---|---|---|
+| Settlers | Crew Rotation / Settler Charter: arrivals ×1.5 each (every 480 s, then 320 s) | Lights-Out Charter: no new settlers are invited |
+| Crew | robotic runs: the first ⌂ pick from Era 3 brings Human Cohabitation forward, and its 2-settler rotation | fewer seats: Lights-Out Fabs, −1 crew on Parts Fabricators and Chip Fabs |
+| Upkeep | Pressure Halls: −20% on labs, fabs and bays; wear heals ×1.15 | Drone Hives, Lights-Out Charter: wear heals ×1.15, ×1.2 |
+| Outside work | EVA crews by day: ⌈10% of free hands⌉ go out; dust clears ×1.3, repairs ×1.1 | the Builder: dwell ×0.5, caps ×2, the Research and Export rules |
+| Compute | — | Server Monolith: 0.9≡/s and +2.2/s transfer cap on 2×2; it counts as a Data Center, and every tech that changes Data Centers changes it too |
+| Launch | Crewed Mission Control: 2↑ a volley with 4 crew on console (else 3↑), +8 morale for a lunar day | Autonomous Cadence: fires once ready, never below the night's reserve; burst 300 |
+
+- **CREW HOME.** A crewed base whose band is pure Automation sends its last
+  crew home at the first volley. Crew 0 is then no defeat, every station goes
+  Autonomous, and nobody is invited again.
+- **Hazards** (docs/14 §3) are not live yet. The picks already carry their
+  `exposure` and `guard` hooks, with no card line.
+
 ## The umbilical arc — Earth Supply Credits (CUT)
 
 Full design: you land with a finite balance of **Earth Supply Credits**,

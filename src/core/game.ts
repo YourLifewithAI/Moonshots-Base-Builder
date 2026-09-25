@@ -19,6 +19,7 @@ import { ActionQueue, type Action } from './actions';
 import {
   boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction,
   missionLost, orderDelayS, queuePos, settlersWelcome, type Mods,
+  launchVolley, volleyTerms,
 } from './economy';
 import { modsFor } from './mods';
 import {
@@ -30,6 +31,7 @@ import { recordSpend } from './flowBook';
 import { AUTO, RULES } from '../data/automation';
 import {
   cancel, enqueue, enqueuePath, migrateTechSchema, moveInQueue, onTechComplete, researchView,
+  destinyOf,
 } from './research';
 import { fmtClock } from './daynight';
 import {
@@ -77,6 +79,7 @@ import {
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
   $fleet, $fleetTarget, $roverSel,
+  $destiny,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -964,7 +967,7 @@ export class Game {
       enabled: true,
       // robotic missions place every station under agent control, so arriving
       // settlers never strand a running base — crewing is an opt-in upgrade
-      automated: automated ?? s.expedition === 'robotic',
+      automated: automated ?? (s.expedition === 'robotic' || !!s.crewHome),
       priority: BUILDINGS[type].priority, wear: 0, dust: 0,
       construction: free ? 0 : buildTotal, buildTotal,
       active: false, idleReason: free ? '' : 'building',
@@ -1129,28 +1132,12 @@ export class Game {
       'info', landerAction(s));
   }
 
+  /** A volley by hand: the economy's own launch (docs/14 §2.7: Crewed
+   *  Mission Control's 2↑ volleys, Autonomous Cadence's burst). */
   private doLaunch() {
     const s = this.state;
-    const refuse = (text: string) => alert(s, `LAUNCH ${text}`, 'warn');
-    if (!this.mods.launchArmed) { refuse(`NEEDS ${TECHS.swarmProtocol.name}`); return; }
-    if (s.resources.foils < LAUNCH_COST_FOILS) {
-      refuse(`NEEDS ${LAUNCH_COST_FOILS}${RESOURCES.foils.glyph} — have ${Math.floor(s.resources.foils)}`);
-      return;
-    }
-    if (s.resources.launch < LAUNCH_CAP_PER_VOLLEY) {
-      refuse(`NEEDS ${LAUNCH_CAP_PER_VOLLEY}${RESOURCES.launch.glyph} CAPACITY — have ${s.resources.launch.toFixed(1)}${RESOURCES.launch.glyph}`);
-      return;
-    }
-    if (s.powerStored < LAUNCH_POWER_BURST) {
-      refuse(`NEEDS ${LAUNCH_POWER_BURST} STORED ENERGY — have ${Math.floor(s.powerStored)}`);
-      return;
-    }
-    s.resources.foils -= LAUNCH_COST_FOILS;
-    s.resources.launch -= LAUNCH_CAP_PER_VOLLEY;
-    s.powerStored -= LAUNCH_POWER_BURST;
-    s.launches += 1;
-    s.swarmPct += SWARM_PCT_PER_LAUNCH;
-    alert(s, `COLLECTOR VOLLEY ${s.launches} AWAY — swarm ${(s.swarmPct).toFixed(4)}%`, 'info');
+    const refused = launchVolley(s, this.mods);
+    if (refused) { alert(s, refused, 'warn'); return; }
     this.life.onLaunch(s);
   }
 
@@ -1839,6 +1826,7 @@ export class Game {
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
       lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
       sites, welding, weldParts, upkeep, surveying: s.survey.active ? 1 : 0,
+      crewHome: !!s.crewHome,
       seats, crewIdle, covered,
       canCover: canToggleCrew(s.expedition, s.crew, this.mods), agentCover: s.agentCover !== false,
     });
@@ -1866,13 +1854,16 @@ export class Game {
       done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
       hints: Object.fromEntries(MILESTONES.map((m) => [m.id, milestoneHint(m, s)])),
     });
+    const vt = volleyTerms(s, this.mods);
     $swarm.set({
       pct: s.swarmPct, launches: s.launches, armed: this.mods.launchArmed,
-      canLaunch: this.mods.launchArmed && s.resources.foils >= LAUNCH_COST_FOILS &&
-        s.resources.launch >= LAUNCH_CAP_PER_VOLLEY && s.powerStored >= LAUNCH_POWER_BURST,
-      burst: LAUNCH_POWER_BURST,
+      canLaunch: this.mods.launchArmed && s.resources.foils >= vt.foils &&
+        s.resources.launch >= vt.launch && s.powerStored >= vt.burst,
+      burst: vt.burst,
       foils: s.resources.foils, launch: s.resources.launch, stored: s.powerStored,
+      needFoils: vt.foils, needLaunch: vt.launch, auto: this.mods.autoLaunch, crewed: vt.crewed, minCrew: vt.minCrew,
     });
+    $destiny.set(destinyOf(s));
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $feed.set({ ...s.feed });
     $deposits.set(depositsView(s, this.hf.deposits, this.mods.surveyTier));
@@ -2192,7 +2183,10 @@ export class Game {
   /** One economy tick, as the live loop and the debug fast-forward both run it:
    *  the tick, the mods it changed, the Builder's requests, the deposits. */
   private econStep() {
+    const launches = this.state.launches;
     const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
+    // Autonomous Cadence fired a volley inside the tick: the rail shows it
+    if (this.state.launches > launches) this.life.onLaunch(this.state);
     if (ev.modsChanged) this.mods = modsFor(this.state);
     if (ev.build.length) this.resolveBuild(ev.build);
     this.syncDeposits(true);

@@ -20,8 +20,11 @@ export const ROAD = {
 /** Structures served from the edge of their field: no road between them. */
 export const FIELD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['solar', 'battery', 'relayMast']);
 
-/** Docks: rovers park in bays laid beside the door. */
-export const DOCK_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['lander', 'roboticsBay']);
+/** Docks: rovers park in bays laid beside the door. A Drone Hive (docs/14
+ *  §2.8) is one: its four rovers launch from it and park there. The other
+ *  destiny buildings (Greenhouse Ring, Garden Dome, Server Monolith) take a
+ *  plain door at their front middle. */
+export const DOCK_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['lander', 'roboticsBay', 'droneHive']);
 
 /** The Lander's apron, in cells relative to its door cell (the door itself
  *  included; dx along the front, dz outward): a two-cell run out from the

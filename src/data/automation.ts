@@ -5,8 +5,9 @@
  *  Thresholds are stored in each rule's own unit — per game-second for rates
  *  (the UI shows per minute), a fraction for shares, minutes for runways,
  *  plain counts — and every threshold and cap is player-settable within its
- *  range. The families `research` and `export` exist for later work that
- *  extends the Builder (docs/14): no tech in this tree unlocks them. */
+ *  range. The families `research` and `export` are the Builder's extensions:
+ *  no lane tech unlocks them — the Automation picks Fleet OS and Replicator
+ *  Stacks do (docs/14 §2.5), and Selenic Mind both. */
 import type { BuildingId } from './buildings';
 import type { ResourceId } from './resources';
 
@@ -175,6 +176,8 @@ export const rulesOf = (f: AutoFamily): AutoRuleId[] => RULE_ORDER.filter((r) =>
  *  stay the player's (the extension families lift labs and foil factories). */
 export const NEVER_RULE_BUILT: BuildingId[] = [
   'lander', 'lab', 'dataCenter', 'recDome', 'foilFactory', 'massDriver', 'propellantPlant', 'relayMast',
+  // the destiny buildings (docs/14 §2.8): orders place them; Selenic Mind lets the rules too
+  'greenhouseRing', 'gardenDome', 'droneHive', 'serverMonolith',
 ];
 
 /** Orders place anything a click could, except the Lander, and Relay Masts

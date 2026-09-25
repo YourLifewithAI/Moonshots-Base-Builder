@@ -3,10 +3,19 @@
  *   node scripts/probe-pacing.mjs [--runs=mare:robotic:reasonable,southpole:human:attentive,…]
  *       [--minutes=160] [--seeds=42,7,1234] [--port=5322] [--out=file.json] [--pick=smelt:moltenElectrolysis,…]
  *       [--quiet]   (--runs=all: robotic × 3 sites and human × mare/pole, both policies)
+ *       [--reuse]   (drive a dev server already running on --port instead of starting one)
  *       [--auto=off|on]  (docs/13 §8.3: off — the Builder techs are never researched;
  *                         on — the core ones after their era's critical techs, the rest in the tail)
  *       [--savers=late|early]  (with --auto=on: early closes each era's critical block
  *                         with Automated Excavation and Power instead)
+ *       [--destiny=natural|colony|automation|concord|late] [--picks=ACACACAC]
+ *                         (docs/14 §6: each era's ⌂/◉ pick; the charter needs it.
+ *                         natural: every pick follows the landing; colony / automation:
+ *                         every Era 2–8 pick on that side; concord: alternate, starting
+ *                         opposite the landing (4–4); late: 5 on the landing's side, then
+ *                         switch (5–3). --picks names all eight, the landing first.)
+ *       [--replace=on|off]  (on: each pick replaces the last small step the bot would
+ *                         research in its era, which moves to the tail; off: the pick is extra)
  *
  * An honest scripted player: it reads only what the HUD shows (getState,
  * getResearch, getLunar, getDeposits, canPlace, the building and site tables)
@@ -49,6 +58,10 @@ const QUIET = argv.includes('--quiet');
 const FLEET_VERBS = opt('fleet', 'on') !== 'off';
 const AUTO_ON = opt('auto', 'off') === 'on';
 const SAVERS_EARLY = opt('savers', 'late') === 'early';
+const DESTINY = opt('destiny', 'natural');
+const PICKS_ARG = opt('picks', '');
+/** --replace=off: the pick is added to the era's research instead of replacing its last small step */
+const REPLACE_STEP = opt('replace', 'on') !== 'off';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -56,7 +69,7 @@ async function installBot(cfg) {
   const G = window.__game;
   const { BUILDINGS } = await import('/src/data/buildings.ts');
   const { SITES } = await import('/src/data/sites.ts');
-  const { TECHS, TECH_ORDER, DOCTRINES } = await import('/src/data/techs.ts');
+  const { TECHS, TECH_ORDER, DOCTRINES, TRACKS } = await import('/src/data/techs.ts');
   const BAL = await import('/src/data/balance.ts');
   const { dayInfo } = await import('/src/core/daynight.ts');
   // the clock is the probe's: pause the live frame loop so no real-time tick slips
@@ -105,6 +118,17 @@ async function installBot(cfg) {
     if (g) pick[g] = v;
   }
   const rejected = new Set(Object.values(DOCTRINES).flatMap((d) => d.members.filter((m) => m !== pick[d.id])));
+  // ── destiny (docs/14 §6): the side of each era's pick, the landing first ──
+  const land = robotic ? 'A' : 'C';
+  const opp = land === 'A' ? 'C' : 'A';
+  const PICKS = cfg.picks && /^[AC]{8}$/.test(cfg.picks) ? cfg.picks
+    : cfg.destiny === 'colony' ? `${land}CCCCCCC`
+    : cfg.destiny === 'automation' ? `${land}AAAAAAA`
+    : cfg.destiny === 'concord' || cfg.destiny === 'mixed' ? `${land}${opp}${land}${opp}${land}${opp}${land}${opp}`
+    : cfg.destiny === 'late' ? `${land}${land}${land}${land}${land}${opp}${opp}${opp}`
+    : land.repeat(8);
+  const pickOf = (e) => (PICKS[e - 1] === 'C' ? TRACKS[e].colony : TRACKS[e].automation);
+  for (let e = 2; e <= 8; e++) rejected.add(PICKS[e - 1] === 'C' ? TRACKS[e].automation : TRACKS[e].colony);
 
   // ── research priority (the pacing model's reasonable-player list) ──
   let order = ['regolithProcessing', 'prospectingRovers', 'partsFabrication', 'teleoperation', 'siliconRefining',
@@ -204,6 +228,46 @@ async function installBot(cfg) {
     }
   }
 
+  const log0 = { deferred: [] };
+  // ── destiny picks in the order (docs/14 §6): the reasonable player queues the
+  // era's pick right after that era's first main tech (the 2nd research of the
+  // era), the attentive one first; Era 8's comes before Swarm Protocol, which needs it.
+  // A pure-Automation robotic run never researches Human Cohabitation: its Era 6 pick waives it.
+  {
+    const R1 = G.getResearch();
+    const eraOf = (t) => R1.cards[t]?.era ?? TECHS[t].era;
+    // the pick replaces the era's lowest-priority small step (docs/14 §6): the
+    // last small step the bot would research in that era's stretch of its list
+    // (from the pick to the next era's first main tech) moves to the tail, so
+    // the era's research is the same size. It must be one the bot would really
+    // take then (shown on this site, its prerequisites done or earlier in the
+    // list) and one no main tech or pick builds on.
+    const SMALL = new Set(Object.values(SMALL_AFTER).flat());
+    const isMain = (y) => MAIN0.has(y) || !!TECHS[y].exclusive || !!TECHS[y].track;
+    const needed = (x) => order.some((y) => isMain(y) && TECHS[y].requires.includes(x));
+    const shown = (x) => R1.cards[x] && R1.cards[x].state !== 'hidden';
+    const reachable = (x) => TECHS[x].requires.every((r) => R1.cards[r]?.state === 'done' ||
+      (order.indexOf(r) >= 0 && order.indexOf(r) < order.indexOf(x)));
+    for (let e = 2; e <= 8; e++) {
+      const t = pickOf(e);
+      order = order.filter((x) => x !== t);
+      const firstMain = order.findIndex((x) => eraOf(x) === e && (MAIN0.has(x) || TECHS[x].exclusive));
+      const first = order.findIndex((x) => eraOf(x) === e);
+      let at = firstMain >= 0 ? firstMain + (cfg.policy === 'attentive' ? 0 : 1) : first >= 0 ? first : order.length;
+      if (e === 8) at = Math.min(at, order.indexOf('swarmProtocol'));
+      order.splice(at, 0, t);
+      if (cfg.replaceStep !== false && e < 8) {
+        let end = order.findIndex((x, i) => i > at && eraOf(x) > e && isMain(x));
+        if (end < 0) end = order.length;
+        const small = order.slice(at + 1, end).filter((x) => eraOf(x) <= e && SMALL.has(x) && !BUILDER.includes(x) &&
+          shown(x) && reachable(x) && !needed(x));
+        const drop = small[small.length - 1];
+        if (drop) { order = order.filter((x) => x !== drop); order.push(drop); log0.deferred.push(drop); }
+      }
+    }
+    if (robotic && PICKS[5] === 'A') order = order.filter((x) => x !== 'humanCohabitation');
+  }
+
   // ── helpers over the shown state ──
   const now = () => G.getState();
   let s = now();
@@ -213,6 +277,8 @@ async function installBot(cfg) {
     battery: 'batteryStorage', refinery: 'siliconRefining', partsFab: 'partsFabrication',
     roboticsBay: 'constructionRobotics', reactor: 'thoriumPower', chipFab: 'waferFab', dataCenter: 'lunarDataCenter',
     recDome: 'crewWellness', foilFactory: 'foilManufacturing', massDriver: 'massDriver', propellantPlant: 'propellantDepot',
+    // the destiny buildings (docs/14 §2.8)
+    greenhouseRing: 'greenhouseRings', gardenDome: 'gardenDomes', droneHive: 'droneHives', serverMonolith: 'fleetOS',
   };
   const unlocked = (t) => {
     if ((t === 'habitat' || t === 'hydroponics') && robotic) return done('humanCohabitation');
@@ -233,7 +299,9 @@ async function installBot(cfg) {
   /** a station's seats as its inspector shows them (the crew deltas of the techs done) */
   const seatsOf = (t) => Math.max(0, BUILDINGS[t].crew +
     (done('selfReplication') && ['partsFab', 'foilFactory'].includes(t) ? -1 : 0) +
-    (done('benchRobots') && t === 'lab' ? -1 : 0));
+    (done('benchRobots') && t === 'lab' ? -1 : 0) +
+    (done('lightsOutFabs') && ['partsFab', 'chipFab'].includes(t) ? -1 : 0) +
+    (done('missionControl') && ['massDriver', 'propellantPlant'].includes(t) ? 1 : 0));
   const drawOf = (t, auto) => {
     let kw = BUILDINGS[t].powerKW;
     if (t === 'smelter' && done('moltenElectrolysis')) kw = -22;
@@ -249,11 +317,11 @@ async function installBot(cfg) {
 
   // ── log ──
   const log = {
-    cfg, order, pick, actions: [], events: [], eraOpen: { 1: s.simTime }, eraVia: {}, samples: [],
+    cfg, order, pick, picks: PICKS, deferred: log0.deferred, actions: [], events: [], eraOpen: { 1: s.simTime }, eraVia: {}, samples: [],
     acc: {
       t: 0, brownout: 0, brownoutNight: 0, shed: 0, night: 0, partsZero: 0, worn: 0, paused: 0, pausedBrownout: 0,
       queueEmpty: 0, goodsStall: 0, goodsBy: {}, siteIdle: {}, blockedBy: {}, bankMax: 0, deaths: 0,
-      autoBy: {}, rulePhase: {},
+      autoBy: {}, rulePhase: {}, rulePhaseBy: {},
     },
     autoSeen: [],
     firstLight: null, swarmProtocolAt: null, milestones: {},
@@ -573,8 +641,10 @@ async function installBot(cfg) {
   }
 
   function decideEmergency() {
-    if (done('swarmProtocol') && s.resources.foils >= BAL.LAUNCH_COST_FOILS && s.resources.launch >= BAL.LAUNCH_CAP_PER_VOLLEY &&
-        s.powerStored >= BAL.LAUNCH_POWER_BURST) {
+    // the swarm meter's own terms (Crewed Mission Control: 2↑ with 4 on console;
+    // Autonomous Cadence fires by itself, a press only helps)
+    const v = done('swarmProtocol') ? G.getDestiny().volley : null;
+    if (v && s.resources.foils >= v.foils && s.resources.launch >= v.launch && s.powerStored >= v.burst) {
       G.launch(); act('launch', '');
     }
     if (s.resupply?.pending) return;
@@ -691,6 +761,9 @@ async function installBot(cfg) {
     if (unlocked('dataCenter') && nAll('dataCenter') < 1) {
       if (build('dataCenter', 'compute', { critical: true })) lastDC = s.simTime;
     }
+    // compute: a Server Monolith instead of the 3rd Data Center and later (docs/14 §6)
+    const computeN = () => nAll('dataCenter') + nAll('serverMonolith');
+    const computeType = () => (unlocked('serverMonolith') && computeN() >= 2 ? 'serverMonolith' : 'dataCenter');
     if (unlocked('reactor') && site.nightSolarFraction < 0.5) first('reactor', 'night');
     first('foilFactory', 'foils');
     first('massDriver', 'launch');
@@ -720,13 +793,17 @@ async function installBot(cfg) {
       const target = m.nightDeficit * BAL.NIGHT_S * Math.min(1, P.nightCover + coverBoost);
       if (m.capacity + all('battery').filter((b) => !complete(b)).length * per < target && nAll('battery') < 12) build('battery', 'night');
     }
-    if (unlocked('roboticsBay') && nAll('roboticsBay') < (famOn('fabrication') ? 1 : 2 + (era >= 4 && P.dcs >= 3 ? 1 : 0))) build('roboticsBay', 'robots');
+    // a Drone Hive instead of the 2nd Robotics Bay and later (docs/14 §6)
+    const bays = nAll('roboticsBay') + nAll('droneHive');
+    if (unlocked('roboticsBay') && bays < (famOn('fabrication') ? 1 : 2 + (era >= 4 && P.dcs >= 3 ? 1 : 0))) {
+      build(unlocked('droneHive') && nAll('roboticsBay') >= 1 ? 'droneHive' : 'roboticsBay', 'robots');
+    }
 
     // research-bound with full stockpiles: more science (a lab, or a Data Center once there is one)
     const researchBound = R.queue.length > 0 && !R.queue[0].stalled && res.metals > 250 && res.parts > 100 &&
       sitesPending().length === 0 && !powerNeed();
     if (researchBound && era >= 5) {
-      if (unlocked('dataCenter') && nAll('dataCenter') < 4 && res.chips >= 15 + 10) build('dataCenter', 'research-bound');
+      if (unlocked('dataCenter') && computeN() < 4 && res.chips >= 15 + 10) build(computeType(), 'research-bound');
       else if (nAll('lab') < 10 && crewOk('lab')) build('lab', 'research-bound');
     }
     // stockpiles at their caps (parts are fine full: the fabricators stand by)
@@ -749,16 +826,24 @@ async function installBot(cfg) {
     const chipStalled = R.queue.some((q) => q.stalled && /chips/.test(q.need));
     if (!famOn('fabrication') && unlocked('chipFab') && nAll('chipFab') < P.chipFabs + (chipStalled ? 1 : 0) && nDone('chipFab') >= 1 &&
         crewOk('chipFab') && nAll('chipFab') < 3) build('chipFab', 'chips 2');
-    if (unlocked('dataCenter') && nAll('dataCenter') < P.dcs && s.simTime - lastDC > 240 &&
-        sitesPending().every((b) => b.type !== 'dataCenter')) {
-      if (build('dataCenter', 'compute')) lastDC = s.simTime;
+    if (unlocked('dataCenter') && computeN() < P.dcs && s.simTime - lastDC > 240 &&
+        sitesPending().every((b) => b.type !== 'dataCenter' && b.type !== 'serverMonolith')) {
+      if (build(computeType(), 'compute')) lastDC = s.simTime;
     }
     if (unlocked('habitat') && robotic && nAll('habitat') < 1) build('habitat', 'cohab');
     if (unlocked('hydroponics') && robotic && nAll('hydroponics') < 1) build('hydroponics', 'cohab');
-    if (!famOn('life') && !robotic && unlocked('habitat') && s.crew >= (s.housingActive ?? 8) - 1 && !sitesPending().some((b) => b.type === 'habitat')) {
-      build('habitat', 'beds');
+    // a crewed base — or a robotic one its destiny brought people to — keeps
+    // beds and food ahead of the crew: a Garden Dome instead of habitats once
+    // unlocked, a Greenhouse Ring (three farms) instead of the 3rd farm and later
+    const peopled = !robotic || s.crew > 0;
+    if (!famOn('life') && peopled && unlocked('habitat') && s.crew >= (s.housingActive ?? 8) - 1 &&
+        !sitesPending().some((b) => b.type === 'habitat' || b.type === 'gardenDome')) {
+      build(unlocked('gardenDome') ? 'gardenDome' : 'habitat', 'beds');
     }
-    if (!famOn('life') && !robotic && s.crew >= 8 && nAll('hydroponics') < Math.ceil(s.crew / 10) + 1 && crewOk('hydroponics')) build('hydroponics', 'food');
+    const farms = nAll('hydroponics') + 3 * nAll('greenhouseRing');
+    if (!famOn('life') && peopled && s.crew >= 8 && farms < Math.ceil(s.crew / 10) + 1 && crewOk('hydroponics')) {
+      build(unlocked('greenhouseRing') && farms >= 2 ? 'greenhouseRing' : 'hydroponics', 'food');
+    }
     if (unlocked('recDome') && nAll('recDome') < 1 && s.crew >= 2 && crewOk('recDome')) build('recDome', 'morale');
     if (unlocked('foilFactory') && nAll('foilFactory') < P.foilFabs && crewOk('foilFactory')) build('foilFactory', 'foils');
     if (!famOn('smelting') && unlocked('foilFactory') && nAll('refinery') < 2 + (nAll('foilFactory') >= 2 ? 1 : 0) && crewOk('refinery')) build('refinery', 'foil silicon');
@@ -806,9 +891,10 @@ async function installBot(cfg) {
       A.autoBy[k] = (A.autoBy[k] ?? 0) + 1;
     }
     if (cfg.auto && s.auto) {
-      for (const r of Object.values(s.auto.rules)) {
+      for (const [id, r] of Object.entries(s.auto.rules)) {
         if (!r.on) continue;
         A.rulePhase[r.phase] = (A.rulePhase[r.phase] ?? 0) + dt;
+        if (r.phase !== 'ok') A.rulePhaseBy[`${id}:${r.phase}`] = (A.rulePhaseBy[`${id}:${r.phase}`] ?? 0) + dt;
       }
     }
     A.bankMax = Math.max(A.bankMax, s.data);
@@ -893,12 +979,13 @@ async function installBot(cfg) {
       resources: s2.resources, stats: s2.stats, outposts: s2.survey.outposts.map((o) => [o.id, o.live]),
       surveyed: Object.keys(s2.survey.prospects), discoveries: s2.discoveries, insights: s2.insights,
       downlinks: s2.downlinks, resupply: s2.resupply,
+      band: G.getDestiny().band, crewHome: s2.crewHome,
       alertsTail: s2.alerts.slice(-8).map((a) => a.text),
     };
     return log;
   }
   window.__bot = { step, report };
-  return { order, pick };
+  return { order, pick, picks: PICKS };
 }
 
 // ───────────────────────── the Node side ─────────────────────────
@@ -922,7 +1009,8 @@ function summarize(log) {
   const over5 = idleGaps.filter((g) => g.len > 300).map((g) => `${fmtMin(g.len)}@${fmtMin(g.at)}`);
   const pct = (x) => `${Math.round((100 * x) / Math.max(1, A.t))}%`;
   return {
-    run: `${log.cfg.site}:${log.cfg.exp}:${log.cfg.policy}${log.cfg.auto ? ':auto' : ''}`, seed: log.cfg.seed,
+    run: `${log.cfg.site}:${log.cfg.exp}:${log.cfg.policy}${log.cfg.auto ? ':auto' : ''}:${log.picks}`, seed: log.cfg.seed,
+    picks: log.picks, band: log.final.band, crewHome: log.final.crewHome,
     flMin: log.firstLight ? log.firstLight / 60 : null,
     eras: eras.map((x) => (x == null ? null : +x.toFixed(1))),
     actGap: ag.len / 60, evtGap: eg.len / 60, brownPct: A.brownout / Math.max(1, A.t), wornPct: A.worn / Math.max(1, A.t),
@@ -950,12 +1038,15 @@ function summarize(log) {
     autoBuilt: A.autoBy, autoBuiltN: Object.values(A.autoBy).reduce((a, b) => a + b, 0),
     builtN: log.final.stats.built ?? null,
     rulePhaseMin: Object.fromEntries(Object.entries(A.rulePhase).map(([k, v]) => [k, fmtMin(v)])),
+    // which rule sat in which phase (rule:phase, over 1 min; 'ok' left out)
+    rulePhaseByMin: Object.fromEntries(Object.entries(A.rulePhaseBy ?? {}).filter(([, v]) => v >= 60)
+      .sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, fmtMin(v)])),
     caps: log.actions.filter((a) => a[1] === 'cap').map((a) => a[2]),
   };
 }
 
 const results = [];
-await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0], lowfx: true,
+await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0], lowfx: true, reuseServer: argv.includes('--reuse'),
   viewport: { width: 480, height: 320 } }, async ({ page, errors }) => {
   // pause the moment the debug API attaches, so every run starts at the same
   // game-second no matter how long the page took to load (determinism)
@@ -972,8 +1063,11 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     const q = `?debug&nolock&lowfx&seed=${seed}&site=${run.site}${run.exp === 'robotic' ? '&exp=robotic' : ''}`;
     await page.goto(`http://127.0.0.1:${PORT}/${q}`);
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
-    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY });
-    if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · picks ${JSON.stringify(info.pick)}`);
+    const info = await page.evaluate(installBot, {
+      ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY, destiny: DESTINY, picks: PICKS_ARG,
+      replaceStep: REPLACE_STEP,
+    });
+    if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · destiny ${info.picks} · doctrines ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {
       const r = await page.evaluate((n) => window.__bot.step(n), Math.min(10, MINUTES - m));
       if (!QUIET) {
@@ -1002,7 +1096,7 @@ if (SEEDS.length > 1) {
   console.log('\nmedian over seeds ' + SEEDS.join(',') + '\nrun                         | FIRST LIGHT      | eras E1…E8 (min)                          | idle max | act gap | brown | worn | stall');
   for (const run of RUNS) {
     const key = `${run.site}:${run.exp}:${run.policy}${AUTO_ON ? ':auto' : ''}`;
-    const rs = results.map((x) => x.summary).filter((x) => x.run === key);
+    const rs = results.map((x) => x.summary).filter((x) => x.run.startsWith(`${key}:`));
     const fl = rs.map((x) => x.flMin ?? MINUTES + 1);
     const flTxt = `${med(fl).toFixed(1)}${fl.some((x) => x > MINUTES) ? '›' : ''} [${fl.map((x) => (x > MINUTES ? '—' : x.toFixed(0))).join(',')}]`;
     const eras = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => med(rs.map((x) => x.eras[i])));

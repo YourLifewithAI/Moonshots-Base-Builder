@@ -6,7 +6,8 @@
  *  availability, cost and ETA all come from core/research.ts. */
 import './techTree.css';
 import {
-  DOCTRINES, ERA_BLURB, ERA_NAMES, LANES, TECHS, TECH_ORDER, describeTech,
+  BAND_LABEL, CAPSTONES, DOCTRINES, ERA_BLURB, ERA_BLURB_8, ERA_NAMES, LANES, SIDE_GLYPH, SIDE_LABEL, TECHS, TECH_ORDER, TRACKS,
+  describeTech,
   type DoctrineId, type Era, type EffectLine, type Lane, type TechId,
 } from '../data/techs';
 import { BUILDINGS } from '../data/buildings';
@@ -28,7 +29,7 @@ import {
   DEPENDENTS, GEO, computePageLayout, isPlaceholder, isVisible,
   type PageItem, type PageLayout, type Stub,
 } from './techPage';
-import { destinyPip, destinySlot } from './techDestiny';
+import { destinyMeter, destinyPip, destinyPips, destinySlot, reachLine } from './techDestiny';
 import { gateTitle, goalsHtml, pageKind, updateGoals } from './techGoals';
 
 // ─────────────────────────── text helpers ───────────────────────────
@@ -185,7 +186,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     siteId: ($siteId.get() ?? 'mare') as SiteId,
     expedition: ($vitals.get().expedition ?? 'human') as Expedition,
   });
-  const linesOf = (tid: TechId) => describeTech(TECHS[tid], ctx());
+  const linesOf = (tid: TechId) => describeTech(TECHS[tid], { ...ctx(), done: game.state?.techsDone });
   const tag = (tid: TechId) => {
     const k = `${tid}|${ctx().siteId}|${ctx().expedition}`;
     if (!tagCache.has(k)) tagCache.set(k, tagOf(linesOf(tid)));
@@ -263,7 +264,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const era = v?.era ?? 1;
     if (chip.dataset.era !== String(era)) {
       chip.dataset.era = String(era);
-      chip.innerHTML = `ERA ${era} · ${ERA_NAMES[era]} <span class="cap mono">— tech [T]</span>
+      chip.innerHTML = `ERA ${era} · ${ERA_NAMES[era]} <span class="chip-pips mono" id="chip-pips"></span>
+        <span class="cap mono">— tech [T]</span>
         <div class="res-line">
           <span class="label res-name" id="chip-res-name"></span>
           <div class="res-bar"><i id="chip-res-fill"></i></div>
@@ -284,6 +286,13 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       name = `Researching ${TECHS[head.tid].short}`;
       right = `${pct(head.pct)} · ETA ${fmtClock(head.eta)}`;
     }
+    // the destiny meter rides the era chip: ⌂◉⌂⌂○○○○ (docs/14 §2.4)
+    const pips = chip.querySelector('#chip-pips') as HTMLElement;
+    const pipTxt = v ? destinyPips(v.destiny) : '';
+    if (pips.textContent !== pipTxt) {
+      pips.textContent = pipTxt;
+      pips.title = v ? `Destiny ${SIDE_GLYPH.colony}${v.destiny.c} · ${SIDE_GLYPH.automation}${v.destiny.a} — ${reachLine(v.destiny)}` : '';
+    }
     const n = chip.querySelector('#chip-res-name') as HTMLElement;
     const p = chip.querySelector('#chip-res-pct') as HTMLElement;
     if (n.textContent !== name) { n.textContent = name; n.title = name; }
@@ -300,7 +309,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   const stubSig = (m: Map<TechId, Stub>) => [...m].map(([t, s]) => `${t}${s.done ? 1 : 0}${s.eras.join('')}`).join(',');
   function signature(v: ResearchView, L: PageLayout, dsig: string): string {
     const { siteId, expedition } = ctx();
-    return `${page}|${v.era}|${siteId}|${expedition}|${dsig}|` +
+    return `${page}|${v.era}|${siteId}|${expedition}|${dsig}|${v.destiny.picks.join('')}|` +
       L.rows.map((r) => `${r.key}${r.compact ? '~' : ''}:${r.cards.map((t) => cardSig(v, t)).join(',')}`).join('/') +
       `|<${stubSig(L.before)}|>${stubSig(L.after)}`;
   }
@@ -327,7 +336,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       buildBoard();
       if (hover && !L.items.has(hover)) hover = null;
     }
-    if (selected && !(isVisible(v.cards[selected]) || isPlaceholder(v.cards[selected]))) selected = null;
+    if (selected && !(isVisible(v.cards[selected]) || isPlaceholder(v.cards[selected]) || L.items.get(selected)?.dph)) selected = null;
     updateTabs();
     updateHeader();
     updatePageHead();
@@ -410,11 +419,15 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const word = kind === 'current' ? 'CURRENT ERA' : kind === 'past' ? 'OPEN · PAST ERA' : 'LOCKED';
     pageHead.className = `${destiny ? '' : 'no-destiny '}k-${kind}`;
     pageHead.dataset.era = String(page);
+    // Era 8's blurb follows the band once it is certain (docs/14 §5)
+    const band = v.destiny.certain;
+    const blurb = page === 8 && band ? ERA_BLURB_8[band] : ERA_BLURB[page] ?? '';
     pageHead.innerHTML = `
       <div class="ph-era">
         <div class="ph-k label">ERA ${page} · ${word}</div>
         <div class="ph-name">${esc(ERA_NAMES[page])}</div>
-        <div class="ph-blurb">${esc(ERA_BLURB[page] ?? '')}</div>
+        <div class="ph-blurb">${esc(blurb)}</div>
+        ${destinyMeter(v.destiny)}
         <div class="ph-count mono" data-g="count"></div>
       </div>
       ${destiny ? `<div class="ph-destiny">${destiny}</div>` : ''}
@@ -425,7 +438,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     let n = 0, done = 0, q = 0, avail = 0;
     for (const t of TECH_ORDER) {
       const c = v.cards[t];
-      if (c.era !== page || c.state === 'hidden') continue;
+      if (c.era !== page || c.state === 'hidden' || c.track) continue;
       n++;
       if (c.state === 'done') done++;
       else if (c.state === 'queued' || c.state === 'stalled') q++;
@@ -460,6 +473,10 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   }
 
   function cardHtml(c: ResearchCard, it: PageItem): string {
+    if (it.dph) {
+      return `<div class="cb"><div class="l1"><span class="gl">⌂◉</span><span class="nm">Destiny capstone</span></div>
+        <div class="l2"><span class="l2a">the Era 8 pick settles it</span></div></div>`;
+    }
     if (it.ph) {
       return `<div class="cb"><div class="l1"><span class="gl">✦</span><span class="nm">? Breakthrough</span></div>
         <div class="l2"><span class="l2a">survey an anomaly</span></div></div>`;
@@ -542,14 +559,15 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     board.innerHTML = html;
     for (const [tid, it] of L.items) {
       const c = v.cards[tid];
-      const cls = it.ph ? 'ph' : STATE_CLASS(c.state);
+      const cls = it.dph ? 'ph dph' : it.ph ? 'ph' : STATE_CLASS(c.state);
       const e = el('div', `tech-card ${cls}${c.doctrine ? ' doctrine' : ''}${it.capstone ? ' capstone' : ''}${it.compact ? ' compact' : ''}`);
       e.dataset.tech = tid;
       e.dataset.state = it.ph ? 'placeholder' : c.state;
       e.setAttribute('role', 'button');
       e.tabIndex = -1;
       e.style.cssText = `--r:${it.row};--x:${it.x}px;--w:${it.w}px`;
-      e.setAttribute('aria-label', it.ph ? 'Undiscovered breakthrough' : `${c.name} — ${STATUS[c.state]}${c.reason ? `: ${c.reason}` : ''}`);
+      e.setAttribute('aria-label', it.dph ? 'Destiny capstone — the Era 8 pick settles it'
+        : it.ph ? 'Undiscovered breakthrough' : `${c.name} — ${STATUS[c.state]}${c.reason ? `: ${c.reason}` : ''}`);
       e.innerHTML = cardHtml(c, it);
       board.appendChild(e);
       cardEls.set(tid, e);
@@ -705,6 +723,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       // the closure reaches another era: that card's stubs pulse
       e.querySelectorAll('.stub').forEach((s) => s.classList.toggle('hl', lit));
     }
+    // the header's destiny cards show the selection too
+    pageHead.querySelectorAll<HTMLElement>('.dz-card').forEach((c) => c.classList.toggle('sel', c.dataset.select === selected));
     const key = `${page}|${focusTid ?? ''}|${hover ?? ''}|${rowH}`;
     if (board.dataset.focus !== key) {
       board.dataset.focus = key;
@@ -899,6 +919,57 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     </div>`;
   }
 
+  /** a destiny pick's side in the sheet: both sides at full length, their YOUR BASE, the commit */
+  function pickSide(tid: TechId): string {
+    const c = view!.cards[tid];
+    const tr = TECHS[tid].track!;
+    const pair = TRACKS[tr.era];
+    const other = tr.side === 'colony' ? pair.automation : pair.colony;
+    const g = SIDE_GLYPH[tr.side];
+    let action = '';
+    if (c.state === 'done') action = '<span class="chosen">✓ CHOSEN</span>';
+    else if (c.state === 'queued' || c.state === 'stalled') {
+      action = `<button class="btn" data-act="cancel" data-tech="${tid}">Cancel — reopens ${SIDE_GLYPH[tr.side === 'colony' ? 'automation' : 'colony']} ${esc(TECHS[other].short)}</button>`;
+    } else if (c.state === 'available' || c.state === 'full') {
+      action = `<button class="btn primary commit" data-act="commit" data-tech="${tid}">Commit to ${g} ${esc(c.name)} — permanent</button>`;
+    } else {
+      action = `<span class="why">${esc(c.reason)}</span>`;
+    }
+    const lines = linesOf(tid);
+    const pros = lines.filter((l) => l.sign === 'pro').map((l) => `<div class="fx fx-pro">⊕ ${esc(l.text)}</div>`).join('');
+    const cons = lines.filter((l) => l.sign === 'con').map((l) => `<div class="fx fx-con">⊖ ${esc(l.text)}</div>`).join('');
+    const eta = c.state === 'done' ? '' : c.state === 'stalled' ? ' · data paid, waiting on goods' : ` · ETA ${fmtClock(c.eta)}`;
+    return `<div class="doc-side dst-side side-${tr.side} st-${STATE_CLASS(c.state).split(' ')[0]}${tid === subject() ? ' focus' : ''}" data-tech="${tid}">
+      <div class="ds-head"><span class="ds-name">${g} ${SIDE_LABEL[tr.side]} · ${esc(c.name)}</span>
+        <span class="mono ds-cost">${c.cost.data}≡${Object.entries(c.cost.goods)
+          .map(([r, a]) => ` <span class="g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span>`).join('')}${eta}</span>
+        ${action}</div>
+      <div class="ds-fx"><div>${pros}<div class="fx ds-vis"><i>${esc(TECHS[tid].visual ?? '')}</i></div></div><div>${cons}</div>
+        <div class="ds-yb"><div class="sh-h label">Your base</div>${c.state === 'done' ? '' : previewHtml(tid)}</div></div>
+    </div>`;
+  }
+
+  function destinySheetHtml(tid: TechId): string {
+    const v = view!;
+    const tr = TECHS[tid].track!;
+    const pair = TRACKS[tr.era];
+    const c = v.cards[tid];
+    return `<div class="doc-sheet dst-sheet" data-era="${tr.era}">
+      <div class="doc-head"><b>DESTINY · CHOOSE ONE · PERMANENT</b> — Era ${tr.era}: ${esc(pair.question)}
+        <span class="sh-site" title="${esc(reachLine(v.destiny))}">${destinyPips(v.destiny)} · ${esc(reachLine(v.destiny))}</span>${jumpBack(c)}</div>
+      <div class="doc-cols">${pickSide(pair.colony)}${pickSide(pair.automation)}</div></div>`;
+  }
+
+  function capstonePlaceholderHtml(): string {
+    const v = view!;
+    return `<div class="sh-col"><div class="sh-name">⌂◉ Destiny capstone</div>
+        <div class="sh-meta label">E8 · ${esc(ERA_NAMES[8])} · the band’s capstone</div>
+        <div class="sh-status st-locked">SETTLED BY THE ERA 8 PICK — ${esc(reachLine(v.destiny))}</div>
+        <div class="sh-desc">${SIDE_GLYPH.colony} ${esc(TECHS[CAPSTONES.colony].name)} at 6 Colony · ${SIDE_GLYPH.automation}
+          ${esc(TECHS[CAPSTONES.automation].name)} at 6 Automation · ${esc(TECHS[CAPSTONES.concord].name)} otherwise.
+          Only the band’s capstone opens, after ${esc(TECHS.swarmProtocol.name)}.</div></div>`;
+  }
+
   function placeholderHtml(tid: TechId): string {
     const c = view!.cards[tid];
     const bt = c.breakthrough!;
@@ -930,15 +1001,19 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const v = view!;
     const tid = subject();
     const c = tid ? v.cards[tid] : null;
-    const shown = !!c && (isVisible(c) || isPlaceholder(c));
+    const dph = !!tid && !!layout?.items.get(tid)?.dph;
+    const shown = !!c && (isVisible(c) || isPlaceholder(c) || dph);
     const counts = Object.values($counts.get()).reduce((a, x) => a + (x?.total ?? 0), 0);
     const doctrine = c?.doctrine ?? null;
-    const sig = `${tid}|${page}|${globalSig(v)}|${counts}|${collapsed}`;
+    const pick = !!c?.track && !c.track.landing;
+    const sig = `${tid}|${page}|${globalSig(v)}|${counts}|${collapsed}|${dph}`;
     if (sig !== sheetSig) {
       sheetSig = sig;
       if (collapsed) sheetBody.innerHTML = '';
       else if (!tid || !c || !shown) sheetBody.innerHTML = summaryHtml();
+      else if (dph) sheetBody.innerHTML = capstonePlaceholderHtml();
       else if (isPlaceholder(c)) sheetBody.innerHTML = placeholderHtml(tid);
+      else if (pick) sheetBody.innerHTML = destinySheetHtml(tid);
       else if (doctrine) {
         const d = DOCTRINES[doctrine];
         const members = d.members.filter((m) => isVisible(v.cards[m]));
@@ -992,7 +1067,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     selected = tid;
     if (it.ph || c.state === 'done') return;
     if (c.state === 'queued' || c.state === 'stalled') { push({ kind: 'cancelResearch', tech: tid }); return; }
-    if (c.doctrine) return;
+    if (c.doctrine || c.track) return;
     push({ kind: path ? 'researchPath' : 'research', tech: tid });
   }
 
@@ -1055,11 +1130,29 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const v = view;
     const items = [...layout.items.values()];
     const on = (t: TechId | null) => (t ? layout!.items.get(t) : undefined);
+    // the destiny cards sit above the top lane row (docs/14 §1.7): ←/→ between
+    // the two sides, ↓ back down to the board
+    const pair = page >= 2 ? TRACKS[page] : null;
+    const onPick = !!selected && !!pair && (selected === pair.colony || selected === pair.automation);
+    if (onPick && pair) {
+      if (dx) selected = dx < 0 ? pair.colony : pair.automation;
+      else if (dy > 0) selected = items.filter((s) => s.row === 0).sort((a, b) => a.x - b.x)[0]?.tid ?? selected;
+      hover = null;
+      refreshFocus();
+      return;
+    }
     const cur = on(selected) ?? on(hover)
       ?? items.find((s) => ['queued', 'stalled'].includes(v.cards[s.tid].state))
       ?? items.find((s) => v.cards[s.tid].state === 'available') ?? items[0];
     if (!cur) return;
     if (!on(selected) && !on(hover)) { selected = cur.tid; hover = null; refreshFocus(); return; }
+    if (dy < 0 && cur.row === 0 && pair) {
+      // ↑ from the top row: the destiny card on the nearer side
+      selected = cur.x + cur.w / 2 < (layout.width / 2) ? pair.colony : pair.automation;
+      hover = null;
+      refreshFocus();
+      return;
+    }
     const cx = cur.x + cur.w / 2;
     let best: PageItem | null = null, bestD = Infinity;
     for (const s of items) {
@@ -1120,7 +1213,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       if (!selected) return;
       const c = view?.cards[selected];
       if (!c || c.state === 'queued' || c.state === 'stalled') return;
-      if (c.doctrine) {
+      if (c.doctrine || c.track) {
         sheetBody.querySelector<HTMLButtonElement>(`button.commit[data-tech="${selected}"]`)?.focus();
         return;
       }

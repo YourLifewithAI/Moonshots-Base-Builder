@@ -3,7 +3,7 @@
  *  doctrine brackets, and the stubs that point to other eras. Pure: it reads
  *  the published ResearchView and the static tech table, nothing else. */
 import {
-  LANES, LANE_ORDER, TECHS, TECH_ORDER,
+  CAPSTONES, LANES, LANE_ORDER, TECHS, TECH_ORDER,
   type DoctrineId, type Era, type Lane, type TechId,
 } from '../data/techs';
 import type { ResearchCard, ResearchView } from '../core/research';
@@ -13,8 +13,11 @@ export const isVisible = (c: ResearchCard) => c.state !== 'hidden';
 export const isPlaceholder = (c: ResearchCard) => c.state === 'hidden' && !!c.breakthrough;
 /** the tech that arms the launch: drawn double width on the Era 8 page */
 export const isCapstone = (tid: TechId) => TECHS[tid].effects.some((fx) => fx.kind === 'launchAction');
-/** a card that has a place on its era's page */
-export const onBoard = (c: ResearchCard) => isVisible(c) || isPlaceholder(c);
+/** a card that has a place on its era's page: destiny picks live in the
+ *  page header (techDestiny.ts), and capstones in their own Era 8 row */
+export const onBoard = (c: ResearchCard) => !c.track && (isVisible(c) || isPlaceholder(c));
+/** the key of the Era 8 destiny-capstone placeholder (no band settled yet) */
+export const DESTINY_PH: TechId = CAPSTONES.colony;
 
 /** geometry (px): the lane-label column, a card, a compact card and the gutter */
 export const GEO = { lw: 116, cw: 204, compactW: 140, gap: 8 } as const;
@@ -49,6 +52,8 @@ export interface PageItem {
   ph: boolean;
   compact: boolean;
   capstone: boolean;
+  /** the Era 8 destiny-capstone placeholder (docs/14 §1.4) */
+  dph?: boolean;
 }
 export interface PageBracket { group: DoctrineId; row: number; x0: number; x1: number }
 /** a link to other eras: the eras in order, the first tech to select in each */
@@ -97,12 +102,21 @@ export function computePageLayout(v: ResearchView, era: Era, maxWidth = Infinity
     if (list.length) groups.push({ key: lane, lane, label: d.label, holds: d.holds, list });
   }
   const free = cards.filter((c) => !c.lane);
-  const steps = free.filter((c) => !c.doctrine && !isCapstone(c.tid));
+  const steps = free.filter((c) => !c.doctrine && !isCapstone(c.tid) && !c.band);
   const caps = free.filter((c) => !c.doctrine && isCapstone(c.tid));
   const purpose = free.filter((c) => c.doctrine);
+  const destiny = free.filter((c) => c.band);
   if (steps.length) groups.push({ key: 'swarm', lane: null, label: '✺ SWARM', holds: 'the steps before the launch', list: steps });
   if (caps.length) groups.push({ key: 'capstone', lane: null, label: 'CAPSTONE', holds: 'arms the launch: FIRST LIGHT', list: caps });
   if (purpose.length) groups.push({ key: 'purpose', lane: null, label: '◇ PURPOSE', holds: 'what the swarm is for', list: purpose });
+  // the destiny capstone: the band's card once the Era 8 pick settles it, a placeholder before
+  const dph = era === 8 && !destiny.length && !!v.cards[DESTINY_PH];
+  if (destiny.length || dph) {
+    groups.push({
+      key: 'destiny', lane: null, label: '⌂◉ DESTINY', holds: 'the band’s capstone: ⌂ Commonwealth, ◉ Selenic Mind or Concord',
+      list: destiny.length ? destiny : [v.cards[DESTINY_PH]],
+    });
+  }
 
   const rows: PageRow[] = [];
   const items = new Map<TechId, PageItem>();
@@ -129,8 +143,10 @@ export function computePageLayout(v: ResearchView, era: Era, maxWidth = Infinity
     const docSpan = new Map<DoctrineId, [number, number]>();
     ordered.forEach((c, i) => {
       const w = spans[i] * cw + (spans[i] - 1) * GEO.gap;
+      const destinyPh = g.key === 'destiny' && !isVisible(c);
       items.set(c.tid, {
-        tid: c.tid, row: r, x, w, ph: isPlaceholder(c), compact, capstone: spans[i] > 1,
+        tid: c.tid, row: r, x, w, ph: isPlaceholder(c) || destinyPh, compact, capstone: spans[i] > 1,
+        ...(destinyPh ? { dph: true } : {}),
       });
       if (c.doctrine) {
         const s = docSpan.get(c.doctrine);

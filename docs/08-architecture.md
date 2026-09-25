@@ -25,6 +25,8 @@ src/
     actions.ts            typed Action union + ActionQueue (UI → sim)
     economy.ts            the 1 Hz economy tick — the entire simulation
     mods.ts               tech-effect modifiers (computeMods) + era computation
+    research.ts           availability, cost, the queue, charters (the destiny pick gates eras 3–8),
+                          destinyOf (the meter, the band, the reach), techSchema migration
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
                           maintenance, the [B] view; economy step 12 returns AutoRequests
     siting.ts             the deterministic site chooser shared by orders and rules (+ Feed Planner aim)
@@ -45,6 +47,7 @@ src/
     sites.ts              3 landing sites, every mechanical modifier
     milestones.ts         10 ordered goals (the tutorial) + swarm bands
     automation.ts         the Builder's rule table (RULES), families, AUTO constants, rule texts
+    hazards.ts            destiny hazard ids, guard and exposure texts (hooks only: HAZARDS_LIVE false)
     roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
@@ -103,6 +106,8 @@ src/
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
     builderPanel.ts       the [B] Builder panel and the resource panels' BUILDER section
+    techTree.ts / techPage.ts / techGoals.ts / techDestiny.ts
+                          the research tree: pages, lane board, goals, the destiny column and meter
 tests/smoke.spec.ts       6-test full-loop Playwright suite
 playwright.config.ts      test runner config (preinstalled Chromium aware)
 ```
@@ -161,6 +166,7 @@ in `game.ts`):
 | 9 | Flare state machine | idle → telegraph (60 s warning alert) → active (45 s, solar = 0, −10 morale unless the site is flare-immune) → idle, next event at 2.0 ± 0.8 days, **seeded jitter** (§7) |
 | 10 | Research | Data drains into the queue head; on completion, era-3+ techs also gate on **manufactured goods** (Factorio rule: you cannot out-research your industry) — unaffordable techs stall with an alert. Completion recomputes era + mods |
 | 11 | Night tracking | Day→night edge detection; surviving a night increments the counter and fires the DAWN alert |
+| 11b | Autonomous Cadence | With the ◉ Era 8 pick: a ready volley fires itself, one a tick, only if the bank keeps the night's reserve (`launchVolley`, shared with the button). The first volley of a pure-Automation band runs CREW HOME |
 | 12 | Milestones | Checked **in order**, only the next incomplete one — progressive disclosure by construction. `first-light` (first launch) raises the victory event |
 | 12b | Flow book | Folded in at the end of production, life support and upkeep: per resource, `made` (outputs and hauled deliveries), `want` (what running buildings, the crew, upkeep and welding asked for, covered or not) and `spend` (build costs, research goods, surveys, claims) — the rates' averages, spend over 300 s. `made − want − spend` is the Builder's supply against demand |
 | 12c | Builder (`automationTick`) | Families newly unlocked switch their rules on; completed auto sites settle their rule; each rule reads its signal and walks its state machine in family order (≤ 2 placements a tick, one pending site a family); held orders; Maintenance; Feed Planner. Returns `AutoRequest[]` for `econStep` — the tick itself never places |
@@ -290,7 +296,11 @@ SaveBlob = {
   vetoes, the log, the day's margin, the families already switched on),
   `state.flowBook`, and `b.auto` on the buildings it placed. A save without
   them loads with every rule off; a family recorded as switched on is never
-  switched on again, so a loaded save keeps the player's choices. Restore = regenerate terrain from
+  switched on again, so a loaded save keeps the player's choices. The
+  destiny tracks add `forwarded` (techs a pick brought forward),
+  `crewHome`, `launchDayUntil` and `evaCrew`, and put the landing pick in
+  `techsDone`; `techSchema` 4 (`migrateTechSchema` step 3 → 4) adds it to
+  older saves. Restore = regenerate terrain from
   `(siteId, seed)` → replay flattens → rebuild chunk meshes + instances +
   colliders → restore player pose and mode.
 
@@ -306,7 +316,9 @@ economy ticks) · `setMode` (instant, no tween) · `getPlayer` · `save`. The
 Builder adds `order` · `cancelOrder` · `orderNext` · `setRule` ·
 `setReserve` · `moveFamily` · `freezeRules` · `setFeedPlan` (all through the
 action queue) · `getAutomation()` (the [B] view) · `planSite(type, intent)`
-(a dry run of the chooser) · `setWear(id, wear)`.
+(a dry run of the chooser) · `setWear(id, wear)`. The destiny tracks add
+`pickDestiny(era, side)` (completes an era's pick) · `getDestiny()` (the
+meter, the band, the next volley's terms, the gates) · `setDust(id, dust)`.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time
 waits make tests slow and flaky. `?nolock` makes walk mode drivable, and

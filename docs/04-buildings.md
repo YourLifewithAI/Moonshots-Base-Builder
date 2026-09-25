@@ -96,12 +96,27 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 | Self-Replicating Factory Seed (5) | C | enormous one-time cost → self-expanding factory complex | Grows its own sub-buildings on a timer; the Armstrong–Sandberg doubling made placeable (02) | Plant it, feed it, and watch the curve go vertical | While it grows, it eats everything — and a bad batch replicates too |
 | Statite Deployment Launcher (6) | C | foils + launch → statite deployments | Higher swarm % per volley; requires Swarm Coordination uptime (03) | Collectors that hover on sunlight itself — no orbit, no rendezvous | Tie your victory meter to a relay chain and pray it holds |
 
+## Destiny buildings
+
+Four buildings open with a destiny pick (docs/14 §2.8). Standing rules never
+build them until Selenic Mind; orders and clicks place them. Their recipes are
+placeholders from the stock kit until the look phase (docs/14 §4.2).
+
+| Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
+|---|---|---|---|---|---|
+| Drone Hive (3) · ◉ Drone Hives | S | −7 kW → docks 4 construction rovers | 3×3; counts in the fleet like a Bay, and is a dock on the roads (bays beside its door) | Four construction drones from one pad | Seven kW whether they fly or not, and one firmware push reaches all four |
+| Greenhouse Ring (5) · ⌂ Greenhouse Rings | S | 2 crew, −14 kW, 0.08 water/s → 0.32 food/s | Morale +6; 4×4 | Three farms' food on two crew and 14 kW | One blight takes the whole ring, and it drinks 0.08≈/s |
+| Server Monolith (5) · ◉ Fleet OS | S | −26 kW → 0.9 data/s; transfer cap +2.2/s | Counts as a Data Center wherever one is read, Data Center techs included; 2×2, 16 m | A Data Center's work on less than half the ground | A network hub: everything within 60 m links to it |
+| Garden Dome (7) · ⌂ Garden Domes | S | 1 crew, −12 kW, 0.05 water/s → 0.04 food/s | Houses 10; morale +10; extends the network 60 m; 5×5 | Ten beds round a park under glass | The largest pressure hull you will build |
+
 ## Roster accounting
 
 - **Shipped (14):** Solar Array, Battery Bank, Thorium Reactor, Regolith
   Excavator, Ice Harvester, Regolith Smelter, Silicon Refinery, Habitat Module,
   Hydroponics Farm, Recreation Dome, Research Lab, Parts Fabricator, Foil
-  Factory, Mass Driver — plus the free pre-placed Lander.
+  Factory, Mass Driver — plus the free pre-placed Lander. Later additions
+  (Storage Yard, Robotics Bay, Chip Fab, Data Center, Relay Mast, Propellant
+  Plant, and the four destiny buildings above) are in `buildings.ts`.
 - **Merged (2 → 1):** HRI Ilmenite Reduction Plant + MRE Electrolyzer → the
   shipped Regolith Smelter. Unmerging them restores a real strategic choice:
   oxygen-rich ilmenite reduction (site-dependent) vs. site-agnostic,
@@ -165,6 +180,10 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Foil Factory | 1,416 | 2,362 | 5 |
 | Mass Driver | 1,052 | 1,704 | 3 |
 | Propellant Plant | 2,348 | 3,496 | 4 |
+| Drone Hive | 776 | 776 | 0 |
+| Greenhouse Ring | 1,400 | 1,400 | 0 |
+| Garden Dome | 2,616 | 2,616 | 0 |
+| Server Monolith | 420 | 420 | 0 |
 
 #### Lander
 

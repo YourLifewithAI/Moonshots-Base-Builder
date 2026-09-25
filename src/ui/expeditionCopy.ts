@@ -1,5 +1,6 @@
 /** The landing expedition's card copy: the expedition screen (screens.ts)
- *  and the research tree's Era 1 destiny column (techDestiny.ts) both show it. */
+ *  and the research tree's Era 1 destiny column (techDestiny.ts) both show
+ *  it. The landing is the first destiny choice (docs/14 §2.5). */
 import type { Expedition } from '../data/techs';
 import type { SiteId } from '../data/sites';
 import { computeMods } from '../core/mods';
@@ -12,7 +13,12 @@ export interface ExpeditionCopy {
   pros: string[];
   cons: string[];
   diff: string;
+  /** the destiny tag: `⌂ COLONY · your first destiny choice` */
+  tag: string;
 }
+
+/** the expedition screen's subtitle (docs/14 §2.5) */
+export const DESTINY_SUBTITLE = 'Seven more choices follow, one per era. Six of eight on one side make it your destiny.';
 
 export function expeditionCopy(exp: Expedition, siteId: SiteId | null): ExpeditionCopy {
   if (exp === 'human') {
@@ -29,6 +35,7 @@ export function expeditionCopy(exp: Expedition, siteId: SiteId | null): Expediti
         'Lose the last settler and the mission ends',
       ],
       diff: 'THE WHAT-IF · HIGH CEILING · CAN FALL',
+      tag: '⌂ COLONY · your first destiny choice',
     };
   }
   const tax = Math.round((1 + computeMods([], 'robotic', siteId).agentTax) * 100) / 100;
@@ -39,7 +46,7 @@ export function expeditionCopy(exp: Expedition, siteId: SiteId | null): Expediti
     pros: [
       'No life support at all — the night can only stop machines, never kill',
       'Cannot starve, cannot mutiny, cannot be defeated',
-      'Era 6 Human Cohabitation brings settlers aboard once the base is ready',
+      'A ⌂ Colony choice from Era 3 — or Human Cohabitation in Era 6 — brings settlers aboard',
     ],
     cons: [
       `Every crewed station pays the agent power tax: ×${tax} draw`,
@@ -47,5 +54,6 @@ export function expeditionCopy(exp: Expedition, siteId: SiteId | null): Expediti
       'Human-comfort research (farms, wellness) locked until cohabitation',
     ],
     diff: 'THE MISSION PLAN · ROBOTS FIRST',
+    tag: '◉ AUTOMATION · your first destiny choice',
   };
 }

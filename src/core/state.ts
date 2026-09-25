@@ -2,7 +2,7 @@
  *  (typed actions only); the renderer reads it. Everything here serializes. */
 import type { ResourceId } from '../data/resources';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
-import type { TechId } from '../data/techs';
+import { LANDING_TECH, type TechId } from '../data/techs';
 import { SITES, type SiteId } from '../data/sites';
 import { emptyFeed, type DepositKind, type FeedGrade, type FeedKind } from '../data/deposits';
 import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
@@ -410,6 +410,16 @@ export interface GameState {
   auto: AutoState;
   /** supply against demand, per resource (docs/13 §3.1) */
   flowBook: Partial<Record<ResourceId, FlowEntry>>;
+  // ── destiny tracks (docs/14) ──
+  /** techs a destiny pick brought forward (robotic Human Cohabitation):
+   *  done, but never counted toward a charter */
+  forwarded: TechId[];
+  /** a pure-Automation FIRST LIGHT sent the last crew home: crew 0 is no defeat */
+  crewHome: boolean;
+  /** Crewed Mission Control: the launch-day morale lasts until then (game time) */
+  launchDayUntil: number;
+  /** EVA crews out this tick (economy step 3; the walkers read it later) */
+  evaCrew: number;
 
   victoryShown: boolean;
   defeatShown: boolean;
@@ -445,7 +455,8 @@ export function createInitialState(
     rovers: [],
     nextRoverId: 1,
     era: 1,
-    techsDone: [],
+    // the landing is the Era 1 destiny pick (docs/14 §2.5)
+    techsDone: [LANDING_TECH[expedition]],
     researchQueue: [],
     researchSpent: {},
     ...researchDefaults(),
@@ -468,6 +479,7 @@ export function createInitialState(
     milestonesDone: [],
     auto: defaultAuto(),
     flowBook: {},
+    ...destinyDefaults(),
     victoryShown: false,
     defeatShown: false,
   };
@@ -491,9 +503,13 @@ export function emptyStats(): GameStats {
   };
 }
 
+function destinyDefaults() {
+  return { forwarded: [] as TechId[], crewHome: false, launchDayUntil: 0, evaCrew: 0 };
+}
+
 function researchDefaults() {
   return {
-    techSchema: 3,
+    techSchema: 4,
     insights: {},
     discoveries: [] as TechId[],
     researchStalled: [] as TechId[],
@@ -535,6 +551,12 @@ export function fillStateDefaults(s: GameState): GameState {
   // one on), rules added later join with their defaults
   legacy.auto = fillAuto(legacy.auto);
   legacy.flowBook ??= {};
+  // saves from before the destiny tracks (docs/14 §7): nothing forwarded, nobody sent home
+  const dd = destinyDefaults();
+  legacy.forwarded ??= dd.forwarded;
+  legacy.crewHome ??= dd.crewHome;
+  legacy.launchDayUntil ??= dd.launchDayUntil;
+  legacy.evaCrew ??= dd.evaCrew;
   return s;
 }
 

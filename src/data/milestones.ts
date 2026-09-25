@@ -2,8 +2,8 @@
  *  Each latches the moment it is met, in any order; the panel shows the
  *  earliest one still open, with a status line of what is already done. */
 import type { GameState } from '../core/state';
-import { BUILDINGS, type BuildingId } from './buildings';
-import { TECHS, type TechId } from './techs';
+import { BUILDINGS, isCompute, type BuildingId } from './buildings';
+import { SIDE_GLYPH, TECHS, TRACKS, type Era, type TechId } from './techs';
 import { ATLAS, CHARTER_DEED_TECHS, CHARTER_TECHS, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB } from './balance';
 
 export interface MilestoneDef {
@@ -21,6 +21,17 @@ export interface MilestoneDef {
 
 const count = (s: GameState, type: string) =>
   s.buildings.filter((b) => b.type === type && (b.construction ?? 0) <= 0).length;
+/** complete Data Centers and Server Monoliths (a monolith counts as a Data Center) */
+const compute = (s: GameState) => s.buildings.filter((b) => isCompute(b.type) && (b.construction ?? 0) <= 0).length;
+
+/** the destiny pick done for an era, or null (docs/14) */
+const pickOf = (s: GameState, era: Era): TechId | null => {
+  const t = TRACKS[era];
+  return s.techsDone.includes(t.colony) ? t.colony : s.techsDone.includes(t.automation) ? t.automation : null;
+};
+const E8 = TRACKS[8];
+const FIRST_LIGHT_OPEN = `Choose the Era 8 destiny — ${SIDE_GLYPH.colony} ${TECHS[E8.colony].name} or ` +
+  `${SIDE_GLYPH.automation} ${TECHS[E8.automation].name} — then research Swarm Protocol and LAUNCH your first collector volley to solar orbit.`;
 
 /** ✓ built · ◻ Name 62% while a site rises · ◻ Name */
 function built(s: GameState, type: BuildingId): string {
@@ -97,20 +108,25 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'era-3', title: 'Robots Build Robots',
-    hint: `Reach Era 3 — Robotic Fabrication. An era opens with ${CHARTER_TECHS} of the previous era’s techs — or ${CHARTER_DEED_TECHS} plus a deed.`,
+    hint: `Reach Era 3 — Robotic Fabrication. From Era 3 on, an era opens with the era before's destiny (T) and ` +
+      `${CHARTER_TECHS - 1} more of its techs — or the destiny, ${CHARTER_DEED_TECHS - 1} more and a deed.`,
     check: (s) => s.era >= 3,
-    progress: (s) => `Era ${s.era} · ${s.techsDone.filter((t) => TECHS[t].era === s.era).length}/${CHARTER_TECHS} techs done`,
+    progress: (s) => {
+      const n = s.techsDone.filter((t) => TECHS[t]?.era === s.era && !TECHS[t].track?.landing && !(s.forwarded ?? []).includes(t)).length;
+      const pick = s.era >= 2 ? pickOf(s, s.era as Era) : null;
+      return `Era ${s.era} · ${n}/${CHARTER_TECHS} techs done${s.era >= 2 ? ` · ${pick ? `✓ ${TECHS[pick].name}` : '◻ destiny'}` : ''}`;
+    },
   },
   {
     id: 'silicon-brains', title: 'Silicon Brains',
     hint: `Fab chips from lunar silicon (Era 4), then build a Data Center (Era 5). Compute feeds research as fast as ${Math.floor(RESEARCH_RATE_PER_DC / RESEARCH_RATE_PER_LAB)} labs and never sleeps.`,
-    check: (s) => count(s, 'dataCenter') >= 1,
-    progress: (s) => `${built(s, 'chipFab')} · ${built(s, 'dataCenter')}`,
+    check: (s) => compute(s) >= 1,
+    progress: (s) => `${built(s, 'chipFab')} · ${count(s, 'serverMonolith') > 0 ? built(s, 'serverMonolith') : built(s, 'dataCenter')}`,
   },
   {
     id: 'welcome-home', title: 'First Boots on Regolith',
     hint: 'Bring humans to the base the machines built.',
-    hintRobotic: 'Bring humans to the base the machines built: research Human Cohabitation (Era 6), then keep a lunar day of oxygen, food and water for each newcomer — or produce it.',
+    hintRobotic: 'Bring humans to the base the machines built: a ⌂ Colony destiny from Era 3 on brings Human Cohabitation forward (or research it in Era 6), then keep a lunar day of oxygen, food and water for each newcomer — or produce it.',
     check: (s) => s.crew >= 1,
     progress: (s) => `${researched(s, 'humanCohabitation')} · ${built(s, 'habitat')}`,
   },
@@ -139,9 +155,20 @@ export const MILESTONES: MilestoneDef[] = [
   },
   {
     id: 'first-light', title: 'FIRST LIGHT',
-    hint: 'Research Swarm Protocol and LAUNCH your first collector volley to solar orbit.',
+    hint: FIRST_LIGHT_OPEN,
+    // the Era 8 pick is the path to the swarm (docs/14 §2.2): it names how you launch
+    hintFor: (s) => {
+      const p = pickOf(s, 8);
+      if (!p) return FIRST_LIGHT_OPEN;
+      return p === E8.colony
+        ? `${TECHS[p].name}: research Swarm Protocol and LAUNCH your first volley — with 4 crew on console it needs 2↑, and the base turns out to watch.`
+        : `${TECHS[p].name}: research Swarm Protocol — the rail then fires itself once 10▰, 3↑ and the charge are ready.`;
+    },
     check: (s) => s.launches >= 1,
-    progress: (s) => researched(s, 'swarmProtocol'),
+    progress: (s) => {
+      const p = pickOf(s, 8);
+      return p ? `✓ ${TECHS[p].name} · ${researched(s, 'swarmProtocol')}` : `◻ Era 8 destiny · ${researched(s, 'swarmProtocol')}`;
+    },
   },
   // non-blocking: after victory in the list, though it may latch before it
   {
