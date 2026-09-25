@@ -237,13 +237,19 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // built at 72s
   await page.keyboard.press('KeyT');
   await expect(page.locator('#tech-screen')).toBeVisible();
-  await expect(page.locator('.era-head')).toHaveCount(8);
+  // one page per era: E1 is on show, and the E2 page holds Era 2's techs
+  await expect(page.locator('.era-tab')).toHaveCount(8);
+  await expect(page.locator('.era-tab.view')).toHaveAttribute('data-era', '1');
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
   // era 1 tech is clickable; era 2 techs locked until 4 era-1 techs are done
   const smelting = page.locator('.tech-card[data-tech="regolithProcessing"]');
+  const battery = page.locator('.tech-card[data-tech="batteryStorage"]');
   await expect(smelting).toHaveClass(/available/);
-  await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/locked/);
+  await expect(battery).toHaveCount(0);
+  await page.keyboard.press('BracketRight');
+  await expect(battery).toHaveClass(/locked/);
+  await page.keyboard.press('BracketLeft');
   await smelting.click();
   await page.evaluate(() => window.__game.grantData(80));
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
@@ -257,7 +263,10 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.evaluate(() => { for (const t of ['teleoperation', 'grizzlyScreens', 'fieldSpectrometers']) window.__game.completeTech(t); });
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.era).toBe(2);
-  await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/available/);
+  // the tree stays on the E1 page; Home goes to the new current era
+  await page.keyboard.press('Home');
+  await expect(page.locator('.era-tab.view')).toHaveAttribute('data-era', '2');
+  await expect(battery).toHaveClass(/available/);
 });
 
 test('research progress is banked across queue changes', async ({ page }) => {

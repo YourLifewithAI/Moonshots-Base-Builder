@@ -634,7 +634,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     // the default board draws no lines at all
     if (!f) { svg.innerHTML = ''; return; }
     const box = (it: PageItem) => {
-      const top = it.row * rowH + 3, bottom = (it.row + 1) * rowH - 8;
+      const top = it.row * rowH + 3, bottom = (it.row + 1) * rowH - 9;
       return { x0: it.x, x1: it.x + it.w, y0: top, y1: bottom, ym: (top + bottom) / 2 };
     };
     const edges: { a: TechId; b: TechId; or: boolean }[] = [];

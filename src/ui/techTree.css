@@ -191,7 +191,7 @@
 .lane + .lane { border-top: var(--hair); }
 .lane.alt { background: rgba(var(--paper-rgb), 0.018); }
 .lane .lane-label {
-  position: absolute; left: 0; top: 3px; width: calc(var(--lw) - 10px); height: calc(var(--row-h) - 11px);
+  position: absolute; left: 0; top: 3px; width: calc(var(--lw) - 10px); height: calc(var(--row-h) - 12px);
   display: flex; align-items: center; padding-left: 2px;
   font-size: 10px; line-height: 12px; font-weight: 600; letter-spacing: 0.06em;
   color: rgba(var(--paper-rgb), var(--op-tertiary));
@@ -200,14 +200,14 @@
 .doc-bracket {
   position: absolute; z-index: 1;
   left: var(--x0); width: calc(var(--x1) - var(--x0));
-  top: calc((var(--r) + 1) * var(--row-h) - 7px); height: 5px;
+  top: calc((var(--r) + 1) * var(--row-h) - 8px); height: 4px;
   border: 1px solid rgba(var(--paper-rgb), 0.55); border-top: none;
   cursor: help;
 }
 .doc-bracket span {
   position: absolute; left: 50%; top: 100%; transform: translate(-50%, -50%);
   padding: 0 4px; background: var(--ink-900);
-  font-size: 8px; line-height: 9px; font-weight: 600; letter-spacing: 0.1em; white-space: nowrap;
+  font-size: 8px; line-height: 8px; font-weight: 600; letter-spacing: 0.1em; white-space: nowrap;
   color: rgba(var(--paper-rgb), var(--op-secondary));
 }
 
@@ -216,7 +216,7 @@
   position: absolute; z-index: 2;
   left: var(--x); width: var(--w);
   top: calc(var(--r) * var(--row-h) + 3px);
-  height: calc(var(--row-h) - 11px);
+  height: calc(var(--row-h) - 12px);
   display: flex; align-items: stretch;
   overflow: hidden; cursor: pointer;
   background: var(--ink-800);
