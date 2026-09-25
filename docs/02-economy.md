@@ -144,6 +144,36 @@ Every run can research capability on top of the doctrine fleet bonuses:
 and **Autonomous Haulage** (Era 5: haul speed ×1.3, bucket ×1.25; excavator
 draw +25%, upkeep +20%).
 
+## The Builder — orders and standing rules
+
+The rovers can choose sites themselves (`core/automation.ts`, `core/siting.ts`;
+the full design is [13-automation-spec.md](13-automation-spec.md)).
+
+- **Orders, from landing.** Ctrl-click a palette card (⇧ for three), or press
+  Enter while placing: the chooser picks the nearest free pad to the type's
+  anchor (an excavator by the furnaces it feeds, a smelter by the dig sites,
+  a fabricator by the smelters…), deterministically, and the
+  alert says where and why. What the stock cannot pay is skipped, with the
+  reason. **Build Orders** (E2) adds a book of four held orders, up to ×10
+  each, placed as the stock arrives.
+- **Standing rules.** Each automation tech switches on a family's rules,
+  with conservative caps: Excavation (E3) adds an excavator when regolith
+  demand outruns supply by 6▲/min for 60 s; Power (E4) keeps the day's grid
+  margin, the bank's recharge paid, above 10% and adds a bank at dawn after a
+  night it ran dry; Life support, Smelting, Fabrication, Maintenance and
+  Network follow. Supply and demand come from the **flow book**, per
+  resource: what was made, what running buildings asked for (covered or
+  not), and what construction, research and claims spent.
+- **What a rule will not do.** It never founds the first of a type; it holds
+  while producers are dark or short of crew (more would not help); it keeps
+  one pending site per family, a cooldown and a settle after each; it keeps
+  one more of the same in stock, plus the parts the queue still has to weld;
+  it asks for a Solar Array first when a consumer would brown the grid out.
+  The **Budget Governor** (E4) adds reserve floors and a family order.
+- **The player's word wins.** Cancelling an auto site vetoes that ground
+  for a lunar day; removing a building defers the rules that build its type;
+  every rule has a switch, a trigger and a cap in the [B] panel.
+
 ## The umbilical arc — Earth Supply Credits (CUT)
 
 Full design: you land with a finite balance of **Earth Supply Credits**,

@@ -25,6 +25,10 @@ src/
     actions.ts            typed Action union + ActionQueue (UI → sim)
     economy.ts            the 1 Hz economy tick — the entire simulation
     mods.ts               tech-effect modifiers (computeMods) + era computation
+    automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
+                          maintenance, the [B] view; economy step 12 returns AutoRequests
+    siting.ts             the deterministic site chooser shared by orders and rules (+ Feed Planner aim)
+    flowBook.ts           per-resource made / want / spend averages (supply against demand)
     daynight.ts           compressed lunar clock → DayInfo {sunFactor, elevation, night}
     save.ts               SaveBlob ⇄ idb-keyval ('mbb-save-v1') with localStorage fallback
     rng.ts                mulberry32 seeded PRNG + string hash
@@ -37,6 +41,7 @@ src/
     techs.ts              18 techs × 6 eras, effects, goods costs, trade-offs
     sites.ts              3 landing sites, every mechanical modifier
     milestones.ts         10 ordered goals (the tutorial) + swarm bands
+    automation.ts         the Builder's rule table (RULES), families, AUTO constants, rule texts
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
     chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds (classic: faceted)
@@ -88,6 +93,7 @@ src/
     visor.ts / visor.css  walk-mode helmet visor (pure CSS)
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
+    builderPanel.ts       the [B] Builder panel and the resource panels' BUILDER section
 tests/smoke.spec.ts       6-test full-loop Playwright suite
 playwright.config.ts      test runner config (preinstalled Chromium aware)
 ```
@@ -106,10 +112,14 @@ clock at full speed):
    one in Classic; plus the placement ghost raycast) or the walk controller.
 3. **Game-time accumulation** — if not paused, `simTime += simDt × speed`
    (speeds 1/3/10).
-4. **Fixed 1 Hz economy ticks** — an accumulator fires `economyTick(state,
-   site, mods, 1)` for each whole game-second, with a **120-tick catch-up
-   guard** per frame (a background tab at 10× can owe minutes of sim; the
-   guard bounds frame cost and simply carries the remainder).
+4. **Fixed 1 Hz economy ticks** — an accumulator fires `econStep()` for each
+   whole game-second, with a **120-tick catch-up guard** per frame (a
+   background tab at 10× can owe minutes of sim; the guard bounds frame cost
+   and simply carries the remainder). `econStep` runs `economyTick(state,
+   site, mods, 1)`, refreshes the mods, then resolves what the Builder asked
+   for (place through the chooser and `commitPlace`, demolish a replaced
+   machine, re-aim a dig site). `debugAdvance` calls the same function, so
+   tests and play take one path.
 5. **Publish to stores** — once per frame *if* any economy tick ran or any
    action was applied (§4). Victory flips `$victory` after publish so the
    overlay reads fresh stats.
@@ -143,6 +153,8 @@ in `game.ts`):
 | 10 | Research | Data drains into the queue head; on completion, era-3+ techs also gate on **manufactured goods** (Factorio rule: you cannot out-research your industry) — unaffordable techs stall with an alert. Completion recomputes era + mods |
 | 11 | Night tracking | Day→night edge detection; surviving a night increments the counter and fires the DAWN alert |
 | 12 | Milestones | Checked **in order**, only the next incomplete one — progressive disclosure by construction. `first-light` (first launch) raises the victory event |
+| 12b | Flow book | Folded in at the end of production, life support and upkeep: per resource, `made` (outputs and hauled deliveries), `want` (what running buildings, the crew, upkeep and welding asked for, covered or not) and `spend` (build costs, research goods, surveys, claims) — the rates' averages, spend over 300 s. `made − want − spend` is the Builder's supply against demand |
+| 12c | Builder (`automationTick`) | Families newly unlocked switch their rules on; completed auto sites settle their rule; each rule reads its signal and walks its state machine in family order (≤ 2 placements a tick, one pending site a family); held orders; Maintenance; Feed Planner. Returns `AutoRequest[]` for `econStep` — the tick itself never places |
 | 13 | Publish | `game.publish()` copies state slices into the nanostores atoms |
 
 The tick is `O(buildings)` with a handful of passes — trivial at the 96/type
@@ -165,7 +177,9 @@ DOM events ──► ActionQueue (typed Action union) ──► sim (applyAction
 The UI **never mutates GameState** — every intent is a typed `Action`
 (`place`, `demolish`, `setEnabled`, `setAutomated`, `setPriority`,
 `buildNext`, `crewAll`, `research`, `cancelResearch`, `setSpeed`, `setPaused`,
-`launch`, `orderResupply`, `dismissAlert`, …) drained
+`launch`, `orderResupply`, `dismissAlert`, the Builder's `order`,
+`cancelOrder`, `orderNext`, `setRule`, `setReserve`, `moveFamily`,
+`freezeRules`, `setFeedPlan`, …) drained
 at the top of the tick. Published snapshots are copies (`{...}` / array
 spreads), so a subscriber can never reach back into live sim state. High-rate
 UI state that isn't economy output (`$placing` per frame during placement,
@@ -260,8 +274,14 @@ SaveBlob = {
 - Written by autosave (60 s), `visibilitychange` → hidden, the victory
   Continue button, and the debug API. Serialized through
   `JSON.parse(JSON.stringify(...))` to guarantee plain data.
-- Load checks `state.version === 1` and rejects anything else (no migration
-  in the slice — roadmap). Restore = regenerate terrain from
+- Load checks `state.version === 1` and rejects anything else; within
+  version 1, `fillStateDefaults` fills what older saves lack. The Builder's
+  state is `state.auto` (`schema: 1`: rules by id with on / threshold / cap /
+  phase / dwell / site / nextAt, the order book, reserves, family order,
+  vetoes, the log, the day's margin, the families already switched on),
+  `state.flowBook`, and `b.auto` on the buildings it placed. A save without
+  them loads with every rule off; a family recorded as switched on is never
+  switched on again, so a loaded save keeps the player's choices. Restore = regenerate terrain from
   `(siteId, seed)` → replay flattens → rebuild chunk meshes + instances +
   colliders → restore player pose and mode.
 
@@ -273,7 +293,11 @@ SaveBlob = {
 `checkPlacement`) · `grantResources / grantData / grantCrew / grantPower` ·
 `completeTech` · `research` / `launch` / `setSpeed` / `setPaused` (via the
 real action queue) · `advanceGameMinutes / advanceGameSeconds` (synchronous
-economy ticks) · `setMode` (instant, no tween) · `getPlayer` · `save`.
+economy ticks) · `setMode` (instant, no tween) · `getPlayer` · `save`. The
+Builder adds `order` · `cancelOrder` · `orderNext` · `setRule` ·
+`setReserve` · `moveFamily` · `freezeRules` · `setFeedPlan` (all through the
+action queue) · `getAutomation()` (the [B] view) · `planSite(type, intent)`
+(a dry run of the chooser) · `setWear(id, wear)`.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time
 waits make tests slow and flaky. `?nolock` makes walk mode drivable, and
