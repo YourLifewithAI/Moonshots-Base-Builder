@@ -5,6 +5,10 @@
  *  and the horizon ring and rocks go unlit with the rest in safe mode. The
  *  same ladder runs again at night, where the base lights itself (shader
  *  floods and window glow at FX 0–2, discs and point lights below that).
+ *  The base's own light follows each structure's darkness, not the clock: a
+ *  pole structure in the rim's shadow lights by day, a sunlit mare base at
+ *  noon lays no flood, nightfall fades the lights in, and an unpowered
+ *  structure stays dark at any darkness.
  *  The motion layer (rovers, dust, launch and resupply, research visuals)
  *  is checked at FX 0, FX 3 and in safe mode, and walk mode for its lens,
  *  headlamp, bootprints and visor. The render-safety contract: safe mode
@@ -224,6 +228,146 @@ test('solar wings stand near-vertical under the grazing polar night sun', async 
   expect(info.base.trackers.wings).toBe(1);
   expect(dot(info.base.trackers.wingNormal, info.base.sunDir)).toBeGreaterThan(0.97);
   expect(Math.abs(info.base.trackers.wingNormal[1]), 'panel face near-vertical').toBeLessThan(0.12);
+});
+
+/** A small base (Lander, habitat, lab, solar array) built, powered and held
+ *  paused at game-second `t` of a fresh `site` world; returns its ids. */
+async function litBase(page: Page, site: string, seed: number, t: number): Promise<number[]> {
+  await page.setViewportSize({ width: 800, height: 450 });
+  await page.goto(`/?debug&seed=${seed}&nolock&site=${site}&lowfx`);
+  await page.waitForFunction(() => window.__game !== undefined);
+  await page.evaluate(() => {
+    window.__game.setPaused(true);
+    window.__game.grantResources({ metals: 4000, parts: 1500 });
+  });
+  for (const type of ['habitat', 'lab', 'solar']) {
+    const spot = await freeSpot(page, type);
+    expect(spot, `a free spot for ${type}`).not.toBeNull();
+    expect(await page.evaluate(([ty, [gx, gz]]) => window.__game.placeBuilding(ty, gx, gz), [type, spot!] as const))
+      .toBe(true);
+  }
+  return page.evaluate((at) => {
+    const g = window.__game;
+    g.finishConstruction();
+    g.grantPower(200000);
+    g.advanceGameSeconds(at - g.getState().simTime);
+    g.grantPower(200000);
+    return g.getState().buildings.map((b: any) => b.id);
+  }, t);
+}
+
+const buildingLight = (page: Page, id: number) => page.evaluate((i) => window.__game.getBuildingLight(i), id);
+/** every listed structure has had a shading pass since the world was built */
+const sampled = (page: Page, ids: number[]) =>
+  expect.poll(() => page.evaluate((list) => list.every((i: number) => window.__game.getBuildingLight(i).sampled), ids),
+    { timeout: 20_000 }).toBe(true);
+
+test('own light: at the pole by day, a structure in the rim\'s shadow lights its windows and its flood', async ({ page }) => {
+  test.setTimeout(120_000);
+  // day 2, 20 s after sunrise: the sun ~5° up, the base under the rim's shadow
+  const ids = await litBase(page, 'southpole', 1234, 740);
+  const st = await page.evaluate(() => window.__game.getState());
+  expect(st.simTime % 720, 'the clock says day').toBeLessThan(480);
+  await sampled(page, ids);
+  const lights = await Promise.all(ids.map((id) => buildingLight(page, id)));
+  const i = lights.findIndex((l) => l.shaded && l.lit);
+  expect(i, 'the raycast finds a powered structure in terrain shadow').toBeGreaterThanOrEqual(0);
+  const id = ids[i];
+  expect(lights[i].night, 'no night factor at all').toBe(0);
+  // k climbs to the shadow's 1 (a fade of about a second), windows and lamps with it
+  await expect.poll(async () => (await buildingLight(page, id)).k, { timeout: 20_000 }).toBeGreaterThan(0.9);
+  const l = await buildingLight(page, id);
+  expect(l.instanceK, 'the instance carries its darkness').toBeGreaterThan(0.9);
+  expect(l.window, 'window glow').toBeGreaterThan(1.4);
+  expect(l.lamp, 'work lamps').toBeGreaterThan(2);
+  expect(l.beacon, 'beacons read in daylight shadow').toBeGreaterThan(3.5);
+  // its flood is live by day, at the structure's darkness
+  expect(l.flood.live).toBe(true);
+  expect(l.flood.k).toBeGreaterThan(0.9);
+  const info = await page.evaluate(() => window.__game.getRenderInfo());
+  expect(info.base.nightLights).toBe('shader');
+  expect(info.base.floods.live, 'flood slots live by day').toBeGreaterThan(0);
+  expect(info.base.floods.sources).toBe(ids.length);
+
+  // the stock path answers the same darkness: discs under the lit structures
+  await page.evaluate(() => window.__game.setFxLevel(3));
+  await expect.poll(async () => (await page.evaluate(() => window.__game.getRenderInfo())).base.discs,
+    SLOW).toBe(ids.length);
+  expect((await buildingLight(page, id)).path).toBe('stock');
+});
+
+test('own light: an unpowered structure stays dark at any darkness', async ({ page }) => {
+  test.setTimeout(120_000);
+  const ids = await litBase(page, 'southpole', 1234, 740);
+  await sampled(page, ids);
+  const lights = await Promise.all(ids.map((id) => buildingLight(page, id)));
+  const i = lights.findIndex((l, j) => l.shaded && l.lit && j > 0); // not the Lander
+  expect(i).toBeGreaterThan(0);
+  const id = ids[i];
+  await expect.poll(async () => (await buildingLight(page, id)).k, { timeout: 20_000 }).toBeGreaterThan(0.9);
+  // switched off (the same lit gate a brownout closes): windows, lamps,
+  // beacons and flood go dark though the structure still stands in the dark
+  await page.evaluate((b) => { window.__game.setEnabled(b, false); window.__game.advanceGameSeconds(1); }, id);
+  await expect.poll(async () => (await buildingLight(page, id)).lit, { timeout: 10_000 }).toBe(false);
+  const off = await buildingLight(page, id);
+  expect(off.k, 'still dark where it stands').toBeGreaterThan(0.9);
+  expect(off.instanceK).toBeNull();
+  expect([off.window, off.lamp, off.beacon]).toEqual([0, 0, 0]);
+  expect(off.flood, 'no flood source').toBeNull();
+  expect((await page.evaluate(() => window.__game.getRenderInfo())).base.floods.sources).toBe(ids.length - 1);
+  // back on: its lights return
+  await page.evaluate((b) => { window.__game.setEnabled(b, true); window.__game.advanceGameSeconds(1); }, id);
+  await expect.poll(async () => (await buildingLight(page, id)).window, { timeout: 10_000 }).toBeGreaterThan(1.4);
+  expect((await buildingLight(page, id)).flood.live).toBe(true);
+});
+
+test('own light: a sunlit base at mare noon is dark-free and lays no flood; night fades its lights in', async ({ page }) => {
+  test.setTimeout(120_000);
+  const ids = await litBase(page, 'mare', 42, 240); // noon, the sun ~32° up
+  await sampled(page, ids);
+  await expect.poll(() => page.evaluate((list) =>
+    Math.max(...list.map((i: number) => window.__game.getBuildingLight(i).k)), ids), { timeout: 20_000 })
+    .toBeLessThan(0.03);
+  for (const id of ids) {
+    const l = await buildingLight(page, id);
+    expect(l.shaded, `building ${id} in the sun`).toBe(false);
+    expect(l.sky).toBe(0);
+    expect(l.lit).toBe(true);
+    expect(l.window, 'only the faint day floor').toBeLessThan(0.2);
+    expect(l.lamp).toBeLessThan(0.05);
+    expect(l.flood.live).toBe(false);
+  }
+  let info = await page.evaluate(() => window.__game.getRenderInfo());
+  expect(info.base.floods.sources).toBe(ids.length);
+  expect(info.base.floods.live, 'no flood live while nothing stands dark').toBe(0);
+
+  // nightfall at once: the lights fade in over a second or two of frames
+  // (stepped here: 0.1 s each), they do not pop
+  const fade = await page.evaluate((id) => {
+    const g = window.__game;
+    g.advanceGameSeconds(610 - g.getState().simTime);
+    g.grantPower(200000);
+    g.stepFrame(0.1);
+    const first = g.getBuildingLight(id);
+    for (let i = 0; i < 20; i++) g.stepFrame(0.1);
+    return { first, later: g.getBuildingLight(id) };
+  }, ids[0]);
+  expect(fade.first.night).toBe(1);
+  expect(fade.first.k, 'a tenth of a second in').toBeLessThan(0.4);
+  expect(fade.first.k).toBeGreaterThan(0.05);
+  expect(fade.first.window).toBeLessThan(0.7);
+  expect(fade.later.k, 'two seconds in').toBeGreaterThan(0.95);
+  expect(fade.later.window).toBeGreaterThan(1.5);
+  info = await page.evaluate(() => window.__game.getRenderInfo());
+  expect(info.base.floods.live).toBeGreaterThan(0);
+
+  // an unpowered structure stays dark at night as in the rim's shadow
+  await page.evaluate((b) => { window.__game.setEnabled(b, false); window.__game.advanceGameSeconds(1); }, ids[1]);
+  await expect.poll(async () => (await buildingLight(page, ids[1])).lit, { timeout: 10_000 }).toBe(false);
+  const off = await buildingLight(page, ids[1]);
+  expect(off.k).toBeGreaterThan(0.95);
+  expect([off.window, off.lamp, off.beacon]).toEqual([0, 0, 0]);
+  expect(off.flood).toBeNull();
 });
 
 test('safe mode from boot: buildings placed later come up unlit', async ({ page }) => {
