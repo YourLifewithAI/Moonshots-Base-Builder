@@ -5,7 +5,7 @@ import type { Game } from '../core/game';
 import { el, PERSON_SVG } from './hud';
 import { $defeat, $hasSave, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
-import { computeMods } from '../core/mods';
+import { expeditionCopy } from './expeditionCopy';
 
 function rate(n: number): string {
   return `<span class="rate">${[0, 1, 2, 3, 4].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
@@ -73,28 +73,17 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       <h1 style="font-size:26px; line-height:30px">WHO GOES TO ${site.name}?</h1>
       <div class="sub">Robots survive the Moon. Humans beat it.</div>
       <div id="sites" style="margin-top:30px">
-        <div class="site-card${expedition === 'human' ? ' sel' : ''}" data-exp="human">
-          <h3>${PERSON_SVG} HUMAN CREW</h3>
-          <div class="place">Four settlers and a supply cache</div>
-          <div class="blurb">Fragile, hungry, brilliant. People need oxygen, water, food, housing, and something to live for — and they reward you for all of it.</div>
-          <div class="pro">Morale can push crewed output to ×1.2 — and it compounds</div>
-          <div class="pro">Settlers arrive free while morale holds; labs research fastest</div>
-          <div class="con">Life support or death: O₂, water, food, habitats, recreation</div>
-          <div class="con">Lose the last settler and the mission ends</div>
-          <div class="diff">THE WHAT-IF · HIGH CEILING · CAN FALL</div>
-        </div>
-        <div class="site-card${expedition === 'robotic' ? ' sel' : ''}" data-exp="robotic">
-          <h3>◉ ROBOTIC MISSION · THE PLAN</h3>
-          <div class="place">No one aboard. Nothing to lose. This is how it will actually happen.</div>
-          <div class="blurb">Machines do not breathe, eat, drink, sleep, or grieve. They also do not dream — every station runs, joylessly, on watts alone.</div>
-          <div class="pro">No life support at all — the night can only stop machines, never kill</div>
-          <div class="pro">Cannot starve, cannot mutiny, cannot be defeated</div>
-          <div class="pro">Era 6 Human Cohabitation brings settlers aboard once the base is ready</div>
-          <div class="con">Every crewed station pays the agent power tax: ×${Math.round((1 + computeMods([], 'robotic', selected).agentTax) * 100) / 100} draw</div>
-          <div class="con">Labs research at 75% — inference is not insight</div>
-          <div class="con">Human-comfort research (farms, wellness) locked until cohabitation</div>
-          <div class="diff">THE MISSION PLAN · ROBOTS FIRST</div>
-        </div>
+        ${(['human', 'robotic'] as const).map((exp) => {
+          const c = expeditionCopy(exp, selected);
+          return `<div class="site-card${expedition === exp ? ' sel' : ''}" data-exp="${exp}">
+          <h3>${exp === 'human' ? PERSON_SVG : '◉'} ${c.title}</h3>
+          <div class="place">${c.place}</div>
+          <div class="blurb">${c.blurb}</div>
+          ${c.pros.map((t) => `<div class="pro">${t}</div>`).join('')}
+          ${c.cons.map((t) => `<div class="con">${t}</div>`).join('')}
+          <div class="diff">${c.diff}</div>
+        </div>`;
+        }).join('')}
       </div>
       <div style="display:flex; gap:12px">
         <button class="btn" id="btn-back" ${landing ? 'disabled' : ''}>◂ Back</button>
