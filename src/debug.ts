@@ -119,6 +119,9 @@ function api(game: Game) {
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
+    /** one structure's own light: its darkness k (and what makes it), the
+     *  lit channel its instance carries, the emissive gains and its flood slot */
+    getBuildingLight: (id: number) => clone((game as any).instances.lightInfo(id)),
     /** what the menu shows about the render path */
     getRenderStatus: () => game.renderStatus(),
     /** the audio layer: context state, cues accepted per kind, the hum */

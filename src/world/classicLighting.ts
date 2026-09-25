@@ -139,4 +139,6 @@ export class ClassicLighting {
   fitShadow(..._args: unknown[]) { /* no shadow map */ }
   useWorkLights(_on: boolean) { /* flood discs instead (buildings/instances.ts) */ }
   setWorkLights(..._args: unknown[]) { /* flood discs instead */ }
+  /** the stock path's work-light spots; classic has none to fill */
+  readonly workSpots: import('./lighting').WorkSpot[] = [];
 }

@@ -34,6 +34,7 @@ import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
 import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
+import { BuildingDarkness } from '../buildings/darkness';
 import {
   PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, type PlaceableType,
 } from '../buildings/placement';
@@ -127,6 +128,9 @@ export class Game {
   private horizon!: Horizon;
   private rocks!: Rocks;
   private instances!: BuildingInstances;
+  /** how dark each structure stands, for its own lights (visual only,
+   *  renderer-independent: `darkness.of(id)`) */
+  darkness!: BuildingDarkness;
   private placement!: PlacementController;
   private overlays!: BaseOverlays;
   private life!: BaseLife;
@@ -305,7 +309,8 @@ export class Game {
     this.rocks = new Rocks(this.hf);
     // classic draws half the small rocks (the FX 2 density), whatever the ladder
     this.rocks.setFxLevel(this.classic ? 2 : this.post.ladderLevel);
-    this.instances = new BuildingInstances(this.hf);
+    this.darkness = new BuildingDarkness(this.hf);
+    this.instances = new BuildingInstances(this.hf, this.darkness);
     this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
       this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
     this.lighting.requestShadowUpdate();
@@ -1240,6 +1245,7 @@ export class Game {
     if (this.shadeAcc > 0.5) {
       this.shadeAcc = 0;
       this.updateShading();
+      this.updateDarkness();
       this.updateWearMarkers();
       sfx.setAmbience({
         margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening,
@@ -1269,21 +1275,19 @@ export class Game {
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
+    // the lights fade on wall time (up to 0.5 s a frame, as the clock runs), so
+    // a slow GPU does not stretch a one-second fade over many seconds
+    this.darkness.update(simDt, day.nightFactor, day.sunElev, this.lighting.sunLight);
     this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
     this.lighting.fitShadow(this.camera, focus, walking ? 160
       : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
-    // at night the base carries its own light: window glow and floods in the
-    // shader patches, or (stock path) hull glow, ground discs and work lights
-    // over the structures nearest the camera
-    this.instances.setNightGlow(day.nightFactor);
+    // wherever it stands dark the base carries its own light: window glow and
+    // floods in the shader patches, or (stock path) ground discs and work
+    // lights over the dark structures nearest the camera (hull glow at night);
+    // classic keys its windows and pools on the same darkness (instances.ts)
     const stockLights = !this.classic && !this.instances.shaderLights;
     this.lighting.useWorkLights(stockLights);
-    this.lighting.setWorkLights(
-      stockLights && day.nightFactor > 0.03
-        ? this.instances.completedCenters(this.state, { x: focus.x, z: focus.z })
-        : [],
-      day.nightFactor,
-    );
+    this.lighting.setWorkLights(stockLights ? this.instances.nearestDark(focus, this.lighting.workSpots) : 0);
     this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
       $selection.get(), this.lighting.sunDirection);
     const onFoot = walking && !tweening;
@@ -1427,6 +1431,14 @@ export class Game {
       const y = this.hf.sample(cx, cz);
       b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
     }
+  }
+
+  /** The base's own lights: how dark each structure stands — night, a low or
+   *  set sun, terrain between it and the sun (buildings/darkness.ts). Visual
+   *  only: `b.shaded` stays the economy's solar test above. */
+  private updateDarkness() {
+    const d = currentDay(this.state, SITES[this.state.siteId]);
+    this.darkness.sample(this.state, d.sunElev, d.sunAzim);
   }
 
   /** Damaged buildings get an on-screen condition bar (build mode only). */
