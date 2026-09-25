@@ -63,6 +63,7 @@ A quick key used throughout:
 | **[09-roadmap.md](09-roadmap.md)** | Roadmap | The expansion plan: in what order the CUT content in docs 02–05 comes back, and why. |
 | **[10-slice-scope.md](10-slice-scope.md)** | Slice scope | Exactly what the vertical slice contains, the cut lines drawn, and the verification story. |
 | **[11-research-and-map-spec.md](11-research-and-map-spec.md)** | Research & map spec | The implementation spec for the research tree and Lunar Map: systems, the full tech table, deposits, tree UI layout, pacing model, save migration and test plan. |
+| **[13-automation-spec.md](13-automation-spec.md)** | Construction automation spec | The Builder: build orders, standing rules per building family (signals, thresholds, hysteresis, caps, reserves), site choice, the 12-tech automation ladder, UI, tick order, determinism, save format, tests and pacing impact. |
 
 ---
 
