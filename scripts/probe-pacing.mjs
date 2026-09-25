@@ -3,8 +3,10 @@
  *   node scripts/probe-pacing.mjs [--runs=mare:robotic:reasonable,southpole:human:attentive,…]
  *       [--minutes=160] [--seeds=42,7,1234] [--port=5322] [--out=file.json] [--pick=smelt:moltenElectrolysis,…]
  *       [--quiet]   (--runs=all: robotic × 3 sites and human × mare/pole, both policies)
- *       [--auto=off|on]  (docs/13 §9: off — the Builder techs are never researched;
- *                         on — the core ones taken early in their era, the rest in the tail)
+ *       [--auto=off|on]  (docs/13 §8.3: off — the Builder techs are never researched;
+ *                         on — the core ones after their era's critical techs, the rest in the tail)
+ *       [--savers=late|early]  (with --auto=on: early closes each era's critical block
+ *                         with Automated Excavation and Power instead)
  *
  * An honest scripted player: it reads only what the HUD shows (getState,
  * getResearch, getLunar, getDeposits, canPlace, the building and site tables)
@@ -46,6 +48,7 @@ const PICK = Object.fromEntries(opt('pick', '').split(',').filter(Boolean).map((
 const QUIET = argv.includes('--quiet');
 const FLEET_VERBS = opt('fleet', 'on') !== 'off';
 const AUTO_ON = opt('auto', 'off') === 'on';
+const SAVERS_EARLY = opt('savers', 'late') === 'early';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -169,26 +172,35 @@ async function installBot(cfg) {
   const BUILDER = TECH_ORDER.filter((t) => TECHS[t].effects.some((fx) => BUILDER_KINDS.includes(fx.kind)));
   if (!cfg.auto) order = order.filter((t) => !BUILDER.includes(t));
   else {
-    // docs/13 §8.3: ahead of the optional techs of their era, never ahead of the
-    // critical path (the named list above): Build Orders after Parts Fabrication,
-    // then each after the last critical tech of its era
+    // docs/13 §8.3 and §11: ahead of the optional techs of their era, never
+    // ahead of the critical path (the named list above): Build Orders after
+    // Parts Fabrication, Predictive Scheduling after the Lunar Data Center, the
+    // rest after the last critical tech of their era. --savers=early instead
+    // closes each era's critical block with the attention savers (Automated
+    // Excavation, Automated Power, and Life Support on crewed runs): more of the
+    // game on rules, at more research time before the Data Center (docs/13 §11).
     const R0 = G.getResearch();
     const eraOf = (t) => R0.cards[t]?.era ?? TECHS[t].era;
     const CRITICAL = new Set(order.filter((x) => MAIN0.has(x) || TECHS[x].exclusive ||
       ['iceExtraction', 'peakLightMasts', 'skylightHeliostats', 'constructionRobotics'].includes(x)));
+    const SAVERS = cfg.saversEarly ? ['autoExcavation', 'autoPower', ...(robotic ? [] : ['autoLifeSupport'])] : [];
     const CORE = ['buildOrders', 'autoExcavation', 'siteSurveyAI', 'autoPower', 'budgetGovernor',
       ...(robotic ? [] : ['autoLifeSupport']), 'predictiveScheduling', 'autoSmelting', 'autoFabrication'];
     for (const t of CORE) {
       if (rejected.has(t)) continue;
       order = order.filter((x) => x !== t);
+      const crit = order.filter((x) => CRITICAL.has(x));
       let at;
       if (t === 'buildOrders') at = order.indexOf('partsFabrication') + 1;
       else if (t === 'predictiveScheduling') at = order.indexOf('lunarDataCenter') + 1;
-      else {
-        const crit = order.filter((x) => CRITICAL.has(x) && eraOf(x) === eraOf(t));
-        at = crit.length ? order.indexOf(crit[crit.length - 1]) + 1 : order.length;
+      else if (SAVERS.includes(t)) {
+        const next = crit.find((x) => eraOf(x) > eraOf(t));
+        at = next ? order.indexOf(next) : order.length;
+      } else {
+        const mine = crit.filter((x) => eraOf(x) === eraOf(t));
+        at = mine.length ? order.indexOf(mine[mine.length - 1]) + 1 : order.length;
       }
-      order.splice(Math.max(at, order.indexOf(TECHS[t].requires.at(-1)) + 1), 0, t);
+      order.splice(Math.max(at, ...TECHS[t].requires.map((r) => order.indexOf(r) + 1)), 0, t);
     }
   }
 
@@ -495,8 +507,10 @@ async function installBot(cfg) {
       const c = R.cards[tid];
       if (c?.state === 'available') { G.research(tid); q++; act('research', tid); continue; }
       // the attentive player waits for a priority tech whose era is about to
-      // open (its prerequisites are in hand) rather than queue leftovers ahead of it
-      if (P.queueFill === 1 && c?.state === 'eraLocked' && c.era === s.era + 1 &&
+      // open (its prerequisites are in hand) rather than queue leftovers ahead of it —
+      // but never with the queue empty: the leftovers are what open that era
+      // (an empty queue here deadlocked robotic mare in Era 6)
+      if (P.queueFill === 1 && q > 0 && c?.state === 'eraLocked' && c.era === s.era + 1 &&
           TECHS[tid].requires.every((r) => done(r) || s.researchQueue.includes(r))) break;
     }
   }
@@ -958,7 +972,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     const q = `?debug&nolock&lowfx&seed=${seed}&site=${run.site}${run.exp === 'robotic' ? '&exp=robotic' : ''}`;
     await page.goto(`http://127.0.0.1:${PORT}/${q}`);
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
-    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON });
+    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · picks ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {
       const r = await page.evaluate((n) => window.__bot.step(n), Math.min(10, MINUTES - m));
