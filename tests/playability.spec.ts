@@ -92,7 +92,8 @@ test('menu: Esc with nothing to cancel opens it paused; Resume closes it as it w
 });
 
 test('menu graphics: the FX level persists across reload and draws the first frame', async ({ page }) => {
-  await boot(page, 'human');
+  // the FX ladder is High detail's
+  await boot(page, 'human', '&style=detailed');
   await page.keyboard.press('Escape');
   // ?lowfx holds the ladder at 2 — the menu says why, not "auto"
   await expect(page.locator('#menu [data-fx="2"]')).toHaveClass(/active/);
@@ -137,7 +138,7 @@ test('menu graphics: the FX level persists across reload and draws the first fra
 });
 
 test('menu: safe render mode toggles both ways, persists, and holds from the first frame', async ({ page }) => {
-  await boot(page);
+  await boot(page, 'robotic', '&style=detailed');
   await page.keyboard.press('Escape');
   const safe = page.locator('#menu-safe');
   await expect(safe).toHaveText('Off');
