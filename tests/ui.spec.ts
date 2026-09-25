@@ -285,11 +285,12 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
     };
     await inView();
     const order0 = (await page.locator('#insp-order').boundingBox()) as Box;
-    // alerts come and go while it is open: the buttons hold still
-    const before = (await state(page)).alerts.length;
+    // alerts come and go while it is open: the buttons hold still. (Wait for
+    // the new alert itself: a count can hold still while an info event fades
+    // out in real time as it arrives.)
     await g(page, 'grantResources', { food: -1000 });
     await g(page, 'advanceGameSeconds', 3);
-    await expect.poll(async () => (await state(page)).alerts.length).toBeGreaterThan(before);
+    await expect.poll(async () => (await state(page)).alerts.some((a: any) => a.text.startsWith('FOOD DEPLETED'))).toBe(true);
     await frames(page, 4);
     expect(await page.locator('#insp-order').boundingBox()).toEqual(order0);
 

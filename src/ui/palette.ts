@@ -24,7 +24,7 @@ import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
 import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
 import {
-  $feed, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
+  $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
   $vitals, spawnFloater,
 } from './stores';
 
@@ -308,7 +308,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
-      : sel.idleReason === 'full' ? 'STANDBY — output full'
+      : sel.idleReason === 'full' ? (sel.type === 'excavator' ? 'STANDBY — waiting to unload: the store is full' : 'STANDBY — output full')
+      // an excavator's head says what it is doing: its body may scroll on a short screen
+      : sel.active && sel.type === 'excavator' && $fleet.get().hauls[sel.id] ? $fleet.get().hauls[sel.id].line
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
           ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''

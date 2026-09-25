@@ -566,3 +566,65 @@ test('the capability techs: pros and cons on every card, and they reach the sim'
   expect(r.welded).toBeCloseTo(4 * 1.25, 6);
   expect(r.kw).toBeCloseTo(4 * 1.3, 6);
 });
+
+// ───────────────────────────── layout ─────────────────────────────
+
+for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
+  test(`fleet inspectors ${vp.width}×${vp.height}: every button above the fold with a full alert stack`, async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize(vp);
+    await start(page, 'southpole');
+    const ids = await page.evaluate(() => {
+      const g = window.__game!;
+      g.completeTech('dynamicClocking'); // the excavator's clock toggle too: its tallest foot
+      g.completeTech('prospectingRovers');
+      g.grantResources({ metals: 300, parts: 100, chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45 });
+      const ex = near('excavator', -24, -2)!;
+      g.placeBuilding('excavator', ex.gx, ex.gz);
+      g.finishConstruction();
+      // three sites for two rovers: one queued, and a crew of two on the first
+      const s1 = near('solar', 20, -2)!; g.placeBuilding('solar', s1.gx, s1.gz);
+      const s2 = near('solar', 20, 14)!; g.placeBuilding('solar', s2.gx, s2.gz);
+      const s3 = near('solar', 20, 30)!; g.placeBuilding('solar', s3.gx, s3.gz);
+      g.advanceGameSeconds(1);
+      const sites = g.getState().buildings.filter((b: any) => b.construction > 0).map((b: any) => b.id);
+      g.summonRover(sites[0]);
+      const exId = byType('excavator').id;
+      g.digAt(exId, -2, 50); // away from its pad: Return home shows
+      g.advanceGameSeconds(3);
+      return { sites, ex: exId, rover: g.getState().rovers.find((r: any) => r.pinned).id };
+    });
+    type Box = { x: number; y: number; width: number; height: number };
+    const inView = async (sel: string, min: number) => {
+      const box = (await page.locator(sel).boundingBox()) as Box;
+      expect(box.y + box.height, `${sel} fits the viewport`).toBeLessThanOrEqual(vp.height);
+      const btns = await page.locator(`${sel} .insp-foot button`).evaluateAll((els) =>
+        els.map((e) => { const r = e.getBoundingClientRect(); return { id: e.id || e.textContent, top: r.top, bottom: r.bottom }; }));
+      expect(btns.length).toBeGreaterThanOrEqual(min);
+      for (const b of btns) {
+        expect(b.bottom, `${sel} ${b.id}`).toBeLessThanOrEqual(box.y + box.height);
+        expect(b.top, `${sel} ${b.id}`).toBeGreaterThanOrEqual(box.y);
+      }
+    };
+    // the site with a crew: priority, Summon, Release, Pause, Cancel, close
+    await page.evaluate((id) => window.__game.select(id), ids.sites[0]);
+    await expect(page.locator('#insp-summon')).toBeVisible();
+    await inView('#inspector', 9);
+    // the queued site: Build next as well
+    await page.evaluate((id) => window.__game.select(id), ids.sites[2]);
+    await expect(page.locator('#insp-buildnext')).toBeVisible();
+    await inView('#inspector', 10);
+    // the excavator away from its pad: priority, clock, Dig at…, Return home, Shut down, Demolish
+    await page.evaluate((id) => window.__game.select(id), ids.ex);
+    await expect(page.locator('#insp-dighome')).toBeVisible();
+    await expect(page.locator('#insp-oc-on')).toBeVisible();
+    // what it is doing reads in the head, which never scrolls
+    await expect(page.locator('#insp-status')).toContainText(/^(DIGGING|HAULING|UNLOADING|RETURNING)/);
+    await inView('#inspector', 11);
+    await page.screenshot({ path: `test-results/fleet-inspector-${vp.width}x${vp.height}.png` });
+    // the rover inspector: Send to…, Release to auto, Dock, close
+    await page.evaluate((id) => window.__game.selectRover(id), ids.rover);
+    await expect(page.locator('#rover-inspector #rv-unpin')).toBeVisible();
+    await inView('#rover-inspector', 4);
+  });
+}
