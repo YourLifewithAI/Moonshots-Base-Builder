@@ -155,6 +155,8 @@ Largest first: `no valid ground for a Solar Array inside the build network (of 4
 
 A pick that lays a road says so at the end of its `why`: `nearest free pad to the base centre · 23 m · a 9-cell road to it`.
 
+Site Survey AI plans the path for the 24 best pads left (the head) and re-ranks them by it. Before the strike, at the pole most of those 24 were roads or rough ground, so the planned path seldom decided a pick there. Now it does, and some pole picks move (docs/14 §6).
+
 **Score terms.**
 
 | Term | Base | Site Survey AI | Meaning |
