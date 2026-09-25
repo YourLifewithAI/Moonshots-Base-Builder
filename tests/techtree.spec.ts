@@ -36,10 +36,11 @@ async function onPage(page: Page, era: number) {
   await expect(page.locator('#tech-page-head')).toHaveAttribute('data-era', String(era));
   await expect(page.locator('#tech-board')).toHaveAttribute('data-era', String(era));
 }
-/** an era opens with 4 techs of the one before (docs/12 §2.1) */
+/** an era opens with 4 techs of the one before (docs/12 §2.1), and from Era 3
+ *  on the era before's destiny pick among them (docs/14 §2.6) */
 const E1_FOUR = ['regolithProcessing', 'prospectingRovers', 'grizzlyScreens', 'fieldSpectrometers'];
 const E1_EXTRA = ['grizzlyScreens', 'fieldSpectrometers'];
-const E2_FOUR = ['batteryStorage', 'partsFabrication', 'constructionRobotics', 'siliconRefining'];
+const E2_FOUR = ['batteryStorage', 'partsFabrication', 'constructionRobotics', 'siliconRefining', 'dispatchMesh'];
 const g = (page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => window.__game[f as string](...(a as unknown[])), [fn, args] as const);
 const queue = async (page: Page) => (await g(page, 'getState')).researchQueue as string[];
@@ -193,8 +194,10 @@ test('T opens on the current era; tabs carry their states; the E1 destiny is the
     await expect(tab(page, e)).toHaveClass(/\bfuture\b/);
     await expect(tab(page, e).locator('.et-g')).toHaveText('⊘');
   }
-  // the reserved destiny pip is in every tab, empty until the destiny tracks
+  // the destiny pip in every tab: the landing's ◉, then ○ until each era is chosen
   await expect(page.locator('.era-tab .et-pip')).toHaveCount(8);
+  await expect(tab(page, 1).locator('.et-pip')).toHaveText('◉');
+  for (let e = 2; e <= 8; e++) await expect(tab(page, e).locator('.et-pip')).toHaveText('○');
   // only this era's cards: none of Era 2's
   await expect(card(page, 'regolithProcessing')).toBeVisible();
   await expect(card(page, 'batteryStorage')).toHaveCount(0);
@@ -224,22 +227,24 @@ test('T opens on the current era; tabs carry their states; the E1 destiny is the
   const n = ['teleoperation', 'regolithVolatiles', 'sampleCaches'].filter((t) => ['available', 'full', 'requires', 'requiresAny'].includes(left[t].state)).length;
   await expect(tab(page, 1).locator('.et-left')).toHaveText(`·${n}`);
   await expect(tab(page, 1).locator('.et-q')).toHaveText('#1');
-  // an era with a doctrine: its pair is the destiny column (a click only selects)
-  await expect(head.locator('.ph-destiny')).toContainText('DOCTRINE · choose one · permanent');
-  await expect(head.locator('.dz-opt[data-select="moltenElectrolysis"]')).toBeVisible();
+  // Era 2's destiny column: its ⌂ / ◉ pick (doctrine pairs stay on the board)
+  await expect(head.locator('.ph-destiny')).toContainText('DESTINY · choose one · permanent');
+  await expect(head.locator('.dz-card[data-select="pressureHalls"]')).toBeVisible();
+  await expect(head.locator('.dz-card[data-select="dispatchMesh"]')).toBeVisible();
+  await expect(page.locator('.doc-bracket[data-group="smeltDoctrine"]')).toHaveCount(1);
   // a crewed landing shows the crew
   await boot(page, 'southpole', 'human');
   await openTree(page);
   await expect(page.locator('.dz-exp.chosen')).toContainText('HUMAN CREW');
   await expect(page.locator('.dz-exp.other')).toContainText('ROBOTIC MISSION');
-  // no doctrine on an era: no destiny box, the era column takes its room
+  // every era has its destiny: three header columns, era 360 · destiny 560 · goals 336
   await tab(page, 5).click();
   await onPage(page, 5);
-  await expect(page.locator('#tech-page-head')).toHaveClass(/no-destiny/);
-  await expect(page.locator('.ph-destiny')).toHaveCount(0);
+  await expect(page.locator('#tech-page-head')).not.toHaveClass(/no-destiny/);
+  await expect(page.locator('.ph-destiny .dz-card')).toHaveCount(2);
   const cols = await page.locator('#tech-page-head > div').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().width));
-  expect(cols).toHaveLength(2);
-  expect(cols[0]).toBeGreaterThan(cols[1] * 2);
+  expect(cols).toHaveLength(3);
+  expect(cols[1]).toBeGreaterThan(cols[0]);
 });
 
 test('paging: ] [ PgDn PgUp Home and tab clicks; digits keep the speed; a new era pulses its tab', async ({ page }) => {
@@ -304,10 +309,10 @@ test('a future page is read-only: dashed cards, a click explains ERA LOCKED, the
   await expect(page.locator('#tech-alerts')).toContainText('ERA LOCKED — Parts Fabrication opens with Era 2');
   await page.waitForTimeout(500);
   expect(await queue(page)).toEqual([]);
-  // the doctrine pair in the header: shown, a click only selects
-  await page.locator('.dz-opt[data-select="moltenElectrolysis"]').click();
-  await expect(page.locator('.doc-sheet')).toContainText('DOCTRINE · CHOOSE ONE · PERMANENT');
-  await expect(page.locator('.dz-opt[data-select="moltenElectrolysis"]')).toContainText('era locked');
+  // the destiny pick in the header: shown, a click only selects, and it waits for its era
+  await page.locator('.dz-card[data-select="pressureHalls"]').click();
+  await expect(page.locator('.dst-sheet')).toContainText('DESTINY · CHOOSE ONE · PERMANENT');
+  await expect(page.locator('.dz-card[data-select="pressureHalls"]')).toContainText('choose when Era 2 opens');
   expect(await queue(page)).toEqual([]);
   // the goals: what opens Era 2, live
   const goals = page.locator('.ph-goals');
@@ -368,7 +373,8 @@ test('the goals column follows the sim: charter techs and the deed update in pla
   // E2 is the current page: its goals are Era 3's charter
   await page.keyboard.press('Home');
   await expect(page.locator('.ph-goals')).toContainText('ERA GOALS → Era 3 ROBOTIC FABRICATION');
-  await expect(page.locator('.ph-goals')).toContainText('or 2 + 200⚙ fabricated');
+  await expect(page.locator('.ph-goals')).toContainText('Destiny: choose ⌂ or ◉');
+  await expect(page.locator('.ph-goals')).toContainText('or the destiny, 1 more + 200⚙ fabricated');
   await expect(page.locator('.ph-goals [data-g="techs"]')).toHaveText('0');
 });
 
@@ -377,15 +383,15 @@ test('Era 8 goals: the FIRST LIGHT checklist reads the launch as the sim does', 
   await openTree(page);
   await tab(page, 8).click();
   await expect(page.locator('.ph-goals')).toContainText('LOCKED · ERA 8 OPENS WITH');
-  await expect(page.locator('.ph-goals')).toContainText('then FIRST LIGHT: Swarm Protocol and a launch');
+  await expect(page.locator('.ph-goals')).toContainText('then FIRST LIGHT: the Era 8 destiny, Swarm Protocol and a launch');
   await page.keyboard.press('Escape');
-  // debug: every non-doctrine tech of Eras 1–7 done opens Era 8 by charter
+  // debug: every non-doctrine tech of Eras 1–7 done (and each era's ◉ pick) opens Era 8 by charter
   await page.evaluate(() => {
     const g = window.__game!;
     const cards = g.getResearch().cards;
     for (const t of Object.keys(cards)) {
       const c = cards[t];
-      if (c.era <= 7 && c.state !== 'hidden' && !c.doctrine) g.completeTech(t);
+      if (c.era <= 7 && c.state !== 'hidden' && !c.doctrine && c.track?.side !== 'colony') g.completeTech(t);
     }
   });
   await expect.poll(async () => (await g(page, 'getState')).era).toBe(8);
@@ -571,9 +577,9 @@ test('site filters: the footer names other-site techs; the pole MRE has no doctr
   await tab(page, 3).click();
   await expect(card(page, 'btLavaTubeCaverns')).toHaveClass(/\bph\b/);
   await expect(card(page, 'btLavaTubeCaverns')).toContainText('? Breakthrough');
-  // two doctrines on E3: both pairs in the header, both bracketed on the board
-  await expect(page.locator('.dz-pair')).toHaveCount(2);
+  // two doctrines on E3: both bracketed on the board; the header holds the destiny
   await expect(page.locator('.doc-bracket')).toHaveCount(2);
+  await expect(page.locator('.ph-destiny .dz-card')).toHaveCount(2);
 
   await boot(page, 'southpole', 'robotic');
   await openTree(page);
@@ -583,7 +589,7 @@ test('site filters: the footer names other-site techs; the pole MRE has no doctr
   await expect(card(page, 'moltenElectrolysis')).not.toHaveClass(/doctrine/);
   await expect(page.locator('.doc-bracket[data-group="smeltDoctrine"]')).toHaveCount(0);
   await expect(card(page, 'ilmeniteBeneficiation')).toHaveCount(0);
-  await expect(page.locator('#tech-page-head')).toHaveClass(/no-destiny/);
+  await expect(page.locator('.ph-destiny .dz-card')).toHaveCount(2); // the destiny is everywhere
 });
 
 test('doctrine: a card click only selects; Commit queues; the sibling is foreclosed', async ({ page }) => {
@@ -620,9 +626,7 @@ test('doctrine: a card click only selects; Commit queues; the sibling is foreclo
   await expect(card(page, 'ilmeniteBeneficiation')).toContainText('foreclosed (pending)');
   await expect(page.locator('.doc-side[data-tech="ilmeniteBeneficiation"]'))
     .toContainText('foreclosed while Molten Regolith Electrolysis is queued — cancel it to reopen');
-  // the header pair shows it too
-  await expect(page.locator('.dz-opt[data-select="moltenElectrolysis"]')).toHaveClass(/st-queued/);
-  await expect(page.locator('.dz-opt[data-select="ilmeniteBeneficiation"]')).toHaveClass(/st-foreclosed/);
+  await expect(card(page, 'moltenElectrolysis')).toHaveClass(/queued/);
 
   // cancelling from the commit sheet reopens the sibling
   await page.locator('.doc-side button[data-act="cancel"][data-tech="moltenElectrolysis"]').click();
@@ -632,7 +636,7 @@ test('doctrine: a card click only selects; Commit queues; the sibling is foreclo
   // done → permanently foreclosed, and clicking the foreclosed card queues nothing
   await g(page, 'completeTech', 'moltenElectrolysis');
   await expect(card(page, 'ilmeniteBeneficiation')).toContainText('you chose MRE Smelting');
-  await expect(page.locator('.dz-opt[data-select="moltenElectrolysis"]')).toContainText('✓ CHOSEN');
+  await expect(card(page, 'moltenElectrolysis')).toHaveClass(/\bdone\b/);
   await card(page, 'ilmeniteBeneficiation').click();
   await page.mouse.move(640, 716);
   await expect(page.locator('.doc-side[data-tech="ilmeniteBeneficiation"]')).toContainText('foreclosed — you chose Molten Regolith Electrolysis');
@@ -768,7 +772,7 @@ test('goods chips follow the sim: water the crew is holding is short, on the car
     g.advanceGameSeconds(0);
     // Molten Regolith Electrolysis: the smelter makes no water, so the tanks hold still
     for (const t of ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',
-      'constructionRobotics', 'partsFabrication', 'batteryStorage', 'moltenElectrolysis']) g.completeTech(t);
+      'constructionRobotics', 'partsFabrication', 'batteryStorage', 'moltenElectrolysis', 'dispatchMesh']) g.completeTech(t);
     const spots: [number, number][] = [];
     for (let gz = 112; gz <= 143; gz++) for (let gx = 112; gx <= 143; gx++) spots.push([gx, gz]);
     spots.sort((a, b) => Math.hypot(a[0] - 127, a[1] - 127) - Math.hypot(b[0] - 127, b[1] - 127));

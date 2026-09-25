@@ -51,9 +51,10 @@ function gateRows(g: GateProgress, landingNote: boolean): string {
   if (g.destiny) html += row('ck-destiny', `<span data-g="destiny">${esc(destinyText(g.destiny.tid))}</span>`);
   html += row('ck-techs', `<span class="gl-pips mono" data-g="pips"></span> <span data-g="techs"></span> of ${g.techsNeed} Era-${prev} techs` +
     (g.destiny ? ' (the destiny counts)' : ''));
-  html += row('ck-deed', g.destiny
-    ? `<span class="gl-or">or</span> the destiny, ${g.deedTechsNeed - 1} more + ${esc(g.deed)}`
-    : `<span class="gl-or">or</span> ${g.deedTechsNeed} + ${esc(g.deed)}`, 'gl-deed');
+  const deedText = g.destiny ? `the destiny, ${g.deedTechsNeed - 1} more + ${g.deed}` : `${g.deedTechsNeed} + ${g.deed}`;
+  // a requires row below (robotic Era 7) keeps the deed to one line: the column holds 112 px
+  html += `<div class="gl-row gl-deed${g.requires ? ' one' : ''}" title="${esc(`or ${deedText}`)}"><span class="gl-ck" data-g="ck-deed">◻</span>` +
+    `<span class="gl-b"><span class="gl-or">or</span> ${esc(deedText)}</span></div>`;
   if (g.deedNeed > 1) {
     html += `<div class="gl-row gl-barrow"><span class="gl-ck"></span><div class="gl-bar"><i data-g="bar"></i></div>` +
       `<span class="mono gl-v" data-g="deed"></span></div>`;
@@ -91,9 +92,9 @@ export function goalsHtml(page: Era, v: ResearchView): string {
   }
   if (kind === 'future') {
     const g = v.gates.find((x) => x.era === page)!;
-    const wait = page - 1 > v.era ? `<div class="gl-row gl-note"><span class="gl-ck"></span><span class="gl-b">once Era ${page - 1} opens</span></div>` : '';
+    const wait = page - 1 > v.era ? ` · once Era ${page - 1} opens` : '';
     const then = page === 8 ? `<div class="gl-row gl-note"><span class="gl-ck"></span><span class="gl-b">then FIRST LIGHT: the Era 8 destiny, ${esc(TECHS[CAPSTONE].name)} and a launch</span></div>` : '';
-    return `<div class="gl-title label">LOCKED · ERA ${page} OPENS WITH</div>${gateRows(g, page === 2)}${wait}${then}`;
+    return `<div class="gl-title label">LOCKED · ERA ${page} OPENS WITH${wait}</div>${gateRows(g, page === 2)}${then}`;
   }
   const g = v.gates.find((x) => x.era === page + 1)!;
   return `<div class="gl-title label">ERA GOALS → Era ${page + 1} ${esc(ERA_NAMES[page + 1])}</div>${gateRows(g, page === 1)}`;

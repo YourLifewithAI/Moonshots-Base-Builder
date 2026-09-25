@@ -197,6 +197,7 @@
 .gl-row.met .gl-b { color: var(--ink-050); }
 .gl-row .gl-b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gl-row.gl-deed .gl-b { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.gl-row.gl-deed.one .gl-b { -webkit-line-clamp: 1; }
 .gl-row .gl-pips { letter-spacing: -0.02em; font-size: 10px; }
 .gl-row .gl-or { font-style: italic; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 .gl-row .gl-v { font-size: 10px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
