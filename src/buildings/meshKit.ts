@@ -16,7 +16,8 @@ export interface Finish {
   v: number;
   rough: number;
   metal: number;
-  /** 0 none · 1 window (lit from inside at night) · 2 blinking beacon */
+  /** 0 none · 1 window (lit from inside, a faint glow by day) · 2 blinking
+   *  beacon · 3 work lamp (lights with its structure's flood) */
   emit?: number;
 }
 
@@ -25,7 +26,7 @@ export const BODY: Finish = { v: 0.81, rough: 0.55, metal: 0.15 };      // satin
 export const TRIM: Finish = { v: 0.42, rough: 0.62, metal: 0.2 };       // frames, struts, stacks
 export const GLASS: Finish = { v: 0.07, rough: 0.18, metal: 0 };        // PV cells, dark glass
 export const WINDOW: Finish = { ...GLASS, emit: 1 };
-export const LAMP: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 1 };  // work lamp lens
+export const LAMP: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 3 };  // work lamp lens
 export const BEACON: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 2 };
 export const RADIATOR: Finish = { v: 0.81, rough: 0.9, metal: 0 };      // matte white panels
 export const FOIL: Finish = { v: 0.81, rough: 0.3, metal: 0.45 };       // MLI blankets
@@ -340,7 +341,9 @@ export const BUILDING_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPackin
 materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);
 
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
- *  own per-instance state: iState = (lit, dust, wear, print cut height). */
+ *  own per-instance state: iState = (lit, dust, wear, print cut height),
+ *  lit being 0 (unlit), 1 (lit at the night's darkness) or 2 + the darkness
+ *  the structure stands in (buildingShader.ts litChannel). */
 export function withInstanceState(src: THREE.BufferGeometry, max: number): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const [name, attr] of Object.entries(src.attributes)) g.setAttribute(name, attr);
