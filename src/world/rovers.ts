@@ -183,6 +183,8 @@ export class RoverFleet {
   private p = new THREE.Vector3();
   private s = new THREE.Vector3(1, 1, 1);
   private right = new THREE.Vector3();
+  /** the last update was paused: the fleet stands still, and is heard so */
+  private frozen = false;
   private soundList: RoverSound[] = [];
 
   constructor(private hf: Heightfield) {
@@ -208,6 +210,7 @@ export class RoverFleet {
   /** Per frame: `dt` game seconds (0 while paused). */
   update(dt: number, state: GameState, sunDir: THREE.Vector3, sunLight: number) {
     this.clock += dt;
+    this.frozen = dt <= 0;
     this.syncRects(state);
     this.syncFleet(state);
     this.assignSites(state);
@@ -429,7 +432,8 @@ export class RoverFleet {
       const dx = r.x - p.x, dy = this.hf.sample(r.x, r.z) + 0.6 - p.y, dz = r.z - p.z;
       const d = Math.hypot(dx, dy, dz);
       const pan = (dx * this.right.x + dy * this.right.y + dz * this.right.z) / Math.max(d, 1);
-      out.push({ id: i, d, pan: clamp(pan * 0.9, -1, 1), speed: clamp(r.v / SPEED, 0, 1), working: r.working && r.v < 0.1 });
+      const moving = this.frozen ? 0 : clamp(r.v / SPEED, 0, 1);
+      out.push({ id: i, d, pan: clamp(pan * 0.9, -1, 1), speed: moving, working: !this.frozen && r.working && r.v < 0.1 });
     }
     out.sort((a, b) => a.d - b.d);
     if (out.length > MAX_ROVER_VOICES) out.length = MAX_ROVER_VOICES;

@@ -261,7 +261,8 @@ rebuild freely.
 panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
-save is erased) · Graphics · Audio · the Controls list. Graphics is a 0–3
+save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·
+the Controls list. Graphics is a 0–3
 segmented control showing the level the render ladder is actually running,
 marked `AUTO` with its cause when the black-frame check lowered it; the
 player's own choice carries a ◆. Lowering is one click; a level that failed
@@ -284,6 +285,29 @@ nightfall, a sweep per launch. A low control-room hum detunes and beats as
 the grid's margin shrinks, so a brownout is audible before it lands; on
 foot the suit breathes. The sim stays silent: `game.publish()` diffs alert
 ids and state and plays the cues, each rate-limited in real time.
+
+**Rovers** are heard the way the suit hears them, through contact mics and
+the ops loop (`audio/roverVoices.ts`). The three nearest the camera each get
+a voice: a motor whine that rises with speed, wheel lugs crunching regolith,
+a servo chirp as a rover sets off or pulls up, and a print-head buzz at a
+site. Level falls with distance (half at 34 m, silent past 160 m) and pans
+with bearing, so the fleet is loud underfoot and faint from high above.
+When the game pauses, the fleet stops and so do its motors.
+
+**Music** (`audio/music.ts`) is a generative ambient score, not a loop. Slow
+sawtooth pads drift through a small pool of chords (D Lydian by day, D
+Dorian at night), coming home to the tonic every few changes, over a soft
+drone. Sparse FM bells fall through an echo into one long synthetic hall.
+Notes are scheduled ahead on the audio clock, so a slow frame never
+stutters it. The score turns darker at the first chord after nightfall and
+drops a little on foot, so the suit's breath sits on top.
+
+**The mix.** Effects (cues, radio, hum, breath, rovers) and music have their
+own buses and volumes (Esc menu: Master · Music · Effects, kept in settings).
+Both feed the master volume, and a limiter guards the output. Cues keep
+most of their energy above 150 Hz, where laptop speakers work; the sub
+layers are for headphones. `getAudio().output` meters the result for the
+tests: RMS, peak, and the share of energy below 150 Hz.
 
 ---
 
