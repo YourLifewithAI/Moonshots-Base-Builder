@@ -298,11 +298,15 @@ export class BuildingInstances {
 
   /** Each type's upgrade key and the triangles its mesh draws per instance
    *  (tests: a tech with a visual changes its buildings' geometry). */
-  upgradeInfo(): Record<string, { key: string; triangles: number }> {
-    const out: Record<string, { key: string; triangles: number }> = {};
+  upgradeInfo(): Record<string, { key: string; triangles: number; geometry: string; top: number }> {
+    const out: Record<string, { key: string; triangles: number; geometry: string; top: number }> = {};
     for (const [type, m] of this.meshes) {
       const g = m.geometry;
-      out[type] = { key: this.keys.get(type) ?? '', triangles: (g.index ? g.index.count : g.getAttribute('position').count) / 3 };
+      out[type] = {
+        key: this.keys.get(type) ?? '',
+        triangles: (g.index ? g.index.count : g.getAttribute('position').count) / 3,
+        geometry: g.uuid, top: g.boundingBox?.max.y ?? 0,
+      };
     }
     return out;
   }

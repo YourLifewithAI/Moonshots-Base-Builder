@@ -718,16 +718,29 @@ export function recipeTriangles(key: Partial<Record<BuildingId, string>> = {}): 
   return out;
 }
 
-/** The upgrade budget (docs/12 §6): per type the stock and fully upgraded
- *  triangle counts, and what each upgrade adds on its own. */
-export function upgradeTriangles(): Record<string, { base: number; full: number; parts: Record<string, number> }> {
-  const out: Record<string, { base: number; full: number; parts: Record<string, number> }> = {};
+export interface UpgradeBudget {
+  /** stock and fully upgraded triangles, moving parts included */
+  base: number;
+  full: number;
+  /** what each upgrade adds to the recipe mesh on its own */
+  parts: Record<string, number>;
+  /** what each upgrade adds as moving parts (an extra dish, a wider wing) */
+  movers: Record<string, number>;
+}
+/** The upgrade budget (docs/12 §6). */
+export function upgradeTriangles(): Record<string, UpgradeBudget> {
+  const out: Record<string, UpgradeBudget> = {};
   for (const id of Object.keys(R) as BuildingId[]) {
     const base = withMounts(id, '');
+    const mesh0 = tris(recipeGeometry(id, ''));
     const techs = upgradeTechs(id);
     const parts: Record<string, number> = {};
-    for (const t of techs) parts[t] = withMounts(id, t) - base;
-    out[id] = { base, full: withMounts(id, techs.join(',')), parts };
+    const movers: Record<string, number> = {};
+    for (const t of techs) {
+      parts[t] = tris(recipeGeometry(id, t)) - mesh0;
+      movers[t] = withMounts(id, t) - base - parts[t];
+    }
+    out[id] = { base, full: withMounts(id, techs.join(',')), parts, movers };
   }
   return out;
 }

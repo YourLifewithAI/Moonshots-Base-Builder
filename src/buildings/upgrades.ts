@@ -798,8 +798,8 @@ const foilFactory: Upgrade[] = [
   { // seed-factory pods on the roof
     tech: 'vonNeumann',
     parts: () => [[-1.0, -2.6], [0.5, -2.6], [-0.2, -0.9]].flatMap(([x, z]) => [
-      cyl(0.72, 0.72, 0.3, TRIM, x, 4.95, z, 0, 0, 14),
-      dome(0.68, FOIL, x, 5.1, z, 14),
+      cyl(0.72, 0.72, 0.3, TRIM, x, 4.95, z, 0, 0, 10),
+      dome(0.68, FOIL, x, 5.1, z, 10),
       box(0.16, 0.06, 0.04, LAMP, x, 5.25, z + 0.66),
     ]),
   },

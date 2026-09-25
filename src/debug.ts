@@ -135,7 +135,7 @@ function api(game: Game) {
     /** research you can see: each type's upgrade key (from techsDone), the key and
      *  triangles its InstancedMesh draws, and the placement ghost's */
     getUpgrades: () => {
-      const meshes = (game as any).instances.upgradeInfo() as Record<string, { key: string; triangles: number }>;
+      const meshes = (game as any).instances.upgradeInfo() as Record<string, { key: string; triangles: number; geometry: string; top: number }>;
       const want: Record<string, string> = {};
       for (const t of Object.keys(BUILDINGS) as BuildingId[]) want[t] = upgradeKey(t, game.state.techsDone);
       const g = (game as any).placement?.ghost as { geometry: { index: { count: number } | null; getAttribute(n: string): { count: number } } } | null;
