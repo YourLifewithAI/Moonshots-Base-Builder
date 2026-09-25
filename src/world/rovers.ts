@@ -22,7 +22,6 @@ import type { Heightfield } from '../terrain/heightfield';
 import { cellAt, cellCentre, cellKey, doorCell, isOpen, roadMap, roadRoute } from '../core/roads';
 import { roverSpots, type RoverSpot } from '../core/spots';
 import { ROAD } from '../data/roads';
-import { CELL_M } from '../data/balance';
 import { TECHS, type TechId } from '../data/techs';
 import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
@@ -166,6 +165,17 @@ export function laneWay(cells: Cell[], from: [number, number], to: [number, numb
   }
   pts.push(to);
   return pts;
+}
+
+/** A bay cell's opening onto the road (its open non-bay neighbour), or null if c is no bay. */
+function bayOpening(s: GameState, c: Cell): Cell | null {
+  const map = roadMap(s);
+  if (!map.get(cellKey(c[0], c[1]))?.bay) return null;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const n = map.get(cellKey(c[0] + dx, c[1] + dz));
+    if (n && isOpen(n) && !n.bay) return [c[0] + dx, c[1] + dz];
+  }
+  return null;
 }
 
 export class RoverFleet implements Driver {
@@ -325,9 +335,9 @@ export class RoverFleet implements Driver {
     // a bay is left, and come into, by its opening only (the way keeps to the slot's half)
     const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
     const here = same(from, [spot.gx, spot.gz]);
-    const out = r.spot?.via && same(from, [r.spot.gx, r.spot.gz]) && !here ? r.spot.via : null;
+    const out = !here && !r.inside ? bayOpening(s, from) : null;
     const start: Cell = out ?? from;
-    const into = spot.via && !same(from, [spot.gx, spot.gz]) ? spot.via : null;
+    const into = spot.via && !here ? spot.via : null;
     const goal: Cell = into ?? [spot.gx, spot.gz];
     const mid = same(start, goal) ? [start] : roadRoute(s, start, goal);
     if (!mid) return;
@@ -335,10 +345,13 @@ export class RoverFleet implements Driver {
     let pts: [number, number][];
     r.revUntil = -Infinity;
     if (out) {
-      // out of a bay: it backs out into the opening, then drives on from there
-      const bx = r.x + (out[0] - from[0]) * CELL_M, bz = r.z + (out[1] - from[1]) * CELL_M;
-      pts = [[r.x, r.z], ...laneWay(cells, [bx, bz], [spot.x, spot.z])];
-      r.revUntil = CELL_M; // arc 0 is where it stands
+      // out of a bay: straight along it into the opening (keeping its half), then on
+      // from there — backing out if it stands nose in
+      const [ox, oz] = cellCentre(out[0], out[1]);
+      const along: [number, number] = out[0] !== from[0] ? [ox, r.z] : [r.x, oz];
+      pts = [[r.x, r.z], ...laneWay(cells, along, [spot.x, spot.z])];
+      const ux = out[0] - from[0], uz = out[1] - from[1];
+      if (Math.sin(r.yaw) * ux + Math.cos(r.yaw) * uz < 0) r.revUntil = Math.hypot(along[0] - r.x, along[1] - r.z);
     } else {
       // out of its cell in the half it is in only if another stands beside it
       pts = laneWay(cells, [r.x, r.z], [spot.x, spot.z], this.traffic.taken(r.agent, from[0], from[1]));
@@ -368,8 +381,18 @@ export class RoverFleet implements Driver {
     a.stop = end;
     // a way that sets off well away from its heading starts with a turn on the spot
     a.pivot = false;
+    if (!r) return;
+    if (left < 1e-3) {
+      // there: square up along its road (either way along it), turning on the spot
+      if (!r.spot || r.spot.inside) { r.turning = false; return; }
+      const f = r.spot.face;
+      const aim = Math.abs(wrap(f - r.yaw)) <= Math.abs(wrap(f + PI - r.yaw)) + 1e-6 ? f : f + PI;
+      r.turning = Math.abs(wrap(aim - r.yaw)) > 0.05;
+      if (r.turning) { a.pivot = true; r.aim = aim; }
+      return;
+    }
     // only as it sets off: under way it steers round corners
-    if (!r || left < 1e-3 || (!r.turning && a.s > 0.3)) { if (r) r.turning = false; return; }
+    if (!r.turning && a.s > 0.3) return;
     const want = this.heading(r, a, a.s + 0.02);
     const err = Math.abs(wrap(want - r.yaw));
     r.turning = r.turning ? err > 0.05 : err > PIVOT;
@@ -391,8 +414,8 @@ export class RoverFleet implements Driver {
     r.v = a.v;
     const end = Traffic.end(a);
     const there = a.s >= end - 1e-6;
-    // heading: a turn on the spot, else along its lane (turn-rate limited), squared up once there
-    const want = a.pivot ? r.aim : this.heading(r, a, Math.min(a.s, end));
+    // heading: a turn on the spot, else along its lane (turn-rate limited); once there it holds it
+    const want = a.pivot ? r.aim : there ? r.yaw : this.heading(r, a, a.s);
     if (!a.pivot || a.pivotOk) r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
     a.fx = Math.sin(r.yaw); a.fz = Math.cos(r.yaw);
     // reached a slot inside the dock: gone in

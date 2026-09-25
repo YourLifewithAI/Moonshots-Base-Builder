@@ -490,7 +490,7 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   });
   const lab = await page.evaluate(() => window.__game.canPlace('lab', 132, 126));
   expect(lab.valid).toBe(true); // a warning, never a block
-  expect(lab.warn).toBe('Leaves 39◆ — a Smelter needs 50◆');
+  expect(lab.warn).toBe('Leaves 39◆ — keep 50◆ for your first Regolith Smelter; research Regolith Smelting to unlock it');
   const solar = await page.evaluate(() => window.__game.canPlace('solar', 132, 126));
   expect(solar.warn).toBe(''); // 19◆ leaves 58: room for the smelter
   // the ghost's hint carries it
@@ -501,7 +501,7 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   const pad = await page.evaluate(() => window.__game.screenOf(20, -4));
   expect(pad.visible).toBe(true);
   await page.mouse.move(pad.x, pad.y);
-  await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — a Smelter needs 50◆');
+  await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — keep 50◆ for your first Regolith Smelter');
   await page.keyboard.press('Escape');
   // once a smelter stands (even as a site), spending metals is no longer a trap
   await page.evaluate(() => {

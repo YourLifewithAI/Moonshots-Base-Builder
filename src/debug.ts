@@ -15,7 +15,7 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { openAll } from './core/roads';
+import { accessCell, doorCell, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 
 declare global {
@@ -217,6 +217,27 @@ function api(game: Game) {
     getRoadTool: () => clone(game.debugRoadTool()),
     /** open every road cell now (sites stay as they are) */
     finishRoads: () => { openAll(game.state); game.publish(); },
+    /** each structure's way in by road (docs/15-roads.md): its door (fields: none),
+     *  the road cell it is reached by, and whether open road joins that to the Lander */
+    roadAccess: () => {
+      const s = game.state;
+      const lander = s.buildings.find((b) => b.type === 'lander');
+      const from = lander ? doorCell(lander) : null;
+      const served = servedFields(s);
+      const map = roadMap(s);
+      return s.buildings.filter((b) => b.type !== 'lander').map((b) => {
+        const door = doorCell(b);
+        const cell = accessCell(s, b);
+        return {
+          id: b.id, type: b.type, door, cell, served: served.has(b.id), spur: [...(b.spur ?? [])],
+          doorOpen: !!door && (map.get(door[1] * 256 + door[0])?.left ?? 1) <= 0,
+          linked: !!(from && cell && roadRoute(s, from, cell)),
+        };
+      });
+    },
+    /** the save as written, and a load of one (the migration tests) */
+    saveBlob: () => clone((game as unknown as { saveBlob(): unknown }).saveBlob()),
+    loadBlob: (blob: Parameters<Game['loadFrom']>[0]) => game.loadFrom(blob),
     /** the road tool's actions: a road from an open road cell to a cell; remove cells */
     layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
     removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),

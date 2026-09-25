@@ -465,8 +465,19 @@ export class Traffic {
     this.covered(a, a.s - Traffic.behind(a), a.s + Traffic.ahead(a), cov);
     if (a.wide) this.box(a, a.x, a.z, a.fx, a.fz, cov);
     this.keepReserved(a, cov);
+    this.take(a, cov);
+  }
+
+  /** Hold exactly `cov`: let go of the rest; a cell it holds already keeps
+   *  its old hold where the new one would clash with another's (it was never
+   *  cleared for that — it waits in what it had). */
+  private take(a: Agent, cov: Map<number, Mode>) {
     for (const k of [...a.held.keys()]) if (!cov.has(k)) { this.release(a, k); a.held.delete(k); }
-    for (const [k, m] of cov) this.hold(a, k, m);
+    for (const [k, m] of cov) {
+      const had = a.held.get(k);
+      if (had !== undefined && had !== m && this.clash(a, k, m)) continue;
+      this.hold(a, k, m);
+    }
   }
 
   private advance(a: Agent, h: number) {
@@ -554,8 +565,7 @@ export class Traffic {
     const p = pointAt(a.pts, a.arcs, a.s);
     if (a.wide) this.box(a, p.x, p.z, a.fx, a.fz, cov);
     this.keepReserved(a, cov);
-    for (const k of [...a.held.keys()]) if (!cov.has(k)) { this.release(a, k); a.held.delete(k); }
-    for (const [k, m] of cov) this.hold(a, k, m);
+    this.take(a, cov);
     a.drv.moved(a, h);
   }
 

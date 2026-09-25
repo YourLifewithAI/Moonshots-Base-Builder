@@ -109,10 +109,11 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     else push(parked, dock.id, u.id);
   }
 
-  const take = (id: number, st: Stand, site: number | null, road?: number): boolean => {
+  const take = (id: number, st: Stand, site: number | null, road?: number, only?: 0 | 1): boolean => {
     const [gx, gz] = st.c;
     const axis = lateral(st.dir);
     for (const side of [0, 1] as const) {
+      if (only !== undefined && side !== only) continue;
       if (taken.has(slotKey(gx, gz, side))) continue;
       taken.add(slotKey(gx, gz, side));
       const [x, z] = slotPoint(gx, gz, axis, side);
@@ -185,8 +186,12 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     for (const id of along(team, frontier(j.cells) ?? [], null, j.id)) push(parked, dockOf.get(id)!.id, id);
   }
 
-  // parking: the bays within two cells of the dock's door, nearest first, nose in
+  // parking: the bays within two cells of the dock's door, nearest first, nose
+  // in — each rover its own slot, by its place in the dock's roster, so one
+  // leaving moves nobody else
   const bays = (s.roads ?? []).filter((c) => c.bay && isOpen(c));
+  const homed = new Map<number, number[]>();
+  for (const u of roster) { const d = dockOf.get(u.id); if (d) push(homed, d.id, u.id); }
   for (const dock of s.buildings) {
     const list = parked.get(dock.id);
     if (!list?.length) continue;
@@ -199,7 +204,14 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
       const dir = openingOf(s, cell) ?? [0, 1];
       return { c: cell, dir, face: [c.gx - dir[0], c.gz - dir[1]] }; // nose in: it backs out
     });
-    for (const id of along(list, stands, null)) {
+    const order = homed.get(dock.id) ?? [];
+    const left: number[] = [];
+    for (const id of list) {
+      const i = order.indexOf(id);
+      const st = stands[i >> 1];
+      if (!st || !take(id, st, null, undefined, (i & 1) as 0 | 1)) left.push(id);
+    }
+    for (const id of along(left, stands, null)) {
       // no bay left: inside the dock
       const [x, z] = cellCentre(...centreCell(dock));
       out.set(id, { gx: d[0], gz: d[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: dock.id, inside: true });

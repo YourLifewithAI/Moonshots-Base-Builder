@@ -946,7 +946,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'road', speedMult: 1.1, nightMult: 1.25 },
       { kind: 'road', cellMult: 1.15 },
     ],
-    desc: 'Retroreflector posts and radio pips along the kerbs: the rovers keep their speed after dark.',
+    desc: 'Retroreflector posts and radio pips along the kerbs: the rovers drive them faster, and faster still after dark.',
     visual: 'Beacon posts line the road edges and light up at night.',
     tradeoff: 'Every cell gets its posts.',
   },
