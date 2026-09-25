@@ -58,6 +58,8 @@ const AUTO_ON = opt('auto', 'off') === 'on';
 const SAVERS_EARLY = opt('savers', 'late') === 'early';
 const DESTINY = opt('destiny', 'natural');
 const PICKS_ARG = opt('picks', '');
+/** --replace=off: the pick is added to the era's research instead of replacing its last small step */
+const REPLACE_STEP = opt('replace', 'on') !== 'off';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -224,6 +226,7 @@ async function installBot(cfg) {
     }
   }
 
+  const log0 = { deferred: [] };
   // ── destiny picks in the order (docs/14 §6): the reasonable player queues the
   // era's pick right after that era's first main tech (the 2nd research of the
   // era), the attentive one first; Era 8's comes before Swarm Protocol, which needs it.
@@ -231,6 +234,11 @@ async function installBot(cfg) {
   {
     const R1 = G.getResearch();
     const eraOf = (t) => R1.cards[t]?.era ?? TECHS[t].era;
+    // the pick replaces the era's lowest-priority small step (docs/14 §6): that
+    // step moves to the tail, so the era's research is the same size — one
+    // that nothing later in the list builds on, so no other step waits for it
+    const SMALL = new Set(Object.values(SMALL_AFTER).flat());
+    const needed = (x) => order.some((y) => TECHS[y].requires.includes(x));
     for (let e = 2; e <= 8; e++) {
       const t = pickOf(e);
       order = order.filter((x) => x !== t);
@@ -239,6 +247,11 @@ async function installBot(cfg) {
       let at = firstMain >= 0 ? firstMain + (cfg.policy === 'attentive' ? 0 : 1) : first >= 0 ? first : order.length;
       if (e === 8) at = Math.min(at, order.indexOf('swarmProtocol'));
       order.splice(at, 0, t);
+      if (cfg.replaceStep !== false && e < 8) {
+        const small = order.filter((x) => eraOf(x) === e && SMALL.has(x) && !BUILDER.includes(x) && !needed(x));
+        const drop = small[small.length - 1];
+        if (drop) { order = order.filter((x) => x !== drop); order.push(drop); log0.deferred.push(drop); }
+      }
     }
     if (robotic && PICKS[5] === 'A') order = order.filter((x) => x !== 'humanCohabitation');
   }
@@ -292,7 +305,7 @@ async function installBot(cfg) {
 
   // ── log ──
   const log = {
-    cfg, order, pick, picks: PICKS, actions: [], events: [], eraOpen: { 1: s.simTime }, eraVia: {}, samples: [],
+    cfg, order, pick, picks: PICKS, deferred: log0.deferred, actions: [], events: [], eraOpen: { 1: s.simTime }, eraVia: {}, samples: [],
     acc: {
       t: 0, brownout: 0, brownoutNight: 0, shed: 0, night: 0, partsZero: 0, worn: 0, paused: 0, pausedBrownout: 0,
       queueEmpty: 0, goodsStall: 0, goodsBy: {}, siteIdle: {}, blockedBy: {}, bankMax: 0, deaths: 0,
@@ -1036,6 +1049,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
     const info = await page.evaluate(installBot, {
       ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY, destiny: DESTINY, picks: PICKS_ARG,
+      replaceStep: REPLACE_STEP,
     });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · destiny ${info.picks} · doctrines ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {

@@ -42,6 +42,8 @@ export const $vitals = atom({
   sites: 0, welding: 0, weldParts: 0, upkeep: 0,
   /** robots lent to a survey (not in botsTotal) */
   surveying: 0,
+  /** the last crew went home at FIRST LIGHT (docs/14 §5): the base runs unmanned */
+  crewHome: false,
 });
 /** Lander services status (shipment en route, the next order's transit in
  *  lunar days, agent-run stations the crew could take) */

@@ -1754,6 +1754,7 @@ export class Game {
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
       lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
       sites, welding, weldParts, upkeep, surveying: s.survey.active ? 1 : 0,
+      crewHome: !!s.crewHome,
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,

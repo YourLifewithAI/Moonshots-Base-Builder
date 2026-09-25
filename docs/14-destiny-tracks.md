@@ -13,16 +13,10 @@
 > digital viruses/hacks for the robotic version."
 
 **Status.** Phase A design, with the user's answers to its open questions
-applied (§10). Nothing in `src/` changes with this document. Phase B starts
-once three branches have merged: **work/tree** (the 92-tech tree of
-[12-tree-expansion.md](12-tree-expansion.md)), **work/fleet** (construction
-rovers as units, the hauling excavator) and **work/auto** (the Builder,
-[13-automation-spec.md](13-automation-spec.md), on `work/auto` until it
-merges). Names taken from those branches
-(`s.rovers`, `RoverUnit`, `crewKW`, `AutoFamily`, `autoRule`, `orders`,
-`governor`, `builderPanel.ts`) must be checked again at merge. Main's Classic
-style, building lights, score and discovery pop-ups are assumed to be merged
-too. As everywhere in these docs, the code wins once it exists.
+applied (§10). **Phase B is under way:** D1 (per-era pages) is on main;
+**D2 (data and research) and the D6 ending ship on `work/dest2`** (§9, "As
+shipped"). D3 (hazards), D4 (the look) and D5 (audio) are still to come; their
+hooks are in place. As everywhere in these docs, the code wins once it exists.
 
 **Glyphs.** ⌂ COLONY · ◉ AUTOMATION (these are the ⌂ HABITAT and ◉ ROBOTS lane
 glyphs) · ◆ metals · ◇ silicon · ≈ water · ○ O₂ · ✳ food · ⚙ parts · ▣ chips ·
@@ -226,7 +220,7 @@ That is 12 lane cards per page on average, against the brief's "about 11". The b
 
 ### 2.2 The eight choices
 
-**Pro** and **con** below are the generated lines (§2.7). **Hazard hooks** are the `exposure` (⊖) and `guard` (⊕) lines. *crew* = applies wherever people live: on human runs, and on robotic runs once Human Cohabitation is done. Costs are the era's median tech: base 120 / 155 / 240 / 400 / 1000 / 1100 / 1600 for Eras 2–8, and 287 / 456 / 580 / 1700 / 1265 / 2080 *scaled* for Eras 3–8 (240 for Era 2). Re-read them from the merged tree.
+**Pro** and **con** below are the generated lines (§2.7). **Hazard hooks** are the `exposure` (⊖) and `guard` (⊕) lines. *crew* = applies wherever people live: on human runs, and on robotic runs once Human Cohabitation is done. Costs are the era's median tech on the merged 106-tech tree: base **120 / 150 / 240 / 400 / 1000 / 1125 / 1600** for Eras 2–8, which is **240 / 278 / 456 / 580 / 1700 / 1294 / 2080** *scaled*. (The draft's 155 and 1100 were the 92-tech medians.)
 
 | Era · question | Side | id · name | Pro | Con | Visual (mesh part) | Hazard hooks |
 |---|---|---|---|---|---|---|
@@ -960,7 +954,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - `src/core/research.ts`: `researchView` adds `pages[era] = { state, available, queued, done, total }` and per-card `offPage { before: Era[]; after: Era[] }`.
 - `tests/techtree.spec.ts`: rewrite (§8).
 
-**D2 · Destinies: data and research.**
+**D2 · Destinies: data and research.** ✓ **SHIPPED** on `work/dest2` (see *As shipped* below).
 - `src/data/techs.ts`:
   - `Side`, `TechDef.track` and `band`, `TRACKS`;
   - 16 track techs and 3 capstones;
@@ -1034,7 +1028,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 
 **D5 · Audio.** `src/audio/music.ts` (`setDestiny`), `src/audio/sfx.ts` (chirp, squelch, rotor), `src/core/game.ts` wiring.
 
-**D6 · The ending.**
+**D6 · The ending.** ✓ **SHIPPED** on `work/dest2`, all of it: the victory screen per band with the pips, CREW HOME, `ERA_BLURB_8`, the FIRST LIGHT hint.
 - `src/ui/screens.ts`: the victory screen per band, and the pips.
 - `src/core/game.ts`, `src/core/economy.ts`, `src/core/state.ts`: `CREW HOME` at the first launch in a pure Automation band on a crewed landing (`s.crewHome`, stations to Autonomous, `unmanned = (robotic || crewHome) && crew ≤ 0`, no defeat).
 - `src/data/techs.ts`: `ERA_BLURB_8`.
@@ -1050,6 +1044,68 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - 07: pages, the hazard chip and panel, `[G]`.
 - 08: modules, tick step 8.3, save fields, schema 4.
 - 00-index.
+
+### As shipped (D2 and D6)
+
+What the code does, where it differs from the text above, and why. Where this
+section and an earlier one disagree, this one describes the code.
+
+**What shipped.**
+
+- **Data** (`src/data/techs.ts`): `Side`, `Band`, `TechDef.track` and `band`,
+  `TRACKS`, `CAPSTONES`, `LANDING_TECH`, `ERA_BLURB_8`, `destinyCounts()`; the
+  16 track techs and 3 capstones in their own block at the end of the table
+  (125 techs); the kinds `growth`, `bringsCrew`, `waive`, `eva`, `radius`,
+  `volley`, `autoLaunch`, `moraleBase`, `hazardRate`, `guard`, `exposure`, and
+  `builder.all`; `EffectFilter.crew`; Swarm Protocol's `requiresAny` on the
+  Era 8 pick; guard effects on the six lane techs of §3.6.
+- **Hazard hooks** (`src/data/hazards.ts`, new): `HazardId`, `GuardId`, their
+  card texts, and `HAZARDS_LIVE = false`. Mods collect `guards`, `exposure`
+  and `hazardRateMult`; nothing reads them yet.
+- **Buildings**: Drone Hive, Greenhouse Ring, Server Monolith, Garden Dome;
+  `isCompute()` and `DESTINY_BUILDINGS`. Their recipes are placeholders from
+  the stock kit (`recipes.ts`), sized to the footprints, in both styles.
+- **Research** (`core/research.ts`): pick foreclosure (`pickRival`), paths that
+  never choose a destiny, gates with a `destiny` item and a `requires.waived`
+  flag, the landing and forwarded techs skipped, capstones visible by band,
+  `bringsCrew` in `onTechComplete`, `destinyOf()`, `waivedTechs()`,
+  `TECH_SCHEMA = 4` and its migration step.
+- **Sim**: settler growth by `growthMult`, EVA crews, `moraleBase` and the
+  launch day, volley terms (`volleyTerms`, `launchVolley`, shared by the
+  button and the cadence), Autonomous Cadence, CREW HOME, `unmanned()`, the
+  build-network radius (`exploration.networkRadius`), the Monolith in every
+  Data Center read.
+- **The Builder**: the Research and Export families come from Fleet OS and
+  Replicator Stacks; `familyTech` names them; producer rules skip the destiny
+  buildings unless `builderAll`.
+- **UI**: the destiny column and its commit flow, the meter and its reach
+  line, tab and chip pips, the Era 8 capstone row, the goals column's destiny
+  item and Cohabitation line, the landing screen's tags and subtitle, the
+  discovery cards' Next lines and the banner's destiny line, palette icons,
+  the band victory screen.
+- **Debug**: `pickDestiny(era, side)`, `getDestiny()`, `setDust(id, dust)`.
+- **Probe**: `--destiny`, `--picks`, the pick in each era's order, the
+  destiny-aware builds, the swarm meter's volley terms, `--reuse`.
+- **Tests**: `tests/destiny.spec.ts` (22 tests), and the charter lists of
+  research, techtree, upgrades and guidance specs now include each era's pick.
+
+**Deviations, and why.**
+
+| Topic | Spec | Shipped | Why |
+|---|---|---|---|
+| Pick costs | 155 (E3), 1100 (E7) | 150, 1125 | the medians of the merged 106-tech tree |
+| Crewed Mission Control, short of crew | refuses the volley | a volley then takes 3↑ and has no ceremony; with 2↑ in stock it refuses: `A VOLLEY NEEDS 4 CREW ON CONSOLE — have 3; without them a volley needs 3↑` | a robotic run with the ◉ Era 6 pick invites no one and never reaches 4 crew; a hard refusal would trap it |
+| Crewed Mission Control, robotic | no `bringsCrew` | brings Cohabitation forward too | "the first Colony pick from Era 3 on" (§0), Era 8 included |
+| EVA crews | 10% of free hands | ⌈10% of free hands⌉, by day, not during an active flare; the bonus applies while any crew is out | 10% of a base's 1–5 free hands rounds to nobody |
+| CREW HOME | crewed landing only | any pure-Automation FIRST LIGHT with crew aboard | a robotic landing whose one ⌂ pick brought people ends the same way |
+| Auto-launch | in `econStep` | economy step 10.5, before the milestones; `econStep` only plays the rail's visual | FIRST LIGHT latches the same tick |
+| The night's reserve | "never below the night's reserve" | min(the night's shortfall × its length, a full bank less the burst) | a bank smaller than the night would never fire |
+| Selenic Mind, "every family" | labs, Data Centers, Foil Factories, launchers | the Research and Export families and `builderAll` (producer rules may choose the destiny buildings) | there are no Data Center or launcher rules to lift yet |
+| Hazard lines | shown on the cards | not shown (`HAZARDS_LIVE`) | no card should promise or threaten what the game does not do |
+| Landing cards | tags, subtitle, hazard cons | tags and subtitle | the hazard cons arrive with the hazards |
+| Visual lines | the D4 parts | the picks name their D4 parts; unlock picks name their building (Fleet OS: the Monolith) | the parts come with the look |
+| Victory, band unsettled | — | the plain ending | a save or a debug launch without the Era 8 pick |
+| Tree keys | ↑ from the top row reaches the destiny | as specified, plus ←/→ between the sides and ↓ back to the board | — |
 
 ---
 
