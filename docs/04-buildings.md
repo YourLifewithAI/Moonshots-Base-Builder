@@ -104,7 +104,7 @@ placeholders from the stock kit until the look phase (docs/14 §4.2).
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
 |---|---|---|---|---|---|
-| Drone Hive (3) · ◉ Drone Hives | S | −7 kW → docks 4 construction rovers | 3×3; counts in the fleet like a Bay | Four construction drones from one pad | Seven kW whether they fly or not, and one firmware push reaches all four |
+| Drone Hive (3) · ◉ Drone Hives | S | −7 kW → docks 4 construction rovers | 3×3; counts in the fleet like a Bay, and is a dock on the roads (bays beside its door) | Four construction drones from one pad | Seven kW whether they fly or not, and one firmware push reaches all four |
 | Greenhouse Ring (5) · ⌂ Greenhouse Rings | S | 2 crew, −14 kW, 0.08 water/s → 0.32 food/s | Morale +6; 4×4 | Three farms' food on two crew and 14 kW | One blight takes the whole ring, and it drinks 0.08≈/s |
 | Server Monolith (5) · ◉ Fleet OS | S | −26 kW → 0.9 data/s; transfer cap +2.2/s | Counts as a Data Center wherever one is read, Data Center techs included; 2×2, 16 m | A Data Center's work on less than half the ground | A network hub: everything within 60 m links to it |
 | Garden Dome (7) · ⌂ Garden Domes | S | 1 crew, −12 kW, 0.05 water/s → 0.04 food/s | Houses 10; morale +10; extends the network 60 m; 5×5 | Ten beds round a park under glass | The largest pressure hull you will build |

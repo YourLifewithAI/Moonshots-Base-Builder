@@ -849,13 +849,45 @@ Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 - *Automation*: the agent-tax cuts and faster builds push it faster. Downtime from malware and bricked rovers pushes it back.
 - *Era 8*: the pick replaces the launch-cadence step, so it is neutral.
 
-**Results (D2 as shipped, hazards not live).** `node scripts/probe-pacing.mjs
+**Results on roads (D2 as shipped, merged with main `cf5d3a8`: roads, docs/15;
+hazards not live).** `node scripts/probe-pacing.mjs --auto=on
 --destiny=colony|automation|concord --runs=mare:robotic:reasonable,southpole:human:reasonable
 --seeds=42,7,1234 --minutes=280`, medians in game-minutes, brackets per seed
-(42, 7, 1234). *Main* is the tree before destinies (`9fb24f8`), same bot.
+(42, 7, 1234). *Main* is `cf5d3a8` itself (roads, no destinies), same bot.
 The bot's picks: robotic Colony `ACCCCCCC`, robotic Automation `AAAAAAAA`,
 robotic Concord `ACACACAC`; crewed `CCCCCCCC`, `CAAAAAAA` (a pure
 Automation band, CREW HOME at FIRST LIGHT) and `CACACACA`.
+
+| Run | FIRST LIGHT | Eras E1…E8 |
+|---|---|---|
+| mare robotic · main | 220.6 [221, 232, 218] | 24.1 / 26.5 / 28.0 / 24.0 / 27.8 / 26.9 / 33.3 / 24.3 |
+| mare robotic · ⌂ pure Colony | **211.9** [210, 212, 214] | 24.1 / 26.0 / 32.1 / 24.1 / 24.5 / 26.4 / 27.8 / 24.1 |
+| mare robotic · ◉ pure Automation | **206.6** [207, 207, 203] | 24.1 / 26.1 / 32.2 / 24.0 / 24.4 / 34.3 / 19.6 / 20.2 |
+| mare robotic · Concord | **212.9** [213, 213, 217] | 24.1 / 26.0 / 32.1 / 24.1 / 27.1 / 23.7 / 28.8 / 23.7 |
+| south pole crewed · main | 196.3 [186, 196, 205] | 24.3 / 26.1 / 25.3 / 15.6 / 23.2 / 30.9 / 22.2 / 19.0 |
+| south pole crewed · ⌂ pure Colony | 159.9 [158, 175, 160] | 24.3 / 27.0 / 24.9 / 15.1 / 15.8 / 27.2 / 11.6 / 13.2 |
+| south pole crewed · ◉ pure Automation | 186.5 [172, 187, 256] | 24.3 / 26.1 / 26.8 / 15.8 / 17.0 / 30.1 / 13.4 / 18.6 |
+| south pole crewed · Concord | 174.3 [174, 181, 173] | 24.3 / 26.1 / 26.8 / 15.3 / 14.7 / 31.0 / 13.0 / 16.8 |
+
+- **Target: met, with room.** All three in 210 ± 25 on robotic mare;
+  max/min = 212.9 / 206.6 = 1.030. No lever moved for roads. Against the
+  pre-road runs below, roads moved main +8.3 min (212.3 → 220.6) and pure
+  Automation +7.8 (its Era 6 +5.7), while pure Colony (−0.4) and Concord
+  (−1.7) held. Every run's Era 3 got 2.5–4 min shorter with roads, as
+  main's did (31.3 → 28.0).
+- **Crewed pole, Automation seed 1234 (256.3):** Swarm Protocol lands at
+  172.8 min, then the first volley waits 83 min. The bank holds 1–20 while
+  demand runs level with supply or up to 80 kW over it: the Builder's solar
+  rule spends 38 min in `nosite` (no ground a road can serve) and 43 min
+  watching, and the reactor rule is locked (no reactor tech on that run). A
+  volley needs its 300-energy burst stored, so neither the cadence nor the
+  button can fire. A road-era siting limit at the pole, not a destiny rule;
+  main's crewed pole shows the same pressure as 26–30 min goods stalls on
+  seeds 7 and 1234. The other two seeds run 172 and 187.
+- **Era 3** runs 32.1–34.5 min (main 28.0), for the reason below.
+
+**Before roads** (on `9fb24f8`, before #26 and #27: the first measurement;
+*main* here is `9fb24f8`).
 
 | Run | Builder (`--auto=on`) | Eras E1…E8 (auto=on) | Manual (`--auto=off`) |
 |---|---|---|---|
@@ -1137,7 +1169,10 @@ section and an earlier one disagree, this one describes the code.
   and `hazardRateMult`; nothing reads them yet.
 - **Buildings**: Drone Hive, Greenhouse Ring, Server Monolith, Garden Dome;
   `isCompute()` and `DESTINY_BUILDINGS`. Their recipes are placeholders from
-  the stock kit (`recipes.ts`), sized to the footprints, in both styles.
+  the stock kit (`recipes.ts`), sized to the footprints, in both styles. On
+  roads (docs/15) the Drone Hive is a dock (`DOCK_TYPES`: its four rovers
+  park in bays beside its door, as a Robotics Bay's do); the other three
+  take a plain door at their front middle and a spur.
 - **Research** (`core/research.ts`): pick foreclosure (`pickRival`), paths that
   never choose a destiny, gates with a `destiny` item and a `requires.waived`
   flag, the landing and forwarded techs skipped, capstones visible by band,
@@ -1159,8 +1194,10 @@ section and an earlier one disagree, this one describes the code.
   the band victory screen.
 - **Debug**: `pickDestiny(era, side)`, `getDestiny()`, `setDust(id, dust)`.
 - **Probe**: `--destiny`, `--picks`, the pick in each era's order, the
-  destiny-aware builds, the swarm meter's volley terms, `--reuse`.
-- **Tests**: `tests/destiny.spec.ts` (21 tests), and the charter lists of
+  destiny-aware builds, the swarm meter's volley terms, `--reuse`,
+  `--replace`, and `rulePhaseByMin` (which Builder rule sat in which phase).
+- **Tests**: `tests/destiny.spec.ts` (21 tests; roads laid open, the four
+  buildings' doors and the hive's bays checked), and the charter lists of
   research, techtree, upgrades, guidance, map and smoke specs now include each era’s pick.
 
 **Deviations, and why.**
