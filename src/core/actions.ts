@@ -27,7 +27,14 @@ export type Action =
   | { kind: 'surveyIce' }
   | { kind: 'orderResupply' }
   | { kind: 'grade'; gx: number; gz: number }
-  | { kind: 'dismissAlert'; id: number };
+  | { kind: 'dismissAlert'; id: number }
+  // fleet control (core/fleet.ts, core/haul.ts)
+  | { kind: 'summonRover'; site: number }      // pin the nearest free rover here (or one from the busiest site)
+  | { kind: 'releaseRover'; site: number }     // unpin one of this site's rovers
+  | { kind: 'sendRover'; rover: number; site: number }
+  | { kind: 'unpinRover'; rover: number }
+  | { kind: 'digAt'; id: number; x: number; z: number } // an excavator's dig site (world m)
+  | { kind: 'digHome'; id: number };
 
 export class ActionQueue {
   private q: Action[] = [];

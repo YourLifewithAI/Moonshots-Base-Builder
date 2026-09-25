@@ -130,6 +130,24 @@ function api(game: Game) {
     recipeTriangles: () => recipeTriangles(),
     beginPlacement: (type: BuildingId) => game.beginPlacement(type),
     cancelPlacement: () => game.cancelPlacement(),
+    // ── fleet control (core/fleet.ts, core/haul.ts) ──
+    summonRover: (site: number) => game.actions.push({ kind: 'summonRover', site }),
+    releaseRover: (site: number) => game.actions.push({ kind: 'releaseRover', site }),
+    sendRover: (rover: number, site: number) => game.actions.push({ kind: 'sendRover', rover, site }),
+    unpinRover: (rover: number) => game.actions.push({ kind: 'unpinRover', rover }),
+    digAt: (id: number, x: number, z: number) => game.actions.push({ kind: 'digAt', id, x, z }),
+    digHome: (id: number) => game.actions.push({ kind: 'digHome', id }),
+    /** open the rover inspector (null closes it) */
+    selectRover: (id: number | null) => game.selectRover(id),
+    /** Send to… / Dig at… as the inspector buttons start them */
+    beginSendRover: (rover: number) => game.beginFleetTarget({ kind: 'send', rover }),
+    beginDigAt: (id: number) => game.beginFleetTarget({ kind: 'dig', id }),
+    cancelFleetTarget: () => game.cancelFleetTarget(),
+    getFleetTarget: () => clone(game.debugFleetTarget()),
+    /** the $fleet payload: rovers, site crews and ETAs, hauls and dig options */
+    getFleet: () => clone(game.debugFleet()),
+    /** screen position of a drawn rover (roster id) or excavator (building id) */
+    poseOnScreen: (kind: 'rover' | 'digger', id: number) => game.debugPoseOnScreen(kind, id),
     /** Complete every construction site now (one economy tick settles them). */
     finishConstruction: () => {
       for (const b of game.state.buildings) b.construction = 0;

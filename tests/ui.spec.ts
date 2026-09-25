@@ -434,14 +434,14 @@ test('live numbers: robots per Bay, construction kW and round-trip loss follow t
   await g(page, 'setPaused', true);
   const panel = page.locator('#res-panel');
   await page.locator('#resource-strip .chip[data-key="bots"]').click();
-  await expect(panel).toContainText('+2 robots');
+  await expect(panel).toContainText('+2 rovers');
   await expect(panel).toContainText('draws 4 kW');
-  // Swarm Robotics: a third robot per Bay, and 1.5× the construction draw
+  // Swarm Robotics: a third rover per Bay, and 1.5× the construction draw
   await g(page, 'completeTech', 'swarmRobotics');
-  await expect(panel.locator('.row', { hasText: 'Robotics Bay' })).toContainText('+3 robots');
+  await expect(panel.locator('.row', { hasText: 'Robotics Bay' })).toContainText('+3 rovers');
   await expect(panel).toContainText('draws 6 kW');
   await page.locator('#resource-strip .chip[data-slot="power"]').click();
-  await expect(panel).toContainText('Construction sites pull 6 kW each');
+  await expect(panel).toContainText('Construction sites pull 6 kW per working rover');
   await expect(panel).toContainText('15% round-trip loss');
   await g(page, 'completeTech', 'regenFuelCells');
   await expect(panel).toContainText('40% round-trip loss');

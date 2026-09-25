@@ -6,6 +6,7 @@ import { mountHud } from './hud';
 import { mountInfoPanel } from './infoPanel';
 import { mountLunarMap } from './lunarMap';
 import { mountPalette } from './palette';
+import { mountFleetPanel } from './fleetPanel';
 import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
 import { mountMenu } from './menu';
@@ -30,6 +31,7 @@ export function mountUI(game: Game) {
   mountVisor(hudLayer);
   mountInfoPanel(hudLayer, game);
   mountPalette(hudLayer, game);
+  mountFleetPanel(hudLayer, game);
   mountTechTree(hudLayer, game);
   mountLunarMap(hudLayer, game);
   mountVictory(root, game);

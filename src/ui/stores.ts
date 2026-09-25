@@ -31,13 +31,14 @@ export const $power = atom({
 /** housing = beds the economy counts (enabled, complete, powered); beds = all completed;
  *  boardingHold = the life-support supply keeping the next settler away ('' = none);
  *  lifeSupport = the crew's draw per game-second; sites = construction sites,
- *  welding = those being built this tick; upkeep = parts per game-second */
+ *  welding = those being built this tick, weldParts = their parts per
+ *  game-second (every rover on a site welds); upkeep = parts per game-second */
 export const $vitals = atom({
   crew: 0, housing: 0, beds: 0, morale: 0, data: 0, botsFree: 0, botsTotal: 0,
   expedition: 'human' as 'human' | 'robotic',
   boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
   lifeSupport: { oxygen: 0, food: 0, water: 0 },
-  sites: 0, welding: 0, upkeep: 0,
+  sites: 0, welding: 0, weldParts: 0, upkeep: 0,
   /** robots lent to a survey (not in botsTotal) */
   surveying: 0,
 });
@@ -202,3 +203,77 @@ export function spawnFloater(text: string, x: number, y: number) {
 export const $menuOpen = atom<boolean>(false);
 /** bumped by a click on a blocked spot: the placement hint flashes its reason */
 export const $placeFlash = atom<number>(0);
+
+// ── fleet control (core/fleet.ts, core/haul.ts; views from core/fleetView.ts) ──
+
+/** a construction rover as the inspector shows it */
+export interface RoverView {
+  id: number;
+  home: number;
+  homeName: string;
+  /** its construction site (working, or waiting at a paused one) */
+  site: number | null;
+  siteName: string;
+  pinned: boolean;
+  /** lent to a survey: not in the fleet until it returns */
+  survey: boolean;
+  /** 'BUILDING Solar Array #7 · pinned', 'PARKED at the Lander', … */
+  state: string;
+}
+/** a construction site's crew: rovers on it, pinned among them, and what they make of it */
+export interface SiteCrewView {
+  n: number;
+  pinned: number;
+  /** game-seconds left at this crew (Infinity with none) */
+  eta: number;
+  /** eta with one more rover (what Summon would buy) */
+  etaPlus: number;
+  kw: number;
+  /** build speed against one rover (n^0.85) */
+  speed: number;
+  /** why Summon would do nothing here ('' = it can) */
+  summon: string;
+}
+/** a revealed deposit an excavator could dig, with the trip it would make */
+export interface DigOption {
+  id: string; kind: DepositKind; name: string; glyph: string;
+  x: number; z: number;
+  /** from the excavator's home pad, m */
+  distM: number;
+  /** regolith per game-second delivered from there */
+  rate: number;
+  /** what it does to the feed: 'smelter feed ↑' */
+  feed: string;
+}
+/** an excavator's haul cycle as the inspector shows it */
+export interface HaulView {
+  phase: 'toDig' | 'dig' | 'toDrop' | 'unload';
+  /** 'DIGGING high-Ti basalt · 63/105▲', 'HAULING 105▲ to Regolith Smelter #4', … */
+  line: string;
+  cargo: number;
+  bucket: number;
+  home: boolean;
+  digName: string;
+  dropName: string;
+  /** dig site → consumer, m */
+  routeM: number;
+  /** delivered regolith per game-second on this route, and digging its own pad */
+  rate: number;
+  homeRate: number;
+  waiting: boolean;
+  nearby: DigOption[];
+}
+export interface FleetView {
+  rovers: RoverView[];
+  sites: Record<number, SiteCrewView>;
+  hauls: Record<number, HaulView>;
+}
+export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {} });
+/** the construction rover in the inspector (roster id); a building selection clears it */
+export const $roverSel = atom<number | null>(null);
+/** Send to… / Dig at…: the targeting mode, and what the cursor is over */
+export const $fleetTarget = atom<{
+  mode: 'send' | 'dig'; id: number; title: string; line: string; valid: boolean; reason: string;
+} | null>(null);
+/** bumped by an invalid targeting click: the hint flashes its reason */
+export const $fleetFlash = atom<number>(0);
