@@ -14,7 +14,8 @@ import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_M } from '../data/balance';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { MOUNTS, recipeGeometry } from './recipes';
+import { mountsFor, recipeGeometry } from './recipes';
+import { upgradeKey } from './upgrades';
 import { BUILDING_MATERIAL, withInstanceState } from './meshKit';
 import { CUT_NONE, buildingUniforms } from './buildingShader';
 import { Trackers, type Placed } from './trackers';
@@ -45,6 +46,8 @@ const MAX_DISCS = 256;
 export class BuildingInstances {
   readonly group = new THREE.Group();
   private meshes = new Map<BuildingId, THREE.InstancedMesh>();
+  /** the upgrade key each type's mesh geometry was built with (upgrades.ts) */
+  private keys = new Map<BuildingId, string>();
   /** instance order per type, mirroring rebuild() — used for picking */
   private ids = new Map<BuildingId, number[]>();
   /** stock-path night pools: one soft additive disc under each lit building */
@@ -141,11 +144,22 @@ export class BuildingInstances {
       .sort((a, b) => a.d - b.d);
   }
 
-  private meshFor(type: BuildingId): THREE.InstancedMesh {
+  private meshFor(type: BuildingId, key: string): THREE.InstancedMesh {
     let m = this.meshes.get(type);
+    if (m && this.keys.get(type) !== key) {
+      // a tech changed this type's recipe: swap in the upgraded geometry, keeping
+      // the mesh (matrices, colours, material, depth material, shadow flags)
+      // and the per-instance state attribute
+      const old = m.geometry;
+      const st = old.getAttribute('iState') as THREE.InstancedBufferAttribute;
+      m.geometry = withInstanceState(recipeGeometry(type, key), MAX_PER_TYPE, st);
+      old.dispose();
+      this.keys.set(type, key);
+    }
     if (!m) {
-      m = new THREE.InstancedMesh(withInstanceState(recipeGeometry(type), MAX_PER_TYPE),
+      m = new THREE.InstancedMesh(withInstanceState(recipeGeometry(type, key), MAX_PER_TYPE),
         materials.get('building'), MAX_PER_TYPE);
+      this.keys.set(type, key);
       m.customDepthMaterial = materials.get('buildingDepth');
       m.castShadow = true;
       m.receiveShadow = true;
@@ -166,13 +180,15 @@ export class BuildingInstances {
     let sig = '';
     for (const type of types) sig += this.rebuildType(state, type);
 
+    sig += `|keys:${[...this.keys.values()].join(';')}`;
     const lit = state.buildings.filter((b) =>
       (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled);
     const placed: Placed[] = [];
     for (const b of state.buildings) {
-      if ((b.construction ?? 0) > 0 || !MOUNTS[b.type]) continue;
+      const mounts = mountsFor(b.type, upgradeKey(b.type, state.techsDone));
+      if ((b.construction ?? 0) > 0 || !mounts.length) continue;
       const [x, z] = centerOf(b);
-      placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b) });
+      placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b), mounts });
     }
     this.trackers.rebuild(placed);
     sig += `|parts:${placed.map((p) => p.b.id).join(',')}`;
@@ -221,9 +237,10 @@ export class BuildingInstances {
       sites.push({
         x0: r.gx0 * CELL_M - MAP_M / 2, x1: r.gx1 * CELL_M - MAP_M / 2,
         z0: r.gz0 * CELL_M - MAP_M / 2, z1: r.gz1 * CELL_M - MAP_M / 2,
-        h: BUILDINGS[b.type].height,
+        // an upgraded recipe (a cupola, a taller mast) scaffolds to its own top
+        h: Math.max(BUILDINGS[b.type].height, this.meshes.get(b.type)?.geometry.boundingBox?.max.y ?? 0),
       });
-      sig += `${b.id}:${b.gx},${b.gz},${b.rot};`;
+      sig += `${b.id}:${b.gx},${b.gz},${b.rot}:${this.keys.get(b.type) ?? ''};`;
     }
     if (sig === this.scaffoldSig) return;
     this.scaffoldSig = sig;
@@ -238,7 +255,7 @@ export class BuildingInstances {
 
   /** Returns this type's caster signature (placements + rise). */
   private rebuildType(state: GameState, type: BuildingId): string {
-    const mesh = this.meshFor(type);
+    const mesh = this.meshFor(type, upgradeKey(type, state.techsDone));
     const list = state.buildings.filter((b) => b.type === type);
     mesh.count = Math.min(list.length, MAX_PER_TYPE);
     const st = mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
@@ -277,6 +294,17 @@ export class BuildingInstances {
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
     return sig;
+  }
+
+  /** Each type's upgrade key and the triangles its mesh draws per instance
+   *  (tests: a tech with a visual changes its buildings' geometry). */
+  upgradeInfo(): Record<string, { key: string; triangles: number }> {
+    const out: Record<string, { key: string; triangles: number }> = {};
+    for (const [type, m] of this.meshes) {
+      const g = m.geometry;
+      out[type] = { key: this.keys.get(type) ?? '', triangles: (g.index ? g.index.count : g.getAttribute('position').count) / 3 };
+    }
+    return out;
   }
 
   /** Material class per building type (safe-mode checks, probes). */

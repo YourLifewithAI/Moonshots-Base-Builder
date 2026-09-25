@@ -497,7 +497,7 @@ export class Game {
     if (this.modes.mode !== 'build') return;
     if (type === 'grade' && !this.mods.grading) return;
     $selection.set(null);
-    this.placement.begin(type);
+    this.placement.begin(type, this.state.techsDone);
     // where you dig is a production decision: show the ground
     if (type === 'iceHarvester' || type === 'excavator') $depositOverlay.set(true);
     $placing.set({ type, valid: false, reason: '', warn: '', note: '' });

@@ -341,12 +341,19 @@ materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);
 
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
  *  own per-instance state: iState = (lit, dust, wear, print cut height). */
-export function withInstanceState(src: THREE.BufferGeometry, max: number): THREE.BufferGeometry {
+export function withInstanceState(src: THREE.BufferGeometry, max: number,
+  keep?: THREE.InstancedBufferAttribute): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const [name, attr] of Object.entries(src.attributes)) g.setAttribute(name, attr);
   g.setIndex(src.index);
   g.boundingBox = src.boundingBox?.clone() ?? null;
   g.boundingSphere = src.boundingSphere?.clone() ?? null;
+  // an upgraded recipe keeps the instances' state it already had
+  if (keep) {
+    keep.needsUpdate = true;
+    g.setAttribute('iState', keep);
+    return g;
+  }
   const st = new Float32Array(max * 4);
   for (let i = 0; i < max; i++) { st[i * 4] = 1; st[i * 4 + 3] = CUT_NONE; }
   g.setAttribute('iState', new THREE.InstancedBufferAttribute(st, 4));
