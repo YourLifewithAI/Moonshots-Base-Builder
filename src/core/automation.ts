@@ -20,7 +20,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import {
-  CONSTRUCTION_PARTS_PER_S, CREW, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, NIGHT_S,
+  CONSTRUCTION_PARTS_PER_S, CREW, DAY_S, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, NIGHT_S,
 } from '../data/balance';
 import {
   AUTO, FAMILY_LABEL, FAMILY_PRIORITY, NOT_ORDERABLE, RULES, RULE_ORDER, RULE_TEXT, rulesOf,
@@ -135,7 +135,9 @@ export function powerBook(s: GameState, mods: Mods) {
   const nightLoad = mods.dayDrawMult > 0 ? (load / mods.dayDrawMult) * mods.nightDrawMult : load;
   const nightShort = Math.max(0, nightLoad - (p.supplyNight ?? 0));
   const cover = nightShort > 0 ? p.capacity / (nightShort * NIGHT_S) : Infinity;
-  return { load, full, pending, headroom: full - load - pending, nightShort, cover };
+  // what refilling the bank by dusk takes, spread over the sunlit hours
+  const recharge = Math.min(p.capacity, nightShort * NIGHT_S) / (DAY_S * 0.85);
+  return { load, full, pending, headroom: full - load - pending, nightShort, cover, recharge };
 }
 
 /** nameplate draw of every site still under construction (it will draw when it stands) */
@@ -303,7 +305,7 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       if (m === null || !fullSun(s, site, day)) {
         return { past: false, rearmed: false, hold: true, text: m === null ? 'the day’s margin is read in full sun' : `margin ${pct(m)} (read by day)` };
       }
-      return { past: m < T, rearmed: m >= H, text: `the day’s margin ${pct(m)}` };
+      return { past: m < T, rearmed: m >= H, text: `the day’s margin ${pct(m)} after the bank’s recharge` };
     }
     case 'battery': {
       if (day.isNight) return { past: false, rearmed: false, hold: true, text: 'never builds at night' };
@@ -329,18 +331,26 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       };
     }
     case 'storageYard': {
+      // room at the top only helps when the base will pay more of it at once
+      // than the store holds: the largest queued research payment
+      const bigPay = (res: ResourceId) => s.researchQueue.reduce((m, t) => Math.max(m, techCost(t, s).goods[res] ?? 0), 0);
       let worst: ResourceId | null = null;
       let fill = 0;
+      let need = 0;
       for (const [res, cap] of Object.entries(s.storageCaps ?? {}) as [ResourceId, number][]) {
         if (!cap) continue;
         const f = s.resources[res] / cap;
         const idle = s.buildings.some((b) => b.idleReason === 'full' && (effectiveDef(b.type, mods).outputs[res] ?? 0) > 0);
-        if (f >= T && idle && f > fill) { fill = f; worst = res; }
+        const pay = bigPay(res);
+        if (f >= T && idle && cap < 1.5 * pay && f > fill) { fill = f; worst = res; need = pay; }
       }
-      const any = Object.entries(s.storageCaps ?? {}).some(([res, cap]) => cap && s.resources[res as ResourceId] / cap >= H);
+      const any = Object.entries(s.storageCaps ?? {}).some(([res, cap]) => cap && s.resources[res as ResourceId] / cap >= H &&
+        cap < 1.5 * bigPay(res as ResourceId));
       return {
         past: worst !== null, rearmed: !any, ...(worst ? { res: worst } : {}),
-        text: worst ? `${RESOURCES[worst].name.toLowerCase()} ${pct(fill)} full, its producers standing by` : 'every store has room',
+        text: worst
+          ? `${RESOURCES[worst].name.toLowerCase()} ${pct(fill)} full, and research will want ${need}${glyph(worst)} of it at once`
+          : 'every store has room for what research will ask',
       };
     }
     case 'chipFab': {
@@ -468,7 +478,8 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
   // the day's margin: an EMA of full-sun samples only
   if (fullSun(s, site, day)) {
     const pb = powerBook(s, mods);
-    const m = (pb.full - pb.load) / Math.max(1, pb.load);
+    // the margin left once the bank's recharge is paid (a bank that never fills runs dry every night)
+    const m = (pb.full - pb.load - pb.recharge) / Math.max(1, pb.load);
     a.margin = a.margin === null ? m : a.margin + (m - a.margin) * Math.min(1, dt / 20);
   }
 

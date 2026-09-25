@@ -405,15 +405,16 @@ export function mountPalette(root: HTMLElement, game: Game) {
   const NOTE = 'class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)"';
   /** the Builder's buttons: pause the rule that placed a site, order another like
    *  this one, keep Feed Planner off an excavator */
-  /** the Builder's buttons ride the actions row (no extra foot height): Pause
-   *  rule on a rule's site, ＋1 on a finished building the rovers can order */
+  /** the Builder's button rides the priority row, right-aligned (no extra
+   *  foot height): Pause rule on a rule's site, ＋1 on a finished building
+   *  the rovers can order */
   const builderActions = (sel: BuildingState): string => {
     const site = (sel.construction ?? 0) > 0;
     const rule = sel.auto?.by === 'rule' && sel.auto.rule
       ? $automation.get()?.rules.find((r) => r.id === sel.auto!.rule) : undefined;
-    if (site && rule?.on) return '<button class="btn" id="insp-pause-rule" title="Switch off the rule that placed this site (the site stays)">Pause rule</button>';
+    if (site && rule?.on) return '<button class="btn insp-bld" id="insp-pause-rule" title="Switch off the rule that placed this site (the site stays)">Pause rule</button>';
     if (!site && orderableHere(sel.type) && game.mods.unlocked.has(sel.type)) {
-      return '<button class="btn" id="insp-another" title="Build another like this: the rovers choose the site">＋1</button>';
+      return '<button class="btn insp-bld" id="insp-another" title="Build another like this: the rovers choose the site">＋1</button>';
     }
     return '';
   };
@@ -471,7 +472,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       <section>
         <span class="label">Idle priority (0 = last to brown out)</span>
         <div class="prio">${[0, 1, 2, 3].map((p) =>
-          `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
+          `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}${builderActions(sel)}</div>
       </section>
       ${isLander ? `<section>
         <span class="label">Lander services — mission HQ</span>
@@ -507,7 +508,6 @@ export function mountPalette(root: HTMLElement, game: Game) {
       </section>` : ''}
       ${fleetFootHtml(sel)}
       <section class="actions">
-        ${builderActions(sel)}
         ${!isLander ? `<button class="btn" id="insp-toggle">${conRemaining > 0
           ? (sel.enabled ? 'Pause' : 'Resume')
           : (sel.enabled ? 'Shut down' : 'Power on')}</button>` : ''}

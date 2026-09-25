@@ -1746,7 +1746,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
     case 'autoRule': {
       const rules = rulesOf(fx.family).filter((r) => !(r === 'iceHarvester' && ctx.siteId && !SITES[ctx.siteId].hasIce));
       const main = RULES[rules[0]].building;
-      const out = rules.map((r) => pro(`NEW RULE ${FAMILY_LABEL[fx.family]}: ${RULE_TEXT[r]} (cap ${RULES[r].cap})`, 1, 'flag'));
+      const out = rules.map((r) => pro(`NEW RULE ${FAMILY_LABEL[fx.family]}: ${RULE_TEXT[r]}${/\(cap /.test(RULE_TEXT[r]) || RULES[r].capRange[1] <= 1 ? '' : ` (cap ${RULES[r].cap})`}`, 1, 'flag'));
       const cost = main === 'producer' ? 'the maker’s build cost' : `${goodsText(siteCost(main, ctx.siteId))} per ${bname(main)}`;
       out.push(con(`the builder spends your stock unasked: ${cost}`, 1, 'use'));
       return out;

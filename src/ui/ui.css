@@ -194,6 +194,7 @@
 #rover-inspector .actions { flex-wrap: wrap; }
 #inspector .dig-here { margin-left: 6px; padding: 2px 7px; font-size: 10px; }
 #inspector .btn:disabled { opacity: 0.4; cursor: default; }
+#inspector .prio .insp-bld { margin-left: auto; }
 
 /* walk mode strips the HUD to a helmet readout */
 #hud-layer.mode-walk #res-panel,

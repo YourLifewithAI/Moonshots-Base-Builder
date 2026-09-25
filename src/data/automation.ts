@@ -71,7 +71,7 @@ export const RULES: Record<AutoRuleId, RuleDef> = {
   }),
   solar: R({
     id: 'solar', family: 'power', building: 'solar',
-    objective: 'KEEP the day’s grid margin ≥ T', unit: 'share', threshold: 0.1, range: [0.05, 0.5], step: 0.05, rearmDelta: 0.1,
+    objective: 'KEEP the day’s grid margin ≥ T (the bank’s recharge paid)', unit: 'share', threshold: 0.1, range: [0.05, 0.5], step: 0.05, rearmDelta: 0.1,
     dwellS: 30, cooldownS: 60, settleS: 30, cap: 24, capRange: [0, 150], onByDefault: true,
   }),
   battery: R({
@@ -96,7 +96,7 @@ export const RULES: Record<AutoRuleId, RuleDef> = {
   }),
   storageYard: R({
     id: 'storageYard', family: 'smelting', building: 'storageYard',
-    objective: 'ROOM at the top of every store', unit: 'share', threshold: 0.95, range: [0.7, 1], step: 0.05, rearm: 0.85,
+    objective: 'ROOM in every store for what research will ask', unit: 'share', threshold: 0.95, range: [0.7, 1], step: 0.05, rearm: 0.85,
     dwellS: 60, cooldownS: 120, settleS: 30, cap: 4, capRange: [0, 20], onByDefault: true,
   }),
   partsFab: R({
@@ -184,6 +184,8 @@ export const NOT_ORDERABLE: BuildingId[] = ['lander'];
 export const AUTO = {
   /** auto placements per economy tick, across every family */
   maxPerTick: 2,
+  /** sites the chooser offers the place action before a request gives up (unreachable ground) */
+  placeTries: 6,
   /** one-shot orders before Build Orders, held orders with it */
   orderMax: 3,
   bookMax: 4,
@@ -218,12 +220,12 @@ export const AUTO = {
 export const RULE_TEXT: Record<AutoRuleId, string> = {
   excavator: '+1 Regolith Excavator when regolith demand outruns supply by 6▲/min for 60 s',
   iceHarvester: '+1 Ice Harvester when water demand outruns supply by 1.2≈/min for 60 s',
-  solar: '+1 Solar Array when the day’s grid margin is under 10% for 30 s',
+  solar: '+1 Solar Array when the day’s grid margin, the bank’s recharge paid, is under 10% for 30 s',
   battery: '+1 Battery Bank at dawn after the bank ran dry',
   reactor: 'a Thorium Reactor when the night runs 25 kW short (cap 1: raise it to let the builder add one)',
   smelter: '+1 Regolith Smelter when metals demand, builds included, outruns supply for 90 s',
   refinery: '+1 Silicon Refinery when silicon demand outruns supply for 90 s',
-  storageYard: '+1 Storage Yard when a full store idles its producers for 60 s',
+  storageYard: '+1 Storage Yard when a full store idles its producers and is too small for the research queued (60 s)',
   partsFab: '+1 Parts Fabricator when parts demand outruns supply for 90 s',
   chipFab: '+1 Chip Fab when research waits on chips for 120 s',
   roboticsBay: '+1 Robotics Bay when 2 sites wait for a rover for 120 s',

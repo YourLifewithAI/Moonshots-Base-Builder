@@ -454,7 +454,7 @@ export function mountHud(root: HTMLElement, game: Game) {
 
   // ── AUTO tags over the Builder's pending sites (click selects) ──
   const autoLayer = el('div', '');
-  root.appendChild(autoLayer);
+  root.prepend(autoLayer); // under every panel: a marker never covers the HUD
   const autoEls = new Map<number, HTMLElement>();
   $autoMarkers.subscribe((ms) => {
     const live = new Set<number>();

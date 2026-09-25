@@ -24,7 +24,7 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const BUILDER_NEXT: Record<AutoFamily, string> = {
   excavation: 'The Builder now keeps regolith supplied: tune it with [B].',
   power: 'The Builder now keeps the day’s grid margin and the night covered: tune it with [B].',
-  smelting: 'The Builder now keeps metals and silicon supplied, and adds yards when stock tops out: tune it with [B].',
+  smelting: 'The Builder now keeps metals and silicon supplied, and adds a yard when research outgrows a store: tune it with [B].',
   fabrication: 'The Builder now keeps parts and chips coming, and adds Robotics Bays when sites wait: tune it with [B].',
   life: 'The Builder now keeps oxygen, food and water ahead of the crew, and a bed free: tune it with [B].',
   maintenance: 'Worn machines are replaced by the Builder: tune it with [B].',
