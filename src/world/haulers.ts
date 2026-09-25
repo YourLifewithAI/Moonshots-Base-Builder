@@ -32,6 +32,7 @@ const MAX = 48;
 const TURN = 2.2;          // rad/s: tracks turn on the spot
 const CATCH = 1.6;         // × haul speed: the most a digger drives to catch up with the sim
 const GAIN = 1.5;          // 1/s: how hard it closes the gap
+const LAG_S = 20;          // s of driving a digger may trail the sim (held up in traffic) before it is set down there
 const PI = Math.PI;
 /** the body: 3.8 m wide, from 1.9 m behind its origin to the wheel 4.3 m ahead */
 export const DIGGER_BODY = { hw: 1.9, front: 4.3, back: 1.9 };
@@ -190,9 +191,25 @@ export class Haulers implements Driver {
       }
       const a = v.agent;
       // backing off for another: out to the end of that way, then it waits
-      const yielding = state.simTime < v.yieldUntil;
+      let yielding = state.simTime < v.yieldUntil;
       v.target = yielding ? Traffic.end(a) : Math.max(0, Traffic.end(a) - rem);
-      if (jumped) {
+      // held up too long: set down where the sim has it, if that ground is free (never onto another)
+      let late = false;
+      if (!jumped && this.traffic && dt > 0 && v.target - a.s > LAG_S * speed) {
+        const way: [number, number][] = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
+        const yaw = way.length > 1 && Math.hypot(way[1][0] - h.x, way[1][1] - h.z) > 1e-6
+          ? Math.atan2(-(way[1][1] - h.z), way[1][0] - h.x) : h.phase === 'dig' && digsHome(b) ? padYaw : v.yaw;
+        if (this.traffic.boxFree(a, h.x, h.z, Math.cos(yaw), -Math.sin(yaw))) {
+          this.retrack(v, h, true);
+          v.yaw = v.aim = yaw;
+          a.fx = Math.cos(yaw); a.fz = -Math.sin(yaw);
+          v.yieldUntil = 0;
+          yielding = false;
+          v.target = Math.max(0, Traffic.end(a) - rem);
+          late = true;
+        }
+      }
+      if (jumped || late) {
         a.s = Math.min(v.target, Traffic.end(a));
         const p = pointAt(a.pts, a.arcs, a.s);
         v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;

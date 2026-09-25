@@ -7,7 +7,7 @@
  *  road cell:
  *
  *   - parked: the bays beside its dock (the Lander's apron), nearest the
- *     door first; a dock out of bays keeps the rest inside (not drawn);
+ *     door first, nose in; a dock out of bays keeps the rest inside (not drawn);
  *   - sintering a road: the open cell behind the frontier, facing it;
  *   - welding a site: its door cell, then back along its road, then any road
  *     cell beside it; a field structure from the road cell that serves it. */
@@ -25,9 +25,9 @@ export interface RoverSpot {
   gx: number; gz: number; side: 0 | 1; axis: 'x' | 'z';
   /** world position of the slot */
   x: number; z: number;
-  /** yaw to settle to (rovers' convention: forward = (sin, cos)) */
+  /** yaw it stands at, along its road (rovers' convention: forward = (sin, cos)) */
   face: number;
-  /** along-wall direction of the print shuffle */
+  /** the print shuffle's direction (along its road) */
   shuffle: [number, number];
   /** the site it works, or null */
   site: number | null;
@@ -116,11 +116,13 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
       if (taken.has(slotKey(gx, gz, side))) continue;
       taken.add(slotKey(gx, gz, side));
       const [x, z] = slotPoint(gx, gz, axis, side);
+      // it stands along its road (two to a cell, side by side), the way that looks toward `face`
       const [fx, fz] = st.face ? cellCentre(st.face[0], st.face[1]) : [x + st.dir[0], z + st.dir[1]];
+      const k = (fx - x) * st.dir[0] + (fz - z) * st.dir[1] >= 0 ? 1 : -1;
       const bay = map.get(cellKey(gx, gz))?.bay;
       out.set(id, {
         gx, gz, side, axis, x, z,
-        face: Math.atan2(fx - x, fz - z), shuffle: axis === 'x' ? [1, 0] : [0, 1],
+        face: Math.atan2(st.dir[0] * k, st.dir[1] * k), shuffle: [Math.abs(st.dir[0]), Math.abs(st.dir[1])],
         site, dock: dockOf.get(id)!.id, ...(road !== undefined ? { road } : {}),
         ...(bay ? { via: [gx + st.dir[0], gz + st.dir[1]] as [number, number] } : {}),
       });
@@ -183,7 +185,7 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     for (const id of along(team, frontier(j.cells) ?? [], null, j.id)) push(parked, dockOf.get(id)!.id, id);
   }
 
-  // parking: the bays within two cells of the dock's door, nearest first, nose out
+  // parking: the bays within two cells of the dock's door, nearest first, nose in
   const bays = (s.roads ?? []).filter((c) => c.bay && isOpen(c));
   for (const dock of s.buildings) {
     const list = parked.get(dock.id);
@@ -195,7 +197,7 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     const stands = own.map((c): Stand => {
       const cell: Cell = [c.gx, c.gz];
       const dir = openingOf(s, cell) ?? [0, 1];
-      return { c: cell, dir, face: [c.gx + dir[0], c.gz + dir[1]] };
+      return { c: cell, dir, face: [c.gx - dir[0], c.gz - dir[1]] }; // nose in: it backs out
     });
     for (const id of along(list, stands, null)) {
       // no bay left: inside the dock

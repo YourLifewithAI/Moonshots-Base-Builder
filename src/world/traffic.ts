@@ -21,12 +21,21 @@
  *  when they change. Visual only: the sim never waits. */
 import { CELL_M, MAP_M } from '../data/balance';
 
-/** How a unit holds a cell: whole (0), or one half across a lateral axis. */
+/** How a unit holds a cell: whole (0), or one half across a lateral axis —
+ *  standing there, or driving through it one way or the other. */
 export type Mode = number;
 export const WHOLE: Mode = 0;
-/** a lane: the half at `side` (0 −, 1 +) across the lateral axis (0: x, 1: z) */
-export const laneMode = (axis: 0 | 1, side: 0 | 1): Mode => 1 + axis * 2 + side;
-const compatible = (a: Mode, b: Mode) => a !== WHOLE && b !== WHOLE && ((a - 1) >> 1) === ((b - 1) >> 1) && a !== b;
+/** a lane: the half at `side` (0 −, 1 +) across the lateral axis (0: x, 1: z),
+ *  and the way it drives along the road (0 standing, 1 +, 2 −) */
+export const laneMode = (axis: 0 | 1, side: 0 | 1, dir: 0 | 1 | 2 = 0): Mode => 1 + axis * 2 + side + 4 * dir;
+export const laneAxis = (m: Mode): 0 | 1 => ((((m - 1) % 4) >> 1) as 0 | 1);
+export const laneSide = (m: Mode): 0 | 1 => ((((m - 1) % 4) & 1) as 0 | 1);
+const laneDir = (m: Mode) => Math.floor((m - 1) / 4);
+/** Two holds share a cell: halves across the same axis, and not two driving
+ *  side by side the same way (nobody overtakes; a unit passes one standing
+ *  or one coming the other way). */
+const compatible = (a: Mode, b: Mode) => a !== WHOLE && b !== WHOLE && laneAxis(a) === laneAxis(b) && laneSide(a) !== laneSide(b)
+  && !(laneDir(a) !== 0 && laneDir(a) === laneDir(b));
 
 export interface Span {
   key: number;
@@ -69,10 +78,14 @@ export interface Agent {
   pivotOk?: boolean;
   /** backing up: its front trails */
   reverse?: boolean;
-  /** a wide unit's way ends up a dead end: the arc of the junction before it
-   *  (it waits short of that junction until the dead end is empty), and its cells */
-  deadAt?: number;
-  deadCells?: number[];
+  /** a wide unit's gates: where its way enters a junction (or the road), and
+   *  the cells from there to the next junction (or its way's end) it takes
+   *  all at once before its body enters — it waits short of the gate until
+   *  they are free — and the cells it has so taken, held until passed */
+  gates?: { at: number; keys: number[]; taken: boolean }[];
+  reserved?: Set<number>;
+  /** the last arc each cell of its way is under (reserved cells go when passed) */
+  lastArc?: Map<number, number>;
   drv: Driver;
 }
 
@@ -163,10 +176,10 @@ export function cutSpans(pts: [number, number][], arcs: number[], wide: boolean,
     const cx = (gx + 0.5) * CELL_M - half, cz = (gz + 0.5) * CELL_M - half;
     if (Math.abs(dz) < 1e-3 && Math.abs(dx) > 1e-3) {
       const o0 = sp.e[1] - cz, o1 = sp.x[1] - cz;
-      if (Math.sign(o0) === Math.sign(o1) && Math.min(Math.abs(o0), Math.abs(o1)) > 0.4) sp.mode = laneMode(1, o0 > 0 ? 1 : 0);
+      if (Math.sign(o0) === Math.sign(o1) && Math.min(Math.abs(o0), Math.abs(o1)) > 0.4) sp.mode = laneMode(1, o0 > 0 ? 1 : 0, dx > 0 ? 1 : 2);
     } else if (Math.abs(dx) < 1e-3 && Math.abs(dz) > 1e-3) {
       const o0 = sp.e[0] - cx, o1 = sp.x[0] - cx;
-      if (Math.sign(o0) === Math.sign(o1) && Math.min(Math.abs(o0), Math.abs(o1)) > 0.4) sp.mode = laneMode(0, o0 > 0 ? 1 : 0);
+      if (Math.sign(o0) === Math.sign(o1) && Math.min(Math.abs(o0), Math.abs(o1)) > 0.4) sp.mode = laneMode(0, o0 > 0 ? 1 : 0, dz > 0 ? 1 : 2);
     }
   }
   return out.map(({ key, a0, a1, mode, road }) => ({ key, a0, a1, mode, road }));
@@ -194,8 +207,11 @@ export class Traffic {
     if (sig === this.roadSig) return;
     this.roadSig = sig;
     this.roads = new Set(cells.map(([gx, gz]) => gridKey(gx, gz)));
-    for (const a of this.agents) a.spans = cutSpans(a.pts, a.arcs, a.wide, (k) => this.roads.has(k));
+    this.junctions = new Set([...this.roads].filter((k) => this.degree(k) >= 3));
+    for (const a of this.agents) { a.spans = cutSpans(a.pts, a.arcs, a.wide, (k) => this.roads.has(k)); this.markGates(a); }
   }
+  /** road cells where three or more roads meet (units wait short of them) */
+  private junctions = new Set<number>();
   get roadSignature() { return this.roadSig; }
   isRoad(gx: number, gz: number) { return this.roads.has(gridKey(gx, gz)); }
 
@@ -208,13 +224,20 @@ export class Traffic {
 
   /** A new way for a unit from where it stands (`pts[0]` is its position). */
   setWay(a: Agent, pts: [number, number][]) {
-    const back: [number, number] = [pts[0][0] - a.fx * a.back, pts[0][1] - a.fz * a.back];
+    // a body-length behind it, straight back from the way's first piece (its body lies there)
+    const L = Math.max(a.front, a.back);
+    let [ux, uz] = [a.fx, a.fz];
+    for (let i = 1; i < pts.length; i++) {
+      const dx = pts[i][0] - pts[0][0], dz = pts[i][1] - pts[0][1], l = Math.hypot(dx, dz);
+      if (l > 1e-6) { ux = dx / l; uz = dz / l; break; }
+    }
+    const back: [number, number] = [pts[0][0] - ux * L, pts[0][1] - uz * L];
     a.pts = [back, ...pts];
-    a.arcs = arcsOf(a.pts, -a.back);
+    a.arcs = arcsOf(a.pts, -L);
     a.spans = cutSpans(a.pts, a.arcs, a.wide, (k) => this.roads.has(k));
     a.s = 0;
     a.stop = Traffic.end(a);
-    this.markDeadEnd(a);
+    this.markGates(a);
   }
 
   /** road neighbours of a cell */
@@ -225,22 +248,25 @@ export class Traffic {
     return n;
   }
 
-  /** A wide unit bound for a dead end (a stand up a spur): where the run of
-   *  cells to it leaves the last junction. Two excavators cannot pass in it,
-   *  so one waits outside, short of the junction, until it is empty. */
-  private markDeadEnd(a: Agent) {
-    delete a.deadAt; delete a.deadCells;
+  /** A wide unit's gates (see Agent.gates): nothing passes an excavator on
+   *  a road, so it takes the run of cells to the next junction whole before
+   *  it enters — and waits short of the junction, leaving it clear, if
+   *  anyone is in that run. (A run up a dead end is taken to the way's end.) */
+  private markGates(a: Agent) {
+    a.gates = [];
+    a.reserved = new Set();
+    a.lastArc = new Map();
+    for (const sp of a.spans) if (sp.road) a.lastArc.set(sp.key, Math.max(a.lastArc.get(sp.key) ?? -Infinity, sp.a1));
     if (!a.wide) return;
-    const road = a.spans.filter((sp) => sp.road);
-    if (road.length < 2) return;
-    const cells: number[] = [];
-    for (let i = road.length - 1; i >= 0; i--) {
-      const sp = road[i];
-      if (i < road.length - 1 && this.degree(sp.key) >= 3) {
-        if (cells.length) { a.deadAt = sp.a0; a.deadCells = cells; }
-        return;
-      }
-      cells.push(sp.key);
+    const sp = a.spans;
+    const lead = Traffic.ahead(a);
+    for (let k = 0; k < sp.length; k++) {
+      if (!sp[k].road || sp[k].a0 < lead - 1e-6) continue;
+      // at a junction, where the way comes onto the road, and the first cell ahead
+      if (!(this.junctions.has(sp[k].key) || k === 0 || !sp[k - 1].road || !a.gates.length)) continue;
+      const keys = [sp[k].key];
+      for (let m = k + 1; m < sp.length && sp[m].road && !this.junctions.has(sp[m].key); m++) keys.push(sp[m].key);
+      a.gates.push({ at: sp[k].a0, keys, taken: false });
     }
   }
 
@@ -301,12 +327,10 @@ export class Traffic {
   }
 
   /** how a unit holds span `sp`: as its way crosses it, and once it stands at
-   *  the end of its way, the last cell in its slot's half — or, on the way
-   *  in, already so if the way in keeps to that half */
+   *  the end of its way, the last cell in its slot's half */
   private modeOf(a: Agent, sp: Span, end: number): Mode {
     if (sp.a1 < end - 1e-6 || a.standMode === WHOLE) return sp.mode;
-    if (a.s >= end - 1e-6 || sp.mode === a.standMode) return a.standMode;
-    return sp.mode;
+    return a.s >= end - 1e-6 ? a.standMode : sp.mode;
   }
 
   /** Road cells a disc round (x, z) touches (a pivot's sweep). */
@@ -325,11 +349,38 @@ export class Traffic {
     }
   }
 
+  /** The road cells a turn on the spot sweeps (a disc round its origin), and
+   *  how: an excavator's whole; a rover's own cell only in the half it stands
+   *  in (a rover turning in its lane stays clear of one in the other half),
+   *  a neighbour it just reaches in the half by that edge. */
+  private sweep(a: Agent, out: Map<number, Mode>) {
+    const r = Math.hypot(Math.max(a.front, a.back), a.hw);
+    this.disc(a.x, a.z, r, out);
+    if (a.wide) return;
+    const half = MAP_M / 2;
+    const [gx, gz] = cellOf(a.x, a.z);
+    for (const k of out.keys()) {
+      const i = k % 4096, j = Math.floor(k / 4096);
+      const cx = (i + 0.5) * CELL_M - half, cz = (j + 0.5) * CELL_M - half;
+      if (i === gx && j === gz) {
+        const ox = a.x - cx, oz = a.z - cz;
+        if (Math.abs(ox) > 0.6 && Math.abs(oz) < 0.2) out.set(k, laneMode(0, ox > 0 ? 1 : 0));
+        else if (Math.abs(oz) > 0.6 && Math.abs(ox) < 0.2) out.set(k, laneMode(1, oz > 0 ? 1 : 0));
+        continue;
+      }
+      // a neighbour: the half facing this unit
+      if (i !== gx && j === gz) out.set(k, laneMode(0, i < gx ? 1 : 0));
+      else if (j !== gz && i === gx) out.set(k, laneMode(1, j < gz ? 1 : 0));
+    }
+  }
+
   /** Road cells a unit's box touches at a pose (a wide unit's overhang on corners). */
   private box(a: Agent, x: number, z: number, fx: number, fz: number, out: Map<number, Mode>) {
     const half = MAP_M / 2;
     const rx = fz, rz = -fx;
-    for (let l = -a.back; l <= a.front + 1e-6; l += Math.min(1, (a.front + a.back) / 4)) {
+    const n = Math.max(4, Math.ceil(a.front + a.back));
+    for (let i = 0; i <= n; i++) {
+      const l = -a.back + (a.front + a.back) * i / n;
       for (const w of [-a.hw, 0, a.hw]) {
         const px = x + fx * l + rx * w, pz = z + fz * l + rz * w;
         const key = gridKey(Math.floor((px + half) / CELL_M), Math.floor((pz + half) / CELL_M));
@@ -351,10 +402,11 @@ export class Traffic {
   /** The cells a unit's body covers from arc s0 to s1 (and a pivot's sweep). */
   private covered(a: Agent, s0: number, s1: number, out: Map<number, Mode>) {
     out.clear();
-    if (a.pivot && a.pivotOk) this.disc(a.x, a.z, Math.hypot(Math.max(a.front, a.back), a.hw), out);
+    const turning = !!(a.pivot && a.pivotOk);
+    if (turning) this.sweep(a, out);
     const end = Traffic.end(a);
     for (const sp of a.spans) {
-      if (sp.a1 <= s0 || sp.a0 >= s1 || !sp.road) continue;
+      if (sp.a1 <= s0 || sp.a0 >= s1 || !sp.road || (turning && out.has(sp.key))) continue;
       const mode = this.modeOf(a, sp, end);
       const was = out.get(sp.key);
       out.set(sp.key, was === undefined || was === mode ? mode : WHOLE);
@@ -391,10 +443,22 @@ export class Traffic {
     this.measure();
   }
 
+  /** a gate's cells stay held until the body has passed them */
+  private keepReserved(a: Agent, cov: Map<number, Mode>) {
+    if (!a.reserved?.size) return;
+    const tail = a.s - Traffic.behind(a);
+    for (const k of [...a.reserved]) {
+      if (tail >= (a.lastArc?.get(k) ?? -Infinity) - 1e-6) a.reserved.delete(k);
+      else cov.set(k, WHOLE);
+    }
+  }
+
   /** Hold what the body covers where it stands (no move). */
   private settle(a: Agent) {
     const cov = this.scratch;
     this.covered(a, a.s - Traffic.behind(a), a.s + Traffic.ahead(a), cov);
+    if (a.wide) this.box(a, a.x, a.z, a.fx, a.fz, cov);
+    this.keepReserved(a, cov);
     for (const k of [...a.held.keys()]) if (!cov.has(k)) { this.release(a, k); a.held.delete(k); }
     for (const [k, m] of cov) this.hold(a, k, m);
   }
@@ -406,9 +470,9 @@ export class Traffic {
     if (a.pivot) {
       const cov = this.scratch;
       cov.clear();
-      this.disc(a.x, a.z, Math.hypot(Math.max(a.front, a.back), a.hw), cov);
+      this.sweep(a, cov);
       let c: Agent | null = null;
-      for (const k of cov.keys()) { c = this.clash(a, k, WHOLE); if (c) break; }
+      for (const [k, m] of cov) { if (a.held.get(k) !== m) c = this.clash(a, k, m); if (c) break; }
       a.pivotOk = !c;
       if (c) { a.blocker = c; a.waited += h; a.v = 0; a.drv.moved(a, h); return; }
     }
@@ -428,28 +492,42 @@ export class Traffic {
         if (c) { ds = 0; limit = a.s; blocker = c; break; }
       }
     }
-    // bound for a dead end another unit is in: wait short of the junction before it
-    if (!this.solo && a.deadAt !== undefined && a.deadCells && limit === Infinity && a.s + Traffic.ahead(a) < a.deadAt + 1e-3) {
-      let c: Agent | null = null;
-      for (const k of a.deadCells) {
-        for (const o of this.occ.get(k) ?? []) if (o.a !== a) { c = o.a; break; }
-        if (c) break;
-      }
-      if (c) {
-        const lim = a.deadAt - Traffic.ahead(a) - 0.05;
-        if (a.s + ds > lim) { ds = Math.max(0, Math.min(ds, lim - a.s)); limit = Math.max(a.s, lim); blocker = c; }
+    const look = (want * want) / (2 * a.decel) + 0.3;
+    // a wide unit's next gate: the run to the next junction, taken whole, or it waits short of it
+    if (!this.solo && a.gates?.length && limit === Infinity) {
+      for (const g of a.gates) {
+        if (g.taken) continue;
+        if (g.at < a.s + front - 1e-3) { g.taken = true; continue; } // in it already (set down there)
+        if (g.at > a.s + ds + front + look) break;
+        let c: Agent | null = null;
+        for (const k of g.keys) { if (a.held.get(k) !== WHOLE) c = this.clash(a, k, WHOLE); if (c) break; }
+        if (c) {
+          limit = Math.max(a.s, g.at - front - 0.05);
+          blocker = c;
+          const gap = Math.max(0, limit - a.s);
+          ds = Math.min(ds, gap, Math.sqrt(2 * a.decel * gap) * h);
+          break;
+        }
+        g.taken = true;
+        for (const k of g.keys) { a.reserved!.add(k); this.hold(a, k, WHOLE); }
       }
     }
     if (!this.solo && limit === Infinity) {
-      const look = (want * want) / (2 * a.decel) + 0.3;
       const reach = a.s + ds + front + look;
-      for (const sp of a.spans) {
-        if (sp.a0 >= reach) break;
-        if (!sp.road || sp.a1 <= a.s - back) continue;
-        const mode = this.modeOf(a, sp, end);
-        if (a.held.get(sp.key) === mode) continue;
-        const c = this.clash(a, sp.key, mode);
-        if (c) { limit = Math.max(a.s, sp.a0 - front - 0.05); blocker = c; break; }
+      const sp = a.spans;
+      for (let i = 0; i < sp.length; i++) {
+        if (sp[i].a0 >= reach) break;
+        if (!sp[i].road || sp[i].a1 <= a.s - back) continue;
+        const mode = this.modeOf(a, sp[i], end);
+        if (a.held.get(sp[i].key) === mode) continue;
+        const c = this.clash(a, sp[i].key, mode);
+        if (!c) continue;
+        limit = Math.max(a.s, sp[i].a0 - front - 0.05);
+        // not stopped in a junction: short of it, if it is not in it yet
+        const j = sp[i - 1];
+        if (j && j.road && this.junctions.has(j.key) && !a.held.has(j.key) && j.a0 - front - 0.05 > a.s) limit = j.a0 - front - 0.05;
+        blocker = c;
+        break;
       }
       if (limit < Infinity) {
         const gap = Math.max(0, limit - a.s);
@@ -461,9 +539,11 @@ export class Traffic {
     if (blocker && ds < want * h - 1e-6) { a.blocker = blocker; a.waited += h; } else { a.blocker = null; a.waited = 0; }
     // hold the body's cells and the braking distance ahead, up to the limit
     const cov = this.scratch;
-    const look = (a.v * a.v) / (2 * a.decel) + 0.3;
-    this.covered(a, a.s - back, Math.min(a.s + front + look, limit + front), cov);
-    if (a.wide) { const p = pointAt(a.pts, a.arcs, a.s); this.box(a, p.x, p.z, a.fx, a.fz, cov); }
+    const brake = (a.v * a.v) / (2 * a.decel) + 0.3;
+    this.covered(a, a.s - back, Math.min(a.s + front + brake, limit + front), cov);
+    const p = pointAt(a.pts, a.arcs, a.s);
+    if (a.wide) this.box(a, p.x, p.z, a.fx, a.fz, cov);
+    this.keepReserved(a, cov);
     for (const k of [...a.held.keys()]) if (!cov.has(k)) { this.release(a, k); a.held.delete(k); }
     for (const [k, m] of cov) this.hold(a, k, m);
     a.drv.moved(a, h);

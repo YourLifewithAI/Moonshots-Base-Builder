@@ -22,6 +22,7 @@ import type { Heightfield } from '../terrain/heightfield';
 import { cellAt, cellCentre, cellKey, doorCell, isOpen, roadMap, roadRoute } from '../core/roads';
 import { roverSpots, type RoverSpot } from '../core/spots';
 import { ROAD } from '../data/roads';
+import { CELL_M } from '../data/balance';
 import { TECHS, type TechId } from '../data/techs';
 import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
@@ -29,7 +30,7 @@ import {
 import { materials } from './materials';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
-import { Traffic, WHOLE, laneMode, pointAt, type Agent, type Driver } from './traffic';
+import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, type Agent, type Driver } from './traffic';
 
 const MAX_ROVERS = 64;
 /** a command view's listener height, as a share of the camera's distance */
@@ -39,6 +40,7 @@ const SPEED = 4.5;        // m/s cruise on a sintered road
 const ACCEL = 3;          // m/s²
 const TURN = 2.4;         // rad/s
 const YIELD_S = 4;        // s a rover waits at a refuge before it heads on
+const PIVOT = 1;          // rad: a way that sets off further than this from its heading starts with a turn on the spot
 const PI = Math.PI;
 /** the body: 1.35 × 1.95 m */
 export const ROVER_BODY = { hw: 0.68 * SCALE / 1.25, front: 0.98 * SCALE / 1.25, back: 0.98 * SCALE / 1.25 };
@@ -120,6 +122,11 @@ interface Rover {
   phase: number;
   /** backing off to a refuge: until when (then it heads for its slot again) */
   yieldUntil: number;
+  /** backing out (of a bay) up to this arc of its way */
+  revUntil: number;
+  /** turning on the spot (to `aim`) before it sets off */
+  turning: boolean;
+  aim: number;
   agent: Agent;
 }
 
@@ -132,9 +139,9 @@ type Cell = [number, number];
 const right = (d: Cell): [number, number] => [-d[1] * ROAD.lane, d[0] * ROAD.lane];
 
 /** A rover's way along road cells: from where it stands, in the right-hand
- *  lane (the first cell left in the half it stands in, the last entered in
- *  the half of its slot), to the slot. */
-export function laneWay(cells: Cell[], from: [number, number], to: [number, number]): [number, number][] {
+ *  lane (the first cell left in the half it stands in when `keep` — another
+ *  stands beside it — the last entered in the half of its slot), to the slot. */
+export function laneWay(cells: Cell[], from: [number, number], to: [number, number], keep = true): [number, number][] {
   const pts: [number, number][] = [from];
   if (cells.length <= 1) { pts.push(to); return pts; }
   const n = cells.length;
@@ -143,7 +150,7 @@ export function laneWay(cells: Cell[], from: [number, number], to: [number, numb
     const [cx, cz] = cellCentre(cells[i][0], cells[i][1]);
     const ex = cx + d[0] * 2, ez = cz + d[1] * 2; // the edge it leaves by
     let [ox, oz] = right(d);
-    if (i === 0) {
+    if (i === 0 && keep) {
       // out of the first cell in the half it stands in
       const lat = d[0] !== 0 ? from[1] - cz : from[0] - cx;
       const side = Math.abs(lat) > 0.4 ? Math.sign(lat) * ROAD.lane : 0;
@@ -260,7 +267,7 @@ export class RoverFleet implements Driver {
         r = {
           id: u.id, x, z, yaw: spot.face, v: 0, home: spot.dock, site: spot.site, spot: parked ? spot : null,
           key: parked ? spotKey(spot) : '', inside: !parked, working: false, phase: u.id * 2.399, yieldUntil: 0,
-          agent: null!,
+          revUntil: -Infinity, turning: false, aim: spot.face, agent: null!,
         };
         r.agent = {
           kind: 'rover', id: u.id, key: 1e6 + u.id, x, z, fx: Math.sin(r.yaw), fz: Math.cos(r.yaw),
@@ -323,8 +330,18 @@ export class RoverFleet implements Driver {
     const goal: Cell = into ?? [spot.gx, spot.gz];
     const mid = same(start, goal) ? [start] : roadRoute(s, start, goal);
     if (!mid) return;
-    const cells: Cell[] = [...(out ? [from] : []), ...mid, ...(into ? [[spot.gx, spot.gz] as Cell] : [])];
-    const pts = laneWay(cells, [r.x, r.z], [spot.x, spot.z]);
+    const cells: Cell[] = [...mid, ...(into ? [[spot.gx, spot.gz] as Cell] : [])];
+    let pts: [number, number][];
+    r.revUntil = -Infinity;
+    if (out) {
+      // out of a bay: it backs out into the opening, then drives on from there
+      const bx = r.x + (out[0] - from[0]) * CELL_M, bz = r.z + (out[1] - from[1]) * CELL_M;
+      pts = [[r.x, r.z], ...laneWay(cells, [bx, bz], [spot.x, spot.z])];
+      r.revUntil = CELL_M; // arc 0 is where it stands
+    } else {
+      // out of its cell in the half it is in only if another stands beside it
+      pts = laneWay(cells, [r.x, r.z], [spot.x, spot.z], this.traffic.taken(r.agent, from[0], from[1]));
+    }
     const [dx, dz] = pts.length > 1 ? [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]] : [r.agent.fx, r.agent.fz];
     const l = Math.hypot(dx, dz);
     if (l > 1e-6 && r.inside) { r.agent.fx = dx / l; r.agent.fz = dz / l; r.yaw = Math.atan2(dx, dz); }
@@ -342,12 +359,25 @@ export class RoverFleet implements Driver {
   // ── the traffic driver ──
 
   prefer(a: Agent) {
-    a.vmax = this.speed;
+    const r = this.byId.get(a.id);
     const end = Traffic.end(a);
     // ease into the slot: slow over the last few metres
     const left = end - a.s;
     a.vmax = Math.min(this.speed, Math.sqrt(2 * ACCEL * Math.max(0, left)) + 0.3);
     a.stop = end;
+    // a way that sets off well away from its heading starts with a turn on the spot
+    a.pivot = false;
+    if (!r || left < 1e-3) { if (r) r.turning = false; return; }
+    const want = this.heading(r, a, a.s + 0.02);
+    const err = Math.abs(wrap(want - r.yaw));
+    r.turning = r.turning ? err > 0.05 : err > PIVOT;
+    if (r.turning) { a.pivot = true; r.aim = want; a.vmax = 0; }
+  }
+
+  /** the yaw its way wants at arc u: along the lane, or backwards while backing out */
+  private heading(r: Rover, a: Agent, u: number): number {
+    const p = pointAt(a.pts, a.arcs, u);
+    return Math.atan2(p.dx, p.dz) + (u < r.revUntil ? PI : 0);
   }
 
   moved(a: Agent, dt: number) {
@@ -359,11 +389,10 @@ export class RoverFleet implements Driver {
     r.v = a.v;
     const end = Traffic.end(a);
     const there = a.s >= end - 1e-6;
-    // heading: along the lane while driving, the slot's facing once there
-    const want = there && r.spot ? r.spot.face : Math.atan2(p.dx, p.dz);
-    if (!there || a.v > 0.05 || r.spot) r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
-    if (!there) { a.fx = p.dx; a.fz = p.dz; }
-    else { a.fx = Math.sin(r.yaw); a.fz = Math.cos(r.yaw); }
+    // heading: a turn on the spot, else along its lane (turn-rate limited), squared up once there
+    const want = a.pivot ? r.aim : this.heading(r, a, Math.min(a.s, end));
+    if (!a.pivot || a.pivotOk) r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
+    a.fx = Math.sin(r.yaw); a.fz = Math.cos(r.yaw);
     // reached a slot inside the dock: gone in
     if (there && r.spot?.inside && !r.inside) {
       r.inside = true;
@@ -372,20 +401,55 @@ export class RoverFleet implements Driver {
     r.working = there && r.site !== null && r.spot?.site === r.site && a.v < 0.1;
   }
 
-  /** Back off to the nearest cell off their ways with a free half. */
+  /** Get out of their way: over into the other half of its own cell if their
+   *  ways through it keep to this half, else back off to the nearest cell off
+   *  their ways with a free half — never through a cell anyone else holds. */
   yieldTo(a: Agent, others: Agent[]): boolean {
     const r = this.byId.get(a.id);
     const s = this.state;
     if (!r || !s) return false;
+    const t = this.traffic;
     const avoid = new Set<number>();
+    const ahead: Agent[] = [];
     for (const o of others) {
-      for (const [gx, gz] of this.traffic.heldBy(o)) avoid.add(cellKey(gx, gz));
-      for (const sp of o.spans) if (sp.a1 > o.s && sp.a0 < o.s + 40) avoid.add(cellKey(sp.key % 4096, Math.floor(sp.key / 4096)));
+      for (const [gx, gz] of t.heldBy(o)) avoid.add(cellKey(gx, gz));
+      for (const sp of o.spans) if (sp.road && sp.a1 > o.s && sp.a0 < o.s + 40) avoid.add(cellKey(sp.key % 4096, Math.floor(sp.key / 4096)));
+      ahead.push(o);
     }
     const map = roadMap(s);
     const start = cellAt(r.x, r.z);
-    const from = new Map<number, number>([[cellKey(start[0], start[1]), -1]]);
-    const q = [cellKey(start[0], start[1])];
+    const sk = cellKey(start[0], start[1]);
+    const refuge = (cells: Cell[], mode: number, x: number, z: number) => {
+      t.setWay(a, laneWay(cells, [r.x, r.z], [x, z]));
+      r.revUntil = -Infinity;
+      a.standMode = mode;
+      r.key = ''; // heads on for its slot once the refuge time is up
+      r.yieldUntil = this.clock + YIELD_S;
+      return true;
+    };
+    // 1. the other half of its own cell: their ways through it all keep to this half
+    if (!t.taken(a, start[0], start[1])) {
+      let m: number | null = null;
+      let ok = true;
+      const gk = start[1] * 4096 + start[0];
+      for (const o of ahead) {
+        for (const sp of o.spans) {
+          if (sp.key !== gk || sp.a1 <= o.s) continue;
+          if (sp.mode === WHOLE || (m !== null && (laneAxis(m) !== laneAxis(sp.mode) || laneSide(m) !== laneSide(sp.mode)))) ok = false;
+          m = sp.mode;
+        }
+      }
+      if (ok && m !== null) {
+        const axis = laneAxis(m), side = (1 - laneSide(m)) as 0 | 1;
+        const [cx, cz] = cellCentre(start[0], start[1]);
+        const o = (side ? 1 : -1) * ROAD.lane;
+        const [x, z] = axis === 0 ? [cx + o, cz] : [cx, cz + o];
+        if (Math.hypot(x - r.x, z - r.z) > 0.3) return refuge([start], laneMode(axis, side), x, z);
+      }
+    }
+    // 2. the nearest cell off their ways with a free half, through free cells only
+    const from = new Map<number, number>([[sk, -1]]);
+    const q = [sk];
     for (let i = 0; i < q.length && i < 400; i++) {
       const k = q[i];
       const [x, z] = [k % 256, Math.floor(k / 256)];
@@ -393,29 +457,19 @@ export class RoverFleet implements Driver {
         const nk = cellKey(x + dx, z + dz);
         if (from.has(nk)) continue;
         const c = map.get(nk);
-        if (!c || !isOpen(c)) continue;
-        // not through a cell someone else holds
-        if (this.traffic.taken(a, x + dx, z + dz) && !avoid.has(nk)) continue;
+        if (!c || !isOpen(c) || t.taken(a, x + dx, z + dz)) continue;
         from.set(nk, k);
-        if (!avoid.has(nk)) {
-          // a refuge: stand in the half on the right of the way in
-          const cells: Cell[] = [];
-          for (let p = nk; p !== -1; p = from.get(p)!) cells.push([p % 256, Math.floor(p / 256)]);
-          cells.reverse();
-          const d: Cell = [dx, dz];
-          const [ox, oz] = right(d);
-          const axis: 0 | 1 = d[0] !== 0 ? 1 : 0;
-          const side: 0 | 1 = (axis === 1 ? oz : ox) > 0 ? 1 : 0;
-          if (!this.traffic.fits(a, x + dx, z + dz, laneMode(axis, side))) continue;
-          const [cx, cz] = cellCentre(x + dx, z + dz);
-          this.traffic.setWay(a, laneWay(cells, [r.x, r.z], [cx + ox, cz + oz]));
-          a.standMode = laneMode(axis, side);
-          r.key = ''; // heads on for its slot once the refuge time is up
-          r.yieldUntil = this.clock + YIELD_S;
-          return true;
-        }
-        if (avoid.has(nk)) q.push(nk);
-        else q.push(nk);
+        q.push(nk);
+        if (avoid.has(nk)) continue;
+        // a refuge: stand in the half on the right of the way in
+        const cells: Cell[] = [];
+        for (let p = nk; p !== -1; p = from.get(p)!) cells.push([p % 256, Math.floor(p / 256)]);
+        cells.reverse();
+        const [ox, oz] = right([dx, dz]);
+        const axis: 0 | 1 = dx !== 0 ? 1 : 0;
+        const side: 0 | 1 = (axis === 1 ? oz : ox) > 0 ? 1 : 0;
+        const [cx, cz] = cellCentre(x + dx, z + dz);
+        return refuge(cells, laneMode(axis, side), cx + ox, cz + oz);
       }
     }
     return false;
