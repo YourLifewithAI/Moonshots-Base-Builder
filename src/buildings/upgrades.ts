@@ -98,6 +98,15 @@ function bottleRack(x: number, y0: number, z: number, n = 4, ry = 0): Parts {
   return out;
 }
 
+/** Survey stakes: reflector posts at the pad corners (Launch-Site Survey). */
+function surveyStakes(pts: readonly (readonly [number, number])[]): Parts {
+  return pts.map(([x, z]) => [
+    box(0.1, 1.1, 0.1, TRIM, x, 0.55, z),
+    box(0.22, 0.22, 0.06, LAMP, x, 1.2, z),
+    box(0.4, 0.06, 0.4, PLATE, x, 0.03, z),
+  ]);
+}
+
 /** A small tracking-beacon mast (swarm tracking). */
 function beaconMast(x: number, y0: number, z: number, h = 4.2): Parts {
   return [
@@ -811,6 +820,7 @@ const foilFactory: Upgrade[] = [
 ];
 
 const massDriver: Upgrade[] = [
+  { tech: 'launchSiteSurvey', parts: () => [surveyStakes([[-11.6, 3.6], [11.6, 3.6], [11.6, -3.6], [-11.6, -3.6], [0, 3.7], [0, -3.7]])] },
   { // a swarm-tracking beacon mast on the drive house
     tech: 'swarmProtocol',
     parts: () => [beaconMast(-10.3, 3.3, 1.6, 4.4)],
@@ -839,6 +849,7 @@ const relayMast: Upgrade[] = [
 ];
 
 const propellantPlant: Upgrade[] = [
+  { tech: 'launchSiteSurvey', parts: () => [surveyStakes([[-5.9, 3.95], [5.8, 3.9], [5.8, -3.9], [-5.9, -3.95]])] },
   { tech: 'btColdTrapChemistry', parts: () => [bottleRack(-0.1, 0, 3.4, 4)] },
   { tech: 'swarmProtocol', parts: () => [beaconMast(-4.9, 2.7, -3.2, 3.6)] },
   { // cryocooler heads on the tank tops

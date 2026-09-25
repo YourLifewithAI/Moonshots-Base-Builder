@@ -46,6 +46,7 @@ export type TechId =
   | 'humanCohabitation' | 'closedLoopLS' | 'safetyProtocols' | 'conditionOptimization' | 'scienceCrews'
   | 'farSideRelay' | 'btColdTrapChemistry'
   | 'solidStateCells' | 'highBurnupFuel' | 'refractoryLinings' | 'predictiveMaintenance' | 'uplinkDishes' | 'galleyGarden'
+  | 'launchSiteSurvey'
   // era 7 — swarm industry
   | 'foilManufacturing' | 'massDriver' | 'propellantDepot' | 'selfReplication' | 'deepSounding'
   | 'superconductingBus' | 'rollToRoll' | 'foilAnnealing' | 'liquidCooling' | 'rackDensification' | 'lowGCourt'
@@ -924,6 +925,17 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'A table among the tomatoes, and a window to eat by.',
     visual: 'Hydroponics farms open a galley bay with a picture window.',
     tradeoff: 'Dinner is a heating load.',
+  },
+  launchSiteSurvey: {
+    id: 'launchSiteSurvey', era: 6, lane: 'export', name: 'Launch-Site Survey', short: 'Launch-Site Survey',
+    costData: 900, requires: ['orbitalProspector'],
+    effects: [
+      { kind: 'buildTime', buildings: ['massDriver', 'propellantPlant'], mult: 0.75 },
+      { kind: 'powerDelta', building: 'lander', kw: -1 },
+    ],
+    desc: 'Laser-surveyed launch pads, staked before the rail or the tanks arrive.',
+    visual: 'Mass Drivers and Propellant Plants rise on staked, surveyed pads with reflector posts.',
+    tradeoff: 'The tracking radar never switches off.',
   },
 
   // ─── ERA 7 · SWARM INDUSTRY ───
