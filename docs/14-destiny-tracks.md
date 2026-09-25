@@ -1128,7 +1128,7 @@ section and an earlier one disagree, this one describes the code.
 - **Data** (`src/data/techs.ts`): `Side`, `Band`, `TechDef.track` and `band`,
   `TRACKS`, `CAPSTONES`, `LANDING_TECH`, `ERA_BLURB_8`, `destinyCounts()`; the
   16 track techs and 3 capstones in their own block at the end of the table
-  (125 techs); the kinds `growth`, `bringsCrew`, `waive`, `eva`, `radius`,
+  (129 techs with the 4 road tiers of docs/15); the kinds `growth`, `bringsCrew`, `waive`, `eva`, `radius`,
   `volley`, `autoLaunch`, `moraleBase`, `hazardRate`, `guard`, `exposure`, and
   `builder.all`; `EffectFilter.crew`; Swarm Protocol's `requiresAny` on the
   Era 8 pick; guard effects on the six lane techs of §3.6.

@@ -19,6 +19,9 @@ import { ghostGeometry } from './recipes';
 import { upgradeKey } from './upgrades';
 import { centerOf, footprintRect } from './instances';
 import { createGhost, setGhostBlocked } from './ghost';
+import { footprintCells, planSpur, roadMap } from '../core/roads';
+import { CellPreview } from './cellPreview';
+import { ROAD } from '../data/roads';
 
 export type PlaceableType = BuildingId | 'grade';
 
@@ -29,8 +32,13 @@ export interface PlacementProbe {
   reason: string;
   /** soft warning on a valid placement ('' = none) */
   warn: string;
+  /** the warning was clicked through once: the next click builds */
+  confirm?: boolean;
   /** the revealed deposit under the footprint centre, as a ghost line ('' = none) */
   note: string;
+  /** the road it would need (cell keys, in order), and its sintering, rover-seconds */
+  road?: number[];
+  roadS?: number;
 }
 
 export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<string, number>> {
@@ -42,14 +50,19 @@ export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<strin
 }
 
 /** Before any smelter exists, a placement that would leave too few metals to
- *  build one — without it there is no making more. A soft warning, never a block. */
-export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId): string {
+ *  build one — without it there is no making more. A soft warning, never a
+ *  block (the palette marks the card; the first click on the spot asks, the
+ *  second builds). `unlocked` given and the smelter not in it: the research
+ *  it waits on is named too. */
+export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId, unlocked?: ReadonlySet<BuildingId>): string {
   if (type === 'smelter' || state.buildings.some((b) => b.type === 'smelter')) return '';
   const cost = buildCost(type, site).metals ?? 0;
   if (cost <= 0) return '';
   const smelter = buildCost('smelter', site).metals ?? 0;
   const left = Math.floor(state.resources.metals - cost);
-  return left < smelter ? `Leaves ${left}◆ — a Smelter needs ${smelter}◆` : '';
+  if (left >= smelter) return '';
+  const locked = unlocked && !unlocked.has('smelter') ? `; research ${TECHS.regolithProcessing.name} to unlock it` : '';
+  return `Leaves ${left}◆ — keep ${smelter}◆ for your first Regolith Smelter${locked}`;
 }
 
 /** a site no robot has welded on yet: demolishing it cancels the order */
@@ -78,6 +91,8 @@ export class PlacementController {
   private outline: THREE.LineSegments;
   /** 4 edges × OUTLINE_SEG segments × 2 ends, rewritten in place while placing */
   private outlinePos = new THREE.BufferAttribute(new Float32Array(4 * OUTLINE_SEG * 2 * 3), 3);
+  /** the road the placement would lay, on the ground */
+  readonly roadPreview: CellPreview;
 
   constructor(
     private scene: THREE.Scene,
@@ -92,6 +107,7 @@ export class PlacementController {
     );
     this.outline.visible = false;
     scene.add(this.outline);
+    this.roadPreview = new CellPreview(scene, hf);
   }
 
   begin(type: PlaceableType, techsDone: readonly string[] = []) {
@@ -103,7 +119,16 @@ export class PlacementController {
     this.ghost = createGhost(geo);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
-    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '', note: '' };
+    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '', note: '', confirm: false };
+  }
+
+  /** A click on a valid spot: false while it carries a warning not yet
+   *  clicked through (the first click asks, the second builds). */
+  confirmed(): boolean {
+    const p = this.probe;
+    if (!p || !p.warn || p.confirm) return true;
+    p.confirm = true;
+    return false;
   }
 
   rotate() {
@@ -113,6 +138,7 @@ export class PlacementController {
   cancel() {
     if (this.ghost) { this.scene.remove(this.ghost); this.ghost = null; }
     this.outline.visible = false;
+    this.roadPreview.hide();
     this.probe = null;
   }
 
@@ -132,7 +158,7 @@ export class PlacementController {
       }
     }
     const hit = this.hf.raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z);
-    if (!hit) { this.ghost.visible = false; this.outline.visible = false; return; }
+    if (!hit) { this.ghost.visible = false; this.outline.visible = false; this.roadPreview.hide(); return; }
     let w: number, d: number;
     if (this.probe.type === 'grade') {
       w = GRADE_CELLS; d = GRADE_CELLS;
@@ -152,6 +178,7 @@ export class PlacementController {
     this.ghost.rotation.y = -this.probe.rot * Math.PI / 2;
     setGhostBlocked(this.ghost, !this.probe.valid);
     this.ghost.visible = true;
+    this.roadPreview.show(this.probe.valid ? this.probe.road : undefined);
     this.updateOutline(w, d, cx, cz, y);
   }
 
@@ -180,13 +207,15 @@ export class PlacementController {
 
   validate(state: GameState, unlocked: Set<BuildingId>, tier: SurveyTier = 0): boolean {
     const p = this.probe!;
-    const res: { valid: boolean; reason: string; warn?: string; note?: string } = p.type === 'grade'
+    const res: { valid: boolean; reason: string; warn?: string; note?: string; road?: number[]; roadS?: number } = p.type === 'grade'
       ? checkGrade(state, this.hf, p.gx, p.gz)
       : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot, tier);
     p.valid = res.valid;
     p.reason = res.reason;
     p.warn = res.warn ?? '';
     p.note = res.note ?? '';
+    p.road = res.road;
+    p.roadS = res.roadS;
     return p.valid;
   }
 }
@@ -251,7 +280,7 @@ export function checkPlacement(
   gz: number,
   rot: 0 | 1 | 2 | 3,
   tier: SurveyTier = 0,
-): { valid: boolean; reason: string; warn?: string; note?: string } {
+): { valid: boolean; reason: string; warn?: string; note?: string; road?: number[]; roadS?: number } {
   const def = BUILDINGS[type];
   const probe = { type, gx, gz, rot };
   const r = footprintRect(probe);
@@ -281,6 +310,12 @@ export function checkPlacement(
       return { valid: false, reason: 'Overlaps a structure' };
     }
   }
+  // roads: nothing is built on one, and every structure needs one to its door
+  // (a field type: one within reach of its field) — core/roads.ts
+  const roads = roadMap(state);
+  if (roads.size && footprintCells(probe).some((k) => roads.has(k))) {
+    return { valid: false, reason: 'On a road — pick open ground beside it' };
+  }
   const relief = hf.maxDelta(r.gx0, r.gz0, r.gx1, r.gz1);
   const large = largePadRefusal(type, r.w * r.d, relief, site);
   if (large) return { valid: false, reason: large };
@@ -294,5 +329,13 @@ export function checkPlacement(
       return { valid: false, reason: `Need ${amt} ${rid} — have ${Math.floor(have)}` };
     }
   }
-  return { valid: true, reason: '', warn: smelterWarning(state, site, type), note: known ? DEPOSIT_INFO[known.kind].ghost : '' };
+  const spur = planSpur(state, hf, probe);
+  if (spur.reason) return { valid: false, reason: spur.reason };
+  const road = [...spur.cells, ...spur.bays];
+  let roadS = 0;
+  for (const k of road) roadS += roads.get(k)?.left ?? ROAD.cellS;
+  return {
+    valid: true, reason: '', warn: smelterWarning(state, site, type, unlocked),
+    note: known ? DEPOSIT_INFO[known.kind].ghost : '', road, roadS,
+  };
 }

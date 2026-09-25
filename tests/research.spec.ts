@@ -417,6 +417,7 @@ test('uplink share: six agent labs research at 5.2 × 0.225, exactly what resear
   await placeNear(page, [['lab', 6]]);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.finishRoads(); // their roads open: the robots weld from the start (docs/15)
     powered(240); // six labs, two robots, no arrays
     g.grantPower(5000);
     const a = g.getState();
@@ -457,6 +458,7 @@ test('tech mods reach the grid: Lander comms loads, agent tax, night draw, const
   await placeNear(page, [['lab', 1]]);
   const tax = await page.evaluate(() => {
     const g = window.__game!;
+    g.finishRoads(); // its road open: built by 80 s (docs/15)
     g.advanceGameSeconds(80);
     const draw = () => { g.advanceGameSeconds(1); return g.getState().power.demand; };
     const base = draw();
@@ -480,6 +482,7 @@ test('tech mods reach the grid: Lander comms loads, agent tax, night draw, const
     const g = window.__game!;
     g.completeTech('heavyConstructors');
     g.placeBuilding('solar', 132, 126);
+    g.finishRoads(); // its road open: welding from the first second (docs/15)
     const c0 = g.getState().buildings.find((b: any) => b.type === 'solar').construction;
     const p0 = g.getState().resources.parts;
     g.advanceGameSeconds(5);
@@ -533,7 +536,7 @@ test('save migration: a 34-tech save loads with retired ids refunded and the que
   expect(s.stats.produced.metals).toBe(0);
   expect(s.survey.outposts).toEqual([]);
   expect(hasAlert(s, /^RESEARCH TREE UPDATED — 5 retired techs refunded 990≡$/)).toBe(true);
-  expect(hasAlert(s, /^RESEARCH TREE EXPANDED — 78 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(hasAlert(s, /^RESEARCH TREE EXPANDED — 82 new techs; nothing you researched is lost$/)).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -579,7 +582,7 @@ test('save migration: a 47-tech save keeps its era, research and queue; the new 
   expect(r.s.researchQueue).toEqual(['lunarDataCenter']);
   expect(r.s.researchSpent.lunarDataCenter).toBe(120);
   expect(r.s.data).toBe(legacy.data); // nothing refunded, nothing lost
-  expect(hasAlert(r.s, /^RESEARCH TREE EXPANDED — 78 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(hasAlert(r.s, /^RESEARCH TREE EXPANDED — 82 new techs; nothing you researched is lost$/)).toBe(true);
   // new techs appear in their eras: the open ones researchable, the rest era-locked
   expect(r.v.cards.bifacialCells.state).toBe('available');
   expect(r.v.cards.deployableRadiators.state).toBe('available');

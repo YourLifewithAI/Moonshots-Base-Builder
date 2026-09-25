@@ -14,6 +14,7 @@ import { crewKW, crewRate, roversAt, siteEta, summonPick, surveyRover } from './
 import { digsHome, haulSpec, tripFor } from './haul';
 import { centerOf } from '../buildings/instances';
 import { inside, worldRect } from './paths';
+import { spurLeft, spurSeconds } from './roads';
 import { PROSPECTS } from '../data/lunarMap';
 
 const G = RESOURCES.regolith.glyph;
@@ -69,11 +70,17 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
   }
   const site = r.site !== null ? s.buildings.find((b) => b.id === r.site) : undefined;
   const home = s.buildings.find((b) => b.id === r.home);
+  if (!site && r.road !== undefined) {
+    const j = s.roadJobs?.find((x) => x.id === r.road);
+    const by = j?.by !== undefined ? s.buildings.find((b) => b.id === j.by) : undefined;
+    return j?.kind === 'haul' && by ? `LAYING A HAUL ROAD — out to ${label(by)}'s dig` : 'LAYING A ROAD — the one you drew';
+  }
   if (!site) return `PARKED — at ${home ? label(home) : 'its dock'}, free for the next site`;
   const pin = r.pinned ? ' · pinned' : '';
   if (!site.enabled) return `WAITING — ${label(site)} is paused${pin}`;
   if (site.idleReason === 'power') return `HELD — ${label(site)} has no power${pin}`;
   if (site.idleReason === 'inputs') return `HELD — ${label(site)} is out of weld parts${pin}`;
+  if (site.idleReason === 'road') return `LAYING ROAD — out to ${label(site)} (${spurLeft(s, site)} cells to go)${pin}`;
   return `BUILDING — ${label(site)}${pin}`;
 }
 
@@ -96,9 +103,10 @@ export function fleetView(
     if (!isSite(b)) continue;
     const crew = roversAt(s, b.id);
     const n = b.enabled ? crew.length : 0;
+    const roadS = spurSeconds(s, b);
     sites[b.id] = {
       n: crew.length, pinned: crew.filter((r) => r.pinned).length,
-      eta: siteEta(mods, b, n), etaPlus: siteEta(mods, b, n + 1),
+      eta: siteEta(mods, b, n, roadS), etaPlus: siteEta(mods, b, n + 1, roadS),
       kw: crewKW(mods, n), speed: crewRate(n), summon: summonPick(s, b.id).reason,
     };
   }

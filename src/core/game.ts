@@ -40,8 +40,11 @@ import {
 } from './exploration';
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
 import { digAtHome, digRefusal, setDigSite } from './haul';
+import { dropSpur, layApron, laySpur, migrateRoads } from './roads';
+import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { FleetTarget } from '../player/fleetTarget';
+import { RoadTool } from '../player/roadTool';
 import { Heightfield, type Deposit } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
@@ -155,6 +158,10 @@ export class Game {
   private modes!: ModeManager;
   /** Send to… / Dig at… (player/fleetTarget.ts) */
   private fleetTarget!: FleetTarget;
+  /** the road tool (player/roadTool.ts) */
+  private roadTool!: RoadTool;
+  /** debug: a placement's road is laid open (tests that time builds, not roads) */
+  debugOpenRoads = false;
 
   private playing = false;
   private econAcc = 0;
@@ -303,6 +310,7 @@ export class Game {
     const struck = this.state.survey.struck;
     if (this.state.iceSurveyed) for (const d of this.hf.iceDeposits) if (!struck.includes(d.id)) struck.push(d.id);
     for (const b of this.state.buildings) this.stampDeposit(b);
+    migrateRoads(this.state, this.hf); // a save from before roads gets them now
     this.syncDeposits(false);
     if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
     this.instances.rebuild(this.state);
@@ -350,6 +358,13 @@ export class Game {
       pickBuilding: () => { this.raycaster.setFromCamera(this.mouse, this.camera); return this.instances.pick(this.raycaster); },
       push: (a) => this.actions.push(a),
     });
+    this.roadTool?.cancel();
+    this.roadTool = new RoadTool({
+      state: () => this.state, hf: this.hf,
+      ray: () => { this.raycaster.setFromCamera(this.mouse, this.camera); return this.raycaster.ray; },
+      push: (a) => this.actions.push(a),
+      holdCamera: (on) => { this.buildCam.enabled = !on && this.modes?.mode === 'build'; },
+    }, this.scene);
     $roverSel.set(null);
     this.walk = new WalkController(this.hf);
     this.walk.boulders = this.rocks.colliders();
@@ -415,9 +430,18 @@ export class Game {
         this.walk.look(e.movementX, e.movementY);
       }
     });
-    this.canvas.addEventListener('mousedown', (e) => { this.downPos = { x: e.clientX, y: e.clientY }; });
+    this.canvas.addEventListener('mousedown', (e) => {
+      this.downPos = { x: e.clientX, y: e.clientY };
+      if (e.button === 0 && this.roadTool?.active && this.modes.mode === 'build') this.roadTool.down(e.altKey);
+    });
     this.canvas.addEventListener('mouseup', (e) => {
       if (!this.playing || this.modes.mode !== 'build' || this.modes.transitioning) return;
+      // the road tool takes the left button's drags and clicks
+      if (this.roadTool?.active) {
+        if (e.button === 0) this.roadTool.up();
+        if (e.button === 2 && Math.hypot(e.clientX - this.downPos.x, e.clientY - this.downPos.y) <= 5) this.roadTool.cancel();
+        return;
+      }
       const moved = Math.hypot(e.clientX - this.downPos.x, e.clientY - this.downPos.y);
       if (moved > 5) return; // drag = camera, not click
       if (e.button === 0) this.onWorldClick(e.shiftKey);
@@ -460,6 +484,7 @@ export class Game {
         case 'Digit2': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[1] }); break;
         case 'Digit3': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[2] }); break;
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
+        case 'KeyN': if (this.modes.mode === 'build') { if (this.roadTool.active) this.roadTool.cancel(); else this.beginRoadTool(); } break;
         case 'KeyI': $depositOverlay.set(!$depositOverlay.get()); break;
         case 'KeyB':
           // the Builder: orders and standing rules (one panel at a time, like the resource panels)
@@ -490,7 +515,8 @@ export class Game {
         case 'Escape':
           // one thing at a time: placement, the inspector, a resource panel —
           // and with nothing left to cancel, the menu
-          if (this.fleetTarget.active) this.fleetTarget.cancel();
+          if (this.roadTool.active) this.roadTool.cancel();
+          else if (this.fleetTarget.active) this.fleetTarget.cancel();
           else if (this.placement.active) this.cancelPlacement();
           else if ($selection.get()) $selection.set(null);
           else if ($roverSel.get() !== null) $roverSel.set(null);
@@ -558,6 +584,12 @@ export class Game {
         sfx.play('invalid');
         return;
       }
+      if (p.type !== 'grade' && !this.placement.confirmed()) {
+        // a placement that would strand the base asks first: the hint says
+        // why, and a second click builds it anyway
+        $placeFlash.set($placeFlash.get() + 1);
+        return;
+      }
       if (p.type === 'grade') {
         // grading stays active: multiple passes are the point
         this.actions.push({ kind: 'grade', gx: p.gx, gz: p.gz });
@@ -616,15 +648,28 @@ export class Game {
   beginFleetTarget(mode: { kind: 'send'; rover: number } | { kind: 'dig'; id: number }) {
     if (this.modes.mode !== 'build') return;
     this.cancelPlacement();
+    this.roadTool.cancel();
     this.fleetTarget.begin(mode);
   }
 
   cancelFleetTarget() { this.fleetTarget?.cancel(); }
 
+  /** The road tool (N, the palette's ROAD button). */
+  beginRoadTool() {
+    if (this.modes.mode !== 'build') return;
+    this.cancelPlacement();
+    this.fleetTarget.cancel();
+    $selection.set(null);
+    this.roadTool.begin();
+  }
+  cancelRoadTool() { this.roadTool?.cancel(); }
+  debugRoadTool() { return this.roadTool.info(); }
+
   beginPlacement(type: PlaceableType) {
     if (this.modes.mode !== 'build') return;
     if (type === 'grade' && !this.mods.grading) return;
     this.fleetTarget.cancel();
+    this.roadTool.cancel();
     $selection.set(null);
     $roverSel.set(null);
     this.placement.begin(type, this.state.techsDone);
@@ -775,6 +820,7 @@ export class Game {
         if (!a.on) for (const b of s.buildings) b.agentCover = false;
         break;
       }
+      case 'layRoad': case 'removeRoad': roadAction(s, this.hf, a); break;
       case 'setOverclock': this.setOverclock(a.id, a.on); break;
       case 'downlink': this.doDownlink(); break;
       case 'crewAll': this.crewAllStations(); break;
@@ -928,6 +974,8 @@ export class Game {
     };
     this.stampDeposit(b);
     s.buildings.push(b);
+    // its road (core/roads.ts): the Lander lands with its apron, the rest get a spur
+    if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
     if (dep && !free) this.strike(b, dep);
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
@@ -935,8 +983,11 @@ export class Game {
     if (!free && !s.buildings.some((b) => b.type === 'smelter')) {
       const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * SITES[s.siteId].buildCostMult);
       if (s.resources.metals < smelterCost + 20) {
-        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`,
-          'warn', { panel: 'metals' });
+        // still locked: name the research it waits on
+        alert(s, this.mods.unlocked.has('smelter')
+          ? `METALS LOW — a Regolith Smelter costs ${smelterCost}◆; without one you cannot make more`
+          : `METALS LOW — research ${TECHS.regolithProcessing.name}, then build a smelter (${smelterCost}◆); without one you cannot make more`,
+        'warn', { panel: 'metals' });
       }
     }
     return b;
@@ -966,7 +1017,8 @@ export class Game {
     const known = dep && depositRevealed(s, dep, tier) ? dep : null;
     const why = digRefusal(s, SITES[s.siteId], b, x, z, groundMapped(s, x, z, tier) || !!known, revealRadiusM(tier));
     if (why || !b) { alert(s, `CANNOT DIG THERE — ${why}`, 'warn'); return; }
-    setDigSite(s, this.mods, b, x, z);
+    const no = setDigSite(s, this.mods, b, x, z, this.hf);
+    if (no) { alert(s, `CANNOT DIG THERE — ${no}`, 'warn'); return; }
     this.stampDeposit(b);
     const [hx, hz] = centerOf(b);
     alert(s, `DIG SITE SET — ${BUILDINGS[b.type].name} #${b.id} digs ${groundName(b.deposit)} ` +
@@ -1388,12 +1440,16 @@ export class Game {
       if (this.modes.mode === 'build') {
         this.buildCam.update(dt);
         if (this.fleetTarget.active) this.fleetTarget.update();
+        if (this.roadTool.active) this.roadTool.update();
         if (this.placement.active) {
           this.raycaster.setFromCamera(this.mouse, this.camera);
           this.placement.update(this.state, this.mods.unlocked,
             this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
           const p = this.placement.probe!;
-          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note });
+          $placing.set({
+            type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
+            road: p.road?.length, roadS: p.roadS,
+          });
         }
       } else {
         this.walk.update(dt);
@@ -1983,6 +2039,7 @@ export class Game {
     const i = s.buildings.findIndex((b) => b.id === id);
     if (i < 0 || s.buildings[i].type === 'lander') return;
     const b = s.buildings[i];
+    dropSpur(s, b);
     for (const [rid, amt] of Object.entries(demolishRefund(b, SITES[s.siteId]))) {
       s.resources[rid as keyof typeof s.resources] += amt ?? 0;
     }
@@ -2096,7 +2153,7 @@ export class Game {
         const known = dep && depositRevealed(s, dep, tier) ? dep : null;
         const why = digRefusal(s, site, b, x, z, groundMapped(s, x, z, tier) || !!known, revealRadiusM(tier));
         if (why) continue;
-        setDigSite(s, this.mods, b, x, z);
+        if (setDigSite(s, this.mods, b, x, z, this.hf)) continue; // no haul road to it (docs/15-roads.md)
         this.stampDeposit(b);
         const [hx, hz] = centerOf(b);
         alert(s, `AUTO DIG — ${BUILDINGS[b.type].name} #${b.id} digs ${groundName(b.deposit)} ` +

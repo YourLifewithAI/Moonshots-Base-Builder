@@ -1,44 +1,62 @@
 /** The construction-rover fleet made visible: one instanced rover per unit
  *  in the sim's roster (`state.rovers`, core/fleet.ts), docked at the
  *  structures that supply them (the Lander, Robotics Bays); the one lent to
- *  a survey is away. A rover with a site drives out to it, prints (a shuffle
- *  along the wall, a small bob) and drives home to park when the sim frees
- *  it; several at one site spread round its walls. Paths are straight legs
- *  that hop round the corners of any footprint in the way (core/paths.ts);
- *  heading follows the velocity with a turn-rate limit, and the chassis sits
- *  on the heightfield, pitched and rolled to it. The selected rover wears a
- *  ring; rovers are picked by instance (or by nearness on screen).
+ *  a survey is away. Rovers live on the roads (docs/15-roads.md): each has a
+ *  slot on a road cell from core/spots.ts — a parking bay by its dock, the
+ *  frontier of a road it sinters, a site's door — and drives there along
+ *  the open road in the right-hand lane when its slot changes. The ground
+ *  traffic (world/traffic.ts) shares the cells out, so rovers queue, pass
+ *  in opposite lanes, and never meet an excavator or each other. A dock out
+ *  of bays keeps the rest inside (not drawn). Heading follows the lane with
+ *  a turn-rate limit, and the chassis sits on the heightfield, pitched and
+ *  rolled to it. The selected rover wears a ring; rovers are picked by
+ *  instance (or by nearness on screen).
  *
  *  Rovers use the building material (same program, finishes, lamps and a
  *  blinking beacon; unlit twin in safe mode) and cast no shadow-map shadow —
  *  a moving caster would re-render the map every frame. A soft decal smeared
  *  down-sun stands in for it. Motion runs on game time: pause freezes them. */
 import * as THREE from 'three';
-import { BUILDINGS } from '../data/buildings';
-import { CELL_M } from '../data/balance';
-import type { BuildingState, GameState } from '../core/state';
+import type { GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { centerOf } from '../buildings/instances';
-import { PATH_HALF as HALF, inside, plan, worldRect, type Rect } from '../core/paths';
+import { cellAt, cellCentre, cellKey, doorCell, isOpen, roadMap, roadRoute } from '../core/roads';
+import { roverSpots, type RoverSpot } from '../core/spots';
+import { ROAD } from '../data/roads';
+import { TECHS, type TechId } from '../data/techs';
 import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
 } from '../buildings/meshKit';
 import { materials } from './materials';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
+import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, type Agent, type Driver } from './traffic';
 
 const MAX_ROVERS = 64;
 /** a command view's listener height, as a share of the camera's distance */
 const LISTENER_LIFT = 0.3;
 const SCALE = 1.25;
-const SPEED = 4.5;        // m/s cruise
+const SPEED = 4.5;        // m/s cruise on a sintered road
 const ACCEL = 3;          // m/s²
 const TURN = 2.4;         // rad/s
-const CLEAR = 1.2;        // m kept off walls when planning
-const WORK_OUT = 1.8;     // m out from a site's footprint
-const PARK_OUT = 3.2;     // m out from the dock's footprint
-const PARK_PITCH = 2.8;   // m between parked rovers
+const YIELD_S = 4;        // s a rover waits at a refuge before it heads on
+const PIVOT = 1;          // rad: a way that sets off further than this from its heading starts with a turn on the spot
 const PI = Math.PI;
+/** the body: 1.35 × 1.95 m */
+export const ROVER_BODY = { hw: 0.68 * SCALE / 1.25, front: 0.98 * SCALE / 1.25, back: 0.98 * SCALE / 1.25 };
+
+/** Road travel for the techs done, and the night (core/mods.ts has the sim's copy). */
+export function roadSpeedFor(techsDone: readonly TechId[], night: boolean, hauler = false): number {
+  let m = 1;
+  for (const t of techsDone) {
+    for (const fx of TECHS[t]?.effects ?? []) {
+      if (fx.kind !== 'road') continue;
+      m *= fx.speedMult ?? 1;
+      if (hauler) m *= fx.haulMult ?? 1;
+      if (night) m *= fx.nightMult ?? 1;
+    }
+  }
+  return m;
+}
 
 function roverGeometry(): THREE.BufferGeometry {
   const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
@@ -94,36 +112,89 @@ interface Rover {
   x: number; z: number; yaw: number; v: number;
   home: number;
   site: number | null;
-  /** where it is headed (site slot or parking slot): a new key replans */
+  /** the slot it holds or heads for, and its key (a new key replans) */
+  spot: RoverSpot | null;
   key: string;
-  path: [number, number][];
-  /** yaw to settle to on arrival */
-  face: number;
-  /** along-wall direction of the print shuffle */
-  side: [number, number];
+  /** inside its dock (out of bays, or not yet out): not drawn, not in traffic */
+  inside: boolean;
   working: boolean;
   phase: number;
+  /** backing off to a refuge: until when (then it heads for its slot again) */
+  yieldUntil: number;
+  /** backing out (of a bay) up to this arc of its way */
+  revUntil: number;
+  /** turning on the spot (to `aim`) before it sets off */
+  turning: boolean;
+  aim: number;
+  agent: Agent;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
+const spotKey = (p: RoverSpot) => `${p.site ?? 'p'}:${p.road ?? ''}@${p.gx},${p.gz},${p.side}${p.inside ? 'in' : ''}`;
+type Cell = [number, number];
 
-/** Building-local (x, z) → world, for a structure's centre and rotation. */
-function toWorld(b: BuildingState, lx: number, lz: number): [number, number] {
-  const [cx, cz] = centerOf(b);
-  const a = -b.rot * PI / 2, c = Math.cos(a), s = Math.sin(a);
-  return [cx + lx * c + lz * s, cz - lx * s + lz * c];
+/** The right-hand lane's offset for travel along `d` (a unit cell step). */
+const right = (d: Cell): [number, number] => [-d[1] * ROAD.lane, d[0] * ROAD.lane];
+
+/** A rover's way along road cells: from where it stands, in the right-hand
+ *  lane (the first cell left in the half it stands in when `keep` — another
+ *  stands beside it — the last entered in the half of its slot), to the slot. */
+export function laneWay(cells: Cell[], from: [number, number], to: [number, number], keep = true): [number, number][] {
+  const pts: [number, number][] = [from];
+  if (cells.length <= 1) { pts.push(to); return pts; }
+  const n = cells.length;
+  for (let i = 0; i < n - 1; i++) {
+    const d: Cell = [cells[i + 1][0] - cells[i][0], cells[i + 1][1] - cells[i][1]];
+    const [cx, cz] = cellCentre(cells[i][0], cells[i][1]);
+    const ex = cx + d[0] * 2, ez = cz + d[1] * 2; // the edge it leaves by
+    let [ox, oz] = right(d);
+    if (i === 0 && keep) {
+      // out of the first cell in the half it stands in
+      const lat = d[0] !== 0 ? from[1] - cz : from[0] - cx;
+      const side = Math.abs(lat) > 0.4 ? Math.sign(lat) * ROAD.lane : 0;
+      if (d[0] !== 0) { ox = 0; oz = side || oz; } else { ox = side || ox; oz = 0; }
+    }
+    if (i === n - 2) {
+      // into the last cell in the half of its slot
+      const [tx, tz] = cellCentre(cells[n - 1][0], cells[n - 1][1]);
+      const lat = d[0] !== 0 ? to[1] - tz : to[0] - tx;
+      if (Math.abs(lat) > 0.4) { if (d[0] !== 0) { ox = 0; oz = Math.sign(lat) * ROAD.lane; } else { ox = Math.sign(lat) * ROAD.lane; oz = 0; } }
+    }
+    pts.push([ex + ox, ez + oz]);
+  }
+  pts.push(to);
+  return pts;
 }
 
-export class RoverFleet {
+/** A bay cell's opening onto the road (its open non-bay neighbour), or null if c is no bay. */
+function bayOpening(s: GameState, c: Cell): Cell | null {
+  const map = roadMap(s);
+  if (!map.get(cellKey(c[0], c[1]))?.bay) return null;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const n = map.get(cellKey(c[0] + dx, c[1] + dz));
+    if (n && isOpen(n) && !n.bay) return [c[0] + dx, c[1] + dz];
+  }
+  return null;
+}
+
+export class RoverFleet implements Driver {
   readonly group = new THREE.Group();
   private mesh: THREE.InstancedMesh;
   private decals: THREE.InstancedMesh;
   private decalMat: THREE.MeshBasicMaterial;
   private rovers: Rover[] = [];
-  private rects: Rect[] = [];
-  private rectSig = '';
+  /** the ones drawn (not inside a dock), in instance order */
+  private drawn: Rover[] = [];
+  private byId = new Map<number, Rover>();
+  private spots = new Map<number, RoverSpot>();
+  private spotSig = '';
   private clock = 0;
+  private state: GameState | null = null;
+  private speed = SPEED;
+  /** the ground traffic that moves them (its own, if none is shared) */
+  readonly traffic: Traffic;
+  private ownTraffic: boolean;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
   private e = new THREE.Euler(0, 0, 0, 'YXZ');
@@ -134,7 +205,9 @@ export class RoverFleet {
   private frozen = false;
   private soundList: RoverSound[] = [];
 
-  constructor(private hf: Heightfield) {
+  constructor(private hf: Heightfield, traffic?: Traffic) {
+    this.traffic = traffic ?? new Traffic();
+    this.ownTraffic = !traffic;
     this.mesh = new THREE.InstancedMesh(withInstanceState(roverGeometry(), MAX_ROVERS),
       materials.get('building'), MAX_ROVERS);
     this.mesh.receiveShadow = true;
@@ -168,166 +241,282 @@ export class RoverFleet {
   /** the rover the inspector shows (its ring is drawn), by roster id */
   selected: number | null = null;
 
-  /** Per frame: `dt` game seconds (0 while paused). */
+  /** Per frame: `dt` game seconds (0 while paused). With a shared traffic
+   *  layer the owner calls sync(), steps the traffic, then draw(). */
   update(dt: number, state: GameState, sunDir: THREE.Vector3, sunLight: number) {
-    this.clock += dt;
-    this.frozen = dt <= 0;
-    this.syncRects(state);
-    this.syncFleet(state);
-    const steps = Math.min(40, Math.ceil(dt / 0.05));
-    for (let k = 0; k < steps; k++) for (const r of this.rovers) this.step(r, dt / steps);
-    this.draw(sunDir, sunLight);
-  }
-
-  private syncRects(state: GameState) {
-    const sig = state.buildings.map((b) => `${b.id}:${b.gx},${b.gz},${b.rot}`).join(';');
-    if (sig === this.rectSig) return;
-    this.rectSig = sig;
-    this.rects = state.buildings.map(worldRect);
+    if (this.ownTraffic) syncGround(this.traffic, state);
+    this.sync(dt, state);
+    if (this.ownTraffic) this.traffic.step(dt);
+    this.draw(dt, sunDir, sunLight);
   }
 
   /** The visuals follow the sim roster, keyed by rover id; the one lent to a
-   *  survey is away. A rover with a site heads for its slot round that site's
-   *  walls; the rest park in a row beside their dock. */
-  private syncFleet(state: GameState) {
+   *  survey is away. Each rover's slot (core/spots.ts), and a way there along
+   *  the open road when the slot changes. */
+  sync(dt: number, state: GameState, night = false) {
+    this.clock += dt;
+    this.frozen = dt <= 0;
+    this.state = state;
+    this.speed = SPEED * roadSpeedFor(state.techsDone, night);
+    const sig = spotSignature(state);
+    if (sig !== this.spotSig) {
+      this.spotSig = sig;
+      this.spots = roverSpots(state);
+    }
     const away = state.survey?.active?.rover;
     const roster = (state.rovers ?? []).filter((u) => u.id !== away).slice(0, MAX_ROVERS);
-    const byId = new Map(this.rovers.map((r) => [r.id, r]));
-    const at = new Map(state.buildings.map((b) => [b.id, b]));
-    const crew = new Map<number, number[]>();
-    const parked = new Map<number, number[]>();
-    for (const u of roster) {
-      const site = u.site !== null ? at.get(u.site) : undefined;
-      if (site && (site.construction ?? 0) > 0) (crew.get(site.id) ?? crew.set(site.id, []).get(site.id)!).push(u.id);
-      else (parked.get(u.home) ?? parked.set(u.home, []).get(u.home)!).push(u.id);
-    }
     const next: Rover[] = [];
     for (const u of roster) {
-      const dock = at.get(u.home) ?? state.buildings.find((b) => b.type === 'lander');
-      if (!dock) continue;
-      let r = byId.get(u.id);
+      const spot = this.spots.get(u.id);
+      if (!spot) continue;
+      let r = this.byId.get(u.id);
       if (!r) {
-        const list = parked.get(u.home) ?? [u.id];
-        const [x, z] = this.parkSpot(dock, Math.max(0, list.indexOf(u.id)), list.length);
-        r = { id: u.id, x, z, yaw: this.parkYaw(dock), v: 0, home: dock.id, site: null, key: '', path: [],
-          face: this.parkYaw(dock), side: [1, 0], working: false, phase: u.id * 2.399 };
-        r.key = `park:${dock.id}:${Math.max(0, list.indexOf(u.id))}/${list.length}`;
+        // a new rover: parked on its slot, or inside its dock until it rolls out
+        const parked = spot.site === null && spot.road === undefined && !spot.inside;
+        const [x, z] = parked ? [spot.x, spot.z] : [spot.x, spot.z];
+        r = {
+          id: u.id, x, z, yaw: spot.face, v: 0, home: spot.dock, site: spot.site, spot: parked ? spot : null,
+          key: parked ? spotKey(spot) : '', inside: !parked, working: false, phase: u.id * 2.399, yieldUntil: 0,
+          revUntil: -Infinity, turning: false, aim: spot.face, agent: null!,
+        };
+        r.agent = {
+          kind: 'rover', id: u.id, key: 1e6 + u.id, x, z, fx: Math.sin(r.yaw), fz: Math.cos(r.yaw),
+          hw: ROVER_BODY.hw, front: ROVER_BODY.front, back: ROVER_BODY.back, wide: false, cls: 1,
+          pts: [], arcs: [], spans: [], s: 0, v: 0, vmax: 0, stop: 0, accel: ACCEL, decel: 2 * ACCEL,
+          standMode: laneMode(spot.axis === 'x' ? 0 : 1, spot.side), held: new Map(), blocker: null, waited: 0, drv: this,
+        };
+        if (parked) this.traffic.setWay(r.agent, [[x, z]]);
       }
-      r.home = dock.id;
-      const site = u.site !== null ? at.get(u.site) : undefined;
-      const team = site ? crew.get(site.id) : undefined;
-      if (site && team) {
-        const key = `site:${site.id}:${team.indexOf(u.id)}/${team.length}`;
-        if (key !== r.key) {
-          r.key = key;
-          r.site = site.id;
-          const first = at.get((state.rovers ?? []).find((x) => x.id === team[0])?.home ?? dock.id) ?? dock;
-          this.goSite(r, site, team.indexOf(u.id), team.length, centerOf(first));
-        }
-      } else {
-        const list = parked.get(u.home) ?? [u.id];
-        const k = Math.max(0, list.indexOf(u.id));
-        const key = `park:${dock.id}:${k}/${list.length}`;
-        if (key !== r.key) {
-          r.key = key;
-          r.site = null;
-          this.goPark(r, dock, k, list.length);
-        }
-      }
+      r.home = spot.dock;
+      const key = spotKey(spot);
+      if (key !== r.key && this.clock >= r.yieldUntil) this.head(r, spot, state);
       next.push(r);
     }
     this.rovers = next;
+    this.byId = new Map(next.map((r) => [r.id, r]));
+    this.drawn = next.filter((r) => !r.inside);
+    this.traffic.enlist('rover', this.drawn.map((r) => r.agent));
   }
 
-  /** Parking spots in a row beside the dock (its local −x side first). */
-  private parkSpot(dock: BuildingState, k: number, count: number): [number, number] {
-    const [w, d] = BUILDINGS[dock.type].footprint;
-    const hw = (w * CELL_M) / 2, hd = (d * CELL_M) / 2;
-    const off = (k - (count - 1) / 2) * PARK_PITCH;
-    const sides: [number, number][] = [[-(hw + PARK_OUT), off], [hw + PARK_OUT, off], [off, -(hd + PARK_OUT)], [off, hd + PARK_OUT]];
-    for (const [lx, lz] of sides) {
-      const [x, z] = toWorld(dock, lx, lz);
-      if (Math.abs(x) < HALF && Math.abs(z) < HALF && !this.rects.some((r) => r.id !== dock.id && inside(x, z, r, 1.0))) {
-        return [x, z];
+  /** Head for a slot: a way along the open road from where it is (or out of
+   *  its dock's door). No way yet: it stays and asks again next frame. */
+  private head(r: Rover, spot: RoverSpot, s: GameState) {
+    if (spot.inside) {
+      // into the dock: from the door it drives in and is gone
+      const dock = s.buildings.find((b) => b.id === spot.dock);
+      const d = dock ? doorCell(dock) : null;
+      if (!r.inside && d) {
+        const cells = roadRoute(s, cellAt(r.x, r.z), d);
+        if (!cells) return;
+        this.traffic.setWay(r.agent, laneWay(cells, [r.x, r.z], cellCentre(d[0], d[1])));
+        r.agent.standMode = WHOLE;
+        r.spot = spot;
+        r.key = spotKey(spot);
+        return;
+      }
+      r.spot = spot;
+      r.key = spotKey(spot);
+      r.inside = true;
+      return;
+    }
+    let from: Cell;
+    if (r.inside) {
+      // rolling out of its dock by the door, if the door is clear
+      const dock = s.buildings.find((b) => b.id === spot.dock);
+      const d = dock ? doorCell(dock) : null;
+      if (!d || !isOpen(roadMap(s).get(cellKey(d[0], d[1]))) || this.traffic.taken(null, d[0], d[1])) return;
+      const [x, z] = cellCentre(d[0], d[1]);
+      r.x = x; r.z = z;
+      r.agent.x = x; r.agent.z = z;
+      from = d;
+    } else {
+      from = cellAt(r.x, r.z);
+    }
+    // a bay is left, and come into, by its opening only (the way keeps to the slot's half)
+    const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
+    const here = same(from, [spot.gx, spot.gz]);
+    const out = !here && !r.inside ? bayOpening(s, from) : null;
+    const start: Cell = out ?? from;
+    const into = spot.via && !here ? spot.via : null;
+    const goal: Cell = into ?? [spot.gx, spot.gz];
+    const mid = same(start, goal) ? [start] : roadRoute(s, start, goal);
+    if (!mid) return;
+    const cells: Cell[] = [...mid, ...(into ? [[spot.gx, spot.gz] as Cell] : [])];
+    let pts: [number, number][];
+    r.revUntil = -Infinity;
+    if (out) {
+      // out of a bay: straight along it into the opening (keeping its half), then on
+      // from there — backing out if it stands nose in
+      const [ox, oz] = cellCentre(out[0], out[1]);
+      const along: [number, number] = out[0] !== from[0] ? [ox, r.z] : [r.x, oz];
+      pts = [[r.x, r.z], ...laneWay(cells, along, [spot.x, spot.z])];
+      const ux = out[0] - from[0], uz = out[1] - from[1];
+      if (Math.sin(r.yaw) * ux + Math.cos(r.yaw) * uz < 0) r.revUntil = Math.hypot(along[0] - r.x, along[1] - r.z);
+    } else {
+      // out of its cell in the half it is in only if another stands beside it
+      pts = laneWay(cells, [r.x, r.z], [spot.x, spot.z], this.traffic.taken(r.agent, from[0], from[1]));
+    }
+    const [dx, dz] = pts.length > 1 ? [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]] : [r.agent.fx, r.agent.fz];
+    const l = Math.hypot(dx, dz);
+    if (l > 1e-6 && r.inside) { r.agent.fx = dx / l; r.agent.fz = dz / l; r.yaw = Math.atan2(dx, dz); }
+    this.traffic.setWay(r.agent, pts);
+    r.agent.standMode = laneMode(spot.axis === 'x' ? 0 : 1, spot.side);
+    // out of the door: its cells are taken now, so the next one out waits its turn
+    if (r.inside) this.traffic.place(r.agent);
+    r.spot = spot;
+    r.key = spotKey(spot);
+    r.site = spot.site;
+    r.inside = false;
+    r.working = false;
+  }
+
+  // ── the traffic driver ──
+
+  prefer(a: Agent) {
+    const r = this.byId.get(a.id);
+    const end = Traffic.end(a);
+    // ease into the slot: slow over the last few metres
+    const left = end - a.s;
+    a.vmax = Math.min(this.speed, Math.sqrt(2 * ACCEL * Math.max(0, left)) + 0.3);
+    a.stop = end;
+    // a way that sets off well away from its heading starts with a turn on the spot
+    a.pivot = false;
+    if (!r) return;
+    if (left < 1e-3) {
+      // there: square up along its road (either way along it), turning on the spot
+      if (!r.spot || r.spot.inside) { r.turning = false; return; }
+      const f = r.spot.face;
+      const aim = Math.abs(wrap(f - r.yaw)) <= Math.abs(wrap(f + PI - r.yaw)) + 1e-6 ? f : f + PI;
+      r.turning = Math.abs(wrap(aim - r.yaw)) > 0.05;
+      if (r.turning) { a.pivot = true; r.aim = aim; }
+      return;
+    }
+    // only as it sets off: under way it steers round corners
+    if (!r.turning && a.s > 0.3) return;
+    const want = this.heading(r, a, a.s + 0.02);
+    const err = Math.abs(wrap(want - r.yaw));
+    r.turning = r.turning ? err > 0.05 : err > PIVOT;
+    if (r.turning) { a.pivot = true; r.aim = want; a.vmax = 0; }
+  }
+
+  /** the yaw its way wants at arc u: along the lane, or backwards while backing out */
+  private heading(r: Rover, a: Agent, u: number): number {
+    const p = pointAt(a.pts, a.arcs, u);
+    return Math.atan2(p.dx, p.dz) + (u < r.revUntil ? PI : 0);
+  }
+
+  moved(a: Agent, dt: number) {
+    const r = this.byId.get(a.id);
+    if (!r) return;
+    const p = pointAt(a.pts, a.arcs, a.s);
+    r.x = p.x; r.z = p.z;
+    a.x = p.x; a.z = p.z;
+    r.v = a.v;
+    const end = Traffic.end(a);
+    const there = a.s >= end - 1e-6;
+    // heading: a turn on the spot, else along its lane (turn-rate limited); once there it holds it
+    const want = a.pivot ? r.aim : there ? r.yaw : this.heading(r, a, a.s);
+    // it turns on the spot only as a pivot (its sweep held); otherwise only while it rolls
+    if (a.pivot ? a.pivotOk : a.v > 0.05) r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
+    a.fx = Math.sin(r.yaw); a.fz = Math.cos(r.yaw);
+    // reached a slot inside the dock: gone in
+    if (there && r.spot?.inside && !r.inside) {
+      r.inside = true;
+      this.traffic.drop(a);
+    }
+    r.working = there && r.site !== null && r.spot?.site === r.site && a.v < 0.1;
+  }
+
+  /** Get out of their way: over into the other half of its own cell if their
+   *  ways through it keep to this half, else back off to the nearest cell off
+   *  their ways with a free half — never through a cell anyone else holds. */
+  yieldTo(a: Agent, others: Agent[]): boolean {
+    const r = this.byId.get(a.id);
+    const s = this.state;
+    if (!r || !s) return false;
+    const t = this.traffic;
+    const avoid = new Set<number>();
+    const ahead: Agent[] = [];
+    for (const o of others) {
+      for (const [gx, gz] of t.heldBy(o)) avoid.add(cellKey(gx, gz));
+      for (const sp of o.spans) if (sp.road && sp.a1 > o.s && sp.a0 < o.s + 40) avoid.add(cellKey(sp.key % 4096, Math.floor(sp.key / 4096)));
+      ahead.push(o);
+    }
+    const map = roadMap(s);
+    const start = cellAt(r.x, r.z);
+    const sk = cellKey(start[0], start[1]);
+    const refuge = (cells: Cell[], mode: number, x: number, z: number) => {
+      const pts = laneWay(cells, [r.x, r.z], [x, z]);
+      t.setWay(a, pts);
+      // back there if it lies behind it (no turn on the spot in the others' way)
+      const p = pointAt(a.pts, a.arcs, 0.02);
+      r.revUntil = Math.abs(wrap(Math.atan2(p.dx, p.dz) - r.yaw)) > 2 ? Infinity : -Infinity;
+      a.standMode = mode;
+      r.key = ''; // heads on for its slot once the refuge time is up
+      r.yieldUntil = this.clock + YIELD_S;
+      return true;
+    };
+    // 1. the other half of its own cell: their ways through it all keep to this half
+    if (!t.taken(a, start[0], start[1])) {
+      let m: number | null = null;
+      let ok = true;
+      const gk = start[1] * 4096 + start[0];
+      for (const o of ahead) {
+        for (const sp of o.spans) {
+          if (sp.key !== gk || sp.a1 <= o.s) continue;
+          if (sp.mode === WHOLE || (m !== null && (laneAxis(m) !== laneAxis(sp.mode) || laneSide(m) !== laneSide(sp.mode)))) ok = false;
+          m = sp.mode;
+        }
+      }
+      if (ok && m !== null) {
+        const axis = laneAxis(m), side = (1 - laneSide(m)) as 0 | 1;
+        const [cx, cz] = cellCentre(start[0], start[1]);
+        const o = (side ? 1 : -1) * ROAD.lane;
+        const [x, z] = axis === 0 ? [cx + o, cz] : [cx, cz + o];
+        if (Math.hypot(x - r.x, z - r.z) > 0.3) return refuge([start], laneMode(axis, side), x, z);
       }
     }
-    return toWorld(dock, sides[0][0], sides[0][1]);
-  }
-
-  /** Parked rovers face along the dock's side, nose to its door side. */
-  private parkYaw(dock: BuildingState): number { return -dock.rot * PI / 2; }
-
-  private goPark(r: Rover, dock: BuildingState, k: number, count: number) {
-    r.working = false;
-    const [x, z] = this.parkSpot(dock, k, count);
-    r.path = plan(r.x, r.z, x, z, this.rects);
-    r.face = this.parkYaw(dock);
-  }
-
-  /** Work spot k of m round a site: the first just off the wall nearest the
-   *  crew's dock, the rest spread evenly round the walls, off the corners so
-   *  each shuffle stays along one wall. */
-  private goSite(r: Rover, site: BuildingState, k: number, m: number, from: [number, number]) {
-    const rect = worldRect(site);
-    const x0 = rect.x0 - WORK_OUT, x1 = rect.x1 + WORK_OUT, z0 = rect.z0 - WORK_OUT, z1 = rect.z1 + WORK_OUT;
-    const w = x1 - x0, d = z1 - z0, per = 2 * (w + d);
-    // perimeter parameter, clockwise from the (x0, z0) corner: +x, +z, −x, −z
-    const toU = (x: number, z: number): number => {
-      const cx = clamp(x, x0, x1), cz = clamp(z, z0, z1);
-      const e = [cz - z0, x1 - cx, z1 - cz, cx - x0];
-      const i = e.indexOf(Math.min(...e));
-      return i === 0 ? cx - x0 : i === 1 ? w + (cz - z0) : i === 2 ? w + d + (x1 - cx) : 2 * w + d + (z1 - cz);
-    };
-    const fromU = (u: number): { x: number; z: number; e: number } => {
-      u = ((u % per) + per) % per;
-      // off the corners
-      const edge = (len: number, t: number) => clamp(t, Math.min(1.6, len / 2), Math.max(len - 1.6, len / 2));
-      if (u < w) return { x: x0 + edge(w, u), z: z0, e: 2 };
-      if (u < w + d) return { x: x1, z: z0 + edge(d, u - w), e: 1 };
-      if (u < 2 * w + d) return { x: x1 - edge(w, u - w - d), z: z1, e: 3 };
-      return { x: x0, z: z1 - edge(d, u - 2 * w - d), e: 0 };
-    };
-    const p = fromU(toU(from[0], from[1]) + (k * per) / Math.max(1, m));
-    const [cx, cz] = centerOf(site);
-    r.path = plan(r.x, r.z, p.x, p.z, this.rects);
-    // face the wall: square to it, toward the centre
-    r.face = p.e < 2 ? Math.atan2(cx - p.x, 0) : Math.atan2(0, cz - p.z);
-    r.side = p.e < 2 ? [0, 1] : [1, 0];
-    r.working = false;
-  }
-
-  private step(r: Rover, dt: number) {
-    if (!r.path.length) {
-      r.v = 0;
-      r.yaw += clamp(wrap(r.face - r.yaw), -TURN * dt, TURN * dt);
-      if (r.site !== null) r.working = true;
-      return;
+    // 2. the nearest cell off their ways with a free half, through free cells only
+    const from = new Map<number, number>([[sk, -1]]);
+    const q = [sk];
+    for (let i = 0; i < q.length && i < 400; i++) {
+      const k = q[i];
+      const [x, z] = [k % 256, Math.floor(k / 256)];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nk = cellKey(x + dx, z + dz);
+        if (from.has(nk)) continue;
+        const c = map.get(nk);
+        if (!c || !isOpen(c) || t.taken(a, x + dx, z + dz)) continue;
+        from.set(nk, k);
+        q.push(nk);
+        if (avoid.has(nk)) continue;
+        // a refuge: stand in the half on the right of the way in
+        const cells: Cell[] = [];
+        for (let p = nk; p !== -1; p = from.get(p)!) cells.push([p % 256, Math.floor(p / 256)]);
+        cells.reverse();
+        const [ox, oz] = right([dx, dz]);
+        const axis: 0 | 1 = dx !== 0 ? 1 : 0;
+        const side: 0 | 1 = (axis === 1 ? oz : ox) > 0 ? 1 : 0;
+        const [cx, cz] = cellCentre(x + dx, z + dz);
+        return refuge(cells, laneMode(axis, side), cx + ox, cz + oz);
+      }
     }
-    const [tx, tz] = r.path[0];
-    const dx = tx - r.x, dz = tz - r.z, d = Math.hypot(dx, dz);
-    const last = r.path.length === 1;
-    if (d < (last ? 0.3 : 1.2)) {
-      r.path.shift();
-      if (!r.path.length && last) { r.x = tx; r.z = tz; }
-      return;
-    }
-    let remain = d;
-    for (let i = 1; i < r.path.length; i++) {
-      remain += Math.hypot(r.path[i][0] - r.path[i - 1][0], r.path[i][1] - r.path[i - 1][1]);
-    }
-    const want = Math.atan2(dx, dz);
-    r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
-    const off = wrap(want - r.yaw);
-    const cruise = Math.min(SPEED, Math.sqrt(2 * ACCEL * remain) + 0.3);
-    const target = cruise * Math.max(0, Math.cos(off)) ** 2;
-    r.v += clamp(target - r.v, -2 * ACCEL * dt, ACCEL * dt);
-    const len = Math.min(r.v * dt, d);
-    r.x += Math.sin(r.yaw) * len;
-    r.z += Math.cos(r.yaw) * len;
+    return false;
   }
 
-  private draw(sunDir: THREE.Vector3, sunLight: number) {
-    const n = this.rovers.length;
+  /** The last resort: back inside its dock (it rolls out again when the door is clear). */
+  rescue(a: Agent) {
+    const r = this.byId.get(a.id);
+    if (!r) return;
+    r.inside = true;
+    r.key = '';
+    this.traffic.drop(a);
+    this.drawn = this.drawn.filter((x) => x !== r);
+    this.traffic.enlist('rover', this.drawn.map((x) => x.agent));
+  }
+
+  draw(_dt: number, sunDir: THREE.Vector3, sunLight: number) {
+    const n = this.drawn.length;
     this.mesh.count = n;
     const elev = Math.max(0.06, Math.asin(clamp(sunDir.y, -1, 1)));
     const smear = Math.min(7, (1.1 * SCALE) / Math.tan(elev));
@@ -338,13 +527,13 @@ export class RoverFleet {
     this.decals.visible = sunLight > 0.02;
     this.decals.count = n;
     for (let i = 0; i < n; i++) {
-      const r = this.rovers[i];
+      const r = this.drawn[i];
       let x = r.x, z = r.z, yaw = r.yaw, bob = 0;
-      if (r.working) {
+      if (r.working && r.spot) {
         const t = this.clock + r.phase;
-        const sh = 0.35 * Math.sin(t * 0.9);
-        x += r.side[0] * sh;
-        z += r.side[1] * sh;
+        const sh = 0.25 * Math.sin(t * 0.9);
+        x += r.spot.shuffle[0] * sh;
+        z += r.spot.shuffle[1] * sh;
         bob = 0.02 * Math.sin(t * 9);
         yaw += 0.05 * Math.sin(t * 1.7);
       }
@@ -367,7 +556,7 @@ export class RoverFleet {
     this.decals.instanceMatrix.needsUpdate = true;
     // picking reads fresh bounds: the rovers moved
     this.mesh.boundingSphere = null;
-    const sel = this.selected === null ? undefined : this.rovers.find((r) => r.id === this.selected);
+    const sel = this.selected === null ? undefined : this.drawn.find((r) => r.id === this.selected);
     this.ring.visible = !!sel;
     if (sel) {
       const pulse = 1 + 0.06 * Math.sin(this.clock * 3);
@@ -379,25 +568,25 @@ export class RoverFleet {
   /** The rover under a ray (its roster id), and how far along the ray. */
   pick(raycaster: THREE.Raycaster): { id: number; d: number } | null {
     const hit = raycaster.intersectObject(this.mesh, false).find((h) => h.instanceId !== undefined);
-    const r = hit ? this.rovers[hit.instanceId!] : undefined;
+    const r = hit ? this.drawn[hit.instanceId!] : undefined;
     return r ? { id: r.id, d: hit!.distance } : null;
   }
 
   /** Where a rover is drawn (world), or null if it is away or unknown. */
   pose(id: number): { x: number; y: number; z: number; yaw: number } | null {
-    const r = this.rovers.find((x) => x.id === id);
+    const r = this.drawn.find((x) => x.id === id);
     return r ? { x: r.x, y: this.hf.sample(r.x, r.z), z: r.z, yaw: r.yaw } : null;
   }
 
   /** Every drawn rover's position (screen-space picking of a small target). */
   poses(): { id: number; x: number; y: number; z: number }[] {
-    return this.rovers.map((r) => ({ id: r.id, x: r.x, y: this.hf.sample(r.x, r.z) + 0.8, z: r.z }));
+    return this.drawn.map((r) => ({ id: r.id, x: r.x, y: this.hf.sample(r.x, r.z) + 0.8, z: r.z }));
   }
 
   /** Rooster tails behind moving rovers and print dust at working ones,
    *  nearest the camera first. */
   emitters(cam: THREE.Vector3, out: { e: DustEmitter; d: number }[]) {
-    for (const r of this.rovers) {
+    for (const r of this.drawn) {
       const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw);
       const d = Math.hypot(r.x - cam.x, r.z - cam.z);
       if (r.v > 0.6) {
@@ -422,12 +611,12 @@ export class RoverFleet {
   sounds(cam: THREE.Camera, focus: THREE.Vector3 | null = null): RoverSound[] {
     const out = this.soundList;
     out.length = 0;
-    if (!this.rovers.length) return out;
+    if (!this.drawn.length) return out;
     const p = cam.position;
     const lift = focus ? LISTENER_LIFT * p.distanceTo(focus) : 0;
     this.right.setFromMatrixColumn(cam.matrixWorld, 0);
-    for (let i = 0; i < this.rovers.length; i++) {
-      const r = this.rovers[i];
+    for (let i = 0; i < this.drawn.length; i++) {
+      const r = this.drawn[i];
       const dx = r.x - p.x, dy = this.hf.sample(r.x, r.z) + 0.6 - p.y, dz = r.z - p.z;
       const d = focus ? Math.hypot(r.x - focus.x, r.z - focus.z, lift) : Math.hypot(dx, dy, dz);
       const pan = (dx * this.right.x + dy * this.right.y + dz * this.right.z) / Math.max(d, 1);
@@ -449,8 +638,35 @@ export class RoverFleet {
       positions: this.rovers.map((r) => [Math.round(r.x * 10) / 10, Math.round(r.z * 10) / 10]),
       ids: this.rovers.map((r) => r.id),
       sites: this.rovers.map((r) => r.site),
+      /** where each is headed (its spot), and the legs left to it */
+      spots: this.rovers.map((r) => (r.spot ? [Math.round(r.spot.x * 10) / 10, Math.round(r.spot.z * 10) / 10] : null)),
+      /** m of way left to its slot (0: there) */
+      legs: this.rovers.map((r) => Math.round(Math.max(0, Traffic.end(r.agent) - r.agent.s) * 10) / 10),
+      /** parked inside its dock (not drawn) */
+      inside: this.rovers.map((r) => r.inside),
+      drawn: this.drawn.length,
+      yaws: this.rovers.map((r) => Math.round(r.yaw * 100) / 100),
       selected: this.selected,
       ring: this.ring.visible,
     };
   }
+}
+
+/** What the slots depend on: the structures and sites, the roads (their
+ *  revision), the roster and the road jobs. */
+export function spotSignature(s: GameState): string {
+  let k = `${s.roadRev ?? 0}|`;
+  for (const b of s.buildings) k += `${b.id}:${b.type}:${b.gx},${b.gz},${b.rot}:${(b.construction ?? 0) > 0 ? 1 : 0};`;
+  k += '|';
+  for (const r of s.rovers ?? []) k += `${r.id}:${r.home}:${r.site}:${r.road ?? ''};`;
+  return `${k}|${s.survey?.active?.rover ?? ''}`;
+}
+
+/** The traffic's road cells from the state (on change only). */
+export function syncGround(t: Traffic, s: GameState) {
+  const sig = `${s.roadRev ?? 0}:${s.roads?.length ?? 0}`;
+  if (sig === t.roadSignature) return;
+  const cells: [number, number][] = [];
+  for (const c of s.roads ?? []) if (isOpen(c)) cells.push([c.gx, c.gz]);
+  t.setRoads(sig, cells);
 }

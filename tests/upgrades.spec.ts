@@ -17,7 +17,7 @@ async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
 }
 
-test('data: 125 techs, each with a visual line, a generated pro and con, relevant wherever it shows', async ({ page }) => {
+test('data: 129 techs, each with a visual line, a generated pro and con, relevant wherever it shows', async ({ page }) => {
   await start(page, 'mare');
   const r = await page.evaluate(async () => {
     const T = await import('/src/data/techs.ts');
@@ -50,7 +50,7 @@ test('data: 125 techs, each with a visual line, a generated pro and con, relevan
       irrelevant,
     };
   });
-  expect(r.n).toBe(125); // docs/12's 92, the Builder's 12, docs/14's 19 destiny techs … and the rest
+  expect(r.n).toBe(129); // docs/12's 92, the Builder's 12, docs/14's 19 destiny techs, docs/15's 4 road tiers … and the rest
   expect(r.noVisual).toEqual([]);
   expect(r.noPro).toEqual([]);
   expect(r.noCon).toEqual([]);

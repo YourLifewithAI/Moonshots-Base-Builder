@@ -66,6 +66,7 @@ A quick key used throughout:
 | **[12-tree-expansion.md](12-tree-expansion.md)** | Tree expansion | 47 → 92 techs in small steps, eras about twice as long, the 4-tech charter, every tech's visual and the building upgrades that show it, the tree fit for ~100 techs, pacing results and the techSchema 3 migration. |
 | **[13-automation-spec.md](13-automation-spec.md)** | Construction automation spec | The Builder: build orders, standing rules per building family (signals, thresholds, hysteresis, caps, reserves), site choice, the 12-tech automation ladder, UI, tick order, determinism, save format, tests and pacing impact. |
 | **[14-destiny-tracks.md](14-destiny-tracks.md)** | Destiny tracks | One page per era, a Colony-or-Automation pick per era (the landing is the first), bands and capstones, each path's hazards, the look of each ending, pacing and the techSchema 4 migration. |
+| **[15-roads.md](15-roads.md)** | Roads | The road network the robots drive: doors and auto spurs, field structures without roads, the road tool, excavators on haul roads, lane traffic and its deadlock breaker, the roadway research ladder, the save migration. |
 
 ---
 

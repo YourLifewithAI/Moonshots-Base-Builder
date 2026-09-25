@@ -139,12 +139,22 @@
 .bld-btn .icon { font-size: 17px; line-height: 22px; }
 .bld-btn .nm { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; line-height: 13px; margin-top: 3px; }
 .bld-btn .cost { font-size: 10px; margin-top: 3px; color: rgba(var(--paper-rgb), var(--op-muted)); }
+/* building it now would leave too few metals for the first smelter: a
+   caution mark on the cost line (value and a glyph, never hue) */
+.bld-btn.strands { border-style: dotted; }
+.bld-btn.strands .cost { color: var(--paper); font-weight: 600; }
+.bld-btn.strands .cost::after { content: ' ⚠'; }
 
 /* inside the palette column, above the cards: it can never cover them */
-:is(#place-hint, #fleet-hint) { padding: 6px 12px; font-size: 12px; text-align: center; }
+:is(#place-hint, #fleet-hint, #road-hint) { padding: 6px 12px; font-size: 12px; text-align: center; }
+#road-hint .blocked, #road-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
+#palette .cats .road-btn { margin-left: 6px; }
 :is(#place-hint, #fleet-hint) .blocked { color: var(--paper); font-weight: 600; }
 #place-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
+#place-hint .caution-act { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 2px; font-size: 11px; }
+#tooltip .caution { color: var(--paper); font-weight: 600; }
 :is(#place-hint, #fleet-hint) .deposit-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; }
+#place-hint .road-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; font-size: 11px; }
 
 /* regolith panel: the excavators' last dig as a stacked bar (segments are
    labelled; alternating fill separates neighbours) */

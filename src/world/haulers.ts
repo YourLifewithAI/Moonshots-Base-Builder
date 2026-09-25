@@ -13,21 +13,29 @@
  *  freezes it. */
 import * as THREE from 'three';
 import { HAUL } from '../data/balance';
-import { haulSpeed } from '../core/haul';
-import type { GameState } from '../core/state';
+import { digsHome, haulSpeed } from '../core/haul';
+import type { GameState, HaulState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
 import { litChannel } from '../buildings/buildingShader';
+import { pathLength } from '../core/paths';
+import { cellAt, roadRoute, routePoints } from '../core/roads';
 import { materials } from './materials';
-import { blobTexture } from './rovers';
+import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
+import { Traffic, WHOLE, pointAt, type Agent, type Driver } from './traffic';
 
 const MAX = 48;
 const TURN = 2.2;          // rad/s: tracks turn on the spot
+const CATCH = 1.6;         // × haul speed: the most a digger drives to catch up with the sim
+const GAIN = 1.5;          // 1/s: how hard it closes the gap
+const LAG_S = 12;          // s of driving a digger may trail the sim (held up in traffic) before it is set down there
 const PI = Math.PI;
+/** the body: 3.8 m wide, from 1.9 m behind its origin to the wheel 4.3 m ahead */
+export const DIGGER_BODY = { hw: 1.9, front: 4.3, back: 1.9 };
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -41,9 +49,40 @@ interface Digger {
   v: number;
   away: boolean;
   digging: boolean;
+  /** where the sim is along the agent's way (its goal), m */
+  target: number;
+  /** the sim's leg it last took on (a new one extends the way) */
+  leg: string;
+  /** the sim drives now (m/s along the way), 0 while it digs or unloads */
+  simV: number;
+  /** game-seconds of sim time this frame against the visuals' (≥ 1: slow frames) */
+  pace: number;
+  /** the pad's heading, whether the sim has it digging on its pad, the pad's centre */
+  padYaw: number;
+  homeDig: boolean;
+  pad: [number, number];
+  /** where the sim has it now (a jump lands here) */
+  simX: number; simZ: number;
+  /** the heading it turns (or pivots) to */
+  aim: number;
+  /** backing off for another: until when (sim time) it waits before heading on */
+  yieldUntil: number;
+  agent: Agent;
 }
 
-export class Haulers {
+/** The sim's leg as a way: the whole route (or, from an old save, what is left of it). */
+function legOf(h: HaulState): [number, number][] {
+  if (h.route?.length) return h.route.map(([x, z]): [number, number] => [x, z]);
+  return [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
+}
+const legKey = (h: HaulState) => {
+  const t = h.route?.length ? h.route : null;
+  const f = (v: number) => v.toFixed(2);
+  return t ? `${f(t[0][0])},${f(t[0][1])}>${f(t[t.length - 1][0])},${f(t[t.length - 1][1])}#${t.length}`
+    : `old>${h.path.length ? `${f(h.path[h.path.length - 1][0])},${f(h.path[h.path.length - 1][1])}` : `${f(h.x)},${f(h.z)}`}`;
+};
+
+export class Haulers implements Driver {
   readonly group = new THREE.Group();
   private mesh: THREE.InstancedMesh;
   private decals: THREE.InstancedMesh;
@@ -65,8 +104,13 @@ export class Haulers {
   darkOf?: (id: number) => number;
   /** the recipe's upgrade key the mesh was built with (the same parts as the pad's) */
   private key = '';
+  /** the sim clock at the last frame: time the visuals missed is caught up, or jumped */
+  private lastSim: number | null = null;
+  private speed = HAUL.speed;
+  /** the most any digger has trailed the sim since the last read, game-seconds */
+  private lagMax = 0;
 
-  constructor(private hf: Heightfield) {
+  constructor(private hf: Heightfield, private traffic?: Traffic) {
     this.mesh = new THREE.InstancedMesh(withInstanceState(recipeGeometry('excavator'), MAX),
       materials.get('building'), MAX);
     this.mesh.receiveShadow = true;
@@ -87,9 +131,18 @@ export class Haulers {
   }
 
   /** Per frame: `dt` game seconds (0 while paused); `frac` the part of the
-   *  next economy second already gone, so a driving digger is drawn where the
-   *  sim will have it, not where it stood at the last tick. */
+   *  next economy second already gone, so a driving digger heads for where
+   *  the sim will have it, not where it stood at the last tick. Then the
+   *  traffic step moves it (or the fallback, alone) and finish() shows it. */
   update(dt: number, state: GameState, sunLight: number, frac = 0) {
+    this.sync(dt, state, frac);
+    if (!this.traffic) for (const v of this.all.values()) this.jump(v);
+    this.finish(dt, sunLight);
+  }
+
+  /** Before the traffic step: follow the sim — its legs extend each digger's
+   *  way, its position sets how far along the digger should be. */
+  sync(dt: number, state: GameState, frac = 0, night = false) {
     // research grows parts on the excavator: the digger wears them too (a
     // swap keeps the per-instance attributes, as the building instances do)
     const key = upgradeKey('excavator', state.techsDone);
@@ -99,47 +152,269 @@ export class Haulers {
       old.dispose();
       this.key = key;
     }
+    this.state = state;
+    const simDelta = this.lastSim === null ? Infinity : state.simTime - this.lastSim;
+    this.lastSim = state.simTime;
+    // sim time the visuals were not shown (debug advances, a load, a long
+    // stall): jump; a slow frame's shortfall is driven faster instead
+    const jumped = simDelta < 0 || (dt <= 0 ? simDelta > 1e-6 : simDelta - dt > 3);
+    const pace = dt > 0 ? clamp(simDelta / dt, 1, 5) : 1;
     const seen = new Set<number>();
-    const speed = haulSpeed(state.techsDone);
+    const speed = this.speed = haulSpeed(state.techsDone) * roadSpeedFor(state.techsDone, night, true);
     for (const b of state.buildings) {
       const h = b.haul;
       if (b.type !== 'excavator' || !h || (b.construction ?? 0) > 0) continue;
       seen.add(b.id);
-      const [px, pz] = centerOf(b);
+      const pad = centerOf(b);
       const padYaw = -b.rot * PI / 2;
-      // where the sim has it, advanced along its path by the tick fraction
-      let x = h.x, z = h.z, want: number | null = null;
-      const driving = (h.phase === 'toDig' || h.phase === 'toDrop') && h.path.length > 0;
-      if (driving) {
-        let left = b.active ? speed * clamp(frac, 0, 1) : 0;
-        for (const [tx, tz] of h.path) {
-          const d = Math.hypot(tx - x, tz - z);
-          if (d > 1e-6) want = Math.atan2(-(tz - z), tx - x);
-          if (left <= d) { if (d > 1e-6) { x += ((tx - x) / d) * left; z += ((tz - z) / d) * left; } break; }
-          left -= d;
-          x = tx;
-          z = tz;
-        }
-      }
+      const driving = (h.phase === 'toDig' || h.phase === 'toDrop') && h.path.length > 0 && b.active;
+      // how much of the leg the sim has left, advanced by the tick fraction
+      const rem = Math.max(0, pathLength(h.x, h.z, h.path) - (driving ? speed * clamp(frac, 0, 1) : 0));
       let v = this.all.get(b.id);
       if (!v) {
-        v = { id: b.id, powered: false, x, z, yaw: want ?? padYaw, v: 0, away: false, digging: false };
+        v = {
+          id: b.id, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: false, digging: false,
+          target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad, simX: h.x, simZ: h.z, aim: padYaw, yieldUntil: 0, agent: null!,
+        };
+        v.agent = {
+          kind: 'digger', id: b.id, key: b.id, x: h.x, z: h.z, fx: Math.cos(padYaw), fz: -Math.sin(padYaw),
+          hw: DIGGER_BODY.hw, front: DIGGER_BODY.front, back: DIGGER_BODY.back, wide: true, cls: 2,
+          pts: [], arcs: [], spans: [], s: 0, v: 0, vmax: 0, stop: 0, accel: 4, decel: 8,
+          standMode: WHOLE, held: new Map(), blocker: null, waited: 0, drv: this,
+        };
         this.all.set(b.id, v);
+        this.retrack(v, h, true);
+      } else if (jumped) {
+        this.retrack(v, h, true);
+      } else if (legKey(h) !== v.leg && state.simTime >= v.yieldUntil) {
+        this.retrack(v, h, false);
       }
-      const moved = Math.hypot(x - v.x, z - v.z);
-      v.v = dt > 0 ? Math.min(20, moved / dt) : 0;
-      v.x = x;
-      v.z = z;
+      const a = v.agent;
+      // backing off for another: out to the end of that way, then it waits
+      let yielding = state.simTime < v.yieldUntil;
+      v.target = yielding ? Traffic.end(a) : Math.max(0, Traffic.end(a) - rem);
+      // held up too long: set down where the sim has it, if that ground is free (never onto another)
+      let late = false;
+      if (!jumped && this.traffic && dt > 0 && v.target - a.s > LAG_S * speed) {
+        const way: [number, number][] = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
+        const yaw = way.length > 1 && Math.hypot(way[1][0] - h.x, way[1][1] - h.z) > 1e-6
+          ? Math.atan2(-(way[1][1] - h.z), way[1][0] - h.x) : h.phase === 'dig' && digsHome(b) ? padYaw : v.yaw;
+        if (this.traffic.boxFree(a, h.x, h.z, Math.cos(yaw), -Math.sin(yaw))) {
+          this.retrack(v, h, true);
+          v.yaw = v.aim = yaw;
+          a.fx = Math.cos(yaw); a.fz = -Math.sin(yaw);
+          v.yieldUntil = 0;
+          yielding = false;
+          v.target = Math.max(0, Traffic.end(a) - rem);
+          late = true;
+        }
+      }
+      if (jumped || late) {
+        // set down where the sim stood at its last tick (the ground checked free), then on as usual
+        a.s = 0;
+        const p = pointAt(a.pts, a.arcs, a.s);
+        v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
+        // digging its own pad: squared up on it, as the building instance draws it
+        if (h.phase === 'dig' && digsHome(b) && Math.hypot(h.x - pad[0], h.z - pad[1]) < 0.3) {
+          v.yaw = v.aim = padYaw;
+          a.fx = Math.cos(padYaw); a.fz = -Math.sin(padYaw);
+        }
+        this.traffic?.place(a);
+      }
+      v.simV = driving && !yielding ? speed : 0;
+      v.pace = pace;
+      v.pad = pad;
+      v.padYaw = padYaw;
+      v.homeDig = h.phase === 'dig' && digsHome(b);
       v.digging = h.phase === 'dig' && b.active;
       v.powered = b.enabled && b.idleReason !== 'power';
-      // tracks turn on the spot: heading follows the leg being driven
-      const home = Math.hypot(x - px, z - pz) < 0.3;
-      const face = want ?? (home && h.phase === 'dig' ? padYaw : null);
-      if (face !== null && dt > 0) v.yaw += clamp(wrap(face - v.yaw), -TURN * dt, TURN * dt);
-      // home on its pad and squared up: the building instance takes over
-      v.away = !home || Math.abs(wrap(padYaw - v.yaw)) > 0.02;
+      v.simX = h.x; v.simZ = h.z;
+      a.cls = h.phase === 'toDrop' || h.phase === 'unload' ? 3 : 2;
     }
     for (const id of [...this.all.keys()]) if (!seen.has(id)) this.all.delete(id);
+    this.traffic?.enlist('digger', [...this.all.values()].map((v) => v.agent));
+  }
+
+  private state: GameState | null = null;
+
+  /** A new sim leg: the way from where the digger is to the leg's start (the
+   *  rest of the way it drives, or a road route) and then the leg.
+   *  `fresh`: start over on the sim's position (a jump). */
+  private retrack(v: Digger, h: HaulState, fresh: boolean) {
+    const a = v.agent;
+    const leg = legOf(h);
+    v.leg = legKey(h);
+    if (fresh) {
+      const way: [number, number][] = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
+      v.x = h.x; v.z = h.z; a.x = h.x; a.z = h.z;
+      this.face(v, way);
+      this.traffic?.drop(a);
+      this.setWay(v, way);
+      return;
+    }
+    const head: [number, number][] = [[v.x, v.z]];
+    const [lx, lz] = leg[0];
+    // the leg begins where the sim stood: on the way ahead, normally
+    let joined = false;
+    if (a.pts.length > 1) {
+      let best = { u: Infinity, d: Infinity, i: 0 };
+      for (let i = 1; i < a.pts.length; i++) {
+        if (a.arcs[i] < a.s - 1e-6) continue;
+        const [ax, az] = a.pts[i - 1], [bx, bz] = a.pts[i];
+        const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+        const k = l2 > 1e-9 ? clamp(((lx - ax) * dx + (lz - az) * dz) / l2, 0, 1) : 0;
+        const d = Math.hypot(lx - ax - dx * k, lz - az - dz * k);
+        if (d < best.d - 1e-6) best = { u: a.arcs[i - 1] + Math.sqrt(l2) * k, d, i };
+      }
+      if (best.d < 1) {
+        for (let i = 1; i < a.pts.length; i++) if (a.arcs[i] > a.s + 1e-6 && a.arcs[i] < best.u - 1e-6) head.push(a.pts[i]);
+        joined = true;
+      }
+    }
+    if (!joined && this.state) {
+      const cells = roadRoute(this.state, cellAt(v.x, v.z), cellAt(lx, lz));
+      // no road from here to the leg (cut, or not open yet): it waits where it is
+      if (!cells) { v.leg = ''; return; }
+      head.push(...routePoints(cells).slice(1));
+    }
+    const way: [number, number][] = [];
+    for (const p of [...head, [lx, lz] as [number, number], ...leg.slice(1)]) {
+      const last = way[way.length - 1];
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.05) way.push([p[0], p[1]]);
+    }
+    this.setWay(v, way);
+  }
+
+  private setWay(v: Digger, way: [number, number][]) {
+    const a = v.agent;
+    if (this.traffic) this.traffic.setWay(a, way);
+    else {
+      a.pts = [way[0], ...way];
+      a.arcs = [0];
+      for (let i = 1; i < a.pts.length; i++) a.arcs.push(a.arcs[i - 1] + Math.hypot(a.pts[i][0] - a.pts[i - 1][0], a.pts[i][1] - a.pts[i - 1][1]));
+      a.s = 0;
+    }
+  }
+
+  /** Square to the way it starts on. */
+  private face(v: Digger, way: [number, number][]) {
+    if (way.length < 2) return;
+    const dx = way[1][0] - way[0][0], dz = way[1][1] - way[0][1];
+    if (Math.hypot(dx, dz) < 1e-6) return;
+    v.yaw = Math.atan2(-dz, dx);
+    v.agent.fx = Math.cos(v.yaw); v.agent.fz = -Math.sin(v.yaw);
+  }
+
+  /** No traffic step (it failed): each digger straight to where the sim has it. */
+  follow() { for (const v of this.all.values()) this.jump(v); }
+
+  /** Where the sim has it. */
+  private jump(v: Digger) {
+    const a = v.agent;
+    a.s = Math.min(v.target, Traffic.end(a));
+    const p = pointAt(a.pts, a.arcs, a.s);
+    if (Math.hypot(p.x - v.x, p.z - v.z) > 1e-4) v.yaw = Math.atan2(-p.dz, p.dx);
+    v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
+  }
+
+  // ── the traffic driver ──
+
+  prefer(a: Agent) {
+    const v = this.all.get(a.id)!;
+    const gap = v.target - a.s;
+    const cap = CATCH * this.speed * v.pace;
+    a.vmax = gap < 0.02 && v.simV === 0 ? 0 : clamp(v.simV * v.pace + GAIN * gap, 0, cap);
+    a.stop = Math.min(v.target, Traffic.end(a));
+    // tracks: forward along the way, backing straight out, or a pivot on the spot
+    const end = Traffic.end(a);
+    const there = a.s >= end - 1e-3;
+    let want: number | null = null;
+    if (!there && a.vmax > 0) {
+      const p = pointAt(a.pts, a.arcs, a.s + 0.02);
+      want = Math.atan2(-p.dz, p.dx);
+    } else if (there && v.homeDig && Math.hypot(v.x - v.pad[0], v.z - v.pad[1]) < 0.3) {
+      want = v.padYaw;
+    }
+    if (want === null) { a.pivot = false; return; }
+    const fwd = Math.abs(wrap(want - v.yaw)), rev = Math.abs(wrap(want + PI - v.yaw));
+    if (fwd < 0.04) { a.reverse = false; a.pivot = false; v.aim = want; }
+    else if (rev < 0.04 && !there) { a.reverse = true; a.pivot = false; v.aim = want + PI; }
+    else {
+      // turn on the spot to face the way on (it backs up only where no turn is needed)
+      a.pivot = true;
+      a.reverse = false;
+      v.aim = want;
+      a.vmax = 0;
+    }
+  }
+
+  moved(a: Agent, dt: number) {
+    const v = this.all.get(a.id)!;
+    const p = pointAt(a.pts, a.arcs, a.s);
+    const moved = Math.hypot(p.x - v.x, p.z - v.z);
+    v.v = dt > 0 ? Math.min(20, moved / dt) : 0;
+    v.x = p.x; v.z = p.z;
+    a.x = p.x; a.z = p.z;
+    if (a.pivot) {
+      if (!a.pivotOk) return;
+      v.yaw += clamp(wrap(v.aim - v.yaw), -TURN * dt, TURN * dt);
+      if (Math.abs(wrap(v.aim - v.yaw)) < 0.04) { v.yaw = v.aim; a.pivot = false; }
+    } else if (moved > 1e-6) {
+      // along the way: the heading of the piece it drives; a turn waits for a pivot
+      const yaw = a.reverse ? Math.atan2(p.dz, -p.dx) : Math.atan2(-p.dz, p.dx);
+      if (Math.abs(wrap(yaw - v.yaw)) < 0.2 && (this.traffic?.boxFree(a, v.x, v.z, Math.cos(yaw), -Math.sin(yaw)) ?? true)) v.yaw = yaw;
+    }
+    a.fx = Math.cos(v.yaw); a.fz = -Math.sin(v.yaw);
+  }
+
+  /** Back off along the way it came until its body is clear of the others'
+   *  ways, wait there a moment, then head on (true: it found such a place). */
+  yieldTo(a: Agent, others: Agent[]): boolean {
+    const v = this.all.get(a.id);
+    const t = this.traffic;
+    if (!v || !t || a.s <= 0) return false;
+    const avoid = new Set<number>();
+    for (const o of others) for (const k of t.claimOf(o, 40)) avoid.add(k);
+    // walk back a metre at a time: every cell passed must be free, the stop clear of their ways
+    for (let u = a.s - 1; u >= 0; u -= 1) {
+      const cells = t.cellsAt(a, u);
+      if (cells.some((k) => t.heldByOther(a, k) && !avoid.has(k))) return false;
+      if (cells.some((k) => avoid.has(k))) continue;
+      // back to arc u: the way reversed from here
+      const back: [number, number][] = [[v.x, v.z]];
+      for (let i = a.pts.length - 1; i >= 1; i--) if (a.arcs[i] < a.s - 1e-6 && a.arcs[i] > u + 1e-6) back.push(a.pts[i]);
+      const p = pointAt(a.pts, a.arcs, u);
+      back.push([p.x, p.z]);
+      if (back.length < 2 || Math.hypot(back[0][0] - p.x, back[0][1] - p.z) < 0.5) return false;
+      this.setWay(v, back);
+      a.reverse = true;
+      v.yieldUntil = (this.state?.simTime ?? 0) + 4;
+      v.leg = ''; // after the wait it takes up the sim's leg again from where it stands
+      return true;
+    }
+    return false;
+  }
+
+  /** Set down where the sim has it, if that ground is free (never onto another unit). */
+  rescue(a: Agent) {
+    const v = this.all.get(a.id);
+    const h = this.state?.buildings.find((b) => b.id === a.id)?.haul;
+    const t = this.traffic;
+    if (!v || !h || !t) return;
+    const yaw = v.yaw;
+    if (!t.boxFree(a, h.x, h.z, Math.cos(yaw), -Math.sin(yaw))) return;
+    this.retrack(v, h, true);
+    v.target = Traffic.end(a) - Math.max(0, pathLength(h.x, h.z, h.path));
+  }
+
+  /** After the traffic step: which diggers are away from their pads, then draw. */
+  finish(dt: number, sunLight: number) {
+    for (const v of this.all.values()) {
+      const home = Math.hypot(v.x - v.pad[0], v.z - v.pad[1]) < 0.3;
+      // home on its pad and squared up: the building instance takes over
+      v.away = !home || Math.abs(wrap(v.padYaw - v.yaw)) > 0.02;
+      if (dt > 0) this.lagMax = Math.max(this.lagMax, Math.max(0, v.target - v.agent.s) / this.speed);
+    }
     this.drawn = [...this.all.values()].filter((v) => v.away).slice(0, MAX);
     const sig = this.drawn.map((v) => v.id).join(',');
     if (sig !== this.awaySig) {
@@ -228,6 +503,8 @@ export class Haulers {
     }
   }
 
+  private takeLag() { const l = this.lagMax; this.lagMax = 0; return l; }
+
   info() {
     return {
       count: this.all.size,
@@ -239,7 +516,13 @@ export class Haulers {
       material: (this.mesh.material as THREE.Material).type,
       poses: [...this.all.values()].map((v) => ({
         id: v.id, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, yaw: Math.round(v.yaw * 1000) / 1000, digging: v.digging, away: v.away,
+        /** m the digger trails the sim along its track */
+        lagM: Math.round((v.target - v.agent.s) * 100) / 100,
+        s: Math.round(v.agent.s * 100) / 100, end: Math.round(Traffic.end(v.agent) * 100) / 100,
+        pivot: !!v.agent.pivot, reverse: !!v.agent.reverse, way: v.agent.pts.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
       })),
+      /** the most any digger trailed the sim since the last read, game-seconds of driving */
+      lagMaxS: Math.round(this.takeLag() * 100) / 100,
     };
   }
 }

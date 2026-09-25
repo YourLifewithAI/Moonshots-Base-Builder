@@ -17,7 +17,7 @@
  *                  classic shader that fails is replaced by a stock one. */
 import * as THREE from 'three';
 
-export type MaterialKey = 'building' | 'buildingDepth' | 'terrain' | 'rock' | 'ghost' | 'dust';
+export type MaterialKey = 'building' | 'buildingDepth' | 'terrain' | 'rock' | 'ghost' | 'dust' | 'road';
 
 /** Installs a shader patch on its material for an FX level. Returns a cache
  *  key naming the variant, or null when that level runs the stock shader. */

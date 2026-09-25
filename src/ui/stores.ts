@@ -187,7 +187,16 @@ export const $destiny = atom<DestinyView>({
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
 /** note = the ghost's deposit line ('On high-Ti basalt — smelter feed ↑'), '' off deposits */
-export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string; note?: string } | null>(null);
+export const $placing = atom<{
+  type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string; note?: string;
+  /** the warning was clicked through once: the next click builds */
+  confirm?: boolean;
+  /** the road it would lay (cells), and the rover-seconds to sinter it */
+  road?: number;
+  roadS?: number;
+} | null>(null);
+/** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
+export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 /** a victory or defeat overlay is up: the world's screens and keys wait under it */

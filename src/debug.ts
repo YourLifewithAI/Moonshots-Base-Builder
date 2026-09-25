@@ -15,6 +15,8 @@ import { BUILDINGS } from './data/buildings';
 import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
+import { worldRect } from './core/paths';
+import { accessCell, doorCell, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 
 declare global {
@@ -177,6 +179,13 @@ function api(game: Game) {
     getFleet: () => clone(game.debugFleet()),
     /** screen position of a drawn rover (roster id) or excavator (building id) */
     poseOnScreen: (kind: 'rover' | 'digger', id: number) => game.debugPoseOnScreen(kind, id),
+    /** a structure's footprint in world metres ({ x0, z0, x1, z1 }), or null */
+    footprintOf: (id: number) => {
+      const b = game.state.buildings.find((x) => x.id === id);
+      if (!b) return null;
+      const { x0, z0, x1, z1 } = worldRect(b);
+      return { x0, z0, x1, z1 };
+    },
     // ── the Builder (docs/13) ──
     order: (type: BuildingId, count = 1, intent?: { res?: ResourceId; like?: number }) =>
       game.actions.push({ kind: 'order', type, count, intent }),
@@ -228,11 +237,44 @@ function api(game: Game) {
         ...t, colonyName: TECHS[t.colony].name, automationName: TECHS[t.automation].name,
       }])),
     }),
-    /** Complete every construction site now (one economy tick settles them). */
+    /** Complete every construction site now, and open every road (one economy tick settles them). */
     finishConstruction: () => {
-      for (const b of game.state.buildings) b.construction = 0;
+      for (const b of game.state.buildings) { b.construction = 0; b.spur = []; }
+      openAll(game.state);
       game.debugAdvance(1);
     },
+    /** the road tool as N starts it, and what it holds */
+    beginRoadTool: () => game.beginRoadTool(),
+    cancelRoadTool: () => game.cancelRoadTool(),
+    getRoadTool: () => clone(game.debugRoadTool()),
+    /** from now on a placement's road is laid open, no sintering (tests that time builds) */
+    openRoads: (on = true) => { game.debugOpenRoads = on; },
+    /** open every road cell now (sites stay as they are) */
+    finishRoads: () => { openAll(game.state); game.publish(); },
+    /** each structure's way in by road (docs/15-roads.md): its door (fields: none),
+     *  the road cell it is reached by, and whether open road joins that to the Lander */
+    roadAccess: () => {
+      const s = game.state;
+      const lander = s.buildings.find((b) => b.type === 'lander');
+      const from = lander ? doorCell(lander) : null;
+      const served = servedFields(s);
+      const map = roadMap(s);
+      return s.buildings.filter((b) => b.type !== 'lander').map((b) => {
+        const door = doorCell(b);
+        const cell = accessCell(s, b);
+        return {
+          id: b.id, type: b.type, door, cell, served: served.has(b.id), spur: [...(b.spur ?? [])],
+          doorOpen: !!door && (map.get(door[1] * 256 + door[0])?.left ?? 1) <= 0,
+          linked: !!(from && cell && roadRoute(s, from, cell)),
+        };
+      });
+    },
+    /** the save as written, and a load of one (the migration tests) */
+    saveBlob: () => clone((game as unknown as { saveBlob(): unknown }).saveBlob()),
+    loadBlob: (blob: Parameters<Game['loadFrom']>[0]) => game.loadFrom(blob),
+    /** the road tool's actions: a road from an open road cell to a cell; remove cells */
+    layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
+    removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),
   };
 }
 
