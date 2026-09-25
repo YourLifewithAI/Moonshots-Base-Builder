@@ -8,7 +8,8 @@
  * getResearch, getLunar, getDeposits, canPlace, the building and site tables)
  * and acts only through public verbs — placeBuilding, research, surveyProspect,
  * claimOutpost, gradeAt, orderResupply, downlink, setOverclock, setAutomated,
- * buildNext, launch — and the clock. No grants, no completeTech, no setStats.
+ * buildNext, summonRover (an idle rover onto a long build, --fleet=off to
+ * skip), launch — and the clock. No grants, no completeTech, no setStats.
  * The bot runs inside the page (one evaluate per chunk), so a 160-min run takes
  * seconds. Two policies: 'reasonable' (reads milestone hints and alerts, builds
  * by need, reacts every 20 s) and 'attentive' (every 10 s; reserves research
@@ -34,6 +35,7 @@ const PORT = Number(opt('port', 5322));
 const OUT = opt('out', '');
 const PICK = Object.fromEntries(opt('pick', '').split(',').filter(Boolean).map((p) => p.split(':')));
 const QUIET = argv.includes('--quiet');
+const FLEET_VERBS = opt('fleet', 'on') !== 'off';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -104,8 +106,9 @@ async function installBot(cfg) {
     regolithShielding: ['neutronSpectrometry', 'sublimationTents'],
     thermalWadis: ['refluxColumns', 'cryoSampleStore', 'stackedCells', 'slagRecycling'],
     ilmeniteBeneficiation: ['mliBlankets'],
-    acceleratorDesign: ['braytonConverters', 'pressureTanks', 'waferPolishing', 'oreSorting', 'heatedAugers'],
-    cryoRadiators: ['toolChangers', 'wingExtensions', 'oxygenLiquefaction', 'immersionLitho', 'deployableRadiators', 'gravimetry'],
+    acceleratorDesign: ['braytonConverters', 'pressureTanks', 'waferPolishing', 'oreSorting', 'heatedAugers', 'roverAutonomy'],
+    cryoRadiators: ['toolChangers', 'wingExtensions', 'oxygenLiquefaction', 'immersionLitho', 'deployableRadiators', 'gravimetry',
+      'autonomousHaulage'],
     humanCohabitation: ['uplinkDishes', 'solidStateCells', 'highBurnupFuel', 'refractoryLinings', 'predictiveMaintenance'],
     conditionOptimization: ['bunkRacks', 'growLights', 'nutrientRecirculation', 'galleyGarden', 'liquidCooling', 'rackDensification'],
     massDriver: ['rollToRoll', 'foilAnnealing', 'superconductingBus', 'laserRanging', 'lowGCourt'],
@@ -524,6 +527,18 @@ async function installBot(cfg) {
     }
   }
 
+  // an idle rover goes to the longest build under way (the inspector's
+  // Summon): the site keeps it until it is done
+  function decideFleet() {
+    if (!cfg.fleet) return;
+    const free = (s.bots?.total ?? 0) - (s.bots?.busy ?? 0);
+    if (free <= 0) return;
+    const crew = (id) => (s.rovers ?? []).filter((r) => r.site === id).length;
+    const long = sitesPending().filter((b) => b.enabled && b.idleReason === 'building' && b.construction > 90 && crew(b.id) < 3)
+      .sort((a, b) => b.construction - a.construction);
+    if (long.length) { G.summonRover(long[0].id); act('summon', long[0].type); }
+  }
+
   function decideOverclock() {
     if (!P.overclock || !done('dynamicClocking')) return;
     const d = day();
@@ -742,6 +757,7 @@ async function installBot(cfg) {
         decideMap();
         decideBuilds();
         decideOverclock();
+        decideFleet();
         nextDecision = s.simTime + P.every;
       }
       G.advanceGameSeconds(5);
@@ -857,7 +873,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     const q = `?debug&nolock&lowfx&seed=${seed}&site=${run.site}${run.exp === 'robotic' ? '&exp=robotic' : ''}`;
     await page.goto(`http://127.0.0.1:${PORT}/${q}`);
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
-    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK });
+    const info = await page.evaluate(installBot, { ...run, seed, pick: PICK, fleet: FLEET_VERBS });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · picks ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {
       const r = await page.evaluate((n) => window.__bot.step(n), Math.min(10, MINUTES - m));

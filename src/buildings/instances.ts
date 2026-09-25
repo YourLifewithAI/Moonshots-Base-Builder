@@ -100,6 +100,8 @@ export class BuildingInstances {
   onShadowCastersChanged?: () => void;
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
+  /** buildings drawn elsewhere: an excavator away from its pad (world/haulers.ts) */
+  private hidden = new Set<number>();
   /** classic style: per-instance light levels, contact decals */
   private readonly classic = classicActive();
   private decals: ContactDecals | null = null;
@@ -150,6 +152,13 @@ export class BuildingInstances {
       this.pools = new ClassicFloods(hf);
       this.group.add(this.decals.mesh, this.pools.mesh);
     }
+  }
+
+  /** Leave these pads empty (their diggers are out); re-syncs at once. */
+  setHidden(ids: ReadonlySet<number>) {
+    if (ids.size === this.hidden.size && [...ids].every((id) => this.hidden.has(id))) return;
+    this.hidden = new Set(ids);
+    if (this.last) this.rebuild(this.last);
   }
 
   /** The base's lights run in the shader patches (floods + windows). */
@@ -279,8 +288,9 @@ export class BuildingInstances {
     for (const type of types) sig += this.rebuildType(state, type);
 
     sig += `|keys:${[...this.keys.values()].join(';')}`;
+    // a digger out on its haul leaves its pad unlit: no flood, pool or disc
     const lit = state.buildings.filter((b) =>
-      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled);
+      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled && !this.hidden.has(b.id));
     this.litIds = lit.map((b) => b.id);
     this.litAt = lit.map((b) => {
       const [x, z] = centerOf(b);
@@ -337,7 +347,8 @@ export class BuildingInstances {
     this.litList = lit;
     this.pools?.rebuild(lit);
     if (this.classic) this.refreshGlow();
-    this.decals?.rebuild(state);
+    // …and no contact decal (the haulers draw one under the moving digger)
+    this.decals?.rebuild(this.hidden.size ? { ...state, buildings: state.buildings.filter((b) => !this.hidden.has(b.id)) } : state);
 
     this.rebuildScaffold(state);
   }
@@ -409,9 +420,10 @@ export class BuildingInstances {
       const total = b.buildTotal ?? 0;
       const progress = remaining > 0 && total > 0 ? 1 - remaining / total : 1;
       // patched: printed bottom-up at full size; stock: rises squashed from the pad
-      const sy = progress >= 1 || reveal ? 1 : 0.12 + 0.88 * progress;
+      const sy = this.hidden.has(b.id) ? 0 : progress >= 1 || reveal ? 1 : 0.12 + 0.88 * progress;
       const cut = progress >= 1 || !reveal ? CUT_NONE : progress * topY;
-      mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(1, sy, 1));
+      const sxz = this.hidden.has(b.id) ? 0 : 1;
+      mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(sxz, sy, sxz));
       mesh.setMatrixAt(i, mat);
       const powered = progress >= 1 && b.enabled && b.idleReason !== 'power';
       const color = progress < 1 && !reveal ? BuildingInstances.DIM

@@ -23,8 +23,27 @@ export const WALK_SPEED = 3.0;         // m/s lope
 export const EYE_HEIGHT = 1.7;
 export const PLAYER_RADIUS = 0.5;
 
-export const CONSTRUCTION_KW = 4;      // grid draw per active construction site
-export const CONSTRUCTION_PARTS_PER_S = 0.04; // welding consumables per active site
+export const CONSTRUCTION_KW = 4;      // grid draw per working construction rover
+export const CONSTRUCTION_PARTS_PER_S = 0.04; // welding consumables per site, one rover's pace
+
+/** construction rovers (core/fleet.ts): n rovers at one site build n^rateExp
+ *  times as fast as one (2 → ×1.80, 3 → ×2.54, 4 → ×3.25), each drawing its
+ *  own CONSTRUCTION_KW; a build's weld parts stay the same, drawn faster */
+export const FLEET = { rateExp: 0.85 };
+
+/** the Regolith Excavator's haul cycle (core/haul.ts). A bucket of `bucket`
+ *  regolith at nameplate (it grows with the excavator's output multipliers)
+ *  takes digS to fill and unloadS to tip at a consumer; the digger drives at
+ *  `speed` m/s. Tuned so a dig 15 m from its consumer delivers the old static
+ *  1.5▲/s (next door +9%, 30 m −8%, 60 m −21%, 140 m −42%): far ground pays
+ *  in tonnage for its richer feed. */
+export const HAUL = {
+  bucket: 105, digS: 60, unloadS: 4, speed: 5,
+  /** the feed grade is an EMA over deliveries: a load of amt moves it amt / (amt + feedMemory) */
+  feedMemory: 210,
+  /** m kept off walls when planning (the digger is ~8 m long); unload stand-off from a wall */
+  clear: 3.5, unloadOut: 4.5,
+};
 export const GRADE_COST_ENERGY = 40;   // stored energy per 16x16 m grading pass
 export const GRADE_REGOLITH_YIELD = 6; // spoil recovered per pass
 export const GRADE_CELLS = 4;          // grading footprint, cells

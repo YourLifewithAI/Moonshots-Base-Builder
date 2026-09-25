@@ -285,11 +285,12 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
     };
     await inView();
     const order0 = (await page.locator('#insp-order').boundingBox()) as Box;
-    // alerts come and go while it is open: the buttons hold still
-    const before = (await state(page)).alerts.length;
+    // alerts come and go while it is open: the buttons hold still. (Wait for
+    // the new alert itself: a count can hold still while an info event fades
+    // out in real time as it arrives.)
     await g(page, 'grantResources', { food: -1000 });
     await g(page, 'advanceGameSeconds', 3);
-    await expect.poll(async () => (await state(page)).alerts.length).toBeGreaterThan(before);
+    await expect.poll(async () => (await state(page)).alerts.some((a: any) => a.text.startsWith('FOOD DEPLETED'))).toBe(true);
     await frames(page, 4);
     expect(await page.locator('#insp-order').boundingBox()).toEqual(order0);
 
@@ -434,14 +435,14 @@ test('live numbers: robots per Bay, construction kW and round-trip loss follow t
   await g(page, 'setPaused', true);
   const panel = page.locator('#res-panel');
   await page.locator('#resource-strip .chip[data-key="bots"]').click();
-  await expect(panel).toContainText('+2 robots');
+  await expect(panel).toContainText('+2 rovers');
   await expect(panel).toContainText('draws 4 kW');
-  // Swarm Robotics: a third robot per Bay, and 1.5× the construction draw
+  // Swarm Robotics: a third rover per Bay, and 1.5× the construction draw
   await g(page, 'completeTech', 'swarmRobotics');
-  await expect(panel.locator('.row', { hasText: 'Robotics Bay' })).toContainText('+3 robots');
+  await expect(panel.locator('.row', { hasText: 'Robotics Bay' })).toContainText('+3 rovers');
   await expect(panel).toContainText('draws 6 kW');
   await page.locator('#resource-strip .chip[data-slot="power"]').click();
-  await expect(panel).toContainText('Construction sites pull 6 kW each');
+  await expect(panel).toContainText('Construction sites pull 6 kW per working rover');
   await expect(panel).toContainText('15% round-trip loss');
   await g(page, 'completeTech', 'regenFuelCells');
   await expect(panel).toContainText('40% round-trip loss');

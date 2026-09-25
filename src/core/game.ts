@@ -26,9 +26,13 @@ import {
 } from './research';
 import { fmtClock } from './daynight';
 import {
-  abandonOutpost, claimOutpost, depositRevealed, depositsView, forceOutposts, lunarView, revealDeposits,
-  startSurvey, strikeEffect, type LunarUi,
+  abandonOutpost, claimOutpost, depositRevealed, depositsView, forceOutposts, groundMapped, lunarView, revealDeposits,
+  revealRadiusM, startSurvey, strikeEffect, type LunarUi,
 } from './exploration';
+import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
+import { digAtHome, digRefusal, setDigSite } from './haul';
+import { fleetView, groundName } from './fleetView';
+import { FleetTarget } from '../player/fleetTarget';
 import { Heightfield, type Deposit } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
@@ -62,6 +66,7 @@ import {
   $iceOverlay, $lookAt, $lander, $lostMission, $lunar, $menuOpen, $milestones, $mode, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
+  $fleet, $fleetTarget, $roverSel,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -138,6 +143,8 @@ export class Game {
   private buildCam: CommandCam;
   private walk!: WalkController;
   private modes!: ModeManager;
+  /** Send to… / Dig at… (player/fleetTarget.ts) */
+  private fleetTarget!: FleetTarget;
 
   private playing = false;
   private econAcc = 0;
@@ -235,6 +242,7 @@ export class Game {
     // pre-place the Lander at the map heart and pad the ground under it
     const gx = 126, gz = 126;
     this.commitPlace('lander', gx, gz, 0, true);
+    fleetRefresh(this.state, this.mods); // the Lander's rovers, before the first tick
     this.syncDeposits(false);
     this.homeCamera(false);
     this.introPending = true;
@@ -320,6 +328,17 @@ export class Game {
     this.overlays = new BaseOverlays(this.hf);
     this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
     this.instances.panelDust = (b) => this.life.panelDust(b);
+    // an excavator away from its pad is drawn by the haulers, not the pad instance
+    this.life.haulers.onAway = (ids) => this.instances.setHidden(ids);
+    this.life.haulers.darkOf = (id) => this.instances.darkness.of(id);
+    this.fleetTarget?.cancel();
+    this.fleetTarget = new FleetTarget({
+      state: () => this.state, mods: () => this.mods, hf: this.hf,
+      ray: () => { this.raycaster.setFromCamera(this.mouse, this.camera); return this.raycaster.ray; },
+      pickBuilding: () => { this.raycaster.setFromCamera(this.mouse, this.camera); return this.instances.pick(this.raycaster); },
+      push: (a) => this.actions.push(a),
+    });
+    $roverSel.set(null);
     this.walk = new WalkController(this.hf);
     this.walk.boulders = this.rocks.colliders();
     this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
@@ -330,7 +349,7 @@ export class Game {
     }, this.classic ? { fov: ISO_FOV, near: 20, far: 5000 } : undefined);
     this.worldGroup = new THREE.Group();
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
-      this.overlays.group, this.life.group);
+      this.overlays.group, this.life.group, this.fleetTarget.group);
     for (const c of this.depositOverlay?.children ?? []) (c as THREE.LineSegments).geometry.dispose();
     this.depositOverlay = null;
     this.revealedIds = new Set();
@@ -391,6 +410,7 @@ export class Game {
       if (moved > 5) return; // drag = camera, not click
       if (e.button === 0) this.onWorldClick(e.shiftKey);
       if (e.button === 2 && this.placement.active) this.cancelPlacement();
+      if (e.button === 2 && this.fleetTarget.active) this.fleetTarget.cancel();
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     this.canvas.addEventListener('click', () => {
@@ -446,8 +466,10 @@ export class Game {
         case 'Escape':
           // one thing at a time: placement, the inspector, a resource panel —
           // and with nothing left to cancel, the menu
-          if (this.placement.active) this.cancelPlacement();
+          if (this.fleetTarget.active) this.fleetTarget.cancel();
+          else if (this.placement.active) this.cancelPlacement();
           else if ($selection.get()) $selection.set(null);
+          else if ($roverSel.get() !== null) $roverSel.set(null);
           else if ($depositSel.get()) $depositSel.set(null);
           else if ($announce.get()[0]?.kind === 'tech') $announce.set($announce.get().slice(1));
           else if ($resourcePanel.get()) $resourcePanel.set(null);
@@ -455,8 +477,10 @@ export class Game {
           break;
         case 'KeyF': {
           const sel = $selection.get();
-          if (this.modes.mode !== 'build' || !sel) break;
-          const [x, z] = centerOf(sel);
+          const rover = $roverSel.get();
+          if (this.modes.mode !== 'build' || (!sel && rover === null)) break;
+          const at = sel ? this.life.haulers.pose(sel.id) : this.life.rovers.pose(rover!);
+          const [x, z] = at ? [at.x, at.z] : sel ? centerOf(sel) : [0, 0];
           this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
           break;
         }
@@ -501,6 +525,7 @@ export class Game {
 
   /** `keep` (Shift held): stay in placing mode after this building */
   private onWorldClick(keep = false) {
+    if (this.fleetTarget.active) { this.fleetTarget.click(); return; }
     if (this.placement.active) {
       const p = this.placement.probe!;
       if (!p.valid) {
@@ -518,17 +543,66 @@ export class Game {
       }
       return;
     }
-    // selection
+    // selection: the nearest of a rover, a hauling excavator and a structure
     this.raycaster.setFromCamera(this.mouse, this.camera);
-    const id = this.instances.pick(this.raycaster);
-    const b = id !== null ? this.state.buildings.find((x) => x.id === id) ?? null : null;
+    const hit = this.pickWorld();
+    if (hit?.rover !== undefined) { this.selectRover(hit.rover); return; }
+    const b = hit?.building !== undefined ? this.state.buildings.find((x) => x.id === hit.building) ?? null : null;
+    $roverSel.set(null);
     $selection.set(b ? { ...b } : null);
   }
+
+  /** Under the ray: a rover (by instance, or within a few pixels on screen —
+   *  they are small), a digger away from its pad, or a structure. */
+  private pickWorld(): { rover?: number; building?: number } | null {
+    const rover = this.life.rovers.pick(this.raycaster);
+    const digger = this.life.haulers.pick(this.raycaster);
+    const id = this.instances.pick(this.raycaster);
+    const hits = this.raycaster.intersectObjects(this.instances.group.children, false);
+    const bd = id !== null
+      ? hits.find((h) => h.instanceId !== undefined && h.object.userData.buildingType)?.distance ?? 0 : Infinity;
+    type Hit = { d: number; v: { rover?: number; building?: number } };
+    const cands: Hit[] = [];
+    if (rover) cands.push({ d: rover.d - 0.5, v: { rover: rover.id } });
+    if (digger) cands.push({ d: digger.d, v: { building: digger.id } });
+    if (id !== null) cands.push({ d: bd, v: { building: id } });
+    const best = cands.sort((x, y) => x.d - y.d)[0];
+    if (best?.v.rover !== undefined) return best.v;
+    // a rover within 14 px of the click beats open ground (never a structure hit)
+    if (!best) {
+      let near: number | null = null, nd = 14;
+      for (const p of this.life.rovers.poses()) {
+        const at = this.screenOf(p.x, p.y, p.z);
+        const d = Math.hypot(at.x - this.mousePx.x, at.y - this.mousePx.y);
+        if (at.visible && d < nd) { nd = d; near = p.id; }
+      }
+      if (near !== null) return { rover: near };
+    }
+    return best?.v ?? null;
+  }
+
+  /** open the rover inspector (null closes it); a building selection closes */
+  selectRover(id: number | null) {
+    if (id !== null && !this.state.rovers.some((r) => r.id === id)) id = null;
+    if (id !== null) $selection.set(null);
+    $roverSel.set(id);
+  }
+
+  /** Send to… (a rover) or Dig at… (an excavator): the next click picks the target. */
+  beginFleetTarget(mode: { kind: 'send'; rover: number } | { kind: 'dig'; id: number }) {
+    if (this.modes.mode !== 'build') return;
+    this.cancelPlacement();
+    this.fleetTarget.begin(mode);
+  }
+
+  cancelFleetTarget() { this.fleetTarget?.cancel(); }
 
   beginPlacement(type: PlaceableType) {
     if (this.modes.mode !== 'build') return;
     if (type === 'grade' && !this.mods.grading) return;
+    this.fleetTarget.cancel();
     $selection.set(null);
+    $roverSel.set(null);
     this.placement.begin(type, this.state.techsDone);
     // where you dig is a production decision: show the ground
     if (type === 'iceHarvester' || type === 'excavator') $depositOverlay.set(true);
@@ -566,6 +640,7 @@ export class Game {
   /** open the inspector on a building (null closes it) */
   select(id: number | null) {
     const b = id === null ? undefined : this.state.buildings.find((x) => x.id === id);
+    if (b) $roverSel.set(null);
     $selection.set(b ? { ...b } : null);
   }
 
@@ -694,6 +769,33 @@ export class Game {
         else if (r.wasLive) this.mods = modsFor(s); // its link load and any KREEP modifier go with it
         break;
       }
+      case 'summonRover': {
+        const r = summonRover(s, a.site);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      case 'releaseRover': {
+        const r = releaseRover(s, a.site);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      case 'sendRover': {
+        const r = sendRover(s, a.rover, a.site);
+        if (!r.ok) alert(s, `CANNOT SEND — ${r.reason}`, 'warn');
+        break;
+      }
+      case 'unpinRover': {
+        const r = unpinRover(s, a.rover);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      case 'digAt': this.digAt(a.id, a.x, a.z); break;
+      case 'digHome': {
+        const b = s.buildings.find((x) => x.id === a.id);
+        if (!b || b.type !== 'excavator') break;
+        digAtHome(s, this.mods, b);
+        break;
+      }
       case 'dismissAlert': {
         // a dismissed condition keeps quiet a while instead of returning next tick
         const al = s.alerts.find((x) => x.id === a.id);
@@ -750,11 +852,35 @@ export class Game {
     }
   }
 
-  /** b.deposit: the deposit under the footprint centre (placement and load) */
+  /** b.deposit: the deposit under the footprint centre (placement and load);
+   *  an excavator's is the ground it digs, its pad's kept in its haul */
   private stampDeposit(b: BuildingState) {
     const kind: DepositKind | undefined = this.hf.depositAt(...centerOf(b))?.kind;
+    const h = b.type === 'excavator' ? b.haul : undefined;
+    if (h) {
+      if (kind) h.pad = kind; else delete h.pad;
+      const dug = this.hf.depositAt(h.digX, h.digZ)?.kind;
+      if (dug) b.deposit = dug; else delete b.deposit;
+      return;
+    }
     if (kind) b.deposit = kind;
     else delete b.deposit;
+  }
+
+  /** Dig at…: point an excavator at mapped ground (refused with the reason). */
+  private digAt(id: number, x: number, z: number) {
+    const s = this.state;
+    const b = s.buildings.find((o) => o.id === id);
+    const tier = this.mods.surveyTier;
+    const dep = this.hf.depositAt(x, z);
+    const known = dep && depositRevealed(s, dep, tier) ? dep : null;
+    const why = digRefusal(s, SITES[s.siteId], b, x, z, groundMapped(s, x, z, tier) || !!known, revealRadiusM(tier));
+    if (why || !b) { alert(s, `CANNOT DIG THERE — ${why}`, 'warn'); return; }
+    setDigSite(s, this.mods, b, x, z);
+    this.stampDeposit(b);
+    const [hx, hz] = centerOf(b);
+    alert(s, `DIG SITE SET — ${BUILDINGS[b.type].name} #${b.id} digs ${groundName(b.deposit)} ` +
+      `${Math.round(Math.hypot(x - hx, z - hz))} m from its pad`, 'info', { select: b.id });
   }
 
   /** Building on unmapped ground finds out what it is: PROSPECT STRUCK. */
@@ -1187,6 +1313,7 @@ export class Game {
     if (!tweening) {
       if (this.modes.mode === 'build') {
         this.buildCam.update(dt);
+        if (this.fleetTarget.active) this.fleetTarget.update();
         if (this.placement.active) {
           this.raycaster.setFromCamera(this.mouse, this.camera);
           this.placement.update(this.state, this.mods.unlocked,
@@ -1295,7 +1422,9 @@ export class Game {
     this.life.update({
       dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
       sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
+      tickFrac: this.econAcc,
     });
+    this.life.rovers.selected = $roverSel.get();
     sfx.setRovers(this.life.rovers.sounds(this.camera, onFoot ? null : this.buildCam.target));
 
     // autosave (real time)
@@ -1517,11 +1646,15 @@ export class Game {
     let agentRun = 0;
     let sites = 0;
     let welding = 0;
+    let weldParts = 0;
     let upkeep = 0;
     for (const b of s.buildings) {
       if ((b.construction ?? 0) > 0) {
         sites++;
-        if (b.idleReason === 'building') welding++;
+        if (b.idleReason === 'building') {
+          welding++;
+          weldParts += crewParts(this.mods, s.rovers.filter((r) => r.site === b.id).length);
+        }
         continue;
       }
       beds += effectiveDef(b.type, this.mods).housing ?? 0;
@@ -1535,7 +1668,7 @@ export class Game {
       expedition: s.expedition ?? 'human',
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
       lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
-      sites, welding, upkeep, surveying: s.survey.active ? 1 : 0,
+      sites, welding, weldParts, upkeep, surveying: s.survey.active ? 1 : 0,
     });
     $lander.set({
       resupplyPending: s.resupply?.pending ?? false,
@@ -1586,6 +1719,10 @@ export class Game {
     }
     $counts.set(counts);
     $rates.set({ ...(s.rates ?? {}) });
+    const tier = this.mods.surveyTier;
+    $fleet.set(fleetView(s, this.mods, site, this.hf.deposits, (d) => depositRevealed(s, d, tier)));
+    const rv = $roverSel.get();
+    if (rv !== null && !s.rovers.some((r) => r.id === rv)) $roverSel.set(null);
     const sel = $selection.get();
     if (sel) {
       const live = s.buildings.find((b) => b.id === sel.id);
@@ -1934,6 +2071,19 @@ export class Game {
   }
 
   debugDeposits() { return depositsView(this.state, this.hf.deposits, this.mods.surveyTier); }
+  /** the $fleet payload, fresh */
+  debugFleet() {
+    const tier = this.mods.surveyTier;
+    return fleetView(this.state, this.mods, SITES[this.state.siteId], this.hf.deposits, (d) => depositRevealed(this.state, d, tier));
+  }
+  /** Where a rover or an excavator is drawn, on screen (CSS px) and in the world. */
+  debugPoseOnScreen(kind: 'rover' | 'digger', id: number) {
+    const p = kind === 'rover' ? this.life.rovers.pose(id) : this.life.haulers.pose(id);
+    if (!p) return null;
+    return { ...this.screenOf(p.x, p.y + (kind === 'rover' ? 0.8 : 1.5), p.z), wx: p.x, wz: p.z };
+  }
+  /** the targeting mode on now (null = none), as the hint shows it */
+  debugFleetTarget() { return { mode: this.fleetTarget.modeInfo, hint: $fleetTarget.get() }; }
   debugLunar() { return lunarView(this.state, this.mods, this.lunarUi); }
   debugDepositAt(x: number, z: number) { return this.hf.depositAt(x, z); }
   /** every deposit struck, as if surveyed on foot */

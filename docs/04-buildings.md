@@ -17,13 +17,16 @@ intent only; their numbers are targets for the balancing pass when they land.
 - **Brownout priority** (0–3): under power shortage the grid sheds priority 3
   first (labs), then industry, then food, and life support (0) last. Idling
   only priority 2–3 loads is a *load shed* (morale −3); a dark priority 0–1
-  load is a *brownout* (morale −15). Construction sites weld (4 kW) at their
-  building's priority, after running loads of the same priority; a site held
-  dark is shed load, never a brownout.
-- **Construction**: one robot per site, in placement order unless *Build next*
-  moves a queued site to the front. A shut-down site pauses and frees its
-  robot. Demolition refunds half the site-scaled price paid, or all of it for
-  a site no robot has touched.
+  load is a *brownout* (morale −15). Construction sites weld (4 kW per
+  working rover) at their building's priority, after running loads of the
+  same priority; a site held dark is shed load, never a brownout.
+- **Construction**: auto rovers take one site each, in placement order unless
+  *Build next* moves a queued site to the front. A shut-down site pauses and
+  frees its auto rover. More rovers on one site — *Summon* at the site, or
+  *Send to…* from a selected rover, each pinned until the site is built —
+  build n^0.85 faster on the same weld parts (02, the construction fleet).
+  Demolition refunds half the site-scaled price paid, or all of it for a site
+  no rover has touched.
 - **Placement**: 4 m grid cells, within 60 m of the Lander or any Habitat
   (coverage model, Cities: Skylines — no wires, no pipes).
 
@@ -44,7 +47,7 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
 |---|---|---|---|---|---|
-| Regolith Excavator (1) | S | no crew (teleoperated from the start), −6 kW → 1.5 regolith/s | Highest dust wear on the base (halved by Dust Mitigation) | Feeds every industry on the Moon | Thrown dust abrades everything — the highest parts wear on the base |
+| Regolith Excavator (1) | S | no crew (teleoperated from the start), −6 kW → a 105-regolith bucket per haul (≈1.5/s dug 15 m from its consumer) | A mobile digger: its pad is home; *Dig at…* sends it to any revealed deposit or mapped ground, and it hauls each bucket to the nearest smelter or refinery (the Lander if none), credited on unload — far ground delivers less but sets a richer feed. Highest dust wear on the base (halved by Dust Mitigation) | Feeds every industry on the Moon | Thrown dust abrades everything — the highest parts wear on the base |
 | Ice Harvester (1) | S | 1 crew, −8 kW → 0.4 water/s | Ice sites only (`requiresIce`) | Water from permanently shadowed ice — the pole's great gift | Useless anywhere without polar ice deposits |
 | HRI Ilmenite Reduction Plant (1) | M | regolith (ilmenite-rich) → iron/titanium + **oxygen** | The oxygen-rich half of the merged Smelter; strongest on mare sites | Breathes for the base as a side effect of making metal | Feeble on ilmenite-poor highland and KREEP regolith |
 | MRE Electrolyzer (2) | M | any regolith + heavy power → metals + oxygen trickle | The site-agnostic half of the merged Smelter | Eats any dirt on the Moon — no geology required | Power cost per ton is brutal; the night hits it first |
@@ -145,12 +148,12 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Solar Array | 896 | 1,964 | 7 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
-| Regolith Excavator | 1,044 | 1,724 | 6 |
+| Regolith Excavator | 1,044 | 1,964 | 7 |
 | Ice Harvester | 1,288 | 1,680 | 3 |
 | Regolith Smelter | 1,204 | 2,492 | 9 |
 | Silicon Refinery | 2,348 | 3,192 | 5 |
 | Storage Yard | 956 | 956 | 0 |
-| Robotics Bay | 1,336 | 1,776 | 4 |
+| Robotics Bay | 1,336 | 2,086 | 5 |
 | Parts Fabricator | 1,048 | 1,264 | 2 |
 | Chip Fab | 1,144 | 1,924 | 8 |
 | Habitat Module | 1,576 | 2,136 | 4 |
@@ -216,6 +219,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
 | Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
+| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 240 |
 
 #### Ice Harvester
 
@@ -256,6 +260,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Swarm Robotics | 3 | Robotics Bays add a rooftop rack of swarm charging cradles. | 156 |
 | Heavy Constructors | 3 | Robotics Bays raise a heavy gantry crane. | 72 |
 | Self-Replicating Systems | 7 | Parts Fabricators and Robotics Bays grow replicator assembly arms. | 76 |
+| Rover Autonomy | 4 | Robotics Bays raise a navigation mast: a radar dome and the lidar heads the rovers plan their paths by. | 310 |
 | Predictive Maintenance | 6 | Robotics Bays raise a diagnostics mast with a beacon. | 136 |
 
 #### Parts Fabricator

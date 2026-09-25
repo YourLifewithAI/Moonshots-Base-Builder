@@ -333,6 +333,22 @@ const excavator: Upgrade[] = [
     ],
   },
   { tech: 'conditionOptimization', parts: () => [sensorMast(1.7, 1.6, -1.2, 1.3)] },
+  { // wider bucket lips round the wheel and a haul-road lidar bar on the cab
+    tech: 'autonomousHaulage',
+    parts: () => {
+      const out: Parts = [
+        box(0.1, 0.14, 1.5, TRIM, -0.22, 2.78, -0.4),
+        bar([-0.22, 2.4, -1.1], [-0.22, 2.72, -1.1], 0.05, TRIM), bar([-0.22, 2.4, 0.3], [-0.22, 2.72, 0.3], 0.05, TRIM),
+      ];
+      for (const z of [-0.95, -0.4, 0.15]) out.push(cyl(0.08, 0.08, 0.12, GLASS, -0.15, 2.78, z, 0, PI / 2, 8));
+      out.push(box(0.12, 0.05, 0.03, LAMP, -0.15, 2.9, -0.4));
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * PI * 2 + PI / 8;
+        out.push(box(0.26, 0.12, 0.72, PLATE, 2.9 + Math.cos(a) * 1.36, 1.45 + Math.sin(a) * 1.36, 0.7, 0, a));
+      }
+      return out;
+    },
+  },
 ];
 
 const habitat: Upgrade[] = [
@@ -611,6 +627,23 @@ const roboticsBay: Upgrade[] = [
       bar([2.1, 4.6, 0.3], [1.3, 3.9, 0.5], 0.1, TRIM),
       box(0.26, 0.26, 0.26, PLATE, 1.25, 3.75, 0.5),
     ],
+  },
+  { // a navigation mast: a radar dome and the lidar heads the rovers plan by
+    tech: 'roverAutonomy',
+    parts: () => {
+      const out: Parts = [
+        cyl(0.07, 0.1, 1.9, TRIM, 3.0, 4.05, -1.7, 0, 0, 8),
+        cyl(0.28, 0.32, 0.14, TRIM, 3.0, 3.17, -1.7, 0, 0, 10),
+        dome(0.3, BODY, 3.0, 5.0, -1.7, 10),
+        cyl(0.3, 0.3, 0.06, TRIM, 3.0, 5.0, -1.7, 0, 0, 10),
+        box(0.14, 0.05, 0.03, LAMP, 3.0, 4.7, -1.53),
+      ];
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * PI * 2;
+        out.push(cyl(0.07, 0.07, 0.1, GLASS, 3.0 + Math.cos(a) * 0.2, 4.55, -1.7 + Math.sin(a) * 0.2, 0, 0, 8));
+      }
+      return out;
+    },
   },
   { // a diagnostics mast with a beacon
     tech: 'predictiveMaintenance',

@@ -37,6 +37,15 @@ function nextStep(fx: TechEffect[]): string {
       case 'launchAction': return 'Launch collectors from the swarm meter at the top of the screen.';
       case 'automation': return 'Stations can run on agents now: toggle Crewed / Autonomous in their panels.';
       case 'grading': return 'Grade Site is in the Extraction tab: flatten rough ground for large buildings.';
+      // fleet control (core/fleet.ts, core/haul.ts): the verbs that make these pay
+      case 'construction':
+        if ((f.rateMult ?? 1) > 1) return 'Every rover builds faster now. To rush one build, select the site and Summon more rovers onto it.';
+        break;
+      case 'botPerBay':
+        if (f.delta > 0) return 'Each Robotics Bay docks another rover: select a site and Summon the spare ones onto the builds that matter.';
+        break;
+      case 'haul':
+        return 'Excavators drive faster and carry more: select one and Dig at… a rich deposit farther out — the long hauls gain most.';
       // beds and morale act at once; a cut (a con) asks nothing of the player
       case 'housing':
         if (f.delta > 0) return `Every ${BUILDINGS[f.building].name} sleeps ${f.delta} more at once — room for the next arrivals.`;

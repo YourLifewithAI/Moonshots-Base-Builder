@@ -141,10 +141,10 @@
 .bld-btn .cost { font-size: 10px; margin-top: 3px; color: rgba(var(--paper-rgb), var(--op-muted)); }
 
 /* inside the palette column, above the cards: it can never cover them */
-#place-hint { padding: 6px 12px; font-size: 12px; text-align: center; }
-#place-hint .blocked { color: var(--paper); font-weight: 600; }
+:is(#place-hint, #fleet-hint) { padding: 6px 12px; font-size: 12px; text-align: center; }
+:is(#place-hint, #fleet-hint) .blocked { color: var(--paper); font-weight: 600; }
 #place-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
-#place-hint .deposit-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; }
+:is(#place-hint, #fleet-hint) .deposit-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; }
 
 /* regolith panel: the excavators' last dig as a stacked bar (segments are
    labelled; alternating fill separates neighbours) */
@@ -171,25 +171,29 @@
 
 /* ── right: inspector — head and foot (every button) always in view, the
    stat body between them scrolls on a short screen ── */
-#inspector {
+:is(#inspector, #rover-inspector) {
   width: 280px; padding: 0; font-size: 12px;
   flex: 0 1 auto; min-height: 120px;
   display: flex; flex-direction: column; overflow: hidden;
 }
-#inspector .insp-head, #inspector .insp-foot { flex: 0 0 auto; }
-#inspector .insp-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; border-top: var(--hair); }
-#inspector .insp-foot { border-top: var(--hair); }
-#inspector section { padding: 10px 14px; border-top: var(--hair); }
-#inspector section:first-child { border-top: none; }
+:is(#inspector, #rover-inspector) .insp-head, :is(#inspector, #rover-inspector) .insp-foot { flex: 0 0 auto; }
+:is(#inspector, #rover-inspector) .insp-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; border-top: var(--hair); }
+:is(#inspector, #rover-inspector) .insp-foot { border-top: var(--hair); }
+:is(#inspector, #rover-inspector) section { padding: 10px 14px; border-top: var(--hair); }
+:is(#inspector, #rover-inspector) section:first-child { border-top: none; }
 /* the foot is compact: one-line buttons, tighter rhythm */
-#inspector .insp-foot section { padding: 7px 14px; }
-#inspector .insp-foot .prio { margin-top: 4px; }
-#inspector .insp-foot .btn { font-size: 11px; padding: 4px 9px; }
-#inspector .row { display: flex; justify-content: space-between; margin: 3px 0; }
-#inspector .prio { display: flex; gap: 4px; margin-top: 6px; }
-#inspector .prio .btn { padding: 3px 8px; font-size: 11px; }
-#inspector .actions { display: flex; gap: 6px; }
-#inspector .actions .btn { white-space: nowrap; }
+:is(#inspector, #rover-inspector) .insp-foot section { padding: 7px 14px; }
+:is(#inspector, #rover-inspector) .insp-foot .prio { margin-top: 4px; }
+:is(#inspector, #rover-inspector) .insp-foot .btn { font-size: 11px; padding: 4px 9px; }
+:is(#inspector, #rover-inspector) .row { display: flex; justify-content: space-between; margin: 3px 0; }
+:is(#inspector, #rover-inspector) .prio { display: flex; gap: 4px; margin-top: 6px; }
+:is(#inspector, #rover-inspector) .prio .btn { padding: 3px 8px; font-size: 11px; }
+:is(#inspector, #rover-inspector) .actions { display: flex; gap: 6px; }
+:is(#inspector, #rover-inspector) .actions .btn { white-space: nowrap; }
+
+#rover-inspector .actions { flex-wrap: wrap; }
+#inspector .dig-here { margin-left: 6px; padding: 2px 7px; font-size: 10px; }
+#inspector .btn:disabled { opacity: 0.4; cursor: default; }
 
 /* walk mode strips the HUD to a helmet readout */
 #hud-layer.mode-walk #res-panel,
@@ -199,7 +203,9 @@
 #hud-layer.mode-walk #palette,
 #hud-layer.mode-walk #era-chip,
 #hud-layer.mode-walk #inspector,
+#hud-layer.mode-walk #rover-inspector,
 #hud-layer.mode-walk #place-hint,
+#hud-layer.mode-walk #fleet-hint,
 #hud-layer.mode-walk #time-controls .row { display: none; }
 
 /* ── walk mode ── */

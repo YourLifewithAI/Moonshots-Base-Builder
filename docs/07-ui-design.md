@@ -87,6 +87,24 @@ price rises from the pad it was paid for, 1.4 s), and `#menu` (§12).
 Shift-click keeps placing; a plain click places once. A locked card opens
 the research tree on the tech that unlocks it.
 
+**Fleet control** (`ui/fleetPanel.ts`, `player/fleetTarget.ts`). Construction
+rovers are selectable: a click on one (by instance, or within 14 px on screen
+— they are small) opens `#rover-inspector` in the inspector's place, and the
+rover wears a ground ring. It reads the rover's orders (auto, pinned, lent to
+a survey), its dock and its site, and offers **➚ Send to…**, **Release to
+auto** when pinned, and **⌂ Dock**. A construction site's inspector carries
+`Rovers n (p pinned) · ×1.80 · 8 kW · 0:52 left` with **＋ Summon rover** and
+**− Release**, and what one more rover would buy. An excavator's shows its
+haul (`DIGGING high-Ti basalt · 63/131▲`, the route and ≈▲/min delivered),
+the three nearest revealed deposits with one-click **Dig here**, **⛏ Dig
+at…** and **⌂ Return home**. Send to… and Dig at… are targeting modes:
+`#fleet-hint` takes the placement hint's place above the palette with the
+cursor's target (`high-Ti basalt · 140 m · ≈52▲/min (now 88▲/min) · smelter
+feed ↑`, or `→ Solar Array #7 · 1 → 2 rovers · ×1.80 · 0:40 → 0:22 left`),
+a ring on the ground marks it (bright valid, faint refused — value, never
+hue), Dig at… turns the deposit overlay on, an invalid click flashes the
+reason, and Esc or right-click cancels.
+
 ## 5. The fixed tooltip template (`palette.ts: tooltipHtml`)
 
 Every building tooltip renders the same sections in the same order — the
@@ -303,8 +321,8 @@ rebuild freely.
 
 ## 12. Menu and sound (`menu.ts`, `audio/sfx.ts`)
 
-**Esc** closes one thing at a time — placement, the inspector, a resource
-panel, the tree — and with nothing left to cancel opens the mission menu
+**Esc** closes one thing at a time — a targeting mode, placement, the
+inspector, the rover inspector, a resource panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
 save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·

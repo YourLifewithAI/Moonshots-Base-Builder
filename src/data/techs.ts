@@ -1,4 +1,4 @@
-/** 90 technologies in 7 swimlanes × 8 eras — the robots-first arc of lunar
+/** 94 technologies in 7 swimlanes × 8 eras — the robots-first arc of lunar
  *  development (docs/11-research-and-map-spec.md §3, expanded by
  *  docs/12-tree-expansion.md). Era N opens with 4 of era N−1's techs, or 2
  *  plus that era's deed (ERA_GATES). Six doctrines are permanent either/or
@@ -14,7 +14,7 @@ import type { ProspectId } from './lunarMap';
 import type { GameState } from '../core/state';
 import {
   AGENT_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, DOWNLINK, FEED,
-  GRADE_COST_ENERGY, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
+  GRADE_COST_ENERGY, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
   MAX_SLOPE_LARGE, OVERCLOCK, SURVEY_TIERS,
 } from './balance';
 
@@ -38,10 +38,11 @@ export type TechId =
   // era 4 — chip fabrication
   | 'waferFab' | 'acceleratorDesign' | 'radHardProcess' | 'cleanroomRobotics' | 'orbitalProspector' | 'btVolcanicGlass'
   | 'braytonConverters' | 'pressureTanks' | 'mliBlankets' | 'waferPolishing' | 'oreSorting' | 'heatedAugers' | 'growLights'
+  | 'roverAutonomy'
   // era 5 — lunar compute
   | 'lunarDataCenter' | 'dynamicClocking' | 'cryoRadiators' | 'crewWellness'
   | 'wingExtensions' | 'deployableRadiators' | 'oxygenLiquefaction' | 'immersionLitho' | 'toolChangers'
-  | 'nutrientRecirculation' | 'gravimetry'
+  | 'nutrientRecirculation' | 'gravimetry' | 'autonomousHaulage'
   // era 6 — human habitation
   | 'humanCohabitation' | 'closedLoopLS' | 'safetyProtocols' | 'conditionOptimization' | 'scienceCrews'
   | 'farSideRelay' | 'btColdTrapChemistry'
@@ -93,6 +94,8 @@ export type TechEffect = EffectFilter & (
   | { kind: 'feedBonus'; deposit: FeedKind; mult: number }
   | { kind: 'housing'; building: BuildingId; delta: number }   // beds per building of that type
   | { kind: 'morale'; building: BuildingId; delta: number }    // morale while that building runs
+  /** excavator haul cycle: drive speed, and bucket size (its dig time grows with it) */
+  | { kind: 'haul'; speedMult?: number; bucketMult?: number }
 );
 export type TechEffectKind = TechEffect['kind'];
 
@@ -562,6 +565,17 @@ export const TECHS: Record<TechId, TechDef> = {
     visual: 'Chip Fabs gain a sealed wafer-transfer tunnel and a handling arm.',
     tradeoff: 'More robots for the parts budget.',
   },
+  roverAutonomy: {
+    id: 'roverAutonomy', era: 4, lane: 'robotics', name: 'Rover Autonomy', short: 'Rover Autonomy',
+    costData: 240, costGoods: { parts: 20 }, requires: ['constructionRobotics'],
+    effects: [
+      { kind: 'construction', rateMult: 1.25 },
+      { kind: 'construction', kwMult: 1.3 },
+    ],
+    desc: 'Onboard weld vision and path planning: each construction rover works without waiting on the 2.6 s round trip to Earth.',
+    visual: 'Robotics Bays raise a navigation mast: a radar dome and the lidar heads the rovers plan their paths by.',
+    tradeoff: 'A rover that thinks for itself runs its compute hot.',
+  },
   orbitalProspector: {
     id: 'orbitalProspector', era: 4, lane: 'exploration', name: 'Orbital Prospector', short: 'Orbital Prospector',
     costData: 240, costGoods: { chips: 5 }, requires: ['prospectingRovers', 'waferFab'],
@@ -690,6 +704,18 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Reject heat to a 3 K sky.',
     visual: 'Data Centers unfold a second tier of cryo radiator fins.',
     tradeoff: 'Acres of foil that micrometeorites love.',
+  },
+  autonomousHaulage: {
+    id: 'autonomousHaulage', era: 5, lane: 'robotics', name: 'Autonomous Haulage', short: 'Autonomous Haulage',
+    costData: 400, costGoods: { parts: 30 }, requires: ['roverAutonomy'],
+    effects: [
+      { kind: 'haul', speedMult: 1.3, bucketMult: 1.25 },
+      { kind: 'powerMult', buildings: ['excavator'], mult: 1.25 },
+      { kind: 'upkeepMult', buildings: ['excavator'], mult: 1.2 },
+    ],
+    desc: 'Excavators grade their own haul roads and carry bigger buckets: the far deposits come within reach.',
+    visual: 'Excavators widen their bucket lips and mount a haul-road lidar bar on the cab.',
+    tradeoff: 'Heavier loads, hungrier motors.',
   },
   crewWellness: {
     id: 'crewWellness', era: 5, lane: 'habitat', name: 'Crew Wellness Program', short: 'Crew Wellness',
@@ -1318,7 +1344,7 @@ function buildingLines(b: BuildingId, ctx: DescribeCtx): EffectLine[] {
   if (d.powerKW > 0) out.push(pro(`+${num(d.powerKW)} kW`, d.powerKW, 'kW'));
   if (d.storageKWh) out.push(pro(`stores ${d.storageKWh.toLocaleString('en-US')} energy`, d.storageKWh, 'count'));
   if (d.housing) out.push(pro(`houses ${d.housing}`, d.housing, 'count'));
-  if (d.bots) out.push(pro(`+${d.bots} robots`, d.bots, 'count'));
+  if (d.bots) out.push(pro(`+${d.bots} construction rovers`, d.bots, 'count'));
   if (d.moraleDelta && d.moraleDelta > 0) out.push(pro(`+${d.moraleDelta} morale`, d.moraleDelta, 'morale'));
   if (d.buildRadiusM) out.push(pro(`extends the build network ${d.buildRadiusM} m`, d.buildRadiusM, 'count'));
 
@@ -1412,7 +1438,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
     }
     case 'botPerBay': {
-      const text = `${fx.delta > 0 ? '+' : '−'}${Math.abs(fx.delta)} robot per Robotics Bay`;
+      const text = `${fx.delta > 0 ? '+' : '−'}${Math.abs(fx.delta)} construction rover per Robotics Bay`;
       return [fx.delta > 0 ? pro(text, fx.delta, 'count') : con(text, -fx.delta, 'count')];
     }
     case 'launchAction':
@@ -1444,7 +1470,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
     case 'construction': {
       const out: EffectLine[] = [];
       if (fx.rateMult !== undefined) {
-        const text = `each build ×${num(fx.rateMult)} speed per site`;
+        const text = `${pctDelta(fx.rateMult)} build rate per rover`;
         out.push(fx.rateMult >= 1 ? pro(text, mag(fx.rateMult), 'mult') : con(text, mag(fx.rateMult), 'mult'));
       }
       if (fx.partsMult !== undefined) {
@@ -1452,7 +1478,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
         out.push(fx.partsMult <= 1 ? pro(text, mag(fx.partsMult), 'mult') : con(text, mag(fx.partsMult), 'mult'));
       }
       if (fx.kwMult !== undefined) {
-        const text = `construction draw ×${num(fx.kwMult)} (${num(CONSTRUCTION_KW * fx.kwMult)} kW per active site)`;
+        const text = `construction draw ×${num(fx.kwMult)} (${num(CONSTRUCTION_KW * fx.kwMult)} kW per working rover)`;
         out.push(fx.kwMult <= 1 ? pro(text, mag(fx.kwMult), 'mult') : con(text, mag(fx.kwMult), 'mult'));
       }
       return out;
@@ -1499,7 +1525,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
           : fx.tier === 3 ? 'far side, +1 outpost slot'
           : 'subsurface prospects, +1 outpost slot, enables ATLAS';
         out.push(pro(`MAP T${fx.tier} ${t.label}: ${detail}`, fx.tier, 'count'));
-        if (fx.tier === 1) out.push(con('every survey borrows 1 robot for its duration', 1, 'use'));
+        if (fx.tier === 1) out.push(con('every survey borrows 1 rover (never a pinned one) for its duration', 1, 'use'));
       }
       if (fx.dataMult !== undefined) {
         out.push(pro(`survey data ×${num(fx.dataMult)}${fx.minCrew ? ` while ≥${fx.minCrew} crew are aboard` : ''}`,
@@ -1520,6 +1546,18 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       if (fx.day !== 1) {
         const text = `${pctDelta(fx.day)} draw by day`;
         out.push(fx.day < 1 ? pro(text, mag(fx.day), 'mult') : con(text, mag(fx.day), 'mult'));
+      }
+      return out;
+    }
+    case 'haul': {
+      const out: EffectLine[] = [];
+      if (fx.speedMult !== undefined) {
+        const text = `${pctDelta(fx.speedMult)} excavator haul speed`;
+        out.push(fx.speedMult >= 1 ? pro(text, mag(fx.speedMult), 'mult') : con(text, mag(fx.speedMult), 'mult'));
+      }
+      if (fx.bucketMult !== undefined) {
+        const text = `${pctDelta(fx.bucketMult)} excavator bucket (${num(HAUL.bucket * fx.bucketMult)}▲ a load)`;
+        out.push(fx.bucketMult >= 1 ? pro(text, mag(fx.bucketMult), 'mult') : con(text, mag(fx.bucketMult), 'mult'));
       }
       return out;
     }

@@ -134,29 +134,29 @@ test('feed grade: an excavator on high-Ti basalt lifts the smelter 30%', async (
   const off = await smelterRun(page, false);
   expect(off.excavator.deposit).toBeUndefined();
   expect(off.smelter.active).toBe(true);
-  expect(off.feed.plain).toBe(1);
+  expect(off.feed.plain).toBeCloseTo(1, 9);
   const on = await smelterRun(page, true);
   expect(on.excavator.deposit).toBe('ilmenite');
   expect(on.smelter.active).toBe(true);
-  // an instant share of what was dug, nothing smoothed
-  expect(on.feed.ilmenite).toBe(1);
+  // the delivered loads' share: every load came off the deposit
+  expect(on.feed.ilmenite).toBeCloseTo(1, 9);
   expect(on.feed.plain).toBe(0);
   expect(on.rate / off.rate).toBeGreaterThan(1.27);
   expect(on.rate / off.rate).toBeLessThan(1.33);
   // the inspector names the feed and the yield
   await page.evaluate((id) => window.__game.select(id), on.smelter.id);
-  await expect(page.locator('#insp-feed')).toHaveText('Feed (last dug): 100% high-Ti → yield +30%');
+  await expect(page.locator('#insp-feed')).toHaveText('Feed (recent loads): 100% high-Ti → yield +30%');
   // stats.ilmeniteDigS counts the excavator's seconds on the deposit
   const st = await page.evaluate(() => window.__game.getState());
   expect(st.stats.ilmeniteDigS).toBeGreaterThan(100);
-  // nothing dug keeps the last feed: shut the excavator down and tick on
+  // nothing delivered keeps the last feed: shut the excavator down and tick on
   const kept = await page.evaluate((id) => {
     const g = window.__game!;
     g.setEnabled(id, false);
     powered(20);
     return g.getState().feed;
   }, on.excavator.id);
-  expect(kept.ilmenite).toBe(1);
+  expect(kept.ilmenite).toBeCloseTo(1, 9);
 });
 
 test('deposit gating: ice must be confirmed, KREEP takes no habitat, a strike maps the ground', async ({ page }) => {

@@ -22,8 +22,9 @@ import type { BuildingState } from '../core/state';
 import { fmtClock } from '../core/daynight';
 import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
+import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
 import {
-  $feed, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
+  $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
   $vitals, spawnFloater,
 } from './stores';
 
@@ -132,21 +133,22 @@ export function tooltipHtml(type: BuildingId, locked: boolean, mods: Mods): stri
     ${never ? `<section><span class="label">✕ ${never}</span></section>` : ''}`;
 }
 
-/** 'Feed (last dug): 64% high-Ti · 8% highland → yield +17%' for the smelter
- *  and refinery inspector ('' for other buildings). */
+/** 'Feed (recent loads): 64% high-Ti · 8% highland → yield +17%' for the
+ *  smelter and refinery inspector ('' for other buildings): the excavators'
+ *  deliveries, weighted by amount (core/haul.ts). */
 function feedLine(game: Game, type: BuildingId, g: FeedGrade): string {
   if (type !== 'smelter' && type !== 'refinery') return '';
   if (type === 'smelter' && effectiveDef('smelter', game.mods).feedInsensitive) {
     return 'Feed: molten electrolysis melts any soil — the feed grade has no effect';
   }
   const dug = FEED_KINDS.filter((k) => g[k] > 0.005);
-  if (!dug.length) return 'Feed (last dug): nothing dug yet — excavators dig the ground they sit on';
+  if (!dug.length) return 'Feed (recent loads): nothing delivered yet — excavators haul what they dig to the nearest smelter or refinery';
   const shown = dug.filter((k) => k !== 'plain');
   const mix = (shown.length ? shown : dug).map((k) => `${Math.round(g[k] * 100)}% ${FEED_LABEL[k]}`).join(' · ');
   const pct = (f: number) => `${f >= 1 ? '+' : '−'}${Math.round(Math.abs(f - 1) * 100)}%`;
-  if (type === 'refinery') return `Feed (last dug): ${mix} → yield ${pct(refineryFeed(game.mods, g))}`;
+  if (type === 'refinery') return `Feed (recent loads): ${mix} → yield ${pct(refineryFeed(game.mods, g))}`;
   const f = smelterFeed(game.mods, g);
-  return `Feed (last dug): ${mix} → yield ${pct(f.all)}${f.o2 > 1.005 ? ` · O₂ ${pct(f.o2)}` : ''}`;
+  return `Feed (recent loads): ${mix} → yield ${pct(f.all)}${f.o2 > 1.005 ? ` · O₂ ${pct(f.o2)}` : ''}`;
 }
 
 export function mountPalette(root: HTMLElement, game: Game) {
@@ -306,7 +308,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'crew' ? 'IDLE — no crew'
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
-      : sel.idleReason === 'full' ? 'STANDBY — output full'
+      : sel.idleReason === 'full' ? (sel.type === 'excavator' ? 'STANDBY — waiting to unload: the store is full' : 'STANDBY — output full')
+      // an excavator's head says what it is doing: its body may scroll on a short screen
+      : sel.active && sel.type === 'excavator' && $fleet.get().hauls[sel.id] ? $fleet.get().hauls[sel.id].line
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
           ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''
@@ -367,6 +371,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     setText('insp-eta', `▲ Shipment en route — lands in ${fmtClock($lander.get().etaS)}`);
     setText('insp-feed', feedLine(game, sel.type, $feed.get()));
     setText('insp-oc', overclockLine(sel));
+    refreshFleet(insp, sel);
     const dl = insp.querySelector<HTMLButtonElement>('#insp-downlink');
     if (dl) {
       const t = downlinkText();
@@ -398,7 +403,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <span class="label" id="insp-status"></span></section></div>
       <div class="insp-body">
       <section>${ioRows(sel.type, game.mods, sel)}</section>
-      ${sel.deposit ? `<section><span class="label">◎ ${DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
+      ${sel.deposit ? `<section><span class="label">◎ ${sel.type === 'excavator'
+        ? DEPOSIT_INFO[sel.deposit].ghost.replace(/^On /, 'Digs ') : DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
+      ${fleetBodyHtml(sel)}
       ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
       <section>
         <span class="label">Condition <span class="mono" style="float:right" id="insp-cond"></span></span>
@@ -453,6 +460,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <span class="label">Robot queue — sites build in placement order</span>
         <div class="prio"><button class="btn" id="insp-buildnext">Build next</button></div>
       </section>` : ''}
+      ${fleetFootHtml(sel)}
       <section class="actions">
         ${!isLander ? `<button class="btn" id="insp-toggle">${conRemaining > 0
           ? (sel.enabled ? 'Pause' : 'Resume')
@@ -473,7 +481,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       site && sel.idleReason === 'queued', untouchedSite(sel),
       canToggleCrew(vit.expedition, vit.crew, $tech.get()), vit.expedition, vit.crew > 0,
       sel.deposit ?? '', lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
-      [...game.mods.actions].sort().join(','),
+      [...game.mods.actions].sort().join(','), fleetSig(sel),
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;
@@ -487,6 +495,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const btn = (e.target as HTMLElement).closest('button') as HTMLButtonElement | null;
     const sel = $selection.get();
     if (!btn || !sel) return;
+    if (fleetClick(game, btn, sel)) return;
     if (btn.classList.contains('prio-btn')) {
       game.actions.push({ kind: 'setPriority', id: sel.id, priority: Number(btn.dataset.p) as 0 | 1 | 2 | 3 });
       return;

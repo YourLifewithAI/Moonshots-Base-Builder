@@ -70,7 +70,9 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
 
   const before = await page.evaluate(() => window.__game.getState());
-  await page.evaluate(() => window.__game.advanceGameMinutes(2));
+  // the excavator stands at ~80 s; its first bucket lands at the Lander a
+  // haul cycle later (regolith is credited on unload)
+  await page.evaluate(() => window.__game.advanceGameMinutes(3));
   const after = await page.evaluate(() => window.__game.getState());
   expect(after.resources.regolith).toBeGreaterThan(before.resources.regolith);
   expect(after.power.supply).toBeGreaterThan(0);
@@ -86,7 +88,7 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // night on Mare with no batteries: industry idles by priority — the lander's
   // trickle keeps the small excavator alive; the hungry smelter goes dark.
   // Only priority-2 industry is idled, so this is load shedding, not a brownout
-  // t≈575s: the bank is spent, and the regolith yard not yet full (a full
+  // t≈630s: the bank is spent, and the regolith yard not yet full (a full
   // yard stands the excavator by, and the smelter then runs on its share)
   await page.evaluate(() => window.__game.advanceGameMinutes(3));
   const night = await page.evaluate(() => window.__game.getState());
@@ -718,15 +720,20 @@ test('net rates are the economy\'s smoothed flow; housing counts only powered be
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
   const flow = await page.evaluate(() => {
     const g = window.__game!;
-    g.advanceGameSeconds(110); // excavator digging since 48s; the average has settled
-    const s1 = g.getState();
-    g.advanceGameSeconds(30);
-    const s2 = g.getState();
+    // regolith lands a bucket at a time (credited on unload): measure one
+    // whole haul cycle, unload to unload, against the smoothed rate
+    const nextLoad = () => {
+      const r0 = g.getState().resources.regolith;
+      for (let i = 0; i < 200 && g.getState().resources.regolith <= r0 + 1; i++) g.advanceGameSeconds(1);
+      return g.getState();
+    };
+    const s1 = nextLoad(); // the first bucket, ~70 s after the excavator stands at 48 s
+    const s2 = nextLoad();
     g.advanceGameSeconds(20); // however far a probe skips, the rate stays per game-second
     const s3 = g.getState();
     return {
       r2: s2.rates.regolith, r3: s3.rates.regolith, regolith: s3.resources.regolith,
-      measured: (s2.resources.regolith - s1.resources.regolith) / 30,
+      measured: (s2.resources.regolith - s1.resources.regolith) / (s2.simTime - s1.simTime),
     };
   });
   expect(flow.regolith).toBeLessThan(290); // below the yard cap: nothing spilled
