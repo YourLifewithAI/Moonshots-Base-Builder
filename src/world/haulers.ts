@@ -18,7 +18,9 @@ import type { GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
 import { recipeGeometry } from '../buildings/recipes';
+import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
+import { litChannel } from '../buildings/buildingShader';
 import { materials } from './materials';
 import { blobTexture } from './rovers';
 import type { DustEmitter } from './dust';
@@ -31,6 +33,8 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 interface Digger {
   id: number;
+  /** complete, enabled, powered: its lamps and windows may light */
+  powered: boolean;
   x: number; z: number;
   /** rotation about +y, as a building's (−rot·π/2): local +x (the bucket wheel) leads */
   yaw: number;
@@ -57,9 +61,13 @@ export class Haulers {
   private sc = new THREE.Vector3();
   /** the pads to leave empty: diggers drawn here instead */
   onAway?: (ids: ReadonlySet<number>) => void;
+  /** how dark a structure stands (buildings/darkness.ts): its lights follow it out */
+  darkOf?: (id: number) => number;
+  /** the recipe's upgrade key the mesh was built with (the same parts as the pad's) */
+  private key = '';
 
   constructor(private hf: Heightfield) {
-    this.mesh = new THREE.InstancedMesh(withInstanceState(recipeGeometry('excavator').clone(), MAX),
+    this.mesh = new THREE.InstancedMesh(withInstanceState(recipeGeometry('excavator'), MAX),
       materials.get('building'), MAX);
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = false;
@@ -82,6 +90,15 @@ export class Haulers {
    *  next economy second already gone, so a driving digger is drawn where the
    *  sim will have it, not where it stood at the last tick. */
   update(dt: number, state: GameState, sunLight: number, frac = 0) {
+    // research grows parts on the excavator: the digger wears them too (a
+    // swap keeps the per-instance attributes, as the building instances do)
+    const key = upgradeKey('excavator', state.techsDone);
+    if (key !== this.key) {
+      const old = this.mesh.geometry;
+      this.mesh.geometry = withInstanceState(recipeGeometry('excavator', key), MAX, old);
+      old.dispose();
+      this.key = key;
+    }
     const seen = new Set<number>();
     const speed = haulSpeed(state.techsDone);
     for (const b of state.buildings) {
@@ -106,7 +123,7 @@ export class Haulers {
       }
       let v = this.all.get(b.id);
       if (!v) {
-        v = { id: b.id, x, z, yaw: want ?? padYaw, v: 0, away: false, digging: false };
+        v = { id: b.id, powered: false, x, z, yaw: want ?? padYaw, v: 0, away: false, digging: false };
         this.all.set(b.id, v);
       }
       const moved = Math.hypot(x - v.x, z - v.z);
@@ -114,6 +131,7 @@ export class Haulers {
       v.x = x;
       v.z = z;
       v.digging = h.phase === 'dig' && b.active;
+      v.powered = b.enabled && b.idleReason !== 'power';
       // tracks turn on the spot: heading follows the leg being driven
       const home = Math.hypot(x - px, z - pz) < 0.3;
       const face = want ?? (home && h.phase === 'dig' ? padYaw : null);
@@ -159,6 +177,18 @@ export class Haulers {
     this.mesh.instanceMatrix.needsUpdate = true;
     this.decals.instanceMatrix.needsUpdate = true;
     this.mesh.boundingSphere = null;
+    // its lights as the pad's would be: the lit channel 0 / 2 + k, and classic's window level
+    const g = this.mesh.geometry;
+    const st = g.getAttribute('iState') as THREE.InstancedBufferAttribute;
+    const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
+    for (let i = 0; i < n; i++) {
+      const v = this.drawn[i];
+      const k = this.darkOf?.(v.id) ?? 0;
+      st.setX(i, this.darkOf ? litChannel(v.powered, k) : v.powered ? 1 : 0);
+      glow?.setX(i, v.powered ? (this.darkOf ? k : -1) : 0);
+    }
+    st.needsUpdate = true;
+    if (glow) glow.needsUpdate = true;
   }
 
   /** The digger under a ray (its building id) and how far along the ray. */
@@ -202,9 +232,13 @@ export class Haulers {
     return {
       count: this.all.size,
       away: this.drawn.map((v) => v.id),
+      key: this.key,
+      triangles: (this.mesh.geometry.index ? this.mesh.geometry.index.count : this.mesh.geometry.getAttribute('position').count) / 3,
+      lit: this.drawn.map((_, i) => (this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute).getX(i)),
+      dark: this.drawn.map((v) => this.darkOf?.(v.id) ?? null),
       material: (this.mesh.material as THREE.Material).type,
       poses: [...this.all.values()].map((v) => ({
-        id: v.id, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, digging: v.digging, away: v.away,
+        id: v.id, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, yaw: Math.round(v.yaw * 1000) / 1000, digging: v.digging, away: v.away,
       })),
     };
   }

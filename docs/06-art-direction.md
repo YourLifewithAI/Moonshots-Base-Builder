@@ -11,6 +11,20 @@ and the art items deliberately deferred. Every number here is quoted from the
 implementation (`src/world/*`, `src/terrain/*`, `src/buildings/*`,
 `src/player/*`); if code and doc disagree, the code wins.
 
+**Two render styles.** The game draws in one of two styles, chosen in the
+Esc menu (Graphics → Style) and fixed for a session:
+
+- **Classic** — *the default*: flat colours on faceted Lambert, a fixed
+  isometric camera in the SimCity 2000/3000 manner, no post chain, no
+  shadow map. Made to run well on any GPU and any browser. §12.
+- **High detail** — the Apollo-photograph look this document describes in
+  §1–11: PBR-monochrome, AgX, N8AO, bloom, fitted sun shadows, shader
+  patches on the FX ladder, the free orbit camera.
+
+Everything below §12 is the High detail path unless it says otherwise;
+the procedural geometry (terrain heights, the building kit, the things that
+move) is shared.
+
 ---
 
 ## 1. Design thesis: physics over filters
@@ -112,8 +126,8 @@ One sun, one fill, the base's own lamps, and a suit lamp on foot:
 | Sun | `DirectionalLight #fffdf8`, intensity **5.4** (physically hot; AgX rolls it off) |
 | Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
 | Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 1.0 (night)** (the eye adapting) |
-| Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy |
-| Night floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
+| Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy. Night only: a shadowed crater by day keeps the day's earthshine and bounce |
+| Floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2 × the structure's darkness *k*; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
 | Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
 | Headlamp | camera-mounted `SpotLight #fff6ea`, **16 cd** at full night, range 40 m, cone 0.52 rad, penumbra 0.6, decay 2, 0.12 m above the eye and aimed ~23° under the gaze; no shadow. Always in the scene (constant light count — a light joining would recompile every lit program), intensity 0 except on foot, ramped in over night factor 0.25 → 0.75 |
 | Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
@@ -151,29 +165,57 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   throw Apollo-black shadow at low sun, and a solar array the economy marks
   as terrain-shaded now visibly sits in shadow.
 
-### Night lighting (`world/floodlights.ts`, `buildings/instances.ts`)
+### The base's own light (`buildings/darkness.ts`, `world/floodlights.ts`, `buildings/instances.ts`)
 
-At night the base lights itself, and only where the grid is live:
+Wherever it stands dark the base lights itself, not only at night: at the
+pole the sun sits a few degrees up and the rim's shadow covers the base while
+the clock says day. It lights only where the grid is live:
 
+- **Darkness per structure, *k* ∈ 0..1** (`buildings/darkness.ts`, visual
+  only and renderer-independent: `darkness.of(id)`). The target is the
+  largest of the night factor; the sky, 1 once the sun has set (1 − the
+  sun's light), and a grazing sun counting partly dark, **0.5 at 2°** of
+  elevation and below, easing to **0 by 8°** (walls catch it, the ground
+  barely does); and terrain shadow, a march through the heightfield toward
+  the sun from **mid-height** of the structure (reach 900 m, about what the
+  shadow map holds) on the game's 0.5 s shading pass. *k* follows its
+  target with a **0.5 s** time constant of real time, so lights fade over a
+  second or two instead of popping, paused or not. `b.shaded` stays the
+  economy's solar test; nothing the sim reads changes.
 - **Floods are shader data**, not scene lights: one `uniform vec4
-  uFlood[32]` (xyz = lamp, w = reach) evaluated in the terrain, rock and
-  building patches — `N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Pools drape over
-  slopes and crater walls (no flat discs cutting through the ground), and
-  never jump between buildings while the camera pans.
+  uFlood[32]` (xyz = lamp, w = reach + darkness) evaluated in the terrain,
+  rock and building patches: `k × N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Each
+  slot packs its structure's *k* into the fraction of w (`floor(r) +
+  min(k, 0.999)`), so a structure's pool lights when it stands dark, in a
+  crater's shadow at noon as at night, and a sunlit one lays none. There is
+  no second array, so the terrain's fragment-uniform budget is unchanged.
+  Pools drape over slopes and crater walls (no flat discs cutting through
+  the ground), and never jump between buildings while the camera pans.
 - **Filled once per economy tick from every powered structure** (complete,
   enabled, not browned out). A brownout turns that structure's pool *and*
-  its windows off: the cause is visible. Past 32 structures, lamps merge
-  into grid clusters (24 m cells, growing) instead of being dropped.
-- **Zero cost by day**: the count uniform is 0 until night, so the loop
-  exits at once; the slot count is fixed per FX level (32 at FX 0–1, 16 at
-  FX 2), so dusk never recompiles anything.
-- **Windows, not hulls, glow**: `WINDOW` and `LAMP` parts emit warm white ×
-  lit × night (rover headlights included); beacons blink (0.2 s every 2 s,
-  phase per instance, on the building shader's own clock) day and night.
-- **Fallback** (FX 3, a patch fault, safe mode): the old path — whole-hull
-  glow 0.09, additive discs under lit structures and 8 PointLights over the
-  nearest ones. The PointLights leave the scene while the shader floods run,
-  so the lit programs don't carry `NUM_POINT_LIGHTS` all day.
+  its windows, lamps and beacons off at any *k*: the cause is visible. Past
+  32 structures, lamps merge into grid clusters (24 m cells, growing)
+  instead of being dropped; a cluster takes its darkest member's *k*. Per
+  frame, only while some *k* moves, the values are written into the slots
+  and the instances: nothing re-clusters and nothing is allocated.
+- **Zero cost in the light**: the count uniform runs only through the last
+  slot darker than 0.03, so a sunlit base's loop exits at once; the slot
+  count is fixed per FX level (32 at FX 0–1, 16 at FX 2), so dusk (or a
+  shadow) never recompiles anything.
+- **Windows, not hulls, glow**: the lit channel `iState.x` carries the
+  darkness (0 unlit · 1 lit at the night's, for rovers, the cargo lander and
+  the tracker parts · 2 + *k*). `WINDOW` parts emit warm white × lit ×
+  max(*k*, 0.1) × 1.6, a faint glow by day. `LAMP` parts (emit class 3) × lit
+  × *k* × 2.6: they light with their flood, rover headlights with the night.
+  Beacons blink (0.2 s every 2 s, phase per instance, on the building
+  shader's own clock) whenever powered, at 1 + 3*k* + 2 × night: readable in
+  daylight shadow, brighter still at night.
+- **Fallback** (FX 3, a patch fault, safe mode): the old path, per structure.
+  Additive discs under lit structures, each tinted by its *k*; 8 PointLights
+  (60 cd × *k*) over the dark structures nearest the camera; and the
+  whole-hull glow 0.09, still at night only. The PointLights leave the scene
+  while the shader floods run, so the lit programs don't carry
+  `NUM_POINT_LIGHTS` all day.
 
 ### The sky (`world/sky.ts`, `world/swarm.ts`)
 
@@ -255,7 +297,7 @@ by feature:
 | SMAA · AgX · grain · vignette | final pass | final pass | final pass | AgX in the materials | AgX in the materials |
 | Sun shadows | ✓ | ✓ | ✓ | ✓ | off |
 | Regolith shader (terrain, ring, berms) | `regolith-2`: both detail scales, lunar photometry | `regolith-2` | `regolith-1`: coarse scale | stock | unlit twin |
-| Night floods (slots) | 32 | 32 | 16 | discs + 8 PointLights | discs + 8 PointLights |
+| Floods (slots) | 32 | 32 | 16 | discs + 8 PointLights | discs + 8 PointLights |
 | Earthshine floor | ✓ | ✓ | ✓ | — | — |
 | Building shader | `bldg-2`: finishes, seams, windows, beacons, print reveal | `bldg-2` | `bldg-1`: no seams | stock: squash-rise, hull glow | unlit twin |
 | Shadow-depth cut | `bldg-depth` | `bldg-depth` | `bldg-depth` | stock | stock copy (no shadows drawn) |
@@ -312,7 +354,10 @@ Moving things (§7) add exactly one patch (`dust`); everything else reuses
 existing programs or stock unlit materials, and each part of the motion
 layer fails soft — an exception hides that part and the game carries on.
 `tests/render.spec.ts` walks all five rungs, by day and by night, and checks
-the motion layer at FX 0, FX 3 and in safe mode; it also holds the safety
+the motion layer at FX 0, FX 3 and in safe mode, and the base's own light
+(a pole structure in the rim's shadow lit by day, discs on the stock path,
+a sunlit mare base with no flood live, the fade at nightfall, an unpowered
+structure dark at any *k*); it also holds the safety
 contract above — safe mode plain with the sentinel on, a return to a patched
 level with live uniforms (FX 0 → 3 → 0, then night), night and dusk probes,
 raise trials and the remembered failures, one scene render a frame, and the
@@ -420,9 +465,10 @@ Lander) is merged from a tiny parametric kit:
   finishes; fwidth-antialiased panel seams every 1.2 m in object space on
   the face-tangent axes (−12%, faded under a pixel and past 80–160 m);
   per-instance state `iState = (lit, dust, wear, cut)`: dust grays and
-  mattes the glass, wear darkens, windows glow at night when lit, beacons
-  blink on a clock the frame loop advances (`uBldTime`, real time, so they
-  keep blinking while the game is paused).
+  mattes the glass, wear darkens, windows and lamps glow when lit and the
+  structure stands dark (§3, the base's own light), beacons blink on a clock
+  the frame loop advances (`uBldTime`, real time, so they keep blinking
+  while the game is paused).
 - **Construction is a 3D print**: fragments above the cut height
   (progress × recipe height) are discarded with a warm band at the cut, and
   a matching patched `customDepthMaterial` cuts the shadow the same way. A
@@ -548,7 +594,7 @@ asked ("research has no visible consequences"). All visual only.
   It opens at the doors — the gaps come from the recipes' door positions —
   tapering to the ground over 1.3 m. One merged mesh, draped on the
   heightfield (it follows later pads' skirts) in the terrain's own material
-  and albedo, so it shades, floods at night and falls back exactly like the
+  and albedo, so it shades, catches the floods and falls back exactly like the
   ground it was pushed up from. It casts shadows and is rebuilt only when the
   set of shielded structures or the ground under them changes.
 - **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors
@@ -616,7 +662,7 @@ direction, not an afterthought:
 | Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply) |
 | Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each |
 | Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
-| Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock night path |
+| Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock path |
 | Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
 | Per-frame CPU | small and flat | ≤ 64 rover matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms rebuilt only on change |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
@@ -645,6 +691,211 @@ Designed during research, deliberately cut from the slice (sequencing in
 
 *Shipped since the slice plan:* the walk-mode helmet visor (formerly deferred
 item 3) is the CSS layer in §9.
+
+---
+
+## 12. Classic — the default look
+
+> A readable colour model of the base, the way the old city builders drew
+> one: white hulls, gold foil, blue cells, orange trim, a tinted ground and
+> warm windows in a blue-black night — on any GPU.
+
+**Why.** On an older laptop the High detail path fell all the way down its
+ladder (half-float buffers, then AO, then every effect) and what was left
+was flat mid-gray ground with no shading. Classic is designed from the start
+for that machine: the cheapest lit shading three.js has, colour doing the
+work that AO, shadows and tone mapping do in High detail, and nothing that
+can fail silently. It is the default; High detail stays in the menu.
+
+### 12.1 Render path (`world/renderer.ts`, `world/post.ts`, `world/classic.ts`)
+
+| | Classic |
+|---|---|
+| Target | the canvas, and only the canvas: no `EffectComposer`, no N8AO, no bloom, no render target of any kind (the debug API records every target bound: none) |
+| Antialiasing | the context's own MSAA (`antialias: true`) |
+| Shadows | none — the shadow map is off; a soft contact decal grounds each footprint (§12.4) |
+| Tone mapping | none: the palette is authored as the colours you see, sRGB output |
+| Pixel ratio | ≤ 1.5 (a HiDPI laptop does not quadruple the fill) |
+| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant |
+| FX ladder, stored level | untouched: classic never builds, reads, stores or steps a level, so it raises no "RENDER —" alert unless a frame genuinely fails to draw |
+| Black-frame check | still reads frames (by day, and at night: the classic night keeps open ground well off black); a black frame turns safe mode's unlit twins on, as in High detail |
+| Shader fault | the classic building program carries `MBB_CLASSIC`; if it fails to compile, every building, part and rover takes stock Lambert in the same palette (glow and print reveal go) with one alert |
+
+The style is read at boot — `?style=classic|detailed` for one launch, else
+the menu's setting, else classic — because the canvas's context attributes
+(`antialias`) are fixed when it is created. Switching in the menu saves the
+game, stores the choice and reloads straight back into it.
+
+### 12.2 Palette (sRGB as authored; `buildings/classicBuilding.ts`)
+
+The kit bakes each part's finish (gray value in `color`, roughness /
+metalness / emissive id in `mat`); classic maps each finish to a colour in
+the instanced view's own `color` attribute (the shared recipe buffers stay
+High detail's):
+
+| Finish | Classic colour | ≈ Hex |
+|---|---|---|
+| Hull (`BODY`) | warm white | `#ebe6dc` |
+| Radiator | white | `#f3f2ed` |
+| Panels (`PLATE`) | mid gray | `#8e9197` |
+| Trim (`TRIM`) | orange accent | `#d9772b` |
+| Decks — trim parts with a face over 5 m² (roofs, plinths, stacks) | slate, so the orange stays an accent | `#6f747c` |
+| PV cells (`GLASS`) | dark blue | `#1d3a6c` |
+| Windows (`WINDOW`) | dark blue glass by day | `#2a4c80` |
+| Lamps | warm white | `#fff1d6` |
+| Beacons | red, blinking | `#b02a22` → bright red flash |
+| MLI foil (`FOIL`) | gold | `#d8a53a` |
+| Window / lamp light | warm sodium yellow (linear 1.0, 0.66, 0.29) | ≈ `#ffd494` |
+
+Per structure: the solar wings' frames are silver (`#c4c8ce`, panels
+`#aeb2b8`), the solar array's mast and the dishes silver-gray (`#b7bbc1`),
+and the Foil Factory's trim gold (`#cf9d36`). Rovers and the cargo lander
+use the default mapping (white body, orange trim, blue roof cells).
+
+### 12.3 Terrain, ring, rocks (`terrain/classicGround.ts`)
+
+- **Geometry**: the same 4 m grid as High detail — every vertex *is* its
+  heightfield sample — with every triangle its own three vertices and a face
+  normal. Faceting comes from the geometry, not from derivative (`dFdx`)
+  shading. 64 chunks, 131 k triangles; the horizon ring (43 k) and berms
+  are faceted the same way. Measured against `hf.sample` (which buildings,
+  rovers and the walker stand on), seed 42, 4,000 points: every vertex 0 m
+  off; the triangulated surface departs from the bilinear sample by at most
+  0.12 m on the mare, 0.22 m at the pole and 0.23 m in the lava tube
+  (on crater walls), 1.5–5 mm on average — and on pads, where buildings
+  stand, by nothing. A coarser mesh was not needed: triangles are not what
+  an old GPU runs out of.
+- **Colour** (vertex colours, one function for chunks, ring, berms and
+  boulders so they agree where they meet):
+
+  | Term | Rule |
+  |---|---|
+  | Site tint | mare `#857d73` (darker, warmer), lava tube `#847a6e` (a shade redder), south-pole highland `#aeaca6` (lighter, cooler) |
+  | Mottle | ± 9% at 55 m, ± 5% at 11 m, a ± 3% warm/cool drift at 140 m (faded where the sample spacing cannot hold it) |
+  | Height | × (1 ± 6%) from low to high ground |
+  | Slope | steep, fresher walls up to +10% |
+  | Craters | floors −13% toward the centre, a bright rim (+15%), a faint ejecta apron; a pit deeper than 0.4 r (the lava tube's skylight) × (1 − 0.78 (1 − d⁴)), its walls falling into the dark long before the floor |
+  | Deposits | soft, slightly ragged patches (full at 0.6 r, gone by 1.1 r) |
+
+  Deposit tints, as orbital colour-ratio maps show them — every deposit,
+  mapped or not (the ground looks like what it is; the overlay [I] and the
+  surveys say what it means):
+
+  | Deposit | Tint (linear multiplier, or mix) |
+  |---|---|
+  | High-Ti basalt (ilmenite) | darker and bluer × (0.82, 0.84, 0.93) |
+  | Highland anorthosite | brighter × (1.22, 1.21, 1.18) |
+  | Cold-trap ice | bluish white: 45% toward (0.70, 0.79, 0.93) |
+  | Pyroclastic glass | dark amber × (0.97, 0.88, 0.74) |
+  | KREEP | faint rose × (1.06, 0.95, 0.96) |
+  | Mature soil (volatiles) | faint olive-brown × (0.94, 0.94, 0.88) |
+  | Peak of light | none |
+
+- **Rocks**: stock flat Lambert (the polyhedra are faceted already), each
+  boulder the ground's colour under it, greyed by 30% and lifted 15–40%
+  (fresh crater blocks the most); half the
+  small rocks (the FX 2 density), drawn round the isometric view's focus and
+  not at all from the two farthest zoom levels, where they would be specks.
+
+### 12.4 Buildings and night lights (`buildings/classicBuilding.ts`, `classicFloods.ts`, `contactDecals.ts`)
+
+- **The classic building shader**, per vertex, with no loops, no
+  derivatives and no extensions: Lambert from the key light plus the
+  hemisphere fill (the kit's parts are flat or smooth by geometry), times
+  the per-instance colour (brownout dimming); dust greys the PV glass, wear
+  darkens (−30% at full wear), fragments above the print cut are discarded
+  under a warm band — the 3D-print reveal, kept.
+- **Lights key on one function**, `lightLevel(building, nightFactor)`:
+  a complete, enabled, powered structure lights with the night; anything
+  else is 0. Each instance's level rides in `iGlow`; windows fade from their
+  daylight blue to the warm light at that level, lamps add it, beacons blink
+  (0.2 s every 2 s, phase per instance) whenever powered. Rovers and moving
+  parts follow the night factor (`iGlow = −1`). Unpowered — shut down or
+  browned out — means dark windows and no beacon.
+- **Floods** are cheap additive pools on the ground: one merged mesh, per
+  lit structure a disc (centre + rings every ~3 m, reaching 7 m past the
+  footprint) draped on the heightfield, warm `(1.0, 0.74, 0.42)` × 0.16 ×
+  its light level, feathered to nothing at the rim by `(1 − (d/R)²)³`.
+  Positions rebuild when the lit set moves, colours when a level changes.
+  No scene light joins the scene at night (no PointLights, no spot lamp).
+- **Contact decals** stand in for the shadow map: one merged mesh, a
+  nine-slice per footprint (full from 1.2 m inside it, feathered to 0 by
+  1.0 m outside), black at 30%, draped on the ground.
+
+### 12.5 Light and sky (`world/classicLighting.ts`)
+
+One `DirectionalLight` key and one `HemisphereLight` fill; nothing else.
+Levels in albedo units (three's lights take them × π; the building shader
+reads the same values):
+
+| | Day | Night |
+|---|---|---|
+| Key | the sun's azimuth, elevation lifted into 22–48° (the game's sun never climbs past 32° and grazes the pole; with no shadows to betray it, a higher light reads the relief better); warm white `(1.0, 0.97, 0.92)` × 1.05, golden `(1.0, 0.80, 0.58)` while the true sun is under ~14° | earthshine from Earth's side of the sky (lifted to ≥ 35°), `(0.16, 0.22, 0.38)` |
+| Fill (sky / ground) | `(0.34, 0.37, 0.43)` / `(0.24, 0.215, 0.19)` | `(0.06, 0.085, 0.15)` / `(0.018, 0.024, 0.04)` |
+
+The two blend on the night factor, the key's direction weighted by the two
+strengths; on foot at night the eye adapts (key and fill × up to 1.45) in
+place of the High detail headlamp. The result is a blue-black night where
+every building reads by its lit and shaded faces and the base's own lights
+carry the rest. The true sun still drives the sky, the solar wings and the
+rover decals. The sky is High detail's own stock-material sky — stars,
+Milky Way, sun disc, Earth — seen on foot and on the way down (the
+isometric view never looks above the horizon).
+
+### 12.6 The isometric camera (`player/isoCam.ts`)
+
+| | |
+|---|---|
+| Lens | perspective, **20°** vertical — near-orthographic, so picking, `screenOf` and the overlays work unchanged |
+| Pitch | fixed **32°** below the horizon (the top of the frame looks 22° down: never the sky) |
+| Yaw | **45° + k·90°**; Q / E turn one step in a 0.35 s ease-in-out; presses queue, a held key turns once |
+| Zoom | the wheel steps through **5 levels** — 100, 170 (home), 290, 490, 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view), eased; a trackpad's trickle adds up to a step |
+| Pan | W A S D / arrows at 1.1 view heights a second; right- or middle-drag, the ground following the pointer. The left button stays select / place / target |
+| F / H | F glides to the selection (0.6 s) and closes to the nearest level; H glides home to the Lander at the home level |
+| Limits | the target rides the terrain and stays 40 m inside the map; the camera never sits under 4 m of clearance; the clip planes track the zoom (near 0.2 d, far 6 d + 800 m) |
+
+Walk mode is unchanged and draws with the classic materials: Tab dollies
+down to the 70° suit lens and back up to the isometric one.
+
+### 12.7 Cost (measured)
+
+The mare starter base (Lander + 6 structures) at each style's home view,
+1920 × 1080, per frame with every pass summed (`getRenderInfo().frame`):
+
+| | Draw calls (day / night) | Triangles (day / night) | Render targets |
+|---|---|---|---|
+| Classic | **24 / 24** | 110 k / 112 k | none |
+| High detail FX 0 | 97 / 71 | 226 k / 177 k | half-float composer, N8AO, shadow map |
+| High detail FX 3 | 46 / 45 | 136 k / 145 k | shadow map |
+
+Classic draws each building type once, the terrain chunks in view, the ring,
+two rock meshes, the decals and pools, and nothing for the sky (the
+isometric view never sees it); no shadow pass, no post pass, one render a
+frame. Under software GL on a loaded test machine the median frame was
+~200 ms classic against ~2.4 s at FX 0 (`tests/classic.spec.ts` · frame
+cost records both); on a GPU the fragment work per pixel is one Lambert
+term and a colour-space conversion.
+
+### 12.8 Browser notes
+
+Classic asks for nothing a WebGL2 implementation may lack, so it behaves the
+same in Firefox, Chrome and Edge, on ANGLE (D3D11 or WARP), on native
+drivers and on software rasterizers:
+
+- WebGL2 core only; no `EXT_*` or `OES_*` extension is required (none is
+  requested: no float or half-float render targets, no anisotropic
+  filtering, no texture-float linear filtering);
+- the context's `antialias` attribute and nothing more — no multisampled
+  renderbuffers or resolve blits (a context without MSAA simply draws
+  aliased edges);
+- shaders are plain GLSL ES 3.0 (three's own Lambert, and one small program
+  of our own) with constant loop bounds, no derivatives and no texture
+  lookups in the building program;
+- no Chromium-only API anywhere in the render path;
+- a software context (`failIfMajorPerformanceCaveat` style, SwiftShader,
+  WARP, llvmpipe) still draws — slower, never black or blank: the frame is
+  a handful of draw calls with trivial fragment work, and the black-frame
+  check has safe mode's unlit twins to fall back to.
 
 ---
 

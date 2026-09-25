@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-/** Regenerates the data tables in docs/03-tech-tree.md (every tech) and
- *  docs/05-sites.md (home, deposits, site techs, map tiers) from src/data.
+/** Regenerates the data tables in docs/03-tech-tree.md (every tech),
+ *  docs/04-buildings.md (the research upgrades each building grows, with
+ *  their triangle budget) and docs/05-sites.md (home, deposits, site techs,
+ *  map tiers) from src/data and src/buildings/upgrades.ts.
  *  Everything between the GENERATED markers is rewritten; the prose around
  *  it is hand-written. Run after any tech, site or balance change:
  *    node scripts/gen-tech-doc.mjs          (write)
@@ -14,6 +16,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = [
   { file: join(root, 'docs/03-tech-tree.md'), render: renderTechs },
+  { file: join(root, 'docs/04-buildings.md'), render: renderUpgrades },
   { file: join(root, 'docs/05-sites.md'), render: renderSites },
 ];
 const BEGIN = '<!-- BEGIN GENERATED: node scripts/gen-tech-doc.mjs -->';
@@ -26,14 +29,17 @@ try {
     stdin: {
       contents: `
         export { TECHS, TECH_ORDER, ERA_NAMES, LANES, DOCTRINES, ERA_GATES, describeTech } from './src/data/techs';
-        export { ERA_COST_SCALE, CHARTER_TECHS, QUEUE_MAX } from './src/data/balance';
+        export { ERA_COST_SCALE, CHARTER_TECHS, CHARTER_DEED_TECHS, QUEUE_MAX } from './src/data/balance';
         export { INSIGHTS } from './src/data/insights';
         export { SITES } from './src/data/sites';
         export { RESOURCES } from './src/data/resources';
         export { PROSPECTS, PROSPECT_IDS } from './src/data/lunarMap';
         export { DEPOSIT_PLAN, DEPOSIT_INFO } from './src/data/deposits';
         export { SURVEY_TIERS } from './src/data/balance';
-        export { SITE_ORDER } from './src/data/sites';`,
+        export { SITE_ORDER } from './src/data/sites';
+        export { BUILDINGS, BUILD_ORDER } from './src/data/buildings';
+        export { UPGRADES } from './src/buildings/upgrades';
+        export { upgradeTriangles } from './src/buildings/recipes';`,
       resolveDir: root, loader: 'ts',
     },
     bundle: true, format: 'esm', platform: 'node', outfile: out, logLevel: 'error',
@@ -82,12 +88,12 @@ function renderTechs(T) {
     L();
     const g = ERA_GATES[era];
     if (g) {
-      L(`Opens with ${T.CHARTER_TECHS} techs of era ${era - 1}, or 1 plus the deed: **${g.deed}**` +
+      L(`Opens with ${T.CHARTER_TECHS} techs of era ${era - 1}, or ${T.CHARTER_DEED_TECHS} plus the deed: **${g.deed}**` +
         (g.roboticRequires ? ` (robotic runs also need ${name(g.roboticRequires)})` : '') + '.');
       L();
     }
-    L('| Tech | Lane | Data | Goods | Requires | Pros | Cons |');
-    L('|---|---|---|---|---|---|---|');
+    L('| Tech | Lane | Data | Goods | Requires | Pros | Cons | Visual |');
+    L('|---|---|---|---|---|---|---|---|');
     for (const id of ids) {
       const d = TECHS[id];
       const tags = [];
@@ -117,7 +123,7 @@ function renderTechs(T) {
       const fx = describeTech(d, {});
       const pros = fx.filter((l) => l.sign === 'pro').map((l) => esc(l.text)).join('<br>') || '—';
       const cons = fx.filter((l) => l.sign === 'con').map((l) => esc(l.text)).join('<br>') || '—';
-      L(`| ${nm} | ${d.lane ? laneOf[d.lane] : '★'} | ${data} | ${goods} | ${esc(req)} | ${pros} | ${cons} |`);
+      L(`| ${nm} | ${d.lane ? laneOf[d.lane] : '★'} | ${data} | ${goods} | ${esc(req)} | ${pros} | ${cons} | ${esc(d.visual ?? '—')} |`);
     }
     if (moved.length) {
       L();
@@ -139,6 +145,45 @@ function renderTechs(T) {
   L(`${total} techs: ${total - bts} researchable from the start of their era, ${bts} breakthroughs,`);
   L(`${Object.keys(DOCTRINES).length} doctrines, ${INSIGHTS.length} insights.`);
   L();
+  return lines.join('\n');
+}
+
+function renderUpgrades(T) {
+  const { TECHS, BUILDINGS, BUILD_ORDER, UPGRADES, upgradeTriangles, SITES } = T;
+  const esc = (s) => String(s).replace(/\|/g, '\\|');
+  const budget = upgradeTriangles();
+  const lines = [];
+  const L = (s = '') => lines.push(s);
+  L('Every tech that touches a building adds a part to that building type\'s recipe');
+  L('(`src/buildings/upgrades.ts`). The part appears on every building of the type the');
+  L('moment the tech completes, on placement ghosts and scaffolds, and after a load. △ is');
+  L('the triangles the part adds to the recipe mesh; moving parts (an extra Earth dish,');
+  L('the wider wing) reuse the shared dish and wing meshes and are counted apart (↻).');
+  L();
+  L('| Building | Stock △ | Fully upgraded △ | Upgrades |');
+  L('|---|---|---|---|');
+  for (const id of ['lander', ...BUILD_ORDER]) {
+    const b = budget[id];
+    const n = (UPGRADES[id] ?? []).length;
+    L(`| ${BUILDINGS[id].name} | ${b.base.toLocaleString('en-US')} | ${b.full.toLocaleString('en-US')} | ${n} |`);
+  }
+  L();
+  for (const id of ['lander', ...BUILD_ORDER]) {
+    const list = UPGRADES[id] ?? [];
+    if (!list.length) continue;
+    const b = budget[id];
+    L(`#### ${BUILDINGS[id].name}`);
+    L();
+    L('| Tech | Era | What changes | △ |');
+    L('|---|---|---|---|');
+    for (const u of list) {
+      const d = TECHS[u.tech];
+      const only = d.sites ? ` (${d.sites.map((s) => SITES[s].name).join(', ')})` : d.expeditions ? ` (${d.expeditions.join('/')} only)` : '';
+      const mv = b.movers[u.tech] ? ` + ${b.movers[u.tech]} ↻` : '';
+      L(`| ${esc(d.name)}${esc(only)} | ${d.era} | ${esc(d.visual ?? '—')} | ${b.parts[u.tech]}${mv} |`);
+    }
+    L();
+  }
   return lines.join('\n');
 }
 

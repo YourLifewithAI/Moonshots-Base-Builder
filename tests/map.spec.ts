@@ -405,8 +405,9 @@ test('breakthrough: a discovered host tech is researchable in its era', async ({
   await start(page, 'mare', 'robotic');
   await complete(page, ['prospectingRovers']);
   await page.evaluate(() => { window.__game.surveyProspect('tranqPit'); window.__game.advanceGameSeconds(99); });
-  // charters: two era-1 techs open Era 2, two era-2 techs open Era 3
-  await complete(page, ['regolithProcessing', 'batteryStorage', 'thermalWadis']);
+  // charters: four era-1 techs open Era 2, four era-2 techs open Era 3
+  await complete(page, ['regolithProcessing', 'grizzlyScreens', 'fieldSpectrometers',
+    'batteryStorage', 'thermalWadis', 'partsFabrication', 'siliconRefining']);
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.research('btLavaTubeCaverns');

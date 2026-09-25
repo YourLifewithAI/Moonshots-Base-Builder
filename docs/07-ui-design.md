@@ -144,9 +144,13 @@ either one covers it. Full layout rules are in
   across eight era columns, plus a lane-free Era 8 capstone column that is
   always on screen: the Civ trick of keeping the end of the road visible.
   Lane heights come from the techs visible on this run, so a site's own
-  techs never leave holes.
-- **Era headers** show both charter routes live: `◼◻ 1/2 · or 1 + 20▣ fabbed
-  (12/20)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
+  techs never leave holes. The detail sheet gives up height (148 → 112 px)
+  before a slot falls under 28 px; past that budget the tallest lanes give
+  up a row and their crowded cells pack as compact one-line cards (glyph,
+  name, cost), so the ~100-tech tree stays on one 1280×720 screen
+  (docs/12 §7).
+- **Era headers** show both charter routes live: `◼◼◻◻ 2/4 · or 2 + 50▣ fabbed
+  (12/50)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
 - **Cards** are two lines: state glyph and short name, then cost and the
   first generated pro. Markers: ◇ and a bracket for a doctrine, ✦ for a
   breakthrough (a dotted `✦ ?` placeholder until surveyed), ◬ for a site
@@ -200,7 +204,8 @@ rotatable 3D moon globe from the full design is deferred (09).
 
 ## 8. Walk mode: strip the console, keep the suit
 
-Tab toggles build ⇄ walk (one camera, no cut — see 08). On entering walk,
+Tab toggles build ⇄ walk (one camera, no cut — see 08; in Classic the dolly
+runs from the isometric lens down to the suit's and back). On entering walk,
 `#hud-layer.mode-walk` CSS **hides every build region** and shows:
 
 - **Helmet chips** (bottom-center): O₂ stock, stored power, morale — the
@@ -231,6 +236,47 @@ No forced tutorial, no modal sequence, no input locks. Instead:
   buildings and eras are dimmed-but-visible so the future is legible.
 - First-session guidance is a single alert (`TOUCHDOWN — begin with a Solar
   Array`), not a wizard.
+
+**The running tutorial** (`ui/discovery.ts`) explains progress as it lands.
+It never locks input. One switch turns it off: the Esc menu's *Guidance*
+row, or the box on any card. Experienced players skip it entirely.
+
+- **Era explainers.** A new mission opens with the Era 1 explainer. Each
+  era that opens later gets its own:
+  - the era's name and a sentence or two on what it means (`ERA_BLURB` in
+    `techs.ts`);
+  - how many techs it opens, naming a few;
+  - how the next era opens: 4 techs from this era, or 2 plus the deed
+    (`CHARTER_TECHS`, `CHARTER_DEED_TECHS` in `balance.ts`).
+
+  An explainer pauses the game until Continue (or Enter or Esc) and plays
+  a rising fanfare.
+- **Discovery cards.** Every finished tech pops a card under the swarm
+  meter. It shows:
+  - the tech's name, era and lane, and its description;
+  - the generated ⊕/⊖ lines;
+  - *Look for it*, the tech's `visual` line (what changes on the
+    buildings);
+  - *Next*, the one thing to do, such as `Build it: Industry tab →
+    Regolith Smelter`.
+
+  Cards never pause; they queue, one at a time, and Esc dismisses the
+  current one.
+- **Deposit cards** (`ui/depositCard.ts`). Every label in the deposit
+  overlay [I], and every deposit on the Lunar Map's SITE view, opens a card
+  with:
+  - what the ground is (a line of science);
+  - its effects with live numbers, e.g. `Smelters: up to +30% output, with
+    all your digging here`;
+  - how much of your digging is on it now;
+  - its distance and whether the build network reaches it;
+  - the action that uses it (*Place Regolith Excavator here* focuses the
+    camera and starts placing it), or the research that stands in the way.
+
+  An unconfirmed `?` lead names the survey tier that would confirm it. In
+  the world the card takes the inspector's place, one or the other; on the
+  map it fills the side panel, with *Show in the world*.
+- Test runs (`?debug`) stay quiet unless the address adds `&tips`.
 
 ## 10. Pattern vocabulary
 
@@ -279,7 +325,21 @@ rebuild freely.
 inspector, the rover inspector, a resource panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
-save is erased) · Graphics · Audio · the Controls list. Graphics is a 0–3
+save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·
+Guidance (discovery pop-ups and era explainers) · the Controls list.
+
+Graphics opens with the **render style**, a two-way control: **Classic**
+(the default — flat colours, the fixed isometric view, no effects, made to
+run on any GPU; see 06 §12) or **High detail**. The running style is
+marked; a note says what it is and that switching saves the game and
+reloads. A switch does exactly that: the choice is stored, the game saved,
+and the page reloads straight back into it (the renderer's context
+attributes are fixed when it starts; `?style=` overrides the setting for
+one launch, and a switch drops it). The FX ladder and safe mode belong to
+High detail and show only there — except that Classic shows the safe-mode
+row while the render check has safe mode on, so it can be turned off.
+
+Under High detail, Graphics continues with a 0–3
 segmented control showing the level the render ladder is actually running,
 marked `AUTO` with its cause when the black-frame check lowered it; the
 player's own choice carries a ◆. Lowering is one click; a level that failed
@@ -294,6 +354,21 @@ frame. A browser without WebGL2 gets a page saying the game needs it, that
 hardware acceleration must be on, and that Chrome or Edge is recommended on
 Windows.
 
+**Camera and controls.** The Controls list follows the style, because the
+two command views move differently (06 §9, §12.6):
+
+| | Classic (isometric) | High detail (free) |
+|---|---|---|
+| Left button | select · place (never the camera) | select · place; drag pans |
+| Right / middle drag | pan — the ground follows the pointer | orbit |
+| Wheel | five zoom steps, eased | zoom toward the cursor |
+| W A S D · arrows | pan | pan |
+| Q · E | turn the view 90°, eased; a held key turns once | orbit while held |
+| F · H | glide to the selection (closer) · home to the Lander | the same |
+
+Everything else — R, Shift-click, Esc, Space, 1/2/3, T, M, I, Tab and the
+on-foot keys — is the same in both.
+
 Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio
 nodes only: a switch click on every control, a thunk on placement, a blip on
 a refused action, chimes for a finished site or tech, warn and crit alerts
@@ -302,6 +377,29 @@ nightfall, a sweep per launch. A low control-room hum detunes and beats as
 the grid's margin shrinks, so a brownout is audible before it lands; on
 foot the suit breathes. The sim stays silent: `game.publish()` diffs alert
 ids and state and plays the cues, each rate-limited in real time.
+
+**Rovers** are heard the way the suit hears them, through contact mics and
+the ops loop (`audio/roverVoices.ts`). The three nearest the camera each get
+a voice: a motor whine that rises with speed, wheel lugs crunching regolith,
+a servo chirp as a rover sets off or pulls up, and a print-head buzz at a
+site. Level falls with distance (half at 34 m, silent past 160 m) and pans
+with bearing, so the fleet is loud underfoot and faint from high above.
+When the game pauses, the fleet stops and so do its motors.
+
+**Music** (`audio/music.ts`) is a generative ambient score, not a loop. Slow
+sawtooth pads drift through a small pool of chords (D Lydian by day, D
+Dorian at night), coming home to the tonic every few changes, over a soft
+drone. Sparse FM bells fall through an echo into one long synthetic hall.
+Notes are scheduled ahead on the audio clock, so a slow frame never
+stutters it. The score turns darker at the first chord after nightfall and
+drops a little on foot, so the suit's breath sits on top.
+
+**The mix.** Effects (cues, radio, hum, breath, rovers) and music have their
+own buses and volumes (Esc menu: Master · Music · Effects, kept in settings).
+Both feed the master volume, and a limiter guards the output. Cues keep
+most of their energy above 150 Hz, where laptop speakers work; the sub
+layers are for headphones. `getAudio().output` meters the result for the
+tests: RMS, peak, and the share of energy below 150 Hz.
 
 ---
 

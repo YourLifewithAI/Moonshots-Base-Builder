@@ -244,9 +244,29 @@
 .deposit-mark {
   position: absolute; transform: translate(-50%, -100%);
   display: flex; flex-direction: column; align-items: center; gap: 1px;
-  pointer-events: none; white-space: nowrap;
+  pointer-events: auto; cursor: pointer; white-space: nowrap;
+  padding: 2px 5px; border: 1px solid transparent;
   text-shadow: 0 0 3px rgba(14, 15, 17, 0.9);
 }
+.deposit-mark:hover { border-color: rgba(var(--paper-rgb), 0.35); background: rgba(14, 15, 17, 0.55); }
+.deposit-mark:hover .t { color: var(--paper); }
+.deposit-mark.sel { border-color: var(--paper); background: rgba(14, 15, 17, 0.7); }
+.deposit-mark.sel .t { color: var(--paper); }
+
+/* ── the deposit card: what the ground is and what to do with it ── */
+#deposit-card { width: 280px; padding: 0; font-size: 12px; display: flex; flex-direction: column; }
+#deposit-card .dc-head, .map-dep .dc-head { display: flex; align-items: baseline; gap: 8px; padding: 10px 14px 6px; }
+#deposit-card .dc-g, .map-dep .dc-g { font-size: 16px; }
+#deposit-card .dc-name, .map-dep .dc-name { font-weight: 600; font-size: 13px; }
+#deposit-card .dc-body, .map-dep .dc-body { padding: 0 14px 10px; display: flex; flex-direction: column; gap: 6px; }
+.dc-status { font-size: 10px; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+.dc-about { color: rgba(var(--paper-rgb), var(--op-secondary)); line-height: 16px; }
+.dc-fx .pro, .dc-fx .con { line-height: 16px; }
+.dc-now { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.dc-todo { line-height: 16px; }
+#deposit-card .dc-foot, .map-dep .dc-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px; border-top: var(--hair); }
+#deposit-card .dc-foot .btn, .map-dep .dc-foot .btn { font-size: 11px; padding: 4px 9px; }
+#hud-layer.mode-walk #deposit-card { display: none !important; }
 .deposit-mark .g { font-size: 14px; color: var(--paper); line-height: 1; }
 .deposit-mark .t { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 .deposit-mark.lead .g { font-size: 13px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
@@ -360,6 +380,8 @@
 #menu .menu-col section:first-child { border-top: none; }
 #menu .menu-actions > .btn { text-align: left; }
 #menu .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+#menu .seg.seg-2 { grid-template-columns: repeat(2, 1fr); }
+#menu .seg.seg-2 .btn { font-size: 11px; padding: 6px 4px; }
 #menu .seg .btn { position: relative; padding: 5px 4px 6px; text-align: center; font-size: 10px; }
 #menu .seg .btn b { display: block; font-family: var(--font-mono); font-size: 14px; line-height: 18px; }
 /* ◆ marks the player's own setting; a dashed rung drew black this session */
@@ -387,3 +409,40 @@
   #menu .menu-body { grid-template-columns: 1fr; }
   #menu .menu-col + .menu-col { border-left: none; border-top: var(--hair); }
 }
+
+/* ── discovery cards (a finished tech) and the era explainer ── */
+#discovery-card {
+  position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
+  width: 420px; max-width: calc(100vw - 32px); z-index: 35; padding: 0; font-size: 12px;
+  animation: dsc-in 0.35s ease-out;
+}
+@keyframes dsc-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+#discovery-card .dsc-head { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px 0; }
+#discovery-card .dsc-meta { font-size: 10px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+#discovery-card .dsc-name { padding: 2px 14px 4px; font-size: 16px; font-weight: 600; }
+#discovery-card .dsc-desc { padding: 0 14px 6px; color: rgba(var(--paper-rgb), var(--op-secondary)); line-height: 16px; }
+#discovery-card .dsc-fx { padding: 0 14px 6px; line-height: 17px; }
+#discovery-card .dsc-con { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#discovery-card .dsc-look, #discovery-card .dsc-next { padding: 0 14px 6px; line-height: 16px; }
+#discovery-card .dsc-look .label, #discovery-card .dsc-next .label { margin-right: 6px; }
+#discovery-card .dsc-foot { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-top: var(--hair); }
+#discovery-card .dsc-foot .btn { font-size: 11px; padding: 4px 10px; }
+.dsc-off { margin-left: auto; font-size: 10px; color: rgba(var(--paper-rgb), var(--op-tertiary)); display: flex; align-items: center; gap: 4px; cursor: pointer; }
+#hud-layer.mode-walk #discovery-card { display: none !important; }
+#era-banner {
+  position: absolute; inset: 0; z-index: 55; align-items: center; justify-content: center;
+  background: rgba(8, 9, 11, 0.62);
+  animation: eb-in 0.6s ease-out;
+}
+@keyframes eb-in { from { opacity: 0; } to { opacity: 1; } }
+#era-banner .eb-panel {
+  width: 560px; max-width: calc(100vw - 32px); padding: 26px 30px 20px;
+  background: var(--ink-900, #0e0f11); border: 1px solid rgba(var(--paper-rgb), 0.35);
+  text-align: center;
+}
+#era-banner .eb-era { font-size: 12px; letter-spacing: 0.3em; color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 6px; }
+#era-banner .eb-name { font-size: 30px; line-height: 34px; margin: 4px 0 12px; letter-spacing: 0.06em; }
+#era-banner .eb-blurb { font-size: 14px; line-height: 21px; margin: 0 0 14px; }
+#era-banner .eb-line { font-size: 12px; line-height: 18px; margin: 0 0 8px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#era-banner .eb-line .label { margin-right: 6px; }
+#era-banner .eb-foot { display: flex; align-items: center; gap: 12px; margin-top: 16px; }

@@ -14,7 +14,12 @@
  *  A raise (menu, ?fx=, debug) is a trial: the level it left stays stored
  *  until a probe of the new one passes (confirm), and a failure goes straight
  *  back to it (revert). Safe mode draws plain whatever the level and never
- *  builds the composer; leaving it rebuilds the chain for the level. */
+ *  builds the composer; leaving it rebuilds the chain for the level.
+ *
+ *  The classic render style has no ladder at all: it draws the plain
+ *  forward path straight to the (MSAA) canvas, never builds the composer,
+ *  never reads or stores a level, and never steps — so it raises no
+ *  "RENDER —" alert unless a frame genuinely fails to draw. */
 import * as THREE from 'three';
 import {
   BlendFunction, BloomEffect, EffectComposer, EffectPass, NoiseEffect, RenderPass,
@@ -56,6 +61,8 @@ export interface PostOptions {
   fxChoice?: number;
   /** safe render mode from the first frame: no composer at all */
   safe?: boolean;
+  /** the classic render style: plain forward rendering, no ladder */
+  classic?: boolean;
 }
 
 export class PostFX {
@@ -67,6 +74,8 @@ export class PostFX {
   /** a raise on trial: the level to go back to if it fails */
   private trialFrom: number | null = null;
   private safe: boolean;
+  /** classic style: no composer and no ladder, ever */
+  private readonly classic: boolean;
   /** scene render errors already reported (each is reported once) */
   private sceneFaults = new Set<string>();
   /** surfaced into the in-game alert stack so players see render issues without F12 */
@@ -82,6 +91,13 @@ export class PostFX {
     opts: PostOptions,
   ) {
     this.safe = opts.safe ?? false;
+    this.classic = opts.classic ?? false;
+    if (this.classic) {
+      // the stored level stays the High detail ladder's, untouched
+      this.level = FX_PLAIN;
+      console.log('[MOONSHOTS] Classic render style — forward rendering to the canvas, no post chain');
+      return;
+    }
     this.level = Math.min(FX_PLAIN, Math.max(this.saved, opts.lowFx ? 2 : 0, opts.fxChoice ?? 0));
     const o = opts.fxOverride;
     if (o !== undefined && Number.isFinite(o)) this.moveTo(Math.min(FX_PLAIN, Math.max(0, Math.round(o))));
@@ -132,7 +148,7 @@ export class PostFX {
 
   private buildComposer() {
     this.disposeComposer();
-    if (this.safe || this.level >= FX_PLAIN) return;
+    if (this.classic || this.safe || this.level >= FX_PLAIN) return;
     try {
       const frameBufferType = this.level === 0 ? THREE.HalfFloatType : THREE.UnsignedByteType;
       const composer = new EffectComposer(this.renderer, { frameBufferType });
@@ -193,7 +209,7 @@ export class PostFX {
 
   /** Step one rung down the ladder. Returns false if already at plain. */
   degrade(reason?: unknown): boolean {
-    if (this.level >= FX_PLAIN) return false;
+    if (this.classic || this.level >= FX_PLAIN) return false;
     const failed = this.level;
     this.level++;
     if (this.trialFrom !== null && this.level >= this.trialFrom) this.trialFrom = null;
@@ -210,6 +226,7 @@ export class PostFX {
    *  raise on trial goes straight back, anything else steps one rung down.
    *  False when there is nothing lower to go to. */
   fail(reason?: unknown): boolean {
+    if (this.classic) return false;
     if (this.trialFrom === null) return this.degrade(reason);
     const failed = this.level;
     this.level = this.trialFrom;
@@ -231,6 +248,7 @@ export class PostFX {
 
   /** Explicitly set a level (debug hook / settings). */
   setLevel(n: number) {
+    if (this.classic) return;
     this.moveTo(Math.min(FX_PLAIN, Math.max(0, Math.round(n))));
     this.buildComposer();
     this.onLevelChange?.(this.level, 'choice');
@@ -238,7 +256,7 @@ export class PostFX {
 
   /** Jump straight to plain rendering (throwing-driver path, debug hook). */
   forceFallback(reason?: unknown) {
-    if (this.level >= FX_PLAIN) return;
+    if (this.classic || this.level >= FX_PLAIN) return;
     const failed: number[] = [];
     for (let l = this.level; l < FX_PLAIN; l++) failed.push(l);
     this.level = FX_PLAIN;

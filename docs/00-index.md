@@ -63,6 +63,7 @@ A quick key used throughout:
 | **[09-roadmap.md](09-roadmap.md)** | Roadmap | The expansion plan: in what order the CUT content in docs 02–05 comes back, and why. |
 | **[10-slice-scope.md](10-slice-scope.md)** | Slice scope | Exactly what the vertical slice contains, the cut lines drawn, and the verification story. |
 | **[11-research-and-map-spec.md](11-research-and-map-spec.md)** | Research & map spec | The implementation spec for the research tree and Lunar Map: systems, the full tech table, deposits, tree UI layout, pacing model, save migration and test plan. |
+| **[12-tree-expansion.md](12-tree-expansion.md)** | Tree expansion | 47 → 92 techs in small steps, eras about twice as long, the 4-tech charter, every tech's visual and the building upgrades that show it, the tree fit for ~100 techs, pacing results and the techSchema 3 migration. |
 
 ---
 

@@ -24,10 +24,12 @@ export interface Settings {
   /** cues, radio, hum and rovers, 0..1 (under the master volume) */
   effects: number;
   muted: boolean;
+  /** discovery pop-ups and era explainers (the running tutorial) */
+  tips: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
-  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false,
+  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false, tips: true,
 };
 
 const isLevel = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
@@ -41,6 +43,7 @@ function read(): Settings {
     if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS };
     return {
       fx: isLevel(raw.fx) ? raw.fx : null,
+      style: isRenderStyle(raw.style) ? raw.style : undefined,
       safe: raw.safe === true,
       safeAuto: raw.safeAuto === true,
       fxFailed: Array.isArray(raw.fxFailed) ? [...new Set(raw.fxFailed.filter(isLevel))].sort() : [],
@@ -48,6 +51,7 @@ function read(): Settings {
       music: clamp01(raw.music, DEFAULT_SETTINGS.music),
       effects: clamp01(raw.effects, DEFAULT_SETTINGS.effects),
       muted: raw.muted === true,
+      tips: raw.tips !== false,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -66,4 +70,25 @@ export function saveSettings(patch: Partial<Settings>): Settings {
   current = { ...loadSettings(), ...patch };
   try { localStorage.setItem(KEY, JSON.stringify(current)); } catch { /* session-only */ }
   return loadSettings();
+}
+
+// ───────────────────────────── render style ─────────────────────────────
+
+/** How the world is drawn: 'classic' (the default: flat colours, faceted
+ *  Lambert, the isometric camera, no post chain — runs on any GPU) or
+ *  'detailed' (the FX ladder: post chain, shadows, shader patches, the free
+ *  camera). Read once at boot, since the renderer's context attributes
+ *  (antialias) depend on it: a change saves the game and reloads. */
+export type RenderStyle = 'classic' | 'detailed';
+export const DEFAULT_STYLE: RenderStyle = 'classic';
+export const isRenderStyle = (v: unknown): v is RenderStyle => v === 'classic' || v === 'detailed';
+
+export interface Settings {
+  /** the render style chosen in the menu; absent = DEFAULT_STYLE */
+  style?: RenderStyle;
+}
+
+/** The stored render style (the menu's), or the default. */
+export function storedStyle(): RenderStyle {
+  return loadSettings().style ?? DEFAULT_STYLE;
 }

@@ -16,6 +16,7 @@ import type { SurveyTier } from '../core/mods';
 import { beyondNetwork, depositRevealed, groundMapped, inNetwork } from '../core/exploration';
 import type { Heightfield } from '../terrain/heightfield';
 import { ghostGeometry } from './recipes';
+import { upgradeKey } from './upgrades';
 import { centerOf, footprintRect } from './instances';
 import { createGhost, setGhostBlocked } from './ghost';
 
@@ -71,6 +72,8 @@ const OUTLINE_SEG = 8; // per footprint edge: the outline drapes over the ground
 
 export class PlacementController {
   ghost: THREE.Mesh | null = null;
+  /** the upgrade key the ghost was built with: the upgraded form, re-made if a tech completes mid-placement */
+  private ghostKey = '';
   probe: PlacementProbe | null = null;
   private outline: THREE.LineSegments;
   /** 4 edges × OUTLINE_SEG segments × 2 ends, rewritten in place while placing */
@@ -91,11 +94,12 @@ export class PlacementController {
     scene.add(this.outline);
   }
 
-  begin(type: PlaceableType) {
+  begin(type: PlaceableType, techsDone: readonly string[] = []) {
     this.cancel();
+    this.ghostKey = type === 'grade' ? '' : upgradeKey(type, techsDone);
     const geo = type === 'grade'
       ? new THREE.PlaneGeometry(GRADE_CELLS * CELL_M, GRADE_CELLS * CELL_M).rotateX(-Math.PI / 2).translate(0, 0.25, 0)
-      : ghostGeometry(type);
+      : ghostGeometry(type, this.ghostKey);
     this.ghost = createGhost(geo);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
@@ -117,6 +121,16 @@ export class PlacementController {
   /** Update ghost to the terrain point under the given world ray. */
   update(state: GameState, unlocked: Set<BuildingId>, origin: THREE.Vector3, dir: THREE.Vector3, tier: SurveyTier = 0) {
     if (!this.probe || !this.ghost) return;
+    if (this.probe.type !== 'grade') {
+      const key = upgradeKey(this.probe.type, state.techsDone);
+      if (key !== this.ghostKey) {
+        // a tech completed mid-placement: the ghost takes the upgraded form
+        this.ghostKey = key;
+        const geo = ghostGeometry(this.probe.type, key);
+        this.ghost.geometry = geo;
+        (this.ghost.children[0] as THREE.Mesh).geometry = geo;
+      }
+    }
     const hit = this.hf.raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z);
     if (!hit) { this.ghost.visible = false; this.outline.visible = false; return; }
     let w: number, d: number;

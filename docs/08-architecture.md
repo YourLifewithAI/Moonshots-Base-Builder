@@ -15,7 +15,8 @@ no web workers, zero binary assets. `npm run build` runs `tsc --noEmit` then
 
 ```
 src/
-  main.ts                 boot: URL params (?site ?seed ?debug ?nolock ?lowfx), create Game, mount UI
+  main.ts                 boot: URL params (?site ?seed ?debug ?nolock ?lowfx ?style), create Game, mount UI;
+                          after a menu style switch, continue the saved game
   debug.ts                window.__game test API (attached with ?debug)
   core/
     game.ts               orchestrator: owns GameState + Three scene, rAF loop, input,
@@ -27,6 +28,8 @@ src/
     daynight.ts           compressed lunar clock → DayInfo {sunFactor, elevation, night}
     save.ts               SaveBlob ⇄ idb-keyval ('mbb-save-v1') with localStorage fallback
     rng.ts                mulberry32 seeded PRNG + string hash
+    settings.ts           menu settings in localStorage (FX choice, safe mode, audio, render style)
+    style.ts              the render style this session draws with (fixed at boot)
   data/                   pure data, no logic (single source of truth for content)
     balance.ts            every tuning constant (grid, day length, morale, flare, launch…)
     resources.ts          9 stockpiled resources, tiers, HUD glyphs
@@ -36,7 +39,8 @@ src/
     milestones.ts         10 ordered goals (the tutorial) + swarm bands
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
-    chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds
+    chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds (classic: faceted)
+    classicGround.ts      classic ground colour (site tint, relief, craters, deposits) + facet()
     terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
     horizon.ts            far horizon ring continuing the terrain to ~12 km, compressed curvature
     rocks.ts              instanced boulder scatter (power-law sizes, crater blocks)
@@ -45,6 +49,10 @@ src/
     recipes.ts            21 building silhouettes + moving-part mounts (cached)
     buildingShader.ts     building patch: finishes, seams, windows, beacons, print reveal, floods
     instances.ts          one InstancedMesh per type + iState; floods, discs fallback, scaffold, picking, AABBs
+    classicBuilding.ts    classic palette (per finish, per type), the classic building shader, lightLevel()
+    classicFloods.ts      classic night floods: draped additive pools at each structure's light level
+    contactDecals.ts      classic contact decals under every footprint (no shadow map)
+    darkness.ts           per-structure darkness k (night, low or set sun, terrain shadow) for the base's own lights
     trackers.ts           sun-tracking solar wings, Earth-aimed dishes (instanced apart)
     scaffold.ts           construction scaffold line geometry
     ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
@@ -52,21 +60,26 @@ src/
     placement.ts          ghost preview + checkPlacement validity chain + site build costs
     berms.ts              Regolith Shielding berms draped round shielded footprints
   world/
-    renderer.ts           WebGLRenderer (AgX, PCF shadows) + camera
+    renderer.ts           WebGLRenderer + camera (High detail: AgX, PCF shadows; classic: MSAA, no shadows)
     lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + headlamp
+    classicLighting.ts    classic key light + hemisphere fill: day by the sun, night by earthshine
+    classic.ts            the classic style's registry materials (stock Lambert, stock points)
     sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
-    materials.ts          material registry: lit or safe-mode twin, FX-level shader patches
-    floodlights.ts        night flood uniform array + earthshine floor, shared by the patches
-    post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain; frame probe
+    materials.ts          material registry: lit or safe-mode twin, FX-level shader patches, classic materials
+    floodlights.ts        flood uniform array (per-slot darkness) + night earthshine floor, shared by the patches
+    post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
+                          classic = plain, no ladder; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
     rovers.ts             construction-robot fleet: docks, site assignment, corner-hopping paths
     dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)
     events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
     swarm.ts              Dyson-swarm glints near the sun, growing with swarm %
   player/
-    buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys
+    buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys;
+                          the CommandCam interface both command views implement
+    isoCam.ts             classic isometric camera: 20° lens, 32° pitch, 90° yaw steps, 5 zoom levels
     walk.ts               first-person controller: lunar gravity, capsule vs AABBs, lope bob, landing dip
-    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° / 70°)
+    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° or 20° iso / 70°)
     footprints.ts         instanced bootprint ring buffer
   ui/
     tokens.css / ui.css   design tokens + HUD layout (see 07)
@@ -89,8 +102,8 @@ clock at full speed):
 1. **Drain the action queue** — every frame, before anything else, so UI
    commands feel immediate even when paused.
 2. **Mode/camera update** — the mode tween if transitioning; otherwise the
-   build camera (MapControls + placement ghost raycast) or the walk
-   controller.
+   command camera (the free MapControls one in High detail, the isometric
+   one in Classic; plus the placement ghost raycast) or the walk controller.
 3. **Game-time accumulation** — if not paused, `simTime += simDt × speed`
    (speeds 1/3/10).
 4. **Fixed 1 Hz economy ticks** — an accumulator fires `economyTick(state,
@@ -284,7 +297,41 @@ boots it; a preinstalled Chromium is used when present). Screenshots
 | 5 · Tech tree | 6 era columns render; researching drains granted data and completes; era 2 opens at two era-1 techs — gating math verified |
 | 6 · Endgame | Full tech ladder → milestones in order → real Launch button → victory overlay ("FIRST LIGHT") → **save, reload, Continue restores** launches and buildings |
 
-## 12. Known limitations (accepted for the slice)
+## 12. Render styles (`core/style.ts`, `world/materials.ts`)
+
+Two ways to draw the same world — **Classic** (the default) and **High
+detail** — chosen once at boot (`?style=`, else the menu's setting, else
+classic) and fixed for the session: the canvas's context attributes
+(`antialias`) are set when it is created, so a menu switch saves, stores
+the choice and reloads, and `main.ts` continues the save on the next boot
+(a session flag, `mbb-resume`). The simulation, the heightfield, the
+building kit, picking, overlays, the HUD and the save format are shared;
+the style decides only how pixels are made:
+
+| | Classic | High detail |
+|---|---|---|
+| Renderer | MSAA canvas, no shadow map, no tone mapping, DPR ≤ 1.5 | no MSAA (SMAA in the chain), PCF shadows, AgX, DPR ≤ 2 |
+| Frame | one forward render straight to the canvas; `PostFX` in its classic mode never builds a composer, reads or stores an FX level, or steps | the FX ladder 0–3 (06 §4), raise trials, remembered failures |
+| Materials | the registry's classic entries (`defineClassic`): stock Lambert + one small custom building shader; `patched()` is false for everything | the lit entries and their FX-variant shader patches |
+| Lights | `ClassicLighting`: one key + one hemisphere fill | `Lighting`: fitted-shadow sun, earthshine + bounce, headlamp, stock-path PointLights |
+| Night | per-structure `lightLevel()` into `iGlow` + draped pools | shader floods, or discs + PointLights on the stock path |
+| Command camera | `IsoCam` | `BuildCam` (MapControls) |
+| Safety | the black-frame check still probes; safe mode's unlit twins are the fallback; a classic shader fault swaps stock Lambert in | the ladder, patch stripping, safe mode |
+
+**How the style reaches the meshes.** `Game`'s constructor sets it before
+the first mesh exists: `setActiveStyle()` (read by the mesh creators whose
+*geometry or colours* differ — chunks, horizon, rocks, berms) and
+`materials.setClassic()` (every creator already takes its material from the
+registry, so the classic materials reach meshes made at any time). The
+classic palette and per-instance light level are installed as a hook on
+`withInstanceState()` (`installClassic()`), so trackers, rovers and the
+cargo lander pick them up without knowing the style. The style is exposed
+as `getRenderInfo().style`, with the last frame's draw calls and triangles
+(`frame`, summed over every pass: `renderer.info` is reset once per frame),
+every render-target type ever bound (`targets`: none in classic), and the
+context attributes.
+
+## 13. Known limitations (accepted for the slice)
 
 - **No terrain LOD** — all 64 chunk meshes stay resident at full density.
   Fine at 1,024 m; a bigger map needs the roadmap's LOD + worker work.
@@ -300,6 +347,9 @@ boots it; a preinstalled Chromium is used when present). Screenshots
   not upgraded.
 - **Fixed shadow frustum (±260 m)** follows the camera focus; structures far
   outside it fall out of shadow range at extreme zoom-out.
+- **Classic contact decals and flood pools follow footprints**, rebuilt when
+  the set of structures changes; a structure that moves on its own each
+  frame would leave its decal at its pad.
 
 ---
 

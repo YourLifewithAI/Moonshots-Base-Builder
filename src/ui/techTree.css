@@ -1,7 +1,10 @@
-/* Research tree (docs/11 §6). Vertical budget at 720 px:
-   6 pad + 36 header + 32 era heads + grid + 6 + 148 sheet + 6 pad = 720,
-   so the grid gets 486 px (14 slots × 34.7 px). Taller screens cap the slot
-   at 44 px and give the spare height to the sheet. */
+/* Research tree (docs/11 §6, docs/12 §7). Vertical budget at 720 px:
+   6 pad + 36 header + 32 era heads + grid + 6 + sheet + 6 pad = 720. The
+   sheet is 148 px unless the grid needs the room: it gives up height down
+   to 112 px before a slot falls under 28 px (16 slots: 30.4 px with the full
+   sheet; 18 slots: 28 px over a 130 px sheet). Taller screens cap the slot
+   at 44 px and give the spare height to the sheet; past the budget the
+   layout packs crowded cells (techTree.ts computeLayout). */
 
 @property --slot-h { syntax: '<length>'; inherits: true; initial-value: 34px; }
 @property --col-w { syntax: '<length>'; inherits: true; initial-value: 149px; }
@@ -13,7 +16,9 @@
   padding: 6px 12px;
   overflow: hidden;
   container-type: size;
-  --sheet-h: 148px;
+  /* --slots is set here by techTree.ts; unregistered, so 100cqh resolves at
+     each use (the sheet, the board) against this screen's content box */
+  --sheet-h: clamp(112px, calc(100cqh - 74px - var(--slots, 14) * 28px), 148px);
   /* its own stacking context: the cards' z-index never climbs over the
      victory or defeat overlay */
   isolation: isolate;
@@ -176,6 +181,11 @@
 .tech-card.ph { border-style: dotted; border-color: rgba(var(--paper-rgb), 0.45); background: transparent; cursor: help; }
 .tech-card.ph .l1 { font-weight: 400; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 .tech-card.capstone .l1 { font-size: 13px; line-height: 16px; }
+/* a packed card (a crowded cell past the height budget): one line, cost last */
+.tech-card.compact { padding: 0 5px; }
+.tech-card.compact .l1 { font-size: 11px; line-height: 13px; }
+.tech-card.compact .l2 { display: none; }
+.tech-card.compact .l1 .cc { flex: none; font-family: var(--font-mono); font-size: 10px; font-weight: 400; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 .tech-card.sel { outline: 1px solid var(--paper); outline-offset: 1px; }
 
 /* hover: the prerequisite closure and direct dependents stay lit, the rest dims */

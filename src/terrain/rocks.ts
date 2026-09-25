@@ -14,7 +14,11 @@
  *  - Building pads and graded patches clear what they cover (and resettle
  *    the rocks on their feathered skirts); load replays the same flattens.
  *  - Density by FX level: 0–1 full, 2 half the small rocks, 3 and safe
- *    mode a quarter. Large rocks stay at every level. */
+ *    mode a quarter. Large rocks stay at every level.
+ *  - Classic style: stock flat Lambert (the facets are the geometry's),
+ *    tinted a little lighter than the classic ground they sit on; half the
+ *    small rocks, drawn round the view's focus (the isometric camera stands
+ *    hundreds of metres off) and not at all once they would be specks. */
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
 import { CELL_M, MAP_M } from '../data/balance';
@@ -22,6 +26,8 @@ import { mulberry32, type Rng } from '../core/rng';
 import { materials } from '../world/materials';
 import { floodPatch } from '../world/floodlights';
 import type { Heightfield } from './heightfield';
+import { classicActive } from '../core/style';
+import { classicGround } from './classicGround';
 
 materials.define('rock', new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), floodPatch);
 
@@ -100,6 +106,8 @@ export class Rocks {
     }
 
     const albedo = t.albedo;
+    const ground = classicActive() ? classicGround(hf) : null;
+    const gc = [0, 0, 0];
     const make = (items: typeof list, geo: THREE.BufferGeometry): RockSet => {
       const n = items.length;
       const set: RockSet = {
@@ -124,8 +132,16 @@ export class Rocks {
         m.compose(p, q, s);
         m.toArray(set.matrices, i * 16);
         // unweathered rock outshines the gardened regolith; fresh ejecta most
-        const v = albedo * (it.fresh ? 1.5 + 0.7 * rng() : 1.2 + 0.5 * rng());
-        set.colors[i * 3] = v; set.colors[i * 3 + 1] = v; set.colors[i * 3 + 2] = v * 1.01;
+        const k = it.fresh ? 1.5 + 0.7 * rng() : 1.2 + 0.5 * rng();
+        if (ground) {
+          // classic: the ground's own colour, lifted and a little greyer
+          ground.color(it.x, it.z, p.y, 1, gc, 0);
+          const lift = 0.85 + 0.25 * k, grey = (gc[0] + gc[1] + gc[2]) / 3;
+          for (let c = 0; c < 3; c++) set.colors[i * 3 + c] = Math.min(0.9, (gc[c] * 0.7 + grey * 0.3) * lift);
+        } else {
+          const v = albedo * k;
+          set.colors[i * 3] = v; set.colors[i * 3 + 1] = v; set.colors[i * 3 + 2] = v * 1.01;
+        }
       });
       set.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       set.mesh.setColorAt(0, new THREE.Color(0, 0, 0)); // allocates instanceColor
@@ -155,9 +171,15 @@ export class Rocks {
     return this.safe ? SMALL_DENSITY[3] : SMALL_DENSITY[Math.min(3, this.level)];
   }
 
-  /** Per frame: refill the small set once the camera has moved on. */
-  update(camera: THREE.Camera) {
-    const p = camera.position;
+  /** Per frame: refill the small set once the camera has moved on. The
+   *  classic isometric view passes its focus on the ground instead of the
+   *  camera, and null when it stands too far off for small rocks at all. */
+  update(camera: THREE.Camera, focus?: THREE.Vector3 | null) {
+    if (focus === null) {
+      if (this.small.mesh.count) { this.small.mesh.count = 0; this.refillAt.set(Infinity, 0, 0); }
+      return;
+    }
+    const p = focus ?? camera.position;
     if (p.distanceToSquared(this.refillAt) < REFILL_M * REFILL_M) return;
     this.refillAt.copy(p);
     this.fill(this.small, p);

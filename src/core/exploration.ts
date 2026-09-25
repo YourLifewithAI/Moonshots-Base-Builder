@@ -205,7 +205,7 @@ export function surveyPayout(s: GameState, mods: Mods, pid: ProspectId): number 
   if (p.kind === 'anomaly' && !p.bt) base += ANOMALY_BONUS_DATA;
   const seen = PROSPECT_IDS.filter((id) => id !== pid && s.survey.prospects[id] && PROSPECTS[id].kind === p.kind).length;
   const novelty = NOVELTY[Math.min(seen, NOVELTY.length - 1)];
-  const crewMult = s.crew >= mods.surveyMinCrew ? mods.surveyDataMult : 1;
+  const crewMult = mods.surveyDataMult * (s.crew >= mods.surveyMinCrew ? mods.surveyCrewDataMult : 1);
   return Math.round(base * novelty * crewMult);
 }
 

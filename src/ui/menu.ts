@@ -4,7 +4,14 @@
  *  persist through core/settings.ts and apply at the next boot before the
  *  first frame (main.ts).
  *
- *  Graphics: the running FX level is shown as the ladder left it. Lowering is
+ *  Graphics: the render style first — Classic (the default: flat colours,
+ *  the isometric camera, no effects) or High detail. A switch saves the
+ *  game, stores the choice and reloads straight back into it (the canvas's
+ *  context attributes are fixed at creation). The FX ladder and safe mode
+ *  belong to High detail and show only there (safe mode also shows in
+ *  Classic while the render check has it on, so it can be turned off).
+ *
+ *  High detail: the running FX level is shown as the ladder left it. Lowering is
  *  always one click; raising is the player's explicit pick, and a level that
  *  failed a render check on this GPU (in any session) asks for a second
  *  click. A raise — and turning safe mode off — is checked by the black-frame
@@ -14,7 +21,7 @@ import type { Game } from '../core/game';
 import { loadSettings, saveSettings } from '../core/settings';
 import { sfx } from '../audio/sfx';
 import { el } from './hud';
-import { $defeat, $menuOpen, $phase, $time } from './stores';
+import { $announce, $defeat, $menuOpen, $phase, $time } from './stores';
 
 const FX_LEVELS = [
   { name: 'Full', desc: 'HDR buffers, ambient occlusion, bloom and film' },
@@ -23,14 +30,32 @@ const FX_LEVELS = [
   { name: 'Plain', desc: 'no post effects at all' },
 ];
 
-export const CONTROLS: [string, string][] = [
+const STYLES = [
+  { id: 'classic', name: 'Classic', desc: 'flat colours, a fixed isometric view, no effects — made to run well on any GPU' },
+  { id: 'detailed', name: 'High detail', desc: 'shadows, ambient occlusion, bloom and a free camera; steps down on its own if the GPU struggles' },
+] as const;
+
+/** Camera lines by style: the isometric view steps, the free one orbits. */
+const CAMERA_KEYS: Record<'classic' | 'detailed', [string, string][]> = {
+  classic: [
+    ['Right-drag · middle-drag', 'pan'],
+    ['Wheel', 'zoom — five steps'],
+    ['W A S D · arrows', 'pan the camera'],
+    ['Q · E', 'turn the view 90°'],
+  ],
+  detailed: [
+    ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
+    ['W A S D · arrows', 'pan the camera'],
+    ['Q · E', 'orbit'],
+  ],
+};
+
+export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] => [
   ['Click', 'place · select a building'],
   ['⇧ Click', 'keep placing'],
   ['R', 'rotate while placing'],
   ['Right-click · Esc', 'stop placing · close the inspector'],
-  ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
-  ['W A S D · arrows', 'pan the camera'],
-  ['Q · E', 'orbit'],
+  ...CAMERA_KEYS[style],
   ['F', 'focus the selection'],
   ['H · Home', 'back to the Lander'],
   ['Space', 'pause'],
@@ -72,10 +97,13 @@ export function mountMenu(root: HTMLElement, game: Game) {
           </section>
           <section>
             <span class="label">Graphics</span>
+            <div class="seg seg-2" id="menu-style">${STYLES.map((st) =>
+              `<button class="btn" data-style="${st.id}" title="${st.name} — ${st.desc}">${st.name}</button>`).join('')}</div>
+            <div class="menu-note" id="menu-style-note"></div>
             <div class="seg" id="menu-fx">${FX_LEVELS.map((l, n) =>
               `<button class="btn" data-fx="${n}" title="FX ${n} — ${l.desc}"><b>${n}</b>${l.name}</button>`).join('')}</div>
             <div class="menu-note" id="menu-fx-note"></div>
-            <div class="menu-row">
+            <div class="menu-row" id="menu-safe-row">
               <span>Safe render mode</span>
               <button class="btn" data-act="safe" id="menu-safe" aria-pressed="false">Off</button>
             </div>
@@ -100,11 +128,19 @@ export function mountMenu(root: HTMLElement, game: Game) {
               <span class="mono" id="menu-effects-val"></span>
             </div>
           </section>
+          <section>
+            <span class="label">Guidance</span>
+            <div class="menu-row">
+              <span>Discovery pop-ups &amp; era explainers</span>
+              <button class="btn" data-act="tips" id="menu-tips" aria-pressed="true">On</button>
+            </div>
+          </section>
         </div>
         <div class="menu-col">
           <section>
             <span class="label">Controls</span>
-            <div class="keys" id="menu-keys">${CONTROLS.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
+            <div class="keys" id="menu-keys">${controlsFor(game.opts.style).map(([k, v]) =>
+              `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
           </section>
         </div>
       </div>
@@ -127,8 +163,31 @@ export function mountMenu(root: HTMLElement, game: Game) {
   /** a raise to a level that failed a render check waits for a second click */
   let confirmFx: number | null = null;
 
+  const styleNote = $('#menu-style-note');
+  /** a style switch is saving and reloading */
+  let switching = false;
+
+  const renderStyle = (st: ReturnType<Game['renderStatus']>) => {
+    const running = game.opts.style;
+    veil.querySelectorAll<HTMLButtonElement>('[data-style]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.style === running);
+      b.disabled = switching;
+    });
+    const cur = STYLES.find((x) => x.id === running)!;
+    styleNote.textContent = switching ? 'Saving and reloading…'
+      : `${cur.name}: ${cur.desc}. Switching saves the game and reloads.`;
+    // the FX ladder and safe mode are High detail's; Classic shows safe mode
+    // only while the render check has it on
+    const detailed = running === 'detailed';
+    for (const id of ['#menu-fx', '#menu-fx-note']) $(id).style.display = detailed ? '' : 'none';
+    const safeShown = detailed || st.safe;
+    $('#menu-safe-row').style.display = safeShown ? '' : 'none';
+    safeNote.style.display = safeShown ? '' : 'none';
+  };
+
   const renderGfx = () => {
     const st = game.renderStatus();
+    renderStyle(st);
     const choice = loadSettings().fx ?? 0;
     veil.querySelectorAll<HTMLButtonElement>('[data-fx]').forEach((b) => {
       const n = Number(b.dataset.fx);
@@ -175,6 +234,10 @@ export function mountMenu(root: HTMLElement, game: Game) {
     muteBtn.textContent = s.muted ? 'Unmute' : 'Mute';
     muteBtn.classList.toggle('active', s.muted);
     muteBtn.setAttribute('aria-pressed', String(s.muted));
+    const tipsBtn = $<HTMLButtonElement>('#menu-tips');
+    tipsBtn.textContent = s.tips ? 'On' : 'Off';
+    tipsBtn.classList.toggle('active', s.tips);
+    tipsBtn.setAttribute('aria-pressed', String(s.tips));
   };
 
   const pickFx = (n: number) => {
@@ -228,6 +291,15 @@ export function mountMenu(root: HTMLElement, game: Game) {
     if (t === veil) { $menuOpen.set(false); return; } // a click outside the panel resumes
     const fx = t.closest<HTMLElement>('[data-fx]');
     if (fx) { pickFx(Number(fx.dataset.fx)); return; }
+    const style = t.closest<HTMLButtonElement>('[data-style]');
+    if (style) {
+      const want = style.dataset.style as 'classic' | 'detailed';
+      if (want === game.opts.style || switching) return;
+      switching = true;
+      renderGfx();
+      void game.switchStyle(want);
+      return;
+    }
     const b = t.closest<HTMLButtonElement>('button[data-act]');
     if (!b) return;
     switch (b.dataset.act) {
@@ -256,6 +328,13 @@ export function mountMenu(root: HTMLElement, game: Game) {
         else game.enableSafeMode(false);
         renderGfx();
         break;
+      case 'tips': {
+        const tips = !loadSettings().tips;
+        saveSettings({ tips });
+        if (!tips) $announce.set([]);
+        renderAudio();
+        break;
+      }
       case 'mute': {
         const muted = !loadSettings().muted;
         saveSettings({ muted });

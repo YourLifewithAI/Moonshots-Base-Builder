@@ -35,6 +35,10 @@ const BOUNCE = 0.6;             // fraction of the ground's exitance reaching sh
 const UP = new THREE.Vector3(0, 1, 0);
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
 
+/** A stock-path work light's spot: a structure's ground point, how dark it
+ *  stands (0..1) and its squared distance from the camera focus. */
+export interface WorkSpot { x: number; y: number; z: number; k: number; d: number }
+
 /** The sun turn (as a cosine) that re-renders the map and re-aims the solar
  *  wings: 0.1° up to 3× speed, growing with speed past that — so the sweep
  *  costs about as many shadow renders a second at 10× as at 3×. */
@@ -59,6 +63,8 @@ export class Lighting {
   readonly earthshine: THREE.HemisphereLight;
   readonly headlamp: THREE.SpotLight;
   private workLights: THREE.PointLight[] = [];
+  /** filled by the caller (nearest dark structures first), then setWorkLights */
+  readonly workSpots: WorkSpot[] = Array.from({ length: WORK_LIGHTS }, () => ({ x: 0, y: 0, z: 0, k: 0, d: 0 }));
   /** regolith albedo under the base (drives the bounce light) */
   groundAlbedo = 0.3;
 
@@ -77,7 +83,8 @@ export class Lighting {
   private p = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
-    // exterior work lights: warm point lights that carry the base at night
+    // exterior work lights: warm point lights that carry the base where it
+    // stands dark (the stock path's floods)
     for (let i = 0; i < WORK_LIGHTS; i++) {
       const l = new THREE.PointLight(0xffe8c4, 0, 30, 1.8);
       l.castShadow = false;
@@ -254,16 +261,17 @@ export class Lighting {
     for (const l of this.workLights) l.visible = on;
   }
 
-  /** Park the work lights above the given building positions (nearest-first).
-   *  Settlers need to see the Moon around them — each structure lights its
-   *  own patch of regolith. */
-  setWorkLights(points: { x: number; y: number; z: number }[], nightFactor: number) {
+  /** Park the work lights above the first `n` of `workSpots`, each as bright
+   *  as its structure stands dark. Settlers need to see the Moon around them —
+   *  each structure lights its own patch of regolith, at noon in a crater's
+   *  shadow as at night. */
+  setWorkLights(n: number) {
     for (let i = 0; i < this.workLights.length; i++) {
       const l = this.workLights[i];
-      const p = points[i];
-      if (!p || nightFactor < 0.03) { l.intensity = 0; continue; }
+      const p = this.workSpots[i];
+      if (i >= n || p.k < 0.03) { l.intensity = 0; continue; }
       l.position.set(p.x, p.y + 8, p.z);
-      l.intensity = 60 * nightFactor;
+      l.intensity = 60 * p.k;
     }
   }
 }

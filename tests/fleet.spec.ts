@@ -13,14 +13,30 @@ declare global {
 const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 const RATE_EXP = 0.85;
 
-async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'human') {
-  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
+async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'human', style = '') {
+  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${style ? `&style=${style}` : ''}`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   await page.evaluate(HELPERS);
 }
 
 const hasAlert = (s: any, re: RegExp) => s.alerts.some((a: any) => re.test(a.text));
+
+/** The first world point whose screen position is on the canvas itself (in
+ *  view, not under a HUD panel) — clicks land there in either render style
+ *  (Classic's isometric camera, High detail's orbit). */
+async function onCanvas(page: Page, pts: [number, number][]) {
+  const at = await page.evaluate((list) => {
+    for (const [x, z] of list) {
+      const p = window.__game.screenOf(x, z);
+      if (!p.visible) continue;
+      if (document.elementFromPoint(p.x, p.y)?.tagName === 'CANVAS') return { x: p.x, y: p.y, wx: x, wz: z };
+    }
+    return null;
+  }, pts);
+  expect(at, `one of ${JSON.stringify(pts)} on the canvas`).not.toBeNull();
+  return at!;
+}
 
 /** In-page helpers: powered(secs) advances with the bank topped up; near()
  *  finds the valid cell nearest a world point; drained(secs) advances second
@@ -155,14 +171,16 @@ test('release and completion return rovers to auto', async ({ page }) => {
   expect(done.s.rovers.filter((x: any) => x.site === r.lab)).toHaveLength(1);
 });
 
-test('select a rover in the world, Send to…, click a site: it is pinned there', async ({ page }) => {
-  await start(page);
+// picking and targeting under both cameras: Classic's isometric one (the
+// default) and High detail's orbit
+for (const style of ['classic', 'detailed']) test(`${style}: select a rover in the world, Send to…, click a site: it is pinned there`, async ({ page }) => {
+  await start(page, 'mare', 'human', style);
   await page.evaluate(() => {
     const g = window.__game!;
     g.placeBuilding('habitat', 132, 126);
     g.advanceGameSeconds(1);
     // look down on the base so the parked rovers and the site are in view
-    g.setView({ x: -2, y: 70, z: 40 }, { x: 4, y: 0, z: 0 });
+    g.setView({ x: 90, y: 100, z: 100 }, { x: 6, y: 0, z: 2 });
   });
   // the free rover, parked at the Lander
   const free = await page.evaluate(() => window.__game.getState().rovers.find((x: any) => x.site === null).id);
@@ -182,15 +200,15 @@ test('select a rover in the world, Send to…, click a site: it is pinned there'
   await page.locator('#rv-send').click();
   await expect(page.locator('#fleet-hint')).toContainText(`SEND ROVER #${free}`);
   // a click on open ground says why not, and changes nothing
-  const ground = await page.evaluate(() => window.__game.screenOf(40, 40));
+  const ground = await onCanvas(page, [[-20, 24], [-24, -26], [30, 30], [-30, 10], [10, -30], [40, 40]]);
   await page.mouse.move(ground.x, ground.y);
   await expect(page.locator('#fleet-hint')).toContainText('Not a construction site');
   await page.mouse.click(ground.x, ground.y);
   await expect(page.locator('#fleet-hint')).toHaveAttribute('data-flash', /\d+/);
   // then the site
   const hab = await page.evaluate(() => byType('habitat'));
-  const siteAt = await page.evaluate(() => window.__game.screenOf(-2 + 26, -2));
-  expect(siteAt.visible).toBe(true);
+  const hx = (hab.gx + 1) * 4 - 512, hz = (hab.gz + 1) * 4 - 512;
+  const siteAt = await onCanvas(page, [[hx, hz], [hx - 1.5, hz + 1.5], [hx + 1.5, hz - 1.5], [hx - 1.5, hz - 1.5]]);
   await page.mouse.move(siteAt.x, siteAt.y);
   await expect(page.locator('#fleet-hint')).toContainText(`Habitat Module #${hab.id} · 1 → 2 rovers`);
   await page.mouse.click(siteAt.x, siteAt.y);
@@ -423,28 +441,28 @@ test('distance is the trade-off: 30 m from its smelter delivers today\'s rate ±
   expect(r.far.rate / old).toBeLessThan(0.7);
 });
 
-test('Dig at… refuses unmapped ground with its reason, and Return home digs the pad again', async ({ page }) => {
-  await start(page);
+for (const style of ['classic', 'detailed']) test(`${style}: Dig at… refuses unmapped ground with its reason, and Return home digs the pad again`, async ({ page }) => {
+  await start(page, 'mare', 'human', style);
   const id = await excavator(page);
-  await page.evaluate(() => window.__game.setView({ x: 0, y: 380, z: 160 }, { x: 0, y: 0, z: -20 }));
+  // a wide view west of the base: 190 m out and the mapped ground both in it
+  await page.evaluate(() => window.__game.setView({ x: 220, y: 260, z: 250 }, { x: -60, y: 0, z: 20 }));
   await page.evaluate((id) => window.__game.select(id), id);
   await page.locator('#insp-digat').click();
   await expect(page.locator('#fleet-hint')).toContainText('DIG AT…');
   // 190 m west: past the 120 m landing-site survey (and clear of the inspector on the right)
-  const far = await page.evaluate(() => window.__game.screenOf(-190, -2));
-  expect(far.visible).toBe(true);
+  const far = await onCanvas(page, [[-190, -2], [-190, 30], [-185, 50], [-200, 20], [-180, -30]]);
   await page.mouse.move(far.x, far.y);
   await expect(page.locator('#fleet-hint')).toContainText('UNMAPPED GROUND');
   await page.mouse.click(far.x, far.y);
   await expect(page.locator('#fleet-hint')).toHaveAttribute('data-flash', /\d+/);
   // mapped ground 60 m out: the estimate, then the click takes it
-  const ok = await page.evaluate(() => window.__game.screenOf(-2, 60));
+  const ok = await onCanvas(page, [[-2, 60], [-20, 60], [-40, 50], [-30, 70]]);
   await page.mouse.move(ok.x, ok.y);
   await expect(page.locator('#fleet-hint')).toContainText(/plain regolith · \d+ m · ≈\d+▲\/min \(now \d+▲\/min\) · plain feed/);
   await page.mouse.click(ok.x, ok.y);
   await expect(page.locator('#fleet-hint')).toBeHidden();
   const set = await page.evaluate((id) => { window.__game.advanceGameSeconds(1); return window.__game.getState().buildings.find((b: any) => b.id === id); }, id);
-  expect(Math.hypot(set.haul.digX + 2, set.haul.digZ - 60)).toBeLessThan(6);
+  expect(Math.hypot(set.haul.digX - ok.wx, set.haul.digZ - ok.wz)).toBeLessThan(6);
   // the action refuses the same way, and names the reason
   const refused = await page.evaluate((id) => {
     const g = window.__game!;
@@ -628,3 +646,54 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
     await inView('#rover-inspector', 4);
   });
 }
+
+// ───────────────────────────── with the render styles ─────────────────────────────
+
+test('classic: the digger out on its haul wears the pad\'s upgrades and lights; its pad loses decal and pool', async ({ page }) => {
+  await start(page); // Classic is the default style
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 400, parts: 200 });
+    g.completeTech('grizzlyScreens');
+    g.completeTech('autonomousHaulage');
+    for (const [x, z] of [[132, 126], [132, 130]]) g.placeBuilding('solar', x, z);
+    const c = near('excavator', -26, -2, (cx, cz) => g.depositAt(cx, cz) === null)!;
+    g.placeBuilding('excavator', c.gx, c.gz);
+    g.finishConstruction();
+    const id = byType('excavator').id;
+    // at night, so the base's pools are lit: first home, digging its own pad
+    // (between loads it hauls to the Lander, the only consumer here; the
+    // store is emptied so it never waits there for room)…
+    drained(640 - g.getState().simTime);
+    const h = () => byType('excavator').haul;
+    const padX = (byType('excavator').gx + 1) * 4 - 512, padZ = (byType('excavator').gz + 1) * 4 - 512;
+    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - padX, h().z - padZ) < 0.01 && h().t > 2); i++) {
+      drained(1);
+    }
+    g.setPaused(false); // a second of live frames: it squares up on its pad
+    for (let i = 0; i < 20; i++) g.stepFrame(0.05);
+    g.setPaused(true);
+    g.stepFrame(0.05);
+    const home = { up: g.getUpgrades(), life: g.getRenderInfo().life.haulers };
+    // …then under way to a dig 50 m north: its lamps follow the excavator's own darkness
+    g.digAt(id, -2, 50);
+    g.grantPower(20000);
+    g.advanceGameSeconds(2);
+    for (let i = 0; i < 6; i++) g.stepFrame(0.05);
+    return { id, home, away: { up: g.getUpgrades(), life: g.getRenderInfo().life.haulers } };
+  });
+  const pad = r.away.up.meshes.excavator;
+  // the same upgraded recipe on the pad and on the road
+  expect(pad.key).toBe('grizzlyScreens,autonomousHaulage');
+  expect(r.away.life.key).toBe(pad.key);
+  expect(r.away.life.triangles).toBe(pad.triangles);
+  // away: drawn by the haulers, its pad leaves no decal and no pool behind
+  expect(r.home.life.away).toEqual([]);
+  expect(r.away.life.away).toEqual([r.id]);
+  expect(r.away.up.decals).toBe(r.home.up.decals - 1);
+  expect(r.home.up.pools).toBeGreaterThan(0);
+  expect(r.away.up.pools).toBeLessThan(r.home.up.pools);
+  // the lit channel 2 + k at the excavator's own darkness
+  expect(r.away.life.dark[0]).toBeGreaterThan(0.5); // night
+  expect(r.away.life.lit[0]).toBeCloseTo(2 + r.away.life.dark[0], 3);
+});

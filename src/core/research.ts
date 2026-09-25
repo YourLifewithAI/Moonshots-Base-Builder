@@ -12,7 +12,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
 import { PROSPECTS, PROSPECT_IDS, type OutpostKind, type ProspectId } from '../data/lunarMap';
 import {
-  CHARTER_TECHS, CREW_ROTATION, ERA_COST_SCALE, INSIGHT_MAX, LAB_UPLINK_WEIGHTS, QUEUE_MAX,
+  CHARTER_DEED_TECHS, CHARTER_TECHS, CREW_ROTATION, ERA_COST_SCALE, INSIGHT_MAX, LAB_UPLINK_WEIGHTS, QUEUE_MAX,
   RESEARCH_RATE_EMA_S, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB,
 } from '../data/balance';
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
@@ -29,6 +29,9 @@ export interface ActionResult { ok: boolean; reason: string }
 export interface TechCtx { siteId: SiteId; expedition: Expedition; discoveries?: readonly TechId[] }
 
 const OK: ActionResult = { ok: true, reason: '' };
+/** the research tree's save schema: 2 = the 47-tech tree, 3 = the 90-tech tree */
+export const TECH_SCHEMA = 3;
+const TECHS_SCHEMA_2 = 47;
 const nameOf = (t: TechId) => TECHS[t]?.name ?? t;
 const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -78,6 +81,22 @@ function rival(def: TechDef, s: GameState, queue: readonly TechId[] = s.research
   const others = DOCTRINES[def.exclusive].members.filter((m) => m !== def.id && techVisible(TECHS[m], s));
   for (const m of others) if (s.techsDone.includes(m)) return { tid: m, state: 'done' };
   for (const m of others) if (queue.includes(m)) return { tid: m, state: 'queued' };
+  return null;
+}
+
+/** A doctrine member in this tech's requires closure whose rival is done:
+ *  the tech can never be researched (docs/12 §2.2). */
+function foreclosedPrereq(def: TechDef, s: GameState, seen = new Set<TechId>()): { req: TechId; chosen: TechId } | null {
+  for (const r of def.requires) {
+    if (seen.has(r)) continue;
+    seen.add(r);
+    const rd = TECHS[r];
+    if (!rd || s.techsDone.includes(r)) continue;
+    const rv = rival(rd, s);
+    if (rv?.state === 'done') return { req: r, chosen: rv.tid };
+    const deeper = foreclosedPrereq(rd, s, seen);
+    if (deeper) return deeper;
+  }
   return null;
 }
 
@@ -212,6 +231,10 @@ export function techAvailability(tid: TechId, s: GameState, mods?: Mods): Availa
         : `foreclosed while ${nameOf(rv.tid)} is queued — cancel it to reopen`,
     };
   }
+  const dead = foreclosedPrereq(def, s);
+  if (dead) {
+    return { state: 'foreclosed', reason: `foreclosed — needs ${nameOf(dead.req)}; you chose ${nameOf(dead.chosen)}` };
+  }
   if (crewLocked(def, s)) return { state: 'crewLocked', reason: 'needs Human Cohabitation (Era 6)' };
   if (def.era > s.era) return { state: 'eraLocked', reason: `opens with Era ${def.era}` };
   const missing = def.requires.filter((r) => !s.techsDone.includes(r) && !s.researchQueue.includes(r));
@@ -230,7 +253,7 @@ function gateHint(era: Era, s: GameState): string {
   const g = ERA_GATES[era];
   if (!g) return '';
   const cohab = g.roboticRequires && s.expedition === 'robotic' ? ` (+ ${nameOf(g.roboticRequires)})` : '';
-  return `Era ${era} opens with ${CHARTER_TECHS} Era-${era - 1} techs, or 1 + ${g.deed}${cohab}`;
+  return `Era ${era} opens with ${CHARTER_TECHS} Era-${era - 1} techs, or ${CHARTER_DEED_TECHS} + ${g.deed}${cohab}`;
 }
 
 /** The alert for a rejected enqueue: what is wrong and how to fix it. */
@@ -540,6 +563,8 @@ export interface GateProgress {
   /** visible done techs whose resolved era is era − 1 */
   techs: number;
   techsNeed: number;
+  /** techs that open the era together with the deed */
+  deedTechsNeed: number;
   deed: string;
   deedValue: number;
   deedNeed: number;
@@ -554,7 +579,7 @@ export function gateProgress(s: GameState, era: Era): GateProgress {
   const gate = ERA_GATES[era];
   if (!gate) {
     return {
-      era, techs: 0, techsNeed: 0, deed: '', deedValue: 0, deedNeed: 0, deedMet: true,
+      era, techs: 0, techsNeed: 0, deedTechsNeed: 0, deed: '', deedValue: 0, deedNeed: 0, deedMet: true,
       requires: null, open: true, via: 'techs',
     };
   }
@@ -568,9 +593,10 @@ export function gateProgress(s: GameState, era: Era): GateProgress {
   const deedMet = deedValue >= gate.need;
   const requires = gate.roboticRequires && s.expedition === 'robotic'
     ? { tech: gate.roboticRequires, done: s.techsDone.includes(gate.roboticRequires) } : null;
-  const via = techs >= CHARTER_TECHS ? 'techs' : techs >= 1 && deedMet ? 'deed' : null;
+  const via = techs >= CHARTER_TECHS ? 'techs' : techs >= CHARTER_DEED_TECHS && deedMet ? 'deed' : null;
   return {
-    era, techs, techsNeed: CHARTER_TECHS, deed: gate.deed, deedValue, deedNeed: gate.need, deedMet,
+    era, techs, techsNeed: CHARTER_TECHS, deedTechsNeed: CHARTER_DEED_TECHS,
+    deed: gate.deed, deedValue, deedNeed: gate.need, deedMet,
     requires, open: via !== null && (!requires || requires.done), via,
   };
 }
@@ -590,7 +616,7 @@ export function eraTick(s: GameState): Era[] {
   while (s.era < target) {
     s.era += 1;
     const g = gateProgress(s, s.era as Era);
-    const via = g.via === 'deed' ? `1 tech + ${g.deed}` : `${g.techs} techs`;
+    const via = g.via === 'deed' ? `${g.techs} techs + ${g.deed}` : `${g.techs} techs`;
     alert(s, `ERA ${s.era} OPENS — ${ERA_NAMES[s.era]} · via ${via}`, 'info');
     opened.push(s.era as Era);
   }
@@ -796,32 +822,40 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
 
 /** techSchema 1 → 2 (spec §8): retired ids dropped and refunded, doctrine
  *  conflicts grandfathered, hidden-at-site techs kept, the queue sanitized,
- *  the era never lowered. Deposit re-stamping (rule 7) needs the heightfield
- *  and is done by the caller. */
+ *  the era never lowered. techSchema 2 → 3 (docs/12 §9): the 43 new techs
+ *  simply appear; nothing done, banked or queued is lost, and the era is
+ *  kept although the charter now asks for 4 techs. Deposit re-stamping
+ *  (rule 7) needs the heightfield and is done by the caller. */
 export function migrateTechSchema(s: GameState): { refund: number; retired: string[] } {
   fillStateDefaults(s);
-  if ((s.techSchema ?? 1) >= 2) return { refund: 0, retired: [] };
-  const spentMap = s.researchSpent as Record<string, number | undefined>;
-  const doneList = s.techsDone as string[];
-  const queued = s.researchQueue as string[];
+  const from = s.techSchema ?? 1;
+  if (from >= TECH_SCHEMA) return { refund: 0, retired: [] };
   let refund = 0;
   const retired: string[] = [];
-  for (const [id, bonus] of Object.entries(RETIRED_TECHS)) {
-    const spent = spentMap[id] ?? 0;
-    const wasDone = doneList.includes(id);
-    if (!spent && !wasDone && !queued.includes(id)) continue;
-    refund += spent + (wasDone ? bonus : 0);
-    delete spentMap[id];
-    retired.push(id);
+  if (from < 2) {
+    const spentMap = s.researchSpent as Record<string, number | undefined>;
+    const doneList = s.techsDone as string[];
+    const queued = s.researchQueue as string[];
+    for (const [id, bonus] of Object.entries(RETIRED_TECHS)) {
+      const spent = spentMap[id] ?? 0;
+      const wasDone = doneList.includes(id);
+      if (!spent && !wasDone && !queued.includes(id)) continue;
+      refund += spent + (wasDone ? bonus : 0);
+      delete spentMap[id];
+      retired.push(id);
+    }
+    s.techsDone = [...new Set(doneList.filter((t) => t in TECHS))] as TechId[];
+    s.researchQueue = queued.filter((t) => t in TECHS) as TechId[];
+    s.data += refund;
   }
-  s.techsDone = [...new Set(doneList.filter((t) => t in TECHS))] as TechId[];
-  s.researchQueue = queued.filter((t) => t in TECHS) as TechId[];
-  s.data += refund;
-  s.techSchema = 2;
+  s.techSchema = TECH_SCHEMA;
   sanitizeQueue(s);
   s.era = Math.max(s.era ?? 1, computeEra(s));
   if (refund > 0) {
     alert(s, `RESEARCH TREE UPDATED — ${retired.length} retired tech${retired.length === 1 ? '' : 's'} refunded ${Math.round(refund)}≡`, 'info');
+  }
+  if (from < 3) {
+    alert(s, `RESEARCH TREE EXPANDED — ${TECH_ORDER.length - TECHS_SCHEMA_2} new techs; nothing you researched is lost`, 'info');
   }
   return { refund, retired };
 }
