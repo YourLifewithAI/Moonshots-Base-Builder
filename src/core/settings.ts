@@ -19,11 +19,15 @@ export interface Settings {
   fxFailed: number[];
   /** master volume 0..1 */
   volume: number;
+  /** the ambient score, 0..1 (under the master volume) */
+  music: number;
+  /** cues, radio, hum and rovers, 0..1 (under the master volume) */
+  effects: number;
   muted: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
-  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, muted: false,
+  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false,
 };
 
 const isLevel = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
@@ -41,6 +45,8 @@ function read(): Settings {
       safeAuto: raw.safeAuto === true,
       fxFailed: Array.isArray(raw.fxFailed) ? [...new Set(raw.fxFailed.filter(isLevel))].sort() : [],
       volume: clamp01(raw.volume, DEFAULT_SETTINGS.volume),
+      music: clamp01(raw.music, DEFAULT_SETTINGS.music),
+      effects: clamp01(raw.effects, DEFAULT_SETTINGS.effects),
       muted: raw.muted === true,
     };
   } catch {
