@@ -32,8 +32,10 @@ Names borrowed from those branches were correct at the time of writing and must 
 | Topic | Decision | Why |
 |---|---|---|
 | Two layers | **Orders** are one-shot and need no research. **Standing rules** are researched per building family. | These are the user's two steps: first "we tell them to build more excavators", then "eventually … automated regolith excavation". |
-| Orders before research | One-shot orders of ×1–3 are available from landing. **Build Orders** (Era 2) adds *held* orders, an order book and counts up to ×10. | The brief asks both for orders before any research and for a Build Orders tech. This split gives the verb away free and makes the convenience the research. See open question 1. |
+| Orders before research | One-shot orders of ×1–3 are available from landing. **Build Orders** (Era 2) adds *held* orders, an order book and counts up to ×10. | The user asked to tell the drones "build more excavators" before automation exists. The verb is free; the convenience is the research. (Coordinator decision.) |
 | Who picks the site | One pure chooser, `core/siting.ts`, serves both orders and rules. Research improves it (Site Survey AI). | One source of truth, as `checkPlacement` is for validity. |
+| Site choice before Site Survey AI | **Distance to the anchor only**: no deposit preference and no haul-lane preference. There is no randomness. Site Survey AI adds deposits, peaks of light and lane avoidance. | A random "planner error" reads as the game being wrong, not as a trade-off. A naive, deterministic chooser is a con the player can see and understand. (Coordinator decision.) |
+| Rules on by default | A family's rules switch **on** when its tech completes, with **conservative default caps**. The discovery card's Next line names the new behaviour and [B]. A loaded save never switches a rule on. | The user wants a deficit to trigger a build without further setup, and conservative caps keep an unattended rule from sprawling. (Coordinator decision.) |
 | Sim/renderer split | The economy decides **what** to build and **when**: a pure new step, 12. The Game decides **where**, by running the chooser over the heightfield, and commits through the same `commitPlace` a click uses. | Placing a building flattens terrain and rebuilds chunks and instances, and that is Game's job. The decision stays pure and testable. |
 | The signal | Rules watch **supply against demand** in a new flow book (§3.1), not only how the stock changes. | A smelter starved of regolith idles for `inputs`. The stock never falls, so net regolith reads about 0 while half the furnace stands cold. Demand still counts its 2▲/s. |
 | Capacity, not trouble | A rule builds only when the buildings it would add to are all running. If they are dark, short of crew or starved of inputs, the rule **holds** and says why. | Building more consumers into a brownout is the classic automation death spiral. |
@@ -41,14 +43,14 @@ Names borrowed from those branches were correct at the time of writing and must 
 | The builder extends what you founded | A rule never builds the **first** of a type. Orders can. | The first smelter, battery or yard is a milestone and a decision, so it stays the player's. |
 | Never rule-built | Labs, Data Centers, the Rec Dome, Foil Factory, Mass Driver, Propellant Plant and the Lander. Relay Masts only through Self-Expanding Base. | Research pace, doctrine and the endgame stay with the player. Orders can place any of these except the Lander and masts. |
 | Spending | The normal build cost, paid at placement. A rule never spends below its reserve or the welding parts the queue needs. | The brief says "normal build costs": automation carries no markup. |
-| Cons | Every tech has a **numeric** con that passes `auditTechs`, plus a behavioural one: it spends your stock unasked, it makes planner errors until Site Survey AI, and reserves make it slower. | Pillar 7 of [11](11-research-and-map-spec.md): every card is a trade-off. |
+| Cons | Every tech has a **numeric** con (kW or upkeep) that passes `auditTechs`, plus a behavioural one: it spends your stock unasked, and reserves make it slower. Before Site Survey AI, sites are chosen by distance only. | Pillar 7 of [11](11-research-and-map-spec.md): every card is a trade-off. |
 | Name | The UI calls the system **the Builder**, with a panel on **[B]**. "Autonomous" remains the name of the station-crewing toggle. | `mods.automation` already means agent-run stations (Construction Robotics). Two systems called "automation" would confuse players. |
 
 ## 1. The builder's rules
 
 These lines are the header copy of the Builder panel. Each one has a mechanism behind it in §2–3.
 
-1. **It builds what you would, where you would, at the price you would pay.**
+1. **It builds what you would, close to where it is needed, at the price you would pay.**
 2. **It keeps back what you need**: never below the reserve, and never the parts the welders need.
 3. **It builds for capacity, not for trouble.** It adds nothing to a brownout.
 4. **One site per family at a time**, and after each site it waits for the numbers to settle.
@@ -109,50 +111,57 @@ Orders are the player's command, so they do not use rule reserves. Refusals:
 
 ### 2.3 Choosing a site (`src/core/siting.ts`, shared by orders and rules)
 
-`chooseSite(s, mods, site, ground, type, intent, opts)` is pure. `ground` is `Pick<Heightfield, 'depositAt' | 'maxDelta' | 'deposits'>`, and the live `Heightfield` satisfies it. The function returns either `{ gx, gz, rot, why, poor, dig? }` or `{ refusal }`.
+`chooseSite(s, mods, site, ground, type, intent, opts)` is pure. `ground` is `Pick<Heightfield, 'depositAt' | 'maxDelta' | 'deposits'>`, and the live `Heightfield` satisfies it. The function returns either `{ gx, gz, rot, why, dig? }` or `{ refusal }`. There is **no randomness**: the same state always gives the same site.
+
+**Two choosers, one function.**
+
+- **The base chooser** (from landing) picks by **distance to the anchor only**. It has no deposit preference and no haul-lane preference.
+- **Site Survey AI** (Era 3, ▣) adds the deposit preference, peaks of light for solar, planned dig sites, and lane avoidance.
+
+The base chooser's naivety is deterministic and visible: an auto Smelter may sit on ilmenite an excavator would have dug, and an auto Excavator digs plain ground next to the furnace. Anyone who looks can see why the site was chosen, and Site Survey AI is the fix.
 
 **The pipeline:**
 
 1. **Candidates.** Every footprint origin whose footprint centre lies inside a network node's radius (`networkNodes`, taken in building order). Cells are scanned row-major (gz, then gx). Non-square footprints try both rotations. The base chooser tests every second cell; Site Survey AI tests every cell.
 2. **Fast filters**, on an occupancy raster built once per call (256×256 bytes). A candidate is rejected if it:
    - overlaps a footprint;
-   - covers a **door apron** (the 1-cell strip in front of each building's door side, +z rotated by `rot`);
+   - covers a **door apron** (the 1-cell strip in front of each building's door side, +z rotated by `rot`). This applies to both choosers: it keeps every door clear and is not a site preference;
    - falls outside the lava tube footprint or off the map edge;
-   - crosses a **haul lane** (hard rejection with Site Survey AI, a soft penalty without it).
+   - crosses a **haul lane** (Site Survey AI only).
 3. **Score.** Lower is better; the terms are in the table below.
-4. **Validate** the best candidates, in score order, with the real `checkPlacement`, which stays the one truth. The first that passes wins. The caller has already checked the cost against its budget.
-5. **Planner error** (rules only, before Site Survey AI). With probability `mods.autoSiteError` (0.2), a seeded draw picks rank 2–6 instead of rank 1. That site is marked `poor`.
-
-**The builder knows only what the overlay shows.** Deposits count only when `depositRevealed` says so, and hidden ground is never scored. A site that lands on hidden ground **strikes** it (`PROSPECT STRUCK`), exactly as a click would.
+4. **Validate** the best candidates, in score order, with the real `checkPlacement`, which stays the one truth. The first that passes wins. The caller has already checked the cost against its budget. Placement's own hard rules still apply to both choosers: an Ice Harvester only on confirmed ice, never a Habitat on KREEP.
 
 **Score terms.**
 
-| Term | Weight | Meaning |
-|---|---|---|
-| Anchor distance *d* | +1 per m | Distance from the footprint centre to the type's anchor (next table). The base chooser uses a straight line; Site Survey AI uses the planned path length (`plan`). |
-| Wanted deposit | −40 | The footprint centre is on the revealed deposit the intent wants (next tables). |
-| Someone else's deposit | +25 | It sits on ground reserved for another family: ilmenite or anorthosite that an excavator should dig, ice for harvesters, a ridge for solar. |
-| Haul lane | +60 (base) / rejected (Site Survey AI) | The footprint crosses an excavator's dig → drop leg, widened by `HAUL.clear`. |
-| Relief | +2 per m of `maxDelta` | Flatter pads first. This is mostly a tie-break. |
-| Tie | (score, gz, gx, rot) | Makes the choice deterministic. |
-
-**Anchors and preferences by type.**
-
-| Type | Anchor (distance term) | Wanted deposit | Keeps off |
+| Term | Base | Site Survey AI | Meaning |
 |---|---|---|---|
-| Regolith Excavator | the nearest regolith consumer (Smelter or Refinery; the Lander if there is none) | the **feed target** (next table) | haul lanes |
-| Ice Harvester | the Lander (water is tanked, not hauled) | ice (required by placement) | — |
-| Solar Array | the base centroid (keeps the base compact) | a peak of light (Site Survey AI) | reserved deposits |
-| Battery Bank | the Lander | — | reserved deposits |
-| Smelter, Refinery | the centroid of the excavators' dig sites, so every haul is short | — | reserved deposits: a furnace on ilmenite buries the ore |
-| Parts Fabricator, Chip Fab | the nearest Smelter or Refinery (a compact industry block) | — | reserved deposits |
-| Storage Yard | the centroid of the full resource's producers | — | reserved deposits |
-| Robotics Bay | the centroid of the pending sites | — | reserved deposits |
-| Habitat | the Lander. Growing the network is the player's choice. | never KREEP (a hard rule in placement) | reserved deposits |
-| Hydroponics | the nearest Habitat | — | reserved deposits |
-| Relay Mast (Self-Expanding Base) | the network edge, toward the target (§3.4) | — | — |
+| Anchor distance *d* | +1 per m, straight line | +1 per m, planned path (`plan`) round footprints | from the footprint centre to the type's anchor (next table) |
+| Wanted deposit | — | −40 | the footprint centre is on the revealed deposit the intent wants (the feed-target table) |
+| Someone else's deposit | — | +25 | ground reserved for another family: ilmenite or anorthosite an excavator should dig, ice for harvesters, a ridge for solar |
+| Peak of light (solar only) | — | −40 | never shaded, ×1.2 output |
+| Haul lane | — | rejected | the footprint crosses an excavator's dig → drop leg, widened by `HAUL.clear` |
+| Relief | +2 per m of `maxDelta` | the same | flatter pads first; mostly a tie-break |
+| Tie | (score, gz, gx, rot) | the same | makes the choice deterministic |
 
-**The excavator feed target** is what "the deposit the feed wants" means:
+**Site Survey AI knows only what the overlay shows.** Deposits count only when `depositRevealed` says so, and hidden ground is never scored. The base chooser reads no deposits at all. With either chooser, a site that lands on hidden ground **strikes** it (`PROSPECT STRUCK`), exactly as a click would.
+
+**Anchors, and what Site Survey AI adds, by type.**
+
+| Type | Anchor (both choosers) | Site Survey AI adds |
+|---|---|---|
+| Regolith Excavator | the nearest regolith consumer (Smelter or Refinery; the Lander if there is none) | the **feed target** (next table), scored by delivered rate; planned dig sites |
+| Ice Harvester | the Lander (water is tanked, not hauled) | — (placement already requires ice) |
+| Solar Array | the base centroid (keeps the base compact) | peaks of light first; off reserved deposits |
+| Battery Bank | the Lander | off reserved deposits |
+| Smelter, Refinery | the centroid of the excavators' dig sites, so every haul is short | off reserved deposits: a furnace on ilmenite buries the ore |
+| Parts Fabricator, Chip Fab | the nearest Smelter or Refinery (a compact industry block) | off reserved deposits |
+| Storage Yard | the centroid of the full resource's producers | off reserved deposits |
+| Robotics Bay | the centroid of the pending sites | off reserved deposits |
+| Habitat | the Lander. Growing the network is the player's choice. | off reserved deposits |
+| Hydroponics | the nearest Habitat | off reserved deposits |
+| Relay Mast (Self-Expanding Base) | the network edge, toward the target (§3.4) | — |
+
+**The excavator feed target** is what "the deposit the feed wants" means. Site Survey AI and Feed Planner use it:
 
 | Situation | Wanted deposit | What it does |
 |---|---|---|
@@ -164,31 +173,33 @@ Orders are the player's command, so they do not use rule reserves. Refusals:
 
 **Excavators and fleet hauls.**
 
-- **Base chooser:** the pad goes on a revealed wanted deposit if the nearest valid pad on it lies within the larger of 60 m and 2× the nearest plain pad's distance from the anchor. At landing, that means anywhere on in-network ilmenite. Either way, the excavator digs its own pad.
+- **Base chooser:** the pad nearest the consumer. The excavator digs its own pad, whatever ground that is.
 - **Site Survey AI:** it scores two options and takes the better, preferring (a) on a tie:
-  - (a) a pad on the deposit, digging home;
+  - (a) a pad on the wanted deposit, digging home;
   - (b) a pad beside the consumer, digging the deposit's nearest mapped point.
 
   The score is `tripFor(…).rate × (1 + ½ feedGain)`. Option (b) stores `auto.dig`, and `setDigSite` applies it when the excavator completes, because an excavator cannot dig while it is still a site.
 
-**`why` strings** feed the alert and the inspector:
+**`why` strings** feed the alert and the inspector. They state the reason, and never call a site wrong:
 
-- `on high-Ti basalt · 38 m haul to Smelter #3`
-- `on a peak of light · never shaded`
-- `nearest free pad to Smelter #3 (no revealed high-Ti in the network)`
-- `planner error — a better site existed (Site Survey AI)`
+- base: `nearest free pad to Smelter #3 · 18 m`
+- base: `nearest free pad to the Lander · 12 m`
+- Site Survey AI: `on high-Ti basalt · 38 m haul to Smelter #3`
+- Site Survey AI: `on a peak of light · never shaded`
+- Site Survey AI: `nearest free pad to Smelter #3 (no revealed high-Ti in the network)`
 
 ### 2.4 The base chooser against Site Survey AI
 
 | | Base (from landing) | Site Survey AI (Era 3, ▣) |
 |---|---|---|
+| Picks by | distance to the anchor only | distance, deposits, peaks of light, haul lanes |
 | Candidate grid | every 2nd cell | every cell |
-| Distance | straight line | planned path (`plan`) around footprints |
-| Deposits | the wanted revealed deposit, with the 2× distance rule | scored by delivered rate × feed value (`tripFor`) |
+| Distance | straight line | planned path (`plan`) round footprints |
+| Deposits | not read (placement's ice and KREEP rules still hold) | wanted deposit −40, others' deposits +25; excavators scored by delivered rate × feed value (`tripFor`) |
 | Peaks of light | ignored | solar goes there first |
-| Haul lanes | penalised | never crossed |
+| Haul lanes | ignored | never crossed |
+| Door aprons | kept clear | kept clear |
 | Excavator dig sites | digs its own pad | may dig a deposit from a pad beside the consumer |
-| Planner error (rules) | 20% | 0% |
 
 Neither chooser reads terrain shade. `b.shaded` is computed on the renderer side at frame cadence, and reading it would break determinism (§6.3).
 
@@ -291,29 +302,34 @@ Rates are shown per minute in the UI; the per-second values are in brackets. T i
 
 | Family (tech) | Rule | Builds | Shown as | Trigger T | Re-arm H | Dwell | Cooldown / settle | Cap (default, range) | Also |
 |---|---|---|---|---|---|---|---|---|---|
-| **Excavation** (Automated Excavation) | `excavator` | Regolith Excavator | KEEP regolith supply ≥ demand | balance < −6▲/min (−0.10/s) | ≥ 0 | 60 s | 120 s / 60 s + 1 haul cycle | 8 (0–30) | only while regolith < 50% of cap |
-| | `iceHarvester` (pole) | Ice Harvester | KEEP water supply ≥ demand | balance < −1.2≈/min (−0.02/s) | ≥ 0 | 60 s | 120 / 60 | 4 (0–12) | needs revealed ice in the network |
-| **Power** (Automated Power) | `solar` | Solar Array | KEEP the day's grid margin ≥ 10% | dayMargin < 10% (5–50%) | ≥ margin + 10% | 30 s | 60 / 30 | 60 (0–150) | by day only; also answers headroom requests |
-| | `battery` | Battery Bank | CARRY the night | reactive: `bankRanDry`, acted on at dawn. Predictive: nightCover < 100% (50–150%) | ≥ target + 10% | — (at dawn) / 60 s | 60 / 30 | 16 (0–40) | never builds at night |
-| | `reactor` (off by default) | Thorium Reactor | BASELOAD for the night | nightNeed > 25 kW with batteries at their cap | — | 120 s | 600 / 120 | 3 (0–6) | Thorium; mare and lava tube |
+| **Excavation** (Automated Excavation) | `excavator` | Regolith Excavator | KEEP regolith supply ≥ demand | balance < −6▲/min (−0.10/s) | ≥ 0 | 60 s | 120 s / 60 s + 1 haul cycle | 6 (0–30) | only while regolith < 50% of cap |
+| | `iceHarvester` (pole) | Ice Harvester | KEEP water supply ≥ demand | balance < −1.2≈/min (−0.02/s) | ≥ 0 | 60 s | 120 / 60 | 3 (0–12) | needs revealed ice in the network |
+| **Power** (Automated Power) | `solar` | Solar Array | KEEP the day's grid margin ≥ 10% | dayMargin < 10% (5–50%) | ≥ margin + 10% | 30 s | 60 / 30 | 24 (0–150) | by day only; also answers headroom requests |
+| | `battery` | Battery Bank | CARRY the night | reactive: `bankRanDry`, acted on at dawn. Predictive: nightCover < 100% (50–150%) | ≥ target + 10% | — (at dawn) / 60 s | 60 / 30 | 6 (0–40) | never builds at night |
+| | `reactor` | Thorium Reactor | BASELOAD for the night | nightNeed > 25 kW with batteries at their cap | — | 120 s | 600 / 120 | 1 (0–6): with the first-of-a-type rule it adds none until you raise it | Thorium; mare and lava tube |
 | **Smelting & Refining** (Automated Smelting) | `smelter` | Regolith Smelter | KEEP metals supply ≥ demand (builds included) | balance < 0 **and** stock < 50% of cap | balance ≥ +3◆/min or stock ≥ 60% | 90 s | 180 / 90 | 4 (0–12) | starved of regolith → requests Excavation |
-| | `refinery` | Silicon Refinery | KEEP silicon supply ≥ demand | the same, or research stalled on silicon | the same | 90 s | 180 / 90 | 4 (0–12) | |
-| | `storageYard` | Storage Yard | ROOM at the top | a capped stock ≥ 95% of cap while one of its producers stands by `full` | < 85% | 60 s | 120 / 30 | 6 (0–20) | |
-| **Fabrication** (Automated Fabrication) | `partsFab` | Parts Fabricator | KEEP parts supply ≥ demand | balance < 0 and stock < 50% of cap | ≥ +1.2⚙/min | 90 s | 180 / 90 | 4 (0–10) | starved of metals → requests Smelting |
+| | `refinery` | Silicon Refinery | KEEP silicon supply ≥ demand | the same, or research stalled on silicon | the same | 90 s | 180 / 90 | 3 (0–12) | |
+| | `storageYard` | Storage Yard | ROOM at the top | a capped stock ≥ 95% of cap while one of its producers stands by `full` | < 85% | 60 s | 120 / 30 | 4 (0–20) | |
+| **Fabrication** (Automated Fabrication) | `partsFab` | Parts Fabricator | KEEP parts supply ≥ demand | balance < 0 and stock < 50% of cap | ≥ +1.2⚙/min | 90 s | 180 / 90 | 3 (0–10) | starved of metals → requests Smelting |
 | | `chipFab` | Chip Fab | CHIPS for what's queued | research stalled on chips for 120 s, or queued chip goods > 1.5 × the next 10 minutes of production | — | 120 s | 300 / 120 | 3 (0–6) | Wafer Fab |
-| | `roboticsBay` | Robotics Bay | NO site waits for a rover | backlog ≥ 2 | 0 | 120 s | 300 / 60 | 4 (0–8) | |
-| **Life support** (Automated Life Support) | `oxygen` | the O₂ producer (`producerOf`: usually a Smelter) | KEEP ≥ 20 min of oxygen | runway < 20 min (5–60), or balance < 0, with crew aboard | ≥ T + 10 min and balance ≥ 0 | 30 s | 120 / 60 | 6 smelters (0–12) | ranks above every other family |
-| | `food` | Hydroponics Farm | KEEP ≥ 20 min of food | the same, for food | the same | 30 s | 120 / 60 | 6 (0–16) | |
-| | `water` | the water producer (Ice Harvester / Excavator with Volatiles / Smelter) | KEEP ≥ 20 min of water | the same, for water | the same | 30 s | 120 / 60 | 4 (0–12) | |
-| | `habitat` | Habitat Module | A BED for the next settler | freeBeds < 1 | ≥ 2 | 120 s | 300 / 60 | 8 (0–20) | never on KREEP |
+| | `roboticsBay` | Robotics Bay | NO site waits for a rover | backlog ≥ 2 | 0 | 120 s | 300 / 60 | 3 (0–8) | |
+| **Life support** (Automated Life Support) | `oxygen` | the O₂ producer (`producerOf`: usually a Smelter) | KEEP ≥ 20 min of oxygen | runway < 20 min (5–60), or balance < 0, with crew aboard | ≥ T + 10 min and balance ≥ 0 | 30 s | 120 / 60 | 5 smelters (0–12) | ranks above every other family |
+| | `food` | Hydroponics Farm | KEEP ≥ 20 min of food | the same, for food | the same | 30 s | 120 / 60 | 4 (0–16) | |
+| | `water` | the water producer (Ice Harvester / Excavator with Volatiles / Smelter) | KEEP ≥ 20 min of water | the same, for water | the same | 30 s | 120 / 60 | 3 (0–12) | |
+| | `habitat` | Habitat Module | A BED for the next settler | freeBeds < 1 | ≥ 2 | 120 s | 300 / 60 | 4 (0–20) | never on KREEP |
 | **Maintenance** (Maintenance Automation) | `replace` | the same type | REPLACE worn-out machines | a building at wear ≥ 40% (20–80%) for a lunar day | — | 720 s | one at a time | — | §4, tech 11 |
-| **Network** (Self-Expanding Base) | `relayMast` | Relay Mast | REACH the ground the rules need | a rule in `nosite` for 60 s, or the best deposit Site Survey AI found for a rule lies ≤ 90 m outside the network | — | 60 s | 300 / 60 | 8 masts (0–20) | placed at the network edge, toward the target |
+| **Network** (Self-Expanding Base) | `relayMast` | Relay Mast | REACH the ground the rules need | a rule in `nosite` for 60 s, or the best deposit Site Survey AI found for a rule lies ≤ 90 m outside the network | — | 60 s | 300 / 60 | 4 masts (0–20) | placed at the network edge, toward the target |
 
-**Caps count every building of the type**: manual, ordered and auto-built. A rule reads only its own cap. That is how the O₂ rule can grow smelters to 6 while the Smelting rule stops at 4: life support is never capped by industry.
+**Caps count every building of the type**: manual, ordered and auto-built. A rule reads only its own cap. That is how the O₂ rule can grow smelters to 5 while the Smelting rule stops at 4: life support is never capped by industry.
 
-**Rules switch on when their tech completes**, with the defaults above, and an alert says so:
-`BUILDER — the Excavation rule is on: +1 Excavator when regolith demand outruns supply for 60 s · cap 8 · [B] to tune`.
-The reactor rule is the exception and stays opt-in. A migrated save never switches a rule on by itself.
+**Default caps are conservative.** Each is a few buildings above what a base typically has when the tech completes, going by the probe's build logs on the current tree (§8.2). Examples: 1–3 excavators at Era 3 against a cap of 6; 14–19 arrays at Era 4 against 24; 2–3 smelters at Era 5 against 4. Recheck them against the 2× tree's logs at merge. An unattended rule therefore grows the base a little and then stops with `AUTO CAP`, which names the cap and [B]. It never sprawls. The player raises caps as the base grows.
+
+**Rules switch on when their tech completes** (coordinator decision), with the defaults above. Two messages say so:
+
+- the alert: `BUILDER — the Excavation rule is on: +1 Excavator when regolith demand outruns supply for 60 s · cap 6 · [B] to tune`;
+- the discovery card's **Next** line (§5.4).
+
+The reactor rule switches on too, but with cap 1. Together with the first-of-a-type rule, that means it adds nothing until the player raises the cap: a 96◆ 32⚙ reactor stays the player's call. A loaded save never switches a rule on by itself.
 
 ### 3.5 What rules never build, and why
 
@@ -332,18 +348,18 @@ Orders can place every one of these except the Lander and Relay Masts. Masts bec
 
 ## 4. The research ladder
 
-There are twelve techs in two lanes: **◉ ROBOTS & FAB** holds the physical families, and **▣ SILICON & COMPUTE** holds the planning techs. They span Eras 2–7.
+There are twelve techs. **◉ ROBOTS & FAB** holds the physical families, **▣ SILICON & COMPUTE** the planning techs, and **⚡ POWER** holds Automated Power (coordinator decision). They span Eras 2–7.
 
 - Every tech has a generated pro, a **numeric** con that passes `auditTechs`, a `visual` line, and one visible mesh change, following work/tree's convention.
-- **Costs** are given on the current table's scale. At merge, set each to its era's median in work/tree. If work/tree doubles per-tech cost to reach 2× eras, double these as well; if it doubles the number of techs, keep them.
+- **Costs** below are placeholders on the current table's scale. **At merge, set each to the new tree's median data cost for its era** (coordinator decision), and scale the goods in the same proportion.
 - Median costs keep the techs **charter-neutral**: researching one instead of another tech of its era opens the next era no sooner and no later. A cheap automation tech would otherwise become a charter shortcut.
 
 | # | id · name | Era · lane | Cost | Requires | Pros (generated) | Cons (generated; numeric first) | `visual` |
 |---|---|---|---|---|---|---|---|
 | 1 | `buildOrders` · **Build Orders** | E2 · ◉ | 130≡ | teleoperation | ORDER BOOK: 4 held orders, up to ×10 each; orders wait for stock instead of skipping; Build next for a whole order | −1 kW: Lander (planning console) · held orders take stock the moment it lands | The Lander raises a planning mast: a lattice pole with a work lamp over its top deck. |
-| 2 | `autoExcavation` · **Automated Excavation** | E3 · ◉ | 180≡ + 10⚙ | buildOrders, constructionRobotics | NEW RULE Excavation: +1 Excavator when regolith demand outruns supply for 60 s (cap 8); Ice Harvester on water at the pole | −1 kW per Robotics Bay (dispatch) · 20% of rule sites are planner errors until Site Survey AI · the builder spends your stock unasked (16◆ 4⚙ per Excavator) | Every Robotics Bay grows a dispatch mast: a lattice tower with a beacon on the roof. |
-| 3 | `siteSurveyAI` · **Site Survey AI** | E3 · ▣ | 170≡ | buildOrders, prospectingRovers | auto sites read the overlay (deposits, peaks of light, haul routes); dig sites planned; no planner errors | +20% upkeep: Robotics Bay (survey drones) | A survey drone rests on a pad on each Robotics Bay roof. |
-| 4 | `autoPower` · **Automated Power** | E4 · ◉ | 260≡ + 20◆ | autoExcavation | NEW RULE Power: +1 Solar Array when the day's margin < 10% (cap 60); +1 Battery Bank at dawn after the bank ran dry (cap 16); reactor rule (opt-in) | +10% upkeep: Solar Array (combiner boxes) · spends your stock (12◆ per array, 40◆ 8◇ per bank) | Each Solar Array gains a combiner box with a status lamp at its foot. |
+| 2 | `autoExcavation` · **Automated Excavation** | E3 · ◉ | 180≡ + 10⚙ | buildOrders, constructionRobotics | NEW RULE Excavation: +1 Excavator when regolith demand outruns supply for 60 s (cap 6); Ice Harvester on water at the pole | −1 kW per Robotics Bay (dispatch) · the builder spends your stock unasked (16◆ 4⚙ per Excavator) | Every Robotics Bay grows a dispatch mast: a lattice tower with a beacon on the roof. |
+| 3 | `siteSurveyAI` · **Site Survey AI** | E3 · ▣ | 170≡ | buildOrders, prospectingRovers | auto sites weigh the overlay: the feed's deposits, peaks of light for solar, others' ground kept clear, haul lanes never crossed; planned dig sites | +20% upkeep: Robotics Bay (survey drones) | A survey drone rests on a pad on each Robotics Bay roof. |
+| 4 | `autoPower` · **Automated Power** | E4 · ⚡ | 260≡ + 20◆ | autoExcavation | NEW RULE Power: +1 Solar Array when the day's margin < 10% (cap 24); +1 Battery Bank at dawn after the bank ran dry (cap 6); reactor rule (cap 1: raise it to let the builder add reactors) | +10% upkeep: Solar Array (combiner boxes) · spends your stock (12◆ per array, 40◆ 8◇ per bank) | Each Solar Array gains a combiner box with a status lamp at its foot. |
 | 5 | `budgetGovernor` · **Budget Governor** | E4 · ▣ | 260≡ + 5▣ | autoExcavation | RESERVES and PRIORITIES: floors per resource; queued research goods kept; rules act in your order; crisis sites jump the rover queue | +50% upkeep: Storage Yard (manifest gantries) · rules wait for your floors, so the builder acts later | Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks. |
 | 6 | `autoLifeSupport` · **Automated Life Support** (crew tech) | E4 human · E6 robotic (1150≡) · ◉ | 280≡ + 10⚙ | autoExcavation | NEW RULE Life support: the O₂, food and water makers when a supply's runway falls under 20 min; a Habitat when no bed is free for the next settler | +10% draw: Habitat Module (air monitors) · spends your stock | Each Habitat gets an air-monitor mast by its door. |
 | 7 | `autoSmelting` · **Automated Smelting & Refining** | E5 · ◉ | 440≡ + 20⚙ | autoExcavation, siliconRefining | NEW RULE Smelting: Smelters and Refineries when metals or silicon demand (builds included) outruns supply; Storage Yards when a full stock idles its producers | +10% upkeep: Smelter, Refinery (samplers) · spends your stock (32◆ 8⚙ per Smelter) | Smelters and Refineries grow an ore-sampler arm over the hopper. |
@@ -351,11 +367,11 @@ There are twelve techs in two lanes: **◉ ROBOTS & FAB** holds the physical fam
 | 9 | `predictiveScheduling` · **Predictive Scheduling** | E5 · ▣ | 460≡ + 5▣ | autoPower, lunarDataCenter | rules act on forecasts: batteries before dusk, sites under construction counted, dwell halved (needs an operating Data Center) | +10% draw: Data Center · reactive again whenever no Data Center runs | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. |
 | 10 | `autoFabrication` · **Automated Fabrication** | E6 · ◉ | 1150≡ + 10▣ | autoSmelting, partsFabrication | NEW RULE Fabrication: Parts Fabricators on parts demand; Chip Fabs when research waits on chips; Robotics Bays when sites wait for a rover | +20% upkeep: Parts Fabricator (gantry cranes) · spends your stock (a Chip Fab is 48◆ 24◇ 16⚙) | Parts Fabricators get a gantry crane over the roof. |
 | 11 | `maintenanceAutomation` · **Maintenance Automation** | E6 · ◉ | 1100≡ + 30⚙ | autoFabrication | parts triage (below); worn machines replaced; tripped overclocks re-armed once healed | +30% upkeep: Robotics Bay · a replacement costs a new build less half the old one's price | Robotics Bays get a service crane arm at the side door. |
-| 12 | `selfExpandingBase` · **Self-Expanding Base** | E7 · ◉ | 1400≡ + 20▣ 40⚙ | autoFabrication, siteSurveyAI | NEW RULE Network: Relay Masts at the network edge toward ground a rule needs (cap 8); "Extend network" orders | +30% draw: Relay Mast (beacon crowns) · spends your stock (16◆ 4⚙ and 1.5 kW per mast) | Relay Masts wear a beacon crown and a cable reel at the foot. |
+| 12 | `selfExpandingBase` · **Self-Expanding Base** | E7 · ◉ | 1400≡ + 20▣ 40⚙ | autoFabrication, siteSurveyAI | NEW RULE Network: Relay Masts at the network edge toward ground a rule needs (cap 4); "Extend network" orders | +30% draw: Relay Mast (beacon crowns) · spends your stock (16◆ 4⚙ and 1.5 kW per mast) | Relay Masts wear a beacon crown and a cable reel at the foot. |
 
-**Per era.** ◉ gets 1 / 1 / 2 / 1 / 3 / 1 techs in Eras 2–7 (counting Life Support at E4 on human runs and E6 on robotic runs). ▣ gets 0 / 1 / 1 / 2 / 0 / 0. If work/tree already fills ◉ in Era 6, move Maintenance Automation to Era 5; its only prerequisite would then be `autoSmelting`.
+**Per era.** ◉ gets 1 / 1 / 1 / 1 / 3 / 1 techs in Eras 2–7 (counting Life Support at E4 on human runs and E6 on robotic runs). ⚡ gets Automated Power in Era 4. ▣ gets 0 / 1 / 1 / 2 / 0 / 0. If work/tree already fills ◉ in Era 6, move Maintenance Automation to Era 5; its only prerequisite would then be `autoSmelting`.
 
-**Maintenance Automation in detail.** These are the only three ways the builder ever changes existing buildings.
+**Maintenance Automation in detail.** These are the only three ways the builder ever changes existing buildings. They use the current wear rules; if work/tree adds building aging, replacement switches to aging (coordinator decision).
 
 - **Parts triage.** When parts cannot cover every building's upkeep this tick, economy step 6 pays in `(priority, id)` order. Life support and power are therefore the last to wear. Today the order is `id`, which is arbitrary.
 - **Replacement.** A building that has stayed at wear ≥ 40% for a lunar day is replaced. Healing has been losing: parts are short, it runs overclocked, or Regolith Shielding halves repair.
@@ -371,8 +387,7 @@ There are twelve techs in two lanes: **◉ ROBOTS & FAB** holds the physical fam
 |---|---|---|---|
 | `{ kind: 'orders'; book: 4; maxCount: 10 }` | `orderBook`, `orderMax` (defaults 0 and 3) | `NEW ORDER BOOK: 4 held orders, up to ×10 each — orders wait for stock instead of skipping` | `held orders take stock the moment it lands` (use) |
 | `{ kind: 'autoRule'; family }` | `autoFamilies: Set<AutoFamily>` | `NEW RULE <Family>: <each rule's objective and default trigger, cap>` | `the builder spends your stock unasked: <the main building's site-scaled cost>` (use) |
-| `{ kind: 'siting'; error: 0.2 }` | `autoSiteError` (the largest error, unless survey) | — | `20% of rule sites are planner errors (a worse spot) until Site Survey AI` (mult 0.2) |
-| `{ kind: 'siting'; error: 0; survey: true }` | `siteSurvey = true` forces `autoSiteError = 0` | `auto sites read deposits, peaks of light and haul routes; no planner errors` | — (its con is a separate `upkeepMult`) |
+| `{ kind: 'siting'; survey: true }` | `siteSurvey` (default false: the distance-only base chooser) | `auto sites weigh deposits, peaks of light and haul lanes` | — (its con is a separate `upkeepMult`) |
 | `{ kind: 'governor' }` | `governor` | `RESERVES and PRIORITIES: …` | `rules wait for your floors — the builder acts later` (flag) |
 | `{ kind: 'predictive' }` | `predictive` | `rules act on forecasts: …` | `reactive again whenever no Data Center runs` (flag) |
 | `{ kind: 'feedPlanner' }` | `feedPlanner` | `excavators re-aimed at the feed the furnaces want` | `longer hauls carry less` (flag) |
@@ -404,16 +419,16 @@ It follows the rule from [07](07-ui-design.md) §11: its structure is rebuilt on
 
 ```
 BUILDER                                                 [B] ✕
-It builds what you would, where you would, at your price.
+It builds what you would, near where it's needed, at your price.
 1 auto site pending · spends to the reserve · Governor ON
 
 ORDERS                                              (Build Orders)
   Excavator ×3 · 2 placed · waiting: 16◆ (have 9)     [Build next] [✕]
 
 RULES                                          ⇅ order (Governor)
- [●] KEEP regolith supply ≥ demand → Excavator     T [−] −6/min [+]  cap [−] 8 [+]
+ [●] KEEP regolith supply ≥ demand → Excavator     T [−] −6/min [+]  cap [−] 6 [+]
      watching · regolith 18▲/min short for 42 s of 60 · last: Excavator #7 12:40
- [●] KEEP the day's grid margin ≥ 10% → Solar Array   T [−] 10% [+]  cap [−] 60 [+]
+ [●] KEEP the day's grid margin ≥ 10% → Solar Array   T [−] 10% [+]  cap [−] 24 [+]
      ok · margin +18%
  [○] CARRY the night → Battery Bank
      locked — Battery Banks
@@ -432,7 +447,7 @@ LOG   12:40 Excavator #7 · Excavation · on high-Ti basalt, 38 m from Smelter #
 | settling | `settling 0:40 — letting the rates catch up` |
 | waiting | `waiting · needs 16◆ above the 40◆ reserve (have 44)`, or `waiting for power · Solar Array #31 first` |
 | holding | `holding · 2 of 5 Excavators dark (power) — more would not help` |
-| capped | `cap 8/8 Excavators — raise the cap to let it build more` |
+| capped | `cap 6/6 Excavators — raise the cap to let it build more` |
 | nosite | `no valid ground for an Excavator in the build network — a Relay Mast extends it` |
 | vetoed | `you cancelled Excavator #9 — resumes in 11:20` |
 | founded? | `found the first Battery Bank yourself — the builder extends what you found` |
@@ -472,8 +487,8 @@ The resource panel's header also gains a demand line that shows the flow book (�
 
 - **Head.** `#7 · AUTO` beside the id, for every building placed by an order or a rule. Completed buildings keep the tag.
 - **Body.**
-  - `AUTO · Excavation rule · 12:40 — on high-Ti basalt, 38 m from Smelter #3`, or `AUTO · your order #3 (2 of 3)`;
-  - for a poor site: `planner error — a better site existed (Site Survey AI)`;
+  - `AUTO · Excavation rule · 12:40 — nearest free pad to Smelter #3 · 18 m` (with Site Survey AI: `— on high-Ti basalt, 38 m haul to Smelter #3`), or `AUTO · your order #3 (2 of 3)`;
+  - before Site Survey AI, one quiet line under the reason: `sites by distance only — Site Survey AI weighs deposits and haul lanes`. It states what the chooser does, and never calls the site wrong;
   - for a replacement: `replaces Chip Fab #12 (WORN 46%)`.
 - **Foot.**
   - The existing **Cancel ↩** (a full refund while no rover has welded on it; this is also the veto, §3.2) and **Demolish ½↩**.
@@ -491,17 +506,36 @@ The builder speaks through the existing stack.
 
 | When | Text | Kind |
 |---|---|---|
-| a rule places | `AUTO — Excavator #7 placed on high-Ti basalt, 38 m from Smelter #3 · regolith 18▲/min short` | info · select |
-| planner error | `AUTO — Solar Array #31 placed 40 m out (planner error — Site Survey AI would do better) · Cancel ↩ refunds it` | info · select |
+| a rule places | `AUTO — Excavator #7 placed, nearest free pad to Smelter #3 · 18 m · regolith 18▲/min short` (with Site Survey AI: `on high-Ti basalt, 38 m from Smelter #3`) | info · select |
 | an order resolves | `ORDER — 2 Excavators placed (…) · 1 skipped: needs 16◆, have 9` | info, or warn if anything was skipped |
 | a held order waits | `ORDER WAITING — Excavator 3 of 3 needs 16◆ (have 9)` | condition · info |
 | a rule holds | `AUTO HOLD — Power: a Smelter's 12 kW would brown the grid out` | condition · warn |
 | a rule waits for budget | `AUTO WAITING — Life support: Hydroponics needs 20◆ above the reserve (have 12)` | condition · warn |
 | no site | `AUTO NO SITE — Excavation: no valid ground for an Excavator in the network; a Relay Mast extends it` | condition · info |
-| cap reached | `AUTO CAP — 8/8 Excavators: the Excavation rule stops here` | event · info, once |
+| cap reached | `AUTO CAP — 6/6 Excavators: the Excavation rule stops here · raise the cap in [B]` | event · info, once |
 | veto | `AUTO SITE CANCELLED — the Excavation rule leaves that ground alone for a lunar day` | event · info |
 | replacement | `REPLACED — Chip Fab #12 (WORN 46%) by #40; #12 demolished, ½ refunded` | event · info |
 | tech done | `BUILDER — the Excavation rule is on: … · [B] to tune` | event · info |
+
+**The discovery card** (main's `src/ui/discovery.ts`) shows every finished tech with a **Next** line from `nextStep(effects)`. That function returns the line for the first effect that asks something of the player. Two consequences for the ladder:
+
+- `nextStep` gains a case for each new kind, below.
+- Each automation tech lists its new-kind effect **first** in `effects`, ahead of its `powerDelta` or `upkeepMult` con, so the card never falls through to "It takes effect at once".
+
+| Kind | Next line |
+|---|---|
+| `autoRule` excavation | `The Builder now keeps regolith supplied: tune it with [B].` |
+| `autoRule` power | `The Builder now keeps the day's grid margin and the night covered: tune it with [B].` |
+| `autoRule` smelting | `The Builder now keeps metals and silicon supplied, and adds yards when stock tops out: tune it with [B].` |
+| `autoRule` fabrication | `The Builder now keeps parts and chips coming, and adds Robotics Bays when sites wait: tune it with [B].` |
+| `autoRule` life | `The Builder now keeps oxygen, food and water ahead of the crew, and a bed free: tune it with [B].` |
+| `autoRule` network | `The Builder now plants Relay Masts toward ground its rules need: tune it with [B].` |
+| `orders` | `Order more than you can afford: the Builder places the rest as stock arrives. Open the order book with [B].` |
+| `siting` | `Orders and rules now weigh deposits, peaks of light and haul lanes when they pick a site.` |
+| `governor` | `Set reserve floors and the order rules act in: [B].` |
+| `predictive` | `While a Data Center runs, rules act on forecasts: batteries before dusk.` |
+| `feedPlanner` | `Excavators now re-aim at the feed the furnaces want; opt one out in its panel.` |
+| `maintenance` | `Short of parts, upkeep now goes to priority 0 first, and worn machines are replaced: see the log in [B].` |
 
 **Feedback.** The price floats up from each auto site, as it does for a click, so the spending is seen. The placement cue plays 6 dB quieter for auto sites and is rate-limited to one every 2 real seconds.
 
@@ -551,6 +585,7 @@ The builder speaks through the existing stack.
 | `src/core/game.ts` | `econStep()`, shared by the live loop and `debugAdvance` (§6.2); the `order` action; `commitPlace(…, auto?)` tags the building and records spend; cancel and demolish vetoes; Enter-to-order; the [B] key |
 | `src/core/state.ts`, `src/core/actions.ts`, `src/core/mods.ts`, `src/data/techs.ts` | the state fields (§6.4), actions, effect kinds and mods (§4.1), and the 12 techs |
 | `src/ui/builderPanel.ts` (new), `infoPanel.ts`, `palette.ts`, `hud.ts`, `menu.ts`, `stores.ts` | §5; the new stores are `$automation` and `$autoMarkers` |
+| `src/ui/discovery.ts` (main) | `nextStep()` cases for the new effect kinds (§5.4) |
 | `src/buildings/recipes.ts` | §4.2 |
 | `src/debug.ts` | `order(type, count, intent?)`, `cancelOrder`, `setRule(rule, patch)`, `setReserve`, `getAutomation()`, `planSite(type, intent?)` (a dry run: the best 5 candidates with scores and `why`, no state change), `autoLog()` |
 
@@ -592,11 +627,10 @@ The builder speaks through the existing stack.
   - the terrain, which regenerates from `(siteId, seed)` with the flatten history replayed;
   - the mods.
 - The design keeps it that way:
-  - No `Math.random` and no wall clock.
+  - **No randomness at all**: no `Math.random`, no seeded draws, no wall clock.
   - The live loop and `debugAdvance` call the same `econStep`, once per economy tick, so frame timing cannot change the order.
   - Candidates are iterated in a fixed order (network nodes in building order, cells row-major, rotation 0 then 1). Ties break on (score, gz, gx, rot).
   - Rules run in family-priority order.
-  - The planner-error draw is `mulberry32(hashString(`${seed}|${rule}|${s.auto.seq}`))`, where `seq` counts auto placements and is saved.
 - **Caveat.** Solar shading (`b.shaded`) is renderer-side, and the live loop updates it every 0.5 real seconds. The power numbers therefore already depend on frame rate in live play. They do not under `debugAdvance`, which updates shading every 5 game-seconds.
 - **Consequences:**
   - The chooser never reads shade.
@@ -618,14 +652,12 @@ auto?: {
   order?: number;
   at: number;                 // game time placed
   why: string;
-  poor?: boolean;             // planner error
   dig?: { x: number; z: number };   // planned dig site, applied on completion (fleet)
   replaces?: number;          // Maintenance: the worn building it replaces
 };
 
 interface AutoState {
   schema: 1;
-  seq: number;                                    // auto placements so far (seeds the planner error)
   rules: Partial<Record<AutoRuleId, RuleState>>;
   orders: AutoOrder[];
   nextOrderId: number;
@@ -683,13 +715,13 @@ Run with `PWTEST_CACHE_DIR=$SP/pwcache-auto PORT=5471`. Every test uses `?debug&
 
 | # | Test | Assertions |
 |---|---|---|
-| 1 | **One-shot order from the UI** (robotic mare, start) | Click the ▲ chip, then `+3` on the Excavator row: 3 sites with `auto.by === 'order'`; metals −48 and parts −12 exactly; every site in the network; at least one on the revealed guaranteed ilmenite; one `ORDER —` alert; the inspector head reads `AUTO`. |
+| 1 | **One-shot order from the UI** (robotic mare, start) | Click the ▲ chip, then `+3` on the Excavator row: 3 sites with `auto.by === 'order'`; metals −48 and parts −12 exactly; every site in the network; the sites are `planSite`'s top 3 by distance to the Lander (the anchor while there is no consumer), whatever deposits lie there; one `ORDER —` alert; the inspector head reads `AUTO`. |
 | 2 | **Order skip** | With metals for 1 excavator, `order('excavator', 3)` places 1. The alert matches `/1 placed.*2 skipped: needs 16◆, have \d+/`, and nothing else is deducted. |
 | 3 | **Order refusals** | A locked refinery, an ice harvester at mare, the Lander, a relay mast: each raises `ORDER REFUSED` with its reason, and the state is unchanged. |
 | 4 | **Held orders** (after `buildOrders`) | Order ×3 with metals for 1: the book shows 1/3. After `grantResources` and 3 ticks, 3/3. Cancel removes the rest; a 5th open order refuses `ORDER BOOK FULL`. |
 | 5 | **Siting validity** (property test, all 3 sites) | Across 40 auto placements from mixed orders and rules, each site passes `canPlace` on the pre-placement state (checked through `planSite`), lies in the network, never covers a door apron, is never a habitat on KREEP, is an ice harvester only on ice, and never crosses a haul lane with Site Survey AI. |
-| 6 | **Deposit preference** | Mare: an auto excavator lands on ilmenite. Pole: an auto ice harvester is on revealed ice, and with Site Survey AI an auto solar array is on a ridge when one is in the network. `why` names the deposit. |
-| 7 | **The Excavation rule** (robotic mare) | `autoExcavation` done, 2 smelters and 1 excavator: after dwell + ≤ 5 s, one AUTO excavator site. While it is pending there is no second site, although the deficit persists. After completion + settle, another if still short. It stops at the cap with one `AUTO CAP`. The status line matches `/watching · regolith \d+▲\/min short for \d+ s of 60/`. |
+| 6 | **Distance only, then Site Survey AI** | Without Site Survey AI, on mare with revealed ilmenite 30 m from the Smelter, an auto excavator takes the nearest free pad to the Smelter. Its `why` reads `nearest free pad to Smelter #… · … m`, and the inspector shows the distance-only line. With Site Survey AI: the next one lands on ilmenite (`why` names it); at the pole an auto solar array is on a ridge when one is in the network; no site crosses a haul lane. An ice harvester is on revealed ice under both choosers (placement's rule). |
+| 7 | **The Excavation rule** (robotic mare) | Completing `autoExcavation` switches the rule on at once, with cap 6. With 2 smelters and 1 excavator: after dwell + ≤ 5 s, one AUTO excavator site. While it is pending there is no second site, although the deficit persists. After completion + settle, another if still short. It stops at the cap with one `AUTO CAP`. The status line matches `/watching · regolith \d+▲\/min short for \d+ s of 60/`. |
 | 8 | **Hysteresis and cooldown** | Toggle a smelter every 30 s so the balance crosses T back and forth: no placement in 5 min, and the dwell never exceeds 60. Force a placement, then keep the deficit: the next one waits `cooldownS` and settle. |
 | 9 | **Capacity, not trouble** | Brown the grid out at night (excavators dark): the rule is `holding` with `dark (power)`, and nothing is placed through the night. |
 | 10 | **The first of a type** | With `autoPower` and batteries unlocked but none built, and the bank running dry: no battery, and the status reads `found the first Battery Bank yourself`. Place one by hand: the next dawn adds one. |
@@ -699,14 +731,15 @@ Run with `PWTEST_CACHE_DIR=$SP/pwcache-auto PORT=5471`. Every test uses `?debug&
 | 14 | **Prerequisite requests** | With the Smelting and Power families on and headroom < 12 kW: the solar rule fires first (no dwell), and the smelter follows in a later tick. With Power off, the smelter holds with the brownout reason. |
 | 15 | **Life support** (human mare) | O₂ runway < 20 min → a smelter (the O₂ producer) placed ahead of an excavation rule firing in the same tick. With no free hands and no Construction Robotics: holds `no free hands`. With it: placed Autonomous. |
 | 16 | **Cancel veto** | Cancel an auto site: full refund, `AUTO SITE CANCELLED`, the rule `vetoed`. Nothing is placed on that footprint for 720 s. Demolishing a manual excavator also defers the rule 720 s. |
-| 17 | **Determinism** | Two fresh page loads, same seed and scripted actions, 30 game-min with the Excavation, Power and Smelting rules on: identical `(type, gx, gz, rot)` lists. Seed 7 differs. Without Site Survey AI, the poor-site rate over 40 rule placements is 0.2 ± 0.12; with it, 0. |
-| 18 | **Save and load** | Rules (on, threshold, cap), the order book, pending `b.auto`, vetoes and `seq` survive `save()` and a reload. A legacy blob with no `auto` or `flowBook` loads with every rule off and no console errors. |
+| 17 | **Determinism** | Two fresh page loads, same seed and scripted actions, 30 game-min with the Excavation, Power and Smelting rules on: identical `(type, gx, gz, rot)` lists. Seed 7 differs. Without Site Survey AI, every rule site equals a brute-force nearest-valid-pad search from its anchor (distance, then the relief and (gz, gx, rot) tie-breaks). Re-running the same 30 minutes from a save gives the same list. |
+| 18 | **Save and load** | Rules (on, threshold, cap), the order book, pending `b.auto` and vetoes survive `save()` and a reload. A legacy blob with no `auto` or `flowBook` loads with every rule off and no console errors. |
 | 19 | **Builder panel** | [B] opens `#builder-panel`. The toggle, threshold and cap steppers dispatch `setRule`, and the state follows. At 10× for 20 s the rule buttons keep their DOM nodes (no rebuild per tick), and a click during it lands. |
 | 20 | **Techs** | `auditTechs()`: each of the 12 has ≥ 1 pro and ≥ 1 numeric con (mult ≥ 0.05, kW ≥ 1, or use). `techRelevanceMatrix()` is true wherever the tech is visible. Each has a non-empty `visual`. Its mesh part changes `recipeTriangles()` for its building. `autoLifeSupport` is `crewLocked` on robotic runs until Cohabitation. |
 | 21 | **Maintenance** | With parts short, priority-0 buildings keep wear 0 while priority-3 ones wear. A chip fab held at wear 0.5 for 720 s gets a replacement placed; when the new one completes, the old one is gone with a ½ refund and `REPLACED`. |
 | 22 | **Self-Expanding Base** | Fill the network so the Excavation rule is `nosite` for 60 s: a mast is placed at the edge toward the target, and after it completes the excavator follows. |
 | 23 | **No silent failures** | Loop over every refusal path (§2.2 and §3.2): each raises an alert or shows a status line with its reason. |
 | 24 | **Flow book** | Mare, 2 smelters and 1 excavator for 120 s: `flowBook.regolith.want` ≈ 4.0/s ± 3%, and `made` within 5% of that excavator's delivered cycle rate (1.875/s on its own pad without fleet hauls), while `s.rates.regolith` is within ±0.1 of 0. This is the case the flow book exists for. |
+| 25 | **Discovery card** | For each of the 12 techs, `completeTech` puts a discovery card up whose **Next** line is its §5.4 line, never `It takes effect at once`. The reactor rule is on with cap 1, and with one reactor built it reads `capped`. |
 
 ---
 
@@ -721,7 +754,7 @@ Automation therefore **must not buy game time for that bot**. Its game-time bene
 | Player | Automation's effect on FIRST LIGHT (game-min) | Why |
 |---|---|---|
 | Probe, *reasonable* or *attentive* | −5% to +8% | The automation techs cost research. The rules react about as fast as the bot. A result below −5% means the rules are too strong or too cheap: raise dwell or cost. A result above +8% means the techs cost more than they return: lower the E2–E4 costs. |
-| Probe, *distracted* (new, §8.3) | from ≥ +25% manual to ≤ +12% with automation, relative to reasonable-manual | This measures the gap a slow human leaves, and how much of it automation closes. |
+| Probe, *distracted* (new, §8.3) | expected: about +25% or more manual, about +12% or less with automation, relative to reasonable-manual. **Measured and reported, not a gate.** | This measures the gap a slow human leaves, and how much of it automation closes. |
 | A human | toward the target, and in less real time | Deficits are caught 60 s after they start, not when the player notices them. From Era 5 the decision load halves, so 3× stops being frantic and 10× becomes usable in stretches. |
 
 ### 8.2 What the build log says
@@ -759,19 +792,18 @@ The probe is honest when it plays like a human with these tools: it pays for wha
 
    It pays their data and goods like any other tech, and they count toward charters.
 3. **No double building.** Once a family's rule is on, `decideBuilds` skips the bot's own branch for that family. The bot still founds the first of each type and places the manual-only buildings.
-4. **No tuning.** Rules run with the panel defaults, except one documented setting per policy: *attentive* sets the power margin to 15%. The bot never tunes per seed. It reads `getAutomation()` only for what the panel shows.
-5. **A new *distracted* policy.** It decides every 120 game-s, makes at most 1 placement per decision, keeps no reserve logic, and reacts only to warn and crit alerts. It models a human at 10× who glances at the HUD. Run it with `--auto` on and off.
+4. **No tuning.** Rules run with the panel defaults, except one documented setting per policy: *attentive* sets the power margin to 15%. When an `AUTO CAP` alert fires, the bot raises that cap by a fixed step (+3; +8 for solar), as a player reading the alert would. The bot never tunes per seed. It reads `getAutomation()` only for what the panel shows.
+5. **A new *distracted* policy, for measurement only.** It decides every 120 game-s, makes at most 1 placement per decision, keeps no reserve logic, and reacts only to warn and crit alerts. It models a human at 10× who glances at the HUD. Run it with `--auto` on and off and report the results; the acceptance gate does not use it (coordinator decision).
 6. **New metrics:**
    - data and goods spent on automation techs;
    - auto placements by family;
    - refusals by reason (count and seconds);
-   - poor sites and cancelled auto sites;
+   - cancelled auto sites;
    - `min(stock − reserve)`;
    - **player decisions per game-minute, by era** (the attention metric);
    - brownout %, goods-stall minutes, era durations.
-7. **Acceptance** (robotic, 3 sites, seeds 42, 7 and 1234, medians):
+7. **Acceptance** (robotic, 3 sites, seeds 42, 7 and 1234, medians). It gates on the *reasonable* and *attentive* policies only:
    - reasonable-auto FIRST LIGHT is within −5% / +8% of reasonable-manual, and the same for attentive;
-   - distracted-manual is ≥ 1.25× reasonable-manual (the gap exists), and distracted-auto is ≤ 1.12×;
    - from Era 4 on, the bot's placements per game-minute fall by ≥ 60% with `--auto`;
    - brownout % and goods-stall minutes are no worse than manual + 2 points;
    - no auto site fails validity, and the builder never cancels its own site;
@@ -780,7 +812,7 @@ The probe is honest when it plays like a human with these tools: it pays for wha
 8. **Levers, in this order:**
    - costs of the E2–E4 core (Build Orders, Automated Excavation, Automated Power);
    - the dwell and cooldown defaults;
-   - the planner-error rate.
+   - the default caps.
 
    Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 
@@ -822,19 +854,30 @@ The probe is honest when it plays like a human with these tools: it pays for wha
 
 ---
 
-## 9. Open questions
+## 9. Decisions on the Phase A questions
 
-1. **Orders before research.** The brief asks both for "orders, before any research" and for a Build Orders tech that is the "orders UI" in Era 2. This spec gives one-shot ×1–3 orders from landing and makes Build Orders the order book (held orders, ×10). The alternative is to gate all orders behind Build Orders.
-2. **Status units.** This spec shows rates per minute, like every resource panel. The brief's example is per second ("net −0.3▲/s"). The spec keeps the UI consistent at the cost of the literal example.
-3. **Planner error.** Is a 20% seeded "worse spot" before Site Survey AI a good con, or merely annoying? The alternative is a naive but deterministic base chooser with no randomness, where the con is the naivety itself.
-4. **Automated Life Support era.** Era 4 on human runs, and Era 6 (a crew tech) on robotic runs. Is human Era 4 too late? Crewed bases need it most in Eras 2–3.
-5. **Rules on by default.** This spec switches a family's rules on when its tech completes. Off by default would make the tech feel inert, but some players may want to opt in.
-6. **Lanes.** Automated Power sits in ◉ with the other physical families. The ⚡ POWER lane would be natural, but the brief limits the ladder to ◉ and ▣.
-7. **Costs.** They depend on how work/tree reaches 2× eras (§4).
-8. **Feed Planner** depends on fleet's dig sites. It is cut if they do not land.
-9. **Maintenance semantics.** The spec replaces a building that has been at WORN ≥ 40% for a lunar day. If work/tree adds aging or obsolescence, replacement should hook into that instead.
-10. **Key [B]** is free today, and fleet binds no letters. Confirm that no other branch takes it.
-11. **The *distracted* probe policy** is new. Is a third policy acceptable in the probe's acceptance?
+The coordinator settled these after Phase A. The rest of this document already follows them.
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | Orders before research | Keep free one-shot orders (×1–3) from landing. Build Orders (E2) adds the held order book. The user asked to tell the drones "build more excavators" before automation exists. |
+| 2 | Status units | Per minute, matching the resource panels. |
+| 3 | Planner error | **Dropped.** A random worse site reads as the game being wrong, not as a trade-off. Before Site Survey AI, sites are chosen by distance to the anchor only, deterministically (§2.3–2.4). Site Survey AI adds the deposit preference and lane avoidance. Every tech keeps its numeric kW or upkeep con. |
+| 4 | Automated Life Support era | E4 on crewed runs is fine; E6 on robotic runs (a crew tech). |
+| 5 | Rules on by default | A rule switches **on** when its tech completes, with conservative default caps (§3.4). The discovery card's Next line covers every new effect kind (§5.4). A loaded old save never switches rules on. |
+| 6 | Lane for Automated Power | ⚡ POWER. |
+| 7 | Costs | At merge, each tech's cost is the new tree's median for its era. |
+| 8 | Feed Planner | Stays, contingent on fleet's dig sites landing. |
+| 9 | Maintenance semantics | The current wear rules; switch to aging if the tree adds it. |
+| 10 | Key [B] | Fine; the coordinator checks for conflicts at merge. |
+| 11 | The *distracted* probe policy | Fine as a measurement. The acceptance gate stays on the *reasonable* and *attentive* policies. |
+
+**Still to settle at merge:**
+
+- the costs (the tree's era medians);
+- the recheck of the default caps against the 2× tree's build logs;
+- work/tree's recipe-part mechanism for the `visual` meshes;
+- whether fleet's dig-site API matches the names used here.
 
 ## 10. Phase B: order of work
 
@@ -849,4 +892,4 @@ The probe is honest when it plays like a human with these tools: it pays for wha
 4. **Meshes.** The 12 parts, through work/tree's mechanism.
 5. **Tests.** Everything in §7, then the full suite.
 6. **Probe.** `--auto` and the *distracted* policy; run §8.3's acceptance and tune only §8.3's levers.
-7. **Docs.** 07, 08, 03 (regenerated), 02, and the index.
+7. **Docs.** 07, 08, 03 (regenerated), 02, and the index; the discovery card's `nextStep()` cases ship with step 3.
