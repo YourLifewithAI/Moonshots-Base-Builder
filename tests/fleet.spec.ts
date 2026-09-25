@@ -84,6 +84,7 @@ test('summon adds a rover to a site and builds it n^0.85 faster on the same weld
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.placeBuilding('habitat', 132, 126);
+    g.finishRoads(); // its road open: the rovers weld from the first second (docs/15)
     g.advanceGameSeconds(1);
     const id = byType('habitat').id;
     const one = g.getState();
@@ -231,6 +232,7 @@ test('a survey never borrows a pinned rover', async ({ page }) => {
     g.completeTech('prospectingRovers');
     g.grantResources({ oxygen: 300, water: 100, parts: 50 });
     g.placeBuilding('habitat', 132, 126);
+    g.finishRoads(); // its road open: welding, not sintering (docs/15)
     g.advanceGameSeconds(1);
     const hab = byType('habitat').id;
     g.summonRover(hab); // both rovers pinned to the habitat
@@ -400,7 +402,7 @@ test('the feed grade follows what is delivered, weighted by amount', async ({ pa
   await expect(page.locator('#insp-haul-line')).toBeVisible();
 });
 
-test('distance is the trade-off: 30 m from its smelter delivers today\'s rate ±10%, far ground less', async ({ page }) => {
+test('distance is the trade-off: a haul delivers by its road route (15 m: today\'s rate), far ground less', async ({ page }) => {
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
@@ -418,9 +420,15 @@ test('distance is the trade-off: 30 m from its smelter delivers today\'s rate ±
     // the smelter's west wall, 30 m of haul road from it (open ground, north of the pad)
     const measure = (x: number, z: number) => {
       g.digAt(id, x, z);
+      g.advanceGameSeconds(0);
+      g.finishRoads(); // its haul road open at once (docs/15)
       drained(200); // settle into the new route
-      const m0 = g.getState().stats.produced.regolith, t0 = g.getState().simTime;
-      drained(600);
+      // whole cycles: from one unload to the sixth after it
+      const made = () => g.getState().stats.produced.regolith;
+      const next = () => { const m = made(); for (let i = 0; i < 600 && made() === m; i++) drained(1); };
+      next();
+      const m0 = made(), t0 = g.getState().simTime;
+      for (let k = 0; k < 6; k++) next();
       const s = g.getState();
       return { rate: (s.stats.produced.regolith - m0) / (s.simTime - t0), route: g.getFleet().hauls[id].routeM,
         drop: g.getFleet().hauls[id].dropName };
@@ -432,11 +440,13 @@ test('distance is the trade-off: 30 m from its smelter delivers today\'s rate ±
     return { at30, far, smelter: smelter.id };
   });
   const old = 1.5 * 1.25; // the static excavator's nameplate × the mare's ISRU
+  // on roads the route is at least the straight way, and the rate follows the
+  // route: a 60 s dig, 4 s unload, 5 m/s each way (15 m of road: today's rate)
+  const byRoute = (m: number) => old * (60 + 4 + 2 * 15 / 5) / (60 + 4 + 2 * m / 5);
   expect(r.at30.drop).toBe(`Regolith Smelter #${r.smelter}`);
   expect(r.at30.route).toBeGreaterThan(27);
-  expect(r.at30.route).toBeLessThan(36);
-  expect(r.at30.rate / old).toBeGreaterThan(0.9);
-  expect(r.at30.rate / old).toBeLessThan(1.1);
+  expect(r.at30.rate / byRoute(r.at30.route)).toBeGreaterThan(0.9);
+  expect(r.at30.rate / byRoute(r.at30.route)).toBeLessThan(1.1);
   expect(r.far.route).toBeGreaterThan(140);
   expect(r.far.rate / old).toBeLessThan(0.7);
 });
@@ -501,6 +511,8 @@ test('saves keep the dig site and the cycle mid-haul; an old excavator digs its 
   const before = await page.evaluate((id) => {
     const g = window.__game!;
     g.digAt(id, -2, 60);
+    g.advanceGameSeconds(0);
+    g.finishRoads(); // its haul road open at once (docs/15)
     const h = () => g.getState().buildings.find((b: any) => b.id === id).haul;
     const tick = () => { g.grantPower(100); g.advanceGameSeconds(1); };
     // the bucket it had started goes home first; then a whole one at the new dig
@@ -523,7 +535,12 @@ test('saves keep the dig site and the cycle mid-haul; an old excavator digs its 
     const g = window.__game!;
     g.setPaused(true);
     const r0 = g.getState().stats.produced.regolith;
-    for (let i = 0; i < 40; i++) { g.grantPower(100); g.advanceGameSeconds(1); }
+    for (let i = 0; i < 90 && g.getState().stats.produced.regolith === r0; i++) {
+      g.grantPower(100);
+      const reg = g.getState().resources.regolith; // room for it: the longer road trips fill the store first
+      if (reg > 0) g.grantResources({ regolith: -reg });
+      g.advanceGameSeconds(1);
+    }
     return g.getState().stats.produced.regolith - r0;
   });
   expect(landed).toBeCloseTo(h0.cargo.regolith, 6);
@@ -573,6 +590,7 @@ test('the capability techs: pros and cons on every card, and they reach the sim'
     const g = window.__game!;
     g.completeTech('roverAutonomy');
     g.placeBuilding('habitat', 132, 126);
+    g.finishRoads();
     g.advanceGameSeconds(1);
     const c0 = byType('habitat').construction;
     g.advanceGameSeconds(4);

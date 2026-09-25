@@ -207,6 +207,7 @@ const MAX_EXPAND = 40000;
  *  ROAD.maxStep are walls. Returns the cells after the source, in order. */
 function search(
   s: GameState, hf: Heights, sources: number[], targets: Set<number>, blocked: Set<number>,
+  seed?: Map<number, number>,
 ): number[] | null {
   if (!sources.length || !targets.size) return null;
   const map = roadMap(s);
@@ -227,11 +228,14 @@ function search(
   const from = new Map<number, number>();
   const done = new Set<number>();
   const open = new Heap();
+  // (a start the partner cannot reach by road weighs as much as the farthest that it can)
+  const far = seed ? seedFar(seed) : 0;
   for (const k of [...sources].sort((a, b) => a - b)) {
     if (targets.has(k)) return [];
-    cost.set(k, 0);
+    const g0 = seed ? seed.get(k) ?? far : 0;
+    cost.set(k, g0);
     from.set(k, -1);
-    open.push(h(k), k);
+    open.push(g0 + h(k), k);
   }
   let found = -1, n = 0;
   while (open.size && n++ < MAX_EXPAND) {
@@ -286,6 +290,56 @@ function doorKeys(s: GameState, skip?: Placed): Set<number> {
   return out;
 }
 
+/** An excavator's spur, or a regolith consumer's, joins the network where
+ *  the haul between them is shortest: each start cell costs its distance by
+ *  road to the partner's door (the nearest consumer — a smelter or refinery,
+ *  else the Lander — for an excavator; the nearest excavator for a consumer),
+ *  a cell of haul road weighed as a new cell. Null: no partner. */
+const HAUL_PAIRS: Partial<Record<BuildingId, readonly BuildingId[]>> = {
+  excavator: ['smelter', 'refinery'],
+  smelter: ['excavator'],
+  refinery: ['excavator'],
+};
+const seedMemo = new Map<string, Map<number, number>>();
+const seedFar = (m: Map<number, number>) => { let v = 0; for (const d of m.values()) v = Math.max(v, d); return v + 1; };
+function haulSeed(s: GameState, b: Placed): Map<number, number> | undefined {
+  const kinds = HAUL_PAIRS[b.type];
+  if (!kinds) return undefined;
+  const r = footprintRect(b);
+  const [cx, cz] = [(r.gx0 + r.gx1) / 2, (r.gz0 + r.gz1) / 2];
+  let pool = s.buildings.filter((o) => kinds.includes(o.type));
+  if (!pool.length && b.type === 'excavator') pool = s.buildings.filter((o) => o.type === 'lander');
+  let best: Placed | null = null, bd = Infinity;
+  for (const o of pool) {
+    const q = footprintRect(o);
+    const d = Math.hypot((q.gx0 + q.gx1) / 2 - cx, (q.gz0 + q.gz1) / 2 - cz);
+    if (d < bd) { bd = d; best = o; }
+  }
+  const door = best ? doorCell(best) : null;
+  if (!door) return undefined;
+  const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${door[0]},${door[1]}`;
+  const hit = seedMemo.get(key);
+  if (hit) return hit;
+  // distances by open road from the partner's door, in cells
+  const map = roadMap(s);
+  const dist = new Map<number, number>([[cellKey(door[0], door[1]), 0]]);
+  const q = [cellKey(door[0], door[1])];
+  for (let i = 0; i < q.length; i++) {
+    const [x, z] = keyCell(q[i]);
+    for (const [dx, dz] of N4) {
+      const nk = cellKey(x + dx, z + dz);
+      if (dist.has(nk)) continue;
+      const c = map.get(nk);
+      if (!c || !isOpen(c) || c.bay) continue;
+      dist.set(nk, dist.get(q[i])! + 1);
+      q.push(nk);
+    }
+  }
+  if (seedMemo.size > 64) seedMemo.clear();
+  seedMemo.set(key, dist);
+  return dist;
+}
+
 export interface SpurPlan {
   /** the road from the open network to the door, in order (cells already open left out) */
   cells: number[];
@@ -334,7 +388,7 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
     blocked.delete(dk);
     targets = [dk];
   }
-  const path = search(s, hf, sources, new Set(targets), blocked);
+  const path = search(s, hf, sources, new Set(targets), blocked, haulSeed(s, b));
   if (!path) {
     return { cells: [], fresh: [], bays: [], reason: sources.length
       ? 'NO ROAD ROUTE — the rovers cannot reach it by road (walled in, or too steep)'
