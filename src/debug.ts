@@ -188,6 +188,12 @@ function api(game: Game) {
     setFeedPlan: (id: number, on: boolean) => game.actions.push({ kind: 'setFeedPlan', id, on }),
     /** the $automation payload: rules and their status lines, orders, reserves, the log */
     getAutomation: () => clone(game.debugAutomation()),
+    /** set a building's wear (0..1) — the Maintenance tests */
+    setWear: (id: number, wear: number) => {
+      const b = game.state.buildings.find((x) => x.id === id);
+      if (b) b.wear = Math.max(0, Math.min(1, wear));
+      game.publish();
+    },
     /** where the Builder would put one of `type` now (a dry run) */
     planSite: (type: BuildingId, intent?: { res?: ResourceId; like?: number; edge?: boolean }) => clone(game.debugPlanSite(type, intent)),
     /** Complete every construction site now (one economy tick settles them). */

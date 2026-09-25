@@ -213,7 +213,10 @@ export function computeMods(
         case 'governor': m.governor = true; break;
         case 'predictive': m.predictive = true; break;
         case 'feedPlanner': m.feedPlanner = true; break;
-        case 'maintenance': m.maintenanceWear = m.maintenanceWear ? Math.min(m.maintenanceWear, fx.wear) : fx.wear; break;
+        case 'maintenance':
+          m.maintenanceWear = m.maintenanceWear ? Math.min(m.maintenanceWear, fx.wear) : fx.wear;
+          m.autoFamilies.add('maintenance');
+          break;
         case 'builder':
           m.builderDwellMult *= fx.dwellMult ?? 1;
           m.builderCapMult *= fx.capMult ?? 1;

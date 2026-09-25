@@ -405,20 +405,23 @@ export function mountPalette(root: HTMLElement, game: Game) {
   const NOTE = 'class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)"';
   /** the Builder's buttons: pause the rule that placed a site, order another like
    *  this one, keep Feed Planner off an excavator */
-  const builderFoot = (sel: BuildingState): string => {
+  /** the Builder's buttons ride the actions row (no extra foot height): Pause
+   *  rule on a rule's site, ＋1 on a finished building the rovers can order */
+  const builderActions = (sel: BuildingState): string => {
     const site = (sel.construction ?? 0) > 0;
     const rule = sel.auto?.by === 'rule' && sel.auto.rule
       ? $automation.get()?.rules.find((r) => r.id === sel.auto!.rule) : undefined;
-    const btns: string[] = [];
-    if (site && rule?.on) btns.push('<button class="btn" id="insp-pause-rule" title="Switch off the rule that placed this site (the site stays)">Pause rule</button>');
+    if (site && rule?.on) return '<button class="btn" id="insp-pause-rule" title="Switch off the rule that placed this site (the site stays)">Pause rule</button>';
     if (!site && orderableHere(sel.type) && game.mods.unlocked.has(sel.type)) {
-      btns.push('<button class="btn" id="insp-another" title="Order one more like this: the rovers choose the site">＋ Build another</button>');
+      return '<button class="btn" id="insp-another" title="Build another like this: the rovers choose the site">＋1</button>';
     }
-    if (!site && sel.type === 'excavator' && game.mods.feedPlanner) {
-      btns.push(`<button class="btn${sel.feedPlanOff ? '' : ' active'}" id="insp-feedplan" aria-pressed="${!sel.feedPlanOff}" title="Feed Planner re-aims this excavator at the feed the furnaces want">Feed Planner ${sel.feedPlanOff ? 'off' : 'on'}</button>`);
-    }
-    return btns.length ? `<section><span class="label">Builder</span><div class="prio" style="flex-wrap:wrap">${btns.join('')}</div></section>` : '';
+    return '';
   };
+  /** Feed Planner's per-excavator switch, in the body beside the AUTO line */
+  const builderBody = (sel: BuildingState): string =>
+    ((sel.construction ?? 0) <= 0 && sel.type === 'excavator' && game.mods.feedPlanner
+      ? `<section><span class="label">Feed Planner</span><div class="prio"><button class="btn${sel.feedPlanOff ? '' : ' active'}" id="insp-feedplan" aria-pressed="${!sel.feedPlanOff}" title="Feed Planner re-aims this excavator at the feed the furnaces want">${sel.feedPlanOff ? 'Off' : 'On'}</button></div></section>`
+      : '');
   /** Head (name, status) and foot (every button) stay in view; the stat body
    *  between them scrolls when the screen is short, so no button is ever
    *  below the fold. */
@@ -447,6 +450,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${fleetBodyHtml(sel)}
       ${sel.auto ? `<section class="insp-auto"><span class="label">${esc(autoTagLine(sel))}</span>
         ${sel.auto.survey ? '' : `<div ${NOTE}>Sites by distance only — Site Survey AI weighs deposits and haul lanes.</div>`}</section>` : ''}
+      ${builderBody(sel)}
       ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
       <section>
         <span class="label">Condition <span class="mono" style="float:right" id="insp-cond"></span></span>
@@ -502,8 +506,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <div class="prio"><button class="btn" id="insp-buildnext">Build next</button></div>
       </section>` : ''}
       ${fleetFootHtml(sel)}
-      ${builderFoot(sel)}
       <section class="actions">
+        ${builderActions(sel)}
         ${!isLander ? `<button class="btn" id="insp-toggle">${conRemaining > 0
           ? (sel.enabled ? 'Pause' : 'Resume')
           : (sel.enabled ? 'Shut down' : 'Power on')}</button>` : ''}

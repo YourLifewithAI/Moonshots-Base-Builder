@@ -481,8 +481,9 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const on = rulesOf(f).filter((id) => RULES[id].onByDefault && !(id === 'iceHarvester' && !site.hasIce));
     for (const id of on) ruleState(s, id).on = true;
     const main = on[0];
+    const capped = main && RULES[main].capRange[1] > 1 ? ` · cap ${ruleState(s, main).cap}` : '';
     alert(s, `BUILDER — the ${FAMILY_LABEL[f]} rule${on.length === 1 ? ' is' : 's are'} on` +
-      (main ? `: ${RULE_TEXT[main]} · cap ${ruleState(s, main).cap}` : '') + ' · [B] to tune', 'info', { panel: 'builder' });
+      (main ? `: ${RULE_TEXT[main]}${capped}` : '') + ' · [B] to tune', 'info', { panel: 'builder' });
   }
 
   // sites the builder placed: completions settle their rule; planned dig sites apply
@@ -548,6 +549,10 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     }
     const sig = signalOf(s, mods, site, day, id, r);
     const force = forced.has(id);
+    // dark or short-handed producers: the shortfall is theirs, not the fleet's —
+    // hold, and start the dwell over once it clears
+    const trouble = !force && (sig.past || sig.now) ? capacityTrouble(s, type) : '';
+    if (trouble) { r.dwell = 0; setPhase(s, id, r, 'holding', `holding · ${trouble}`, dt); return; }
     if (!sig.hold) r.dwell = sig.past ? r.dwell + dt : sig.rearmed ? 0 : Math.max(0, r.dwell - dt);
     const dwellS = d.dwellS * mods.builderDwellMult * (predictive ? 0.5 : 1);
     if (!force && !sig.now && !(sig.past && r.dwell >= dwellS)) {
@@ -574,8 +579,8 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
       setPhase(s, id, r, 'waiting', `waiting · your order for ${plural(type, 2)} is still building`, dt);
       return;
     }
-    const trouble = capacityTrouble(s, type);
-    if (trouble) { setPhase(s, id, r, 'holding', `holding · ${trouble}`, dt); return; }
+    const busyTrouble = capacityTrouble(s, type);
+    if (busyTrouble) { setPhase(s, id, r, 'holding', `holding · ${busyTrouble}`, dt); return; }
     const crew = crewPlan(s, mods, type);
     if (crew.refusal) { setPhase(s, id, r, 'holding', `holding · ${crew.refusal}`, dt); return; }
     // power headroom for a consumer
@@ -656,11 +661,6 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
   // ── Maintenance Automation: worn machines replaced, tripped overclocks re-armed ──
   const rep = ruleState(s, 'replace');
   if (mods.maintenanceWear > 0) {
-    if (!seen.includes('maintenance')) {
-      seen.push('maintenance');
-      rep.on = true;
-      alert(s, `BUILDER — the Maintenance rule is on: ${RULE_TEXT.replace} · [B] to tune`, 'info', { panel: 'builder' });
-    }
     const thr = rep.threshold;
     for (const b of s.buildings) {
       if (b.type === 'lander' || isSite(b)) { b.wornT = 0; continue; }

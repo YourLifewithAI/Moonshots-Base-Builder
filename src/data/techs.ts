@@ -1,6 +1,7 @@
-/** 94 technologies in 7 swimlanes × 8 eras — the robots-first arc of lunar
+/** 106 technologies in 7 swimlanes × 8 eras — the robots-first arc of lunar
  *  development (docs/11-research-and-map-spec.md §3, expanded by
- *  docs/12-tree-expansion.md). Era N opens with 4 of era N−1's techs, or 2
+ *  docs/12-tree-expansion.md; the twelve Builder techs of docs/13 open
+ *  orders and standing rules, data/automation.ts). Era N opens with 4 of era N−1's techs, or 2
  *  plus that era's deed (ERA_GATES). Six doctrines are permanent either/or
  *  picks. Every card's pros and cons are generated from its effects by
  *  describeEffect(); `tradeoff` is flavour only, `visual` names the mesh
