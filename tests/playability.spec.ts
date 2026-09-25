@@ -183,6 +183,8 @@ const STUBS: Record<string, string> = {
 
 for (const [name, stub] of Object.entries(STUBS)) {
   test(`audio: WebAudio ${name} — every sound call is a silent no-op`, async ({ page }) => {
+    // 80 rendered frames plus a night fast-forward: minutes of software GL on a busy machine
+    test.setTimeout(240_000);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.addInitScript(stub);
