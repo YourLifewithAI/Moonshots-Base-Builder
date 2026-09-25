@@ -35,7 +35,7 @@ export interface BuildingState {
    *  'reserve' = the inputs on hand are the crew's life-support reserve,
    *  'full' = no stockpile room for a tick of any of its outputs */
   active: boolean;
-  idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued';
+  idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued' | 'road';
   /** Dynamic Clocking: ×1.5 draw, inputs, outputs and data; extra wear */
   overclock?: boolean;
   /** deposit under the footprint centre (stamped on placement, recomputed on
@@ -51,6 +51,30 @@ export interface BuildingState {
   staffedPrev?: boolean;
   /** Regolith Excavator: the mobile digger's haul cycle (core/haul.ts) */
   haul?: HaulState;
+  /** its road from the network to its door, in order (cell keys, core/roads.ts);
+   *  the site's rovers sinter what is still closed before they weld */
+  spur?: number[];
+}
+
+/** One 4 m road cell (core/roads.ts, docs/15-roads.md). */
+export interface RoadCell {
+  gx: number;
+  gz: number;
+  /** rover-seconds of sintering left (0 = open to traffic) */
+  left: number;
+  /** a parking bay beside a dock or on the Lander's apron */
+  bay?: boolean;
+}
+
+/** A road the player drew, or a haul road to an excavator's dig: open for
+ *  free rovers to sinter, oldest first. */
+export interface RoadJob {
+  id: number;
+  kind: 'draw' | 'haul';
+  /** the cells in order from the network (cell keys) */
+  cells: number[];
+  /** a haul road: the excavator it serves */
+  by?: number;
 }
 
 /** One construction rover (core/fleet.ts). Auto rovers go one per active
@@ -59,6 +83,8 @@ export interface RoverUnit {
   id: number;
   /** the dock it parks at: the Lander or a Robotics Bay (building id) */
   home: number;
+  /** free of sites: the road job it sinters (core/roads.ts) */
+  road?: number;
   /** the construction site it is working (or waiting at), null = free */
   site: number | null;
   pinned: boolean;
@@ -88,6 +114,10 @@ export interface HaulState {
   pad?: DepositKind;
   /** the whole leg being driven, from where it began (the visuals follow it; absent in old saves) */
   route?: [number, number][];
+  /** Dig at…: the haul road job it waits on (it digs its pad until the road opens) */
+  roadJob?: number;
+  /** no road to where this leg goes (cut, or not open yet): it waits, asking each tick */
+  noRoad?: boolean;
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
@@ -210,6 +240,15 @@ export interface GameState {
   /** the construction rovers, one per dock slot (core/fleet.ts) */
   rovers: RoverUnit[];
   nextRoverId: number;
+  /** the road network (core/roads.ts): cells in laying order, the jobs free
+   *  rovers sinter, and a revision bumped whenever a cell opens, is laid or
+   *  goes (routes are cached on it). roadSchema 1: roads exist (older saves
+   *  get them on load) */
+  roads?: RoadCell[];
+  roadJobs?: RoadJob[];
+  roadRev?: number;
+  roadSchema?: number;
+  nextRoadJob?: number;
 
   era: number;
   techsDone: TechId[];

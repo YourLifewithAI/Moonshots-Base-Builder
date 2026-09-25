@@ -47,9 +47,9 @@ export function crewParts(mods: Pick<Mods, 'weldPartsMult'>, n: number): number 
 }
 
 /** Game-seconds a site has left with n rovers on it (Infinity with none). */
-export function siteEta(mods: Pick<Mods, 'weldRateMult'>, b: BuildingState, n: number): number {
+export function siteEta(mods: Pick<Mods, 'weldRateMult'> & Partial<Pick<Mods, 'roadCellMult'>>, b: BuildingState, n: number, roadS = 0): number {
   const rate = mods.weldRateMult * crewRate(n);
-  return rate > 0 ? (b.construction ?? 0) / rate : Infinity;
+  return rate > 0 ? ((b.construction ?? 0) + roadS * (mods.roadCellMult ?? 1)) / rate : Infinity;
 }
 
 /** The rover lent to a survey (it is not in the fleet until it returns). */
@@ -174,13 +174,29 @@ export function assignRovers(s: GameState): Map<number, number> {
     r.site = b.id;
     served.add(b.id);
   }
+  // free rovers sinter the roads drawn and the haul roads: one a job, oldest
+  // first, in roster order (core/roads.ts)
+  const jobs = (s.roadJobs ?? []).map((j) => j.id);
+  const live = new Set(jobs);
+  for (const r of s.rovers) {
+    if (r.road !== undefined && (r.site !== null || r.pinned || r.id === away || !live.has(r.road))) delete r.road;
+  }
+  const onJob = new Set(s.rovers.filter((r) => r.road !== undefined).map((r) => r.road!));
+  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.id !== away && r.road === undefined);
+  for (const id of jobs) {
+    if (onJob.has(id)) continue;
+    const r = idle.shift();
+    if (!r) break;
+    r.road = id;
+    onJob.add(id);
+  }
   const enabled = new Set(sites.filter((b) => b.enabled).map((b) => b.id));
   const crews = new Map<number, number>();
   for (const r of s.rovers) {
     if (r.site !== null && enabled.has(r.site)) crews.set(r.site, (crews.get(r.site) ?? 0) + 1);
   }
   const lent = away !== undefined && s.rovers.some((r) => r.id === away) ? 1 : 0;
-  s.bots = { total: s.rovers.length - lent, busy: s.rovers.filter((r) => r.site !== null).length };
+  s.bots = { total: s.rovers.length - lent, busy: s.rovers.filter((r) => r.site !== null || r.road !== undefined).length };
   return crews;
 }
 

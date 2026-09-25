@@ -14,24 +14,27 @@
 import * as THREE from 'three';
 import { HAUL } from '../data/balance';
 import { digsHome, haulSpeed } from '../core/haul';
-import type { BuildingState, GameState, HaulState } from '../core/state';
+import type { GameState, HaulState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
 import { litChannel } from '../buildings/buildingShader';
-import { UNIT, lineClear, pathLength, plan } from '../core/paths';
+import { pathLength } from '../core/paths';
+import { cellAt, roadRoute, routePoints } from '../core/roads';
 import { materials } from './materials';
-import { blobTexture } from './rovers';
+import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
-import type { Agent, Driver, Pose, Traffic } from './traffic';
+import { Traffic, WHOLE, pointAt, type Agent, type Driver } from './traffic';
 
 const MAX = 48;
 const TURN = 2.2;          // rad/s: tracks turn on the spot
 const CATCH = 1.6;         // × haul speed: the most a digger drives to catch up with the sim
 const GAIN = 1.5;          // 1/s: how hard it closes the gap
 const PI = Math.PI;
+/** the body: 3.8 m wide, from 1.9 m behind its origin to the wheel 4.3 m ahead */
+export const DIGGER_BODY = { hw: 1.9, front: 4.3, back: 1.9 };
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -45,65 +48,26 @@ interface Digger {
   v: number;
   away: boolean;
   digging: boolean;
-  /** the ground it drives: from where it stood when the sim's leg began (or
-   *  where it was, lagging), through the sim's legs since */
-  track: [number, number][];
-  /** arc lengths along the track (cumulative, from track[0]) */
-  arc: number[];
-  /** how far along it has come, m, and where the sim is along it (the goal) */
-  s: number;
+  /** where the sim is along the agent's way (its goal), m */
   target: number;
-  /** the sim's leg it last took on (a new one extends the track) */
+  /** the sim's leg it last took on (a new one extends the way) */
   leg: string;
-  /** the sim drives now (m/s along the track), 0 while it digs or unloads */
+  /** the sim drives now (m/s along the way), 0 while it digs or unloads */
   simV: number;
   /** game-seconds of sim time this frame against the visuals' (≥ 1: slow frames) */
   pace: number;
-  /** the pad's heading, and whether the sim has it digging on its pad */
+  /** the pad's heading, whether the sim has it digging on its pad, the pad's centre */
   padYaw: number;
   homeDig: boolean;
   pad: [number, number];
+  /** where the sim has it now (a jump lands here) */
+  simX: number; simZ: number;
+  /** the heading it turns (or pivots) to */
+  aim: number;
   agent: Agent;
-  /** a move proposed this substep */
-  next: { yaw: number; s: number; on: boolean };
 }
 
-/** The point at arc length u along a track (and the segment it is on). */
-function along(t: [number, number][], arc: number[], u: number): { x: number; z: number; i: number } {
-  if (t.length === 1 || u <= 0) return { x: t[0][0], z: t[0][1], i: 0 };
-  for (let i = 1; i < t.length; i++) {
-    if (u <= arc[i] || i === t.length - 1) {
-      const l = arc[i] - arc[i - 1];
-      const k = l > 1e-9 ? clamp((u - arc[i - 1]) / l, 0, 1) : 1;
-      return { x: t[i - 1][0] + (t[i][0] - t[i - 1][0]) * k, z: t[i - 1][1] + (t[i][1] - t[i - 1][1]) * k, i };
-    }
-  }
-  const e = t[t.length - 1];
-  return { x: e[0], z: e[1], i: t.length - 1 };
-}
-
-function arcs(t: [number, number][]): number[] {
-  const out = [0];
-  for (let i = 1; i < t.length; i++) out.push(out[i - 1] + Math.hypot(t[i][0] - t[i - 1][0], t[i][1] - t[i - 1][1]));
-  return out;
-}
-
-/** The arc of the track point nearest (x, z), searched from `from` − 1 m to `to`. */
-function project(t: [number, number][], arc: number[], x: number, z: number, from: number, to: number): { u: number; d: number } {
-  let best = { u: from, d: Infinity };
-  for (let i = 1; i < t.length; i++) {
-    if (arc[i] < from - 1 || arc[i - 1] > to) continue;
-    const [ax, az] = t[i - 1], [bx, bz] = t[i];
-    const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
-    const k = l2 > 1e-9 ? clamp(((x - ax) * dx + (z - az) * dz) / l2, 0, 1) : 0;
-    const d = Math.hypot(x - ax - dx * k, z - az - dz * k);
-    if (d < best.d) best = { u: arc[i - 1] + Math.sqrt(l2) * k, d };
-  }
-  if (t.length === 1) best = { u: 0, d: Math.hypot(x - t[0][0], z - t[0][1]) };
-  return best;
-}
-
-/** The sim's leg as a track: the whole route (or, from an old save, what is left of it). */
+/** The sim's leg as a way: the whole route (or, from an old save, what is left of it). */
 function legOf(h: HaulState): [number, number][] {
   if (h.route?.length) return h.route.map(([x, z]): [number, number] => [x, z]);
   return [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
@@ -166,19 +130,16 @@ export class Haulers implements Driver {
   /** Per frame: `dt` game seconds (0 while paused); `frac` the part of the
    *  next economy second already gone, so a driving digger heads for where
    *  the sim will have it, not where it stood at the last tick. Then the
-   *  traffic step moves it (or the fallback, alone) and draw() shows it. */
+   *  traffic step moves it (or the fallback, alone) and finish() shows it. */
   update(dt: number, state: GameState, sunLight: number, frac = 0) {
     this.sync(dt, state, frac);
-    if (!this.traffic) {
-      // no traffic layer: straight to where the sim has it
-      for (const v of this.all.values()) this.jump(v);
-    }
+    if (!this.traffic) for (const v of this.all.values()) this.jump(v);
     this.finish(dt, sunLight);
   }
 
   /** Before the traffic step: follow the sim — its legs extend each digger's
-   *  track, its position sets how far along the digger should be. */
-  sync(dt: number, state: GameState, frac = 0) {
+   *  way, its position sets how far along the digger should be. */
+  sync(dt: number, state: GameState, frac = 0, night = false) {
     // research grows parts on the excavator: the digger wears them too (a
     // swap keeps the per-instance attributes, as the building instances do)
     const key = upgradeKey('excavator', state.techsDone);
@@ -188,6 +149,7 @@ export class Haulers implements Driver {
       old.dispose();
       this.key = key;
     }
+    this.state = state;
     const simDelta = this.lastSim === null ? Infinity : state.simTime - this.lastSim;
     this.lastSim = state.simTime;
     // sim time the visuals were not shown (debug advances, a load, a long
@@ -195,7 +157,7 @@ export class Haulers implements Driver {
     const jumped = simDelta < 0 || (dt <= 0 ? simDelta > 1e-6 : simDelta - dt > 3);
     const pace = dt > 0 ? clamp(simDelta / dt, 1, 5) : 1;
     const seen = new Set<number>();
-    const speed = this.speed = haulSpeed(state.techsDone);
+    const speed = this.speed = haulSpeed(state.techsDone) * roadSpeedFor(state.techsDone, night, true);
     for (const b of state.buildings) {
       const h = b.haul;
       if (b.type !== 'excavator' || !h || (b.construction ?? 0) > 0) continue;
@@ -209,13 +171,13 @@ export class Haulers implements Driver {
       if (!v) {
         v = {
           id: b.id, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: false, digging: false,
-          track: [[h.x, h.z]], arc: [0], s: 0, target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad,
-          agent: null!, next: { yaw: padYaw, s: 0, on: true },
+          target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad, simX: h.x, simZ: h.z, aim: padYaw, agent: null!,
         };
         v.agent = {
-          kind: 'digger', id: b.id, key: b.id, x: v.x, z: v.z, fx: Math.cos(padYaw), fz: -Math.sin(padYaw), vx: 0, vz: 0,
-          r: UNIT.digger.r, off: UNIT.digger.off, wallM: UNIT.digger.body, cls: 2, still: true, anchored: false,
-          home: b.id, cruise: speed, pvx: 0, pvz: 0, reach: 0, held: false, drv: this,
+          kind: 'digger', id: b.id, key: b.id, x: h.x, z: h.z, fx: Math.cos(padYaw), fz: -Math.sin(padYaw),
+          hw: DIGGER_BODY.hw, front: DIGGER_BODY.front, back: DIGGER_BODY.back, wide: true, cls: 2,
+          pts: [], arcs: [], spans: [], s: 0, v: 0, vmax: 0, stop: 0, accel: 4, decel: 8,
+          standMode: WHOLE, held: new Map(), blocker: null, waited: 0, drv: this,
         };
         this.all.set(b.id, v);
         this.retrack(v, h, true);
@@ -224,11 +186,13 @@ export class Haulers implements Driver {
       } else if (legKey(h) !== v.leg) {
         this.retrack(v, h, false);
       }
-      v.target = Math.max(0, v.arc[v.arc.length - 1] - rem);
+      const a = v.agent;
+      v.target = Math.max(0, Traffic.end(a) - rem);
       if (jumped) {
-        v.s = v.target;
-        const p = along(v.track, v.arc, v.s);
-        v.x = p.x; v.z = p.z;
+        a.s = Math.min(v.target, Traffic.end(a));
+        const p = pointAt(a.pts, a.arcs, a.s);
+        v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
+        this.traffic?.place(a);
       }
       v.simV = driving ? speed : 0;
       v.pace = pace;
@@ -237,55 +201,79 @@ export class Haulers implements Driver {
       v.homeDig = h.phase === 'dig' && digsHome(b);
       v.digging = h.phase === 'dig' && b.active;
       v.powered = b.enabled && b.idleReason !== 'power';
-      const a = v.agent;
+      v.simX = h.x; v.simZ = h.z;
       a.cls = h.phase === 'toDrop' || h.phase === 'unload' ? 3 : 2;
-      a.cruise = speed;
-      a.x = v.x; a.z = v.z;
-      a.fx = Math.cos(v.yaw); a.fz = -Math.sin(v.yaw);
-      const home = Math.hypot(v.x - pad[0], v.z - pad[1]) < 0.3;
-      a.anchored = home && v.homeDig && v.target - v.s < 0.05;
-      a.still = v.simV === 0 && v.target - v.s < 0.05;
     }
     for (const id of [...this.all.keys()]) if (!seen.has(id)) this.all.delete(id);
     this.traffic?.enlist('digger', [...this.all.values()].map((v) => v.agent));
   }
 
-  /** A new sim leg: the track from where the digger is to the leg's start
-   *  (the rest of the track it drives, or a planned connector), then the leg.
+  private state: GameState | null = null;
+
+  /** A new sim leg: the way from where the digger is to the leg's start (the
+   *  rest of the way it drives, or a road route) and then the leg.
    *  `fresh`: start over on the sim's position (a jump). */
   private retrack(v: Digger, h: HaulState, fresh: boolean) {
+    const a = v.agent;
     const leg = legOf(h);
     v.leg = legKey(h);
     if (fresh) {
-      // the leg from where the sim is on it
-      v.track = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
-      v.arc = arcs(v.track);
-      v.s = 0;
-      v.x = h.x; v.z = h.z;
+      const way: [number, number][] = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
+      v.x = h.x; v.z = h.z; a.x = h.x; a.z = h.z;
+      this.face(v, way);
+      this.traffic?.drop(a);
+      this.setWay(v, way);
       return;
     }
     const head: [number, number][] = [[v.x, v.z]];
     const [lx, lz] = leg[0];
-    // the leg begins where the sim stood: on the track ahead, normally
-    const onTrack = project(v.track, v.arc, lx, lz, v.s, Infinity);
-    if (onTrack.d < 1) {
-      const endI = along(v.track, v.arc, onTrack.u).i;
-      const startI = along(v.track, v.arc, v.s).i;
-      for (let i = startI; i < endI; i++) head.push(v.track[i]);
-      head.push([lx, lz]);
-    } else {
-      const rects = this.traffic?.planRects(v.id) ?? [];
-      if (!lineClear(v.x, v.z, lx, lz, rects, HAUL.clear * 0.9)) head.push(...plan(v.x, v.z, lx, lz, rects, HAUL.clear));
-      else head.push([lx, lz]);
+    // the leg begins where the sim stood: on the way ahead, normally
+    let joined = false;
+    if (a.pts.length > 1) {
+      let best = { u: Infinity, d: Infinity, i: 0 };
+      for (let i = 1; i < a.pts.length; i++) {
+        if (a.arcs[i] < a.s - 1e-6) continue;
+        const [ax, az] = a.pts[i - 1], [bx, bz] = a.pts[i];
+        const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+        const k = l2 > 1e-9 ? clamp(((lx - ax) * dx + (lz - az) * dz) / l2, 0, 1) : 0;
+        const d = Math.hypot(lx - ax - dx * k, lz - az - dz * k);
+        if (d < best.d - 1e-6) best = { u: a.arcs[i - 1] + Math.sqrt(l2) * k, d, i };
+      }
+      if (best.d < 1) {
+        for (let i = 1; i < a.pts.length; i++) if (a.arcs[i] > a.s + 1e-6 && a.arcs[i] < best.u - 1e-6) head.push(a.pts[i]);
+        joined = true;
+      }
     }
-    const track: [number, number][] = [];
-    for (const p of [...head, ...leg.slice(1)]) {
-      const last = track[track.length - 1];
-      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-6) track.push([p[0], p[1]]);
+    if (!joined && this.state) {
+      const cells = roadRoute(this.state, cellAt(v.x, v.z), cellAt(lx, lz));
+      if (cells) head.push(...routePoints(cells).slice(1));
     }
-    v.track = track;
-    v.arc = arcs(track);
-    v.s = 0;
+    const way: [number, number][] = [];
+    for (const p of [...head, [lx, lz] as [number, number], ...leg.slice(1)]) {
+      const last = way[way.length - 1];
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-6) way.push([p[0], p[1]]);
+    }
+    this.setWay(v, way);
+  }
+
+  private setWay(v: Digger, way: [number, number][]) {
+    const a = v.agent;
+    if (this.traffic) this.traffic.setWay(a, way);
+    else {
+      a.pts = [way[0], ...way];
+      a.arcs = [0];
+      for (let i = 1; i < a.pts.length; i++) a.arcs.push(a.arcs[i - 1] + Math.hypot(a.pts[i][0] - a.pts[i - 1][0], a.pts[i][1] - a.pts[i - 1][1]));
+      a.s = 0;
+    }
+  }
+
+  /** Square to the way it starts on. */
+  private face(v: Digger, way: [number, number][]) {
+    if (way.length < 2) return;
+    const dx = way[1][0] - way[0][0], dz = way[1][1] - way[0][1];
+    if (Math.hypot(dx, dz) < 1e-6) return;
+    v.yaw = Math.atan2(-dz, dx);
+    v.agent.fx = Math.cos(v.yaw); v.agent.fz = -Math.sin(v.yaw);
   }
 
   /** No traffic step (it failed): each digger straight to where the sim has it. */
@@ -293,80 +281,73 @@ export class Haulers implements Driver {
 
   /** Where the sim has it. */
   private jump(v: Digger) {
-    v.s = v.target;
-    const p = along(v.track, v.arc, v.s);
-    const dx = p.x - v.x, dz = p.z - v.z;
-    if (Math.hypot(dx, dz) > 1e-4) v.yaw = Math.atan2(-dz, dx);
-    v.x = p.x; v.z = p.z;
+    const a = v.agent;
+    a.s = Math.min(v.target, Traffic.end(a));
+    const p = pointAt(a.pts, a.arcs, a.s);
+    if (Math.hypot(p.x - v.x, p.z - v.z) > 1e-4) v.yaw = Math.atan2(-p.dz, p.dx);
+    v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
   }
 
   // ── the traffic driver ──
 
   prefer(a: Agent) {
     const v = this.all.get(a.id)!;
-    const gap = v.target - v.s;
-    // driving on with the sim: no end in sight; else it stops where the sim is
-    a.reach = v.simV > 0 ? Infinity : Math.max(0, gap);
-    if (a.anchored || (gap < 0.02 && v.simV === 0)) { a.pvx = 0; a.pvz = 0; return; }
+    const gap = v.target - a.s;
     const cap = CATCH * this.speed * v.pace;
-    const want = clamp(v.simV * v.pace + GAIN * gap, 0, cap);
-    const here = along(v.track, v.arc, v.s);
-    const off = Math.hypot(here.x - v.x, here.z - v.z);
-    // on the track: along it; pushed off it: back toward a point ahead on it
-    const aim = off < 0.25 ? along(v.track, v.arc, Math.min(v.s + 0.5, v.target + 0.01)) : along(v.track, v.arc, Math.min(v.s + 3, v.target));
-    let dx = aim.x - v.x, dz = aim.z - v.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 1e-6) {
-      // at a joint: the next leg's heading
-      const ahead = along(v.track, v.arc, Math.min(v.s + 1, v.arc[v.arc.length - 1]));
-      dx = ahead.x - v.x; dz = ahead.z - v.z;
+    a.vmax = gap < 0.02 && v.simV === 0 ? 0 : clamp(v.simV * v.pace + GAIN * gap, 0, cap);
+    a.stop = Math.min(v.target, Traffic.end(a));
+    // tracks: forward along the way, backing straight out, or a pivot on the spot
+    const end = Traffic.end(a);
+    const there = a.s >= end - 1e-3;
+    let want: number | null = null;
+    if (!there && a.vmax > 0) {
+      const p = pointAt(a.pts, a.arcs, a.s + 0.02);
+      want = Math.atan2(-p.dz, p.dx);
+    } else if (there && v.homeDig && Math.hypot(v.x - v.pad[0], v.z - v.pad[1]) < 0.3) {
+      want = v.padYaw;
     }
-    const l = Math.hypot(dx, dz) || 1;
-    a.pvx = (dx / l) * want;
-    a.pvz = (dz / l) * want;
+    if (want === null) { a.pivot = false; return; }
+    const fwd = Math.abs(wrap(want - v.yaw)), rev = Math.abs(wrap(want + PI - v.yaw));
+    if (fwd < 0.04) { a.reverse = false; a.pivot = false; v.aim = want; }
+    else if (rev < 0.04 && !there) { a.reverse = true; a.pivot = false; v.aim = want + PI; }
+    else {
+      // turn on the spot to whichever way round is nearer (forward on a tie)
+      a.pivot = true;
+      v.aim = fwd <= rev + 1e-6 || there ? want : want + PI;
+      a.vmax = 0;
+    }
   }
 
-  propose(a: Agent, vx: number, vz: number, dt: number, out: Pose, turn = false) {
+  moved(a: Agent, dt: number) {
     const v = this.all.get(a.id)!;
-    const sp = Math.hypot(vx, vz);
-    let x = v.x, z = v.z, s = v.s, on = false;
-    if (turn) {
-      let yaw = v.yaw;
-      if (sp > 1e-6) yaw += clamp(wrap(Math.atan2(-vz, vx) - yaw), -TURN * dt, TURN * dt);
-      out.x = x; out.z = z; out.fx = Math.cos(yaw); out.fz = -Math.sin(yaw);
-      v.next = { yaw, s, on: false };
-      return;
-    }
-    const here = along(v.track, v.arc, v.s);
-    const onTrack = Math.hypot(here.x - v.x, here.z - v.z) < 0.25;
-    if (sp > 1e-6 && onTrack && Math.abs(vx - a.pvx) < 1e-9 && Math.abs(vz - a.pvz) < 1e-9) {
-      // as wanted, on the track: along it, round its corners exactly
-      s = Math.min(v.s + sp * dt, Math.max(v.target, v.s));
-      const p = along(v.track, v.arc, s);
-      x = p.x; z = p.z; on = true;
-    } else if (sp > 1e-6) {
-      x += vx * dt; z += vz * dt;
-    }
-    let yaw = v.yaw;
-    const mx = x - v.x, mz = z - v.z;
-    let face: number | null = null;
-    if (Math.hypot(mx, mz) > 1e-5) face = Math.atan2(-mz, mx);
-    else if (sp > 1e-6) face = Math.atan2(-vz, vx);
-    else if (v.homeDig && Math.hypot(v.x - v.pad[0], v.z - v.pad[1]) < 0.3) face = v.padYaw;
-    if (face !== null) yaw += clamp(wrap(face - yaw), -TURN * dt, TURN * dt);
-    out.x = x; out.z = z; out.fx = Math.cos(yaw); out.fz = -Math.sin(yaw);
-    v.next = { yaw, s, on };
-  }
-
-  commit(a: Agent, p: Pose | null, dt: number) {
-    const v = this.all.get(a.id)!;
-    if (!p) { v.v = 0; return; }
+    const p = pointAt(a.pts, a.arcs, a.s);
     const moved = Math.hypot(p.x - v.x, p.z - v.z);
     v.v = dt > 0 ? Math.min(20, moved / dt) : 0;
-    v.x = p.x; v.z = p.z; v.yaw = v.next.yaw;
-    if (v.next.on) v.s = v.next.s;
-    else if (moved > 0) v.s = clamp(project(v.track, v.arc, v.x, v.z, v.s, v.s + moved + 2).u, v.s - 1, Math.max(v.target, v.s));
-    a.x = v.x; a.z = v.z; a.fx = p.fx; a.fz = p.fz;
+    v.x = p.x; v.z = p.z;
+    a.x = p.x; a.z = p.z;
+    if (a.pivot) {
+      if (!a.pivotOk) return;
+      v.yaw += clamp(wrap(v.aim - v.yaw), -TURN * dt, TURN * dt);
+      if (Math.abs(wrap(v.aim - v.yaw)) < 0.04) { v.yaw = v.aim; a.pivot = false; }
+    } else if (moved > 1e-6) {
+      // along the way: the heading of the piece it drives (turns come as pivots)
+      const yaw = a.reverse ? Math.atan2(p.dz, -p.dx) : Math.atan2(-p.dz, p.dx);
+      if (this.traffic?.boxFree(a, v.x, v.z, Math.cos(yaw), -Math.sin(yaw)) ?? true) v.yaw = yaw;
+    }
+    a.fx = Math.cos(v.yaw); a.fz = -Math.sin(v.yaw);
+  }
+
+  /** An excavator does not back off: the rovers make way (a cycle of
+   *  excavators alone is set down on the sim's place). */
+  yieldTo(): boolean { return false; }
+
+  /** Set down where the sim has it. */
+  rescue(a: Agent) {
+    const v = this.all.get(a.id);
+    const h = this.state?.buildings.find((b) => b.id === a.id)?.haul;
+    if (!v || !h) return;
+    this.retrack(v, h, true);
+    v.target = Traffic.end(a) - Math.max(0, pathLength(h.x, h.z, h.path));
   }
 
   /** After the traffic step: which diggers are away from their pads, then draw. */
@@ -375,7 +356,7 @@ export class Haulers implements Driver {
       const home = Math.hypot(v.x - v.pad[0], v.z - v.pad[1]) < 0.3;
       // home on its pad and squared up: the building instance takes over
       v.away = !home || Math.abs(wrap(v.padYaw - v.yaw)) > 0.02;
-      if (dt > 0) this.lagMax = Math.max(this.lagMax, Math.max(0, v.target - v.s) / this.speed);
+      if (dt > 0) this.lagMax = Math.max(this.lagMax, Math.max(0, v.target - v.agent.s) / this.speed);
     }
     this.drawn = [...this.all.values()].filter((v) => v.away).slice(0, MAX);
     const sig = this.drawn.map((v) => v.id).join(',');
@@ -479,7 +460,7 @@ export class Haulers implements Driver {
       poses: [...this.all.values()].map((v) => ({
         id: v.id, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, yaw: Math.round(v.yaw * 1000) / 1000, digging: v.digging, away: v.away,
         /** m the digger trails the sim along its track */
-        lagM: Math.round((v.target - v.s) * 100) / 100,
+        lagM: Math.round((v.target - v.agent.s) * 100) / 100,
       })),
       /** the most any digger trailed the sim since the last read, game-seconds of driving */
       lagMaxS: Math.round(this.takeLag() * 100) / 100,

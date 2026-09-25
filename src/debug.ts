@@ -15,6 +15,7 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
+import { openAll } from './core/roads';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -182,11 +183,21 @@ function api(game: Game) {
       const { x0, z0, x1, z1 } = worldRect(b);
       return { x0, z0, x1, z1 };
     },
-    /** Complete every construction site now (one economy tick settles them). */
+    /** Complete every construction site now, and open every road (one economy tick settles them). */
     finishConstruction: () => {
-      for (const b of game.state.buildings) b.construction = 0;
+      for (const b of game.state.buildings) { b.construction = 0; b.spur = []; }
+      openAll(game.state);
       game.debugAdvance(1);
     },
+    /** the road tool as N starts it, and what it holds */
+    beginRoadTool: () => game.beginRoadTool(),
+    cancelRoadTool: () => game.cancelRoadTool(),
+    getRoadTool: () => clone(game.debugRoadTool()),
+    /** open every road cell now (sites stay as they are) */
+    finishRoads: () => { openAll(game.state); game.publish(); },
+    /** the road tool's actions: a road from an open road cell to a cell; remove cells */
+    layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
+    removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),
   };
 }
 

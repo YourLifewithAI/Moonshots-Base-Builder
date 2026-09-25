@@ -46,7 +46,7 @@ export function lightLevel(b: BuildingState, dark: number): number {
   return powered ? dark : 0;
 }
 
-export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell' | 'window' | 'lamp' | 'beacon' | 'foil';
+export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell' | 'window' | 'lamp' | 'beacon' | 'foil' | 'road' | 'roadMark';
 type Palette = Record<PaletteKey, number>;
 
 /** sRGB, as authored (the classic renderer does no tone mapping) */
@@ -61,6 +61,9 @@ export const CLASSIC_PALETTE: Readonly<Palette> = {
   lamp: 0xfff1d6,
   beacon: 0xb02a22,
   foil: 0xd8a53a,
+  /** the roads (world/roads.ts): sintered regolith, and their kerb and centre marks */
+  road: 0xa8a299,
+  roadMark: 0xe9e4d8,
 };
 
 const SILVER: Partial<Palette> = { trim: 0xc4c8ce, panel: 0xaeb2b8 };

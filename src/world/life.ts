@@ -18,6 +18,7 @@ import { LaunchFx, ResupplyFx } from './events';
 import { RoverFleet, syncGround } from './rovers';
 import { Haulers } from './haulers';
 import { Traffic } from './traffic';
+import { RoadMesh } from './roads';
 import { SwarmGlints } from './swarm';
 
 export interface LifeFrame {
@@ -44,7 +45,7 @@ const FILM_TAU = CYCLE_S;                  // uncleaned: a lunar day to settle
 const FILM_TAU_MITIGATED = 60;             // electrostatic curtains
 const NEAR_M = 45;
 
-type Part = 'rovers' | 'haulers' | 'traffic' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film';
+type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film';
 
 export class BaseLife {
   readonly group = new THREE.Group();
@@ -52,6 +53,8 @@ export class BaseLife {
   readonly traffic = new Traffic();
   readonly rovers: RoverFleet;
   readonly haulers: Haulers;
+  /** the road network, drawn */
+  readonly roads: RoadMesh;
   readonly dust = new DustField();
   readonly launch: LaunchFx;
   readonly resupply: ResupplyFx;
@@ -67,13 +70,14 @@ export class BaseLife {
   constructor(private hf: Heightfield, requestShadowUpdate: () => void) {
     this.rovers = new RoverFleet(hf, this.traffic);
     this.haulers = new Haulers(hf, this.traffic);
+    this.roads = new RoadMesh(hf);
     this.launch = new LaunchFx(hf);
     this.resupply = new ResupplyFx(hf);
     this.berms = new Berms(hf);
     this.prints = new Footprints(hf);
     this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
-    this.group.add(this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
+    this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
       this.berms.mesh, this.swarm.group, this.prints.mesh);
   }
 
@@ -83,8 +87,10 @@ export class BaseLife {
     const s = f.state;
     // the ground units: where each wants to be, then one traffic step for
     // all of them (they keep off each other), then drawn where they got to
-    this.run('rovers', () => { syncGround(this.traffic, s); this.rovers.sync(gdt, s); });
-    this.run('haulers', () => this.haulers.sync(gdt, s, f.tickFrac ?? 0));
+    const night = f.sunLight < 0.1;
+    this.run('roads', () => this.roads.update(s, 1 - Math.min(1, f.sunLight * 4)));
+    this.run('rovers', () => { syncGround(this.traffic, s); this.rovers.sync(gdt, s, night); });
+    this.run('haulers', () => this.haulers.sync(gdt, s, f.tickFrac ?? 0, night));
     this.run('traffic', () => this.traffic.step(gdt));
     if (this.failed.has('traffic')) this.run('haulers', () => this.haulers.follow());
     this.run('rovers', () => this.rovers.draw(gdt, f.sunDir, f.sunLight));
@@ -134,7 +140,7 @@ export class BaseLife {
       if (part === 'haulers') this.traffic.enlist('digger', []);
       console.warn(`[MOONSHOTS] ${part} visuals disabled after an error.`, e);
       const objects: Partial<Record<Part, THREE.Object3D>> = {
-        rovers: this.rovers.group, haulers: this.haulers.group, dust: this.dust.points, launch: this.launch.group,
+        rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
         resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group, prints: this.prints.mesh,
       };
       const o = objects[part];
@@ -175,6 +181,7 @@ export class BaseLife {
       rovers: this.rovers.info(),
       haulers: this.haulers.info(),
       traffic: this.traffic.info(),
+      roads: this.roads.info(),
       dust: this.dust.info(),
       launch: this.launch.info(),
       resupply: this.resupply.info(),

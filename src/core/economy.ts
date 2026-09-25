@@ -25,6 +25,7 @@ import { computeEra, eraTick, insightTick, producerHint, researchTick, uplinkSha
 import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
+import { settleJobs, sinter, spurLeft } from './roads';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 
@@ -404,6 +405,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const crew = crews.get(b.id) ?? 0;
     if (crew === 0) { b.idleReason = 'queued'; continue; }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
+    // its road first: the crew sinters the spur out to the door, cell by cell
+    // (the crew's draw, no weld parts), then welds (core/roads.ts)
+    if (b.spur?.length && spurLeft(s, b) > 0) {
+      b.idleReason = 'road';
+      sinter(s, b.spur, dt * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
+      if (spurLeft(s, b) === 0) b.spur = [];
+      continue;
+    }
     const weld = crewParts(mods, crew) * dt;
     if (s.resources.parts < weld) {
       b.idleReason = 'inputs'; // welding consumables ran dry
@@ -418,6 +427,15 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       st.built += 1;
       alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info', { select: b.id });
     }
+  }
+  // ── 2.6 · free rovers sinter the roads drawn and the haul roads, oldest
+  // first, one rover a job (their batteries: no grid draw) ──
+  if (s.roadJobs?.length) {
+    for (const j of s.roadJobs) {
+      const n = s.rovers.filter((r) => r.road === j.id).length;
+      if (n) sinter(s, j.cells, dt * mods.weldRateMult * crewRate(n) / mods.roadCellMult);
+    }
+    settleJobs(s);
   }
   // settle storage: net energy this tick
   const net = supply * dt - drawn;
@@ -506,7 +524,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         s.resources[rid as ResourceId] -= (rate ?? 0) * dt;
       }
       if (type === 'excavator') {
-        const h = haulTick(s, mods, b, r, dt, caps);
+        const h = haulTick(s, mods, b, r, dt, caps, day.isNight);
         for (const [rid, amt] of Object.entries(h.credited) as [ResourceId, number][]) {
           hauled[rid] = (hauled[rid] ?? 0) + amt;
           st.produced[rid] += amt;

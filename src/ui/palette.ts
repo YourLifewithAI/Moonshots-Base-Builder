@@ -24,7 +24,7 @@ import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
 import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
 import {
-  $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
+  $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
   $vitals, spawnFloater,
 } from './stores';
 
@@ -230,6 +230,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
       b.addEventListener('click', () => { activeCat = c; renderCats(); renderItems(); });
       cats.appendChild(b);
     }
+    // the road tool sits beside the tabs (docs/15-roads.md §4)
+    const road = el('button', 'btn road-btn', 'Road [N]') as HTMLButtonElement;
+    road.id = 'road-btn';
+    road.title = 'Draw a road: drag out from a road cell. Alt-drag removes road. Rovers sinter it when free.';
+    road.addEventListener('click', () => { if ($roadTool.get()) game.cancelRoadTool(); else game.beginRoadTool(); });
+    cats.appendChild(road);
   };
   // a card that would strand the base (too few metals left for the first
   // smelter) says so before it is picked: a caution mark, and its tooltip
@@ -288,12 +294,34 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const warn = p.warn
       ? `<div class="caution">${p.warn}</div><div class="caution-act">${p.confirm ? 'Click again to build it anyway' : 'A click asks first; a second builds it anyway'}</div>`
       : '';
+    // the road it lays first: its cells and the sintering they take (docs/15-roads.md)
+    const road = p.valid && p.type !== 'grade'
+      ? `<div class="road-note" id="place-road">${p.road
+        ? `ROAD ${p.road} cell${p.road === 1 ? '' : 's'} · ${Math.round(p.roadS ?? 0)} rover-s to sinter, before it rises`
+        : 'ROAD — on the network already'}</div>`
+      : '';
     const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
-      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${warn}`
+      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${road}${warn}`
       : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
     if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
   };
   $placing.subscribe(renderHint);
+  // the road tool's hint shares the spot
+  const roadHint = el('div', 'panel');
+  roadHint.id = 'road-hint';
+  roadHint.style.display = 'none';
+  palette.insertBefore(roadHint, items);
+  $roadTool.subscribe((t) => {
+    cats.querySelector('#road-btn')?.classList.toggle('active', !!t);
+    if (!t) { roadHint.style.display = 'none'; return; }
+    roadHint.style.display = '';
+    const line = t.mode === 'lay' && t.cells
+      ? `ROAD ${t.cells} cell${t.cells === 1 ? '' : 's'} · ${Math.round(t.seconds)} rover-s to sinter · release to lay`
+      : t.mode === 'remove' ? `REMOVE ${t.cells} road cell${t.cells === 1 ? '' : 's'} · release to remove`
+      : t.started ? 'ROAD · click or release where it ends' : 'ROAD · drag out from a road cell · Alt-drag removes · right-click done';
+    roadHint.innerHTML = `<span class="label hint-line">${line}</span>${t.reason
+      ? `<div class="${t.mode === 'remove' ? 'caution' : 'blocked'}">${t.reason}</div>` : ''}`;
+  });
   $resources.subscribe(() => { if ($placing.get()) renderHint(); });
   // a click on a blocked spot: the hint flashes (restarting the animation)
   $placeFlash.subscribe((n) => {

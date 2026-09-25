@@ -71,6 +71,13 @@ export interface Mods {
   /** excavator haul cycle (core/haul.ts): drive speed and bucket size */
   haulSpeedMult: number;
   haulBucketMult: number;
+  /** the roadway tier (core/roads.ts, docs/15-roads.md): travel speed on
+   *  roads (all, excavators alone, at night), road dust, sintering time a cell */
+  roadSpeedMult: number;
+  roadHaulMult: number;
+  roadNightMult: number;
+  roadDustMult: number;
+  roadCellMult: number;
 }
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
@@ -112,6 +119,7 @@ export function computeMods(
     housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
     haulSpeedMult: 1, haulBucketMult: 1,
+    roadSpeedMult: 1, roadHaulMult: 1, roadNightMult: 1, roadDustMult: 1, roadCellMult: 1,
   };
 
   for (const tid of techsDone) {
@@ -182,6 +190,13 @@ export function computeMods(
         case 'haul':
           m.haulSpeedMult *= fx.speedMult ?? 1;
           m.haulBucketMult *= fx.bucketMult ?? 1;
+          break;
+        case 'road':
+          m.roadSpeedMult *= fx.speedMult ?? 1;
+          m.roadHaulMult *= fx.haulMult ?? 1;
+          m.roadNightMult *= fx.nightMult ?? 1;
+          m.roadDustMult *= fx.dustMult ?? 1;
+          m.roadCellMult *= fx.cellMult ?? 1;
           break;
         case 'housing': m.housingDelta[fx.building] += fx.delta; break;
         case 'morale': m.moraleDelta[fx.building] += fx.delta; break;

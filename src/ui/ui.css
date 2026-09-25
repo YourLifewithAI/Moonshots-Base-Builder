@@ -146,12 +146,15 @@
 .bld-btn.strands .cost::after { content: ' ⚠'; }
 
 /* inside the palette column, above the cards: it can never cover them */
-:is(#place-hint, #fleet-hint) { padding: 6px 12px; font-size: 12px; text-align: center; }
+:is(#place-hint, #fleet-hint, #road-hint) { padding: 6px 12px; font-size: 12px; text-align: center; }
+#road-hint .blocked, #road-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
+#palette .cats .road-btn { margin-left: 6px; }
 :is(#place-hint, #fleet-hint) .blocked { color: var(--paper); font-weight: 600; }
 #place-hint .caution { color: var(--paper); font-weight: 600; margin-top: 3px; }
 #place-hint .caution-act { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 2px; font-size: 11px; }
 #tooltip .caution { color: var(--paper); font-weight: 600; }
 :is(#place-hint, #fleet-hint) .deposit-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; }
+#place-hint .road-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; font-size: 11px; }
 
 /* regolith panel: the excavators' last dig as a stacked bar (segments are
    labelled; alternating fill separates neighbours) */

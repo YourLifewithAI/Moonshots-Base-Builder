@@ -20,7 +20,11 @@ import { FEED_KINDS, feedKindOf, type FeedGrade, type FeedKind } from '../data/d
 import type { BuildingState, GameState, HaulState } from './state';
 import { effectiveDef, type EffectiveRates, type Mods } from './mods';
 import { centerOf } from '../buildings/instances';
-import { PATH_HALF, UNIT, inside, pathLength, plan, reachableFrom, ring, wallSpot, worldRect, type Rect } from './paths';
+import { PATH_HALF, UNIT, inside, pathLength, wallSpot, worldRect } from './paths';
+import {
+  accessCell, besideCells, cellAt, cellCentre, cellKey, doorCell, hasRoads, jobOpen, layJob, nearestRoad, planLink,
+  roadMap, roadRoute, routePoints, type Heights,
+} from './roads';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -90,93 +94,89 @@ export function dropFor(s: GameState, mods: Mods, x: number, z: number): Buildin
   return best;
 }
 
-/** how far apart two diggers' resting spots stand (a dig, a pad, an unload
- *  stand): two bodies whose centres may each lead their origin by `off` */
-export const DIGGER_GAP = 2 * (UNIT.digger.r + UNIT.digger.off);
+// ───────────────────────────── on the roads (core/roads.ts) ─────────────────────────────
 
-/** A square keep-out round a digger standing at (x, z) (any heading), for
- *  planners: other units' paths keep their own clearance off it. */
-export function keepOut(id: number, x: number, z: number, half = UNIT.digger.r + UNIT.digger.off): Rect {
-  return { id: -1000 - id, x0: x - half, z0: z - half, x1: x + half, z1: z + half };
+/** m the bucket wheel leads the digger's origin, and the gap it keeps to a wall it unloads at */
+const NOSE = UNIT.digger.r + UNIT.digger.off - 0.4;
+const NOSE_GAP = 0.3;
+
+/** The drive speed on roads: the haul speed times the roadway tier. */
+export function roadHaulSpeed(spec: HaulSpec, mods: Pick<Mods, 'roadSpeedMult' | 'roadHaulMult' | 'roadNightMult'>, night: boolean): number {
+  return spec.speed * mods.roadSpeedMult * mods.roadHaulMult * (night ? mods.roadNightMult : 1);
 }
 
-/** Where the other excavators stand still: each one's dig (its pad, or the
- *  ground it digs away from it) and the stand it holds at a consumer (driving
- *  there, or unloading). */
-export function diggerSpots(s: GameState, self: number | null): { id: number; x: number; z: number; home: boolean }[] {
-  const out: { id: number; x: number; z: number; home: boolean }[] = [];
-  for (const o of s.buildings) {
-    if (o.id === self || o.type !== 'excavator' || isSite(o)) continue;
-    const h = o.haul;
-    const home = digsHome(o);
-    const [px, pz] = centerOf(o);
-    out.push({ id: o.id, x: h?.digX ?? px, z: h?.digZ ?? pz, home });
-    if (!home) out.push({ id: o.id, x: px, z: pz, home: true });
-    const stand = h ? standHeld(h) : null;
-    if (stand) out.push({ id: o.id, x: stand[0], z: stand[1], home: false });
-  }
-  return out;
-}
-
-/** The unload stand a haul holds: where it is headed to unload, or unloading. */
+/** The stand a haul holds: the road cell it is headed to unload at, or unloading on. */
 export function standHeld(h: HaulState): [number, number] | null {
-  if (h.phase === 'unload') return [h.x, h.z];
+  if (h.phase === 'unload') return cellAt(h.x, h.z);
   if (h.phase === 'toDrop') {
-    const end = h.path[h.path.length - 1];
-    return end ? [end[0], end[1]] : [h.x, h.z];
+    const end = h.route?.[h.route.length - 1] ?? h.path[h.path.length - 1];
+    return end ? cellAt(end[0], end[1]) : cellAt(h.x, h.z);
   }
   return null;
 }
 
-/** every footprint the digger drives around (its own pad it drives over), and
- *  the ground other diggers dig away from their pads (they stand there a
- *  minute at a time) */
-function rectsFor(s: GameState, self: BuildingState): Rect[] {
-  const out = s.buildings.filter((b) => b.id !== self.id).map(worldRect);
+/** The road cell digger `b` unloads from at `drop`: an open cell beside it
+ *  (its door first) no other digger holds, else the door (it queues). */
+export function standFor(s: GameState, b: BuildingState, drop: BuildingState): [number, number] | null {
+  const beside = besideCells(s, drop);
+  if (!beside.length) return accessCell(s, drop);
+  const held = new Set<number>();
   for (const o of s.buildings) {
-    if (o.id === self.id || o.type !== 'excavator' || !o.haul || isSite(o) || digsHome(o)) continue;
-    out.push(keepOut(o.id, o.haul.digX, o.haul.digZ));
+    if (o.id === b.id || o.type !== 'excavator' || !o.haul || o.haul.drop !== drop.id) continue;
+    const c = standHeld(o.haul);
+    if (c) held.add(cellKey(c[0], c[1]));
   }
+  return beside.find(([x, z]) => !held.has(cellKey(x, z))) ?? beside[0];
+}
+
+/** Where a leg ends at a consumer: the stand's centre, pulled back along the
+ *  way in so the bucket wheel stops short of the wall. */
+function stopShort(pts: [number, number][], from: [number, number], drop: BuildingState): [number, number][] {
+  if (!pts.length) return pts;
+  const [ex, ez] = pts[pts.length - 1];
+  const [px, pz] = pts.length > 1 ? pts[pts.length - 2] : from;
+  const dx = ex - px, dz = ez - pz, l = Math.hypot(dx, dz);
+  if (l < 1e-6) return pts;
+  const ux = dx / l, uz = dz / l;
+  const r = worldRect(drop);
+  // how far ahead of the stand the wall is, along the way in
+  let t = Infinity;
+  for (let k = 0; k <= 60; k++) {
+    const d = k * 0.1;
+    if (inside(ex + ux * d, ez + uz * d, r, 0)) { t = d; break; }
+  }
+  const back = NOSE + NOSE_GAP - t;
+  if (back <= 0) return pts;
+  const keep = Math.min(back, l);
+  const out = pts.slice(0, -1);
+  out.push([ex - ux * keep, ez - uz * keep]);
   return out;
 }
 
-/** Where digger `b` unloads at `drop`, coming from (x, z): the wall spot
- *  nearest it (as it always was) when that is clear, else the nearest clear
- *  one round the walls — clear of every other footprint by the haul
- *  clearance, DIGGER_GAP from wherever another digger stands still (so two
- *  never unload in one place, nor on each other's dig), and one it can
- *  drive to (not a gap between walls too narrow for it). */
-export function standFor(s: GameState, b: BuildingState, drop: BuildingState, x: number, z: number): { x: number; z: number } {
-  const r = worldRect(drop);
-  const first = wallSpot(r, x, z, HAUL.unloadOut);
-  const walls = s.buildings.filter((o) => o.id !== b.id && o.id !== drop.id).map(worldRect);
-  const others = diggerSpots(s, b.id);
-  const m = HAUL.clear * 0.9;
-  const reach = reachableFrom(x, z, rectsFor(s, b), HAUL.clear);
-  const free = (px: number, pz: number) =>
-    Math.abs(px) < PATH_HALF && Math.abs(pz) < PATH_HALF &&
-    !walls.some((w) => inside(px, pz, w, m)) &&
-    !others.some((o) => Math.hypot(o.x - px, o.z - pz) < DIGGER_GAP) &&
-    reach(px, pz);
-  if (free(first.x, first.z)) return { x: first.x, z: first.z };
-  const rg = ring(r, HAUL.unloadOut);
-  const u0 = rg.uOf(x, z);
-  for (let k = 1; k <= rg.len; k++) {
-    for (const u of [u0 + k, u0 - k]) {
-      const p = rg.at(u);
-      if (free(p.x, p.z)) return { x: p.x, z: p.z };
-    }
+/** The points of a road leg from where the haul stands to a goal: its own
+ *  pad (by the door), a dig cell, or a consumer's stand. Null: no road there. */
+function legPath(
+  s: GameState, b: BuildingState, h: Pick<HaulState, 'x' | 'z'>, goal: 'home' | [number, number], drop?: BuildingState,
+): [number, number][] | null {
+  const [px, pz] = centerOf(b);
+  if (!hasRoads(s)) {
+    const [gx, gz] = goal === 'home' ? [px, pz] : cellCentre(goal[0], goal[1]);
+    return [[gx, gz]];
   }
-  return { x: first.x, z: first.z };
-}
-
-/** Why digger `b` should not dig at (x, z) because another one stands there
- *  ('' = none): another's dig, pad or stand within DIGGER_GAP. */
-export function digCrowded(s: GameState, b: BuildingState, x: number, z: number): string {
-  const o = diggerSpots(s, b.id).find((p) => Math.hypot(p.x - x, p.z - z) < DIGGER_GAP);
-  if (!o) return '';
-  const other = s.buildings.find((q) => q.id === o.id)!;
-  return `TOO CLOSE TO ${label(other).toUpperCase()} — it ${o.home ? 'parks' : 'digs'} there; pick ground ${Math.ceil(DIGGER_GAP)} m off`;
+  const door = doorCell(b)!;
+  const onPad = Math.hypot(h.x - px, h.z - pz) < 0.5;
+  const from = onPad ? door : cellAt(h.x, h.z);
+  const to = goal === 'home' ? door : goal;
+  const cells = roadRoute(s, from, to);
+  if (!cells) return null;
+  let pts = routePoints(cells);
+  // already standing in the first cell (off its centre, as at a stand): straight on
+  if (!onPad && pts.length > 1) pts = pts.slice(1);
+  if (goal === 'home') pts.push([px, pz]);
+  if (drop) pts = stopShort(pts, [h.x, h.z], drop);
+  // drop a first point it already stands on
+  if (pts.length && Math.hypot(pts[0][0] - h.x, pts[0][1] - h.z) < 1e-6) pts = pts.slice(1);
+  return pts.length ? pts : [[h.x, h.z]];
 }
 
 export interface Trip {
@@ -191,7 +191,9 @@ export interface Trip {
   load: number;
 }
 
-/** What digging at (x, z) delivers: the drop it would haul to, the route and the rate. */
+/** What digging at (x, z) delivers: the drop it would haul to, the route
+ *  (on roads) and the rate. Ground with no road yet is costed as the road
+ *  from the nearest road cell plus the straight way out to it. */
 export function tripFor(
   s: GameState, mods: Mods, b: BuildingState, x: number, z: number, regolithOut: number,
 ): Trip {
@@ -199,12 +201,31 @@ export function tripFor(
   const drop = dropFor(s, mods, x, z);
   let routeM = 0;
   if (drop) {
-    const p = standFor(s, b, drop, x, z);
-    routeM = pathLength(x, z, plan(x, z, p.x, p.z, rectsFor(s, b), HAUL.clear));
+    const [px, pz] = centerOf(b);
+    const home = Math.hypot(x - px, z - pz) < 0.5;
+    const stand = hasRoads(s) ? standFor(s, b, drop) : null;
+    if (stand) {
+      let from: [number, number] = [x, z], extra = 0;
+      if (!home && !roadMap(s).has(cellKey(...cellAt(x, z)))) {
+        const n = nearestRoad(s, x, z);
+        if (n) { const c = cellCentre(n[0], n[1]); extra = Math.hypot(c[0] - x, c[1] - z); from = c; }
+      }
+      const path = legPath(s, b, { x: from[0], z: from[1] }, stand, drop);
+      routeM = path ? extra + pathLength(from[0], from[1], path) : Math.hypot(...wallDelta(drop, x, z));
+    } else {
+      routeM = Math.hypot(...wallDelta(drop, x, z));
+    }
   }
+  const speed = roadHaulSpeed(spec, mods, false);
   const load = regolithOut * GAIN * spec.digS;
-  const cycleS = spec.digS + spec.unloadS + (2 * routeM) / spec.speed;
+  const cycleS = spec.digS + spec.unloadS + (2 * routeM) / speed;
   return { drop, routeM, cycleS, rate: load / cycleS, load };
+}
+
+/** the straight way from (x, z) to where it would unload at `drop` */
+function wallDelta(drop: BuildingState, x: number, z: number): [number, number] {
+  const p = wallSpot(worldRect(drop), x, z, HAUL.unloadOut);
+  return [p.x - x, p.z - z];
 }
 
 /** The feed grade after `amt` of `kind` is delivered: an amount-weighted EMA. */
@@ -256,17 +277,24 @@ function digBlocked(s: GameState, b: BuildingState, h: HaulState): BuildingState
   return s.buildings.find((o) => o.id !== b.id && inside(h.digX, h.digZ, worldRect(o), 0)) ?? null;
 }
 
+/** Where it digs now: the ground it was sent to once its haul road is open, else its pad. */
+function digGoal(s: GameState, b: BuildingState, h: HaulState): 'home' | [number, number] {
+  if (digsHome(b) || !jobOpen(s, h.roadJob)) return 'home';
+  return cellAt(h.digX, h.digZ);
+}
+
 /** A new leg from where it stands: the path, and the whole leg kept (the visuals follow it). */
-function setLeg(h: HaulState, path: [number, number][]) {
-  h.path = path;
-  h.route = [[h.x, h.z], ...path.map(([x, z]): [number, number] => [x, z])];
+function setLeg(h: HaulState, path: [number, number][] | null) {
+  h.noRoad = !path;
+  h.path = path ?? [];
+  h.route = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
 }
 
 function startDig(s: GameState, b: BuildingState, h: HaulState) {
   h.phase = 'toDig';
   h.t = 0;
   h.drop = null;
-  setLeg(h, plan(h.x, h.z, h.digX, h.digZ, rectsFor(s, b), HAUL.clear));
+  setLeg(h, legPath(s, b, h, digGoal(s, b, h)));
 }
 
 function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
@@ -275,8 +303,8 @@ function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
   h.t = 0;
   h.drop = drop?.id ?? null;
   if (!drop) { setLeg(h, []); return; }
-  const p = standFor(s, b, drop, h.x, h.z);
-  setLeg(h, plan(h.x, h.z, p.x, p.z, rectsFor(s, b), HAUL.clear));
+  const stand = hasRoads(s) ? standFor(s, b, drop) : cellAt(...(() => { const p = wallSpot(worldRect(drop), h.x, h.z, HAUL.unloadOut); return [p.x, p.z] as [number, number]; })());
+  setLeg(h, stand ? legPath(s, b, h, stand, drop) : null);
   const m = pathLength(h.x, h.z, h.path);
   if (s.stats) s.stats.haulMaxM = Math.max(s.stats.haulMaxM ?? 0, m);
 }
@@ -296,23 +324,26 @@ export interface HaulTick {
  *  effective rates this tick (the bucket fills at r.outputs × GAIN). */
 export function haulTick(
   s: GameState, mods: Mods, b: BuildingState, r: EffectiveRates, dt: number,
-  caps: Partial<Record<ResourceId, number>>,
+  caps: Partial<Record<ResourceId, number>>, night = false,
 ): HaulTick {
   const h = ensureHaul(b)!;
   const spec = haulSpec(mods);
+  const speed = roadHaulSpeed(spec, mods, night);
   const out: HaulTick = { credited: {}, flow: {}, dugS: 0, note: '' };
   let t = dt;
   for (let guard = 0; t > 1e-9 && guard < 12; guard++) {
     if (h.phase === 'toDig') {
-      t = drive(h, spec.speed, t);
+      // no road to where it digs (cut, or not open yet): it waits and asks again
+      if (h.noRoad) { startDig(s, b, h); if (h.noRoad) break; }
+      t = drive(h, speed, t);
       if (!h.path.length) { h.phase = 'dig'; h.t = 0; }
       continue;
     }
     if (h.phase === 'toDrop') {
       // the consumer it was heading for is gone or shut: find another
       const drop = s.buildings.find((x) => x.id === h.drop);
-      if (!drop || !drop.enabled) startDrop(s, mods, b, h);
-      t = drive(h, spec.speed, t);
+      if (!drop || !drop.enabled || h.noRoad) { startDrop(s, mods, b, h); if (h.noRoad) break; }
+      t = drive(h, speed, t);
       if (!h.path.length) { h.phase = 'unload'; h.t = 0; }
       continue;
     }
@@ -327,7 +358,9 @@ export function haulTick(
           out.note = `DIG SITE BUILT OVER — ${label(b)} is back on its own pad (${label(over)} stands there)`;
           if (Math.hypot(h.x - x, h.z - z) > 0.5) { startDig(s, b, h); continue; }
         }
-        h.kind = feedKindOf(b.deposit);
+        // on its own pad (a haul road still being laid to the new ground): the pad's ground
+        const [hx, hz] = centerOf(b);
+        h.kind = feedKindOf(Math.hypot(h.x - hx, h.z - hz) < 0.5 ? h.pad : b.deposit);
       }
       const step = Math.min(t, spec.digS - h.t);
       for (const [rid, rate] of Object.entries(r.outputs) as [ResourceId, number][]) {
@@ -387,22 +420,44 @@ export function digRefusal(
   }
   const over = s.buildings.find((o) => o.id !== b.id && inside(x, z, worldRect(o), 0));
   if (over) return `UNDER A STRUCTURE — ${label(over)} stands there; pick open ground`;
-  return digCrowded(s, b, x, z);
+  if (roadMap(s).has(cellKey(...cellAt(x, z)))) return 'ON A ROAD — pick open ground beside it; the haul road will end there';
+  return '';
 }
 
 /** Point the excavator at new ground (validate with digRefusal first; the
- *  caller stamps b.deposit for the new ground). A bucket already started is
- *  hauled first; then it heads for the new dig. */
-export function setDigSite(s: GameState, mods: Mods, b: BuildingState, x: number, z: number) {
+ *  caller stamps b.deposit for the new ground). On roads the dig snaps to the
+ *  cell's centre and a haul road is planned out to it (`hf`: the heights
+ *  its A* climbs); until free rovers open it the excavator keeps digging its
+ *  pad. A bucket already started is hauled first; then it heads for the dig.
+ *  Returns why it cannot ('' = done). */
+export function setDigSite(s: GameState, mods: Mods, b: BuildingState, x: number, z: number, hf?: Heights): string {
   const h = ensureHaul(b)!;
+  const [px, pz] = centerOf(b);
+  const home = Math.hypot(x - px, z - pz) < 0.5;
+  let job: number | undefined;
+  if (!home && hasRoads(s) && hf) {
+    const cell = cellAt(x, z);
+    const plan = planLink(s, hf, null, cell);
+    if (plan.reason) return `NO HAUL ROAD — ${plan.reason}`;
+    [x, z] = cellCentre(cell[0], cell[1]);
+    job = layJob(s, plan, 'haul', b.id) || undefined;
+  }
+  // a haul road laid for an earlier dig and not yet open is no longer wanted
+  const old = h.roadJob;
+  if (old !== undefined && old !== job && s.roadJobs) {
+    const j = s.roadJobs.find((q) => q.id === old);
+    if (j) j.kind = 'draw'; // the rovers finish it as an ordinary road
+  }
   h.digX = x;
   h.digZ = z;
+  if (job !== undefined) h.roadJob = job; else delete h.roadJob;
   if (h.phase === 'dig') {
     if ((h.cargo.regolith ?? 0) > 0) startDrop(s, mods, b, h); // take what it has dug to the consumer first
     else startDig(s, b, h);
   } else if (h.phase === 'toDig') {
     startDig(s, b, h);
   }
+  return '';
 }
 
 /** The dig site back on its own pad ("Return home"); b.deposit returns to the pad's. */

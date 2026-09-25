@@ -46,6 +46,11 @@ function nextStep(fx: TechEffect[]): string {
         break;
       case 'haul':
         return 'Excavators drive faster and carry more: select one and Dig at… a rich deposit farther out — the long hauls gain most.';
+      case 'road':
+        if ((f.speedMult ?? 1) > 1 || (f.haulMult ?? 1) > 1 || (f.nightMult ?? 1) > 1) {
+          return 'Every road carries its traffic faster now: link far structures with the road tool [N] — shortcuts pay more.';
+        }
+        break;
       // beds and morale act at once; a cut (a con) asks nothing of the player
       case 'housing':
         if (f.delta > 0) return `Every ${BUILDINGS[f.building].name} sleeps ${f.delta} more at once — room for the next arrivals.`;
