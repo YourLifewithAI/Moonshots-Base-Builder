@@ -18,6 +18,11 @@ export interface BuildingState {
   enabled: boolean;
   /** run on autonomous agents: no crew or morale dependence, power ×1.6 */
   automated: boolean;
+  /** agents took this station over for want of crew (economy step 3.5);
+   *  the crew take it back once enough settlers are free */
+  agentCover?: boolean;
+  /** the player crewed it by hand: agents never cover it */
+  crewPinned?: boolean;
   /** solar only: terrain currently blocks the sun (computed by the renderer side) */
   shaded?: boolean;
   /** brownout hysteresis: ticks to stay dark before retrying the grid */
@@ -273,6 +278,8 @@ export interface GameState {
   seed: number;
   /** who runs this base: fragile clever humans, or power-hungry tireless robots */
   expedition: 'human' | 'robotic';
+  /** agents run short-handed stations until settlers free up (unset = on) */
+  agentCover?: boolean;
   simTime: number;           // game-seconds since landing
   speed: number;             // 1 | 3 | 10
   paused: boolean;

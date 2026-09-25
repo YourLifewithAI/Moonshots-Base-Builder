@@ -42,6 +42,9 @@ export const $vitals = atom({
   sites: 0, welding: 0, weldParts: 0, upkeep: 0,
   /** robots lent to a survey (not in botsTotal) */
   surveying: 0,
+  /** workers the crewed stations want · stations idle for crew · stations
+   *  agents are covering for want of crew · agents may cover · cover is on */
+  seats: 0, crewIdle: 0, covered: 0, canCover: false, agentCover: true,
 });
 /** Lander services status (shipment en route, the next order's transit in
  *  lunar days, agent-run stations the crew could take) */

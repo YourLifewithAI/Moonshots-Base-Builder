@@ -110,8 +110,19 @@ function panelHtml(key: string, mods: Mods): string | null {
 
   if (key === 'crew') {
     return `
-      <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew}/${v.housing} housed</span></div>
+      <section><div class="tt-name"><span>${PERSON_SVG} Crew</span><span class="mono">${v.crew} aboard · ${v.housing} beds</span></div>
         ${v.beds > v.housing ? `<span class="label">${v.beds - v.housing} of ${v.beds} beds dark — shut down or unpowered</span>` : ''}</section>
+      <section>
+        <span class="label">At stations</span>
+        ${row('Crewed stations want', `${v.seats} crew`)}
+        ${row('Aboard', `${v.crew} crew`)}
+        ${v.covered ? row('Agents covering', `${v.covered} station${v.covered === 1 ? '' : 's'}`) : ''}
+        ${v.crewIdle ? `<div class="goal-hint crew-short">${v.crewIdle} station${v.crewIdle === 1 ? '' : 's'} idle — no crew free</div>` : ''}
+        <div class="goal-hint">Free beds only let more settlers arrive: everyone aboard already works a station. Workers go to priority 0 first, then 1, 2 and 3; a station whose storage is full stands by without taking any.</div>
+        ${v.canCover
+          ? `<label class="dsc-off crew-cover"><input type="checkbox" data-act="agent-cover"${v.agentCover ? ' checked' : ''}> Agents cover short-handed stations (${mult(1 + mods.agentTax)} power); settlers take them back as they free up</label>`
+          : `<div class="goal-hint">${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets agents run the stations nobody can staff.</div>`}
+      </section>
       <section>
         <span class="label">How settlers arrive</span>
         <div class="goal-hint">One new settler per lunar day while morale is above ${CREW.growthMorale}%, a powered bed is free, and nobody is starving. Nobody boards unless oxygen, food and water can each keep one more person alive for a lunar day at the current rates — a day's reserve, or production that covers them. Habitats add 4 beds each and extend the build perimeter.</div>
@@ -256,6 +267,10 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
   actions.querySelector('#res-panel-close')!.addEventListener('click', () => $resourcePanel.set(null));
   // the Builder's orders and rules for this resource: stable DOM, outside the re-rendered body
   mountBuilderSection(panel, actions, game);
+  body.addEventListener('change', (e) => {
+    const t = e.target as HTMLInputElement;
+    if (t.matches('[data-act="agent-cover"]')) game.actions.push({ kind: 'setAgentCover', on: t.checked });
+  });
 
   let lastHtml = '';
   const render = () => {

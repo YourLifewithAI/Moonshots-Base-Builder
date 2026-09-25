@@ -314,8 +314,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
   insp.style.display = 'none';
   (root.querySelector('#hud-right') ?? root).appendChild(insp);
   let inspSig = '';
+  /** why a station has no crew, and the ways out */
+  const crewShortHint = (canAgents: boolean) =>
+    'Every settler aboard already works a station ahead of this one (priority 0 first). ' +
+    (canAgents ? 'Set it Autonomous, give it a lower priority number, or grow the crew with Habitats.'
+      : `Give it a lower priority number, or grow the crew with Habitats; ${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets agents run it.`);
   const statusLine = (sel: BuildingState): string => {
     const def = BUILDINGS[sel.type];
+    const vit = $vitals.get();
     const conRemaining = sel.construction ?? 0;
     const conPct = conRemaining > 0 && sel.buildTotal
       ? Math.round((1 - conRemaining / sel.buildTotal) * 100) : 100;
@@ -328,7 +334,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
         : `UNDER CONSTRUCTION — ${conPct}%`)
       : !sel.enabled ? 'SHUT DOWN'
       : sel.idleReason === 'power' ? 'IDLE — no power'
-      : sel.idleReason === 'crew' ? 'IDLE — no crew'
+      : sel.idleReason === 'crew' ? `IDLE — no crew free (${vit.crew} aboard, stations want ${vit.seats})`
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
       : sel.idleReason === 'full' ? (sel.type === 'excavator' ? 'STANDBY — waiting to unload: the store is full' : 'STANDBY — output full')
@@ -336,7 +342,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.active && sel.type === 'excavator' && $fleet.get().hauls[sel.id] ? $fleet.get().hauls[sel.id].line
       : sel.active
         ? ((sel.automated || ($vitals.get().expedition === 'robotic' && $vitals.get().crew <= 0))
-          ? `OPERATING · AUTONOMOUS${def.crew <= 0 ? ''
+          ? `OPERATING · AUTONOMOUS${sel.agentCover ? ' · COVERING FOR CREW' : ''}${def.crew <= 0 ? ''
             : def.powerKW > 0 ? ` · −${Math.round(AGENT_GEN_TAX * 100)}% kW` : ` · ${mult(1 + game.mods.agentTax)} kW`}`
           : 'OPERATING')
         : 'STANDBY';
@@ -493,7 +499,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
           <button class="btn${sel.automated ? '' : ' active'}" id="insp-crewed">${PERSON_SVG} Crewed</button>
           <button class="btn${sel.automated ? ' active' : ''}" id="insp-auto">◉ Autonomous</button>
         </div>
-      </section>` : ''}
+        ${sel.idleReason === 'crew' ? `<div class="insp-hint">${crewShortHint(true)}${vit.agentCover ? '' : ' Agents covering short-handed stations is off in the Crew panel.'}</div>`
+          : sel.agentCover ? '<div class="insp-hint">Agents took this station over for want of crew; settlers take it back as they free up. Crewed keeps it crewed.</div>' : ''}
+      </section>` : def.crew > 0 && sel.idleReason === 'crew' ? `<section><div class="insp-hint">${crewShortHint(false)}</div></section>` : ''}
       ${overclock ? `<section>
         <span class="label" title="Overclocked: ×${OVERCLOCK.mult} power draw, inputs, outputs and data; wear +${OVERCLOCK.wearPerDay}/day even with upkeep paid, and it trips itself back to nameplate at WORN">Clock — ×${OVERCLOCK.mult} everything, wear +${OVERCLOCK.wearPerDay}/day</span>
         <div class="prio">
@@ -530,6 +538,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       [...game.mods.actions].sort().join(','), fleetSig(sel),
       sel.auto?.by ?? '', sel.auto?.rule ?? '', sel.feedPlanOff ?? false, game.mods.feedPlanner,
       $automation.get()?.rules.find((r) => r.id === sel.auto?.rule)?.on ?? '',
+      sel.idleReason === 'crew', sel.agentCover ?? false, vit.agentCover,
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;

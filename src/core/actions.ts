@@ -13,6 +13,7 @@ export type Action =
   | { kind: 'demolish'; id: number }
   | { kind: 'setEnabled'; id: number; enabled: boolean }
   | { kind: 'setAutomated'; id: number; automated: boolean }
+  | { kind: 'setAgentCover'; on: boolean }
   | { kind: 'setPriority'; id: number; priority: 0 | 1 | 2 | 3 }
   | { kind: 'buildNext'; id: number }          // construction site → front of the robot queue
   | { kind: 'crewAll' }                        // settlers take agent-run stations, seats permitting
