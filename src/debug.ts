@@ -125,7 +125,12 @@ function api(game: Game) {
     getAudio: () => sfx.info(),
     playCue: (cue: Cue) => sfx.play(cue),
     getCamera: () => game.debugCamera(),
-    screenOf: (x: number, z: number) => game.debugScreenOf(x, z),
+    /** CSS px of the ground at (x, z), `lift` m above it */
+    screenOf: (x: number, z: number, lift = 0) => game.debugScreenOf(x, z, lift),
+    /** the classic terrain mesh's vertex colour nearest (x, z) */
+    terrainColorAt: (x: number, z: number) => game.debugTerrainColor(x, z),
+    /** the drawn ground vs hf.sample: { vertex, max, mean } (m) */
+    terrainError: () => game.debugTerrainError(),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     recipeTriangles: () => recipeTriangles(),
     beginPlacement: (type: BuildingId) => game.beginPlacement(type),

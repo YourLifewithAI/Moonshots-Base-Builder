@@ -41,6 +41,8 @@ import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting, sunStep } from '../world/lighting';
+import { ClassicLighting } from '../world/classicLighting';
+import { installClassic } from '../world/classic';
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
@@ -116,7 +118,7 @@ export class Game {
   readonly classic: boolean;
   private camera: THREE.PerspectiveCamera;
   private scene = new THREE.Scene();
-  private lighting: Lighting;
+  private lighting: Lighting | ClassicLighting;
   private sky: Sky;
   private post: PostFX;
   private hf!: Heightfield;
@@ -158,8 +160,9 @@ export class Game {
     materials.setClassic(this.classic);
     this.renderer = createRenderer(canvas, this.classic);
     this.watchRenderTargets();
+    if (this.classic) installClassic();
     this.camera = createCamera();
-    this.lighting = new Lighting(this.scene);
+    this.lighting = this.classic ? new ClassicLighting(this.scene) : new Lighting(this.scene);
     this.sky = new Sky(this.scene);
     this.lighting.attachHeadlamp(this.scene, this.camera);
     this.post = new PostFX(this.renderer, this.scene, this.camera, {
@@ -181,7 +184,7 @@ export class Game {
         this.saveFailed();
       }
       materials.setFxLevel(level);
-      this.rocks?.setFxLevel(level);
+      if (!this.classic) this.rocks?.setFxLevel(level);
       // a raise is checked on the next frames that can tell; a new rung soon
       this.reprobe(this.post.onTrial ? 2 : 40);
     };
@@ -295,12 +298,14 @@ export class Game {
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
     this.rocks = new Rocks(this.hf);
-    this.rocks.setFxLevel(this.post.ladderLevel);
+    // classic draws half the small rocks (the FX 2 density), whatever the ladder
+    this.rocks.setFxLevel(this.classic ? 2 : this.post.ladderLevel);
     this.instances = new BuildingInstances(this.hf);
     this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
       this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
     this.lighting.requestShadowUpdate();
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
+    if (this.lighting instanceof ClassicLighting) this.lighting.setSite(SITES[state.siteId]);
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     this.overlays = new BaseOverlays(this.hf);
     this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
@@ -1225,7 +1230,13 @@ export class Game {
     // the isometric view never looks above the horizon: the sky only draws
     // on foot and on the way down
     if (this.classic) this.sky.group.visible = walking || tweening;
-    this.rocks.update(this.camera);
+    // the isometric view stands hundreds of metres off: small rocks round its
+    // focus, and none once they would be specks
+    if (this.buildCam instanceof IsoCam && !walking) {
+      this.rocks.update(this.camera, this.buildCam.distance <= 350 ? this.buildCam.target : null);
+    } else {
+      this.rocks.update(this.camera);
+    }
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
@@ -1236,7 +1247,7 @@ export class Game {
     // shader patches, or (stock path) hull glow, ground discs and work lights
     // over the structures nearest the camera
     this.instances.setNightGlow(day.nightFactor);
-    const stockLights = !this.instances.shaderLights;
+    const stockLights = !this.classic && !this.instances.shaderLights;
     this.lighting.useWorkLights(stockLights);
     this.lighting.setWorkLights(
       stockLights && day.nightFactor > 0.03
@@ -1777,6 +1788,7 @@ export class Game {
       patchFault: materials.patchesFaulted,
       buildingMaterials: this.instances.materialTypes(),
       terrainMaterial: this.chunks.materialType,
+      terrain: this.chunks.info(),
       horizonMaterial: (this.horizon.mesh.material as THREE.Material).type,
       horizonSeam: this.horizon.seamError(),
       rocks: this.rocks.stats(),
@@ -1789,9 +1801,20 @@ export class Game {
   }
 
   /** Build-camera pose and its clearance over the ground (tests, probes). */
-  /** CSS-pixel position of the ground at world (x, z) under the live camera. */
-  debugScreenOf(x: number, z: number) {
-    return this.screenOf(x, this.hf.sample(x, z), z);
+  /** CSS-pixel position of the ground at world (x, z) — `lift` m above it —
+   *  under the live camera. */
+  debugScreenOf(x: number, z: number, lift = 0) {
+    return this.screenOf(x, this.hf.sample(x, z) + lift, z);
+  }
+
+  /** The terrain mesh's vertex colour nearest (x, z) (tests). */
+  debugTerrainColor(x: number, z: number) {
+    return this.chunks.colorAt(x, z);
+  }
+
+  /** The drawn ground against hf.sample (tests, probes). */
+  debugTerrainError() {
+    return this.chunks.surfaceError();
   }
 
   debugCamera() {
