@@ -385,7 +385,23 @@ triangles instead of 40 k — still one draw call per type.
   `ERA_COST_SCALE[1..8]` in ±10% steps until robotic mare lands at 210 ± 25
   with every era 25–30 min, then the other four runs are checked against
   +30%.
-- Results (before/after, per-era) are recorded in §11 once measured.
+- What the probe was taught (still only HUD reads and public verbs):
+  1. **Small steps in place.** The generic tail left all 44 new techs until
+     era 5; the reasonable player now takes each era's small steps once that
+     era's main techs are queued (a list keyed by the main tech they follow).
+  2. **The lab clock.** Lab count is `max(era schedule, the docs/11 §7
+     clock)`: with 25-minute eras a player with spare metal keeps adding labs.
+  3. **Crew seats as shown.** Seats follow the techs done (Bench Robots,
+     Self-Replication).
+  4. **Nights.** After a night with `RESEARCH PAUSED — labs browned out` the
+     player covers 10% more of the next night with storage (up to +50%).
+  5. **Crewed Construction Robotics** comes right after Parts Fabrication,
+     when stations stand idle for want of crew.
+  6. A combined idle metric (neither an action nor an event), reported
+     with every stretch over 5 minutes.
+  The old tree run with the new probe lands within 1–2 minutes of the old
+  probe's numbers (§11), so the before/after comparison is like for like.
+- Results (before/after, per-era) are in §11.
 
 ## 9. Save migration (techSchema 2 → 3)
 
@@ -415,4 +431,51 @@ triangles instead of 40 k — still one draw call per type.
 
 ## 11. Results
 
-Filled in by Phase B (see the commit that tunes pacing).
+`node scripts/probe-pacing.mjs --runs=<run>:reasonable --seeds=42,7,1234
+--port=5462`, medians over the three seeds; era columns are game-minutes
+from the era opening to the next (E8: to Swarm Protocol). "Longest idle" is
+the longest stretch with neither a player action nor an event (a tech, a
+building, a survey, an era), worst seed. "Techs" is how many were done at
+FIRST LIGHT.
+
+**Before** (commit 0ca59b2, the 47-tech tree, run with this branch's probe
+so both sides are played the same way; the original probe gave 108.6 /
+106.3 / 124.6 / 109.6 / 109.9 min):
+
+| Run | FIRST LIGHT (min) [seeds] | E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | longest idle | techs |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| robotic mare | **109.9** [110, 110, 111] | 12.0 | 12.8 | 13.6 | 11.8 | 15.2 | 13.5 | 18.1 | 11.6 | 5.8 | 31 |
+| robotic pole | **105.6** [102, 106, 106] | 12.2 | 13.8 | 13.3 | 13.3 | 13.0 | 13.8 | 13.3 | 9.0 | 3.3 | 32 |
+| robotic lava tube | **126.6** [125, 127, 127] | 12.8 | 13.1 | 23.7 | 12.5 | 14.6 | 15.6 | 17.5 | 12.0 | 4.2 | 32 |
+| human mare | **109.3** [105, 109, 111] | 12.0 | 18.1 | 18.3 | 10.8 | 8.2 | 13.3 | 15.8 | 11.8 | 5.8 | 31 |
+| human pole | **108.9** [109, 114, 109] | 10.7 | 19.7 | 11.7 | 11.3 | 9.0 | 19.8 | 13.3 | 11.0 | 5.1 | 32 |
+
+**After** (this branch, 92 techs):
+
+| Run | FIRST LIGHT (min) [seeds] | E1 | E2 | E3 | E4 | E5 | E6 | E7 | E8 | longest idle | techs |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| robotic mare | **202.3** [201, 202, 202] | 23.5 | 24.3 | 26.8 | 22.8 | 27.7 | 23.1 | 29.7 | 22.6 | 5.3 | 68 |
+| robotic pole | **203.6** [196, 204, 205] | 24.6 | 24.8 | 27.7 | 22.3 | 28.3 | 24.1 | 25.5 | 21.9 | 5.3 | 69 |
+| robotic lava tube | **219.9** [220, 220, 223] | 26.0 | 33.2 | 27.0 | 24.3 | 28.2 | 26.1 | 30.0 | 24.2 | 6.6 | 68 |
+| human mare | **217.6** [218, 218, 206] | 23.7 | 40.3 | 25.8 | 19.6 | 20.9 | 30.2 | 33.3 | 19.3 | 6.3 | 69 |
+| human pole | **176.9** [174, 193, 177] | 25.8 | 24.3 | 25.8 | 18.3 | 23.8 | 22.3 | 19.3 | 18.5 | 7.2 | 69 |
+
+- **FIRST LIGHT** on robotic mare moves from 110 to **202 game-min** (target
+  210 ± 25). The other runs sit at −13% to +9% of it (target within +30%).
+- **Eras** on the robotic runs are 22–30 min (they were 9–18); every run's
+  median era is 24–26 min. The outliers are crewed mare era 2 (40 min: two-
+  seat labs wait for crew, as they did before at 18 min, 1.4× the robotic
+  era then and 1.7× now) and the crewed pole's late eras (18–19 min: it
+  has water, and its research outruns the other sites').
+- **Idle.** Robotic mare and pole never go more than 5.3 min without an
+  action or an event. The longer stretches (lava 6.6, crewed mare 6.3,
+  crewed pole 7.2 on one seed) are early nights before Battery Banks can be
+  built (they need silicon, so a refinery): research pauses as the labs brown
+  out and nothing is waiting to be built. The old tree had the same
+  stretches (5.8 max); longer eras hold more of those nights. The probe's
+  player now covers more of each night after one that paused research,
+  which is what shortened the later ones.
+- Research moves a little faster per era than the cost scale alone would
+  suggest: three +10% lab steps and the survey-data steps are the gain the
+  scale pays back.
+
