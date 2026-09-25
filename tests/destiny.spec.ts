@@ -19,7 +19,8 @@ const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 async function start(page: Page, site: string, exp: 'human' | 'robotic', extra = '') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
   await page.waitForFunction(() => window.__game !== undefined);
-  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  // roads open as they are laid (docs/15): no test here times a build
+  await page.evaluate(() => { window.__game.openRoads(true); window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   await page.evaluate(CLIMB);
 }
 
@@ -94,7 +95,7 @@ test('data: a pick pair per era, 16 track techs and 3 capstones, each honest and
       blurb8: Object.keys(T.ERA_BLURB_8),
     };
   });
-  expect(r.n).toBe(125); // the merged tree's 106, plus the 19 destiny techs
+  expect(r.n).toBe(129); // main's 110 (with the 4 road tiers), plus the 19 destiny techs
   expect(r.track).toBe(16);
   expect(r.caps).toBe(3);
   for (const [e, c, a] of r.pairs) {
@@ -736,12 +737,19 @@ for (const style of ['classic', 'detailed']) {
       g.advanceGameSeconds(2);
       const s = g.getState();
       const rates = g.getResearch();
+      // roads (docs/15): the hive is a dock, with parking bays beside its door;
+      // the ring, the dome and the monolith take a plain door and a spur
+      const access = Object.fromEntries(g.roadAccess()
+        .filter((a: any) => ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith'].includes(a.type))
+        .map((a: any) => [a.type, a]));
+      const d = access.droneHive.door;
+      const hiveBays = (s.roads ?? []).filter((c: any) => c.bay && Math.abs(c.gx - d[0]) + Math.abs(c.gz - d[1]) === 1).length;
       // a Data Center tech changes the Monolith too: Rack Densification, output ×1.12
       g.completeTech('rackDensification');
       const dense = g.getResearch().production;
       return {
         placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: g.getUpgrades().meshes,
-        rates, dense, mono: s.buildings.find((b: any) => b.type === 'serverMonolith'),
+        rates, dense, mono: s.buildings.find((b: any) => b.type === 'serverMonolith'), access, hiveBays,
       };
     });
     expect(r.placed).toEqual({ droneHive: true, greenhouseRing: true, gardenDome: true, serverMonolith: true });
@@ -755,6 +763,12 @@ for (const style of ['classic', 'detailed']) {
     expect(r.rates.dcsActive).toBe(1); // counted with the Data Centers
     expect(r.rates.cap).toBeCloseTo(0.4 * r.rates.labsActive + 2.2, 6);
     expect(r.dense - r.rates.production).toBeGreaterThan(0.9 * 0.12 * 0.9);
+    for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+      expect(r.access[t].door, t).not.toBeNull(); // a door at its front middle, none a field type
+      expect(r.access[t].linked, t).toBe(true);   // and road from it to the Lander
+    }
+    // the hive is a dock: parking bays beside its door (its spur may come in along one side)
+    expect(r.hiveBays).toBeGreaterThanOrEqual(1);
   });
 }
 

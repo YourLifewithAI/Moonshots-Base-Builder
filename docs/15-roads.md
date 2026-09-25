@@ -56,7 +56,7 @@ A door inside another footprint, off the map or too steep refuses the spot.
 |---|---|---|
 | Most structures | front middle | a spur to the door |
 | Lander | front middle | the apron |
-| Robotics Bay | front middle | a spur, plus parking bays beside the door |
+| Robotics Bay, Drone Hive (docs/14) | front middle | a spur, plus parking bays beside the door |
 | **Field:** Solar Array, Battery Bank, Relay Mast | none | a road cell within 1 cell of the footprint, **or** an edge shared with a served field structure of the same type |
 
 A field of arrays is served from its edge. Rovers build and service it from
