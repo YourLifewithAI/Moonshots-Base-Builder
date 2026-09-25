@@ -1156,7 +1156,10 @@ export class Game {
       this.shadeAcc = 0;
       this.updateShading();
       this.updateWearMarkers();
-      sfx.setAmbience({ margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening });
+      sfx.setAmbience({
+        margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening,
+        night: currentDay(this.state, SITES[this.state.siteId]).nightFactor > 0.5,
+      });
     }
     this.updateDepositMarkers();
 
@@ -1195,6 +1198,7 @@ export class Game {
       dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
       sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
     });
+    sfx.setRovers(this.life.rovers.sounds(this.camera));
 
     // autosave (real time)
     this.autosaveAcc += dt;

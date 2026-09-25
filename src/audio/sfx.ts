@@ -1,7 +1,13 @@
 /** Procedural sound: WebAudio nodes only, no files. Vacuum carries no sound,
  *  so everything is suit radio and telemetry: alerts arrive band-passed
  *  between Quindar tones, and the control-room hum carries the grid's margin
- *  (it sags and beats as a brownout nears). On foot the suit breathes.
+ *  (it sags and beats as a brownout nears). On foot the suit breathes. The
+ *  rovers are heard through the suit's contact mics (audio/roverVoices.ts),
+ *  and a generative ambient score plays under it all (audio/music.ts).
+ *
+ *  Buses: effects and music each have their own volume, both feed the
+ *  master volume, and a limiter guards the output. Cues sit mostly above
+ *  150 Hz so laptop speakers carry them; the sub layers are for headphones.
  *
  *  The context is created on the first user gesture (autoplay policy). If
  *  WebAudio is missing or throws, every call is a no-op: sound never breaks
@@ -27,19 +33,34 @@ export interface Ambience {
   /** grid health −1 (brownout) … 0 (bank draining toward empty) … 1 (surplus); null = no hum */
   margin: number | null;
   walking: boolean;
+  /** the lunar night: the score turns darker at its next chord */
+  night?: boolean;
 }
 
 type Ctor = typeof AudioContext;
 
+import { Music } from './music';
+import { RoverVoices, type RoverSound } from './roverVoices';
+export type { RoverSound } from './roverVoices';
+
 class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
+  /** effects bus: cues, radio, hum, breath, rovers */
+  private fx: GainNode | null = null;
+  private musicBus: GainNode | null = null;
+  /** a tap after the limiter, read only by info() */
+  private meter: AnalyserNode | null = null;
+  private music: Music | null = null;
+  private rovers: RoverVoices | null = null;
   private radio: AudioNode | null = null;
   private noise: AudioBuffer | null = null;
   private brown: AudioBuffer | null = null;
   /** WebAudio missing or broken: stay silent for good */
   private dead = false;
   private volume = 0.7;
+  private musicVolume = 0.7;
+  private fxVolume = 1;
   private muted = false;
   private last = new Map<Cue, number>();
   private radioFree = 0;          // ctx time the current transmission ends
@@ -78,6 +99,23 @@ class Sfx {
     this.applyMaster();
   }
 
+  setMusicVolume(v: number) {
+    this.musicVolume = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+    this.applyMaster();
+  }
+
+  setEffectsVolume(v: number) {
+    this.fxVolume = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0));
+    this.applyMaster();
+  }
+
+  /** Per frame: the rovers nearest the camera (RoverFleet.sounds). */
+  setRovers(list: readonly RoverSound[]) {
+    const ctx = this.ctx;
+    if (!ctx || this.dead || !this.rovers || ctx.state !== 'running') return;
+    try { this.rovers.update(list); } catch (e) { this.fail(e); this.rovers = null; }
+  }
+
   /** Pause the whole graph while the page is hidden. */
   setHidden(hidden: boolean) {
     const ctx = this.ctx;
@@ -95,7 +133,7 @@ class Sfx {
       this.last.set(cue, now);
       this.played[cue]++;
       const ctx = this.ctx;
-      if (!ctx || this.dead || this.muted || this.volume <= 0 || ctx.state !== 'running') return;
+      if (!ctx || this.dead || this.muted || this.volume <= 0 || this.fxVolume <= 0 || ctx.state !== 'running') return;
       this.voice(cue, ctx.currentTime + 0.01);
     } catch (e) {
       this.fail(e);
@@ -111,6 +149,7 @@ class Sfx {
   setDucked(d: boolean) {
     if (d === this.ducked) return;
     this.ducked = d;
+    this.rovers?.setDucked(d);
     try { this.applyAmbience(); } catch (e) { this.fail(e); }
   }
 
@@ -119,11 +158,41 @@ class Sfx {
     return {
       state: this.dead ? 'unavailable' : this.ctx ? this.ctx.state : 'locked',
       volume: this.volume, muted: this.muted,
+      musicVolume: this.musicVolume, effectsVolume: this.fxVolume,
       played: { ...this.played },
       hum: this.hum ? { margin: this.amb.margin, detune: this.hum.oscs[0].detune.value } : null,
       breathing: !!this.breath && this.amb.walking && !this.ducked,
       ducked: this.ducked,
+      music: this.music?.info() ?? null,
+      rovers: this.rovers?.info() ?? null,
+      output: this.readMeter(),
     };
+  }
+
+  /** The output right now: RMS and peak in dBFS over ~85 ms, and the share
+   *  of energy below 150 Hz (what laptop speakers cannot carry). */
+  private readMeter() {
+    const m = this.meter;
+    if (!m || this.dead) return null;
+    try {
+      const td = new Float32Array(m.fftSize);
+      m.getFloatTimeDomainData(td);
+      let sum = 0, peak = 0;
+      for (const v of td) { sum += v * v; peak = Math.max(peak, Math.abs(v)); }
+      const rms = Math.sqrt(sum / td.length);
+      const fd = new Float32Array(m.frequencyBinCount);
+      m.getFloatFrequencyData(fd);
+      const binHz = (this.ctx?.sampleRate ?? 48000) / m.fftSize;
+      let low = 0, all = 0;
+      fd.forEach((db, i) => {
+        if (!Number.isFinite(db)) return;
+        const e = 10 ** (db / 10);
+        all += e;
+        if (i * binHz < 150) low += e;
+      });
+      const dB = (x: number) => (x > 0 ? Math.round(20 * Math.log10(x) * 10) / 10 : -Infinity);
+      return { rmsDb: dB(rms), peakDb: dB(peak), lowShare: all > 0 ? Math.round((low / all) * 1000) / 1000 : 0 };
+    } catch { return null; }
   }
 
   // ─────────────────────────── graph ───────────────────────────
@@ -142,14 +211,32 @@ class Sfx {
     try {
       const v = this.muted ? 0 : this.volume * this.volume; // perceptual taper
       this.master.gain.setTargetAtTime(v, ctx.currentTime, 0.03);
+      this.fx?.gain.setTargetAtTime(this.fxVolume * this.fxVolume, ctx.currentTime, 0.03);
+      this.musicBus?.gain.setTargetAtTime(this.musicVolume * this.musicVolume, ctx.currentTime, 0.03);
+      this.music?.setLevel(this.muted ? 0 : this.volume * this.musicVolume);
     } catch (e) { this.fail(e); }
   }
 
   private build() {
     const ctx = this.ctx!;
+    // effects + music → master → a limiter that keeps a pile-up from clipping
+    const limit = ctx.createDynamicsCompressor();
+    limit.threshold.value = -8; limit.knee.value = 4; limit.ratio.value = 12;
+    limit.attack.value = 0.003; limit.release.value = 0.25;
+    limit.connect(ctx.destination);
+    this.meter = ctx.createAnalyser();
+    this.meter.fftSize = 4096;
+    this.meter.smoothingTimeConstant = 0;
+    limit.connect(this.meter);
     this.master = ctx.createGain();
     this.master.gain.value = this.muted ? 0 : this.volume * this.volume;
-    this.master.connect(ctx.destination);
+    this.master.connect(limit);
+    this.fx = ctx.createGain();
+    this.fx.gain.value = this.fxVolume * this.fxVolume;
+    this.fx.connect(this.master);
+    this.musicBus = ctx.createGain();
+    this.musicBus.gain.value = this.musicVolume * this.musicVolume;
+    this.musicBus.connect(this.master);
     // the radio voice: a 300–3000 Hz band with a little bite
     const hp = ctx.createBiquadFilter();
     hp.type = 'highpass'; hp.frequency.value = 300; hp.Q.value = 0.7;
@@ -159,7 +246,7 @@ class Sfx {
     const curve = new Float32Array(256);
     for (let i = 0; i < 256; i++) { const x = i / 127.5 - 1; curve[i] = Math.tanh(1.6 * x) / Math.tanh(1.6); }
     drive.curve = curve;
-    hp.connect(lp).connect(drive).connect(this.master);
+    hp.connect(lp).connect(drive).connect(this.fx);
     this.radio = hp;
     // one shared second of white noise, and a brown-noise loop for the hum
     const n = ctx.sampleRate;
@@ -170,6 +257,17 @@ class Sfx {
     const b = this.brown.getChannelData(0);
     let acc = 0;
     for (let i = 0; i < b.length; i++) { acc = (acc + 0.02 * (Math.random() * 2 - 1)) / 1.02; b[i] = acc * 3.5; }
+    this.rovers = new RoverVoices(ctx, this.fx, this.noise);
+    // the score fails on its own: sound effects carry on without it
+    try {
+      this.music = new Music(ctx, this.musicBus);
+      this.music.setMood(this.amb.night ? 'night' : 'day');
+      this.music.setLevel(this.muted ? 0 : this.volume * this.musicVolume);
+      this.music.start();
+    } catch (e) {
+      console.warn('[MOONSHOTS] Music unavailable:', e);
+      this.music = null;
+    }
     this.applyAmbience();
   }
 
@@ -218,24 +316,27 @@ class Sfx {
     const radio = this.radio!;
     const start = Math.max(t, this.radioFree);
     if (start - t > 1.5) return;
-    this.tone('sine', QUINDAR_IN, start, QUINDAR_S, 0.07, radio, undefined, 0.006);
+    this.tone('sine', QUINDAR_IN, start, QUINDAR_S, 0.09, radio, undefined, 0.006);
     const b = start + QUINDAR_S + 0.06;
     this.hiss(b, bodyS, 0.018, 'bandpass', 1800, 0.8, radio, undefined, 0.02);
     body(b);
     const out = b + bodyS + 0.04;
-    this.tone('sine', QUINDAR_OUT, out, QUINDAR_S, 0.07, radio, undefined, 0.006);
+    this.tone('sine', QUINDAR_OUT, out, QUINDAR_S, 0.09, radio, undefined, 0.006);
     this.radioFree = out + QUINDAR_S + 0.1;
   }
 
   private voice(cue: Cue, t: number) {
-    const m = this.master!;
+    const m = this.fx!;
     const radio = this.radio!;
     switch (cue) {
       case 'tick':
-        this.tone('sine', 2000, t, 0.015, 0.05, m, undefined, 0.002);
+        this.tone('triangle', 1700, t, 0.03, 0.11, m, 1250, 0.001);
         break;
       case 'place':
-        this.hiss(t, 0.09, 0.22, 'lowpass', 420, 0.8, m);
+        // a click, a crunch of regolith, a body the laptop can carry, and the sub
+        this.tone('square', 2400, t, 0.012, 0.05, m, 1200, 0.001);
+        this.hiss(t, 0.16, 0.34, 'bandpass', 900, 0.9, m, 260);
+        this.tone('triangle', 190, t, 0.22, 0.3, m, 95);
         this.tone('sine', 90, t, 0.2, 0.4, m, 52);
         break;
       case 'invalid':
@@ -243,13 +344,13 @@ class Sfx {
         this.tone('square', 210, t + 0.09, 0.08, 0.035, radio);
         break;
       case 'built':
-        this.tone('sine', 660, t, 0.35, 0.09, m, undefined, 0.01);
-        this.tone('sine', 990, t + 0.12, 0.55, 0.08, m, undefined, 0.01);
-        this.tone('triangle', 1980, t + 0.12, 0.2, 0.015, m);
+        this.tone('sine', 660, t, 0.35, 0.15, m, undefined, 0.01);
+        this.tone('sine', 990, t + 0.12, 0.55, 0.13, m, undefined, 0.01);
+        this.tone('triangle', 1980, t + 0.12, 0.2, 0.025, m);
         break;
       case 'research':
         [523.25, 659.25, 783.99].forEach((f, i) =>
-          this.tone('triangle', f, t + i * 0.1, i === 2 ? 0.6 : 0.28, 0.08, m, undefined, 0.01));
+          this.tone('triangle', f, t + i * 0.1, i === 2 ? 0.6 : 0.28, 0.13, m, undefined, 0.01));
         break;
       case 'warn':
         this.transmit(t, 0.4, (b) => this.tone('sine', 440, b, 0.38, 0.16, radio, undefined, 0.005));
@@ -263,7 +364,8 @@ class Sfx {
         });
         break;
       case 'nightfall':
-        this.hiss(t, 3.0, 0.08, 'bandpass', 1200, 1.4, m, 180, 1.2);
+        this.hiss(t, 3.0, 0.1, 'bandpass', 1200, 1.4, m, 180, 1.2);
+        this.tone('triangle', 220, t, 3.2, 0.06, m, 164, 1.4);
         this.tone('sine', 110, t, 3.2, 0.07, m, 82, 1.4);
         break;
       case 'launch': {
@@ -298,6 +400,8 @@ class Sfx {
       this.hum.gain.gain.setTargetAtTime(level, now, this.ducked ? 0.15 : 0.6);
     }
     if (this.breath) this.breath.gain.gain.setTargetAtTime(this.amb.walking && !this.ducked ? 1 : 0, now, this.ducked ? 0.15 : 0.4);
+    this.music?.setMood(this.amb.night ? 'night' : 'day');
+    this.music?.setWalking(this.amb.walking);
   }
 
   private buildHum() {
@@ -306,7 +410,7 @@ class Sfx {
     gain.gain.value = 0;
     const lp = ctx.createBiquadFilter();
     lp.type = 'lowpass'; lp.frequency.value = 420; lp.Q.value = 0.5;
-    lp.connect(gain).connect(this.master!);
+    lp.connect(gain).connect(this.fx!);
     const osc = (type: OscillatorType, f: number, level: number) => {
       const o = ctx.createOscillator();
       o.type = type; o.frequency.value = f;
@@ -316,14 +420,16 @@ class Sfx {
       o.start();
       return o;
     };
-    const base = osc('sine', HUM_HZ, 1);
-    const beat = osc('sine', HUM_HZ * 2 + 0.3, 0.45);
-    const third = osc('triangle', HUM_HZ * 3, 0.12);
+    // 55 Hz is felt more than heard: the upper partials carry the hum (and
+    // its sag) on laptop speakers
+    const base = osc('sine', HUM_HZ, 0.45);
+    const beat = osc('sine', HUM_HZ * 2 + 0.3, 0.5);
+    const third = osc('triangle', HUM_HZ * 3, 0.35);
     const room = ctx.createBufferSource();
     room.buffer = this.brown;
     room.loop = true;
     const rg = ctx.createGain();
-    rg.gain.value = 0.5;
+    rg.gain.value = 0.3;
     room.connect(rg).connect(lp);
     room.start();
     return { gain, oscs: [base, beat, third], beat };
@@ -350,7 +456,7 @@ class Sfx {
     sweep.gain.value = 240;
     lfo.connect(depth).connect(amp.gain);
     lfo.connect(sweep).connect(bp.frequency);
-    src.connect(bp).connect(amp).connect(gain).connect(this.master!);
+    src.connect(bp).connect(amp).connect(gain).connect(this.fx!);
     src.start();
     lfo.start();
     return { gain };

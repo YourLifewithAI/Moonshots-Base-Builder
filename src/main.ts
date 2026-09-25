@@ -20,6 +20,8 @@ const canvas = document.getElementById('world') as HTMLCanvasElement;
 // the menu's choices apply before the first frame is drawn
 const settings = loadSettings();
 sfx.setVolume(settings.volume);
+sfx.setMusicVolume(settings.music);
+sfx.setEffectsVolume(settings.effects);
 sfx.setMuted(settings.muted);
 installAudio();
 

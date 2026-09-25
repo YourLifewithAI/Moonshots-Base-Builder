@@ -183,6 +183,8 @@ const STUBS: Record<string, string> = {
 
 for (const [name, stub] of Object.entries(STUBS)) {
   test(`audio: WebAudio ${name} — every sound call is a silent no-op`, async ({ page }) => {
+    // 80 rendered frames plus a night fast-forward: minutes of software GL on a busy machine
+    test.setTimeout(240_000);
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     await page.addInitScript(stub);
@@ -191,6 +193,8 @@ for (const [name, stub] of Object.entries(STUBS)) {
     await page.locator('#palette .cats .btn', { hasText: 'Science' }).click();
     await page.keyboard.press('Escape');
     await page.locator('#menu-vol').fill('30');
+    await page.locator('#menu-music').fill('20');
+    await page.locator('#menu-effects').fill('50');
     await page.locator('#menu [data-act="mute"]').click();
     await page.locator('#menu [data-act="mute"]').click();
     await page.locator('#menu [data-act="resume"]').click();
@@ -242,6 +246,62 @@ test('audio: cues follow the state; the hum sags as the bank runs dry', async ({
   // walking the surface, the suit breathes
   await g(page, 'setMode', 'walk');
   await expect.poll(async () => (await g(page, 'getAudio')).breathing).toBe(true);
+});
+
+test('audio: the score plays after the first gesture, answers its own slider, and darkens at night', async ({ page }) => {
+  await boot(page);
+  await page.locator('#palette .cats .btn', { hasText: 'Power' }).click(); // the gesture that unlocks audio
+  await expect.poll(async () => (await g(page, 'getAudio')).music?.playing ?? false).toBe(true);
+  // a chord swells in: real signal at the output, clear of clipping, and most
+  // of it in the band small speakers can play
+  await expect.poll(async () => (await g(page, 'getAudio')).output?.rmsDb ?? -Infinity, { timeout: 30_000 })
+    .toBeGreaterThan(-55);
+  const out = (await g(page, 'getAudio')).output;
+  expect(out.peakDb).toBeLessThan(-1);
+  expect((await g(page, 'getAudio')).music.chords).toBeGreaterThanOrEqual(1);
+
+  // the Music slider is its own volume, and it is kept
+  await page.keyboard.press('Escape');
+  await page.locator('#menu-music').fill('0');
+  await page.locator('#menu-effects').fill('40');
+  let a = await g(page, 'getAudio');
+  expect(a.musicVolume).toBe(0);
+  expect(a.effectsVolume).toBeCloseTo(0.4, 5);
+  expect(a.volume).toBeCloseTo(0.7, 5);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('mbb-settings') ?? '{}'));
+  expect(saved.music).toBe(0);
+  expect(saved.effects).toBeCloseTo(0.4, 5);
+  await page.locator('#menu-music').fill('70');
+  await page.locator('#menu [data-act="resume"]').click();
+
+  // nightfall turns the score toward its night chords
+  expect((await g(page, 'getAudio')).music.mood).toBe('day');
+  await g(page, 'advanceGameSeconds', 500 - (await g(page, 'getState')).simTime);
+  await expect.poll(async () => (await g(page, 'getAudio')).music.mood).toBe('night');
+  a = await g(page, 'getAudio');
+  expect(a.music.playing).toBe(true);
+});
+
+test('audio: rovers are heard as they drive out, and fall quiet when the game pauses', async ({ page }) => {
+  await boot(page);
+  await page.locator('#palette .cats .btn', { hasText: 'Power' }).click();
+  await expect.poll(async () => (await g(page, 'getAudio')).state).toBe('running');
+  // a site beside the Lander: a rover sets off (a servo chirp) and its motor runs
+  expect(await g(page, 'placeBuilding', 'solar', 132, 126)).toBe(true);
+  await expect.poll(async () => {
+    const r = (await g(page, 'getAudio')).rovers;
+    return (r?.voices ?? []).some((v: any) => v.speed > 0.1 && v.gain > 0);
+  }).toBe(true);
+  await expect.poll(async () => (await g(page, 'getAudio')).rovers.chirps).toBeGreaterThan(0);
+  const voices = (await g(page, 'getAudio')).rovers.voices;
+  expect(voices.length).toBeLessThanOrEqual(3);
+  for (const v of voices) {
+    expect(v.gain).toBeGreaterThan(0);
+    expect(v.gain).toBeLessThanOrEqual(1);
+  }
+  // paused: the fleet stands still, and every motor stops
+  await g(page, 'setPaused', true);
+  await expect.poll(async () => (await g(page, 'getAudio')).rovers.voices.every((v: any) => v.speed === 0)).toBe(true);
 });
 
 /** screen point of a 2×2 pad whose low corner is cell (gx, gz) */

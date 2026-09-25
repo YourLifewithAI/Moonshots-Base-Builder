@@ -22,6 +22,7 @@ import {
 } from '../buildings/meshKit';
 import { materials } from './materials';
 import type { DustEmitter } from './dust';
+import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
 
 const MAX_ROVERS = 64;
 const SCALE = 1.25;
@@ -181,6 +182,10 @@ export class RoverFleet {
   private e = new THREE.Euler(0, 0, 0, 'YXZ');
   private p = new THREE.Vector3();
   private s = new THREE.Vector3(1, 1, 1);
+  private right = new THREE.Vector3();
+  /** the last update was paused: the fleet stands still, and is heard so */
+  private frozen = false;
+  private soundList: RoverSound[] = [];
 
   constructor(private hf: Heightfield) {
     this.mesh = new THREE.InstancedMesh(withInstanceState(roverGeometry(), MAX_ROVERS),
@@ -205,6 +210,7 @@ export class RoverFleet {
   /** Per frame: `dt` game seconds (0 while paused). */
   update(dt: number, state: GameState, sunDir: THREE.Vector3, sunLight: number) {
     this.clock += dt;
+    this.frozen = dt <= 0;
     this.syncRects(state);
     this.syncFleet(state);
     this.assignSites(state);
@@ -411,6 +417,27 @@ export class RoverFleet {
           vx: fx * 0.4, vy: 0.5, vz: fz * 0.4, hSpread: 0.9, vSpread: 1.2, size: 0.05 } });
       }
     }
+  }
+
+  /** The rovers nearest the camera, for the audio layer: distance, bearing
+   *  as a stereo pan, speed as a fraction of cruise, and whether printing. */
+  sounds(cam: THREE.Camera): RoverSound[] {
+    const out = this.soundList;
+    out.length = 0;
+    if (!this.rovers.length) return out;
+    const p = cam.position;
+    this.right.setFromMatrixColumn(cam.matrixWorld, 0);
+    for (let i = 0; i < this.rovers.length; i++) {
+      const r = this.rovers[i];
+      const dx = r.x - p.x, dy = this.hf.sample(r.x, r.z) + 0.6 - p.y, dz = r.z - p.z;
+      const d = Math.hypot(dx, dy, dz);
+      const pan = (dx * this.right.x + dy * this.right.y + dz * this.right.z) / Math.max(d, 1);
+      const moving = this.frozen ? 0 : clamp(r.v / SPEED, 0, 1);
+      out.push({ id: i, d, pan: clamp(pan * 0.9, -1, 1), speed: moving, working: !this.frozen && r.working && r.v < 0.1 });
+    }
+    out.sort((a, b) => a.d - b.d);
+    if (out.length > MAX_ROVER_VOICES) out.length = MAX_ROVER_VOICES;
+    return out;
   }
 
   info() {

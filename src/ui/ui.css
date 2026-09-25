@@ -370,7 +370,10 @@
 #menu .menu-confirm { display: flex; flex-direction: column; gap: 6px; }
 #menu .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #menu input[type=range] { flex: 1; accent-color: var(--paper); }
-#menu #menu-vol-val { min-width: 4ch; text-align: right; }
+#menu #menu-vol-val, #menu #menu-music-val, #menu #menu-effects-val { min-width: 4ch; text-align: right; }
+#menu .menu-vol-k { width: 7ch; color: rgba(var(--paper-rgb), var(--op-secondary)); font-size: 11px; }
+/* the Music and Effects rows line up under Master's slider, clear of Mute */
+#menu .menu-row:has(#menu-music), #menu .menu-row:has(#menu-effects) { padding-right: 74px; }
 #menu .keys { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; }
 #menu .keys kbd { font-family: var(--font-mono); font-size: 11px; color: var(--paper); white-space: nowrap; }
 #menu .keys span { color: rgba(var(--paper-rgb), var(--op-secondary)); }

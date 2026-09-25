@@ -81,9 +81,20 @@ export function mountMenu(root: HTMLElement, game: Game) {
           <section>
             <span class="label">Audio</span>
             <div class="menu-row">
-              <input type="range" id="menu-vol" min="0" max="100" step="5" aria-label="Volume">
+              <span class="menu-vol-k">Master</span>
+              <input type="range" id="menu-vol" min="0" max="100" step="5" aria-label="Master volume">
               <span class="mono" id="menu-vol-val"></span>
               <button class="btn" data-act="mute" id="menu-mute" aria-pressed="false">Mute</button>
+            </div>
+            <div class="menu-row">
+              <span class="menu-vol-k">Music</span>
+              <input type="range" id="menu-music" min="0" max="100" step="5" aria-label="Music volume">
+              <span class="mono" id="menu-music-val"></span>
+            </div>
+            <div class="menu-row">
+              <span class="menu-vol-k">Effects</span>
+              <input type="range" id="menu-effects" min="0" max="100" step="5" aria-label="Effects volume">
+              <span class="mono" id="menu-effects-val"></span>
             </div>
           </section>
         </div>
@@ -105,6 +116,10 @@ export function mountMenu(root: HTMLElement, game: Game) {
   const vol = $<HTMLInputElement>('#menu-vol');
   const volVal = $('#menu-vol-val');
   const muteBtn = $<HTMLButtonElement>('#menu-mute');
+  const musicVol = $<HTMLInputElement>('#menu-music');
+  const musicVal = $('#menu-music-val');
+  const fxVol = $<HTMLInputElement>('#menu-effects');
+  const fxVal = $('#menu-effects-val');
 
   /** a raise to a level that failed a render check waits for a second click */
   let confirmFx: number | null = null;
@@ -149,6 +164,11 @@ export function mountMenu(root: HTMLElement, game: Game) {
     const pct = Math.round(s.volume * 100);
     if (vol.value !== String(pct)) vol.value = String(pct);
     volVal.textContent = `${pct}%`;
+    for (const [input, out, v] of [[musicVol, musicVal, s.music], [fxVol, fxVal, s.effects]] as const) {
+      const p = Math.round(v * 100);
+      if (input.value !== String(p)) input.value = String(p);
+      out.textContent = `${p}%`;
+    }
     muteBtn.textContent = s.muted ? 'Unmute' : 'Mute';
     muteBtn.classList.toggle('active', s.muted);
     muteBtn.setAttribute('aria-pressed', String(s.muted));
@@ -249,6 +269,19 @@ export function mountMenu(root: HTMLElement, game: Game) {
     renderAudio();
   });
   vol.addEventListener('change', () => sfx.play('tick'));
+  musicVol.addEventListener('input', () => {
+    const music = Number(musicVol.value) / 100;
+    saveSettings({ music });
+    sfx.setMusicVolume(music);
+    renderAudio();
+  });
+  fxVol.addEventListener('input', () => {
+    const effects = Number(fxVol.value) / 100;
+    saveSettings({ effects });
+    sfx.setEffectsVolume(effects);
+    renderAudio();
+  });
+  fxVol.addEventListener('change', () => sfx.play('tick'));
 
   // capture, registered before the other screens: while open, the menu owns
   // the keyboard (Esc closes it; nothing reaches the camera, the tree or the
