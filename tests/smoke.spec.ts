@@ -460,7 +460,8 @@ test('honest research path: lab is buildable from start and carries the tech tre
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   await page.evaluate(() => window.__game.research('regolithProcessing'));
-  await page.evaluate(() => window.__game.advanceGameMinutes(4));
+  // the lab is built first, then 48≡ (30 × the era-1 cost scale) flows in
+  await page.evaluate(() => window.__game.advanceGameMinutes(7));
   const s = await page.evaluate(() => window.__game.getState());
   expect(s.techsDone).toContain('regolithProcessing');
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 119, 131))).toBe(true);
