@@ -70,7 +70,9 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
 
   const before = await page.evaluate(() => window.__game.getState());
-  await page.evaluate(() => window.__game.advanceGameMinutes(2));
+  // the excavator stands at ~80 s; its first bucket lands at the Lander a
+  // haul cycle later (regolith is credited on unload)
+  await page.evaluate(() => window.__game.advanceGameMinutes(3));
   const after = await page.evaluate(() => window.__game.getState());
   expect(after.resources.regolith).toBeGreaterThan(before.resources.regolith);
   expect(after.power.supply).toBeGreaterThan(0);
@@ -86,7 +88,7 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // night on Mare with no batteries: industry idles by priority — the lander's
   // trickle keeps the small excavator alive; the hungry smelter goes dark.
   // Only priority-2 industry is idled, so this is load shedding, not a brownout
-  // t≈575s: the bank is spent, and the regolith yard not yet full (a full
+  // t≈630s: the bank is spent, and the regolith yard not yet full (a full
   // yard stands the excavator by, and the smelter then runs on its share)
   await page.evaluate(() => window.__game.advanceGameMinutes(3));
   const night = await page.evaluate(() => window.__game.getState());
@@ -238,21 +240,21 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await expect(page.locator('.era-head')).toHaveCount(8);
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
-  // era 1 tech is clickable; era 2 techs locked until 2 era-1 techs done
+  // era 1 tech is clickable; era 2 techs locked until 4 era-1 techs are done
   const smelting = page.locator('.tech-card[data-tech="regolithProcessing"]');
   await expect(smelting).toHaveClass(/available/);
   await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/locked/);
   await smelting.click();
-  await page.evaluate(() => window.__game.grantData(50));
+  await page.evaluate(() => window.__game.grantData(80));
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
   const mid = await page.evaluate(() => window.__game.getState());
   expect(mid.techsDone).not.toContain('regolithProcessing'); // no longer instant
-  await page.evaluate(() => window.__game.advanceGameSeconds(90)); // 30 data at 0.4/s
+  await page.evaluate(() => window.__game.advanceGameSeconds(130)); // 48 data at 0.4/s
   const s1 = await page.evaluate(() => window.__game.getState());
   expect(s1.techsDone).toContain('regolithProcessing');
 
   // (Ice Extraction is pole-only now; a hidden tech never counts for a charter)
-  await page.evaluate(() => window.__game.completeTech('teleoperation'));
+  await page.evaluate(() => { for (const t of ['teleoperation', 'grizzlyScreens', 'fieldSpectrometers']) window.__game.completeTech(t); });
   const s2 = await page.evaluate(() => window.__game.getState());
   expect(s2.era).toBe(2);
   await expect(page.locator('.tech-card[data-tech="batteryStorage"]')).toHaveClass(/available/);
@@ -265,7 +267,7 @@ test('research progress is banked across queue changes', async ({ page }) => {
   await page.evaluate(() => window.__game.advanceGameSeconds(80)); // lab built at 72s
   await page.evaluate(() => window.__game.grantData(100));
   await page.evaluate(() => window.__game.research('regolithProcessing'));
-  await page.evaluate(() => window.__game.advanceGameSeconds(30)); // ~12 of 30 data in
+  await page.evaluate(() => window.__game.advanceGameSeconds(30)); // ~12 of 48 data in
   const mid = await page.evaluate(() => window.__game.getState());
   expect(mid.researchSpent.regolithProcessing).toBeGreaterThan(5);
   expect(mid.techsDone).not.toContain('regolithProcessing');
@@ -277,7 +279,7 @@ test('research progress is banked across queue changes', async ({ page }) => {
   expect(cancelled.researchSpent.regolithProcessing).toBeGreaterThan(5);
   // re-queue: it resumes from the bank and finishes early
   await page.evaluate(() => window.__game.research('regolithProcessing'));
-  await page.evaluate(() => window.__game.advanceGameSeconds(60)); // 18 left at 0.4/s = 45s
+  await page.evaluate(() => window.__game.advanceGameSeconds(100)); // 36 left at 0.4/s = 90s
   const done = await page.evaluate(() => window.__game.getState());
   expect(done.techsDone).toContain('regolithProcessing');
 });
@@ -460,7 +462,8 @@ test('honest research path: lab is buildable from start and carries the tech tre
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   await page.evaluate(() => window.__game.research('regolithProcessing'));
-  await page.evaluate(() => window.__game.advanceGameMinutes(4));
+  // the lab is built first, then 48≡ (30 × the era-1 cost scale) flows in
+  await page.evaluate(() => window.__game.advanceGameMinutes(7));
   const s = await page.evaluate(() => window.__game.getState());
   expect(s.techsDone).toContain('regolithProcessing');
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 119, 131))).toBe(true);
@@ -600,7 +603,9 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
       ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
       ['partsFab', 138, 128],
     ];
-    const research = ['regolithProcessing', 'teleoperation', 'siliconRefining', 'partsFabrication'];
+    // an era opens with four techs of the one before
+    const research = ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',
+      'partsFabrication', 'siliconRefining'];
     let dryWithoutRemedy = 0;
     let wentDry = false;
     let partsStranded = false;
@@ -715,15 +720,20 @@ test('net rates are the economy\'s smoothed flow; housing counts only powered be
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
   const flow = await page.evaluate(() => {
     const g = window.__game!;
-    g.advanceGameSeconds(110); // excavator digging since 48s; the average has settled
-    const s1 = g.getState();
-    g.advanceGameSeconds(30);
-    const s2 = g.getState();
+    // regolith lands a bucket at a time (credited on unload): measure one
+    // whole haul cycle, unload to unload, against the smoothed rate
+    const nextLoad = () => {
+      const r0 = g.getState().resources.regolith;
+      for (let i = 0; i < 200 && g.getState().resources.regolith <= r0 + 1; i++) g.advanceGameSeconds(1);
+      return g.getState();
+    };
+    const s1 = nextLoad(); // the first bucket, ~70 s after the excavator stands at 48 s
+    const s2 = nextLoad();
     g.advanceGameSeconds(20); // however far a probe skips, the rate stays per game-second
     const s3 = g.getState();
     return {
       r2: s2.rates.regolith, r3: s3.rates.regolith, regolith: s3.resources.regolith,
-      measured: (s2.resources.regolith - s1.resources.regolith) / 30,
+      measured: (s2.resources.regolith - s1.resources.regolith) / (s2.simTime - s1.simTime),
     };
   });
   expect(flow.regolith).toBeLessThan(290); // below the yard cap: nothing spilled
@@ -1489,13 +1499,14 @@ test('endgame: mass driver, foils, LAUNCH, victory overlay, save/reload', async 
   await game(page);
 
   // fast-forward the eight-era tree to swarm protocol
-  for (const t of ['regolithProcessing', 'teleoperation', 'prospectingRovers',
+  // (four techs per era open the next; Swarm Protocol waits for a launch-cadence step)
+  for (const t of ['regolithProcessing', 'teleoperation', 'prospectingRovers', 'grizzlyScreens',
     'siliconRefining', 'partsFabrication', 'batteryStorage', 'constructionRobotics', 'regolithShielding',
-    'thoriumPower', 'swarmRobotics',
-    'waferFab', 'orbitalProspector', 'acceleratorDesign',
-    'lunarDataCenter', 'dynamicClocking',
-    'closedLoopLS', 'scienceCrews',
-    'foilManufacturing', 'massDriver', 'swarmProtocol']) {
+    'thoriumPower', 'swarmRobotics', 'stackedCells', 'slagRecycling',
+    'waferFab', 'orbitalProspector', 'acceleratorDesign', 'waferPolishing',
+    'lunarDataCenter', 'dynamicClocking', 'cryoRadiators', 'wingExtensions',
+    'closedLoopLS', 'scienceCrews', 'refractoryLinings', 'uplinkDishes',
+    'foilManufacturing', 'massDriver', 'rollToRoll', 'liquidCooling', 'railCapacitors', 'swarmProtocol']) {
     await page.evaluate((tech) => window.__game.completeTech(tech), t);
   }
   const st = await page.evaluate(() => window.__game.getState());

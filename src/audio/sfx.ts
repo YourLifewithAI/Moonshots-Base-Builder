@@ -14,14 +14,14 @@
  *  the game. The sim stays silent; game.ts diffs state and calls play(). */
 
 export type Cue =
-  | 'tick' | 'place' | 'invalid' | 'built' | 'research' | 'warn' | 'crit' | 'nightfall' | 'launch';
+  | 'tick' | 'place' | 'invalid' | 'built' | 'research' | 'warn' | 'crit' | 'nightfall' | 'launch' | 'era';
 
-export const CUES: readonly Cue[] = ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch'];
+export const CUES: readonly Cue[] = ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'era'];
 
 /** real-time floor between two plays of one cue, so 10× speed never spams */
 const MIN_GAP_MS: Record<Cue, number> = {
   tick: 45, place: 70, invalid: 160, built: 1200, research: 1500,
-  warn: 3500, crit: 5000, nightfall: 20_000, launch: 2000,
+  warn: 3500, crit: 5000, nightfall: 20_000, launch: 2000, era: 4000,
 };
 
 const QUINDAR_IN = 2525;
@@ -368,6 +368,14 @@ class Sfx {
         this.tone('triangle', 220, t, 3.2, 0.06, m, 164, 1.4);
         this.tone('sine', 110, t, 3.2, 0.07, m, 82, 1.4);
         break;
+      case 'era': {
+        // a slow rising fanfare: a D major arpeggio over its fifth, then a bell
+        [293.66, 369.99, 440, 587.33].forEach((f, i) =>
+          this.tone('triangle', f, t + i * 0.16, 1.6 - i * 0.2, 0.1, m, undefined, 0.05));
+        this.tone('sine', 146.83, t, 2.2, 0.08, m, undefined, 0.4);
+        this.tone('sine', 1174.66, t + 0.7, 1.4, 0.04, m, undefined, 0.005);
+        break;
+      }
       case 'launch': {
         const ctx = this.ctx!;
         const lp = ctx.createBiquadFilter();

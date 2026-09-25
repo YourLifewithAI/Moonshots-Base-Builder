@@ -8,7 +8,7 @@ import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
-  $alerts, $caps, $depositMarkers, $depositOverlay, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
+  $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
   $milestones, $mode, $phase,
   $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
@@ -153,7 +153,7 @@ export function mountHud(root: HTMLElement, game: Game) {
     // appended to the chip: the strip never reflows when a survey starts
     put('bots', `${v.botsFree}`, `/${v.botsTotal}`,
       v.botsFree === 0 && v.botsTotal > 0,
-      `Construction robots free / fleet${v.surveying ? ` — ${v.surveying} more lent to a survey` : ''} — click for details`);
+      `Construction rovers free / fleet${v.surveying ? ` — ${v.surveying} more lent to a survey` : ''} — click for details`);
     put('morale', `${v.morale}%`, '', v.morale < 40, 'Morale — click for details');
     put('data', fmt(v.data), '', false, 'Research data — click for details');
     put('deposits', 'DEPOSITS [I]', '', $depositOverlay.get(),
@@ -463,10 +463,15 @@ export function mountHud(root: HTMLElement, game: Game) {
       live.add(m.id);
       let d = depEls.get(m.id);
       if (!d) {
-        d = el('div', 'deposit-mark', '<span class="g"></span><span class="t"></span>');
+        // a button: what this ground is, and what to do with it (depositCard.ts)
+        d = el('div', 'deposit-mark interactive', '<span class="g"></span><span class="t"></span>');
+        d.dataset.dep = m.id;
+        d.setAttribute('role', 'button');
+        d.title = 'What is this? Click for its effects';
         depEls.set(m.id, d);
         depLayer.appendChild(d);
       }
+      d.classList.toggle('sel', $depositSel.get() === m.id);
       d.classList.toggle('lead', m.lead);
       d.style.left = `${m.x}px`;
       d.style.top = `${m.y}px`;
@@ -475,6 +480,16 @@ export function mountHud(root: HTMLElement, game: Game) {
       if (t.textContent !== m.label) t.textContent = m.label;
     }
     for (const [id, d] of depEls) if (!live.has(id)) { d.remove(); depEls.delete(id); }
+  });
+  depLayer.addEventListener('click', (e) => {
+    const m = (e.target as HTMLElement).closest<HTMLElement>('.deposit-mark[data-dep]');
+    if (!m) return;
+    e.stopPropagation();
+    const id = m.dataset.dep!;
+    $depositSel.set($depositSel.get() === id ? null : id);
+  });
+  $depositSel.subscribe((id) => {
+    for (const [k, d] of depEls) d.classList.toggle('sel', k === id);
   });
 
   // ── floaters ──

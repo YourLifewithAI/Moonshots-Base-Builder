@@ -12,6 +12,7 @@ import {
 } from '../data/lunarMap';
 import { SITES, type SiteId } from '../data/sites';
 import { DEPOSIT_INFO } from '../data/deposits';
+import { depositCardHtml, runCardAction } from './depositCard';
 import { BUILDINGS } from '../data/buildings';
 import { ATLAS, MAP_M, SURVEY_TIERS } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
@@ -424,6 +425,11 @@ function siteBase(v: LunarView, deps: DepositView[], siteId: SiteId, uid: string
     out += `<circle class="${cls}" cx="${d.x}" cy="${d.z}" r="${d.r}"${dash}/>`;
     if (pat === 'double') out += `<circle class="${cls}" cx="${d.x}" cy="${d.z}" r="${Math.max(1, d.r - 3.5 * mpp)}"/>`;
   }
+  // click anywhere in a ring (or on a lead) for what the ground is
+  for (const d of deps) {
+    if (d.revealed) out += `<circle class="dep-hit" data-dep="${d.id}" cx="${d.x}" cy="${d.z}" r="${d.r}"/>`;
+    else if (d.lead) out += `<circle class="dep-hit" data-dep="${d.id}" cx="${d.lead.x}" cy="${d.lead.z}" r="${Math.max(8, 9 * mpp)}"/>`;
+  }
   for (const b of s.buildings) {
     const w = Math.max(b.w, 2 * mpp), dd = Math.max(b.d, 2 * mpp);
     const cls = `bld${b.type === 'lander' ? ' lander' : ''}${b.complete ? '' : ' wip'}`;
@@ -517,6 +523,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   let v: LunarView | null = null;
   let siteId: SiteId | null = null;
   let selected: ProspectId | null = null;
+  /** a deposit's card in the side panel (SITE view), instead of a prospect */
+  let depSel: string | null = null;
   let active: Layer | null = null;
   let fading: Layer | null = null;
   let fadeT0 = 0;
@@ -1079,6 +1087,15 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   }
 
   function renderPanel(lv: LunarView) {
+    if (depSel) {
+      const d = $deposits.get().find((x) => x.id === depSel);
+      if (d) {
+        const html = `<div class="map-dep"><button class="btn ps-back" data-act="back">◂ Back</button>${depositCardHtml(d, game, 'map')}</div>`;
+        if (`d|${html}` !== panelSig) { panelSig = `d|${html}`; panel.innerHTML = html; panel.scrollTop = 0; }
+        return;
+      }
+      depSel = null;
+    }
     let p = find(selected);
     if (selected && (!p || !p.visible)) { selected = null; p = null; }
     const sig = p
@@ -1096,6 +1113,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
 
   function select(id: ProspectId | null) {
     selected = id;
+    depSel = null;
     if (!v) return;
     renderPanel(v);
     for (const L of [active, fading]) {
@@ -1107,6 +1125,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
 
   panel.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
+    const dbtn = t.closest<HTMLElement>('[data-dact]');
+    if (dbtn && depSel) { runCardAction(dbtn, depSel, game, () => toggle(false)); return; }
     const btn = t.closest<HTMLButtonElement>('button[data-act]');
     const id = (btn?.dataset.id ?? selected) as ProspectId | null;
     switch (btn?.dataset.act) {
@@ -1137,6 +1157,13 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const t = e.target as Element;
     const pm = t.closest<SVGGElement>('.pm');
     if (pm) { select(pm.dataset.id as ProspectId); return; }
+    const dm = t.closest('[data-dep]');
+    if (dm && !t.closest('#map-inset')) {
+      select(null);
+      depSel = dm.getAttribute('data-dep');
+      if (v) renderPanel(v);
+      return;
+    }
     if (t.closest('#map-inset')) { game.setMapView('site'); return; }
     if (!t.closest('#map-thumb, #map-legend, .home') && selected) select(null);
   });

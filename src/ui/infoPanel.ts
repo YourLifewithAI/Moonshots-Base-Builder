@@ -4,7 +4,7 @@
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, CREW, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS,
+  CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, CREW, FLEET, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS,
   LAUNCH_POWER_BURST, MORALE, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB, RESUPPLY,
 } from '../data/balance';
 import { SITES } from '../data/sites';
@@ -62,14 +62,14 @@ function feedSection(): string {
   const g = $feed.get();
   const dug = FEED_KINDS.filter((k) => g[k] > 0.005);
   if (!dug.length) {
-    return '<section><span class="label">Feed (last dug)</span><div class="goal-hint">Nothing dug yet. Excavators dig the ground they sit on: the deposit under each one sets the smelter and refinery feed.</div></section>';
+    return '<section><span class="label">Feed (recent loads)</span><div class="goal-hint">Nothing delivered yet. Excavators haul what they dig to the nearest smelter or refinery: the ground each one digs sets the feed.</div></section>';
   }
   const segs = dug.map((k, i) =>
     `<i class="feed-seg${i % 2 ? ' alt' : ''}" style="width:${(g[k] * 100).toFixed(1)}%" title="${FEED_LABEL[k]}"></i>`).join('');
   const legend = dug.map((k) => `${Math.round(g[k] * 100)}% ${FEED_LABEL[k]}`).join(' · ');
-  return `<section><span class="label">Feed (last dug)</span>
+  return `<section><span class="label">Feed (recent loads)</span>
     <div class="feed-bar">${segs}</div><div class="goal-hint mono">${legend}</div>
-    <div class="goal-hint">Excavators dig the ground they sit on. High-Ti basalt lifts the H₂ smelter, highland anorthosite the refinery; the overlay [I] shows the deposits.</div></section>`;
+    <div class="goal-hint">The mix of the last few loads the excavators delivered, by amount. High-Ti basalt lifts the H₂ smelter, highland anorthosite the refinery; select an excavator and Dig at… a deposit (the overlay [I] shows them) — far ground delivers less per minute.</div></section>`;
 }
 
 /** signed per-minute rate: '+4.2', '−0.8', '0' */
@@ -82,7 +82,7 @@ const NOTES: Partial<Record<string, string>> = {
   oxygen: 'Smelters exhale oxygen while smelting regolith — industry keeps the crew breathing. Crew consume it constantly; Closed-Loop Life Support cuts that 40%.',
   food: 'Hydroponics grow food from water and power. Crew eat around the clock; low reserves make everyone anxious.',
   water: 'Ice Harvesters mine polar deposits (survey first); smelting regolith recovers a trickle everywhere. The crew drinks first: farms stand idle rather than take the last five minutes of the crew’s water.',
-  regolith: 'Excavators dig it; nearly every industry eats it. Stockpile capacity comes from the Lander and Storage Yards.',
+  regolith: 'Excavators dig it and haul it to the nearest smelter or refinery (the Lander when there is none); it counts once unloaded. Nearly every industry eats it. Stockpile capacity comes from the Lander and Storage Yards.',
   metals: 'Smelted from regolith. If you run dry with no smelter, Earth sends an emergency shipment — a full day away.',
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
   parts: `Made by Parts Fabricators. EVERY building burns parts as upkeep — run dry and machines wear, losing up to half their output (the Lander never wears). Paid upkeep repairs them again. No fabricator yet? Order an Earth shipment at the Lander (+${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts; the first is a lunar day out, each later order a day longer) — Earth sends one on its own when the cache drops below ${RESUPPLY.partsFloor}.`,
@@ -141,16 +141,17 @@ function panelHtml(key: string, mods: Mods): string | null {
       <section><span class="label">Generation</span>${gen}
         <div class="goal-hint">Solar dies at night; batteries store the day (${Math.round((1 - mods.storageEff) * 100)}% round-trip loss); reactors don't care.</div></section>
       <section><span class="label">Draws</span>${draws}
-        <div class="goal-hint">Construction sites pull ${siteKW} kW each while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
+        <div class="goal-hint">Construction sites pull ${siteKW} kW per working rover while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
   }
   if (key === 'bots') {
     return `
-      <section><div class="tt-name"><span>◉ Construction robots</span><span class="mono">${v.botsFree}/${v.botsTotal} free</span></div></section>
+      <section><div class="tt-name"><span>◉ Construction rovers</span><span class="mono">${v.botsFree}/${v.botsTotal} free</span></div></section>
       <section><span class="label">Fleet sources</span>
-        ${buildingLine('lander', 0, '+').replace('+0/min', `+${BUILDINGS.lander.bots ?? 0} robots`)}
-        ${buildingLine('roboticsBay', 0, '+').replace('+0/min', `+${(BUILDINGS.roboticsBay.bots ?? 0) + mods.botPerBay} robots`)}
-        ${v.surveying ? `<div class="goal-hint">${v.surveying} more robot${v.surveying === 1 ? ' is' : 's are'} out on a survey — back when it ends.</div>` : ''}
-        <div class="goal-hint">Each site under construction occupies one robot and draws ${siteKW} kW. More robots = more parallel construction.</div></section>`;
+        ${buildingLine('lander', 0, '+').replace('+0/min', `+${BUILDINGS.lander.bots ?? 0} rovers`)}
+        ${buildingLine('roboticsBay', 0, '+').replace('+0/min', `+${(BUILDINGS.roboticsBay.bots ?? 0) + mods.botPerBay} rovers`)}
+        ${v.surveying ? `<div class="goal-hint">${v.surveying} more rover${v.surveying === 1 ? ' is' : 's are'} out on a survey — back when it ends.</div>` : ''}
+        <div class="goal-hint">Rovers take the construction queue one site each; each working rover draws ${siteKW} kW. More rovers = more parallel construction.</div>
+        <div class="goal-hint">To speed one build, select a rover and Send it there, or select the site and Summon one: rovers on one site build ×n^${FLEET.rateExp} (2 → ×${(2 ** FLEET.rateExp).toFixed(2)}), each drawing its own ${siteKW} kW, on the same weld parts.</div></section>`;
   }
   if (key === 'morale') {
     return `
@@ -218,7 +219,7 @@ function panelHtml(key: string, mods: Mods): string | null {
     crewDraw > 0 ? row(`Crew ×${v.crew}`, `−${fmt(crewDraw * 60)}/min`) : '',
     rid === 'parts' ? row('Upkeep · every structure', `−${fmt(v.upkeep * 60)}/min`) : '',
     rid === 'parts' && v.welding > 0
-      ? row(`Welding · ${v.welding} site${v.welding === 1 ? '' : 's'}`, `−${fmt(v.welding * CONSTRUCTION_PARTS_PER_S * 60)}/min`) : '',
+      ? row(`Welding · ${v.welding} site${v.welding === 1 ? '' : 's'}`, `−${fmt((v.weldParts || v.welding * CONSTRUCTION_PARTS_PER_S) * 60)}/min`) : '',
     rid === 'metals' || rid === 'parts'
       ? row('Construction', `paid at placement${v.sites ? ` · ${v.sites} site${v.sites === 1 ? '' : 's'} underway` : ''}`) : '',
   ].join('');

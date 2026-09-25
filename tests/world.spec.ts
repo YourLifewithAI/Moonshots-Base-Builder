@@ -1,6 +1,7 @@
 /** World-dressing and build-camera tests: the sky's exposure and Earth phase,
  *  rocks cleared by pads and grading (and still cleared after a reload),
- *  the camera held above the ground, and the build-mode keys. */
+ *  the camera held above the ground, and the build-mode keys (the High
+ *  detail free camera; the classic isometric one is in classic.spec.ts). */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -9,8 +10,8 @@ declare global {
 
 const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 
-async function boot(page: Page, site: string) {
-  await page.goto(`${URL_DEBUG}&site=${site}`);
+async function boot(page: Page, site: string, extra = '') {
+  await page.goto(`${URL_DEBUG}&site=${site}${extra}`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => window.__game.setPaused(true));
 }
@@ -116,7 +117,7 @@ test('rocks: pads and grading clear the ground, and a reload replays it', async 
 });
 
 test('build camera: stays above the ground and its target rides the terrain', async ({ page }) => {
-  await boot(page, 'southpole');
+  await boot(page, 'southpole', '&style=detailed'); // the free camera: High detail's (classic: classic.spec.ts)
   // starts ~90 m from the Lander
   const c0 = await cam(page);
   expect(c0.dist).toBeGreaterThan(80);
@@ -133,7 +134,7 @@ test('build camera: stays above the ground and its target rides the terrain', as
 });
 
 test('build camera: WASD pans, Q/E orbit, F focuses the selection, H returns home', async ({ page }) => {
-  await boot(page, 'mare');
+  await boot(page, 'mare', '&style=detailed'); // the free camera: High detail's (classic: classic.spec.ts)
   await page.evaluate(() => window.__game.grantResources({ metals: 200 }));
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
   const c0 = await cam(page);

@@ -26,6 +26,8 @@ async function openTree(page: Page) {
 }
 
 const card = (page: Page, tid: string) => page.locator(`.tech-card[data-tech="${tid}"]`);
+/** an era opens with 4 techs of the one before (docs/12 §2.1): two more Era-1 techs for the charters below */
+const E1_EXTRA = ['grizzlyScreens', 'fieldSpectrometers'];
 const g = (page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => window.__game[f as string](...(a as unknown[])), [fn, args] as const);
 
@@ -65,8 +67,7 @@ async function checkRuns(page: Page, runs: Run[]) {
       // a lived-in tree for the screenshots: two techs done, two queued, one hovered
       await g(page, 'placeBuilding', 'lab', 135, 133);
       await g(page, 'advanceGameSeconds', 80);
-      await g(page, 'completeTech', 'regolithProcessing');
-      await g(page, 'completeTech', 'prospectingRovers');
+      for (const t of ['regolithProcessing', 'prospectingRovers', ...E1_EXTRA]) await g(page, 'completeTech', t);
       await g(page, 'grantData', 300);
       await g(page, 'research', 'teleoperation');
       await g(page, 'research', 'siliconRefining');
@@ -103,12 +104,13 @@ test('tree fits 1280×720 with the sheet open: 7 lanes × 8 eras, Era 8 on scree
   expect(hab[1].top).toBeGreaterThanOrEqual(hab[0].bottom);
   expect(hab[2].left).toBeGreaterThanOrEqual(hab[0].right);
   // collapsed sheet: the grid grows and still fits
+  const open = await layoutReport(page);
   await page.locator('#tech-sheet-toggle').click();
   await expect(page.locator('#tech-sheet')).toHaveClass(/collapsed/);
   const c = await layoutReport(page);
   expect(c.overlaps).toEqual([]);
   expect(c.outside).toEqual([]);
-  expect(c.slotH).toBeGreaterThan(40);
+  expect(c.slotH).toBeGreaterThan(open.slotH + 6);
 });
 
 test('tree at 1600×900: wider columns, capped slots, the spare height goes to the sheet', async ({ page }) => {
@@ -117,16 +119,47 @@ test('tree at 1600×900: wider columns, capped slots, the spare height goes to t
     ['mare', 'robotic', { width: 1600, height: 900 }],
     ['mare', 'human', { width: 1600, height: 900 }],
   ]);
+  // 16 slots fill 900 px at 41.6 px: the sheet keeps its full 148
   const sheet = await page.locator('#tech-sheet').boundingBox();
-  expect(sheet!.height).toBeGreaterThan(148);
+  expect(sheet!.height).toBeGreaterThanOrEqual(148);
   expect(sheet!.y + sheet!.height).toBeLessThanOrEqual(900);
+  // taller still, the slots cap at 44 px and the spare height goes to the sheet
+  await checkRuns(page, [['mare', 'robotic', { width: 1600, height: 1050 }]]);
+  const tall = await page.locator('#tech-sheet').boundingBox();
+  expect((await layoutReport(page)).slotH).toBe(44);
+  expect(tall!.height).toBeGreaterThan(148);
+  expect(tall!.y + tall!.height).toBeLessThanOrEqual(1050);
+});
+
+test('past the height budget, crowded cells pack as compact cards and the tree still fits', async ({ page }) => {
+  // 1280×640: 16 slots no longer fit at 28 px over the least sheet, so the
+  // tallest lanes give up a row and their fullest cells pack
+  await boot(page, 'mare', 'robotic', { width: 1280, height: 640 });
+  await openTree(page);
+  const r = await layoutReport(page);
+  expect(r.overlaps).toEqual([]);
+  expect(r.outside).toEqual([]);
+  expect(r.capVisible).toBe(true);
+  expect(r.scroll.every((d) => d <= 0)).toBe(true);
+  expect(r.slotH).toBeGreaterThanOrEqual(28);
+  const compact = await page.locator('.tech-card.compact').count();
+  expect(compact).toBeGreaterThan(0);
+  // a compact card still names its tech and its cost, on one line
+  const first = page.locator('.tech-card.compact').first();
+  await expect(first.locator('.nm')).not.toBeEmpty();
+  await expect(first.locator('.cc')).toContainText('≡');
+  const h = await first.evaluate((e) => e.getBoundingClientRect().height);
+  expect(h).toBeGreaterThanOrEqual(14);
+  await page.screenshot({ path: 'test-results/r2-1280x640-packed.png' });
 });
 
 test('site filters: the footer names other-site techs; the pole MRE has no doctrine bracket', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
   await openTree(page);
-  await expect(page.locator('#tech-other-sites')).toHaveText('◬ 4 techs belong to other landing sites');
-  for (const t of ['siteGrading', 'iceExtraction', 'peakLightMasts', 'skylightHeliostats']) await expect(card(page, t)).toHaveCount(0);
+  await expect(page.locator('#tech-other-sites')).toHaveText('◬ 6 techs belong to other landing sites');
+  for (const t of ['siteGrading', 'iceExtraction', 'peakLightMasts', 'skylightHeliostats', 'sublimationTents', 'heatedAugers']) {
+    await expect(card(page, t)).toHaveCount(0);
+  }
   await expect(page.locator('.doc-bracket[data-group="smeltDoctrine"]')).toHaveCount(1);
   // an undiscovered breakthrough keeps its reserved slot as a placeholder
   await expect(card(page, 'btLavaTubeCaverns')).toHaveClass(/ph/);
@@ -174,8 +207,7 @@ test('hover highlights the prerequisite closure and dependents and dims the rest
 
 test('doctrine: a card click only selects; Commit queues; the sibling is foreclosed', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
-  await g(page, 'completeTech', 'regolithProcessing');
-  await g(page, 'completeTech', 'prospectingRovers'); // era 2 by charter
+  for (const t of ['regolithProcessing', 'prospectingRovers', ...E1_EXTRA]) await g(page, 'completeTech', t); // era 2 by charter
   await openTree(page);
   const bracket = page.locator('.doc-bracket[data-group="smeltDoctrine"]');
   await expect(bracket).toHaveAttribute('title', /DOCTRINE · CHOOSE ONE · PERMANENT — How hard do you push the furnace\?/);
@@ -216,8 +248,7 @@ test('doctrine: a card click only selects; Commit queues; the sibling is foreclo
 
 test('Shift-click queues the whole path; the queue strip reorders and cancels', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
-  await g(page, 'completeTech', 'teleoperation');
-  await g(page, 'completeTech', 'prospectingRovers'); // era 2
+  for (const t of ['teleoperation', 'prospectingRovers', ...E1_EXTRA]) await g(page, 'completeTech', t); // era 2
   await openTree(page);
   // a plain click on a card that needs a prerequisite explains itself
   await card(page, 'partsFabrication').click();
@@ -252,8 +283,7 @@ test('Shift-click queues the whole path; the queue strip reorders and cancels', 
 
 test('queue full: cards show ⊘ and a click explains QUEUE FULL', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
-  await g(page, 'completeTech', 'teleoperation');
-  await g(page, 'completeTech', 'prospectingRovers');
+  for (const t of ['teleoperation', 'prospectingRovers', ...E1_EXTRA]) await g(page, 'completeTech', t);
   for (const t of ['regolithProcessing', 'regolithVolatiles', 'batteryStorage', 'thermalWadis', 'constructionRobotics']) {
     await g(page, 'research', t);
   }
@@ -318,8 +348,8 @@ test('goods chips follow the sim: water the crew is holding is short, on the car
     g.setPaused(true);
     g.advanceGameSeconds(0);
     // Molten Regolith Electrolysis: the smelter makes no water, so the tanks hold still
-    for (const t of ['regolithProcessing', 'teleoperation', 'constructionRobotics', 'partsFabrication',
-      'batteryStorage', 'moltenElectrolysis']) g.completeTech(t);
+    for (const t of ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',
+      'constructionRobotics', 'partsFabrication', 'batteryStorage', 'moltenElectrolysis']) g.completeTech(t);
     const spots: [number, number][] = [];
     for (let gz = 112; gz <= 143; gz++) for (let gx = 112; gx <= 143; gx++) spots.push([gx, gz]);
     spots.sort((a, b) => Math.hypot(a[0] - 127, a[1] - 127) - Math.hypot(b[0] - 127, b[1] - 127));
@@ -351,9 +381,11 @@ test('goods chips follow the sim: water the crew is holding is short, on the car
   const paid = await page.evaluate(() => {
     const g = window.__game!;
     g.research('regenFuelCells');
-    g.grantData(500);
+    g.grantData(1000);
     g.grantResources({ water: 40 - g.getState().resources.water });
-    for (let t = 0; t < 240; t += 10) { g.grantPower(5000); g.advanceGameSeconds(10); }
+    // its data at 2 × 0.4/s, within the day
+    const need = g.getResearch().cards.regenFuelCells.cost.data / 0.8 + 20;
+    for (let t = 0; t < need; t += 10) { g.grantPower(5000); g.advanceGameSeconds(10); }
     g.grantResources({ water: 80.5 - g.getState().resources.water });
     const s = g.getState();
     return { stalled: s.researchStalled, done: s.techsDone, water: s.resources.water, card: g.getResearch().cards.regenFuelCells };

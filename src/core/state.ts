@@ -4,7 +4,7 @@ import type { ResourceId } from '../data/resources';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import { SITES, type SiteId } from '../data/sites';
-import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
+import { emptyFeed, type DepositKind, type FeedGrade, type FeedKind } from '../data/deposits';
 import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
 import { START } from '../data/balance';
 
@@ -38,7 +38,8 @@ export interface BuildingState {
   idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued';
   /** Dynamic Clocking: ×1.5 draw, inputs, outputs and data; extra wear */
   overclock?: boolean;
-  /** deposit under the footprint centre (stamped on placement, recomputed on load) */
+  /** deposit under the footprint centre (stamped on placement, recomputed on
+   *  load); for an excavator, the deposit under its dig site */
   deposit?: DepositKind;
   /** hydroponics: seconds of output lost to a dead crop (0 = growing) */
   cropRegrowT?: number;
@@ -48,6 +49,43 @@ export interface BuildingState {
   shadedT?: number;
   /** generators: staffed at last tick's worker allocation */
   staffedPrev?: boolean;
+  /** Regolith Excavator: the mobile digger's haul cycle (core/haul.ts) */
+  haul?: HaulState;
+}
+
+/** One construction rover (core/fleet.ts). Auto rovers go one per active
+ *  site in queue order; a pinned rover stays at its site until it completes. */
+export interface RoverUnit {
+  id: number;
+  /** the dock it parks at: the Lander or a Robotics Bay (building id) */
+  home: number;
+  /** the construction site it is working (or waiting at), null = free */
+  site: number | null;
+  pinned: boolean;
+}
+
+/** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
+ *  the nearest regolith consumer → unload (credited then) → back again. The
+ *  home pad is where it was placed and stays occupied; the digger moving
+ *  about blocks nothing. World metres throughout. */
+export interface HaulState {
+  /** where it digs (default: the centre of its own pad) */
+  digX: number;
+  digZ: number;
+  phase: 'toDig' | 'dig' | 'toDrop' | 'unload';
+  /** where the digger is now, and the waypoints left on this leg */
+  x: number;
+  z: number;
+  path: [number, number][];
+  /** seconds dug into this bucket (dig) or spent unloading (unload) */
+  t: number;
+  /** what the bucket holds, and the ground it came from */
+  cargo: Partial<Record<ResourceId, number>>;
+  kind: FeedKind;
+  /** the consumer it is hauling to (building id), chosen when the bucket fills */
+  drop: number | null;
+  /** the deposit under its own pad (b.deposit is the ground it digs) */
+  pad?: DepositKind;
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
@@ -74,12 +112,19 @@ export interface GameStats {
   ilmeniteDigS: number;
   dcOpS: number;
   outpostOpS: number;
+  /** seconds with two or more outposts operating at once (the Era 7 deed) */
+  outpostPairOpS: number;
   minReserveS: number;
   minMorale: number;
+  /** the most rovers that ever worked one site at once */
+  crowdedSiteMax: number;
+  /** the longest haul an excavator has driven, dig site to consumer (m) */
+  haulMaxM: number;
 }
 
 export interface ProspectRecord { surveyedAt: number; cls: ProspectClass; data: number }
-export interface ActiveSurvey { id: ProspectId; startedAt: number; endsAt: number }
+/** rover: the construction rover lent for the trip (never a pinned one) */
+export interface ActiveSurvey { id: ProspectId; startedAt: number; endsAt: number; rover?: number }
 export interface OutpostState {
   id: ProspectId;
   kind: OutpostKind;
@@ -157,8 +202,12 @@ export interface GameState {
   /** smoothed net flow per resource, per game-second (production − consumption
    *  − upkeep − spillage; deliveries and research goods are not flow) */
   rates: Partial<Record<ResourceId, number>>;
-  /** construction-robot fleet, recomputed each tick (busy = sites being built) */
+  /** construction-rover fleet, derived from `rovers` each tick: total = the
+   *  roster less one lent to a survey, busy = rovers at construction sites */
   bots: { total: number; busy: number };
+  /** the construction rovers, one per dock slot (core/fleet.ts) */
+  rovers: RoverUnit[];
+  nextRoverId: number;
 
   era: number;
   techsDone: TechId[];
@@ -244,6 +293,8 @@ export function createInitialState(
     data: START.data,
     rates: {},
     bots: { total: 2, busy: 0 },
+    rovers: [],
+    nextRoverId: 1,
     era: 1,
     techsDone: [],
     researchQueue: [],
@@ -281,15 +332,16 @@ export function emptyStats(): GameStats {
     nightCritDark: false, nightLoadShed: false, nightDcAllActive: false,
     cleanNightStreak: 0, dcCleanNight: false, darkNightMaxS: 0, shadedMaxS: 0,
     maxDust: 0, lowPartsSeen: false, wornSeen: false, flaresWithSix: 0,
-    ilmeniteDigS: 0, dcOpS: 0, outpostOpS: 0,
+    ilmeniteDigS: 0, dcOpS: 0, outpostOpS: 0, outpostPairOpS: 0,
     minReserveS: 1e9,   // "never measured": no crew aboard yet
     minMorale: 100,
+    crowdedSiteMax: 0, haulMaxM: 0,
   };
 }
 
 function researchDefaults() {
   return {
-    techSchema: 2,
+    techSchema: 3,
     insights: {},
     discoveries: [] as TechId[],
     researchStalled: [] as TechId[],
@@ -323,5 +375,9 @@ export function fillStateDefaults(s: GameState): GameState {
     b.overclock ??= false;
     b.cropRegrowT ??= 0;
   }
+  // saves from before fleet control: the roster is rebuilt from the docks
+  // (core/fleet.ts syncRoster) and each excavator digs its own pad (core/haul.ts)
+  legacy.rovers ??= [];
+  legacy.nextRoverId ??= 1 + legacy.rovers.reduce((m, r) => Math.max(m, r.id), 0);
   return s;
 }

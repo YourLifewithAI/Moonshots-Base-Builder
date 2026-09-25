@@ -7,10 +7,15 @@
  *     the axes tangent to each face, darkening 12%, faded out once they fall
  *     under a pixel (and with distance) so they never shimmer;
  *   - per-instance state (`iState` = lit, dust, wear, print cut height):
- *     windows glow warm-white × lit × night, beacons blink, dust mattes and
- *     grays the glass, wear darkens, and fragments above the cut are
- *     discarded with a glowing band at the cut (the 3D-print reveal);
- *   - night floods (world/floodlights.ts), the same pools the ground gets.
+ *     the base's own light answers to how dark the structure stands (x
+ *     carries it over the lit flag, see litChannel; buildings/darkness.ts)
+ *     — windows glow warm-white with a faint day floor, work lamps light
+ *     with their flood, beacons blink brighter in the dark — and all of it
+ *     stays off while unlit; dust mattes and grays the glass, wear darkens, and
+ *     fragments above the cut are discarded with a glowing band at the cut
+ *     (the 3D-print reveal);
+ *   - the base's floods (world/floodlights.ts), the same pools the ground
+ *     gets.
  *
  *  Variant by FX level: 0–1 seams + 32 floods, 2 no seams + 16 floods,
  *  3 stock (squash-rise fallback, whole-hull glow, discs + PointLights). */
@@ -104,14 +109,39 @@ const FRAG_METAL = /* glsl */`
 	metalnessFactor = vBldMat.y * ( 1.0 - bldDust );
 `;
 
+/** The lit channel, iState.x: 0 unlit · 1 lit at the night's darkness (parts
+ *  that carry only the flag: rovers, the cargo lander, dishes and wings) ·
+ *  2 + k lit at the structure's own darkness k (buildings/darkness.ts). */
+export function litChannel(powered: boolean, k: number): number {
+  return powered ? 2 + Math.min(1, Math.max(0, k)) : 0;
+}
+
+/** The darkness a lit channel value lights at (as the shader reads it). */
+export function channelDark(x: number, night: number): number {
+  return x >= 1.5 ? Math.min(1, Math.max(0, x - 2)) : x >= 0.5 ? night : 0;
+}
+
+/** Emissive gains, all × lit: windows `window × max(k, windowDay)`, lamps
+ *  `lamp × k`, beacons `beaconDay + beaconDark × k + beaconNight × night`
+ *  while their flash is on (k = the structure's darkness). */
+export const EMISSIVE = {
+  window: 1.6, windowDay: 0.1, lamp: 2.6,
+  beaconDay: 1.0, beaconDark: 3.0, beaconNight: 2.0,
+};
+const f = (v: number) => v.toFixed(3);
+
 const FRAG_EMISSIVE = /* glsl */`
 	{
-		float lit = vBldState.x;
+		float lit = step( 0.5, vBldState.x );
+		float dark = mix( uBldNight, clamp( vBldState.x - 2.0, 0.0, 1.0 ), step( 1.5, vBldState.x ) );
 		float win = step( 0.5, vBldMat.z ) * step( vBldMat.z, 1.5 );
-		float beacon = step( 1.5, vBldMat.z );
+		float beacon = step( 1.5, vBldMat.z ) * step( vBldMat.z, 2.5 );
+		float lamp = step( 2.5, vBldMat.z );
 		float blink = step( 0.9, fract( uBldTime * 0.5 + vBldPhase ) );
-		totalEmissiveRadiance += ${warm} * ( win * lit * uBldNight * 1.6 );
-		totalEmissiveRadiance += vec3( 1.0 ) * ( beacon * lit * blink * ( 0.8 + 5.0 * uBldNight ) );
+		totalEmissiveRadiance += ${warm} * ( lit * ( win * max( dark, ${f(EMISSIVE.windowDay)} ) * ${f(EMISSIVE.window)}
+			+ lamp * dark * ${f(EMISSIVE.lamp)} ) );
+		totalEmissiveRadiance += vec3( 1.0 ) * ( beacon * lit * blink
+			* ( ${f(EMISSIVE.beaconDay)} + ${f(EMISSIVE.beaconDark)} * dark + ${f(EMISSIVE.beaconNight)} * uBldNight ) );
 		// the print head: a hot band just under the cut while building
 		float band = ( 1.0 - smoothstep( 0.0, 0.14, vBldState.w - vBldObj.y ) ) * step( vBldState.w, 999.0 );
 		totalEmissiveRadiance += ${warm} * ( band * 2.4 );
