@@ -9,6 +9,7 @@ import type { GameStats } from './core/state';
 import { researchView } from './core/research';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
 import { upgradeKey } from './buildings/upgrades';
+import type { UpgradeInfo } from './buildings/instances';
 import { BUILDINGS } from './data/buildings';
 import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
@@ -121,13 +122,23 @@ function api(game: Game) {
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
+    /** one structure's own light: its darkness k (and what makes it), the
+     *  lit channel its instance carries, the emissive gains and its flood slot */
+    getBuildingLight: (id: number) => clone((game as any).instances.lightInfo(id)),
     /** what the menu shows about the render path */
     getRenderStatus: () => game.renderStatus(),
     /** the audio layer: context state, cues accepted per kind, the hum */
     getAudio: () => sfx.info(),
     playCue: (cue: Cue) => sfx.play(cue),
     getCamera: () => game.debugCamera(),
-    screenOf: (x: number, z: number) => game.debugScreenOf(x, z),
+    /** CSS px of the ground at (x, z), `lift` m above it */
+    screenOf: (x: number, z: number, lift = 0) => game.debugScreenOf(x, z, lift),
+    /** the classic terrain mesh's vertex colour nearest (x, z) */
+    terrainColorAt: (x: number, z: number) => game.debugTerrainColor(x, z),
+    /** the drawn ground vs hf.sample: { vertex, max, mean } (m) */
+    terrainError: () => game.debugTerrainError(),
+    /** a structure's light: { glow (classic iGlow), powered } */
+    buildingGlow: (id: number) => game.debugBuildingGlow(id),
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     recipeTriangles: () => recipeTriangles(),
     /** the upgrade budget: stock and fully upgraded triangles per type, and each part's */
@@ -135,12 +146,13 @@ function api(game: Game) {
     /** research you can see: each type's upgrade key (from techsDone), the key and
      *  triangles its InstancedMesh draws, and the placement ghost's */
     getUpgrades: () => {
-      const meshes = (game as any).instances.upgradeInfo() as Record<string, { key: string; triangles: number; geometry: string; top: number }>;
+      const meshes = (game as any).instances.upgradeInfo() as Record<string, UpgradeInfo>;
       const want: Record<string, string> = {};
       for (const t of Object.keys(BUILDINGS) as BuildingId[]) want[t] = upgradeKey(t, game.state.techsDone);
       const g = (game as any).placement?.ghost as { geometry: { index: { count: number } | null; getAttribute(n: string): { count: number } } } | null;
       const ghost = g ? (g.geometry.index ? g.geometry.index.count : g.geometry.getAttribute('position').count) / 3 : null;
-      return { want, meshes, ghost, trackers: (game as any).instances.renderInfo().trackers };
+      const ri = (game as any).instances.renderInfo();
+      return { want, meshes, ghost, trackers: ri.trackers, decals: ri.decals, pools: ri.discs };
     },
     beginPlacement: (type: BuildingId) => game.beginPlacement(type),
     cancelPlacement: () => game.cancelPlacement(),

@@ -16,7 +16,8 @@ export interface Finish {
   v: number;
   rough: number;
   metal: number;
-  /** 0 none · 1 window (lit from inside at night) · 2 blinking beacon */
+  /** 0 none · 1 window (lit from inside, a faint glow by day) · 2 blinking
+   *  beacon · 3 work lamp (lights with its structure's flood) */
   emit?: number;
 }
 
@@ -25,7 +26,7 @@ export const BODY: Finish = { v: 0.81, rough: 0.55, metal: 0.15 };      // satin
 export const TRIM: Finish = { v: 0.42, rough: 0.62, metal: 0.2 };       // frames, struts, stacks
 export const GLASS: Finish = { v: 0.07, rough: 0.18, metal: 0 };        // PV cells, dark glass
 export const WINDOW: Finish = { ...GLASS, emit: 1 };
-export const LAMP: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 1 };  // work lamp lens
+export const LAMP: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 3 };  // work lamp lens
 export const BEACON: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 2 };
 export const RADIATOR: Finish = { v: 0.81, rough: 0.9, metal: 0 };      // matte white panels
 export const FOIL: Finish = { v: 0.81, rough: 0.3, metal: 0.45 };       // MLI blankets
@@ -45,6 +46,11 @@ function bake(geo: THREE.BufferGeometry, f: Finish): THREE.BufferGeometry {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('mat', new THREE.BufferAttribute(mat, 3));
   geo.deleteAttribute('uv'); // no textures anywhere; keeps merges compatible
+  // the part's largest face (m²): the classic palette keeps its orange
+  // accent to small parts and greys big slabs (classicBuilding.ts)
+  geo.computeBoundingBox();
+  const sz = geo.boundingBox!.getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a);
+  geo.userData.area = sz[0] * sz[1];
   return geo;
 }
 
@@ -321,6 +327,17 @@ export function ladder(x: number, z: number, y0: number, y1: number, ry = 0): TH
 export function merge(parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[]): THREE.BufferGeometry {
   const flat = parts.flat();
   const merged = mergeGeometries(flat, false)!;
+  // per-vertex part size, in merge order (not an attribute: no GPU cost)
+  const area = new Float32Array(merged.getAttribute('position').count);
+  let o = 0;
+  for (const p of flat) {
+    const n = p.getAttribute('position').count;
+    const src = p.userData.partArea as Float32Array | undefined;
+    if (src) area.set(src, o);
+    else area.fill(p.userData.area ?? 0, o, o + n);
+    o += n;
+  }
+  merged.userData = { partArea: area };
   flat.forEach((p) => p.dispose());
   merged.computeVertexNormals();
   merged.computeBoundingBox();
@@ -339,23 +356,38 @@ materials.define('building', BUILDING_MATERIAL, buildingPatch);
 export const BUILDING_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);
 
+/** Style-specific extras for every instanced view (the classic palette and
+ *  its per-instance light level — buildings/classicBuilding.ts installs it). */
+type InstanceHook = (view: THREE.BufferGeometry, src: THREE.BufferGeometry, max: number) => void;
+let instanceHook: InstanceHook | null = null;
+export function setInstanceHook(hook: InstanceHook | null) {
+  instanceHook = hook;
+}
+
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
- *  own per-instance state: iState = (lit, dust, wear, print cut height). */
+ *  own per-instance state: iState = (lit, dust, wear, print cut height),
+ *  lit being 0 (unlit), 1 (lit at the night's darkness) or 2 + the darkness
+ *  the structure stands in (buildingShader.ts litChannel). `prev`: the view
+ *  an upgraded recipe replaces — its instances keep every per-instance
+ *  attribute they had (iState, classic's iGlow), while the style's
+ *  per-vertex extras (the classic palette) are made for the new recipe. */
 export function withInstanceState(src: THREE.BufferGeometry, max: number,
-  keep?: THREE.InstancedBufferAttribute): THREE.BufferGeometry {
+  prev?: THREE.BufferGeometry): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();
   for (const [name, attr] of Object.entries(src.attributes)) g.setAttribute(name, attr);
   g.setIndex(src.index);
   g.boundingBox = src.boundingBox?.clone() ?? null;
   g.boundingSphere = src.boundingSphere?.clone() ?? null;
-  // an upgraded recipe keeps the instances' state it already had
-  if (keep) {
-    keep.needsUpdate = true;
-    g.setAttribute('iState', keep);
-    return g;
-  }
   const st = new Float32Array(max * 4);
   for (let i = 0; i < max; i++) { st[i * 4] = 1; st[i * 4 + 3] = CUT_NONE; }
   g.setAttribute('iState', new THREE.InstancedBufferAttribute(st, 4));
+  instanceHook?.(g, src, max);
+  if (prev) {
+    for (const [name, attr] of Object.entries(prev.attributes)) {
+      if (!(attr instanceof THREE.InstancedBufferAttribute)) continue;
+      attr.needsUpdate = true;
+      g.setAttribute(name, attr);
+    }
+  }
   return g;
 }

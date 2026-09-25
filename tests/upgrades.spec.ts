@@ -11,8 +11,8 @@ declare global {
 
 const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 
-async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human') {
-  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
+async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human', extra = '') {
+  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
 }
@@ -73,8 +73,9 @@ test('budget: every upgrade part stays under 600 triangles, every fully upgraded
   expect(empty).toEqual([]); // every upgrade adds something you can see
 });
 
-test('a tech with a visual grows its part on every building of the type, once, and a save restores it', async ({ page }) => {
-  await start(page, 'mare');
+for (const style of ['classic', 'detailed']) test(`${style}: a tech with a visual grows its part on every building of the type, once, and a save restores it`, async ({ page }) => {
+  await start(page, 'mare', 'human', `&style=${style}`);
+  expect((await page.evaluate(() => window.__game.getRenderInfo())).style).toBe(style);
   const spots = (type: string, n: number) => page.evaluate(([type, n]) => {
     const g = window.__game!;
     let placed = 0;
@@ -135,7 +136,7 @@ test('a tech with a visual grows its part on every building of the type, once, a
 
   // save, reload, continue: the same key, the same geometry size, the same dishes
   await page.evaluate(() => window.__game.save());
-  await page.goto(URL_DEBUG);
+  await page.goto(`${URL_DEBUG}&style=${style}`);
   await expect(page.locator('#btn-continue')).toBeVisible();
   await page.locator('#btn-continue').click();
   await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 2);
@@ -184,4 +185,45 @@ test('doctrine follow-ups are foreclosed with the doctrine they build on', async
   expect(r.railCapacitors.state).toBe('foreclosed');
   expect(r.pressureTanks.state).toBe('eraLocked');
   expect(r.cryocoolerHeads.state).toBe('eraLocked');
+});
+
+test('classic: a swap keeps each instance\'s light and state, repaints the palette; decals and pools follow', async ({ page }) => {
+  await start(page, 'mare'); // Classic is the default style
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    const style = g.getRenderInfo().style;
+    g.grantResources({ metals: 2000, parts: 500 });
+    const ok = [g.placeBuilding('solar', 132, 126), g.placeBuilding('solar', 132, 130), g.placeBuilding('lab', 135, 133)];
+    g.finishConstruction();
+    // night: the lab's windows burn at the darkness it stands in
+    g.advanceGameSeconds(640 - g.getState().simTime);
+    g.grantPower(200000);
+    g.advanceGameSeconds(1);
+    g.stepFrame(0.016);
+    const lab = g.getState().buildings.find((b: any) => b.type === 'lab');
+    const before = { up: g.getUpgrades(), glow: g.buildingGlow(lab.id) };
+    g.completeTech('fieldSpectrometers');
+    g.advanceGameSeconds(1);
+    g.stepFrame(0.016);
+    return { style, ok, before, after: { up: g.getUpgrades(), glow: g.buildingGlow(lab.id) } };
+  });
+  expect(r.style).toBe('classic');
+  expect(r.ok).toEqual([true, true, true]);
+  const [a, b] = [r.before.up.meshes.lab, r.after.up.meshes.lab];
+  expect(b.key).toBe('fieldSpectrometers');
+  expect(b.geometry).not.toBe(a.geometry);
+  expect(b.vertices).toBeGreaterThan(a.vertices);
+  // the per-instance attributes are the same objects: lit channel, dust, wear, cut, classic glow
+  expect(a.glow).not.toBeNull();
+  expect(b.state).toBe(a.state);
+  expect(b.glow).toBe(a.glow);
+  // the classic palette is made for the upgraded recipe, every vertex coloured
+  expect(a.colors).toBe(a.vertices);
+  expect(b.colors).toBe(b.vertices);
+  // the lab still burns at night, as bright as before; its decal and pool stay
+  expect(r.before.glow.powered).toBe(1);
+  expect(r.before.glow.glow).toBeGreaterThan(0);
+  expect(r.after.glow).toEqual(r.before.glow);
+  expect(r.after.up.decals).toBe(r.before.up.decals);
+  expect(r.after.up.pools).toBe(r.before.up.pools);
 });

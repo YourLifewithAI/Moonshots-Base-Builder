@@ -25,6 +25,8 @@ import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
 
 const MAX_ROVERS = 64;
+/** a command view's listener height, as a share of the camera's distance */
+const LISTENER_LIFT = 0.3;
 const SCALE = 1.25;
 const SPEED = 4.5;        // m/s cruise
 const ACCEL = 3;          // m/s²
@@ -419,18 +421,23 @@ export class RoverFleet {
     }
   }
 
-  /** The rovers nearest the camera, for the audio layer: distance, bearing
-   *  as a stereo pan, speed as a fraction of cruise, and whether printing. */
-  sounds(cam: THREE.Camera): RoverSound[] {
+  /** The rovers nearest the listener, for the audio layer: distance, bearing
+   *  as a stereo pan, speed as a fraction of cruise, and whether printing.
+   *  On foot the listener is the camera. From a command view it is the
+   *  ground point in view (`focus`), lifted by a share of the camera's
+   *  distance: what you look at is heard, and zooming out quietens it,
+   *  whatever lens the view uses (the isometric one sits far off). */
+  sounds(cam: THREE.Camera, focus: THREE.Vector3 | null = null): RoverSound[] {
     const out = this.soundList;
     out.length = 0;
     if (!this.rovers.length) return out;
     const p = cam.position;
+    const lift = focus ? LISTENER_LIFT * p.distanceTo(focus) : 0;
     this.right.setFromMatrixColumn(cam.matrixWorld, 0);
     for (let i = 0; i < this.rovers.length; i++) {
       const r = this.rovers[i];
       const dx = r.x - p.x, dy = this.hf.sample(r.x, r.z) + 0.6 - p.y, dz = r.z - p.z;
-      const d = Math.hypot(dx, dy, dz);
+      const d = focus ? Math.hypot(r.x - focus.x, r.z - focus.z, lift) : Math.hypot(dx, dy, dz);
       const pan = (dx * this.right.x + dy * this.right.y + dz * this.right.z) / Math.max(d, 1);
       const moving = this.frozen ? 0 : clamp(r.v / SPEED, 0, 1);
       out.push({ id: i, d, pan: clamp(pan * 0.9, -1, 1), speed: moving, working: !this.frozen && r.working && r.v < 0.1 });

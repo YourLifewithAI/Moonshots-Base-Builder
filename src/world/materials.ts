@@ -9,7 +9,12 @@
  *    FX level    → which shader-patch variant a lit material compiles with
  *    patch fault → a GPU rejected a patched shader: every patch is stripped
  *                  back to the stock three.js shader (remembered across
- *                  launches, cleared by an explicit FX-level choice) */
+ *                  launches, cleared by an explicit FX-level choice)
+ *    classic     → the classic render style's own material for the key
+ *                  (defineClassic: stock Lambert, or the one small custom
+ *                  building shader), set once at boot; no patches, no FX
+ *                  variants. Safe mode still swaps in unlit twins, and a
+ *                  classic shader that fails is replaced by a stock one. */
 import * as THREE from 'three';
 
 export type MaterialKey = 'building' | 'buildingDepth' | 'terrain' | 'rock' | 'ghost' | 'dust';
@@ -64,6 +69,10 @@ class MaterialRegistry {
   private level = 0;
   private safe = false;
   private faulted = storedFault();
+  /** the classic style's materials by key, and their safe-mode twins */
+  private classicMats = new Map<MaterialKey, THREE.Material>();
+  private classicTwins = new Map<MaterialKey, THREE.Material>();
+  private classicStyle = false;
   /** meshes whose unregistered lit material safe mode replaced */
   private replaced = new WeakMap<THREE.Object3D, THREE.Material>();
   /** bumped on every change of variant, fault or safe mode — meshes that
@@ -76,8 +85,65 @@ class MaterialRegistry {
     this.install(e);
   }
 
+  /** The render style, set once at boot before any mesh exists. */
+  setClassic(on: boolean) {
+    this.classicStyle = on;
+    this.revision++;
+  }
+
+  get classic(): boolean { return this.classicStyle; }
+
+  /** The classic style's material for `key` (the High detail one stays
+   *  defined beside it, for a session that draws High detail). */
+  defineClassic(key: MaterialKey, mat: THREE.Material) {
+    this.classicMats.set(key, mat);
+    this.classicTwins.delete(key);
+  }
+
+  /** Is the classic style drawing `key` with its own custom shader (not a
+   *  stock fallback, not safe mode's unlit twin)? */
+  classicCustom(key: MaterialKey): boolean {
+    return this.classicStyle && !this.safe && (this.classicMats.get(key) as THREE.ShaderMaterial | undefined)
+      ?.isShaderMaterial === true;
+  }
+
+  /** A classic custom shader failed on this GPU: every mesh under `root`
+   *  drawing `key` — and every mesh made later — takes `fallback`. False
+   *  when `key` was not a custom shader (the fault lies elsewhere). */
+  replaceClassic(key: MaterialKey, fallback: THREE.Material, root: THREE.Object3D): boolean {
+    const old = this.classicMats.get(key);
+    if (!this.classicCustom(key) || !old) return false;
+    this.classicMats.set(key, fallback);
+    this.classicTwins.delete(key);
+    this.revision++;
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.material === old) mesh.material = fallback;
+    });
+    return true;
+  }
+
+  private classicTwin(key: MaterialKey, mat: THREE.Material): THREE.Material {
+    let twin = this.classicTwins.get(key);
+    if (!twin) {
+      const m = mat as THREE.MeshLambertMaterial;
+      twin = m.isMeshLambertMaterial || (mat as THREE.ShaderMaterial).isShaderMaterial
+        ? new THREE.MeshBasicMaterial({
+          vertexColors: mat.vertexColors, color: m.color ?? 0xffffff, side: mat.side,
+          transparent: mat.transparent, opacity: mat.opacity, depthWrite: mat.depthWrite,
+        })
+        : mat;
+      this.classicTwins.set(key, twin);
+    }
+    return twin;
+  }
+
   /** The material a new mesh should use right now. */
   get(key: MaterialKey): THREE.Material {
+    if (this.classicStyle) {
+      const c = this.classicMats.get(key);
+      if (c) return this.safe ? this.classicTwin(key, c) : c;
+    }
     const e = this.entries.get(key);
     if (!e) throw new Error(`material '${key}' not defined`);
     return this.safe ? this.twin(e) : e.lit;
@@ -90,7 +156,7 @@ class MaterialRegistry {
 
   /** Is `key` drawing with its shader patch right now (not stock, not safe)? */
   patched(key: MaterialKey): boolean {
-    return !this.safe && (this.entries.get(key)?.variant ?? null) !== null;
+    return !this.classicStyle && !this.safe && (this.entries.get(key)?.variant ?? null) !== null;
   }
 
   get safeMode(): boolean { return this.safe; }
@@ -170,13 +236,15 @@ class MaterialRegistry {
     this.revision++;
     const twins = new Map<THREE.Material, THREE.Material>();
     for (const e of this.entries.values()) twins.set(e.lit, this.twin(e));
+    for (const [key, c] of this.classicMats) twins.set(c, this.classicTwin(key, c));
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       const mat = mesh.material as THREE.Material | undefined;
       if (!mat || Array.isArray(mat)) return;
       const twin = twins.get(mat);
       if (twin) mesh.material = twin;
-      else if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial) {
+      else if ((mat as THREE.MeshStandardMaterial).isMeshStandardMaterial
+        || (mat as THREE.MeshLambertMaterial).isMeshLambertMaterial) {
         this.replaced.set(mesh, mat);
         mesh.material = new THREE.MeshBasicMaterial({
           vertexColors: mat.vertexColors, color: (mat as THREE.MeshStandardMaterial).color,
@@ -193,6 +261,10 @@ class MaterialRegistry {
     this.revision++;
     const lit = new Map<THREE.Material, THREE.Material>();
     for (const e of this.entries.values()) if (e.basic) lit.set(e.basic, e.lit);
+    for (const [key, twin] of this.classicTwins) {
+      const c = this.classicMats.get(key);
+      if (c && twin !== c) lit.set(twin, c);
+    }
     root.traverse((o) => {
       const mesh = o as THREE.Mesh;
       const mat = mesh.material as THREE.Material | undefined;

@@ -670,6 +670,7 @@ export function recipeGeometry(id: BuildingId, key = ''): BufferGeometry {
     const parts: Parts = R[id]();
     for (const u of upgradesIn(id, key)) if (u.parts) parts.push(...flatten(u.parts()));
     g = merge(parts);
+    g.userData.recipe = id; // the classic palette's per-structure overrides
     cache.set(k, g);
   }
   return g;
@@ -680,6 +681,7 @@ export function partGeometry(id: PartId): BufferGeometry {
   let g = partCache.get(id);
   if (!g) {
     g = merge(id === 'wing' ? solarWing() : id === 'wingXL' ? solarWing(5) : dishPart());
+    g.userData.part = id;
     partCache.set(id, g);
   }
   return g;

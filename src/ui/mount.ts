@@ -6,6 +6,8 @@ import { mountHud } from './hud';
 import { mountInfoPanel } from './infoPanel';
 import { mountLunarMap } from './lunarMap';
 import { mountPalette } from './palette';
+import { mountDepositCard } from './depositCard';
+import { mountDiscovery } from './discovery';
 import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
 import { mountMenu } from './menu';
@@ -19,7 +21,7 @@ export function mountUI(game: Game) {
   mountMenu(root, game);
   // every control answers with a switch click
   root.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).closest('button, .chip, .alert, .tech-card, .site-card, #milestones')) sfx.play('tick');
+    if ((e.target as HTMLElement).closest('button, .chip, .alert, .tech-card, .site-card, #milestones, .deposit-mark')) sfx.play('tick');
   });
   const hudLayer = document.createElement('div');
   hudLayer.id = 'hud-layer';
@@ -30,6 +32,8 @@ export function mountUI(game: Game) {
   mountVisor(hudLayer);
   mountInfoPanel(hudLayer, game);
   mountPalette(hudLayer, game);
+  mountDepositCard(hudLayer, game);
+  mountDiscovery(hudLayer, game);
   mountTechTree(hudLayer, game);
   mountLunarMap(hudLayer, game);
   mountVictory(root, game);
