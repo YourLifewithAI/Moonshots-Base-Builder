@@ -20,7 +20,7 @@ import { FEED_KINDS, feedKindOf, type FeedGrade, type FeedKind } from '../data/d
 import type { BuildingState, GameState, HaulState } from './state';
 import { effectiveDef, type EffectiveRates, type Mods } from './mods';
 import { centerOf } from '../buildings/instances';
-import { PATH_HALF, inside, pathLength, plan, wallSpot, worldRect, type Rect } from './paths';
+import { PATH_HALF, UNIT, inside, pathLength, plan, ring, wallSpot, worldRect, type Rect } from './paths';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -90,9 +90,90 @@ export function dropFor(s: GameState, mods: Mods, x: number, z: number): Buildin
   return best;
 }
 
-/** every footprint the digger drives around (its own pad it drives over) */
+/** how far apart two diggers' resting spots stand (a dig, a pad, an unload
+ *  stand): two bodies whose centres may each lead their origin by `off` */
+export const DIGGER_GAP = 2 * (UNIT.digger.r + UNIT.digger.off);
+
+/** A square keep-out round a digger standing at (x, z) (any heading), for
+ *  planners: other units' paths keep their own clearance off it. */
+export function keepOut(id: number, x: number, z: number, half = UNIT.digger.r + UNIT.digger.off): Rect {
+  return { id: -1000 - id, x0: x - half, z0: z - half, x1: x + half, z1: z + half };
+}
+
+/** Where the other excavators stand still: each one's dig (its pad, or the
+ *  ground it digs away from it) and the stand it holds at a consumer (driving
+ *  there, or unloading). */
+export function diggerSpots(s: GameState, self: number | null): { id: number; x: number; z: number; home: boolean }[] {
+  const out: { id: number; x: number; z: number; home: boolean }[] = [];
+  for (const o of s.buildings) {
+    if (o.id === self || o.type !== 'excavator' || isSite(o)) continue;
+    const h = o.haul;
+    const home = digsHome(o);
+    const [px, pz] = centerOf(o);
+    out.push({ id: o.id, x: h?.digX ?? px, z: h?.digZ ?? pz, home });
+    if (!home) out.push({ id: o.id, x: px, z: pz, home: true });
+    const stand = h ? standHeld(h) : null;
+    if (stand) out.push({ id: o.id, x: stand[0], z: stand[1], home: false });
+  }
+  return out;
+}
+
+/** The unload stand a haul holds: where it is headed to unload, or unloading. */
+export function standHeld(h: HaulState): [number, number] | null {
+  if (h.phase === 'unload') return [h.x, h.z];
+  if (h.phase === 'toDrop') {
+    const end = h.path[h.path.length - 1];
+    return end ? [end[0], end[1]] : [h.x, h.z];
+  }
+  return null;
+}
+
+/** every footprint the digger drives around (its own pad it drives over), and
+ *  the ground other diggers dig away from their pads (they stand there a
+ *  minute at a time) */
 function rectsFor(s: GameState, self: BuildingState): Rect[] {
-  return s.buildings.filter((b) => b.id !== self.id).map(worldRect);
+  const out = s.buildings.filter((b) => b.id !== self.id).map(worldRect);
+  for (const o of s.buildings) {
+    if (o.id === self.id || o.type !== 'excavator' || !o.haul || isSite(o) || digsHome(o)) continue;
+    out.push(keepOut(o.id, o.haul.digX, o.haul.digZ));
+  }
+  return out;
+}
+
+/** Where digger `b` unloads at `drop`, coming from (x, z): the wall spot
+ *  nearest it (as it always was) when that is clear, else the nearest clear
+ *  one round the walls — clear of every other footprint by the haul
+ *  clearance, and DIGGER_GAP from wherever another digger stands still
+ *  (so two never unload in one place, nor on each other's dig). */
+export function standFor(s: GameState, b: BuildingState, drop: BuildingState, x: number, z: number): { x: number; z: number } {
+  const r = worldRect(drop);
+  const first = wallSpot(r, x, z, HAUL.unloadOut);
+  const walls = s.buildings.filter((o) => o.id !== b.id && o.id !== drop.id).map(worldRect);
+  const others = diggerSpots(s, b.id);
+  const m = HAUL.clear * 0.9;
+  const free = (px: number, pz: number) =>
+    Math.abs(px) < PATH_HALF && Math.abs(pz) < PATH_HALF &&
+    !walls.some((w) => inside(px, pz, w, m)) &&
+    !others.some((o) => Math.hypot(o.x - px, o.z - pz) < DIGGER_GAP);
+  if (free(first.x, first.z)) return { x: first.x, z: first.z };
+  const rg = ring(r, HAUL.unloadOut);
+  const u0 = rg.uOf(x, z);
+  for (let k = 1; k <= rg.len; k++) {
+    for (const u of [u0 + k, u0 - k]) {
+      const p = rg.at(u);
+      if (free(p.x, p.z)) return { x: p.x, z: p.z };
+    }
+  }
+  return { x: first.x, z: first.z };
+}
+
+/** Why digger `b` should not dig at (x, z) because another one stands there
+ *  ('' = none): another's dig, pad or stand within DIGGER_GAP. */
+export function digCrowded(s: GameState, b: BuildingState, x: number, z: number): string {
+  const o = diggerSpots(s, b.id).find((p) => Math.hypot(p.x - x, p.z - z) < DIGGER_GAP);
+  if (!o) return '';
+  const other = s.buildings.find((q) => q.id === o.id)!;
+  return `TOO CLOSE TO ${label(other).toUpperCase()} — it ${o.home ? 'parks' : 'digs'} there; pick ground ${Math.ceil(DIGGER_GAP)} m off`;
 }
 
 export interface Trip {
@@ -115,7 +196,7 @@ export function tripFor(
   const drop = dropFor(s, mods, x, z);
   let routeM = 0;
   if (drop) {
-    const p = wallSpot(worldRect(drop), x, z, HAUL.unloadOut);
+    const p = standFor(s, b, drop, x, z);
     routeM = pathLength(x, z, plan(x, z, p.x, p.z, rectsFor(s, b), HAUL.clear));
   }
   const load = regolithOut * GAIN * spec.digS;
@@ -172,11 +253,17 @@ function digBlocked(s: GameState, b: BuildingState, h: HaulState): BuildingState
   return s.buildings.find((o) => o.id !== b.id && inside(h.digX, h.digZ, worldRect(o), 0)) ?? null;
 }
 
+/** A new leg from where it stands: the path, and the whole leg kept (the visuals follow it). */
+function setLeg(h: HaulState, path: [number, number][]) {
+  h.path = path;
+  h.route = [[h.x, h.z], ...path.map(([x, z]): [number, number] => [x, z])];
+}
+
 function startDig(s: GameState, b: BuildingState, h: HaulState) {
   h.phase = 'toDig';
   h.t = 0;
   h.drop = null;
-  h.path = plan(h.x, h.z, h.digX, h.digZ, rectsFor(s, b), HAUL.clear);
+  setLeg(h, plan(h.x, h.z, h.digX, h.digZ, rectsFor(s, b), HAUL.clear));
 }
 
 function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
@@ -184,9 +271,9 @@ function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
   h.phase = 'toDrop';
   h.t = 0;
   h.drop = drop?.id ?? null;
-  if (!drop) { h.path = []; return; }
-  const p = wallSpot(worldRect(drop), h.x, h.z, HAUL.unloadOut);
-  h.path = plan(h.x, h.z, p.x, p.z, rectsFor(s, b), HAUL.clear);
+  if (!drop) { setLeg(h, []); return; }
+  const p = standFor(s, b, drop, h.x, h.z);
+  setLeg(h, plan(h.x, h.z, p.x, p.z, rectsFor(s, b), HAUL.clear));
   const m = pathLength(h.x, h.z, h.path);
   if (s.stats) s.stats.haulMaxM = Math.max(s.stats.haulMaxM ?? 0, m);
 }
@@ -297,7 +384,7 @@ export function digRefusal(
   }
   const over = s.buildings.find((o) => o.id !== b.id && inside(x, z, worldRect(o), 0));
   if (over) return `UNDER A STRUCTURE — ${label(over)} stands there; pick open ground`;
-  return '';
+  return digCrowded(s, b, x, z);
 }
 
 /** Point the excavator at new ground (validate with digRefusal first; the

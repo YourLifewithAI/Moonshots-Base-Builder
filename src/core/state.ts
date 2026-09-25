@@ -86,6 +86,8 @@ export interface HaulState {
   drop: number | null;
   /** the deposit under its own pad (b.deposit is the ground it digs) */
   pad?: DepositKind;
+  /** the whole leg being driven, from where it began (the visuals follow it; absent in old saves) */
+  route?: [number, number][];
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
