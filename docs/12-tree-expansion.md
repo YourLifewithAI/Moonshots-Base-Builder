@@ -306,7 +306,10 @@ The fleet branch took two of them: **Rover Autonomy** (◉ E4, +25% build
 rate per rover at ×1.3 construction draw) and **Autonomous Haulage** (◉ E5,
 excavator haul speed ×1.3 and a ×1.25 bucket at +25% draw, +20% upkeep),
 both at their era's median cost (240 and 400 data before the scale), so
-◉ still packs into 2 rows. The tree holds 94 techs with them.
+◉ still packs into 2 rows. The tree holds 94 techs with them. With the
+probe taking them among their era's small steps (and hauling excavators,
+and Summon), FIRST LIGHT is 200.6 min on robotic mare [199, 203, 201] and
+176.3 on crewed pole [176, 189, 175], against 202.3 and 176.9 without.
 
 Visible techs per run (after site and expedition filters; doctrine rivals
 and breakthrough placeholders counted): robotic mare 84, pole 85, lava

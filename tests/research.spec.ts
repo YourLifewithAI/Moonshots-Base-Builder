@@ -527,7 +527,7 @@ test('save migration: a 34-tech save loads with retired ids refunded and the que
   expect(s.stats.produced.metals).toBe(0);
   expect(s.survey.outposts).toEqual([]);
   expect(hasAlert(s, /^RESEARCH TREE UPDATED — 5 retired techs refunded 990≡$/)).toBe(true);
-  expect(hasAlert(s, /^RESEARCH TREE EXPANDED — 45 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(hasAlert(s, /^RESEARCH TREE EXPANDED — 47 new techs; nothing you researched is lost$/)).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -573,7 +573,7 @@ test('save migration: a 47-tech save keeps its era, research and queue; the new 
   expect(r.s.researchQueue).toEqual(['lunarDataCenter']);
   expect(r.s.researchSpent.lunarDataCenter).toBe(120);
   expect(r.s.data).toBe(legacy.data); // nothing refunded, nothing lost
-  expect(hasAlert(r.s, /^RESEARCH TREE EXPANDED — 45 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(hasAlert(r.s, /^RESEARCH TREE EXPANDED — 47 new techs; nothing you researched is lost$/)).toBe(true);
   // new techs appear in their eras: the open ones researchable, the rest era-locked
   expect(r.v.cards.bifacialCells.state).toBe('available');
   expect(r.v.cards.deployableRadiators.state).toBe('available');
