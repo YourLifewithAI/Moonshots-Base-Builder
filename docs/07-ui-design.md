@@ -82,10 +82,25 @@ Contextual, not persistent: `#inspector` (right edge, on selection),
 `#tooltip` (anchored to hovered palette card), `#place-hint` (above palette
 during placement: `SOLAR ARRAY · 12◆ (112→100) · +10 kW · R rotate · ⇧ keep
 placing`, then the blocked reason, which flashes when a blocked spot is
-clicked), `#pause-veil` (center), floaters (Islanders-style mono deltas: the
+clicked; the road the placement lays, `ROAD 6 cells · 12 rover-s to sinter,
+before it rises`, its cells drawn on the ground; and the early smelter trap,
+`Leaves 39◆ — keep 50◆ for your first Regolith Smelter; research Regolith
+Smelting to unlock it` with `A click asks first; a second builds it
+anyway`), `#pause-veil` (center), floaters (Islanders-style mono deltas: the
 price rises from the pad it was paid for, 1.4 s), and `#menu` (§12).
 Shift-click keeps placing; a plain click places once. A locked card opens
-the research tree on the tech that unlocks it.
+the research tree on the tech that unlocks it. A card whose price would leave
+less than the first smelter costs wears a dashed edge before it is picked up,
+and its tooltip says why.
+
+**The road tool** (`player/roadTool.ts`; docs/15 §4). **[N]**, or the ROAD
+button at the end of the palette's tabs, starts it; `#road-hint` takes the
+placement hint's place. Press on an open road cell and drag: the road the
+rovers would lay is drawn on the ground with `ROAD 5 cells · 10 rover-s to
+sinter · release to lay`; release lays it (a click on the start, then a click on the end, does the
+same). **Alt**-drag marks road cells in a box to remove, and the hint warns
+first when that would leave a structure without a road to its door.
+Right-click or Esc stops.
 
 **Fleet control** (`ui/fleetPanel.ts`, `player/fleetTarget.ts`). Construction
 rovers are selectable: a click on one (by instance, or within 14 px on screen
@@ -324,7 +339,9 @@ row, or the box on any card. Experienced players skip it entirely.
   - *Look for it*, the tech's `visual` line (what changes on the
     buildings);
   - *Next*, the one thing to do, such as `Build it: Industry tab →
-    Regolith Smelter`.
+    Regolith Smelter`. Until the smelter is researched, every card's Next
+    begins `No smelter yet: research Regolith Smelting next — without one
+    the metals run out.`
 
   Cards never pause; they queue, one at a time, and Esc dismisses the
   current one.
@@ -388,7 +405,7 @@ rebuild freely.
 
 ## 12. Menu and sound (`menu.ts`, `audio/sfx.ts`)
 
-**Esc** closes one thing at a time — a targeting mode, placement, the
+**Esc** closes one thing at a time — a targeting mode, the road tool, placement, the
 inspector, the rover inspector, a resource panel or the Builder panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
@@ -434,7 +451,7 @@ two command views move differently (06 §9, §12.6):
 | F · H | glide to the selection (closer) · home to the Lander | the same |
 
 Everything else — R, Shift-click, Ctrl-click (order), Enter while placing,
-Esc, Space, 1/2/3, T, M, I, B, Tab and the on-foot keys — is the same in
+Esc, Space, 1/2/3, T, M, I, B, N, Tab and the on-foot keys — is the same in
 both.
 
 Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio

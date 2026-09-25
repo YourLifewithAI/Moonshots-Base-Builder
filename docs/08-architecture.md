@@ -29,6 +29,9 @@ src/
                           maintenance, the [B] view; economy step 12 returns AutoRequests
     siting.ts             the deterministic site chooser shared by orders and rules (+ Feed Planner aim)
     flowBook.ts           per-resource made / want / spend averages (supply against demand)
+    roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads
+    roadActions.ts        the road tool's actions (lay, remove) and their alerts
+    spots.ts              where each rover stands on the roads: its bay, a site's door, a road's frontier
     daynight.ts           compressed lunar clock → DayInfo {sunFactor, elevation, night}
     save.ts               SaveBlob ⇄ idb-keyval ('mbb-save-v1') with localStorage fallback
     rng.ts                mulberry32 seeded PRNG + string hash
@@ -42,6 +45,7 @@ src/
     sites.ts              3 landing sites, every mechanical modifier
     milestones.ts         10 ordered goals (the tutorial) + swarm bands
     automation.ts         the Builder's rule table (RULES), families, AUTO constants, rule texts
+    roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
     chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds (classic: faceted)
@@ -62,7 +66,8 @@ src/
     scaffold.ts           construction scaffold line geometry
     ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
     overlays.ts           draped placement grid, network radius rings, selection bracket
-    placement.ts          ghost preview + checkPlacement validity chain + site build costs
+    placement.ts          ghost preview + checkPlacement validity chain (its road too) + site build costs
+    cellPreview.ts        road cells a placement or the road tool would lay (or remove), on the ground
     berms.ts              Regolith Shielding berms draped round shielded footprints
   world/
     renderer.ts           WebGLRenderer + camera (High detail: AgX, PCF shadows; classic: MSAA, no shadows)
@@ -75,7 +80,10 @@ src/
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
                           classic = plain, no ladder; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
-    rovers.ts             construction-robot fleet: docks, site assignment, corner-hopping paths
+    rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads
+    haulers.ts            excavators away from their pads, following the sim's road legs
+    traffic.ts            units on the road cells: lane holds, excavator gates, queues, the deadlock breaker
+    roads.ts              the road mesh: merged draped strips, markings by tier, beacon posts, pending cells
     dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)
     events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
     swarm.ts              Dyson-swarm glints near the sun, growing with swarm %
@@ -86,6 +94,7 @@ src/
     walk.ts               first-person controller: lunar gravity, capsule vs AABBs, lope bob, landing dip
     modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° or 20° iso / 70°)
     footprints.ts         instanced bootprint ring buffer
+    roadTool.ts           the road tool [N]: drag out a road from the network, Alt-drag removes
   ui/
     tokens.css / ui.css   design tokens + HUD layout (see 07)
     stores.ts             nanostores atoms — the one-way sim → UI bridge

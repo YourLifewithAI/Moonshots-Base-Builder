@@ -1303,7 +1303,7 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'Replacing is faster than repairing, and dearer.',
   },
   maglevFreight: {
-    id: 'maglevFreight', era: 7, lane: 'power', name: 'Maglev Freight Lines', short: 'Maglev Freight',
+    id: 'maglevFreight', era: 7, lane: 'robotics', name: 'Maglev Freight Lines', short: 'Maglev Freight',
     costData: 1100, costGoods: { chips: 10 }, requires: ['guidewayRails'],
     effects: [
       { kind: 'road', speedMult: 1.3, dustMult: 0 },

@@ -511,17 +511,21 @@ visible *game rule* — the fleet size, who is building what, which machines
 are running, when a volley or a shipment happens. Nothing here changes the
 simulation; it only reads the state.
 
-**Construction rovers** (`world/rovers.ts`). One instanced rover per bot in
-`state.bots.total`, docked at the structures that supply them (two at the
-Lander, two per Robotics Bay, self-assembled extras at the bays), parked in
-a row off the dock's side. The economy gives every assigned site one bot;
-that rover drives out (4.5 m/s cruise, 3 m/s², 2.4 rad/s turn limit — heading
-follows velocity), works at the site's nearest wall — a slow shuffle along it,
-a 2 cm bob, a small yaw wobble — and drives home to park when the site
-completes. Paths are straight legs that hop round the corner of any footprint
-in the way. The chassis sits on the heightfield, pitched and rolled to the
-ground under its wheels. Motion runs on game time: pause freezes the fleet,
-×10 speeds it up with everything else.
+**Construction rovers** (`world/rovers.ts`). One instanced rover per unit in
+the sim's roster (`state.rovers`), docked at the structures that supply them
+(two at the Lander, three per Robotics Bay). A docked rover parks nose in on
+a bay beside its dock's door, two to a bay cell, each in its own slot; a dock
+out of bays keeps the rest inside. A rover with work drives out along the
+roads (docs/15) in the right-hand lane — 4.5 m/s cruise on a sintered road,
+faster with each roadway tier, 3 m/s², 2.4 rad/s turn limit — backing out of
+its bay first and turning on the spot where its way sets off away from its
+heading. It works at its site's door (or at the frontier of the road it
+sinters): a slow shuffle along the road, a 2 cm bob, a small yaw wobble —
+and drives home to park when the work is done. The ground traffic
+(`world/traffic.ts`) shares the road cells out, so rovers queue, pass in
+opposite lanes and give way to excavators. The chassis sits on the
+heightfield, pitched and rolled to the ground under its wheels. Motion runs
+on game time: pause freezes the fleet, ×10 speeds it up with everything else.
 
 - Rovers never enter the shadow map (a moving caster would re-render it every
   frame). A soft contact decal smeared down-sun — `min(7 m, 1.4 m / tan

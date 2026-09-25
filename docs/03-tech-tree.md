@@ -149,6 +149,7 @@ Opens with 4 techs of era 2, or 2 plus the deed: **200⚙ fabricated**.
 | **Bunk Racks**<br><sub>crew tech (robotic: after Cohabitation)</sub> | ⌂ | 278 | — | — | +1 housing: Habitat Module | −2 morale: Habitat Module | Habitats bolt a bunk annex onto their airlock. |
 | **Automated Excavation** | ◉ | 278 | 10⚙ | Build Orders | NEW RULE Excavation: +1 Regolith Excavator when regolith demand outruns supply by 6▲/min for 60 s (cap 6)<br>NEW RULE Excavation: +1 Ice Harvester when water demand outruns supply by 1.2≈/min for 60 s (cap 3) | the builder spends your stock unasked: 16◆ 4⚙ per Regolith Excavator<br>−1 kW: Robotics Bay | Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof. |
 | **Site Survey AI** | ▣ | 278 | — | Build Orders, Prospecting Rovers | auto sites weigh deposits, peaks of light and haul lanes (before: distance only) | +20% upkeep: Robotics Bay | A survey drone rests on a pad on each Robotics Bay roof. |
+| **Basalt Paving** | ◆ | 278 | — | Regolith Smelting | +25% road travel (rovers and excavators)<br>−50% road dust | +20% road sintering time a cell | The roads turn to dark basalt pavers with a pale centre line. |
 
 ### Era 4 · CHIP FABRICATION
 
@@ -194,6 +195,7 @@ Opens with 4 techs of era 4, or 2 plus the deed: **50▣ chips fabbed**.
 | **Gravity Gradiometry** | ◎ | 522 | — | Neutron Spectrometry | survey data ×1.2 | −1 kW: Lander | The Lander raises a gravimeter mast. |
 | **Automated Smelting & Refining** | ◉ | 580 | 20⚙ | Automated Excavation, Silicon Refining | NEW RULE Smelting: +1 Regolith Smelter when metals demand, builds included, outruns supply for 90 s (cap 4)<br>NEW RULE Smelting: +1 Silicon Refinery when silicon demand outruns supply for 90 s (cap 3)<br>NEW RULE Smelting: +1 Storage Yard when a full store idles its producers and is too small for the research queued (60 s) (cap 4) | the builder spends your stock unasked: 32◆ 8⚙ per Regolith Smelter<br>+10% upkeep: Regolith Smelter, Silicon Refinery | Silicon Refineries grow an ore-sampler arm over the feed hopper. |
 | **Feed Planner** | ▣ | 580 | — | Site Survey AI | excavators re-aimed at the feed the furnaces want, as far as the haul pays (opt one out in its panel) | longer hauls carry less<br>+10% draw: Regolith Excavator | Excavators carry an assay drill beside the bucket. |
+| **Guidance Beacons** | ◆ | 580 | 5▣ | Basalt Paving | +10% road travel (rovers and excavators)<br>+25% road travel at night | +15% road sintering time a cell | Beacon posts line the road edges and light up at night. |
 
 ### Era 6 · HUMAN HABITATION
 
@@ -217,6 +219,7 @@ Opens with 4 techs of era 5, or 2 plus the deed: **a Data Center held a full nig
 | **Launch-Site Survey** | ↑ | 1530 | — | Orbital Prospector | build time ×0.75: Mass Driver, Propellant Plant | −1 kW: Lander | Mass Drivers and Propellant Plants rise on staked, surveyed pads with reflector posts. |
 | **Automated Fabrication** | ◉ | 1700 | 10▣ | Automated Smelting & Refining, Parts Fabrication | NEW RULE Fabrication: +1 Parts Fabricator when parts demand outruns supply for 90 s (cap 3)<br>NEW RULE Fabrication: +1 Chip Fab when research waits on chips for 120 s (cap 3)<br>NEW RULE Fabrication: +1 Robotics Bay when 2 sites wait for a rover for 120 s (cap 3) | the builder spends your stock unasked: 48◆ per Parts Fabricator<br>+20% upkeep: Parts Fabricator | Parts Fabricators get a gantry crane across the roof. |
 | **Predictive Scheduling** | ▣ | 1700 | 10▣ | Automated Power, Lunar Data Center | rules act on forecasts while a Data Center runs: batteries before dusk, sites still welding counted, dwell ×0.5 | reactive again whenever no Data Center runs<br>+10% draw: Data Center | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. |
+| **Guideway Rails** | ◆ | 1700 | 30⚙ | Guidance Beacons | +30% excavator speed on roads | +20% road sintering time a cell | Twin steel rails run down the centre of the roads. |
 
 ### Era 7 · SWARM INDUSTRY
 
@@ -238,6 +241,7 @@ Opens with 4 techs of era 6, or 2 plus the deed: **two outposts operated a full 
 | **Laser Ranging** | ◎ | 1150 | — | Far-Side Relay | survey data ×1.2 | −1.5 kW: Lander | The Lander adds a laser-ranging telescope dome. |
 | **Self-Expanding Base** | ◉ | 1294 | 10▣ 40⚙ | Automated Fabrication, Site Survey AI | NEW RULE Network: +1 Relay Mast at the network edge when a rule finds no ground for 60 s (cap 4) | the builder spends your stock unasked: 16◆ 4⚙ per Relay Mast<br>+30% draw: Relay Mast | Relay Masts wear a beacon crown and a cable reel at the foot. |
 | **Maintenance Automation** | ▣ | 1294 | 30⚙ | Automated Fabrication | parts triage: short of parts, priority 0 is paid first · machines worn ≥40% for a lunar day replaced · tripped overclocks re-armed once healed | a replacement costs a new build, less half the old one’s price<br>+30% upkeep: Robotics Bay | Robotics Bays get a service crane arm over the charging rover. |
+| **Maglev Freight Lines** | ◉ | 1265 | 10▣ | Guideway Rails | +30% road travel (rovers and excavators)<br>no road dust | +25% road sintering time a cell | A glowing coil strip runs down the centre of the roads. |
 
 On robotic runs Automated Life Support, Crew Wellness Program, Galley Garden also resolve into this era.
 
@@ -265,7 +269,7 @@ Opens with 4 techs of era 7, or 2 plus the deed: **25▰ manufactured**.
 | 7 | How does a foil reach orbit? | Electromagnetic Mass Driver / Propellant Depot | ILMENITE PLAINS: Driver: the equator gives it ×1.5.<br>SHACKLETON RIM: Propellant: it ignores the pole’s ×0.6.<br>MARIUS HILLS TUBE: A split. |
 | 8 | What is the swarm for? | Power Beaming Return / Von Neumann Foundry | — |
 
-106 techs: 103 researchable from the start of their era, 3 breakthroughs,
+110 techs: 107 researchable from the start of their era, 3 breakthroughs,
 6 doctrines, 47 insights.
 <!-- END GENERATED -->
 
