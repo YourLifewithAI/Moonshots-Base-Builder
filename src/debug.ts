@@ -55,6 +55,7 @@ function api(game: Game) {
     setPriority: (id: number, priority: 0 | 1 | 2 | 3) => game.actions.push({ kind: 'setPriority', id, priority }),
     setEnabled: (id: number, enabled: boolean) => game.actions.push({ kind: 'setEnabled', id, enabled }),
     setAutomated: (id: number, automated: boolean) => game.actions.push({ kind: 'setAutomated', id, automated }),
+    setAgentCover: (on: boolean) => game.actions.push({ kind: 'setAgentCover', on }),
     demolish: (id: number) => game.actions.push({ kind: 'demolish', id }),
     buildNext: (id: number) => game.actions.push({ kind: 'buildNext', id }),
     /** open the inspector on a building (null closes it) */

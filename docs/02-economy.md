@@ -212,6 +212,18 @@ Settlers who reach a robotic base find its stations agent-run; the Lander's
 "Crew all eligible stations" hands them over in priority order while free
 hands last.
 
+**Hands, not beds, run out first.** Every settler aboard works a station, so a
+big crewed base wants far more seats than it has crew. The probe's crewed mare
+game wants about 34 seats in Era 6 with 14–15 aboard. Beds only cap arrivals.
+
+| Rule | Detail |
+|---|---|
+| Order | Workers go to priority 0 first, then 1, 2 and 3 (id breaks ties). Crewed generators go before everything else. |
+| Stand-by | A station whose storage is full stands by and takes no workers. |
+| Agents cover (economy step 3.5) | Once stations may run on agents (Construction Robotics, or settlers on a robotic base), a station left short-handed goes agent-run from the next tick, at the agents' power, marked `agentCover`. One alert per type: `AGENTS COVER …`. |
+| Hand-back | Every 30 s, the workers still free take covered stations back, priority first. |
+| The player wins | A station set to Crewed by hand (`crewPinned`) is never covered. The Crew panel's checkbox turns the cover off for the whole base (`s.agentCover`; unset = on). |
+
 **Crew tiers (CUT — the Anno 1800 model).** Full design: three tiers, each more
 productive and more demanding, each *requiring the lower tiers to keep existing*:
 

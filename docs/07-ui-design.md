@@ -180,6 +180,11 @@ panel adds its services: the ice survey, Earth shipments (showing the transit
 and morale cost the next order would actually take), and *Crew all eligible
 stations* once settlers are aboard. Same template everywhere; nothing to relearn.
 
+**Crew shortfalls are explained, not just shown.**
+- **Crew chip.** It reads crew aboard / beds powered. It turns bright when a station idles for want of crew, and its tooltip gives the seats the crewed stations want.
+- **Crew panel.** It adds *At stations*: seats wanted, crew aboard, stations agents are covering, and how many idle. It also has the *Agents cover short-handed stations* checkbox, once agents may run stations.
+- **Inspector.** A short-handed station reads `IDLE — no crew free (19 aboard, stations want 34)`, with a line on what to do: set it Autonomous, lower its priority number, or grow the crew. A covered station reads `OPERATING · AUTONOMOUS · COVERING FOR CREW`.
+
 ## 6. Research tree and Lunar Map (`techTree.ts`, `lunarMap.ts`)
 
 Both are opaque full-screen DOM/SVG overlays over a still-running sim. They
