@@ -88,7 +88,7 @@ test('render ladder: FX 0-3 and safe mode draw lit frames without shader errors'
     { fx: 1, type: 'excavator', gx: 120, gz: 126 },
     { fx: 2, type: 'lab', gx: 135, gz: 133 },
     { fx: 3, type: 'storageYard', gx: 121, gz: 132 },
-    { fx: 'safe', type: 'habitat', gx: 126, gz: 132 },
+    { fx: 'safe', type: 'habitat', gx: 129, gz: 133 }, // off the Lander's apron road (docs/15)
   ];
   for (const s of stages) {
     if (s.fx === 'safe') await page.evaluate(() => window.__game.enableSafeMode());

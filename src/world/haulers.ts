@@ -214,6 +214,11 @@ export class Haulers implements Driver {
         a.s = 0;
         const p = pointAt(a.pts, a.arcs, a.s);
         v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
+        // digging its own pad: squared up on it, as the building instance draws it
+        if (h.phase === 'dig' && digsHome(b) && Math.hypot(h.x - pad[0], h.z - pad[1]) < 0.3) {
+          v.yaw = v.aim = padYaw;
+          a.fx = Math.cos(padYaw); a.fz = -Math.sin(padYaw);
+        }
         this.traffic?.place(a);
       }
       v.simV = driving && !yielding ? speed : 0;

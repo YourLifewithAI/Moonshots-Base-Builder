@@ -661,6 +661,7 @@ test('propellant plant: rockets launch from the pole at full rate', async ({ pag
     g.grantResources({ metals: 200, parts: 60, silicon: 40, water: 300, oxygen: 200 });
     const c = near('propellantPlant', 14, -2, undefined, 3, 2);
     g.placeBuilding('propellantPlant', c!.gx, c!.gz);
+    g.finishRoads(); // its road open: built within the 320 s (docs/15)
     powered(320);
     const plant = g.getState().buildings.find((b: any) => b.type === 'propellantPlant');
     const l0 = g.getState().resources.launch;

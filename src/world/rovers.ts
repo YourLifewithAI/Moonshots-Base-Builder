@@ -416,7 +416,8 @@ export class RoverFleet implements Driver {
     const there = a.s >= end - 1e-6;
     // heading: a turn on the spot, else along its lane (turn-rate limited); once there it holds it
     const want = a.pivot ? r.aim : there ? r.yaw : this.heading(r, a, a.s);
-    if (!a.pivot || a.pivotOk) r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
+    // it turns on the spot only as a pivot (its sweep held); otherwise only while it rolls
+    if (a.pivot ? a.pivotOk : a.v > 0.05) r.yaw += clamp(wrap(want - r.yaw), -TURN * dt, TURN * dt);
     a.fx = Math.sin(r.yaw); a.fz = Math.cos(r.yaw);
     // reached a slot inside the dock: gone in
     if (there && r.spot?.inside && !r.inside) {

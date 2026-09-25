@@ -379,14 +379,16 @@ export class Traffic {
   }
 
   /** Road cells a unit's box touches at a pose (a wide unit's overhang on corners). */
-  private box(a: Agent, x: number, z: number, fx: number, fz: number, out: Map<number, Mode>) {
+  private box(a: Agent, x: number, z: number, fx: number, fz: number, out: Map<number, Mode>, lead = 0) {
     const half = MAP_M / 2;
     const rx = fz, rz = -fx;
     // a hair inside the body, so a nose exactly on a cell's edge does not claim it
-    const n = Math.max(4, Math.ceil(a.front + a.back));
+    // (`lead`: that much further at the end it drives toward — a check's margin)
+    const f = a.front + (a.reverse ? 0 : lead), b = a.back + (a.reverse ? lead : 0);
+    const n = Math.max(4, Math.ceil(f + b));
     const e = 0.001;
     for (let i = 0; i <= n; i++) {
-      const l = -a.back + e + (a.front + a.back - 2 * e) * i / n;
+      const l = -b + e + (f + b - 2 * e) * i / n;
       for (const w of [-a.hw + e, 0, a.hw - e]) {
         const px = x + fx * l + rx * w, pz = z + fz * l + rz * w;
         const key = gridKey(Math.floor((px + half) / CELL_M), Math.floor((pz + half) / CELL_M));
@@ -502,7 +504,7 @@ export class Traffic {
       const p = pointAt(a.pts, a.arcs, a.s + ds);
       const cov = this.scratch;
       cov.clear();
-      this.box(a, p.x, p.z, a.fx, a.fz, cov);
+      this.box(a, p.x, p.z, a.fx, a.fz, cov, GAP);
       for (const k of cov.keys()) {
         if (a.held.has(k)) continue;
         const c = this.clash(a, k, WHOLE);

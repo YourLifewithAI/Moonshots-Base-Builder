@@ -68,6 +68,7 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  await page.evaluate(() => window.__game.finishRoads()); // their roads open: the timeline below is the builds' (docs/15)
 
   const before = await page.evaluate(() => window.__game.getState());
   // the excavator stands at ~80 s; its first bucket lands at the Lander a
@@ -80,6 +81,7 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // smelter needs research → complete tech, place, verify metals + oxygen byproduct
   await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
   expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
+  await page.evaluate(() => window.__game.finishRoads());
   const m0 = await page.evaluate(() => window.__game.getState());
   await page.evaluate(() => window.__game.advanceGameMinutes(3)); // build 96s, then smelt
   const m1 = await page.evaluate(() => window.__game.getState());

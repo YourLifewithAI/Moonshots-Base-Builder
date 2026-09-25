@@ -411,6 +411,7 @@ test('uplink share: six agent labs research at 5.2 × 0.225, exactly what resear
   await placeNear(page, [['lab', 6]]);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.finishRoads(); // their roads open: the robots weld from the start (docs/15)
     powered(240); // six labs, two robots, no arrays
     g.grantPower(5000);
     const a = g.getState();
@@ -451,6 +452,7 @@ test('tech mods reach the grid: Lander comms loads, agent tax, night draw, const
   await placeNear(page, [['lab', 1]]);
   const tax = await page.evaluate(() => {
     const g = window.__game!;
+    g.finishRoads(); // its road open: built by 80 s (docs/15)
     g.advanceGameSeconds(80);
     const draw = () => { g.advanceGameSeconds(1); return g.getState().power.demand; };
     const base = draw();
@@ -474,6 +476,7 @@ test('tech mods reach the grid: Lander comms loads, agent tax, night draw, const
     const g = window.__game!;
     g.completeTech('heavyConstructors');
     g.placeBuilding('solar', 132, 126);
+    g.finishRoads(); // its road open: welding from the first second (docs/15)
     const c0 = g.getState().buildings.find((b: any) => b.type === 'solar').construction;
     const p0 = g.getState().resources.parts;
     g.advanceGameSeconds(5);

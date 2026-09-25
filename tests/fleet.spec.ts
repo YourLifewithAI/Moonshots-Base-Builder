@@ -685,7 +685,8 @@ test('classic: the digger out on its haul wears the pad\'s upgrades and lights; 
     drained(640 - g.getState().simTime);
     const h = () => byType('excavator').haul;
     const padX = (byType('excavator').gx + 1) * 4 - 512, padZ = (byType('excavator').gz + 1) * 4 - 512;
-    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - padX, h().z - padZ) < 0.01 && h().t > 2); i++) {
+    // (well inside a 60 s dig, so the second of live frames below stays in it)
+    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - padX, h().z - padZ) < 0.01 && h().t > 2 && h().t < 50); i++) {
       drained(1);
     }
     g.setPaused(false); // a second of live frames: it squares up on its pad
