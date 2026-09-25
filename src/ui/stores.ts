@@ -169,7 +169,11 @@ export const $swarm = atom({
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
 /** note = the ghost's deposit line ('On high-Ti basalt — smelter feed ↑'), '' off deposits */
-export const $placing = atom<{ type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string; note?: string } | null>(null);
+export const $placing = atom<{
+  type: BuildingId | 'grade'; valid: boolean; reason: string; warn: string; note?: string;
+  /** the warning was clicked through once: the next click builds */
+  confirm?: boolean;
+} | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 /** a victory or defeat overlay is up: the world's screens and keys wait under it */

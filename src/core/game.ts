@@ -534,6 +534,12 @@ export class Game {
         sfx.play('invalid');
         return;
       }
+      if (p.type !== 'grade' && !this.placement.confirmed()) {
+        // a placement that would strand the base asks first: the hint says
+        // why, and a second click builds it anyway
+        $placeFlash.set($placeFlash.get() + 1);
+        return;
+      }
       if (p.type === 'grade') {
         // grading stays active: multiple passes are the point
         this.actions.push({ kind: 'grade', gx: p.gx, gz: p.gz });
@@ -846,8 +852,11 @@ export class Game {
     if (!free && !s.buildings.some((b) => b.type === 'smelter')) {
       const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * SITES[s.siteId].buildCostMult);
       if (s.resources.metals < smelterCost + 20) {
-        alert(s, `METALS LOW — a Regolith Smelter costs ${smelterCost}; without one you cannot make more`,
-          'warn', { panel: 'metals' });
+        // still locked: name the research it waits on
+        alert(s, this.mods.unlocked.has('smelter')
+          ? `METALS LOW — a Regolith Smelter costs ${smelterCost}◆; without one you cannot make more`
+          : `METALS LOW — research ${TECHS.regolithProcessing.name}, then build a smelter (${smelterCost}◆); without one you cannot make more`,
+        'warn', { panel: 'metals' });
       }
     }
   }
@@ -1319,7 +1328,7 @@ export class Game {
           this.placement.update(this.state, this.mods.unlocked,
             this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
           const p = this.placement.probe!;
-          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note });
+          $placing.set({ type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm });
         }
       } else {
         this.walk.update(dt);

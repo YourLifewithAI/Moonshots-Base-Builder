@@ -29,6 +29,8 @@ export interface PlacementProbe {
   reason: string;
   /** soft warning on a valid placement ('' = none) */
   warn: string;
+  /** the warning was clicked through once: the next click builds */
+  confirm?: boolean;
   /** the revealed deposit under the footprint centre, as a ghost line ('' = none) */
   note: string;
 }
@@ -42,14 +44,19 @@ export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<strin
 }
 
 /** Before any smelter exists, a placement that would leave too few metals to
- *  build one — without it there is no making more. A soft warning, never a block. */
-export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId): string {
+ *  build one — without it there is no making more. A soft warning, never a
+ *  block (the palette marks the card; the first click on the spot asks, the
+ *  second builds). `unlocked` given and the smelter not in it: the research
+ *  it waits on is named too. */
+export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId, unlocked?: ReadonlySet<BuildingId>): string {
   if (type === 'smelter' || state.buildings.some((b) => b.type === 'smelter')) return '';
   const cost = buildCost(type, site).metals ?? 0;
   if (cost <= 0) return '';
   const smelter = buildCost('smelter', site).metals ?? 0;
   const left = Math.floor(state.resources.metals - cost);
-  return left < smelter ? `Leaves ${left}◆ — a Smelter needs ${smelter}◆` : '';
+  if (left >= smelter) return '';
+  const locked = unlocked && !unlocked.has('smelter') ? `; research ${TECHS.regolithProcessing.name} to unlock it` : '';
+  return `Leaves ${left}◆ — keep ${smelter}◆ for your first Regolith Smelter${locked}`;
 }
 
 /** a site no robot has welded on yet: demolishing it cancels the order */
@@ -103,7 +110,16 @@ export class PlacementController {
     this.ghost = createGhost(geo);
     this.ghost.visible = false;
     this.scene.add(this.ghost);
-    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '', note: '' };
+    this.probe = { type, gx: 0, gz: 0, rot: 0, valid: false, reason: '', warn: '', note: '', confirm: false };
+  }
+
+  /** A click on a valid spot: false while it carries a warning not yet
+   *  clicked through (the first click asks, the second builds). */
+  confirmed(): boolean {
+    const p = this.probe;
+    if (!p || !p.warn || p.confirm) return true;
+    p.confirm = true;
+    return false;
   }
 
   rotate() {
@@ -294,5 +310,5 @@ export function checkPlacement(
       return { valid: false, reason: `Need ${amt} ${rid} — have ${Math.floor(have)}` };
     }
   }
-  return { valid: true, reason: '', warn: smelterWarning(state, site, type), note: known ? DEPOSIT_INFO[known.kind].ghost : '' };
+  return { valid: true, reason: '', warn: smelterWarning(state, site, type, unlocked), note: known ? DEPOSIT_INFO[known.kind].ghost : '' };
 }
