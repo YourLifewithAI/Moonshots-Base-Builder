@@ -9,6 +9,7 @@
 import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
+import { DESTINY_UPGRADES } from './destinyParts';
 import {
   BEACON, BODY, FOIL, GLASS, LAMP, PLATE, RADIATOR, TRIM, WINDOW,
   antenna, archWall, bands, bar, box, cyl, dome, domeBand, lathe, lattice, pane, pipe, radiator, vault,
@@ -1023,11 +1024,19 @@ const storageYard: Upgrade[] = [
   },
 ];
 
-export const UPGRADES: Partial<Record<BuildingId, Upgrade[]>> = {
+const LANE: Partial<Record<BuildingId, Upgrade[]>> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery, refinery, lab,
   roboticsBay, partsFab, reactor, recDome, chipFab, dataCenter, foilFactory, massDriver, relayMast,
   propellantPlant, storageYard,
 };
+
+/** Every type's upgrades: the lane techs' parts, then the destiny's (the
+ *  picks, the capstones, and the destiny buildings' own lists; destinyParts.ts). */
+export const UPGRADES: Partial<Record<BuildingId, Upgrade[]>> = Object.fromEntries(
+  [...new Set([...Object.keys(LANE), ...Object.keys(DESTINY_UPGRADES)])].map((t) => [
+    t, [...(LANE[t as BuildingId] ?? []), ...(DESTINY_UPGRADES[t as BuildingId] ?? [])],
+  ]),
+);
 
 /** Techs with a mesh part on this building type, in recipe order. */
 export function upgradeTechs(type: BuildingId): TechId[] {

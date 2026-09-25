@@ -12,8 +12,10 @@
  *                                                   a face over 5 m²: roofs,
  *                                                   plinths, stacks — the
  *                                                   orange stays an accent)
- *  with the solar wings' and arrays' frames silver and the Foil Factory's
- *  trim gold. The colours go into the instanced view's own `color`
+ *    foliage (LEAF)    greenhouse green
+ *  with the solar wings' and arrays' frames silver, the Foil Factory's trim
+ *  gold, the Server Monolith near-black with teal glass, the Drone Hive dark
+ *  and the Garden Dome's ribs silver. The colours go into the instanced view's own `color`
  *  attribute, so the shared recipe buffers stay High detail's.
  *
  *  Shader. One small ShaderMaterial, no patches, no loops, no derivatives,
@@ -22,8 +24,10 @@
  *  and per-instance state: unpowered = dark windows and no beacon, wear
  *  darkens, dust greys the PV glass, and fragments above the print cut are
  *  discarded under a warm band (the 3D-print reveal). Windows and lamps glow
- *  warm at their light level (lightLevel below, per instance in `iGlow`;
- *  −1 = follow the night, for rovers and moving parts). If a GPU rejects it,
+ *  at their light level (lightLevel below, per instance in `iGlow`;
+ *  −1 = follow the night, for rovers and moving parts), warm or cold by the
+ *  instance's `iWarm` (CLASSIC_WARM … CLASSIC_COLD), and flicker red while
+ *  its `iAlarm` is up. If a GPU rejects it,
  *  game.ts swaps in stock Lambert (classicFallbackMaterial) — the palette
  *  stays, the glow and the reveal go. */
 import * as THREE from 'three';
@@ -33,7 +37,7 @@ import { materials } from '../world/materials';
 import { classicLightUniforms } from '../world/classicLighting';
 import { CUT_NONE, buildingUniforms } from './buildingShader';
 import {
-  BEACON, BODY, FOIL, GLASS, LAMP, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
+  BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
 } from './meshKit';
 import type { PartId } from './recipes';
 
@@ -46,7 +50,8 @@ export function lightLevel(b: BuildingState, dark: number): number {
   return powered ? dark : 0;
 }
 
-export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell' | 'window' | 'lamp' | 'beacon' | 'foil' | 'road' | 'roadMark';
+export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell' | 'window' | 'lamp' | 'beacon' | 'foil'
+  | 'leaf' | 'road' | 'roadMark';
 type Palette = Record<PaletteKey, number>;
 
 /** sRGB, as authored (the classic renderer does no tone mapping) */
@@ -61,6 +66,8 @@ export const CLASSIC_PALETTE: Readonly<Palette> = {
   lamp: 0xfff1d6,
   beacon: 0xb02a22,
   foil: 0xd8a53a,
+  /** foliage under glass (LEAF): the Colony's green (docs/14 §4.4) */
+  leaf: 0x5f8f3f,
   /** the roads (world/roads.ts): sintered regolith, and their kerb and centre marks */
   road: 0xa8a299,
   roadMark: 0xe9e4d8,
@@ -74,11 +81,16 @@ export const PALETTE_OVERRIDES: Partial<Record<BuildingId | PartId, Partial<Pale
   solar: { trim: 0xb7bbc1 },
   dish: { trim: 0xb7bbc1 },
   foilFactory: { trim: 0xcf9d36 },
+  // the destiny buildings (docs/14 §4.4): near-black slabs with teal glass,
+  // a dark hive, the dome's silver ribs
+  serverMonolith: { hull: 0x23262b, window: 0x0f3a44 },
+  droneHive: { hull: 0x3a3f46 },
+  gardenDome: { trim: 0xc4c8ce },
 };
 
 const FINISHES: [Finish, PaletteKey][] = [
   [BODY, 'hull'], [RADIATOR, 'radiator'], [PLATE, 'panel'], [TRIM, 'trim'], [GLASS, 'cell'],
-  [WINDOW, 'window'], [LAMP, 'lamp'], [BEACON, 'beacon'], [FOIL, 'foil'],
+  [WINDOW, 'window'], [LAMP, 'lamp'], [BEACON, 'beacon'], [FOIL, 'foil'], [LEAF, 'leaf'],
 ];
 
 const near = (a: number, b: number) => Math.abs(a - b) < 0.012;
@@ -123,7 +135,12 @@ export function classicColors(src: THREE.BufferGeometry): THREE.BufferAttribute 
 
 /** window and lamp light, linear: a warm sodium-ish yellow (≈ #ffd494 on screen) */
 export const CLASSIC_WARM = new THREE.Color(1.0, 0.66, 0.29);
-const warm = `vec3( ${CLASSIC_WARM.r.toFixed(3)}, ${CLASSIC_WARM.g.toFixed(3)}, ${CLASSIC_WARM.b.toFixed(3)} )`;
+/** …and the machines' cold light (≈ #bfe9ff on screen): server cyan, the
+ *  Automation's night (docs/14 §4.4). Each instance mixes the two by its iWarm. */
+export const CLASSIC_COLD = new THREE.Color(0.52, 0.815, 1.0);
+const vec = (c: THREE.Color) => `vec3( ${c.r.toFixed(3)}, ${c.g.toFixed(3)}, ${c.b.toFixed(3)} )`;
+const warm = vec(CLASSIC_WARM);
+const cold = vec(CLASSIC_COLD);
 
 const VERT = /* glsl */`
 #define MBB_CLASSIC
@@ -131,6 +148,8 @@ attribute vec3 mat;
 #ifdef USE_INSTANCING
 	attribute vec4 iState;
 	attribute float iGlow;
+	attribute float iWarm;
+	attribute float iAlarm;
 #endif
 uniform vec3 uLightDir;
 uniform vec3 uLightColor;
@@ -146,10 +165,14 @@ void main() {
 	vec4 st = vec4( 1.0, 0.0, 0.0, ${CUT_NONE.toFixed(1)} );
 	float glow = uBldNight;
 	float phase = 0.0;
+	float warmth = 1.0;
+	float alarm = 0.0;
 	mat4 m = modelMatrix;
 	#ifdef USE_INSTANCING
 		st = iState;
 		glow = iGlow < 0.0 ? uBldNight : iGlow;
+		warmth = iWarm;
+		alarm = iAlarm;
 		m = modelMatrix * instanceMatrix;
 		phase = fract( dot( instanceMatrix[ 3 ].xz, vec2( 0.1373, 0.2719 ) ) );
 	#endif
@@ -170,9 +193,12 @@ void main() {
 	vec3 light = mix( uGround, uSky, 0.5 + 0.5 * n.y ) + uLightColor * max( dot( n, uLightDir ), 0.0 );
 	float g = clamp( win * powered * glow, 0.0, 1.0 );
 	vLit = c * light * ( 1.0 - g * glass );
-	vEmit = ${warm} * g * mix( 0.55, 1.15, glass );
+	vEmit = mix( ${cold}, ${warm}, clamp( warmth, 0.0, 1.0 ) ) * g * mix( 0.55, 1.15, glass );
 	float blink = step( 0.9, fract( uBldTime * 0.5 + phase ) );
 	vEmit += vec3( 1.0, 0.13, 0.08 ) * ( beacon * powered * blink * ( 0.9 + 0.6 * uBldNight ) );
+	// the alarm hook (instances.ts alarmOf): windows and lamps flicker red, day or night
+	float flick = step( 0.5, fract( uBldTime * 2.3 + phase ) ) * step( 0.5, mat.z );
+	vEmit += vec3( 1.0, 0.16, 0.08 ) * ( clamp( alarm, 0.0, 1.0 ) * flick * 0.9 );
 	vY = position.y;
 	vCut = st.w;
 	gl_Position = projectionMatrix * viewMatrix * m * vec4( position, 1.0 );

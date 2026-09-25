@@ -2,7 +2,8 @@
  *  place so the game loop makes a single call: the rover fleet, the hauling
  *  excavators, regolith
  *  dust, launch and resupply events, research made visible (berms, the
- *  swarm's glints, cleaner panels) and the astronaut's bootprints.
+ *  swarm's glints, cleaner panels), the destiny's links and EVA walkers
+ *  (docs/14 §4.3), and the astronaut's bootprints.
  *
  *  Each part fails soft: an exception disables that part (its objects are
  *  hidden) and the game carries on. */
@@ -20,6 +21,8 @@ import { Haulers } from './haulers';
 import { Traffic } from './traffic';
 import { RoadMesh } from './roads';
 import { SwarmGlints } from './swarm';
+import { Links } from '../buildings/links';
+import { Settlers } from './settlers';
 
 export interface LifeFrame {
   /** real seconds since the last frame */
@@ -44,8 +47,10 @@ const FILM_MAX = 0.35;
 const FILM_TAU = CYCLE_S;                  // uncleaned: a lunar day to settle
 const FILM_TAU_MITIGATED = 60;             // electrostatic curtains
 const NEAR_M = 45;
+const EMPTY: ReadonlySet<number> = new Set();
 
-type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film';
+type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film'
+  | 'links' | 'settlers';
 
 export class BaseLife {
   readonly group = new THREE.Group();
@@ -61,6 +66,10 @@ export class BaseLife {
   readonly berms: Berms;
   readonly swarm = new SwarmGlints();
   readonly prints: Footprints;
+  /** the destiny's links: walkways and conveyor spines (docs/14 §4.3) */
+  readonly links: Links;
+  /** the Colony's EVA walkers (docs/14 §4.3) */
+  readonly settlers: Settlers;
   private film = new Map<number, number>();
   private filmAcc = 0;
   private failed = new Set<Part>();
@@ -75,10 +84,12 @@ export class BaseLife {
     this.resupply = new ResupplyFx(hf);
     this.berms = new Berms(hf);
     this.prints = new Footprints(hf);
-    this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = requestShadowUpdate;
+    this.links = new Links(hf);
+    this.settlers = new Settlers(hf);
+    this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = this.links.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
-      this.berms.mesh, this.swarm.group, this.prints.mesh);
+      this.berms.mesh, this.swarm.group, this.prints.mesh, this.links.group, this.settlers.group);
   }
 
   update(f: LifeFrame) {
@@ -98,6 +109,8 @@ export class BaseLife {
     this.run('resupply', () => this.resupply.update(s, this.earthAzim, vdt));
     this.run('launch', () => this.launch.update(vdt));
     this.run('berms', () => this.berms.update(s));
+    this.run('links', () => this.links.update(s));
+    this.run('settlers', () => this.settlers.update(gdt, s, this.failed.has('links') ? EMPTY : this.links.ground, f.sunDir, f.sunLight));
     this.run('swarm', () => this.swarm.update(f.camera, f.sunDir, s.swarmPct, f.dt));
     if (f.walker) this.run('prints', () => this.prints.update(f.walker!));
     this.run('film', () => this.updateFilm(s, gdt));
@@ -142,6 +155,7 @@ export class BaseLife {
       const objects: Partial<Record<Part, THREE.Object3D>> = {
         rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
         resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group, prints: this.prints.mesh,
+        links: this.links.group, settlers: this.settlers.group,
       };
       const o = objects[part];
       if (o) o.visible = false;
@@ -188,6 +202,8 @@ export class BaseLife {
       berms: this.berms.count,
       swarmGlints: this.swarm.count,
       footprints: this.prints.count,
+      links: this.links.info(),
+      settlers: this.settlers.info(),
       panelFilm: Math.round(film * 1000) / 1000,
       failed: [...this.failed],
     };

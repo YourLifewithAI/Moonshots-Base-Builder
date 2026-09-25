@@ -305,3 +305,22 @@ export function unpinRover(s: GameState, roverId: number): ActionResult {
   r.site = null;
   return OK;
 }
+
+// ─────────────── drones (docs/14 §4.3): the Drone Hive's units fly ───────────────
+// Additive: the roster, the assignments and every rule above are the same for
+// both kinds. A unit docked at a Drone Hive is a drone: it flies straight to
+// its work and back (world/rovers.ts), off the roads, and never enters the
+// ground traffic; every other unit is a ground rover and keeps to the roads
+// (docs/15). The sim has no travel time for either kind, so this is a
+// classification only — deterministic, and pacing-neutral.
+
+export type UnitKind = 'rover' | 'drone';
+
+/** how a drone flies (the visuals): straight at `speed` m/s, cruising 6–10 m up */
+export const DRONE = { speed: 6, accel: 3, climb: 2.5, cruiseMin: 6, cruiseMax: 10 };
+
+/** The kind of a roster unit: a drone if its dock is a Drone Hive. */
+export function unitKind(s: Pick<GameState, 'buildings'>, r: Pick<RoverUnit, 'home'>): UnitKind {
+  const dock = s.buildings.find((b) => b.id === r.home);
+  return dock?.type === 'droneHive' ? 'drone' : 'rover';
+}

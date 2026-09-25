@@ -12,14 +12,22 @@
  *  rolled to it. The selected rover wears a ring; rovers are picked by
  *  instance (or by nearness on screen).
  *
+ *  Units docked at a Drone Hive are drones (core/fleet.ts unitKind): drawn
+ *  by DroneFlight at the end of this file, they fly straight to their work
+ *  and take no road slot and no part in the ground traffic.
+ *
  *  Rovers use the building material (same program, finishes, lamps and a
  *  blinking beacon; unlit twin in safe mode) and cast no shadow-map shadow —
  *  a moving caster would re-render the map every frame. A soft decal smeared
  *  down-sun stands in for it. Motion runs on game time: pause freezes them. */
 import * as THREE from 'three';
-import type { GameState } from '../core/state';
+import type { GameState, RoverUnit } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { cellAt, cellCentre, cellKey, doorCell, isOpen, roadMap, roadRoute } from '../core/roads';
+import { cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, roadRoute } from '../core/roads';
+import { DRONE, unitKind } from '../core/fleet';
+import { BUILDINGS } from '../data/buildings';
+import { centerOf } from '../buildings/instances';
+import { HIVE_DECK_Y, HIVE_PADS } from '../buildings/recipes';
 import { roverSpots, type RoverSpot } from '../core/spots';
 import { ROAD } from '../data/roads';
 import { TECHS, type TechId } from '../data/techs';
@@ -203,6 +211,10 @@ export class RoverFleet implements Driver {
   private right = new THREE.Vector3();
   /** the last update was paused: the fleet stands still, and is heard so */
   private frozen = false;
+  /** the Drone Hive's units (core/fleet.ts unitKind): they fly (docs/14 §4.3) */
+  readonly drones: DroneFlight;
+  private hiveUnits = new Set<number>();
+  private droneUnits: RoverUnit[] = [];
   private soundList: RoverSound[] = [];
 
   constructor(private hf: Heightfield, traffic?: Traffic) {
@@ -235,6 +247,7 @@ export class RoverFleet implements Driver {
     this.ring.visible = false;
     this.ring.frustumCulled = false;
     this.group.add(this.mesh, this.decals, this.ring);
+    this.drones = new DroneFlight(hf, this.group);
   }
 
   private ring: THREE.Mesh;
@@ -259,12 +272,18 @@ export class RoverFleet implements Driver {
     this.state = state;
     this.speed = SPEED * roadSpeedFor(state.techsDone, night);
     const sig = spotSignature(state);
-    if (sig !== this.spotSig) {
-      this.spotSig = sig;
-      this.spots = roverSpots(state);
-    }
+    const fresh = sig !== this.spotSig;
     const away = state.survey?.active?.rover;
-    const roster = (state.rovers ?? []).filter((u) => u.id !== away).slice(0, MAX_ROVERS);
+    if (fresh) {
+      this.spotSig = sig;
+      // hive units fly: they take no road slot, and leave the ground to the rovers
+      const all = state.rovers ?? [];
+      this.hiveUnits = new Set(all.filter((u) => unitKind(state, u) === 'drone').map((u) => u.id));
+      this.droneUnits = all.filter((u) => this.hiveUnits.has(u.id) && u.id !== away);
+      this.spots = roverSpots(this.hiveUnits.size ? { ...state, rovers: all.filter((u) => !this.hiveUnits.has(u.id)) } : state);
+    }
+    this.drones.sync(dt, state, this.droneUnits, fresh);
+    const roster = (state.rovers ?? []).filter((u) => u.id !== away && !this.hiveUnits.has(u.id)).slice(0, MAX_ROVERS);
     const next: Rover[] = [];
     for (const u of roster) {
       const spot = this.spots.get(u.id);
@@ -556,7 +575,8 @@ export class RoverFleet implements Driver {
     this.decals.instanceMatrix.needsUpdate = true;
     // picking reads fresh bounds: the rovers moved
     this.mesh.boundingSphere = null;
-    const sel = this.selected === null ? undefined : this.drawn.find((r) => r.id === this.selected);
+    this.drones.draw(sunDir, sunLight);
+    const sel = this.selected === null ? undefined : this.drawn.find((r) => r.id === this.selected) ?? this.drones.pose(this.selected);
     this.ring.visible = !!sel;
     if (sel) {
       const pulse = 1 + 0.06 * Math.sin(this.clock * 3);
@@ -569,23 +589,28 @@ export class RoverFleet implements Driver {
   pick(raycaster: THREE.Raycaster): { id: number; d: number } | null {
     const hit = raycaster.intersectObject(this.mesh, false).find((h) => h.instanceId !== undefined);
     const r = hit ? this.drawn[hit.instanceId!] : undefined;
+    const drone = this.drones.pick(raycaster);
+    if (drone && (!r || drone.d < hit!.distance)) return drone;
     return r ? { id: r.id, d: hit!.distance } : null;
   }
 
-  /** Where a rover is drawn (world), or null if it is away or unknown. */
+  /** Where a rover (or drone) is drawn (world), or null if it is away or unknown. */
   pose(id: number): { x: number; y: number; z: number; yaw: number } | null {
     const r = this.drawn.find((x) => x.id === id);
-    return r ? { x: r.x, y: this.hf.sample(r.x, r.z), z: r.z, yaw: r.yaw } : null;
+    return r ? { x: r.x, y: this.hf.sample(r.x, r.z), z: r.z, yaw: r.yaw } : this.drones.pose(id);
   }
 
-  /** Every drawn rover's position (screen-space picking of a small target). */
+  /** Every drawn rover's and drone's position (screen-space picking of a small target). */
   poses(): { id: number; x: number; y: number; z: number }[] {
-    return this.drawn.map((r) => ({ id: r.id, x: r.x, y: this.hf.sample(r.x, r.z) + 0.8, z: r.z }));
+    const out = this.drawn.map((r) => ({ id: r.id, x: r.x, y: this.hf.sample(r.x, r.z) + 0.8, z: r.z }));
+    this.drones.each((d) => out.push({ id: d.id, x: d.x, y: d.y + 0.4, z: d.z }));
+    return out;
   }
 
   /** Rooster tails behind moving rovers and print dust at working ones,
    *  nearest the camera first. */
   emitters(cam: THREE.Vector3, out: { e: DustEmitter; d: number }[]) {
+    this.drones.emitters(cam, out);
     for (const r of this.drawn) {
       const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw);
       const d = Math.hypot(r.x - cam.x, r.z - cam.z);
@@ -648,6 +673,8 @@ export class RoverFleet implements Driver {
       yaws: this.rovers.map((r) => Math.round(r.yaw * 100) / 100),
       selected: this.selected,
       ring: this.ring.visible,
+      /** the hive units, drawn as drones (docs/14 §4.3) */
+      drones: this.drones.info(),
     };
   }
 }
@@ -669,4 +696,277 @@ export function syncGround(t: Traffic, s: GameState) {
   const cells: [number, number][] = [];
   for (const c of s.roads ?? []) if (isOpen(c)) cells.push([c.gx, c.gz]);
   t.setRoads(sig, cells);
+}
+
+// ─────────────────────── drones (docs/14 §4.3) ───────────────────────
+
+const MAX_DRONES = 48;
+const DRONE_SCALE = 1.3;
+
+/** A quadcopter from the kit (about 200 △): a body, four arms and rotor
+ *  discs, skids, a nose lamp and a beacon. */
+function droneGeometry(): THREE.BufferGeometry {
+  const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
+    box(0.66, 0.2, 0.66, BODY, 0, 0.42, 0),
+    box(0.4, 0.05, 0.4, GLASS, 0, 0.545, 0),
+    box(0.2, 0.08, 0.05, LAMP, 0, 0.42, 0.34),
+    box(0.08, 0.08, 0.08, BEACON, 0, 0.6, -0.2),
+    bar([-0.25, 0.3, -0.3], [-0.25, 0.3, 0.3], 0.04, TRIM),
+    bar([0.25, 0.3, -0.3], [0.25, 0.3, 0.3], 0.04, TRIM),
+  ];
+  for (const [x, z] of [[-0.55, -0.55], [0.55, -0.55], [0.55, 0.55], [-0.55, 0.55]]) {
+    parts.push(bar([x * 0.35, 0.44, z * 0.35], [x, 0.5, z], 0.06, TRIM));
+    parts.push(cyl(0.34, 0.34, 0.025, PLATE, x, 0.54, z, 0, 0, 8));
+  }
+  // skids' feet
+  parts.push(box(0.06, 0.2, 0.06, TRIM, -0.25, 0.3, 0), box(0.06, 0.2, 0.06, TRIM, 0.25, 0.3, 0));
+  const g = merge(parts);
+  g.translate(0, -0.28, 0); // skids at y 0
+  g.scale(DRONE_SCALE, DRONE_SCALE, DRONE_SCALE);
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
+  return g;
+}
+
+interface Drone {
+  id: number;
+  x: number; y: number; z: number; yaw: number;
+  /** horizontal speed, m/s */
+  v: number;
+  /** where it is headed, and the height it hovers or perches at there */
+  gx: number; gy: number; gz: number;
+  /** its cruise height above the ground, m (6–10, by id) */
+  cruise: number;
+  site: number | null;
+  /** hovering over a road job's frontier (a free unit sinters roads too) */
+  job: boolean;
+  /** parked on its hive's deck (and settled there) */
+  perched: boolean;
+  working: boolean;
+  phase: number;
+  /** the hive it perches on and its pad there */
+  home: number;
+  pad: number;
+}
+
+/** The Drone Hive's units, drawn as quadcopters that fly straight at their
+ *  cruise height (docs/14 §4.3): off the roads and out of the ground
+ *  traffic. Parked, a drone perches on one of its hive's four deck pads;
+ *  sent to a site it climbs, flies straight over everything, hovers over
+ *  the site and prints from the air; on a road job it hovers over the
+ *  road's frontier. Game time, as the rovers: pause freezes them. No
+ *  shadow-map shadow: a soft decal on the ground below, fainter with
+ *  height. Allocation-free per frame. */
+export class DroneFlight {
+  readonly mesh: THREE.InstancedMesh;
+  private decals: THREE.InstancedMesh;
+  private decalMat: THREE.MeshBasicMaterial;
+  private list: Drone[] = [];
+  private byId = new Map<number, Drone>();
+  private clock = 0;
+  private m = new THREE.Matrix4();
+  private q = new THREE.Quaternion();
+  private e = new THREE.Euler(0, 0, 0, 'YXZ');
+  private p = new THREE.Vector3();
+  private s = new THREE.Vector3(1, 1, 1);
+  /** launches so far (the audio's data chirp) */
+  launches = 0;
+
+  constructor(private hf: Heightfield, group: THREE.Group) {
+    const geo = withInstanceState(droneGeometry(), MAX_DRONES);
+    // machines' light: cold (docs/14 §4.4)
+    (geo.getAttribute('iWarm').array as Float32Array).fill(0);
+    this.mesh = new THREE.InstancedMesh(geo, materials.get('building'), MAX_DRONES);
+    this.mesh.castShadow = false;
+    this.mesh.receiveShadow = true;
+    this.mesh.count = 0;
+    this.mesh.frustumCulled = false;
+    const plane = new THREE.PlaneGeometry(1, 1);
+    plane.rotateX(-PI / 2);
+    this.decalMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, alphaMap: blobTexture(), transparent: true, opacity: 0.35, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+    });
+    this.decals = new THREE.InstancedMesh(plane, this.decalMat, MAX_DRONES);
+    this.decals.count = 0;
+    this.decals.frustumCulled = false;
+    this.decals.renderOrder = 1;
+    group.add(this.mesh, this.decals);
+  }
+
+  /** The drones follow the sim roster's hive units (keyed by id); `fresh`:
+   *  the slots' signature changed (sites, roads, the roster), so re-aim. */
+  sync(dt: number, s: GameState, units: readonly RoverUnit[], fresh: boolean) {
+    this.clock += dt;
+    if (fresh || units.length !== this.list.length) {
+      const next: Drone[] = [];
+      const perHive = new Map<number, number>();
+      for (const u of units.slice(0, MAX_DRONES)) {
+        const pad = perHive.get(u.home) ?? 0;
+        perHive.set(u.home, pad + 1);
+        let d = this.byId.get(u.id);
+        if (!d) {
+          const [px, py, pz] = this.padPoint(s, u.home, pad);
+          d = { id: u.id, x: px, y: py, z: pz, yaw: 0, v: 0, gx: px, gy: py, gz: pz, cruise: DRONE.cruiseMin + (u.id % 5),
+            site: null, job: false, perched: true, working: false, phase: u.id * 1.913, home: u.home, pad };
+        }
+        d.home = u.home;
+        d.pad = pad;
+        if (d.site === null && u.site !== null && d.perched) this.launches++;
+        d.site = u.site;
+        d.job = false;
+        this.aim(d, s, u);
+        next.push(d);
+      }
+      this.list = next;
+      this.byId = new Map(next.map((d) => [d.id, d]));
+    }
+    for (const d of this.list) this.fly(d, dt);
+  }
+
+  /** a hive pad's world point (the deck top) */
+  private padPoint(s: GameState, home: number, pad: number): [number, number, number] {
+    const hive = s.buildings.find((b) => b.id === home);
+    if (!hive) return [0, 0, 0];
+    const [cx, cz] = centerOf(hive);
+    const [lx, lz] = HIVE_PADS[pad % HIVE_PADS.length];
+    const a = -hive.rot * PI / 2, c = Math.cos(a), sn = Math.sin(a);
+    const x = cx + lx * c + lz * sn, z = cz - lx * sn + lz * c;
+    return [x, this.hf.sample(cx, cz) + HIVE_DECK_Y, z];
+  }
+
+  /** where it is going: over its site, over its road's frontier, or home to its pad */
+  private aim(d: Drone, s: GameState, u: RoverUnit) {
+    const site = u.site !== null ? s.buildings.find((b) => b.id === u.site && (b.construction ?? 0) > 0) : undefined;
+    if (site) {
+      const [cx, cz] = centerOf(site);
+      const def = BUILDINGS[site.type];
+      const r = Math.max(2, Math.min(def.footprint[0], def.footprint[1]) * 2 - 1.5);
+      const a = (d.id % 4) * PI / 2 + 0.6;
+      d.gx = cx + Math.cos(a) * r; d.gz = cz + Math.sin(a) * r;
+      d.gy = this.hf.sample(cx, cz) + Math.min(9, def.height * 0.6) + 2.5;
+      return;
+    }
+    const job = u.road !== undefined ? s.roadJobs?.find((j) => j.id === u.road) : undefined;
+    const f = job ? frontierOf(s, job.cells) : null;
+    if (f) {
+      const [x, z] = cellCentre(f.cell.gx, f.cell.gz);
+      d.gx = x + ((d.id % 3) - 1) * 1.2; d.gz = z;
+      d.gy = this.hf.sample(x, z) + 3.2;
+      d.job = true;
+      return;
+    }
+    [d.gx, d.gy, d.gz] = this.padPoint(s, u.home, d.pad);
+  }
+
+  /** straight at its cruise height: climb, fly, descend onto its goal */
+  private fly(d: Drone, dt: number) {
+    if (dt <= 0) return;
+    const dx = d.gx - d.x, dz = d.gz - d.z;
+    const dist = Math.hypot(dx, dz);
+    const ground = this.hf.sample(d.x, d.z);
+    const cruiseY = Math.max(ground, this.hf.sample(d.gx, d.gz)) + d.cruise;
+    const near = dist < 9;
+    const wantY = near ? d.gy : Math.max(cruiseY, d.gy);
+    // the climb comes first: it sets off once it is up, or when the goal is close
+    const up = d.y >= Math.min(wantY, ground + 3) - 0.3 || near;
+    const vmax = up ? Math.min(DRONE.speed, Math.sqrt(2 * DRONE.accel * dist) + 0.2) : 0;
+    d.v = Math.min(vmax, d.v + DRONE.accel * dt);
+    if (dist > 1e-3) {
+      const step = Math.min(dist, d.v * dt);
+      d.x += (dx / dist) * step; d.z += (dz / dist) * step;
+      if (d.v > 0.3) d.yaw += Math.max(-2 * dt, Math.min(2 * dt, Math.atan2(Math.sin(Math.atan2(dx, dz) - d.yaw), Math.cos(Math.atan2(dx, dz) - d.yaw))));
+    } else d.v = 0;
+    const dy = wantY - d.y;
+    d.y += Math.max(-DRONE.climb * dt, Math.min(DRONE.climb * dt, dy));
+    d.y = Math.max(d.y, this.hf.sample(d.x, d.z) + 0.3 * (d.perched && dist < 0.2 ? 0 : 1));
+    const there = dist < 0.3 && Math.abs(dy) < 0.15;
+    d.working = there && (d.site !== null || d.job);
+    d.perched = there && d.site === null && !d.job;
+  }
+
+  draw(sunDir: THREE.Vector3, sunLight: number) {
+    const n = this.list.length;
+    this.mesh.count = n;
+    this.decals.count = n;
+    this.decals.visible = sunLight > 0.02;
+    this.decalMat.opacity = 0.4 * sunLight;
+    const elev = Math.max(0.12, Math.asin(Math.max(-1, Math.min(1, sunDir.y))));
+    for (let i = 0; i < n; i++) {
+      const d = this.list[i];
+      let x = d.x, y = d.y, z = d.z, pitch = -0.12 * (d.v / DRONE.speed), roll = 0;
+      if (!d.perched) {
+        // hover: a slow bob, and a small circle while it prints
+        const t = this.clock + d.phase;
+        y += 0.12 * Math.sin(t * 2.1);
+        if (d.working) { x += 0.35 * Math.cos(t * 0.7); z += 0.35 * Math.sin(t * 0.7); roll = 0.05 * Math.sin(t * 1.3); }
+      }
+      this.e.set(pitch, d.yaw, roll);
+      this.mesh.setMatrixAt(i, this.m.compose(this.p.set(x, y, z), this.q.setFromEuler(this.e), this.s.set(1, 1, 1)));
+      // the ground under it, pushed down-sun by its height
+      const g = this.hf.sample(x, z);
+      const h = Math.max(0, y - g);
+      const off = Math.min(12, h / Math.tan(elev));
+      const hx = -sunDir.x, hz = -sunDir.z, hl = Math.hypot(hx, hz) || 1;
+      const sx = x + (hx / hl) * off, sz = z + (hz / hl) * off;
+      const k = Math.max(0.35, 1 - h / 16);
+      this.e.set(0, d.yaw, 0);
+      this.decals.setMatrixAt(i, this.m.compose(this.p.set(sx, this.hf.sample(sx, sz) + 0.05, sz),
+        this.q.setFromEuler(this.e), this.s.set(1.9 * k, 1, 1.9 * k)));
+    }
+    this.mesh.instanceMatrix.needsUpdate = true;
+    this.decals.instanceMatrix.needsUpdate = true;
+    this.mesh.boundingSphere = null;
+  }
+
+  /** The drone under a ray (its roster id), and how far along the ray. */
+  pick(raycaster: THREE.Raycaster): { id: number; d: number } | null {
+    this.mesh.computeBoundingSphere();
+    const hit = raycaster.intersectObject(this.mesh, false).find((h) => h.instanceId !== undefined);
+    const d = hit ? this.list[hit.instanceId!] : undefined;
+    return d ? { id: d.id, d: hit!.distance } : null;
+  }
+
+  pose(id: number): { x: number; y: number; z: number; yaw: number } | null {
+    const d = this.byId.get(id);
+    return d ? { x: d.x, y: d.y, z: d.z, yaw: d.yaw } : null;
+  }
+
+  each(fn: (d: { id: number; x: number; y: number; z: number; v: number; working: boolean }) => void) {
+    for (const d of this.list) fn(d);
+  }
+
+  /** Print dust under the drones working a site, nearest the camera first. */
+  emitters(cam: THREE.Vector3, out: { e: DustEmitter; d: number }[]) {
+    for (const d of this.list) {
+      if (!d.working) continue;
+      const y = this.hf.sample(d.x, d.z);
+      out.push({ d: Math.hypot(d.x - cam.x, d.z - cam.z), e: { x: d.x, y, z: d.z, strength: 0.45,
+        vx: 0, vy: 0.5, vz: 0, hSpread: 1.1, vSpread: 1.0, size: 0.05 } });
+    }
+  }
+
+  /** How loud the rotors are at a listener point, 0..1: the nearest drones, flying louder than perched. */
+  rotorLevel(lx: number, lz: number, lift: number): number {
+    let lvl = 0;
+    for (const d of this.list) {
+      const dist = Math.hypot(d.x - lx, d.z - lz, lift);
+      const k = (d.perched ? 0.25 : 1) / (1 + (dist / 25) ** 2);
+      lvl += k;
+    }
+    return Math.min(1, lvl);
+  }
+
+  info() {
+    return {
+      count: this.list.length,
+      flying: this.list.filter((d) => !d.perched).length,
+      working: this.list.filter((d) => d.working).length,
+      perched: this.list.filter((d) => d.perched).length,
+      ids: this.list.map((d) => d.id),
+      heights: this.list.map((d) => Math.round((d.y - this.hf.sample(d.x, d.z)) * 10) / 10),
+      positions: this.list.map((d) => [Math.round(d.x * 10) / 10, Math.round(d.z * 10) / 10]),
+      launches: this.launches,
+    };
+  }
 }

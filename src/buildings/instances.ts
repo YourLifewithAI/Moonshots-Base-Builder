@@ -41,6 +41,7 @@ import { lightLevel } from './classicBuilding';
 import { ContactDecals } from './contactDecals';
 import { ClassicFloods } from './classicFloods';
 import type { WorkSpot } from '../world/lighting';
+import { leanOf, warmthOf } from './look';
 
 const MAX_PER_TYPE = 96;
 
@@ -100,6 +101,13 @@ export class BuildingInstances {
   onShadowCastersChanged?: () => void;
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
+  /** Building-state visual hook (docs/14 §3, the hazards): how alarmed a
+   *  structure is, 0 calm … 1 full. Read on every rebuild (each economy tick)
+   *  into its instance's `iAlarm`; above 0 its windows and lamps flicker red
+   *  in both styles. Unset: every structure calm. */
+  alarmOf?: (b: BuildingState) => number;
+  /** the lean the light colours were last written at (debug) */
+  lean = 0;
   /** buildings drawn elsewhere: an excavator away from its pad (world/haulers.ts) */
   private hidden = new Set<number>();
   /** classic style: per-instance light levels, contact decals */
@@ -285,6 +293,7 @@ export class BuildingInstances {
     const types = new Set<BuildingId>(this.meshes.keys());
     for (const b of state.buildings) types.add(b.type);
     let sig = '';
+    this.lean = leanOf(state.techsDone);
     for (const type of types) sig += this.rebuildType(state, type);
 
     sig += `|keys:${[...this.keys.values()].join(';')}`;
@@ -404,6 +413,9 @@ export class BuildingInstances {
     const list = state.buildings.filter((b) => b.type === type);
     mesh.count = Math.min(list.length, MAX_PER_TYPE);
     const st = mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
+    const warmA = mesh.geometry.getAttribute('iWarm') as THREE.InstancedBufferAttribute;
+    const alarmA = mesh.geometry.getAttribute('iAlarm') as THREE.InstancedBufferAttribute;
+    const warmth = warmthOf(type, this.lean, state.crew > 0);
     const topY = mesh.geometry.boundingBox?.max.y ?? BUILDINGS[type].height;
     const reveal = this.reveal;
     const mat = new THREE.Matrix4();
@@ -432,12 +444,16 @@ export class BuildingInstances {
       mesh.setColorAt(i, color);
       // lit, and the darkness it stands in (the shader's light level)
       st.setXYZW(i, litChannel(powered, this.darkness.of(b.id)), b.dust ?? 0, b.wear ?? 0, cut);
+      warmA.setX(i, warmth);
+      alarmA.setX(i, this.alarmOf ? Math.max(0, Math.min(1, this.alarmOf(b) || 0)) : 0);
       order.push(b.id);
       sig += `|${b.gx},${b.gz},${b.rot},${sy.toFixed(3)},${cut === CUT_NONE ? '-' : cut.toFixed(2)}`;
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     st.needsUpdate = true;
+    warmA.needsUpdate = true;
+    alarmA.needsUpdate = true;
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
     this.lists.set(type, list.slice(0, MAX_PER_TYPE));
@@ -475,6 +491,18 @@ export class BuildingInstances {
       const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
       // the lit channel is 0 (unpowered), 1 (lit at the night) or 2 + k: powered is ≥ 0.5
       return { glow: glow ? glow.getX(i) : null, powered: g.getAttribute('iState').getX(i) >= 0.5 ? 1 : 0 };
+    }
+    return null;
+  }
+
+  /** A structure's light colour and alarm as its instance carries them
+   *  (tests): iWarm (0 cold … 1 warm) and iAlarm (0 calm). */
+  lookOf(id: number): { warm: number; alarm: number; lean: number } | null {
+    for (const [type, order] of this.ids) {
+      const i = order.indexOf(id);
+      if (i < 0) continue;
+      const g = this.meshes.get(type)!.geometry;
+      return { warm: g.getAttribute('iWarm').getX(i), alarm: g.getAttribute('iAlarm').getX(i), lean: this.lean };
     }
     return null;
   }
