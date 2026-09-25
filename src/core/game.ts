@@ -2142,7 +2142,7 @@ export class Game {
         const known = dep && depositRevealed(s, dep, tier) ? dep : null;
         const why = digRefusal(s, site, b, x, z, groundMapped(s, x, z, tier) || !!known, revealRadiusM(tier));
         if (why) continue;
-        setDigSite(s, this.mods, b, x, z);
+        if (setDigSite(s, this.mods, b, x, z, this.hf)) continue; // no haul road to it (docs/15-roads.md)
         this.stampDeposit(b);
         const [hx, hz] = centerOf(b);
         alert(s, `AUTO DIG — ${BUILDINGS[b.type].name} #${b.id} digs ${groundName(b.deposit)} ` +

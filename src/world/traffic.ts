@@ -26,14 +26,14 @@ import { CELL_M, MAP_M } from '../data/balance';
 export type Mode = number;
 export const WHOLE: Mode = 0;
 /** a lane: the half at `side` (0 −, 1 +) across the lateral axis (0: x, 1: z),
- *  and the way it drives along the road (0 standing, 1 +, 2 −) */
-export const laneMode = (axis: 0 | 1, side: 0 | 1, dir: 0 | 1 | 2 = 0): Mode => 1 + axis * 2 + side + 4 * dir;
+ *  and the way it drives along the road (0 standing, 1 +, 2 −, 3 turning on the spot) */
+export const laneMode = (axis: 0 | 1, side: 0 | 1, dir: 0 | 1 | 2 | 3 = 0): Mode => 1 + axis * 2 + side + 4 * dir;
 export const laneAxis = (m: Mode): 0 | 1 => ((((m - 1) % 4) >> 1) as 0 | 1);
 export const laneSide = (m: Mode): 0 | 1 => ((((m - 1) % 4) & 1) as 0 | 1);
 const laneDir = (m: Mode) => Math.floor((m - 1) / 4);
 /** Two holds share a cell: halves across the same axis, and not two driving
  *  side by side the same way (nobody overtakes; a unit passes one standing
- *  or one coming the other way). */
+ *  or one coming the other way), nor two turning on the spot side by side. */
 const compatible = (a: Mode, b: Mode) => a !== WHOLE && b !== WHOLE && laneAxis(a) === laneAxis(b) && laneSide(a) !== laneSide(b)
   && !(laneDir(a) !== 0 && laneDir(a) === laneDir(b));
 
@@ -185,6 +185,9 @@ export function cutSpans(pts: [number, number][], arcs: number[], wide: boolean,
   return out.map(({ key, a0, a1, mode, road }) => ({ key, a0, a1, mode, road }));
 }
 
+/** m a unit stops short of a cell it may not enter: room for a rover's
+ *  corners as it turns (its diagonal is 0.21 m longer than its nose) */
+const GAP = 0.25;
 const BREAK_S = 1;       // a wait cycle this old is broken
 const STEP_ASIDE_S = 3;  // a unit stood in another's way this long steps aside
 const RESCUE_S = 8;      // nothing worked this long: set down
@@ -201,6 +204,7 @@ export class Traffic {
   private worst = { gap: Infinity, a: '', b: '' };
   private rescues = 0;
   private breaks = 0;
+  private lastBreak = '';
 
   /** The road cells (grid cells) units may drive; a signature skips unchanged frames. */
   setRoads(sig: string, cells: readonly [number, number][]) {
@@ -229,7 +233,7 @@ export class Traffic {
     let [ux, uz] = [a.fx, a.fz];
     for (let i = 1; i < pts.length; i++) {
       const dx = pts[i][0] - pts[0][0], dz = pts[i][1] - pts[0][1], l = Math.hypot(dx, dz);
-      if (l > 1e-6) { ux = dx / l; uz = dz / l; break; }
+      if (l > 0.05) { ux = dx / l; uz = dz / l; break; }
     }
     const back: [number, number] = [pts[0][0] - ux * L, pts[0][1] - uz * L];
     a.pts = [back, ...pts];
@@ -364,8 +368,8 @@ export class Traffic {
       const cx = (i + 0.5) * CELL_M - half, cz = (j + 0.5) * CELL_M - half;
       if (i === gx && j === gz) {
         const ox = a.x - cx, oz = a.z - cz;
-        if (Math.abs(ox) > 0.6 && Math.abs(oz) < 0.2) out.set(k, laneMode(0, ox > 0 ? 1 : 0));
-        else if (Math.abs(oz) > 0.6 && Math.abs(ox) < 0.2) out.set(k, laneMode(1, oz > 0 ? 1 : 0));
+        if (Math.abs(ox) > 0.6 && Math.abs(oz) < 0.2) out.set(k, laneMode(0, ox > 0 ? 1 : 0, 3));
+        else if (Math.abs(oz) > 0.6 && Math.abs(ox) < 0.2) out.set(k, laneMode(1, oz > 0 ? 1 : 0, 3));
         continue;
       }
       // a neighbour: the half facing this unit
@@ -378,10 +382,12 @@ export class Traffic {
   private box(a: Agent, x: number, z: number, fx: number, fz: number, out: Map<number, Mode>) {
     const half = MAP_M / 2;
     const rx = fz, rz = -fx;
+    // a hair inside the body, so a nose exactly on a cell's edge does not claim it
     const n = Math.max(4, Math.ceil(a.front + a.back));
+    const e = 0.001;
     for (let i = 0; i <= n; i++) {
-      const l = -a.back + (a.front + a.back) * i / n;
-      for (const w of [-a.hw, 0, a.hw]) {
+      const l = -a.back + e + (a.front + a.back - 2 * e) * i / n;
+      for (const w of [-a.hw + e, 0, a.hw - e]) {
         const px = x + fx * l + rx * w, pz = z + fz * l + rz * w;
         const key = gridKey(Math.floor((px + half) / CELL_M), Math.floor((pz + half) / CELL_M));
         if (this.roads.has(key)) out.set(key, WHOLE);
@@ -502,7 +508,7 @@ export class Traffic {
         let c: Agent | null = null;
         for (const k of g.keys) { if (a.held.get(k) !== WHOLE) c = this.clash(a, k, WHOLE); if (c) break; }
         if (c) {
-          limit = Math.max(a.s, g.at - front - 0.05);
+          limit = Math.max(a.s, g.at - front - GAP);
           blocker = c;
           const gap = Math.max(0, limit - a.s);
           ds = Math.min(ds, gap, Math.sqrt(2 * a.decel * gap) * h);
@@ -517,15 +523,19 @@ export class Traffic {
       const sp = a.spans;
       for (let i = 0; i < sp.length; i++) {
         if (sp[i].a0 >= reach) break;
-        if (!sp[i].road || sp[i].a1 <= a.s - back) continue;
+        // behind its origin its body is there already: only what it drives into is checked
+        if (!sp[i].road || sp[i].a1 <= a.s + 1e-6) continue;
         const mode = this.modeOf(a, sp[i], end);
-        if (a.held.get(sp[i].key) === mode) continue;
+        const had = a.held.get(sp[i].key);
+        if (had === mode) continue;
+        // in that half already: it keeps to it (a new heading there crowds nobody)
+        if (had !== undefined && had !== WHOLE && mode !== WHOLE && laneAxis(had) === laneAxis(mode) && laneSide(had) === laneSide(mode)) continue;
         const c = this.clash(a, sp[i].key, mode);
         if (!c) continue;
-        limit = Math.max(a.s, sp[i].a0 - front - 0.05);
+        limit = Math.max(a.s, sp[i].a0 - front - GAP);
         // not stopped in a junction: short of it, if it is not in it yet
         const j = sp[i - 1];
-        if (j && j.road && this.junctions.has(j.key) && !a.held.has(j.key) && j.a0 - front - 0.05 > a.s) limit = j.a0 - front - 0.05;
+        if (j && j.road && this.junctions.has(j.key) && !a.held.has(j.key) && j.a0 - front - GAP > a.s) limit = j.a0 - front - GAP;
         blocker = c;
         break;
       }
@@ -563,7 +573,7 @@ export class Traffic {
         for (const y of ranked) {
           if (y.drv.yieldTo(y, chain.filter((c) => c !== y))) { done = true; break; }
         }
-        if (done) { this.breaks++; for (const c of chain) c.waited = 0; }
+        if (done) { this.breaks++; this.lastBreak = ranked.map((c) => `${c.kind}#${c.id}`).join('>'); for (const c of chain) c.waited = 0; }
         else if (a.waited > RESCUE_S) { this.rescue(ranked[0]); for (const c of chain) c.waited = 0; }
         continue;
       }
@@ -627,7 +637,13 @@ export class Traffic {
         yaw: Math.round(Math.atan2(a.fx, a.fz) * 1000) / 1000, hw: a.hw, front: a.front, back: a.back,
         cls: a.cls, waiting: a.blocker ? `${a.blocker.kind}#${a.blocker.id}` : '', waited: Math.round(a.waited * 10) / 10,
         cells: this.heldBy(a),
+        /** debug: where it is along its way, the way, and the modes it holds */
+        s: Math.round(a.s * 100) / 100, pivot: !!a.pivot, pivotOk: !!a.pivotOk,
+        way: a.pts.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
+        modes: [...a.held.values()],
       })),
+      /** the last wait cycle broken (who, lowest first) */
+      lastBreak: this.lastBreak,
     };
   }
 }

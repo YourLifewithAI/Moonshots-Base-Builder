@@ -32,7 +32,7 @@ const MAX = 48;
 const TURN = 2.2;          // rad/s: tracks turn on the spot
 const CATCH = 1.6;         // × haul speed: the most a digger drives to catch up with the sim
 const GAIN = 1.5;          // 1/s: how hard it closes the gap
-const LAG_S = 20;          // s of driving a digger may trail the sim (held up in traffic) before it is set down there
+const LAG_S = 12;          // s of driving a digger may trail the sim (held up in traffic) before it is set down there
 const PI = Math.PI;
 /** the body: 3.8 m wide, from 1.9 m behind its origin to the wheel 4.3 m ahead */
 export const DIGGER_BODY = { hw: 1.9, front: 4.3, back: 1.9 };
@@ -210,7 +210,8 @@ export class Haulers implements Driver {
         }
       }
       if (jumped || late) {
-        a.s = Math.min(v.target, Traffic.end(a));
+        // set down where the sim stood at its last tick (the ground checked free), then on as usual
+        a.s = 0;
         const p = pointAt(a.pts, a.arcs, a.s);
         v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
         this.traffic?.place(a);
@@ -274,7 +275,7 @@ export class Haulers implements Driver {
     const way: [number, number][] = [];
     for (const p of [...head, [lx, lz] as [number, number], ...leg.slice(1)]) {
       const last = way[way.length - 1];
-      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 1e-6) way.push([p[0], p[1]]);
+      if (!last || Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.05) way.push([p[0], p[1]]);
     }
     this.setWay(v, way);
   }

@@ -324,7 +324,8 @@ export class RoverFleet implements Driver {
     }
     // a bay is left, and come into, by its opening only (the way keeps to the slot's half)
     const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
-    const out = r.spot?.via && same(from, [r.spot.gx, r.spot.gz]) ? r.spot.via : null;
+    const here = same(from, [spot.gx, spot.gz]);
+    const out = r.spot?.via && same(from, [r.spot.gx, r.spot.gz]) && !here ? r.spot.via : null;
     const start: Cell = out ?? from;
     const into = spot.via && !same(from, [spot.gx, spot.gz]) ? spot.via : null;
     const goal: Cell = into ?? [spot.gx, spot.gz];
@@ -367,7 +368,8 @@ export class RoverFleet implements Driver {
     a.stop = end;
     // a way that sets off well away from its heading starts with a turn on the spot
     a.pivot = false;
-    if (!r || left < 1e-3) { if (r) r.turning = false; return; }
+    // only as it sets off: under way it steers round corners
+    if (!r || left < 1e-3 || (!r.turning && a.s > 0.3)) { if (r) r.turning = false; return; }
     const want = this.heading(r, a, a.s + 0.02);
     const err = Math.abs(wrap(want - r.yaw));
     r.turning = r.turning ? err > 0.05 : err > PIVOT;
@@ -420,8 +422,11 @@ export class RoverFleet implements Driver {
     const start = cellAt(r.x, r.z);
     const sk = cellKey(start[0], start[1]);
     const refuge = (cells: Cell[], mode: number, x: number, z: number) => {
-      t.setWay(a, laneWay(cells, [r.x, r.z], [x, z]));
-      r.revUntil = -Infinity;
+      const pts = laneWay(cells, [r.x, r.z], [x, z]);
+      t.setWay(a, pts);
+      // back there if it lies behind it (no turn on the spot in the others' way)
+      const p = pointAt(a.pts, a.arcs, 0.02);
+      r.revUntil = Math.abs(wrap(Math.atan2(p.dx, p.dz) - r.yaw)) > 2 ? Infinity : -Infinity;
       a.standMode = mode;
       r.key = ''; // heads on for its slot once the refuge time is up
       r.yieldUntil = this.clock + YIELD_S;
