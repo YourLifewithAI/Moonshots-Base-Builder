@@ -417,7 +417,8 @@ export class BuildingInstances {
       if (i < 0) continue;
       const g = this.meshes.get(type)!.geometry;
       const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
-      return { glow: glow ? glow.getX(i) : null, powered: g.getAttribute('iState').getX(i) };
+      // the lit channel is 0 (unpowered), 1 (lit at the night) or 2 + k: powered is ≥ 0.5
+      return { glow: glow ? glow.getX(i) : null, powered: g.getAttribute('iState').getX(i) >= 0.5 ? 1 : 0 };
     }
     return null;
   }

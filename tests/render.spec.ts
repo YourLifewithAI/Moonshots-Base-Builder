@@ -237,7 +237,7 @@ test('solar wings stand near-vertical under the grazing polar night sun', async 
  *  paused at game-second `t` of a fresh `site` world; returns its ids. */
 async function litBase(page: Page, site: string, seed: number, t: number): Promise<number[]> {
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto(`/?debug&seed=${seed}&nolock&site=${site}&lowfx`);
+  await page.goto(`/?debug&style=detailed&seed=${seed}&nolock&site=${site}&lowfx`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => {
     window.__game.setPaused(true);
