@@ -17,6 +17,7 @@ import type { Heightfield } from '../terrain/heightfield';
 import { MOUNTS, recipeGeometry } from './recipes';
 import { BUILDING_MATERIAL, withInstanceState } from './meshKit';
 import { CUT_NONE, buildingUniforms } from './buildingShader';
+import type { BuildingDarkness } from './darkness';
 import { Trackers, type Placed } from './trackers';
 import { scaffoldGeometry, type ScaffoldSite } from './scaffold';
 import { materials } from '../world/materials';
@@ -62,7 +63,7 @@ export class BuildingInstances {
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
 
-  constructor(private hf: Heightfield) {
+  constructor(private hf: Heightfield, readonly darkness: BuildingDarkness) {
     const discGeo = new THREE.CircleGeometry(1, 24);
     discGeo.rotateX(-Math.PI / 2);
     // radial falloff via vertex alpha-in-color: bright center, dark rim
