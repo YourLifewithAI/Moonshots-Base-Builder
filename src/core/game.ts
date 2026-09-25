@@ -1223,6 +1223,7 @@ export class Game {
         this.buildCam.update(dt);
         if (this.fleetTarget.active) this.fleetTarget.update();
         if (this.placement.active) {
+          this.raycaster.setFromCamera(this.mouse, this.camera);
           this.placement.update(this.state, this.mods.unlocked,
             this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
           const p = this.placement.probe!;
