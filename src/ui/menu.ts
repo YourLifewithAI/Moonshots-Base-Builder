@@ -14,7 +14,7 @@ import type { Game } from '../core/game';
 import { loadSettings, saveSettings } from '../core/settings';
 import { sfx } from '../audio/sfx';
 import { el } from './hud';
-import { $defeat, $menuOpen, $phase, $time } from './stores';
+import { $announce, $defeat, $menuOpen, $phase, $time } from './stores';
 
 const FX_LEVELS = [
   { name: 'Full', desc: 'HDR buffers, ambient occlusion, bloom and film' },
@@ -97,6 +97,13 @@ export function mountMenu(root: HTMLElement, game: Game) {
               <span class="mono" id="menu-effects-val"></span>
             </div>
           </section>
+          <section>
+            <span class="label">Guidance</span>
+            <div class="menu-row">
+              <span>Discovery pop-ups &amp; era explainers</span>
+              <button class="btn" data-act="tips" id="menu-tips" aria-pressed="true">On</button>
+            </div>
+          </section>
         </div>
         <div class="menu-col">
           <section>
@@ -172,6 +179,10 @@ export function mountMenu(root: HTMLElement, game: Game) {
     muteBtn.textContent = s.muted ? 'Unmute' : 'Mute';
     muteBtn.classList.toggle('active', s.muted);
     muteBtn.setAttribute('aria-pressed', String(s.muted));
+    const tipsBtn = $<HTMLButtonElement>('#menu-tips');
+    tipsBtn.textContent = s.tips ? 'On' : 'Off';
+    tipsBtn.classList.toggle('active', s.tips);
+    tipsBtn.setAttribute('aria-pressed', String(s.tips));
   };
 
   const pickFx = (n: number) => {
@@ -253,6 +264,13 @@ export function mountMenu(root: HTMLElement, game: Game) {
         else game.enableSafeMode(false);
         renderGfx();
         break;
+      case 'tips': {
+        const tips = !loadSettings().tips;
+        saveSettings({ tips });
+        if (!tips) $announce.set([]);
+        renderAudio();
+        break;
+      }
       case 'mute': {
         const muted = !loadSettings().muted;
         saveSettings({ muted });

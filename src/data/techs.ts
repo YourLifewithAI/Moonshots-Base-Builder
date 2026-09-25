@@ -108,6 +108,8 @@ export interface TechDef {
   desc: string;
   /** flavour only — the mechanical pros and cons come from describeEffect() */
   tradeoff: string;
+  /** what visibly changes when it completes (the discovery pop-up shows it) */
+  visual?: string;
 }
 
 const M: SiteId = 'mare', P: SiteId = 'southpole', L: SiteId = 'lavatube';
@@ -583,6 +585,18 @@ export const ERA_NAMES: Record<number, string> = {
   1: 'FIRST LANDING', 2: 'EARLY CONSTRUCTION', 3: 'ROBOTIC FABRICATION',
   4: 'CHIP FABRICATION', 5: 'LUNAR COMPUTE', 6: 'HUMAN HABITATION',
   7: 'SWARM INDUSTRY', 8: 'DYSON SWARM',
+};
+/** What opening an era means, in a sentence or two: the era explainer's
+ *  body (ui/discovery.ts). Say what changes and what to aim for. */
+export const ERA_BLURB: Record<number, string> = {
+  1: 'The lander’s cache is all you have. Smelt regolith into metal, find water, and teach your robots the ground they will build on.',
+  2: 'The base starts making its own parts. Batteries carry you through the night, silicon comes out of the soil, and robots begin to build for you.',
+  3: 'Machines start making machines. Choose how the base survives the long night and how your fleet builds — both choices are permanent.',
+  4: 'Vacuum is a free cleanroom. Turn silicon into chips, and decide what those chips are for.',
+  5: 'Data Centers under regolith multiply your research. From here, compute is the engine of the base.',
+  6: 'The base is ready for people. Life support, wellness and safety matter now, and crews research faster than agents.',
+  7: 'Industry for orbit: thin-film foils, a way to throw them, and machines that copy themselves. Outposts across the Moon feed the base.',
+  8: 'The first collectors fly. Every volley adds to a swarm that will one day circle the Sun.',
 };
 /** era-header column labels: `E5 · COMPUTE` */
 export const ERA_SHORT: Record<number, string> = {

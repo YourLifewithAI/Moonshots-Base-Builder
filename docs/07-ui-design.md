@@ -214,6 +214,46 @@ No forced tutorial, no modal sequence, no input locks. Instead:
 - First-session guidance is a single alert (`TOUCHDOWN — begin with a Solar
   Array`), not a wizard.
 
+**The running tutorial** (`ui/discovery.ts`) explains progress as it lands.
+It never locks input. One switch turns it off: the Esc menu's *Guidance*
+row, or the box on any card. Experienced players skip it entirely.
+
+- **Era explainers.** A new mission opens with the Era 1 explainer. Each
+  era that opens later gets its own:
+  - the era's name and a sentence or two on what it means (`ERA_BLURB` in
+    `techs.ts`);
+  - how many techs it opens, naming a few;
+  - how the next era opens: 2 techs from this era, or 1 plus the deed.
+
+  An explainer pauses the game until Continue (or Enter or Esc) and plays
+  a rising fanfare.
+- **Discovery cards.** Every finished tech pops a card under the swarm
+  meter. It shows:
+  - the tech's name, era and lane, and its description;
+  - the generated ⊕/⊖ lines;
+  - *Look for it*, the tech's `visual` line (what changes on the
+    buildings);
+  - *Next*, the one thing to do, such as `Build it: Industry tab →
+    Regolith Smelter`.
+
+  Cards never pause; they queue, one at a time, and Esc dismisses the
+  current one.
+- **Deposit cards** (`ui/depositCard.ts`). Every label in the deposit
+  overlay [I], and every deposit on the Lunar Map's SITE view, opens a card
+  with:
+  - what the ground is (a line of science);
+  - its effects with live numbers, e.g. `Smelters: up to +30% output, with
+    all your digging here`;
+  - how much of your digging is on it now;
+  - its distance and whether the build network reaches it;
+  - the action that uses it (*Place Regolith Excavator here* focuses the
+    camera and starts placing it), or the research that stands in the way.
+
+  An unconfirmed `?` lead names the survey tier that would confirm it. In
+  the world the card takes the inspector's place, one or the other; on the
+  map it fills the side panel, with *Show in the world*.
+- Test runs (`?debug`) stay quiet unless the address adds `&tips`.
+
 ## 10. Pattern vocabulary
 
 Because hue is forbidden, texture is the semantic channel:
