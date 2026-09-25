@@ -36,6 +36,8 @@ const ICONS: Record<BuildingId, string> = {
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
   foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
+  // destiny buildings (docs/14 §2.8)
+  greenhouseRing: '❁', gardenDome: '◓', droneHive: '⬢', serverMonolith: '▥',
 };
 
 /** The tech that unlocks `b` on this site and expedition — a visible card

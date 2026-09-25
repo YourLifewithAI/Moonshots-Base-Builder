@@ -4,13 +4,14 @@
  *  palette, inspector, previews) the same numbers. */
 import { BUILDINGS, type BuildingDef, type BuildingId } from '../data/buildings';
 import { TECHS, effectApplies, type Expedition, type RecipeOverride, type TechId } from '../data/techs';
+import type { GuardId, HazardId } from '../data/hazards';
 import type { SiteDef, SiteId } from '../data/sites';
 import type { ResourceId } from '../data/resources';
 import { FEED_KINDS, emptyFeed, type FeedGrade, type FeedKind } from '../data/deposits';
 import { OUTPOST_LINK_KW } from '../data/lunarMap';
 import {
-  AGENT_GEN_TAX, AGENT_TAX, BATTERY_EFF, DC_DATA_PER_S, DEPOSIT_FX, FEED, LAB_DATA, OVERCLOCK,
-  SURVEY_TIERS, WEAR,
+  AGENT_GEN_TAX, AGENT_TAX, BATTERY_EFF, DC_DATA_PER_S, DEPOSIT_FX, FEED, LAB_DATA, LAUNCH_CAP_PER_VOLLEY, MONOLITH,
+  OVERCLOCK, SURVEY_TIERS, WEAR,
 } from '../data/balance';
 import type { BuildingState, GameState, OutpostState } from './state';
 import { AUTO, type AutoFamily } from '../data/automation';
@@ -92,6 +93,32 @@ export interface Mods {
   /** extension points (docs/14 Automation picks): rule dwell and cap multipliers */
   builderDwellMult: number;
   builderCapMult: number;
+  /** Selenic Mind: standing rules may build the destiny buildings too */
+  builderAll: boolean;
+  // ── destiny (docs/14 §2.7) ──
+  /** crew growth period multiplier (0 = no new settlers are invited) */
+  growthMult: number;
+  /** charter requirements waived (robotic Era 7's Human Cohabitation) */
+  waived: Set<TechId>;
+  /** share of free hands out on EVA by day (0 = none) */
+  evaShare: number;
+  /** build-network radius added per building type (m) */
+  radiusDelta: Record<BuildingId, number>;
+  /** ↑ a volley needs when enough crew are on console (else LAUNCH_CAP_PER_VOLLEY) */
+  volleyCap: number;
+  /** morale for a lunar day after each crewed volley */
+  volleyMorale: number;
+  /** crew on console for the crewed volley (0 = none needed) */
+  volleyMinCrew: number;
+  /** volleys fire themselves when ready (economy step 10.5) */
+  autoLaunch: boolean;
+  launchBurstMult: number;
+  /** morale target everywhere */
+  moraleBase: number;
+  /** hazard hooks (inert until the hazards ship, data/hazards.ts) */
+  hazardRateMult: number;
+  guards: Set<GuardId>;
+  exposure: Map<HazardId, Set<BuildingId>>;
 }
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
@@ -135,13 +162,17 @@ export function computeMods(
     haulSpeedMult: 1, haulBucketMult: 1,
     orderBook: 0, orderMax: AUTO.orderMax, autoFamilies: new Set(), siteSurvey: false, governor: false,
     predictive: false, feedPlanner: false, maintenanceWear: 0, builderDwellMult: 1, builderCapMult: 1,
+    builderAll: false,
+    growthMult: 1, waived: new Set(), evaShare: 0, radiusDelta: fill(0),
+    volleyCap: LAUNCH_CAP_PER_VOLLEY, volleyMorale: 0, volleyMinCrew: 0, autoLaunch: false, launchBurstMult: 1,
+    moraleBase: 0, hazardRateMult: 1, guards: new Set(), exposure: new Map(),
   };
 
   for (const tid of techsDone) {
     const def = TECHS[tid];
     if (!def) continue; // retired id on an unmigrated save
     for (const fx of def.effects) {
-      if (!effectApplies(fx, siteId, expedition)) continue;
+      if (!effectApplies(fx, siteId, expedition, techsDone)) continue;
       switch (fx.kind) {
         case 'unlock': m.unlocked.add(fx.building); break;
         case 'outputMult': {
@@ -221,7 +252,29 @@ export function computeMods(
           m.builderDwellMult *= fx.dwellMult ?? 1;
           m.builderCapMult *= fx.capMult ?? 1;
           for (const f of fx.families ?? []) m.autoFamilies.add(f);
+          if (fx.all) m.builderAll = true;
           break;
+        // ── destiny (docs/14 §2.7) ──
+        case 'growth': m.growthMult *= fx.mult; break;
+        case 'bringsCrew': break; // research.onTechComplete acts on it once
+        case 'waive': m.waived.add(fx.tech); break;
+        case 'eva': m.evaShare = Math.max(m.evaShare, fx.share); break;
+        case 'radius': m.radiusDelta[fx.building] += fx.deltaM; break;
+        case 'volley':
+          if (fx.launchCap !== undefined) m.volleyCap = Math.min(m.volleyCap, fx.launchCap);
+          m.volleyMorale += fx.morale ?? 0;
+          m.volleyMinCrew = Math.max(m.volleyMinCrew, fx.minCrew ?? 0);
+          break;
+        case 'autoLaunch': m.autoLaunch = true; m.launchBurstMult *= fx.burstMult ?? 1; break;
+        case 'moraleBase': m.moraleBase += fx.delta; break;
+        case 'hazardRate': m.hazardRateMult *= fx.mult; break;
+        case 'guard': m.guards.add(fx.guard); break;
+        case 'exposure': {
+          const set = m.exposure.get(fx.hazard) ?? new Set<BuildingId>();
+          for (const b of fx.buildings ?? []) set.add(b);
+          m.exposure.set(fx.hazard, set);
+          break;
+        }
         case 'morale': m.moraleDelta[fx.building] += fx.delta; break;
       }
     }
@@ -270,6 +323,7 @@ export function effectiveDef(type: BuildingId, mods: Mods): EffectiveDef {
       feedInsensitive: r?.feedInsensitive ?? false,
       housing: base.housing ? Math.max(0, base.housing + mods.housingDelta[type]) : base.housing,
       moraleDelta: mods.moraleDelta[type] ? (base.moraleDelta ?? 0) + mods.moraleDelta[type] : base.moraleDelta,
+      buildRadiusM: base.buildRadiusM ? base.buildRadiusM + mods.radiusDelta[type] : base.buildRadiusM,
     };
     cache.set(type, d);
   }
@@ -281,9 +335,15 @@ export function wearDerate(b: Pick<BuildingState, 'type' | 'wear'>): number {
   return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
 }
 
-/** A station runs on agents when toggled Autonomous, or unmanned on a robotic run. */
-export function isAgentRun(b: BuildingState, s: Pick<GameState, 'expedition' | 'crew'>): boolean {
-  return b.automated || (s.expedition === 'robotic' && s.crew <= 0);
+/** Nobody aboard to run anything: a robotic run before its crew, or a crewed
+ *  landing whose last crew rotated home at FIRST LIGHT (docs/14 §2.5). */
+export function unmanned(s: Pick<GameState, 'expedition' | 'crew'> & { crewHome?: boolean }): boolean {
+  return (s.expedition === 'robotic' || !!s.crewHome) && s.crew <= 0;
+}
+
+/** A station runs on agents when toggled Autonomous, or when the base is unmanned. */
+export function isAgentRun(b: BuildingState, s: Pick<GameState, 'expedition' | 'crew'> & { crewHome?: boolean }): boolean {
+  return b.automated || unmanned(s);
 }
 
 /** H₂-reduction smelter feed factor (all outputs) and its extra O₂ factor. */
@@ -310,6 +370,7 @@ const ISRU: BuildingId[] = ['excavator', 'iceHarvester', 'smelter', 'refinery'];
 export const OVERCLOCKABLE: readonly BuildingId[] = [
   'excavator', 'iceHarvester', 'smelter', 'refinery', 'partsFab', 'chipFab', 'lab', 'dataCenter',
   'foilFactory', 'massDriver', 'propellantPlant',
+  'serverMonolith',
 ];
 
 export interface RateOpts {
@@ -405,6 +466,8 @@ export function effectiveRates(
     data = LAB_DATA.base * mods.outputMult.lab * mode * oc * wear;
   } else if (type === 'dataCenter') {
     data = DC_DATA_PER_S * mods.outputMult.dataCenter * oc * wear;
+  } else if (type === 'serverMonolith') {
+    data = MONOLITH.dataPerS * mods.outputMult.serverMonolith * oc * wear;
   }
 
   let upkeep = def.upkeepParts * mods.upkeepMult[type] * site.upkeepMult;

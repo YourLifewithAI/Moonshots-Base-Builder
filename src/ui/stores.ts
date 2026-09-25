@@ -7,7 +7,7 @@ import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import type { SiteId } from '../data/sites';
 import type { AlertMsg, BuildingState } from '../core/state';
-import type { ResearchView } from '../core/research';
+import type { DestinyView, ResearchView } from '../core/research';
 import type { AutomationView } from '../core/automation';
 import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
 import type { SurveyCost } from '../core/exploration';
@@ -167,9 +167,17 @@ export const $alerts = atom<AlertMsg[]>([]);
 export const $milestones = atom<{ done: string[]; total: number; progress: string; hints: Record<string, string> }>({
   done: [], total: 0, progress: '', hints: {},
 });
-/** foils / launch / stored: what the next volley would spend, as held now */
+/** foils / launch / stored: held now; needFoils / needLaunch / burst: what the
+ *  next volley spends (docs/14: Crewed Mission Control's 2↑ with `minCrew`
+ *  on console, Autonomous Cadence's burst and `auto` fire) */
 export const $swarm = atom({
   pct: 0, launches: 0, armed: false, canLaunch: false, burst: 0, foils: 0, launch: 0, stored: 0,
+  needFoils: 10, needLaunch: 3, auto: false, crewed: false, minCrew: 0,
+});
+/** the destiny meter: picks per era, counts, the band, what is still reachable (docs/14 §2.4) */
+export const $destiny = atom<DestinyView>({
+  picks: [null, null, null, null, null, null, null, null], c: 0, a: 0, left: 8, band: null, certain: null, lean: 0,
+  reach: { colony: { need: 6, ok: true }, automation: { need: 6, ok: true }, concord: true }, crewHome: false,
 });
 export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);

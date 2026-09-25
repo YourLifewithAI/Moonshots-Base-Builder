@@ -4,7 +4,7 @@
  *  claimOutpost and abandonOutpost and alert any refusal. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { SITES, type SiteDef, type SiteId } from '../data/sites';
-import { TECHS, type TechId } from '../data/techs';
+import { TECHS, TECH_ORDER, type TechId } from '../data/techs';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { ATLAS, CELL_M, CYCLE_S, INSIGHT_MAX, MAP_M, SURVEY_TIERS } from '../data/balance';
 import { DEPOSIT_INFO, LEAD_RANGE_M } from '../data/deposits';
@@ -45,10 +45,24 @@ export function revealRadiusM(tier: SurveyTier): number {
 
 const complete = (b: { construction?: number }) => (b.construction ?? 0) <= 0;
 
+/** the techs that widen a type's network radius (Dispatch Mesh): [tech, type, +m] */
+const RADIUS_FX: [TechId, BuildingId, number][] = TECH_ORDER.flatMap((t) => TECHS[t].effects
+  .flatMap((fx) => (fx.kind === 'radius' ? [[t, fx.building, fx.deltaM] as [TechId, BuildingId, number]] : [])));
+
+/** A type's build-network radius here: its own, plus the radius techs done. */
+export function networkRadius(type: BuildingId, techsDone?: readonly string[]): number {
+  const base = BUILDINGS[type].buildRadiusM ?? 0;
+  if (!base || !techsDone) return base;
+  let d = 0;
+  for (const [t, b, m] of RADIUS_FX) if (b === type && techsDone.includes(t)) d += m;
+  return base + d;
+}
+
 /** Completed Relay Masts: each maps the ground within its build radius. */
 function masts(s: GameState): [number, number, number][] {
+  const r = networkRadius('relayMast', s.techsDone);
   return s.buildings.filter((b) => b.type === 'relayMast' && complete(b))
-    .map((b) => [...centerOf(b), BUILDINGS.relayMast.buildRadiusM ?? 0]);
+    .map((b) => [...centerOf(b), r]);
 }
 
 /** Is a deposit mapped: any part inside the survey radius, or struck
@@ -82,10 +96,10 @@ export function revealDeposits(s: GameState, deposits: readonly Deposit[]): stri
 
 /** The build network: the Lander, completed habitats and completed Relay
  *  Masts, each extending it by its buildRadiusM (masts chain). */
-export function networkNodes(s: Pick<GameState, 'buildings'>): { x: number; z: number; r: number; type: BuildingId }[] {
+export function networkNodes(s: Pick<GameState, 'buildings'> & { techsDone?: readonly string[] }): { x: number; z: number; r: number; type: BuildingId }[] {
   const out: { x: number; z: number; r: number; type: BuildingId }[] = [];
   for (const b of s.buildings) {
-    const r = BUILDINGS[b.type].buildRadiusM;
+    const r = networkRadius(b.type, s.techsDone);
     if (!r || !complete(b)) continue;
     const [x, z] = centerOf(b);
     out.push({ x, z, r, type: b.type });
@@ -93,18 +107,18 @@ export function networkNodes(s: Pick<GameState, 'buildings'>): { x: number; z: n
   return out;
 }
 
-export function inNetwork(s: Pick<GameState, 'buildings'>, x: number, z: number): boolean {
+export function inNetwork(s: Pick<GameState, 'buildings'> & { techsDone?: readonly string[] }, x: number, z: number): boolean {
   return networkNodes(s).some((n) => Math.hypot(x - n.x, z - n.z) <= n.r);
 }
 
 /** the refusal for ground outside the network, naming what it is measured from */
-export function beyondNetwork(s: Pick<GameState, 'buildings'>): string {
+export function beyondNetwork(s: Pick<GameState, 'buildings'> & { techsDone?: readonly string[] }): string {
   const nodes = networkNodes(s);
   const hab = nodes.some((n) => n.type === 'habitat');
   const mast = nodes.some((n) => n.type === 'relayMast');
   const land = BUILDINGS.lander.buildRadiusM;
   return `Beyond ${land} m of the Lander${hab ? ' and habitats' : ''}` +
-    (mast ? ` or ${BUILDINGS.relayMast.buildRadiusM} m of a Relay Mast` : '');
+    (mast ? ` or ${networkRadius('relayMast', s.techsDone)} m of a Relay Mast` : '');
 }
 
 /** what striking a deposit means, for the PROSPECT STRUCK alert */

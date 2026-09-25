@@ -2,11 +2,12 @@
  *  Playwright drives the whole game loop through window.__game. */
 import type { Game } from './core/game';
 import type { BuildingId } from './data/buildings';
-import { TECH_ALIASES, auditTechs, techRelevanceMatrix, type TechId } from './data/techs';
+import { TECHS, TECH_ALIASES, TRACKS, auditTechs, techRelevanceMatrix, type Era, type Side, type TechId } from './data/techs';
 import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
 import type { GameStats } from './core/state';
-import { researchView } from './core/research';
+import { destinyOf, gateProgress, researchView } from './core/research';
+import { volleyTerms } from './core/economy';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
 import { upgradeKey } from './buildings/upgrades';
 import type { UpgradeInfo } from './buildings/instances';
@@ -196,6 +197,30 @@ function api(game: Game) {
     },
     /** where the Builder would put one of `type` now (a dry run) */
     planSite: (type: BuildingId, intent?: { res?: ResourceId; like?: number; edge?: boolean }) => clone(game.debugPlanSite(type, intent)),
+    // ── destiny tracks (docs/14) ──
+    /** complete an era's destiny pick, ⌂ 'colony' or ◉ 'automation' (as completeTech: no
+     *  gate, no cost); returns the tech, or null for Era 1 (fixed at landing) or a rival done */
+    pickDestiny: (era: Era, side: Side): TechId | null => {
+      if (era < 2 || era > 8) return null;
+      const t = TRACKS[era];
+      const tid = side === 'colony' ? t.colony : t.automation;
+      const other = side === 'colony' ? t.automation : t.colony;
+      if (game.state.techsDone.includes(other)) return null;
+      game.debugCompleteTech(tid);
+      return tid;
+    },
+    /** the destiny meter and what the next volley costs (docs/14 §2.4, §2.7) */
+    getDestiny: () => clone({
+      ...destinyOf(game.state),
+      crewHome: game.state.crewHome,
+      forwarded: game.state.forwarded,
+      evaCrew: game.state.evaCrew,
+      volley: { ...volleyTerms(game.state, game.mods), auto: game.mods.autoLaunch },
+      gates: Object.fromEntries([2, 3, 4, 5, 6, 7, 8].map((e) => [e, gateProgress(game.state, e as Era)])),
+      tracks: Object.fromEntries(Object.entries(TRACKS).map(([e, t]) => [e, {
+        ...t, colonyName: TECHS[t.colony].name, automationName: TECHS[t.automation].name,
+      }])),
+    }),
     /** Complete every construction site now (one economy tick settles them). */
     finishConstruction: () => {
       for (const b of game.state.buildings) b.construction = 0;

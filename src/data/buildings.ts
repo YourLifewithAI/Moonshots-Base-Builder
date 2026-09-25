@@ -10,7 +10,9 @@ export type BuildingId =
   | 'battery' | 'refinery' | 'lab' | 'roboticsBay' | 'storageYard'
   | 'partsFab' | 'reactor' | 'recDome' | 'chipFab' | 'dataCenter'
   | 'foilFactory' | 'massDriver'
-  | 'relayMast' | 'propellantPlant';
+  | 'relayMast' | 'propellantPlant'
+  // destiny buildings (docs/14 §2.8)
+  | 'greenhouseRing' | 'gardenDome' | 'droneHive' | 'serverMonolith';
 
 export type Category = 'power' | 'extraction' | 'industry' | 'life' | 'science' | 'export';
 
@@ -232,7 +234,51 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'LOX/LH₂ rockets launch from any latitude — they steer where rails cannot.',
     con: 'Drinks the crew’s water.',
   },
+
+  // ─── destiny buildings (docs/14 §2.8): each unlocked by a pick ───
+  greenhouseRing: {
+    id: 'greenhouseRing', name: 'Greenhouse Ring', category: 'life', era: 5,
+    footprint: [4, 4], height: 6, buildTime: 200,
+    buildCost: { metals: 80, silicon: 20, parts: 10 }, crew: 2, powerKW: -14,
+    inputs: { water: 0.08 }, outputs: { food: 0.32 }, upkeepParts: 2, priority: 1,
+    moraleDelta: 6,
+    pro: 'Three farms’ food on two crew and 14 kW, in one ring of glass.',
+    con: 'One blight takes the whole ring, and it drinks 0.08≈/s.',
+  },
+  gardenDome: {
+    id: 'gardenDome', name: 'Garden Dome', category: 'life', era: 7,
+    footprint: [5, 5], height: 12, buildTime: 320,
+    buildCost: { metals: 150, silicon: 40, parts: 25 }, crew: 1, powerKW: -12,
+    inputs: { water: 0.05 }, outputs: { food: 0.04 }, housing: 10, upkeepParts: 3, priority: 0,
+    moraleDelta: 10, buildRadiusM: 60,
+    pro: 'Ten beds round a park under glass: the best morale on the Moon.',
+    con: 'The largest pressure hull you will build, and a breach vents it fastest.',
+  },
+  droneHive: {
+    id: 'droneHive', name: 'Drone Hive', category: 'industry', era: 3,
+    footprint: [3, 3], height: 5, buildTime: 120,
+    buildCost: { metals: 60, parts: 30 }, crew: 0, powerKW: -7,
+    inputs: {}, outputs: {}, upkeepParts: 2, priority: 1, bots: 4,
+    pro: 'Four construction drones from one pad.',
+    con: 'Seven kW whether they fly or not, and one firmware push reaches all four.',
+  },
+  serverMonolith: {
+    id: 'serverMonolith', name: 'Server Monolith', category: 'science', era: 5,
+    footprint: [2, 2], height: 16, buildTime: 240,
+    buildCost: { metals: 60, chips: 20, parts: 20 }, crew: 0, powerKW: -26,
+    inputs: {}, outputs: {}, upkeepParts: 3, priority: 2,
+    pro: 'A Data Center’s work on less than half the ground: research data and transfer cap, no crew.',
+    con: 'Twenty-six kW, and a network hub: everything within 60 m links to it.',
+  },
 };
+
+/** The four buildings the destiny picks unlock. Standing rules never build
+ *  them (orders can) until Selenic Mind lets the Builder build everything. */
+export const DESTINY_BUILDINGS: readonly BuildingId[] = ['greenhouseRing', 'gardenDome', 'droneHive', 'serverMonolith'];
+
+/** Compute: counts as a Data Center wherever one is read (the transfer cap,
+ *  the Era 6 deed, Predictive Scheduling, the objectives). */
+export const isCompute = (type: BuildingId): boolean => type === 'dataCenter' || type === 'serverMonolith';
 
 export const BUILD_ORDER: BuildingId[] = [
   'solar', 'battery', 'reactor',
@@ -241,6 +287,7 @@ export const BUILD_ORDER: BuildingId[] = [
   'habitat', 'hydroponics', 'recDome',
   'lab', 'relayMast', 'dataCenter',
   'foilFactory', 'massDriver', 'propellantPlant',
+  'droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith',
 ];
 
 export const CATEGORY_ORDER: Category[] = ['power', 'extraction', 'industry', 'life', 'science', 'export'];

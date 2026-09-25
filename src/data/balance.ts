@@ -247,3 +247,11 @@ export const ALERTS = {
 
 /** game-seconds before dusk that the night-runway warning goes up */
 export const DUSK_WARN_S = 60;
+
+// ── destiny tracks (docs/14) ──
+/** picks on one side (of 8, the landing included) that make a pure destiny */
+export const PURE_AT = 6;
+/** EVA crews by day (crewCharter): the share of free hands that go out, and what they do */
+export const EVA = { dustRecoverMult: 1.3, repairMult: 1.1 };
+/** a Server Monolith: research data/s and transfer cap/s (a Data Center: DC_DATA_PER_S, RESEARCH_RATE_PER_DC) */
+export const MONOLITH = { dataPerS: 0.9, capPerS: 2.2, linkM: 60 };

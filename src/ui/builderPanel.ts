@@ -222,7 +222,7 @@ function orderables(game: Game, key: string): { type: BuildingId; res?: Resource
   if (key === 'power') return (['solar', 'battery', 'reactor'] as BuildingId[]).filter(ok).map((type) => ({ type }));
   if (key === 'crew') return (['habitat', 'hydroponics'] as BuildingId[]).filter(ok).map((type) => ({ type }));
   if (key === 'bots') return (['roboticsBay'] as BuildingId[]).filter(ok).map((type) => ({ type }));
-  if (key === 'data') return (['lab', 'dataCenter'] as BuildingId[]).filter(ok).map((type) => ({ type }));
+  if (key === 'data') return (['lab', 'dataCenter', 'serverMonolith'] as BuildingId[]).filter(ok).map((type) => ({ type }));
   const rid = key as ResourceId;
   if (!RESOURCES[rid]) return [];
   return BUILD_ORDER.filter((b) => ok(b) && (effectiveDef(b, game.mods).outputs[rid] ?? 0) > 0).map((type) => ({ type, res: rid }));

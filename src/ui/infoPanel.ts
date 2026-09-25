@@ -192,6 +192,8 @@ function panelHtml(key: string, mods: Mods): string | null {
       <section><span class="label">Produced by</span>
         ${buildingLine('lab', ratesOf('lab', mods).data, '+')}
         ${buildingLine('dataCenter', ratesOf('dataCenter', mods).data, '+')}
+        ${$tech.get().unlocked.includes('serverMonolith') || $counts.get().serverMonolith?.total
+          ? buildingLine('serverMonolith', ratesOf('serverMonolith', mods).data, '+') : ''}
         ${agentLab ? `<div class="goal-hint">Agent-run labs hold ${Math.round(DATA_RATE.agentLabCap * 100)}% — inference is not insight; settlers staffing them lift the cap. Crewed labs scale with morale.</div>` : ''}
         ${share < 1 ? `<div class="goal-hint">${rv!.agentLabs} agent-run labs share one Deep Space Network uplink: each keeps ${Math.round(share * 100)}% of its data.</div>` : ''}
         <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the research queue — no lab, no research progress. A Data Center moves ${fmt(RESEARCH_RATE_PER_DC * 60)}/min, ${Math.floor(RESEARCH_RATE_PER_DC / RESEARCH_RATE_PER_LAB)} labs' worth, and produces data itself; big eras want compute.</div></section>`;

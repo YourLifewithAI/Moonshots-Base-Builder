@@ -11,6 +11,7 @@ import { BUILDINGS, type BuildingId } from './buildings';
 import { RESOURCES, type ResourceId } from './resources';
 import { SITES, SITE_ORDER, type SiteId } from './sites';
 import { siteHasDeposit, type FeedKind } from './deposits';
+import { EXPOSURE_TEXT, GUARD_TEXT, HAZARDS_LIVE, HAZARD_NAME, type GuardId, type HazardId } from './hazards';
 import { AUTO, FAMILY_LABEL, RULES, RULE_TEXT, rulesOf, type AutoFamily } from './automation';
 import type { ProspectId } from './lunarMap';
 import type { GameState } from '../core/state';
@@ -18,6 +19,7 @@ import {
   AGENT_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, DOWNLINK, FEED,
   GRADE_COST_ENERGY, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
   MAX_SLOPE_LARGE, OVERCLOCK, SURVEY_TIERS,
+  CREW_ROTATION, EVA, PURE_AT,
 } from './balance';
 
 export type Era = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -61,10 +63,23 @@ export type TechId =
   | 'laserRanging'
   | 'selfExpandingBase' | 'maintenanceAutomation'
   // era 8 — dyson swarm (lane-free capstone column)
-  | 'swarmProtocol' | 'powerBeaming' | 'vonNeumann' | 'railCapacitors' | 'cryocoolerHeads' | 'canisterPress';
+  | 'swarmProtocol' | 'powerBeaming' | 'vonNeumann' | 'railCapacitors' | 'cryocoolerHeads' | 'canisterPress'
+  // destiny (docs/14): the landing, a ⌂ Colony / ◉ Automation pick for eras 2–8, the three capstones
+  | 'landingCrew' | 'landingRobotic'
+  | 'pressureHalls' | 'dispatchMesh' | 'crewCharter' | 'droneHives' | 'hydroCommons' | 'lightsOutFabs'
+  | 'greenhouseRings' | 'fleetOS' | 'settlerCharter' | 'lightsOutCharter' | 'gardenDomes' | 'replicatorStacks'
+  | 'missionControl' | 'autoCadence'
+  | 'commonwealth' | 'selenicMind' | 'concord';
 
-/** Any effect may be limited to some sites / expeditions; computeMods skips it elsewhere. */
-export interface EffectFilter { sites?: SiteId[]; expeditions?: Expedition[] }
+/** the two destinies (docs/14 §2): ⌂ humans settle the Moon, ◉ the Moon runs itself */
+export type Side = 'colony' | 'automation';
+/** where the eight picks land: a pure destiny (6 of 8 on one side), or Concord */
+export type Band = Side | 'concord';
+
+/** Any effect may be limited to some sites / expeditions; computeMods skips it elsewhere.
+ *  `crew`: only where people live — human runs, and robotic runs once Human
+ *  Cohabitation is done (the card line says `(with crew)`). */
+export interface EffectFilter { sites?: SiteId[]; expeditions?: Expedition[]; crew?: true }
 
 export interface RecipeOverride {
   inputs?: Partial<Record<ResourceId, number>>;
@@ -119,8 +134,32 @@ export type TechEffect = EffectFilter & (
   | { kind: 'feedPlanner' }
   /** Maintenance Automation: parts triage, worn machines replaced at this wear */
   | { kind: 'maintenance'; wear: number }
-  /** extends the Builder (docs/14 Automation picks): rule dwell and caps, extra families */
-  | { kind: 'builder'; dwellMult?: number; capMult?: number; families?: AutoFamily[] }
+  /** extends the Builder (docs/14 Automation picks): rule dwell and caps, extra families;
+   *  `all`: rules may build the destiny buildings too (Selenic Mind) */
+  | { kind: 'builder'; dwellMult?: number; capMult?: number; families?: AutoFamily[]; all?: true }
+  // ── destiny (docs/14 §2.7) ──
+  /** crew growth period ×mult (0 = no new settlers are invited) */
+  | { kind: 'growth'; mult: number }
+  /** robotic runs: brings Human Cohabitation forward and its crew rotation (research.onTechComplete) */
+  | { kind: 'bringsCrew' }
+  /** a charter requirement waived (robotic Era 7 without Human Cohabitation) */
+  | { kind: 'waive'; tech: TechId }
+  /** EVA crews by day: this share of the free hands goes outside (dust and repair bonuses) */
+  | { kind: 'eva'; share: number }
+  /** a building's build-network radius, +deltaM */
+  | { kind: 'radius'; building: BuildingId; deltaM: number }
+  /** crewed launches: ↑ per volley, morale for a lunar day, crew on console for it */
+  | { kind: 'volley'; launchCap?: number; morale?: number; minCrew?: number }
+  /** volleys fire themselves when ready; the burst ×burstMult */
+  | { kind: 'autoLaunch'; burstMult?: number }
+  /** morale target everywhere */
+  | { kind: 'moraleBase'; delta: number }
+  /** hazard windows (docs/14 §3.2) come ×1/mult as often */
+  | { kind: 'hazardRate'; mult: number }
+  /** a hazard guard (docs/14 §3.6); inert until the hazards ship */
+  | { kind: 'guard'; guard: GuardId }
+  /** what a pick puts at risk (docs/14 §2.7); inert until the hazards ship */
+  | { kind: 'exposure'; hazard: HazardId; buildings?: BuildingId[] }
 );
 export type TechEffectKind = TechEffect['kind'];
 
@@ -154,6 +193,11 @@ export interface TechDef {
    *  discovery pop-up shows it; buildings/upgrades.ts carries the mesh part,
    *  and for a pure unlock it is the building itself) */
   visual?: string;
+  /** a destiny pick (docs/14 §2): the era it answers, its side; the landing
+   *  pick is made on the landing screen and never counts toward a charter */
+  track?: { era: Era; side: Side; landing?: true };
+  /** a destiny capstone: visible only once the Era 8 pick settles this band */
+  band?: Band;
 }
 
 const M: SiteId = 'mare', P: SiteId = 'southpole', L: SiteId = 'lavatube';
@@ -335,6 +379,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'upkeepMult', buildings: 'all', mult: 0.85 },
       { kind: 'repair', mult: 0.5 },
+      { kind: 'guard', guard: 'micrometeoriteShield' }, // docs/14 §3.6 (inert until the hazards ship)
     ],
     desc: 'Two metres of berm on every structure: thermal mass, radiation, micrometeorites.',
     visual: 'Regolith berms are bulldozed against every shielded wall.',
@@ -484,6 +529,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'dustMult', mult: 0.4 },
       { kind: 'upkeepMult', buildings: ['excavator'], mult: 0.5 },
       { kind: 'powerMult', buildings: ['solar'], mult: 0.95 },
+      { kind: 'guard', guard: 'dustScreens' }, // docs/14 §3.6 (inert until the hazards ship)
     ],
     desc: 'Electrostatic curtains and sealed bearings against the Moon’s knife-dust.',
     visual: 'Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts.',
@@ -608,6 +654,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'outputMult', buildings: ['chipFab'], mult: 1.4 },
       { kind: 'agentTax', mult: 0.6 },
       { kind: 'outputMult', buildings: ['dataCenter'], mult: 0.85 },
+      { kind: 'guard', guard: 'radHard' }, // docs/14 §3.6 (inert until the hazards ship)
     ],
     desc: 'Older, larger nodes and thick oxides that shrug off cosmic rays.',
     visual: 'Chip Fabs add a shielded ion-implanter annex.',
@@ -754,6 +801,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'governor' },
       { kind: 'upkeepMult', buildings: ['storageYard'], mult: 1.5 },
+      { kind: 'guard', guard: 'governorFloors' }, // docs/14 §3.6 (inert until the hazards ship)
     ],
     desc: 'A ledger for the builder: floors it never spends below, the research goods it leaves alone, and an order its rules act in.',
     visual: 'Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks.',
@@ -941,6 +989,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'inputMult', buildings: ['habitat'], mult: 0.6 },
       { kind: 'powerMult', buildings: ['habitat'], mult: 1.3 },
+      { kind: 'guard', guard: 'closedLoop' }, // docs/14 §3.6 (inert until the hazards ship)
     ],
     desc: 'Scrub, recycle, repeat.',
     visual: 'Habitats add a CO₂ scrubber stack and water-recovery tanks.',
@@ -952,6 +1001,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'upkeepMult', buildings: 'all', mult: 0.8 },
       { kind: 'buildSpeed', mult: 1.15 },
+      { kind: 'guard', guard: 'safety' }, // docs/14 §3.6 (inert until the hazards ship)
     ],
     desc: 'Human inspectors walk the lines the agents only watch. This is the safety-measures purpose.',
     visual: 'Inspection lamp masts go up beside Habitats and the Lander.',
@@ -1300,7 +1350,7 @@ export const TECHS: Record<TechId, TechDef> = {
   swarmProtocol: {
     id: 'swarmProtocol', era: 8, name: 'Swarm Protocol', short: 'Swarm Protocol',
     costData: 1800, costGoods: { foils: 5, chips: 10 },
-    requires: ['foilManufacturing'], requiresAny: ['railCapacitors', 'cryocoolerHeads'],
+    requires: ['foilManufacturing'], requiresAny: ['missionControl', 'autoCadence'],
     effects: [{ kind: 'launchAction' }],
     desc: 'Deployment doctrine for a trillion collectors.',
     visual: 'Mass Drivers and Propellant Plants raise a swarm-tracking beacon mast.',
@@ -1324,6 +1374,273 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Foil factories that seed foil factories.',
     visual: 'Foil Factories sprout seed-factory pods on the roof.',
     tradeoff: 'A monument to obsolescence.',
+  },
+
+  // ─── DESTINY (docs/14 §2): one ⌂ Colony / ◉ Automation pick per era, then a capstone ───
+  // Picks live in their era page's header, not in a lane. Each costs its era's
+  // median tech, is required to open the next era and counts toward its charter
+  // (the landing pick excepted). No pick requires another, and none is a doctrine.
+  landingCrew: {
+    id: 'landingCrew', era: 1, name: 'Crewed Landing', short: 'Crewed Landing',
+    costData: 0, requires: [], expeditions: ['human'], track: { era: 1, side: 'colony', landing: true },
+    effects: [],
+    desc: 'Seven people and a supply cache: the human expedition, chosen on the landing screen.',
+    visual: 'The Lander flies a flag, and its crew cabin shows a lit window band.',
+    tradeoff: 'People are the point, and people are fragile.',
+  },
+  landingRobotic: {
+    id: 'landingRobotic', era: 1, name: 'Robotic Mission', short: 'Robotic Mission',
+    costData: 0, requires: [], expeditions: ['robotic'], track: { era: 1, side: 'automation', landing: true },
+    effects: [],
+    desc: 'No one aboard: the robotic expedition, chosen on the landing screen.',
+    visual: 'The Lander’s cabin windows are blanked, and a rover cradle rides the deck.',
+    tradeoff: 'Machines cannot die, and cannot dream either.',
+  },
+  pressureHalls: {
+    id: 'pressureHalls', era: 2, name: 'Pressure-Rated Halls', short: 'Pressure Halls',
+    costData: 120, costGoods: { metals: 20 }, requires: [], track: { era: 2, side: 'colony' },
+    effects: [
+      { kind: 'upkeepMult', buildings: ['lab', 'partsFab', 'roboticsBay'], mult: 0.8 },
+      { kind: 'repair', mult: 1.15 },
+      { kind: 'morale', building: 'lab', delta: 2, crew: true },
+      { kind: 'guard', guard: 'suitports' },
+      { kind: 'buildTime', buildings: ['lab', 'partsFab', 'roboticsBay'], mult: 1.3 },
+      { kind: 'exposure', hazard: 'breach', buildings: ['lab', 'partsFab', 'roboticsBay'] },
+      { kind: 'exposure', hazard: 'dust', buildings: ['lab', 'partsFab', 'roboticsBay'] },
+    ],
+    desc: 'Workshops built to hold air: a technician walks in without a suit, and the seals keep the knife-dust out of the bearings.',
+    visual: 'Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window.',
+    tradeoff: 'A hull that holds air is a hull that can lose it.',
+  },
+  dispatchMesh: {
+    id: 'dispatchMesh', era: 2, name: 'Dispatch Mesh', short: 'Dispatch Mesh',
+    costData: 120, costGoods: { parts: 10 }, requires: [], track: { era: 2, side: 'automation' },
+    effects: [
+      { kind: 'buildSpeed', mult: 0.88 },
+      { kind: 'radius', building: 'relayMast', deltaM: 15 },
+      { kind: 'powerMult', buildings: ['relayMast'], mult: 1.4 },
+      { kind: 'powerDelta', building: 'lander', kw: -1 },
+      { kind: 'exposure', hazard: 'malware', buildings: ['relayMast', 'roboticsBay', 'lander'] },
+    ],
+    desc: 'The rovers stop waiting on Earth: a mesh radio lets every mast, bay and rover hand work to the next.',
+    visual: 'Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet.',
+    tradeoff: 'Every node that can talk can be talked to.',
+  },
+  crewCharter: {
+    id: 'crewCharter', era: 3, name: 'Crew Rotation Charter', short: 'Crew Rotation',
+    costData: 150, costGoods: { parts: 30 }, requires: [], track: { era: 3, side: 'colony' },
+    effects: [
+      { kind: 'bringsCrew', expeditions: ['robotic'] },
+      { kind: 'growth', mult: 2 / 3, expeditions: ['human'] },
+      { kind: 'eva', share: 0.1, crew: true },
+      { kind: 'powerMult', buildings: ['habitat'], mult: 1.2 },
+      { kind: 'exposure', hazard: 'dose' },
+      { kind: 'exposure', hazard: 'cabinFever' },
+      { kind: 'guard', guard: 'earthContact' },
+    ],
+    desc: 'A standing charter with Earth: crews rotate in on a schedule, and the ones aboard go outside to keep the base.',
+    visual: 'Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast.',
+    tradeoff: 'People who come to stay have to be kept.',
+  },
+  droneHives: {
+    id: 'droneHives', era: 3, name: 'Drone Hives', short: 'Drone Hives',
+    costData: 150, costGoods: { parts: 30 }, requires: [], track: { era: 3, side: 'automation' },
+    effects: [
+      { kind: 'unlock', building: 'droneHive' },
+      { kind: 'repair', mult: 1.15 },
+      { kind: 'guard', guard: 'hiveReflash' },
+      { kind: 'exposure', hazard: 'firmware' },
+    ],
+    desc: 'More machines instead of more people: a hive docks four construction drones on one pad.',
+    visual: 'Drone Hives can rise: a honeycomb of docks under a landing deck.',
+    tradeoff: 'Four drones, one firmware image.',
+  },
+  hydroCommons: {
+    id: 'hydroCommons', era: 4, name: 'Hydroponic Commons', short: 'Hydro Commons',
+    costData: 240, costGoods: { metals: 30 }, requires: [], track: { era: 4, side: 'colony' },
+    effects: [
+      { kind: 'bringsCrew', expeditions: ['robotic'] },
+      { kind: 'outputMult', buildings: ['hydroponics'], mult: 1.15 },
+      { kind: 'morale', building: 'hydroponics', delta: 3, crew: true },
+      { kind: 'guard', guard: 'commonsMeals' },
+      { kind: 'inputMult', buildings: ['hydroponics'], mult: 1.25 },
+      { kind: 'exposure', hazard: 'blight' },
+    ],
+    desc: 'The farms become the base’s living room: a galley among the vines, tended by the people who eat from it.',
+    visual: 'Hydroponics vaults open a glazed galley end with long tables, and a trellis runs the vault.',
+    tradeoff: 'A garden is thirsty.',
+  },
+  lightsOutFabs: {
+    id: 'lightsOutFabs', era: 4, name: 'Lights-Out Fabs', short: 'Lights-Out Fabs',
+    costData: 240, costGoods: { parts: 15 }, requires: [], track: { era: 4, side: 'automation' },
+    effects: [
+      { kind: 'crewDelta', buildings: ['partsFab', 'chipFab'], delta: -1 },
+      { kind: 'outputMult', buildings: ['chipFab'], mult: 1.1 },
+      { kind: 'guard', guard: 'signedFirmware' },
+      { kind: 'powerMult', buildings: ['partsFab', 'chipFab'], mult: 1.2 },
+      { kind: 'exposure', hazard: 'malware', buildings: ['partsFab', 'chipFab'] },
+      { kind: 'exposure', hazard: 'firmware' },
+    ],
+    desc: 'Fabs that need no window and no seat: masks and firmware arrive over the network, and the lights stay off.',
+    visual: 'Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp.',
+    tradeoff: 'A fab that takes updates takes bad ones too.',
+  },
+  greenhouseRings: {
+    id: 'greenhouseRings', era: 5, name: 'Greenhouse Rings', short: 'Greenhouse Rings',
+    costData: 400, costGoods: { silicon: 20 }, requires: [], track: { era: 5, side: 'colony' },
+    effects: [
+      { kind: 'unlock', building: 'greenhouseRing' },
+      { kind: 'bringsCrew', expeditions: ['robotic'] },
+      { kind: 'guard', guard: 'seedBank' },
+      { kind: 'exposure', hazard: 'blight' },
+      { kind: 'exposure', hazard: 'contamination' },
+    ],
+    desc: 'What grows here is food: a ring of glass vaults round a hub, three farms’ harvest on two crew.',
+    visual: 'Greenhouse Rings can rise: glass vaults round a domed hub.',
+    tradeoff: 'One ring, one monoculture.',
+  },
+  fleetOS: {
+    id: 'fleetOS', era: 5, name: 'Fleet OS', short: 'Fleet OS',
+    costData: 400, costGoods: { chips: 10 }, requires: [], track: { era: 5, side: 'automation' },
+    effects: [
+      { kind: 'unlock', building: 'serverMonolith' },
+      { kind: 'agentTax', mult: 0.85 },
+      { kind: 'builder', dwellMult: 0.5, families: ['research'] },
+      { kind: 'guard', guard: 'intrusionDetection' },
+      { kind: 'powerMult', buildings: ['dataCenter'], mult: 1.15 },
+      { kind: 'exposure', hazard: 'controlPlane' },
+    ],
+    desc: 'What grows here is compute: one operating system for every agent, rover and rule, run from the racks.',
+    visual: 'Server Monoliths can rise: black slabs with a cold lamp stripe.',
+    tradeoff: 'One control plane is one thing to lose.',
+  },
+  settlerCharter: {
+    id: 'settlerCharter', era: 6, name: 'Settler Charter', short: 'Settler Charter',
+    costData: 1000, costGoods: { metals: 40 }, requires: [], track: { era: 6, side: 'colony' },
+    effects: [
+      { kind: 'bringsCrew', expeditions: ['robotic'] },
+      { kind: 'housing', building: 'habitat', delta: 1 },
+      { kind: 'growth', mult: 2 / 3, crew: true },
+      { kind: 'outputMult', buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab'], mult: 1.1, crewedOnly: true },
+      { kind: 'guard', guard: 'stormShelters' },
+      { kind: 'inputMult', buildings: ['habitat'], mult: 1.2 },
+      { kind: 'exposure', hazard: 'cabinFever' },
+    ],
+    desc: 'The Moon is a home: families, not rotations, and a vote on how the base is run.',
+    visual: 'Habitats stack a second storey: a habitation terrace with a balcony rail, planters and warm windows.',
+    tradeoff: 'Families stay, and families grow restless.',
+  },
+  lightsOutCharter: {
+    id: 'lightsOutCharter', era: 6, name: 'Lights-Out Charter', short: 'Lights-Out Charter',
+    costData: 1000, costGoods: { chips: 20 }, requires: [], track: { era: 6, side: 'automation' },
+    effects: [
+      { kind: 'waive', tech: 'humanCohabitation', expeditions: ['robotic'] },
+      { kind: 'agentTax', mult: 0.8 },
+      { kind: 'repair', mult: 1.2 },
+      { kind: 'guard', guard: 'watchdogs' },
+      { kind: 'powerMult', buildings: ['dataCenter', 'roboticsBay'], mult: 1.2 },
+      { kind: 'growth', mult: 0, crew: true },
+    ],
+    desc: 'The Moon is a machine: the base is certified to run with no one aboard, and no one else is invited.',
+    visual: 'Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows.',
+    tradeoff: 'A base built for no one is lonely by design.',
+  },
+  gardenDomes: {
+    id: 'gardenDomes', era: 7, name: 'Garden Domes', short: 'Garden Domes',
+    costData: 1125, costGoods: { silicon: 40 }, requires: [], track: { era: 7, side: 'colony' },
+    effects: [
+      { kind: 'unlock', building: 'gardenDome' },
+      { kind: 'bringsCrew', expeditions: ['robotic'] },
+      { kind: 'guard', guard: 'bulkheads' },
+      { kind: 'exposure', hazard: 'breach', buildings: ['gardenDome'] },
+    ],
+    desc: 'Domes, not replicators: ten beds round a park under glass, the best place on the Moon to live.',
+    visual: 'Garden Domes can rise: a glass dome over trees, ringed by lit window terraces.',
+    tradeoff: 'The biggest hull holds the most air to lose.',
+  },
+  replicatorStacks: {
+    id: 'replicatorStacks', era: 7, name: 'Replicator Stacks', short: 'Replicator Stacks',
+    costData: 1125, costGoods: { chips: 20, parts: 30 }, requires: [], track: { era: 7, side: 'automation' },
+    effects: [
+      { kind: 'outputMult', buildings: ['partsFab', 'foilFactory'], mult: 1.2 },
+      { kind: 'builder', capMult: 2, families: ['export'] },
+      { kind: 'guard', guard: 'attestation' },
+      { kind: 'powerMult', buildings: ['partsFab', 'foilFactory'], mult: 1.2 },
+      { kind: 'upkeepMult', buildings: ['roboticsBay', 'droneHive'], mult: 1.3 },
+      { kind: 'exposure', hazard: 'runaway' },
+    ],
+    desc: 'Replicators, not domes: fabs stacked two storeys high, and a Builder allowed twice as far.',
+    visual: 'Parts Fabricators and Foil Factories stack a second fab storey under a gantry.',
+    tradeoff: 'A replicator does exactly what the rules say.',
+  },
+  missionControl: {
+    id: 'missionControl', era: 8, name: 'Crewed Mission Control', short: 'Mission Control',
+    costData: 1600, requires: [], track: { era: 8, side: 'colony' },
+    effects: [
+      { kind: 'volley', launchCap: 2, morale: 8, minCrew: 4 },
+      { kind: 'bringsCrew', expeditions: ['robotic'] },
+      { kind: 'guard', guard: 'launchDays' },
+      { kind: 'crewDelta', buildings: ['massDriver', 'propellantPlant'], delta: 1 },
+    ],
+    desc: 'People launch the swarm: a crew on console calls every volley, and the base turns out to watch.',
+    visual: 'Mass Drivers and Propellant Plants gain a glazed launch-control blockhouse with lit consoles and a viewing gallery.',
+    tradeoff: 'A ceremony needs its people.',
+  },
+  autoCadence: {
+    id: 'autoCadence', era: 8, name: 'Autonomous Cadence', short: 'Auto Cadence',
+    costData: 1600, requires: [], track: { era: 8, side: 'automation' },
+    effects: [
+      { kind: 'autoLaunch', burstMult: 0.75 },
+      { kind: 'powerMult', buildings: ['massDriver', 'propellantPlant'], mult: 1.3 },
+      { kind: 'exposure', hazard: 'malware', buildings: ['massDriver', 'propellantPlant'] },
+    ],
+    desc: 'Machines launch the swarm: the rail fires whenever the foils, the capacity and the charge are ready.',
+    visual: 'Mass Drivers and Propellant Plants raise a black guidance monolith with a cold tracking lamp.',
+    tradeoff: 'Nobody presses the button, so nobody can stop it.',
+  },
+  commonwealth: {
+    id: 'commonwealth', era: 8, name: 'Lunar Commonwealth', short: 'Commonwealth',
+    costData: 3400, requires: ['swarmProtocol'], band: 'colony',
+    effects: [
+      { kind: 'moraleBase', delta: 10, crew: true },
+      { kind: 'housing', building: 'habitat', delta: 2 },
+      { kind: 'housing', building: 'gardenDome', delta: 2 },
+      {
+        kind: 'outputMult', mult: 1.1, crewedOnly: true,
+        buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab', 'foilFactory', 'hydroponics', 'greenhouseRing'],
+      },
+      { kind: 'inputMult', buildings: ['habitat'], mult: 1.2 },
+      { kind: 'exposure', hazard: 'cabinFever' },
+    ],
+    desc: 'The Moon has citizens: a charter, a flag, and a city under glass that means to stay.',
+    visual: 'Habitats and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole.',
+    tradeoff: 'Citizens ask for more than settlers did.',
+  },
+  selenicMind: {
+    id: 'selenicMind', era: 8, name: 'Selenic Mind', short: 'Selenic Mind',
+    costData: 3400, requires: ['swarmProtocol'], band: 'automation',
+    effects: [
+      { kind: 'builder', capMult: 2, families: ['research', 'export'], all: true },
+      { kind: 'outputMult', buildings: ['foilFactory', 'dataCenter', 'serverMonolith'], mult: 1.25 },
+      { kind: 'powerMult', buildings: ['foilFactory', 'dataCenter', 'serverMonolith'], mult: 1.25 },
+      { kind: 'exposure', hazard: 'malware' },
+    ],
+    desc: 'The Moon runs itself: one mind for every rack, rover and rule, building what it decides it needs.',
+    visual: 'Server Monoliths and Data Centers crown themselves with radiator fins.',
+    tradeoff: 'A mind this size is a target this size.',
+  },
+  concord: {
+    id: 'concord', era: 8, name: 'Concord', short: 'Concord',
+    costData: 3400, requires: ['swarmProtocol'], band: 'concord',
+    effects: [
+      { kind: 'agentTax', mult: 0.8 },
+      { kind: 'moraleBase', delta: 5, crew: true },
+      { kind: 'hazardRate', mult: 0.7 },
+      { kind: 'upkeepMult', buildings: 'all', mult: 1.1 },
+    ],
+    desc: 'People and machines, each doing what they do best: joint operations, by treaty.',
+    visual: 'The Lander raises a joint-operations mast: a lit crew cabin under a drone perch.',
+    tradeoff: 'A treaty is two sets of maintenance.',
   },
 };
 
@@ -1352,6 +1669,57 @@ export const ERA_SHORT: Record<number, string> = {
   1: 'LANDING', 2: 'CONSTRUCTION', 3: 'FABRICATION', 4: 'CHIPS',
   5: 'COMPUTE', 6: 'HABITATION', 7: 'INDUSTRY', 8: 'SWARM',
 };
+
+// ─────────────────────────── destiny (docs/14 §2) ───────────────────────────
+
+/** One binary pick per era: ⌂ Colony or ◉ Automation. Era 1's is the landing. */
+export const TRACKS: Record<Era, { colony: TechId; automation: TechId; question: string }> = {
+  1: { colony: 'landingCrew', automation: 'landingRobotic', question: 'Who goes to the Moon?' },
+  2: { colony: 'pressureHalls', automation: 'dispatchMesh', question: 'Who are these halls built for?' },
+  3: { colony: 'crewCharter', automation: 'droneHives', question: 'Who comes next: people, or more machines?' },
+  4: { colony: 'hydroCommons', automation: 'lightsOutFabs', question: 'Does a fab need a window or a network?' },
+  5: { colony: 'greenhouseRings', automation: 'fleetOS', question: 'What grows here: gardens or compute?' },
+  6: { colony: 'settlerCharter', automation: 'lightsOutCharter', question: 'Is the Moon a home, or a machine?' },
+  7: { colony: 'gardenDomes', automation: 'replicatorStacks', question: 'Domes, or replicators?' },
+  8: { colony: 'missionControl', automation: 'autoCadence', question: 'Who launches the swarm?' },
+};
+export const SIDES: Side[] = ['colony', 'automation'];
+export const SIDE_GLYPH: Record<Side, string> = { colony: '⌂', automation: '◉' };
+export const SIDE_LABEL: Record<Side, string> = { colony: 'COLONY', automation: 'AUTOMATION' };
+export const BAND_LABEL: Record<Band, string> = { colony: '⌂ COLONY', automation: '◉ AUTOMATION', concord: 'CONCORD' };
+/** the ending each band earns (docs/14 §5) */
+export const BAND_ENDING: Record<Band, string> = {
+  colony: 'THE COMMONWEALTH', automation: 'THE LIGHTS-OUT MOON', concord: 'THE CONCORD',
+};
+/** the capstone each band unlocks (Era 8, after Swarm Protocol) */
+export const CAPSTONES: Record<Band, TechId> = { colony: 'commonwealth', automation: 'selenicMind', concord: 'concord' };
+/** the landing pick of each expedition (pushed into techsDone at landing) */
+export const LANDING_TECH: Record<Expedition, TechId> = { human: 'landingCrew', robotic: 'landingRobotic' };
+/** Era 8's blurb once the band is known (banner and page header) */
+export const ERA_BLURB_8: Record<Band, string> = {
+  colony: 'The first collectors fly from a city under glass. Every volley is a launch day.',
+  automation: 'The rail fires itself. Every volley is logged, not watched.',
+  concord: 'People on console, machines on the rail.',
+};
+
+/** The picks done, per era and per side, and the band they make: settled
+ *  once the Era 8 pick is done (6 of 8 on a side is pure, else Concord). */
+export function destinyCounts(done: readonly string[]): {
+  picks: Partial<Record<Era, Side>>; c: number; a: number; band: Band | null;
+} {
+  const picks: Partial<Record<Era, Side>> = {};
+  let c = 0, a = 0;
+  for (let e = 1 as Era; e <= 8; e = (e + 1) as Era) {
+    const t = TRACKS[e];
+    const col = done.includes(t.colony), aut = done.includes(t.automation);
+    if (col) c++;
+    if (aut) a++;
+    if (col || aut) picks[e] = col ? 'colony' : 'automation';
+  }
+  const settled = !!picks[8];
+  const band: Band | null = !settled ? null : c >= PURE_AT ? 'colony' : a >= PURE_AT ? 'automation' : 'concord';
+  return { picks, c, a, band };
+}
 
 export interface LaneDef { id: Lane; glyph: string; label: string; holds: string }
 export const LANES: LaneDef[] = [
@@ -1472,6 +1840,8 @@ export interface DescribeCtx {
   expedition?: Expedition;
   /** current mods.agentTax, for agent-run draw notes (default AGENT_TAX) */
   agentTax?: number;
+  /** techs done: a spent `bringsCrew` line is hidden once Human Cohabitation is */
+  done?: readonly TechId[];
 }
 
 const glyph = (r: string) => RESOURCES[r as ResourceId]?.glyph ?? '';
@@ -1780,7 +2150,69 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       for (const f of fx.families ?? []) {
         for (const r of rulesOf(f)) out.push(pro(`NEW RULE ${FAMILY_LABEL[f]}: ${RULE_TEXT[r]} (cap ${RULES[r].cap})`, 1, 'flag'));
       }
+      if (fx.all) out.push(pro('Builder: every rule may build the destiny buildings too (rings, domes, hives, monoliths)', 1, 'flag'));
       return out;
+    }
+    // ── destiny (docs/14 §2.7) ──
+    case 'growth': {
+      if (fx.mult <= 0) return [con('no new settlers are invited', 1, 'use')];
+      const text = `settlers arrive ×${num(Math.round((1 / fx.mult) * 100) / 100)} as often`;
+      return [fx.mult < 1 ? pro(text, mag(1 / fx.mult), 'mult') : con(text, mag(1 / fx.mult), 'mult')];
+    }
+    case 'bringsCrew':
+      if (ctx.done?.includes('humanCohabitation')) return [];
+      return [
+        pro(`brings Human Cohabitation forward: habitats and farms unlock; ${CREW_ROTATION.count} settlers board in ` +
+          `${Math.floor(CREW_ROTATION.delayS / 60)}:${String(CREW_ROTATION.delayS % 60).padStart(2, '0')} if the base can keep them`, 1, 'flag'),
+        con('the crew needs O₂, food, water and beds from now on', 1, 'use'),
+      ];
+    case 'waive': {
+      const gate = Object.values(ERA_GATES).find((g) => g?.roboticRequires === fx.tech);
+      return [pro(`Era ${gate?.era ?? '?'} opens without ${TECHS[fx.tech].name}`, 1, 'flag')];
+    }
+    case 'eva':
+      return [pro(`EVA crews by day (${Math.round(fx.share * 100)}% of free hands): dust clears ×${num(EVA.dustRecoverMult)}, ` +
+        `repairs ×${num(EVA.repairMult)}`, mag(EVA.dustRecoverMult), 'mult')];
+    case 'radius': {
+      const base = BUILDINGS[fx.building].buildRadiusM ?? 0;
+      return [pro(`${bname(fx.building)}s reach ${num(base + fx.deltaM)} m (from ${num(base)})`, fx.deltaM, 'count')];
+    }
+    case 'volley': {
+      const out: EffectLine[] = [];
+      const l = RESOURCES.launch.glyph;
+      if (fx.launchCap !== undefined && fx.launchCap < LAUNCH_CAP_PER_VOLLEY) {
+        out.push(pro(`a volley needs ${fx.launchCap}${l} instead of ${LAUNCH_CAP_PER_VOLLEY}`, LAUNCH_CAP_PER_VOLLEY - fx.launchCap, 'count'));
+      }
+      if (fx.morale) out.push(pro(`each volley: +${fx.morale} morale for a lunar day`, fx.morale, 'morale'));
+      if (fx.minCrew) {
+        out.push(con(`a volley needs ${fx.minCrew} crew on console (without them: ${LAUNCH_CAP_PER_VOLLEY}${l} and no ceremony)`, 1, 'use'));
+      }
+      return out;
+    }
+    case 'autoLaunch': {
+      const out: EffectLine[] = [pro('volleys fire themselves when ready (never below the night’s reserve)', 1, 'flag')];
+      if (fx.burstMult !== undefined && fx.burstMult !== 1) {
+        const text = `launch burst ${pctDelta(fx.burstMult)} (${num(LAUNCH_POWER_BURST * fx.burstMult)} stored)`;
+        out.push(fx.burstMult < 1 ? pro(text, mag(fx.burstMult), 'mult') : con(text, mag(fx.burstMult), 'mult'));
+      }
+      return out;
+    }
+    case 'moraleBase': {
+      const text = `${fx.delta > 0 ? '+' : '−'}${Math.abs(fx.delta)} morale everywhere`;
+      return [fx.delta > 0 ? pro(text, fx.delta, 'morale') : con(text, -fx.delta, 'morale')];
+    }
+    // hazard hooks: no card promises what the game does not do yet (data/hazards.ts)
+    case 'hazardRate':
+      if (!HAZARDS_LIVE) return [];
+      return [fx.mult < 1 ? pro(`hazard windows ×${num(fx.mult)} as often`, mag(fx.mult), 'mult')
+        : con(`hazard windows ×${num(fx.mult)} as often`, mag(fx.mult), 'mult')];
+    case 'guard':
+      return HAZARDS_LIVE ? [pro(GUARD_TEXT[fx.guard], 1, 'flag')] : [];
+    case 'exposure': {
+      if (!HAZARDS_LIVE) return [];
+      const t = EXPOSURE_TEXT[fx.hazard];
+      const who = fx.buildings?.length ? `${names(fx.buildings)} ` : '';
+      return [con(`${HAZARD_NAME[fx.hazard]}: ${who}${t.what} — ${t.cost}`, 1, 'use')];
     }
     case 'feedBonus': {
       const p = FEED_POSITIVE[fx.deposit];
@@ -1792,17 +2224,24 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
   }
 }
 
-export function effectApplies(fx: TechEffect, siteId?: SiteId | null, exp?: Expedition): boolean {
+/** Does the effect apply here? `techsDone` (computeMods passes it) applies
+ *  the crew filter: on a robotic run, crew effects wait for Human Cohabitation. */
+export function effectApplies(fx: TechEffect, siteId?: SiteId | null, exp?: Expedition, techsDone?: readonly string[]): boolean {
   if (fx.sites && siteId && !fx.sites.includes(siteId)) return false;
   if (fx.expeditions && exp && !fx.expeditions.includes(exp)) return false;
+  if (fx.crew && exp === 'robotic' && techsDone && !techsDone.includes('humanCohabitation')) return false;
   return true;
 }
 
-/** Every generated line of a tech, pros first, after effect-level site/expedition filtering. */
+/** Every generated line of a tech, pros first, after effect-level site/expedition filtering.
+ *  A crew effect's lines say `(with crew)` wherever people may not be aboard. */
 export function describeTech(def: TechDef, ctx: DescribeCtx = {}): EffectLine[] {
   const lines = def.effects
     .filter((fx) => effectApplies(fx, ctx.siteId, ctx.expedition))
-    .flatMap((fx) => describeEffect(fx, ctx));
+    .flatMap((fx) => {
+      const out = describeEffect(fx, ctx);
+      return fx.crew && ctx.expedition !== 'human' ? out.map((l) => ({ ...l, text: `${l.text} (with crew)` })) : out;
+    });
   return [...lines.filter((l) => l.sign === 'pro'), ...lines.filter((l) => l.sign === 'con')];
 }
 
@@ -1815,6 +2254,8 @@ export function buildingPlaceableAt(b: BuildingId, siteId: SiteId): boolean {
 /** Data invariant (test 3): at least one pro effect, after filtering, touches
  *  something that exists or matters at this site on this expedition. */
 export function techRelevance(def: TechDef, siteId: SiteId, exp: Expedition): boolean {
+  // the landing is the expedition itself: its card copy is hand-written (ui/expeditionCopy.ts)
+  if (def.track?.landing) return true;
   const site = SITES[siteId];
   const anyPlaceable = (bs: BuildingId[] | 'all') =>
     bs === 'all' || bs.some((b) => buildingPlaceableAt(b, siteId));
@@ -1822,9 +2263,10 @@ export function techRelevance(def: TechDef, siteId: SiteId, exp: Expedition): bo
     if (!effectApplies(fx, siteId, exp)) continue;
     if (!describeEffect(fx, { siteId, expedition: exp }).some((l) => l.sign === 'pro')) continue;
     switch (fx.kind) {
-      case 'unlock': case 'recipe': case 'powerDelta': case 'housing': case 'morale':
+      case 'unlock': case 'recipe': case 'powerDelta': case 'housing': case 'morale': case 'radius':
         if (buildingPlaceableAt(fx.building, siteId)) return true;
         break;
+      case 'exposure': break; // a con, never a reason to take the tech
       case 'outputMult': case 'inputMult': case 'powerMult': case 'upkeepMult': case 'crewDelta': case 'buildTime':
         if (anyPlaceable(fx.buildings)) return true;
         break;
@@ -1842,9 +2284,10 @@ export function techRelevance(def: TechDef, siteId: SiteId, exp: Expedition): bo
   return false;
 }
 
-/** debug.auditTechs(): generated pro/con counts and the weakest con per tech. */
+/** debug.auditTechs(): generated pro/con counts and the weakest con per tech.
+ *  The landing picks are exempt: their lines are the expedition card's own. */
 export function auditTechs(ctx: DescribeCtx = {}): { id: TechId; pros: number; cons: number; minConMagnitude: number; lines: EffectLine[] }[] {
-  return TECH_ORDER.map((id) => {
+  return TECH_ORDER.filter((id) => !TECHS[id].track?.landing).map((id) => {
     const lines = describeTech(TECHS[id], ctx);
     const cons = lines.filter((l) => l.sign === 'con');
     return {
