@@ -148,6 +148,8 @@ export interface DepositView {
   glyph: string;
 }
 export const $deposits = atom<DepositView[]>([]);
+/** the deposit whose card is open (a label in the overlay, or the map's SITE view) */
+export const $depositSel = atom<string | null>(null);
 /** the deposit overlay's DOM labels, projected through the live camera (build mode) */
 export const $depositMarkers = atom<{ id: string; x: number; y: number; glyph: string; label: string; lead: boolean }[]>([]);
 /** last tick's excavator feed shares (smelter/refinery inspector, regolith panel) */
@@ -197,6 +199,13 @@ export function spawnFloater(text: string, x: number, y: number) {
   const id = floaterId - 1;
   setTimeout(() => $floaters.set($floaters.get().filter((f) => f.id !== id)), 1400);
 }
+
+/** Discoveries waiting to be shown: a finished tech, or an era that opened
+ *  (ui/discovery.ts). game.publish() queues them; the card or banner pops them. */
+export type Announcement =
+  | { id: number; kind: 'tech'; tid: TechId }
+  | { id: number; kind: 'era'; era: number; intro: boolean };
+export const $announce = atom<Announcement[]>([]);
 
 /** the in-game menu (Esc with nothing left to cancel) */
 export const $menuOpen = atom<boolean>(false);

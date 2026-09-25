@@ -24,10 +24,12 @@ export interface Settings {
   /** cues, radio, hum and rovers, 0..1 (under the master volume) */
   effects: number;
   muted: boolean;
+  /** discovery pop-ups and era explainers (the running tutorial) */
+  tips: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
-  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false,
+  fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false, tips: true,
 };
 
 const isLevel = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
@@ -48,6 +50,7 @@ function read(): Settings {
       music: clamp01(raw.music, DEFAULT_SETTINGS.music),
       effects: clamp01(raw.effects, DEFAULT_SETTINGS.effects),
       muted: raw.muted === true,
+      tips: raw.tips !== false,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

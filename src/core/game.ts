@@ -52,10 +52,10 @@ import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import { loadSettings, saveSettings } from './settings';
 import { sfx } from '../audio/sfx';
 import {
-  $alerts, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $feed, $hasSave, $ice,
+  $alerts, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel, $feed, $hasSave, $ice,
   $iceOverlay, $lookAt, $lander, $lostMission, $lunar, $menuOpen, $milestones, $mode, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
-  $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater,
+  $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -213,6 +213,7 @@ export class Game {
     this.commitPlace('lander', gx, gz, 0, true);
     this.syncDeposits(false);
     this.homeCamera(false);
+    this.introPending = true;
     this.publish();
     alert(this.state, 'TOUCHDOWN — begin with a Solar Array', 'info');
   }
@@ -338,6 +339,8 @@ export class Game {
       this.enableSafeMode(this.safeAuto, false);
     }
     this.cueSeen = null;
+    this.announceSeen = null;
+    $announce.set([]);
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
@@ -418,6 +421,8 @@ export class Game {
           // and with nothing left to cancel, the menu
           if (this.placement.active) this.cancelPlacement();
           else if ($selection.get()) $selection.set(null);
+          else if ($depositSel.get()) $depositSel.set(null);
+          else if ($announce.get()[0]?.kind === 'tech') $announce.set($announce.get().slice(1));
           else if ($resourcePanel.get()) $resourcePanel.set(null);
           else $menuOpen.set(true);
           break;
@@ -509,6 +514,12 @@ export class Game {
   }
 
   /** Frame the Lander from the home direction (a glide unless `glide` is false). */
+  /** Glide the command camera over a ground point (a deposit card's buttons). */
+  focusGround(x: number, z: number) {
+    if (this.modes.mode !== 'build') return;
+    this.buildCam.focus(x, this.hf.sample(x, z), z, 70, true);
+  }
+
   private homeCamera(glide: boolean) {
     const lander = this.state.buildings.find((b) => b.type === 'lander');
     const [x, z] = lander ? centerOf(lander) : [0, 0];
@@ -858,6 +869,11 @@ export class Game {
   private cueSeen: {
     alerts: Map<number, AlertMsg['kind']>; night: boolean; launches: number; techs: number; built: number;
   } | null = null;
+  /** what the discovery queue has already seen (null = take the baseline) */
+  private announceSeen: { techs: number; era: number } | null = null;
+  private announceId = 1;
+  /** a brand-new mission: its first publish opens with the Era 1 explainer */
+  private introPending = false;
   /** alert key → real time (ms) its radio call last played */
   private cueKeyAt = new Map<string, number>();
   /** FX levels that failed a render check on this GPU (kept in settings),
@@ -1266,6 +1282,27 @@ export class Game {
     if (isNight && !seen.night) sfx.play('nightfall');
   }
 
+  /** Finished techs and opened eras join the discovery queue (ui/discovery.ts).
+   *  A loaded world only takes the baseline; a brand-new one opens with the
+   *  Era 1 explainer. Test runs (?debug) stay quiet unless they ask (&tips). */
+  private queueAnnouncements() {
+    const s = this.state;
+    const seen = this.announceSeen;
+    this.announceSeen = { techs: s.techsDone.length, era: s.era };
+    const intro = this.introPending;
+    this.introPending = false;
+    const q = new URLSearchParams(location.search);
+    if (!loadSettings().tips || (q.has('debug') && !q.has('tips'))) return;
+    const add: Announcement[] = [];
+    if (!seen) {
+      if (intro) add.push({ id: this.announceId++, kind: 'era', era: 1, intro: true });
+    } else {
+      for (const tid of s.techsDone.slice(seen.techs)) add.push({ id: this.announceId++, kind: 'tech', tid });
+      for (let e = seen.era + 1; e <= s.era; e++) add.push({ id: this.announceId++, kind: 'era', era: e, intro: false });
+    }
+    if (add.length) $announce.set([...$announce.get(), ...add]);
+  }
+
   /** Alerts age in real time, whatever the game speed: info events leave
    *  after ALERTS.fadeInfoS, warn events after ALERTS.fadeWarnS, and an info
    *  condition goes quiet (still listed while it holds). Crit waits. */
@@ -1465,6 +1502,7 @@ export class Game {
       $selection.set(live ? { ...live } : null);
     }
     this.playCues(day.isNight);
+    this.queueAnnouncements();
   }
 
   private ringMats = {
