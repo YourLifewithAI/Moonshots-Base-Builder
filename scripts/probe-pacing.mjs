@@ -321,7 +321,7 @@ async function installBot(cfg) {
     acc: {
       t: 0, brownout: 0, brownoutNight: 0, shed: 0, night: 0, partsZero: 0, worn: 0, paused: 0, pausedBrownout: 0,
       queueEmpty: 0, goodsStall: 0, goodsBy: {}, siteIdle: {}, blockedBy: {}, bankMax: 0, deaths: 0,
-      autoBy: {}, rulePhase: {},
+      autoBy: {}, rulePhase: {}, rulePhaseBy: {},
     },
     autoSeen: [],
     firstLight: null, swarmProtocolAt: null, milestones: {},
@@ -891,9 +891,10 @@ async function installBot(cfg) {
       A.autoBy[k] = (A.autoBy[k] ?? 0) + 1;
     }
     if (cfg.auto && s.auto) {
-      for (const r of Object.values(s.auto.rules)) {
+      for (const [id, r] of Object.entries(s.auto.rules)) {
         if (!r.on) continue;
         A.rulePhase[r.phase] = (A.rulePhase[r.phase] ?? 0) + dt;
+        if (r.phase !== 'ok') A.rulePhaseBy[`${id}:${r.phase}`] = (A.rulePhaseBy[`${id}:${r.phase}`] ?? 0) + dt;
       }
     }
     A.bankMax = Math.max(A.bankMax, s.data);
@@ -1037,6 +1038,9 @@ function summarize(log) {
     autoBuilt: A.autoBy, autoBuiltN: Object.values(A.autoBy).reduce((a, b) => a + b, 0),
     builtN: log.final.stats.built ?? null,
     rulePhaseMin: Object.fromEntries(Object.entries(A.rulePhase).map(([k, v]) => [k, fmtMin(v)])),
+    // which rule sat in which phase (rule:phase, over 1 min; 'ok' left out)
+    rulePhaseByMin: Object.fromEntries(Object.entries(A.rulePhaseBy ?? {}).filter(([, v]) => v >= 60)
+      .sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, fmtMin(v)])),
     caps: log.actions.filter((a) => a[1] === 'cap').map((a) => a[2]),
   };
 }
