@@ -99,6 +99,12 @@ regolith consumer (a smelter or refinery; the Lander if there is none) →
 unload (4 s) → back to the dig
 ```
 
+- **On roads only** (docs/15 §5). It leaves its pad by its door and drives
+  road cells; it unloads at a road cell beside its consumer (the door first).
+  **Dig at…** lays a haul road from the network to the dig first: until the
+  free rovers open it, the excavator keeps digging its pad. A leg's time is
+  its road route over the haul speed × the roadway tier (Basalt Paving,
+  Guidance Beacons, Guideway Rails, Maglev Freight Lines).
 - **Credited on unload.** Regolith (and the Solar-Wind Volatiles water trickle)
   lands in the stockpile when the bucket tips, not per second. The smoothed net
   rate the HUD shows counts each cycle's *average* delivery instead of the lumps.

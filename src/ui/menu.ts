@@ -63,6 +63,7 @@ export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] =
   ['T', 'research tree'],
   ['M', 'Lunar Map — surveys and outposts'],
   ['I', 'deposit overlay'],
+  ['N', 'road tool: drag out from a road · Alt-drag removes'],
   ['B', 'Builder — orders and standing rules'],
   ['Ctrl-click a card', 'order one: the rovers choose the site (⇧ ×3)'],
   ['Enter while placing', 'let the rovers choose the site'],

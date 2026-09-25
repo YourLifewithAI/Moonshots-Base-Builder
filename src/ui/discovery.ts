@@ -60,6 +60,11 @@ function nextStep(fx: TechEffect[]): string {
         break;
       case 'haul':
         return 'Excavators drive faster and carry more: select one and Dig at… a rich deposit farther out — the long hauls gain most.';
+      case 'road':
+        if ((f.speedMult ?? 1) > 1 || (f.haulMult ?? 1) > 1 || (f.nightMult ?? 1) > 1) {
+          return 'Every road carries its traffic faster now: link far structures with the road tool [N] — shortcuts pay more.';
+        }
+        break;
       // beds and morale act at once; a cut (a con) asks nothing of the player
       case 'housing':
         if (f.delta > 0) return `Every ${BUILDINGS[f.building].name} sleeps ${f.delta} more at once — room for the next arrivals.`;
@@ -79,6 +84,13 @@ function nextStep(fx: TechEffect[]): string {
     }
   }
   return 'It takes effect at once — no action needed.';
+}
+
+/** Until the smelter is researched, every card's Next line says so first:
+ *  the landing's metals are all there is until one stands (the early trap). */
+function smelterFirst(game: Game, tid: TechId): string {
+  if (tid === 'regolithProcessing' || game.mods.unlocked.has('smelter')) return '';
+  return `No smelter yet: research ${TECHS.regolithProcessing.name} next — without one the metals run out. `;
 }
 
 export function mountDiscovery(root: HTMLElement, game: Game) {
@@ -120,7 +132,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `<div class="dsc-fx">${pros.map((l) => `<div class="dsc-pro">⊕ ${esc(l.text)}</div>`).join('')}` +
       `${cons.map((l) => `<div class="dsc-con">⊖ ${esc(l.text)}</div>`).join('')}</div>` +
       (def.visual ? `<div class="dsc-look"><span class="label">Look for it</span> ${esc(def.visual)}</div>` : '') +
-      `<div class="dsc-next"><span class="label">Next</span> ${esc(nextStep(def.effects))}</div>` +
+      `<div class="dsc-next"><span class="label">Next</span> ${esc(smelterFirst(game, tid) + nextStep(def.effects))}</div>` +
       `<div class="dsc-foot"><button class="btn primary" data-dsc="ok">Got it</button>` +
       `<button class="btn" data-dsc="tree" data-tech="${tid}">In the tree</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these pop-ups</label></div>`;

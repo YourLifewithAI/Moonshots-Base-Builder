@@ -11,6 +11,8 @@ const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 
 async function game(page: Page) {
   await page.waitForFunction(() => window.__game !== undefined);
+  // roads open as they are laid: these tests time the builds themselves (roads: avoidance.spec)
+  await page.evaluate(() => window.__game.openRoads(true));
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -490,7 +492,7 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   });
   const lab = await page.evaluate(() => window.__game.canPlace('lab', 132, 126));
   expect(lab.valid).toBe(true); // a warning, never a block
-  expect(lab.warn).toBe('Leaves 39◆ — a Smelter needs 50◆');
+  expect(lab.warn).toBe('Leaves 39◆ — keep 50◆ for your first Regolith Smelter; research Regolith Smelting to unlock it');
   const solar = await page.evaluate(() => window.__game.canPlace('solar', 132, 126));
   expect(solar.warn).toBe(''); // 19◆ leaves 58: room for the smelter
   // the ghost's hint carries it
@@ -501,7 +503,7 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   const pad = await page.evaluate(() => window.__game.screenOf(20, -4));
   expect(pad.visible).toBe(true);
   await page.mouse.move(pad.x, pad.y);
-  await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — a Smelter needs 50◆');
+  await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — keep 50◆ for your first Regolith Smelter');
   await page.keyboard.press('Escape');
   // once a smelter stands (even as a site), spending metals is no longer a trap
   await page.evaluate(() => {
@@ -610,7 +612,7 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
       ['smelter', 120, 132], ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
       ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126],
       ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
-      ['partsFab', 138, 128],
+      ['partsFab', 138, 129], // (a cell south of 128: an array's road runs there now, docs/15)
     ];
     // an era opens with four techs of the one before
     const research = ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',

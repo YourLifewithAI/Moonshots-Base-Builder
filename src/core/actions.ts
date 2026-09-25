@@ -40,6 +40,9 @@ export type Action =
   | { kind: 'unpinRover'; rover: number }
   | { kind: 'digAt'; id: number; x: number; z: number } // an excavator's dig site (world m)
   | { kind: 'digHome'; id: number }
+  // roads (core/roads.ts): the road tool
+  | { kind: 'layRoad'; from: [number, number]; to: [number, number] } // from an open road cell to a cell
+  | { kind: 'removeRoad'; cells: [number, number][] }
   // the Builder (core/automation.ts, docs/13)
   | { kind: 'order'; type: BuildingId; count: number; intent?: { res?: ResourceId; like?: number } }
   | { kind: 'cancelOrder'; id: number }

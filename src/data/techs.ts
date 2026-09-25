@@ -39,6 +39,7 @@ export type TechId =
   | 'thoriumPower' | 'regenFuelCells' | 'swarmRobotics' | 'heavyConstructors' | 'dustMitigation' | 'btLavaTubeCaverns'
   | 'stackedCells' | 'slagRecycling' | 'refluxColumns' | 'cryoSampleStore' | 'bunkRacks'
   | 'autoExcavation' | 'siteSurveyAI'
+  | 'basaltPaving'
   // era 4 — chip fabrication
   | 'waferFab' | 'acceleratorDesign' | 'radHardProcess' | 'cleanroomRobotics' | 'orbitalProspector' | 'btVolcanicGlass'
   | 'braytonConverters' | 'pressureTanks' | 'mliBlankets' | 'waferPolishing' | 'oreSorting' | 'heatedAugers' | 'growLights'
@@ -49,17 +50,20 @@ export type TechId =
   | 'wingExtensions' | 'deployableRadiators' | 'oxygenLiquefaction' | 'immersionLitho' | 'toolChangers'
   | 'nutrientRecirculation' | 'gravimetry' | 'autonomousHaulage'
   | 'autoSmelting' | 'feedPlanner'
+  | 'guidanceBeacons'
   // era 6 — human habitation
   | 'humanCohabitation' | 'closedLoopLS' | 'safetyProtocols' | 'conditionOptimization' | 'scienceCrews'
   | 'farSideRelay' | 'btColdTrapChemistry'
   | 'solidStateCells' | 'highBurnupFuel' | 'refractoryLinings' | 'predictiveMaintenance' | 'uplinkDishes' | 'galleyGarden'
   | 'launchSiteSurvey'
   | 'autoFabrication' | 'predictiveScheduling'
+  | 'guidewayRails'
   // era 7 — swarm industry
   | 'foilManufacturing' | 'massDriver' | 'propellantDepot' | 'selfReplication' | 'deepSounding'
   | 'superconductingBus' | 'rollToRoll' | 'foilAnnealing' | 'liquidCooling' | 'rackDensification' | 'lowGCourt'
   | 'laserRanging'
   | 'selfExpandingBase' | 'maintenanceAutomation'
+  | 'maglevFreight'
   // era 8 — dyson swarm (lane-free capstone column)
   | 'swarmProtocol' | 'powerBeaming' | 'vonNeumann' | 'railCapacitors' | 'cryocoolerHeads' | 'canisterPress';
 
@@ -104,6 +108,9 @@ export type TechEffect = EffectFilter & (
   | { kind: 'morale'; building: BuildingId; delta: number }    // morale while that building runs
   /** excavator haul cycle: drive speed, and bucket size (its dig time grows with it) */
   | { kind: 'haul'; speedMult?: number; bucketMult?: number }
+  /** the roadway (docs/15-roads.md): travel on roads (all, excavators alone,
+   *  at night), road dust, and the sintering a cell takes */
+  | { kind: 'road'; speedMult?: number; haulMult?: number; nightMult?: number; dustMult?: number; cellMult?: number }
   // ── the Builder (docs/13, core/automation.ts) ──
   /** held orders and the order book */
   | { kind: 'orders'; book: number; maxCount: number }
@@ -580,6 +587,17 @@ export const TECHS: Record<TechId, TechDef> = {
     visual: 'A survey drone rests on a pad on each Robotics Bay roof.',
     tradeoff: 'Drones that fly every pad wear like rovers.',
   },
+  basaltPaving: {
+    id: 'basaltPaving', era: 3, lane: 'materials', name: 'Basalt Paving', short: 'Basalt Paving',
+    costData: 150, requires: ['regolithProcessing'],
+    effects: [
+      { kind: 'road', speedMult: 1.25, dustMult: 0.5 },
+      { kind: 'road', cellMult: 1.2 },
+    ],
+    desc: 'Cast basalt pavers, poured from the smelter’s slag, give the rovers a hard running surface.',
+    visual: 'The roads turn to dark basalt pavers with a pale centre line.',
+    tradeoff: 'Every new cell is cast, not just sintered.',
+  },
 
   // ─── ERA 4 · CHIP FABRICATION ───
   waferFab: {
@@ -921,6 +939,17 @@ export const TECHS: Record<TechId, TechDef> = {
     visual: 'Excavators carry an assay drill beside the bucket.',
     tradeoff: 'Richer ground is usually farther ground.',
   },
+  guidanceBeacons: {
+    id: 'guidanceBeacons', era: 5, lane: 'materials', name: 'Guidance Beacons', short: 'Guidance Beacons',
+    costData: 400, costGoods: { chips: 5 }, requires: ['basaltPaving'],
+    effects: [
+      { kind: 'road', speedMult: 1.1, nightMult: 1.25 },
+      { kind: 'road', cellMult: 1.15 },
+    ],
+    desc: 'Retroreflector posts and radio pips along the kerbs: the rovers drive them faster, and faster still after dark.',
+    visual: 'Beacon posts line the road edges and light up at night.',
+    tradeoff: 'Every cell gets its posts.',
+  },
 
   // ─── ERA 6 · HUMAN HABITATION ───
   humanCohabitation: {
@@ -1105,6 +1134,17 @@ export const TECHS: Record<TechId, TechDef> = {
     visual: 'Each Data Center adds a scheduling antenna: a tall whip mast beside its dish.',
     tradeoff: 'Forecasting the night costs some of it.',
   },
+  guidewayRails: {
+    id: 'guidewayRails', era: 6, lane: 'materials', name: 'Guideway Rails', short: 'Guideway Rails',
+    costData: 1000, costGoods: { parts: 30 }, requires: ['guidanceBeacons'],
+    effects: [
+      { kind: 'road', haulMult: 1.3 },
+      { kind: 'road', cellMult: 1.2 },
+    ],
+    desc: 'Steel guide rails down the middle of every road: the excavators ride them at speed.',
+    visual: 'Twin steel rails run down the centre of the roads.',
+    tradeoff: 'Rails are laid, not poured.',
+  },
 
   // ─── ERA 7 · SWARM INDUSTRY ───
   foilManufacturing: {
@@ -1261,6 +1301,17 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Short of parts, the critical loads are paid first; a machine that stays worn is replaced, and a tripped overclock comes back once it heals.',
     visual: 'Robotics Bays get a service crane arm over the charging rover.',
     tradeoff: 'Replacing is faster than repairing, and dearer.',
+  },
+  maglevFreight: {
+    id: 'maglevFreight', era: 7, lane: 'robotics', name: 'Maglev Freight Lines', short: 'Maglev Freight',
+    costData: 1100, costGoods: { chips: 10 }, requires: ['guidewayRails'],
+    effects: [
+      { kind: 'road', speedMult: 1.3, dustMult: 0 },
+      { kind: 'road', cellMult: 1.25 },
+    ],
+    desc: 'Superconducting coils under the pavers lift the loads: nothing touches the ground, nothing kicks up dust.',
+    visual: 'A glowing coil strip runs down the centre of the roads.',
+    tradeoff: 'Coils take their time to bury.',
   },
 
   // ─── ERA 8 · DYSON SWARM (capstone column) ───
@@ -1728,6 +1779,24 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
         const text = `${pctDelta(fx.bucketMult)} excavator bucket (${num(HAUL.bucket * fx.bucketMult)}▲ a load)`;
         out.push(fx.bucketMult >= 1 ? pro(text, mag(fx.bucketMult), 'mult') : con(text, mag(fx.bucketMult), 'mult'));
       }
+      return out;
+    }
+    case 'road': {
+      const out: EffectLine[] = [];
+      const line = (m: number | undefined, what: string, better: (m: number) => boolean) => {
+        if (m === undefined) return;
+        const text = `${pctDelta(m)} ${what}`;
+        out.push(better(m) ? pro(text, mag(m), 'mult') : con(text, mag(m), 'mult'));
+      };
+      line(fx.speedMult, 'road travel (rovers and excavators)', (m) => m >= 1);
+      line(fx.haulMult, 'excavator speed on roads', (m) => m >= 1);
+      line(fx.nightMult, 'road travel at night', (m) => m >= 1);
+      if (fx.dustMult !== undefined) {
+        out.push(fx.dustMult <= 0 ? pro('no road dust', 1, 'mult') : fx.dustMult < 1
+          ? pro(`${pctDelta(fx.dustMult)} road dust`, mag(fx.dustMult), 'mult')
+          : con(`${pctDelta(fx.dustMult)} road dust`, mag(fx.dustMult), 'mult'));
+      }
+      line(fx.cellMult, 'road sintering time a cell', (m) => m <= 1);
       return out;
     }
     case 'housing': {

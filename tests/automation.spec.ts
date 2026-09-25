@@ -197,6 +197,9 @@ test('the Excavation rule: on at completion, watches the deficit, places one exc
     // the cap: every excavator counts
     const n = G.getState().buildings.filter((b: any) => b.type === 'excavator').length;
     G.setRule('excavator', { cap: n });
+    // a third smelter: demand well past what n excavators haul, whatever their roads (docs/15)
+    place('smelter', 1);
+    G.finishConstruction();
     powered(400);
     const r3 = rule('excavator');
     const s3 = G.getState();
@@ -467,7 +470,8 @@ test('siting: masts go to the network edge, and Site Survey AI puts an excavator
       const t = (dep.r + 4 + k) / Math.hypot(dep.x - lx, dep.z - lz);
       const x = dep.x + (lx - dep.x) * t, z = dep.z + (lz - dep.z) * t;
       const gx = Math.round((x + 512) / 4 - 1.5), gz = Math.round((z + 512) / 4 - 1);
-      if (G.placeBuilding('smelter', gx, gz)) sm = { gx, gz };
+      // (beside the line if it crosses the Lander's apron road)
+      for (const dx of [0, 3, -3]) if (!sm && G.placeBuilding('smelter', gx + dx, gz)) sm = { gx: gx + dx, gz };
     }
     G.finishConstruction();
     const plain = G.planSite('excavator', { res: 'regolith' });

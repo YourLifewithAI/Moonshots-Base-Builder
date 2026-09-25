@@ -16,6 +16,7 @@ import type { ResourceId } from '../data/resources';
 import { DEPOSIT_INFO, feedKindOf, type DepositKind } from '../data/deposits';
 import type { Deposit, Heightfield } from '../terrain/heightfield';
 import { checkPlacement } from '../buildings/placement';
+import { ROAD } from '../data/roads';
 import { centerOf, footprintRect } from '../buildings/instances';
 import type { AutoRuleId } from '../data/automation';
 import type { BuildingState, GameState } from './state';
@@ -27,6 +28,10 @@ import { pathLength, plan, segmentHits, wallSpot, worldRect, type Rect } from '.
 import { flowBalance } from './flowBook';
 
 export type Ground = Pick<Heightfield, 'depositAt' | 'maxDelta' | 'deposits'>;
+
+/** A new road cell weighs this many metres of distance, over the first ROAD_PICKS valid pads. */
+const ROAD_M = 1.5;
+const ROAD_PICKS = 6;
 
 export interface SiteQuery {
   type: BuildingId;
@@ -294,10 +299,15 @@ export function chooseSite(
 
   const unlocked = mods.unlocked;
   let pick: typeof scored[number] | null = null;
+  // of the first few valid pads, the one whose new road (docs/15-roads.md) costs least on top of its score
+  let best = Infinity, valid = 0;
   for (const c of scored.slice(0, 200)) {
     if (q.skip?.includes(`${c.gx},${c.gz},${c.rot}`)) continue;
     const chk = checkPlacement(s, site, ground as Heightfield, unlocked, type, c.gx, c.gz, c.rot, tier);
-    if (chk.valid) { pick = c; break; }
+    if (!chk.valid) continue;
+    const cost = c.score + ROAD_M * (chk.roadS ?? 0) / ROAD.cellS;
+    if (cost < best) { best = cost; pick = c; }
+    if (++valid >= ROAD_PICKS) break;
   }
   if (!pick) {
     return { refusal: `no valid ground for ${/^[AEIOU]/.test(def.name) ? 'an' : 'a'} ${def.name} inside the build network — a Relay Mast or Habitat extends it` };

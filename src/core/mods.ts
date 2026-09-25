@@ -72,6 +72,13 @@ export interface Mods {
   /** excavator haul cycle (core/haul.ts): drive speed and bucket size */
   haulSpeedMult: number;
   haulBucketMult: number;
+  /** the roadway tier (core/roads.ts, docs/15-roads.md): travel speed on
+   *  roads (all, excavators alone, at night), road dust, sintering time a cell */
+  roadSpeedMult: number;
+  roadHaulMult: number;
+  roadNightMult: number;
+  roadDustMult: number;
+  roadCellMult: number;
   // ── the Builder (docs/13, core/automation.ts) ──
   /** held orders the order book keeps (0 = one-shot orders only) */
   orderBook: number;
@@ -133,6 +140,7 @@ export function computeMods(
     housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
     haulSpeedMult: 1, haulBucketMult: 1,
+    roadSpeedMult: 1, roadHaulMult: 1, roadNightMult: 1, roadDustMult: 1, roadCellMult: 1,
     orderBook: 0, orderMax: AUTO.orderMax, autoFamilies: new Set(), siteSurvey: false, governor: false,
     predictive: false, feedPlanner: false, maintenanceWear: 0, builderDwellMult: 1, builderCapMult: 1,
   };
@@ -205,6 +213,13 @@ export function computeMods(
         case 'haul':
           m.haulSpeedMult *= fx.speedMult ?? 1;
           m.haulBucketMult *= fx.bucketMult ?? 1;
+          break;
+        case 'road':
+          m.roadSpeedMult *= fx.speedMult ?? 1;
+          m.roadHaulMult *= fx.haulMult ?? 1;
+          m.roadNightMult *= fx.nightMult ?? 1;
+          m.roadDustMult *= fx.dustMult ?? 1;
+          m.roadCellMult *= fx.cellMult ?? 1;
           break;
         case 'housing': m.housingDelta[fx.building] += fx.delta; break;
         case 'orders': m.orderBook = Math.max(m.orderBook, fx.book); m.orderMax = Math.max(m.orderMax, fx.maxCount); break;
