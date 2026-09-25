@@ -735,9 +735,13 @@ for (const style of ['classic', 'detailed']) {
       g.grantPower(5000);
       g.advanceGameSeconds(2);
       const s = g.getState();
+      const rates = g.getResearch();
+      // a Data Center tech changes the Monolith too: Rack Densification, output ×1.12
+      g.completeTech('rackDensification');
+      const dense = g.getResearch().production;
       return {
         placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: g.getUpgrades().meshes,
-        rates: g.getResearch(), mono: s.buildings.find((b: any) => b.type === 'serverMonolith'),
+        rates, dense, mono: s.buildings.find((b: any) => b.type === 'serverMonolith'),
       };
     });
     expect(r.placed).toEqual({ droneHive: true, greenhouseRing: true, gardenDome: true, serverMonolith: true });
@@ -750,6 +754,7 @@ for (const style of ['classic', 'detailed']) {
     expect(r.mono.active).toBe(true);
     expect(r.rates.dcsActive).toBe(1); // counted with the Data Centers
     expect(r.rates.cap).toBeCloseTo(0.4 * r.rates.labsActive + 2.2, 6);
+    expect(r.dense - r.rates.production).toBeGreaterThan(0.9 * 0.12 * 0.9);
   });
 }
 

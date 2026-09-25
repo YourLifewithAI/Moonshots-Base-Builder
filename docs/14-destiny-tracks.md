@@ -234,7 +234,7 @@ That is 12 lane cards per page on average, against the brief's "about 11". The b
 | | ◉ | `lightsOutFabs` · **Lights-Out Fabs** (15⚙) | −1 crew: Parts Fabricator, Chip Fab · +10% output: Chip Fab | +20% draw: Parts Fabricator, Chip Fab | Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp. | ⊖ MALWARE and FIRMWARE: fabs take mask and firmware updates · ⊕ Signed firmware |
 | **5 · What grows here: gardens or compute?** | ⌂ | `greenhouseRings` · **Greenhouse Rings** (20◇) | UNLOCK Greenhouse Ring (three farms' food on two crew) · robotic: brings Cohabitation forward if it is not done yet | the ring's −14 kW, 0.08≈/s and 2 crew | Greenhouse Rings can rise (§2.8). | ⊖ BLIGHT and CONTAMINATION: the ring is one monoculture and drinks · ⊕ Seed bank |
 | | ◉ | `fleetOS` · **Fleet OS** (10▣) | UNLOCK Server Monolith · agent tax ×0.85 · Builder: rule dwell ×0.5, and a new Research rule (labs) | +15% draw: Data Center | Data Centers raise a black server-monolith annex with a cold lamp stripe. | ⊖ CONTROL PLANE: agent-run stations halve while no Data Center runs · ⊕ Intrusion detection |
-| **6 · Is the Moon a home, or a machine?** | ⌂ | `settlerCharter` · **Settler Charter** (40◆) | +1 housing: Habitat Module · settlers arrive ×1.5 as often · +10% output of crewed Labs, Smelters, Refineries, Parts Fabricators and Chip Fabs · robotic: brings Cohabitation forward if it is not done yet | +20% inputs: Habitat Module (families: life support ×1.2) | Habitats stack a second storey: a habitation terrace with a balcony rail, planters and warm windows. | ⊖ CABIN FEVER grows with the crew · ⊕ Storm shelters |
+| **6 · Is the Moon a home, or a machine?** | ⌂ | `settlerCharter` · **Settler Charter** (40◆) | +1 housing: Habitat Module · settlers arrive ×1.5 as often · +15% output of crewed Labs, Smelters, Refineries, Parts Fabricators and Chip Fabs · robotic: brings Cohabitation forward if it is not done yet | +20% inputs: Habitat Module (families: life support ×1.2) | Habitats stack a second storey: a habitation terrace with a balcony rail, planters and warm windows. | ⊖ CABIN FEVER grows with the crew · ⊕ Storm shelters |
 | | ◉ | `lightsOutCharter` · **Lights-Out Charter** (20▣) | robotic: Era 7 opens without Human Cohabitation · agent tax ×0.8 · wear heals ×1.2 | +20% draw: Data Center, Robotics Bay · no new settlers are invited (*crew*) | Relay Masts wear a firewall node; Robotics Bays add an antenna farm; Habitats, if any, shutter their windows. | ⊕ Watchdogs and failover |
 | **7 · Domes, or replicators?** | ⌂ | `gardenDomes` · **Garden Domes** (40◇) | UNLOCK Garden Dome (10 beds round a park, +10 morale) · robotic: brings Cohabitation forward if it is not done yet | the dome's 150◆ 40◇, −12 kW and water | Garden Domes can rise (§2.8), and lit glazed walkways join the pressurized buildings (§4.3). | ⊖ BREACH: the largest hull · ⊕ Pressure bulkheads |
 | | ◉ | `replicatorStacks` · **Replicator Stacks** (20▣ 30⚙) | +20% output: Parts Fabricator, Foil Factory · Builder: rule caps ×2, and a new Export rule (Foil Factories) | +20% draw: Parts Fabricator, Foil Factory · +30% upkeep: Robotics Bay, Drone Hive | Parts Fabricators and Foil Factories stack a second fab storey under a gantry; conveyor spines light cold chevrons (§4.3). | ⊖ RUNAWAY RULE: replicators follow the rules · ⊕ Rule attestation |
@@ -265,7 +265,7 @@ greenhouseRings: unlock greenhouseRing, bringsCrew{robotic}, guard'seedBank', ex
 fleetOS:         unlock serverMonolith, agentTax×0.85, builder{dwell×0.5, families:['research']},
                  guard'intrusionDetection', powerMult[dataCenter]×1.15, exposure'controlPlane'
 settlerCharter:  bringsCrew{robotic}, housing{habitat,+1}, growth×0.67{crew},
-                 outputMult[lab,smelter,refinery,partsFab,chipFab]×1.1{crewedOnly}, guard'stormShelters',
+                 outputMult[lab,smelter,refinery,partsFab,chipFab]×1.15{crewedOnly}, guard'stormShelters',
                  inputMult[habitat]×1.2, exposure'cabinFever'
 lightsOutCharter: waive{humanCohabitation, robotic}, agentTax×0.8, repair×1.2, guard'watchdogs',
                  powerMult[dataCenter,roboticsBay]×1.2, growth×0{crew}
@@ -849,6 +849,76 @@ Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 - *Automation*: the agent-tax cuts and faster builds push it faster. Downtime from malware and bricked rovers pushes it back.
 - *Era 8*: the pick replaces the launch-cadence step, so it is neutral.
 
+**Results (D2 as shipped, hazards not live).** `node scripts/probe-pacing.mjs
+--destiny=colony|automation|concord --runs=mare:robotic:reasonable,southpole:human:reasonable
+--seeds=42,7,1234 --minutes=280`, medians in game-minutes, brackets per seed
+(42, 7, 1234). *Main* is the tree before destinies (`9fb24f8`), same bot.
+The bot's picks: robotic Colony `ACCCCCCC`, robotic Automation `AAAAAAAA`,
+robotic Concord `ACACACAC`; crewed `CCCCCCCC`, `CAAAAAAA` (a pure
+Automation band, CREW HOME at FIRST LIGHT) and `CACACACA`.
+
+| Run | Builder (`--auto=on`) | Eras E1…E8 (auto=on) | Manual (`--auto=off`) |
+|---|---|---|---|
+| mare robotic · main | 212.3 [212, 212, 213] | 23.7 / 24.1 / 31.3 / 25.0 / 25.8 / 25.3 / 33.3 / 22.1 | 200.6 [199, 203, 201] |
+| mare robotic · ⌂ pure Colony | **212.3** [211, 212, 216] | 23.7 / 24.1 / 35.2 / 26.8 / 26.8 / 22.9 / 27.8 / 23.4 | 199.9 [198, 200, 200] |
+| mare robotic · ◉ pure Automation | **198.8** [199, 199, 201] | 23.7 / 24.2 / 36.1 / 24.1 / 24.3 / 28.6 / 19.6 / 18.7 | 188.5 [188, 189, 189] |
+| mare robotic · Concord | **214.6** [213, 215, 217] | 23.7 / 24.1 / 34.6 / 26.6 / 27.0 / 23.7 / 28.8 / 23.6 | 201.6 [200, 202, 202] |
+| south pole crewed · main | 190.3 [190, 200, 189] | 24.3 / 25.9 / 25.9 / 16.2 / 24.1 / 30.6 / 23.8 / 17.9 | 176.3 [176, 189, 175] |
+| south pole crewed · ⌂ pure Colony | 163.9 [163, 181, 164] | 24.3 / 27.0 / 27.3 / 15.5 / 16.4 / 27.8 / 13.3 / 14.5 | 171.3 [157, 175, 171] |
+| south pole crewed · ◉ pure Automation | 175.6 [175, 195, 176] | 24.3 / 27.2 / 27.1 / 16.4 / 17.3 / 31.4 / 15.6 / 17.4 | 165.8 [164, 195, 166] |
+| south pole crewed · Concord | 172.9 [172, 194, 173] | 24.3 / 27.2 / 27.1 / 15.7 / 17.5 / 33.4 / 14.5 / 16.6 | 163.0 [160, 191, 163] |
+
+- **Target: met.** Robotic mare with the Builder: all three in 210 ± 25;
+  max/min = 214.6 / 198.8 = 1.080 (manual: 201.6 / 188.5 = 1.070). Colony
+  and Concord land on main's time; pure Automation is 6% faster.
+- **Why Automation is faster.** On seed 42 all three open Era 7 within a
+  minute of each other (160–161 min). The difference is research volume after it:
+  a robotic Colony or Concord base has crew, so the bot also researches the
+  crew techs (Crew Wellness, Science Crews, Condition Optimization, Bunk
+  Racks, Grow Lights, Galley Garden: ≈ 6500≡, 13–14 min at 7.9≡/s), as main
+  does after Cohabitation. Lights-Out Charter's base has no crew, so those
+  cards stay locked. The Automation hazards (malware, bricked rovers: D3)
+  are the designed counterweight.
+- **Crewed pole**: every destiny runs 8–14% faster than main (Colony most):
+  the ⌂ growth picks bring settlers ×1.5 as often, and crewed labs are the
+  fast ones.
+- **Crewed mare** (Builder on; main 218.6 [217, 234, 219]): pure Colony
+  212.3 [212, 217, 212], pure Automation 224.8 [222, 247, 225], both inside
+  +30% of robotic mare (≤ 258). Concord runs 241.3 [241, 242, 223]: after
+  its Era 5 ⌂ pick it keeps one Parts Fabricator with parts between 48 and 91
+  for 50 min, and the bot's third and fourth Data Centers wait for
+  "research-bound with parts over 100", so it researches on two Data Centers
+  through Era 6 (44.8 min). That is the bot's threshold, not a trap: the
+  base has 1200◆ and 800◇ banked the whole time.
+- **Era lengths.** With the Builder, Era 3 runs 34.6–36.1 min (main 31.3):
+  the Era 2 pick is the era's 2nd research, so Silicon Refining, and with it
+  the 600◇ deed that opens Era 4, comes 4–7 min later. Manual runs keep Era
+  3 at 30.7–31.2. Main's own Era 7 (33.3) is over 32 already; the destinies
+  shorten it (19.6–28.8).
+- **Idle.** The longest idle stretch is 4.6–5.8 min with the Builder, as
+  main's (4.5–5.8). Manual crewed pole seed 7 with the ◉ Era 2 pick
+  (Automation, Concord) idles 16 min in Era 4: the bot's second Parts
+  Fabricator eats every metal for 22 min while research waits on metals.
+  That is the manual bot's policy (it never pauses a fab), not a pick; the
+  Builder runs of the same seed do not stall.
+
+**How it got there** (robotic mare, Builder on; Colony / Automation / Concord):
+- *Picks as extra research* (the pick added to the bot's list): 229.3 /
+  228.3 / 246.3.
+- *The pick replaces a step* (How the bot picks, above), first cut: the
+  era's last small step anywhere in the list, often one the bot would not
+  reach until later anyway: 225.6 / 223.8 / 240.3.
+- *As shipped*: the dropped step is the last small step the bot would really
+  research in that era's stretch of its list (shown on the site, its
+  prerequisites earlier in the list, no main tech or pick built on it). Plus
+  lever 5: every tech that changes Data Centers' output, power or upkeep now
+  changes the Server Monolith too, since it counts as a Data Center wherever
+  one is read. Before, the Monolith missed Accelerator Design's ×1.5 and
+  Rack Densification's ×1.12, and a base with two ran 1.2≡/s slower in
+  Eras 5–8: 212.6 / 198.8 / 214.9.
+- *Lever 1*: Settler Charter's crewed output +10% → +15% (one step): 212.3 /
+  198.8 / 214.6, taking max/min from 1.081 to 1.080.
+
 ---
 
 ## 7. Save migration (`techSchema` 3 → 4)
@@ -1074,7 +1144,8 @@ section and an earlier one disagree, this one describes the code.
   launch day, volley terms (`volleyTerms`, `launchVolley`, shared by the
   button and the cadence), Autonomous Cadence, CREW HOME, `unmanned()`, the
   build-network radius (`exploration.networkRadius`), the Monolith in every
-  Data Center read.
+  Data Center read, including every tech that changes Data Centers' output,
+  power or upkeep.
 - **The Builder**: the Research and Export families come from Fleet OS and
   Replicator Stacks; `familyTech` names them; producer rules skip the destiny
   buildings unless `builderAll`.
@@ -1086,7 +1157,7 @@ section and an earlier one disagree, this one describes the code.
 - **Debug**: `pickDestiny(era, side)`, `getDestiny()`, `setDust(id, dust)`.
 - **Probe**: `--destiny`, `--picks`, the pick in each era's order, the
   destiny-aware builds, the swarm meter's volley terms, `--reuse`.
-- **Tests**: `tests/destiny.spec.ts` (22 tests), and the charter lists of
+- **Tests**: `tests/destiny.spec.ts` (21 tests), and the charter lists of
   research, techtree, upgrades and guidance specs now include each era's pick.
 
 **Deviations, and why.**

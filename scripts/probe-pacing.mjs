@@ -14,6 +14,8 @@
  *                         every Era 2–8 pick on that side; concord: alternate, starting
  *                         opposite the landing (4–4); late: 5 on the landing's side, then
  *                         switch (5–3). --picks names all eight, the landing first.)
+ *       [--replace=on|off]  (on: each pick replaces the last small step the bot would
+ *                         research in its era, which moves to the tail; off: the pick is extra)
  *
  * An honest scripted player: it reads only what the HUD shows (getState,
  * getResearch, getLunar, getDeposits, canPlace, the building and site tables)
@@ -234,11 +236,18 @@ async function installBot(cfg) {
   {
     const R1 = G.getResearch();
     const eraOf = (t) => R1.cards[t]?.era ?? TECHS[t].era;
-    // the pick replaces the era's lowest-priority small step (docs/14 §6): that
-    // step moves to the tail, so the era's research is the same size — one
-    // that nothing later in the list builds on, so no other step waits for it
+    // the pick replaces the era's lowest-priority small step (docs/14 §6): the
+    // last small step the bot would research in that era's stretch of its list
+    // (from the pick to the next era's first main tech) moves to the tail, so
+    // the era's research is the same size. It must be one the bot would really
+    // take then (shown on this site, its prerequisites done or earlier in the
+    // list) and one no main tech or pick builds on.
     const SMALL = new Set(Object.values(SMALL_AFTER).flat());
-    const needed = (x) => order.some((y) => TECHS[y].requires.includes(x));
+    const isMain = (y) => MAIN0.has(y) || !!TECHS[y].exclusive || !!TECHS[y].track;
+    const needed = (x) => order.some((y) => isMain(y) && TECHS[y].requires.includes(x));
+    const shown = (x) => R1.cards[x] && R1.cards[x].state !== 'hidden';
+    const reachable = (x) => TECHS[x].requires.every((r) => R1.cards[r]?.state === 'done' ||
+      (order.indexOf(r) >= 0 && order.indexOf(r) < order.indexOf(x)));
     for (let e = 2; e <= 8; e++) {
       const t = pickOf(e);
       order = order.filter((x) => x !== t);
@@ -248,7 +257,10 @@ async function installBot(cfg) {
       if (e === 8) at = Math.min(at, order.indexOf('swarmProtocol'));
       order.splice(at, 0, t);
       if (cfg.replaceStep !== false && e < 8) {
-        const small = order.filter((x) => eraOf(x) === e && SMALL.has(x) && !BUILDER.includes(x) && !needed(x));
+        let end = order.findIndex((x, i) => i > at && eraOf(x) > e && isMain(x));
+        if (end < 0) end = order.length;
+        const small = order.slice(at + 1, end).filter((x) => eraOf(x) <= e && SMALL.has(x) && !BUILDER.includes(x) &&
+          shown(x) && reachable(x) && !needed(x));
         const drop = small[small.length - 1];
         if (drop) { order = order.filter((x) => x !== drop); order.push(drop); log0.deferred.push(drop); }
       }

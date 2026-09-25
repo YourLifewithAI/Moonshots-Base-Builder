@@ -168,6 +168,11 @@ export function computeMods(
     moraleBase: 0, hazardRateMult: 1, guards: new Set(), exposure: new Map(),
   };
 
+  // a Server Monolith counts as a Data Center wherever one is read (docs/14
+  // §2.8): a tech that changes Data Centers' output, power or upkeep changes
+  // Monoliths' too, unless it names the Monolith itself
+  const compute = (list: readonly BuildingId[]) =>
+    list.includes('dataCenter') && !list.includes('serverMonolith') ? [...list, 'serverMonolith' as const] : list;
   for (const tid of techsDone) {
     const def = TECHS[tid];
     if (!def) continue; // retired id on an unmigrated save
@@ -177,13 +182,13 @@ export function computeMods(
         case 'unlock': m.unlocked.add(fx.building); break;
         case 'outputMult': {
           const target = fx.crewedOnly ? m.crewedOutputMult : m.outputMult;
-          for (const b of fx.buildings) target[b] *= fx.mult;
+          for (const b of compute(fx.buildings)) target[b] *= fx.mult;
           break;
         }
         case 'inputMult': for (const b of fx.buildings) m.inputMult[b] *= fx.mult; break;
-        case 'powerMult': for (const b of fx.buildings) m.powerMult[b] *= fx.mult; break;
+        case 'powerMult': for (const b of compute(fx.buildings)) m.powerMult[b] *= fx.mult; break;
         case 'upkeepMult': {
-          const list = fx.buildings === 'all' ? IDS : fx.buildings;
+          const list = fx.buildings === 'all' ? IDS : compute(fx.buildings);
           for (const b of list) m.upkeepMult[b] *= fx.mult;
           break;
         }

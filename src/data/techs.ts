@@ -1521,7 +1521,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'bringsCrew', expeditions: ['robotic'] },
       { kind: 'housing', building: 'habitat', delta: 1 },
       { kind: 'growth', mult: 2 / 3, crew: true },
-      { kind: 'outputMult', buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab'], mult: 1.1, crewedOnly: true },
+      { kind: 'outputMult', buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab'], mult: 1.15, crewedOnly: true },
       { kind: 'guard', guard: 'stormShelters' },
       { kind: 'inputMult', buildings: ['habitat'], mult: 1.2 },
       { kind: 'exposure', hazard: 'cabinFever' },
