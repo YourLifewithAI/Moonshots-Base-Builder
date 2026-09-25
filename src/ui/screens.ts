@@ -3,9 +3,11 @@
 import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
 import type { Game } from '../core/game';
 import { el, PERSON_SVG } from './hud';
-import { $defeat, $hasSave, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
+import { $counts, $defeat, $destiny, $hasSave, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
-import { expeditionCopy } from './expeditionCopy';
+import { DESTINY_SUBTITLE, expeditionCopy } from './expeditionCopy';
+import { BAND_ENDING, BAND_LABEL, type Band } from '../data/techs';
+import { destinyPips } from './techDestiny';
 
 function rate(n: number): string {
   return `<span class="rate">${[0, 1, 2, 3, 4].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</span>`;
@@ -72,11 +74,13 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
     screen.innerHTML = `
       <h1 style="font-size:26px; line-height:30px">WHO GOES TO ${site.name}?</h1>
       <div class="sub">Robots survive the Moon. Humans beat it.</div>
+      <div class="sub" id="destiny-sub">${DESTINY_SUBTITLE}</div>
       <div id="sites" style="margin-top:30px">
         ${(['human', 'robotic'] as const).map((exp) => {
           const c = expeditionCopy(exp, selected);
           return `<div class="site-card${expedition === exp ? ' sel' : ''}" data-exp="${exp}">
           <h3>${exp === 'human' ? PERSON_SVG : '◉'} ${c.title}</h3>
+          <div class="label dz-exp-tag" data-destiny="${exp === 'human' ? 'colony' : 'automation'}">${c.tag}</div>
           <div class="place">${c.place}</div>
           <div class="blurb">${c.blurb}</div>
           ${c.pros.map((t) => `<div class="pro">${t}</div>`).join('')}
@@ -173,20 +177,55 @@ export function mountVictory(root: HTMLElement, game: Game) {
     const t = $time.get();
     const vit = $vitals.get();
     const s = $swarm.get();
-    // a robotic base with no one aboard has no crew or morale to report
-    const uncrewed = vit.expedition === 'robotic' && vit.crew <= 0;
-    const who = uncrewed
-      ? `${vit.botsTotal} robot${vit.botsTotal === 1 ? '' : 's'}, no one aboard`
-      : `crew of ${vit.crew}, morale ${vit.morale}%`;
+    const d = $destiny.get();
+    const counts = $counts.get();
+    // the band at the moment of the launch sets the ending (docs/14 §5); a
+    // run whose Era 8 pick never settled (an old save, a debug launch) gets
+    // the plain ending
+    const band: Band | null = d.band;
+    const pct = `<span class="mono">${s.pct.toFixed(4)}%</span>`;
+    const rail = (counts.massDriver?.total ?? 0) > 0 ? 'the rail' : 'the pad';
+    const bots = vit.botsTotal;
+    const machines = `${bots} machine${bots === 1 ? '' : 's'}`;
+    const clock = (sec: number) => {
+      const x = Math.max(0, Math.floor(sec));
+      return `T+${Math.floor(x / 3600)}:${String(Math.floor((x % 3600) / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`;
+    };
+    let lead: string;
+    let body: string;
+    if (!band) {
+      // a robotic base with no one aboard has no crew or morale to report
+      const uncrewed = (vit.expedition === 'robotic' || d.crewHome) && vit.crew <= 0;
+      const who = uncrewed ? `${bots} robot${bots === 1 ? '' : 's'}, no one aboard` : `crew of ${vit.crew}, morale ${vit.morale}%`;
+      lead = 'Volley one is away';
+      body = `Ten thin-film collectors are riding a rail-launched arc to solar orbit.<br/>The swarm stands at ${pct} — day ` +
+        `${t.dayIndex + 1}, ${who}.<br/><br/>A Dyson swarm is not built. It is <i>begun</i>.`;
+    } else if (band === 'colony') {
+      const where = (counts.gardenDome?.total ?? 0) > 0 ? 'from under the Garden Domes' : 'from the habitat windows';
+      lead = 'Volley one is away';
+      body = `Ten thin-film collectors are riding ${rail} toward the Sun, and ${vit.crew} ${vit.crew === 1 ? 'person' : 'people'} ` +
+        `watched them go ${where}.<br/>The swarm stands at ${pct} — day ${t.dayIndex + 1}. The Moon has citizens now.<br/><br/>` +
+        'A Dyson swarm is not built. It is <i>begun</i> — by people who mean to stay.';
+    } else if (band === 'automation') {
+      lead = `Volley one left at ${clock(game.state?.simTime ?? 0)}`;
+      const who = d.crewHome ? 'The last crew rotated home on the volley’s day.'
+        : vit.crew > 0 ? `${vit.crew} crew aboard saw it on a status board.` : 'No one has ever lived here.';
+      body = `Nobody watched: ${machines} logged it. ${who}<br/>The swarm stands at ${pct} — day ${t.dayIndex + 1}.<br/><br/>` +
+        'A Dyson swarm is not built. It is <i>begun</i> — and it will not need us to finish it.';
+    } else {
+      lead = 'Volley one is away';
+      const people = vit.crew > 0 ? `${vit.crew} ${vit.crew === 1 ? 'person' : 'people'} on console and ` : '';
+      body = `${people}${machines} on ${rail} sent it together.<br/>The swarm stands at ${pct} — day ${t.dayIndex + 1}.<br/><br/>` +
+        'A Dyson swarm is not built. It is <i>begun</i>.';
+    }
     screen.style.display = 'flex';
     screen.innerHTML = `
-      <div class="sub">Volley one is away</div>
+      <div class="sub" id="victory-lead">${lead}</div>
       <h1>FIRST LIGHT</h1>
-      <div class="stats">
-        Ten thin-film collectors are riding a rail-launched arc to solar orbit.<br/>
-        The swarm stands at <span class="mono">${s.pct.toFixed(4)}%</span> — day ${t.dayIndex + 1},
-        ${who}.<br/><br/>
-        A Dyson swarm is not built. It is <i>begun</i>.<br/>
+      <div class="label" id="victory-band" data-band="${band ?? ''}">${band ? `${BAND_ENDING[band]} · ${BAND_LABEL[band]} ` : ''}<span
+        class="mono" id="victory-pips">${destinyPips(d)}</span></div>
+      <div class="stats" id="victory-body">
+        ${body}<br/>
         Keep launching. Watch the curve bend.
       </div>
       <button class="btn primary" id="btn-victory-continue">Continue operations</button>`;
