@@ -924,155 +924,6 @@ export class Game {
     return b;
   }
 
-  /** Remove a building for the usual refund (½, or all of an untouched site). */
-  private demolishBuilding(id: number) {
-    const s = this.state;
-    const i = s.buildings.findIndex((b) => b.id === id);
-    if (i < 0 || s.buildings[i].type === 'lander') return;
-    const b = s.buildings[i];
-    for (const [rid, amt] of Object.entries(demolishRefund(b, SITES[s.siteId]))) {
-      s.resources[rid as keyof typeof s.resources] += amt ?? 0;
-    }
-    s.buildings.splice(i, 1);
-    this.instances.rebuild(s);
-    this.walk.colliders = this.instances.colliders(s);
-    if ($selection.get()?.id === id) $selection.set(null);
-  }
-
-  // ─────────────────────────── the Builder ───────────────────────────
-
-  /** Pick a site and place one auto building (an order's or a rule's). */
-  private placeAuto(type: BuildingId, intent: SiteIntent, automated: boolean): { b: BuildingState; why: string } | string {
-    const s = this.state;
-    const site = SITES[s.siteId];
-    const pick = chooseSite(s, this.mods, site, this.hf, { type, intent, survey: this.mods.siteSurvey });
-    if ('refusal' in pick) return pick.refusal;
-    const cost = buildCost(type, site);
-    const b = this.commitPlace(type, pick.gx, pick.gz, pick.rot, false, automated);
-    if (pick.dig) b.auto = { by: 'rule', at: s.simTime, why: pick.why, dig: pick.dig };
-    // the price floats up from the pad it was paid for, as for a click
-    const [cx, cz] = centerOf(b);
-    const at = this.screenOf(cx, this.hf.sample(cx, cz) + BUILDINGS[type].height * 0.6, cz);
-    const text = Object.entries(cost).filter(([, n]) => (n ?? 0) > 0)
-      .map(([rid, n]) => `−${n}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
-    if (at.visible && text) spawnFloater(text, at.x, at.y);
-    sfx.play('place');
-    return { b, why: pick.why };
-  }
-
-  /** The order action: place up to `count` now; the rest skip (or, with
-   *  Build Orders, wait in the order book). Orders obey what a click obeys. */
-  private fillOrder(type: BuildingId, count: number, intent: SiteIntent) {
-    const s = this.state;
-    const site = SITES[s.siteId];
-    const name = BUILDINGS[type].name;
-    const refusal = orderRefusal(s, this.mods, site, type);
-    if (refusal) { alert(s, `ORDER REFUSED — ${refusal}`, 'warn'); return; }
-    const n = Math.max(1, Math.min(this.mods.orderMax, Math.round(count)));
-    const order = newOrder(s, type, n, { res: intent.res, like: intent.like });
-    const placed: BuildingState[] = [];
-    const whys: string[] = [];
-    let stop = '';
-    for (let i = 0; i < n; i++) {
-      stop = budgetShort(s, this.mods, site, type, { by: 'order' });
-      if (stop) break;
-      const crew = crewPlan(s, this.mods, type);
-      const r = this.placeAuto(type, { ...intent, rule: 'order', ...(type === 'relayMast' ? { edge: true } : {}) }, crew.automated);
-      if (typeof r === 'string') { stop = r; break; }
-      r.b.auto = { by: 'order', order: order.id, at: s.simTime, why: r.why, survey: this.mods.siteSurvey, ...(r.b.auto?.dig ? { dig: r.b.auto.dig } : {}) };
-      order.placed.push(r.b.id);
-      placed.push(r.b);
-      whys.push(`#${r.b.id} ${r.why}`);
-      logAuto(s, `${name} #${r.b.id} · order #${order.id} · ${r.why}`, r.b.id);
-    }
-    const left = n - placed.length;
-    const noHands = placed.length && crewPlan(s, this.mods, type).refusal ? ' · no free hands: it idles until crewed (or set Autonomous)' : '';
-    const hold = left > 0 && this.mods.orderBook > 0 && !/no valid ground/.test(stop);
-    if (hold) {
-      if (s.auto.orders.length >= AUTO.bookMax) {
-        alert(s, `ORDER BOOK FULL — ${s.auto.orders.length}/${AUTO.bookMax} open; cancel one first` +
-          (placed.length ? ` · ${placed.length} ${name}${placed.length === 1 ? '' : 's'} placed` : ''), 'warn', { panel: 'builder' });
-        return;
-      }
-      order.waiting = stop;
-      s.auto.orders.push(order);
-    }
-    if (!placed.length && !hold) {
-      alert(s, `ORDER REFUSED — ${stop}`, 'warn');
-      return;
-    }
-    const head = `ORDER — ${placed.length} ${name}${placed.length === 1 ? '' : 's'} placed` +
-      (whys.length ? ` (${whys.join('; ')})` : '');
-    const tail = left <= 0 ? '' : hold ? ` · ${left} held in the order book: ${stop}` : ` · ${left} skipped: ${stop}`;
-    alert(s, head + tail + noHands, left > 0 && !hold ? 'warn' : 'info', placed[0] ? { select: placed[0].id } : { panel: 'builder' });
-  }
-
-  /** What economy step 12 asked for: place, demolish, dig. */
-  private resolveBuild(reqs: AutoRequest[]) {
-    const s = this.state;
-    const site = SITES[s.siteId];
-    for (const req of reqs) {
-      if (req.kind === 'demolish') {
-        const old = s.buildings.find((b) => b.id === req.id);
-        if (!old) continue;
-        const refund = Object.entries(demolishRefund(old, site)).filter(([, n]) => (n ?? 0) > 0)
-          .map(([rid, n]) => `${n}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
-        this.demolishBuilding(old.id);
-        alert(s, `REPLACED — ${BUILDINGS[old.type].name} #${old.id} (WORN ${Math.round(old.wear * 100)}%) ${req.why}; #${old.id} demolished, ½ refunded${refund ? ` (${refund})` : ''}`,
-          'info');
-        continue;
-      }
-      if (req.kind === 'dig' || req.kind === 'feed') {
-        const b = s.buildings.find((x) => x.id === req.id);
-        if (!b || b.type !== 'excavator') continue;
-        let x: number, z: number, note: string;
-        if (req.kind === 'dig') { x = req.x; z = req.z; note = 'as Site Survey AI planned'; } else {
-          const p = feedPlan(s, this.mods, site, this.hf, b);
-          if (!p) continue;
-          x = p.x; z = p.z; note = `Feed Planner: +${Math.round(p.gain * 100)}% feed value`;
-        }
-        const tier = this.mods.surveyTier;
-        const dep = this.hf.depositAt(x, z);
-        const known = dep && depositRevealed(s, dep, tier) ? dep : null;
-        const why = digRefusal(s, site, b, x, z, groundMapped(s, x, z, tier) || !!known, revealRadiusM(tier));
-        if (why) continue;
-        setDigSite(s, this.mods, b, x, z);
-        this.stampDeposit(b);
-        const [hx, hz] = centerOf(b);
-        alert(s, `AUTO DIG — ${BUILDINGS[b.type].name} #${b.id} digs ${groundName(b.deposit)} ` +
-          `${Math.round(Math.hypot(x - hx, z - hz))} m from its pad (${note})`, 'info', { select: b.id });
-        continue;
-      }
-      // place: the budget again (an earlier request this tick may have spent it)
-      const short = budgetShort(s, this.mods, site, req.type, {
-        by: req.by === 'order' ? 'held' : 'rule', bypassReserve: req.bypass?.reserve || req.rule === 'replace',
-      });
-      if (short) { recordRefused(s, req, short); continue; }
-      const crew = crewPlan(s, this.mods, req.type);
-      const r = this.placeAuto(req.type, req.intent, crew.automated);
-      if (typeof r === 'string') {
-        recordRefused(s, req, r);
-        if (req.by === 'order') continue;
-        continue;
-      }
-      const dig = r.b.auto?.dig;
-      recordPlaced(s, req, r.b, r.why, this.mods.siteSurvey);
-      if (dig && r.b.auto) r.b.auto.dig = dig;
-      // the Governor: a life-support or power crisis jumps the rover queue
-      if (req.crisis && this.mods.governor) this.applyAction({ kind: 'buildNext', id: r.b.id });
-    }
-  }
-
-  /** One economy tick, as the live loop and the debug fast-forward both run it:
-   *  the tick, the mods it changed, the Builder's requests, the deposits. */
-  private econStep() {
-    const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
-    if (ev.modsChanged) this.mods = modsFor(this.state);
-    if (ev.build.length) this.resolveBuild(ev.build);
-    this.syncDeposits(true);
-    return ev;
-  }
-
   /** b.deposit: the deposit under the footprint centre (placement and load);
    *  an excavator's is the ground it digs, its pad's kept in its haul */
   private stampDeposit(b: BuildingState) {
@@ -2108,6 +1959,155 @@ export class Game {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.post.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  /** Remove a building for the usual refund (½, or all of an untouched site). */
+  private demolishBuilding(id: number) {
+    const s = this.state;
+    const i = s.buildings.findIndex((b) => b.id === id);
+    if (i < 0 || s.buildings[i].type === 'lander') return;
+    const b = s.buildings[i];
+    for (const [rid, amt] of Object.entries(demolishRefund(b, SITES[s.siteId]))) {
+      s.resources[rid as keyof typeof s.resources] += amt ?? 0;
+    }
+    s.buildings.splice(i, 1);
+    this.instances.rebuild(s);
+    this.walk.colliders = this.instances.colliders(s);
+    if ($selection.get()?.id === id) $selection.set(null);
+  }
+
+  // ─────────────────────────── the Builder ───────────────────────────
+
+  /** Pick a site and place one auto building (an order's or a rule's). */
+  private placeAuto(type: BuildingId, intent: SiteIntent, automated: boolean): { b: BuildingState; why: string } | string {
+    const s = this.state;
+    const site = SITES[s.siteId];
+    const pick = chooseSite(s, this.mods, site, this.hf, { type, intent, survey: this.mods.siteSurvey });
+    if ('refusal' in pick) return pick.refusal;
+    const cost = buildCost(type, site);
+    const b = this.commitPlace(type, pick.gx, pick.gz, pick.rot, false, automated);
+    if (pick.dig) b.auto = { by: 'rule', at: s.simTime, why: pick.why, dig: pick.dig };
+    // the price floats up from the pad it was paid for, as for a click
+    const [cx, cz] = centerOf(b);
+    const at = this.screenOf(cx, this.hf.sample(cx, cz) + BUILDINGS[type].height * 0.6, cz);
+    const text = Object.entries(cost).filter(([, n]) => (n ?? 0) > 0)
+      .map(([rid, n]) => `−${n}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
+    if (at.visible && text) spawnFloater(text, at.x, at.y);
+    sfx.play('place');
+    return { b, why: pick.why };
+  }
+
+  /** The order action: place up to `count` now; the rest skip (or, with
+   *  Build Orders, wait in the order book). Orders obey what a click obeys. */
+  private fillOrder(type: BuildingId, count: number, intent: SiteIntent) {
+    const s = this.state;
+    const site = SITES[s.siteId];
+    const name = BUILDINGS[type].name;
+    const refusal = orderRefusal(s, this.mods, site, type);
+    if (refusal) { alert(s, `ORDER REFUSED — ${refusal}`, 'warn'); return; }
+    const n = Math.max(1, Math.min(this.mods.orderMax, Math.round(count)));
+    const order = newOrder(s, type, n, { res: intent.res, like: intent.like });
+    const placed: BuildingState[] = [];
+    const whys: string[] = [];
+    let stop = '';
+    for (let i = 0; i < n; i++) {
+      stop = budgetShort(s, this.mods, site, type, { by: 'order' });
+      if (stop) break;
+      const crew = crewPlan(s, this.mods, type);
+      const r = this.placeAuto(type, { ...intent, rule: 'order', ...(type === 'relayMast' ? { edge: true } : {}) }, crew.automated);
+      if (typeof r === 'string') { stop = r; break; }
+      r.b.auto = { by: 'order', order: order.id, at: s.simTime, why: r.why, survey: this.mods.siteSurvey, ...(r.b.auto?.dig ? { dig: r.b.auto.dig } : {}) };
+      order.placed.push(r.b.id);
+      placed.push(r.b);
+      whys.push(`#${r.b.id} ${r.why}`);
+      logAuto(s, `${name} #${r.b.id} · order #${order.id} · ${r.why}`, r.b.id);
+    }
+    const left = n - placed.length;
+    const noHands = placed.length && crewPlan(s, this.mods, type).refusal ? ' · no free hands: it idles until crewed (or set Autonomous)' : '';
+    const hold = left > 0 && this.mods.orderBook > 0 && !/no valid ground/.test(stop);
+    if (hold) {
+      if (s.auto.orders.length >= AUTO.bookMax) {
+        alert(s, `ORDER BOOK FULL — ${s.auto.orders.length}/${AUTO.bookMax} open; cancel one first` +
+          (placed.length ? ` · ${placed.length} ${name}${placed.length === 1 ? '' : 's'} placed` : ''), 'warn', { panel: 'builder' });
+        return;
+      }
+      order.waiting = stop;
+      s.auto.orders.push(order);
+    }
+    if (!placed.length && !hold) {
+      alert(s, `ORDER REFUSED — ${stop}`, 'warn');
+      return;
+    }
+    const head = `ORDER — ${placed.length} ${name}${placed.length === 1 ? '' : 's'} placed` +
+      (whys.length ? ` (${whys.join('; ')})` : '');
+    const tail = left <= 0 ? '' : hold ? ` · ${left} held in the order book: ${stop}` : ` · ${left} skipped: ${stop}`;
+    alert(s, head + tail + noHands, left > 0 && !hold ? 'warn' : 'info', placed[0] ? { select: placed[0].id } : { panel: 'builder' });
+  }
+
+  /** What economy step 12 asked for: place, demolish, dig. */
+  private resolveBuild(reqs: AutoRequest[]) {
+    const s = this.state;
+    const site = SITES[s.siteId];
+    for (const req of reqs) {
+      if (req.kind === 'demolish') {
+        const old = s.buildings.find((b) => b.id === req.id);
+        if (!old) continue;
+        const refund = Object.entries(demolishRefund(old, site)).filter(([, n]) => (n ?? 0) > 0)
+          .map(([rid, n]) => `${n}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
+        this.demolishBuilding(old.id);
+        alert(s, `REPLACED — ${BUILDINGS[old.type].name} #${old.id} (WORN ${Math.round(old.wear * 100)}%) ${req.why}; #${old.id} demolished, ½ refunded${refund ? ` (${refund})` : ''}`,
+          'info');
+        continue;
+      }
+      if (req.kind === 'dig' || req.kind === 'feed') {
+        const b = s.buildings.find((x) => x.id === req.id);
+        if (!b || b.type !== 'excavator') continue;
+        let x: number, z: number, note: string;
+        if (req.kind === 'dig') { x = req.x; z = req.z; note = 'as Site Survey AI planned'; } else {
+          const p = feedPlan(s, this.mods, site, this.hf, b);
+          if (!p) continue;
+          x = p.x; z = p.z; note = `Feed Planner: +${Math.round(p.gain * 100)}% feed value`;
+        }
+        const tier = this.mods.surveyTier;
+        const dep = this.hf.depositAt(x, z);
+        const known = dep && depositRevealed(s, dep, tier) ? dep : null;
+        const why = digRefusal(s, site, b, x, z, groundMapped(s, x, z, tier) || !!known, revealRadiusM(tier));
+        if (why) continue;
+        setDigSite(s, this.mods, b, x, z);
+        this.stampDeposit(b);
+        const [hx, hz] = centerOf(b);
+        alert(s, `AUTO DIG — ${BUILDINGS[b.type].name} #${b.id} digs ${groundName(b.deposit)} ` +
+          `${Math.round(Math.hypot(x - hx, z - hz))} m from its pad (${note})`, 'info', { select: b.id });
+        continue;
+      }
+      // place: the budget again (an earlier request this tick may have spent it)
+      const short = budgetShort(s, this.mods, site, req.type, {
+        by: req.by === 'order' ? 'held' : 'rule', bypassReserve: req.bypass?.reserve || req.rule === 'replace',
+      });
+      if (short) { recordRefused(s, req, short); continue; }
+      const crew = crewPlan(s, this.mods, req.type);
+      const r = this.placeAuto(req.type, req.intent, crew.automated);
+      if (typeof r === 'string') {
+        recordRefused(s, req, r);
+        if (req.by === 'order') continue;
+        continue;
+      }
+      const dig = r.b.auto?.dig;
+      recordPlaced(s, req, r.b, r.why, this.mods.siteSurvey);
+      if (dig && r.b.auto) r.b.auto.dig = dig;
+      // the Governor: a life-support or power crisis jumps the rover queue
+      if (req.crisis && this.mods.governor) this.applyAction({ kind: 'buildNext', id: r.b.id });
+    }
+  }
+
+  /** One economy tick, as the live loop and the debug fast-forward both run it:
+   *  the tick, the mods it changed, the Builder's requests, the deposits. */
+  private econStep() {
+    const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
+    if (ev.modsChanged) this.mods = modsFor(this.state);
+    if (ev.build.length) this.resolveBuild(ev.build);
+    this.syncDeposits(true);
+    return ev;
   }
 
   // ─────────────────────────── debug hooks ───────────────────────────

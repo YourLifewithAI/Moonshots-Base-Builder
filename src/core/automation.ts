@@ -659,7 +659,7 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     if (!seen.includes('maintenance')) {
       seen.push('maintenance');
       rep.on = true;
-      alert(s, `BUILDER — the Maintenance rule is on: ${ruleSummary('replace', s)} · [B] to tune`, 'info', { panel: 'builder' });
+      alert(s, `BUILDER — the Maintenance rule is on: ${RULE_TEXT.replace} · [B] to tune`, 'info', { panel: 'builder' });
     }
     const thr = rep.threshold;
     for (const b of s.buildings) {
@@ -721,12 +721,6 @@ function siteLine(b: BuildingState): string {
   if (b.idleReason === 'queued') return `→ ${label(b)} queued for a rover`;
   const done = b.buildTotal ? Math.round((1 - (b.construction ?? 0) / b.buildTotal) * 100) : 0;
   return `→ building ${label(b)} · ${done}%`;
-}
-
-/** 'the Excavation rule: +1 Regolith Excavator when … (cap 6)' */
-export function ruleSummary(id: AutoRuleId, s: GameState): string {
-  const r = s.auto.rules[id];
-  return `${RULES[id].objective.replace(' ≥ T', r ? ` ≥ ${fmtThreshold(id, r.threshold)}` : '').replace(' T min', r ? ` ${fmtThreshold(id, r.threshold)}` : '')} · cap ${r?.cap ?? RULES[id].cap}`;
 }
 
 /** A threshold in the unit the UI shows: '−6/min', '10%', '20 min', '2'. */
