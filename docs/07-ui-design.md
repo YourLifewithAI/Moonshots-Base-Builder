@@ -126,9 +126,13 @@ either one covers it. Full layout rules are in
   across eight era columns, plus a lane-free Era 8 capstone column that is
   always on screen: the Civ trick of keeping the end of the road visible.
   Lane heights come from the techs visible on this run, so a site's own
-  techs never leave holes.
-- **Era headers** show both charter routes live: `◼◻ 1/2 · or 1 + 20▣ fabbed
-  (12/20)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
+  techs never leave holes. The detail sheet gives up height (148 → 112 px)
+  before a slot falls under 28 px; past that budget the tallest lanes give
+  up a row and their crowded cells pack as compact one-line cards (glyph,
+  name, cost), so the ~100-tech tree stays on one 1280×720 screen
+  (docs/12 §7).
+- **Era headers** show both charter routes live: `◼◼◻◻ 2/4 · or 2 + 50▣ fabbed
+  (12/50)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
 - **Cards** are two lines: state glyph and short name, then cost and the
   first generated pro. Markers: ◇ and a bracket for a doctrine, ✦ for a
   breakthrough (a dotted `✦ ?` placeholder until surveyed), ◬ for a site

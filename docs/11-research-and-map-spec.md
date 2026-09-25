@@ -411,6 +411,11 @@ This spec adds the following, which must be merged with core-fixes:
 
 ## 3. Full tech table: 47 definitions
 
+> **Expanded:** the tree now holds 92 techs, and eras open with 4 techs (or
+> 2 plus a scaled deed). The 45 new techs, the new rules and the new pacing
+> are in [12-tree-expansion.md](12-tree-expansion.md); the tables below are the
+> original 47 and still hold for them apart from costs (see 03).
+
 **Notation**
 
 | Symbol | Meaning |

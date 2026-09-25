@@ -1,4 +1,4 @@
-# 12 · Tree expansion: 47 → 90 techs, eras twice as long, research you can see
+# 12 · Tree expansion: 47 → 92 techs, eras twice as long, research you can see
 
 **Status:** design (Phase A), implemented in the same branch (Phase B).
 **Supersedes** the counts in [11-research-and-map-spec.md](11-research-and-map-spec.md)
@@ -22,7 +22,7 @@ Chosen targets:
 | FIRST LIGHT, robotic mare | 108.6 game-min | **210 ± 25** |
 | FIRST LIGHT, other sites | 106–125 | within **+30%** of robotic mare |
 | Longest idle stretch | 4–7 min | **≤ 5 min** |
-| Techs | 47 | **90** (43 new, mostly small steps) |
+| Techs | 47 | **92** (45 new, mostly small steps) |
 | Every tech | numbers only (berms and clean panels aside) | **visibly changes the buildings it affects** |
 
 Two other branches add techs in parallel, so the layout and pacing are
@@ -51,16 +51,27 @@ with the tree:
 
 | Opens | Deed today | Deed after |
 |---|---|---|
-| 2 | 100◆ smelted | **250◆ smelted** |
+| 2 | 100◆ smelted | **450◆ smelted** |
 | 3 | 80⚙ fabricated | **200⚙ fabricated** |
-| 4 | 150◇ refined | **400◇ refined** |
+| 4 | 150◇ refined | **600◇ refined** |
 | 5 | 20▣ fabbed | **50▣ fabbed** |
 | 6 | a DC held a full night | unchanged |
-| 7 | an outpost operated a full lunar day (+ Cohabitation, robotic) | unchanged |
+| 7 | an outpost operated a full lunar day (+ Cohabitation, robotic) | **two outposts operated a full lunar day together** (+ Cohabitation, robotic; `stats.outpostPairOpS`) |
 | 8 | 10▰ manufactured | **25▰ manufactured** |
+
+(The probe set these: at 250◆ and 400◇ the deed routes opened eras 2 and 4
+in 15–17 min, and one outpost's day arrived halfway through era 7.)
 
 The tree header reads *An era opens with 4 of the previous era's techs — or
 2 plus a deed*, and the era-head pips show `◼◼◻◻ 2/4 · or 2 + …`.
+
+### 2.1b Swarm Protocol waits for a launch cadence
+
+Swarm Protocol now requires **Rail Capacitor Banks or Cryocooler Heads**
+(one per launch doctrine, era 8) instead of either launch building, and its
+data cost drops 3300 → 1800 (the two follow-ups and the Canister Press
+cost 1600). Before, the capstone was one 3300-data research, the longest
+wait in the game; now era 8 is two to three steps.
 
 ### 2.2 Doctrine follow-ups are foreclosed with their doctrine
 
@@ -89,7 +100,7 @@ with `minCrew` goes to its own `surveyCrewDataMult`; before, Science Crews'
 New small techs cost about 60–85% of their era's big techs (table below).
 `ERA_COST_SCALE` stays the single tuning dial; the probe sets it (§8).
 
-## 3. The 43 new techs
+## 3. The 45 new techs
 
 Columns: **id** · **lane** · **data** (base `costData`, before
 `ERA_COST_SCALE`) + goods · **requires** · **pro / con** (exactly the
@@ -106,7 +117,7 @@ visible, locked until Human Cohabitation). ✎ = new insight (§3.9).
 | `sampleCaches` | ◎ | 90 | Prospecting Rovers | survey data ×1.25 / −0.5 kW: Lander | A sample-cache carousel stands beside the Lander's ladder. |
 | `fieldSpectrometers` | ▣ | 90 | — | +10% output: Research Lab / +20% draw: Research Lab | Research Labs bolt a spectrometer turret onto the roof. |
 
-### 3.2 Era 2 · EARLY CONSTRUCTION (+4)
+### 3.2 Era 2 · EARLY CONSTRUCTION (+5)
 
 | id | lane | data | requires | pro / con | visual |
 |---|---|---|---|---|---|
@@ -114,6 +125,11 @@ visible, locked until Human Cohabitation). ✎ = new insight (§3.9).
 | `heatRecoveryJackets` ✎ | ◆ | 120 | Regolith Smelting | −12% draw: Regolith Smelter / +25% upkeep: Regolith Smelter | Smelter stacks wrap in foil heat-recovery jackets. |
 | `sublimationTents` (P) | ⌂ | 120 | Cryo Ice Extraction | +15% output: Ice Harvester / +20% draw: Ice Harvester | Ice Harvesters pitch a foil sublimation tent over the dig. |
 | `neutronSpectrometry` ✎ | ◎ | 110 | Sample-Return Caches | survey data ×1.2 / +40% draw: Relay Mast | Relay Masts hang a neutron-spectrometer boom. |
+| `benchRobots` (human) | ▣ | 100 | — | −1 crew: Research Lab / +25% draw: Research Lab | Research Labs fit a robot sample bench behind a new window bay. |
+
+`benchRobots` joined during tuning: on crewed runs era 2 took 37–47 min
+because two-seat labs could not be staffed. It sits in the ▣ E2 cell, and
+robotic runs never see it.
 
 ### 3.3 Era 3 · ROBOTIC FABRICATION (+5)
 
@@ -149,7 +165,7 @@ visible, locked until Human Cohabitation). ✎ = new insight (§3.9).
 | `nutrientRecirculation` *crew* | ⌂ | 380 | LED Grow Lights | −30% inputs: Hydroponics Farm / +30% upkeep: Hydroponics Farm | Hydroponics farms add a row of nutrient recirculation tanks. |
 | `gravimetry` | ◎ | 360 | Neutron Spectrometry | survey data ×1.2 / −1 kW: Lander | The Lander raises a gravimeter mast. |
 
-### 3.6 Era 6 · HUMAN HABITATION (+6)
+### 3.6 Era 6 · HUMAN HABITATION (+7)
 
 | id | lane | data | requires | pro / con | visual |
 |---|---|---|---|---|---|
@@ -159,6 +175,11 @@ visible, locked until Human Cohabitation). ✎ = new insight (§3.9).
 | `predictiveMaintenance` | ◉ | 1000 + 10▣ | Parts Fabrication | wear heals ×1.3 / −2 kW: Lander | Robotics Bays raise a diagnostics mast with a beacon. |
 | `uplinkDishes` | ▣ | 950 + 10▣ | Cryo Sample Store | +10% output: Research Lab / +15% draw: Research Lab | Research Labs raise a second uplink dish. |
 | `galleyGarden` *crew* (robotic → E7 · 1000) | ⌂ | 900 | LED Grow Lights | +3 morale: Hydroponics Farm / +15% draw: Hydroponics Farm | Hydroponics farms open a galley bay with a picture window. |
+| `launchSiteSurvey` | ↑ | 900 | Orbital Prospector | build time ×0.75: Mass Driver, Propellant Plant / −1 kW: Lander | Mass Drivers and Propellant Plants rise on staked, surveyed pads with reflector posts. |
+
+`launchSiteSurvey` joined late so the ↑ EXPORT lane has a step of its own
+before the launch doctrine: it pays off when the rail or the tanks go up in
+era 7.
 
 ### 3.7 Era 7 · SWARM INDUSTRY (+7)
 
@@ -176,12 +197,14 @@ visible, locked until Human Cohabitation). ✎ = new insight (§3.9).
 
 | id | data | requires | pro / con | visual |
 |---|---|---|---|---|
-| `railCapacitors` | 2400 | Electromagnetic Mass Driver | −20% draw: Mass Driver / +40% upkeep: Mass Driver | Mass Drivers line their rail with capacitor banks. |
-| `cryocoolerHeads` | 2400 | Propellant Depot | +15% output: Propellant Plant / +20% draw: Propellant Plant | Propellant Plants cap their tanks with cryocooler heads. |
-| `canisterPress` | 2200 | Thin-Film Foils | +10% output: Foil Factory / +30% upkeep: Foil Factory | Foil Factories add a canister press at the loading dock. |
+| `railCapacitors` | 1600 | Electromagnetic Mass Driver | −20% draw: Mass Driver / +40% upkeep: Mass Driver | Mass Drivers line their rail with capacitor banks. |
+| `cryocoolerHeads` | 1600 | Propellant Depot | +15% output: Propellant Plant / +20% draw: Propellant Plant | Propellant Plants cap their tanks with cryocooler heads. |
+| `canisterPress` | 1600 | Thin-Film Foils | +10% output: Foil Factory / +30% upkeep: Foil Factory | Foil Factories add a canister press at the loading dock. |
 
 In the Era-8 column the pre-capstone techs sit above Swarm Protocol (still
 the double-height capstone, centred) and the swarmPurpose pair below it.
+Rail Capacitor Banks and Cryocooler Heads are the launch-cadence step Swarm
+Protocol now needs (§2.1b).
 
 ### 3.9 New insights (in-base deeds; era 1 still has none)
 
@@ -267,10 +290,10 @@ Lane heights come from the per-run maximum cell count. After this design
 | ⚡ POWER | 1 | 3 | 3 | 3 (P 2) | 3 | 2 | 1 | 3 |
 | ◆ MATERIALS | 2 | 3 (P 2) | 2 | 3 | 2 | 2 | 3 | 3 |
 | ◉ ROBOTS & FAB | 1 (P, L 2) | 2 | 2 | 1 | 1 | 2 | 1 | **2** |
-| ▣ SILICON & COMPUTE | 1 | 1 | 2 | 2 | 2 | 2 | 2 | **2** |
+| ▣ SILICON & COMPUTE | 1 | 1 (human 2) | 2 | 2 | 2 | 2 | 2 | **2** |
 | ⌂ HABITAT | 1 | 1 (P 2) | 1 | 1 (P 2) | 1 (human 2) | 2 | 2 (human 1) | 2 |
 | ◎ EXPLORATION | 2 | 1 | 1 | 2 | 1 | 2 | 2 | 2 |
-| ↑ EXPORT | — | — | — | — | — | — | 2 | 2 |
+| ↑ EXPORT | — | — | — | — | — | 1 | 2 | 2 |
 
 **16 slots** per run. ◉ and ▣ are held at 2 so that one automation tech per
 era (E2–E7) in each of them adds exactly one row each: **18 slots**, which
@@ -280,8 +303,8 @@ place for the fleet branch's 1–2 techs. Anything beyond 18 slots is packed
 by the layout's overflow rule (§7) instead of breaking the fit.
 
 Visible techs per run (after site and expedition filters; doctrine rivals
-and breakthrough placeholders counted): robotic mare 83, pole 84, lava
-tube 84; human mare 83, pole 84, lava tube 84. That is about 11 per era,
+and breakthrough placeholders counted): robotic mare 84, pole 85, lava
+tube 85; human mare 85, pole 86, lava tube 86. That is about 11 per era,
 of which a charter needs 4.
 
 ## 6. Upgrade geometry
@@ -318,10 +341,15 @@ upgraded recipe's height, so a lab with a cupola prints to the top of it.
 holds, so a loaded base shows exactly the upgrades it had. Nothing new is
 saved.
 
-**Budget.** Each upgrade part is at most a few hundred triangles (most are
-40–250). Base recipes are 500–2,800 triangles; the fully upgraded totals
-per type are recorded in [04-buildings.md](04-buildings.md) and checked by a
-test (every fully upgraded type ≤ 6,000 triangles, every single upgrade ≤ 600).
+**Budget.** Each upgrade part is at most a few hundred triangles (24–572;
+most 60–300). Moving parts reuse the shared dish (740 △) and wing meshes.
+Base recipes are 900–2,800 triangles; fully upgraded, most types land at
+1,300–3,400 and the Lander, which collects ten survey and comms upgrades, at
+7,008. The per-type totals and each part's triangles are generated into
+[04-buildings.md](04-buildings.md) and checked by `tests/upgrades.spec.ts`
+(every part ≤ 600 △ on the recipe mesh, every fully upgraded type ≤ 7,500 △).
+A 25-building base that has researched everything draws about 55 k building
+triangles instead of 40 k — still one draw call per type.
 
 ## 7. Tree UI fit
 
