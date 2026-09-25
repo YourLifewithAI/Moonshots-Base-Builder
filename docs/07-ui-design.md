@@ -105,6 +105,42 @@ a ring on the ground marks it (bright valid, faint refused — value, never
 hue), Dig at… turns the deposit overlay on, an invalid click flashes the
 reason, and Esc or right-click cancels.
 
+**The Builder** (`ui/builderPanel.ts`; design in 13 §5). **[B]** opens
+`#builder-panel` in the left column (it replaces an open resource panel and
+hides in walk mode). Top to bottom:
+
+- the builder's rules, one line at a time (it never founds a type, holds
+  when more would not help, keeps a reserve, obeys a cancel);
+- **Orders**: each held order (Build Orders) with `2 of 10 placed · waiting:
+  needs 12◆ (have 0)`, *Build next* and ✕;
+- **Rules**, grouped by family in the order they act: a ● switch, the
+  objective with its trigger (`KEEP regolith supply ≥ demand −6▲/min`), T −/+
+  and cap −/+ with the count, and the live status line (`watching · regolith
+  18▲/min short for 41 s of 60`, `holding · 1 of 3 Regolith Excavators dark
+  (power) — more would not help`, `cap 6/6 …`); ▲▼ reorder the families once
+  the Budget Governor is in;
+- **Reserves** (Governor): a floor per resource, −/+;
+- *Freeze rules* for a lunar day, and the last eight things the builder did
+  (a click selects the building).
+
+Rows refresh in place; the panel rebuilds only when its shape changes, so
+a button never moves under the cursor. Each resource panel carries the same
+rules for its resource (`BUILDER` section) with the flow book's line —
+`supply 90▲/min · demand 120▲/min + builds 6▲/min` — and **+1 / +3** order
+buttons per maker (+5 / +10 with the book). **Ctrl-click** a palette card
+orders one (⇧ three) and **Enter** while placing hands the choice to the
+rovers; the floater says `ORDER SOLAR ARRAY`, the alert where and why
+(`ORDER — 1 Solar Array placed (#14 nearest free pad to the base centre ·
+18 m)`). A building the builder placed says `#14 · AUTO` in the inspector
+head, with its reason in the body (and, before Site Survey AI, that sites
+go by distance only). The priority row carries one Builder button at its
+right end, so the foot grows no taller: *Pause rule* on a rule's site, or
+**＋1** (build another like this) on a finished building; Feed Planner's
+per-excavator switch sits in the body. A small `AUTO`
+marker floats over each auto site until it stands. Builder alerts carry
+`[B]`: `AUTO — …`, `AUTO CAP — …`, `AUTO HOLD / WAITING / NO SITE — …` (a
+condition while it lasts), `AUTO SITE CANCELLED — …`, `REPLACED — …`.
+
 ## 5. The fixed tooltip template (`palette.ts: tooltipHtml`)
 
 Every building tooltip renders the same sections in the same order — the
@@ -353,7 +389,7 @@ rebuild freely.
 ## 12. Menu and sound (`menu.ts`, `audio/sfx.ts`)
 
 **Esc** closes one thing at a time — a targeting mode, placement, the
-inspector, the rover inspector, a resource panel, the tree — and with nothing left to cancel opens the mission menu
+inspector, the rover inspector, a resource panel or the Builder panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
 save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·
@@ -397,8 +433,9 @@ two command views move differently (06 §9, §12.6):
 | Q · E | turn the view 90°, eased; a held key turns once | orbit while held |
 | F · H | glide to the selection (closer) · home to the Lander | the same |
 
-Everything else — R, Shift-click, Esc, Space, 1/2/3, T, M, I, Tab and the
-on-foot keys — is the same in both.
+Everything else — R, Shift-click, Ctrl-click (order), Enter while placing,
+Esc, Space, 1/2/3, T, M, I, B, Tab and the on-foot keys — is the same in
+both.
 
 Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio
 nodes only: a switch click on every control, a thunk on placement, a blip on

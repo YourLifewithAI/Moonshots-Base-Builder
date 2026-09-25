@@ -22,6 +22,7 @@ import { alert, condition, crewReserve } from './economy';
 import { resolveTech } from './research';
 import { borrowable } from './fleet';
 import { fmtClock } from './daynight';
+import { recordSpend } from './flowBook';
 
 export interface ActionResult { ok: boolean; reason: string }
 const OK: ActionResult = { ok: true, reason: '' };
@@ -245,6 +246,7 @@ export function startSurvey(s: GameState, mods: Mods, pid: ProspectId): ActionRe
   s.resources.oxygen -= c.oxygen;
   s.resources.water -= c.water;
   s.resources.parts -= c.parts;
+  recordSpend(s, { oxygen: c.oxygen, water: c.water, parts: c.parts });
   // the rover it borrows is never a pinned one (core/fleet.ts)
   const rover = borrowable(s)?.id;
   s.survey.active = { id: pid, startedAt: s.simTime, endsAt: s.simTime + c.timeS, ...(rover !== undefined ? { rover } : {}) };
@@ -319,6 +321,7 @@ export function claimOutpost(s: GameState, mods: Mods, pid: ProspectId): ActionR
   const cls = prospectClass(s.siteId, pid);
   const oc = OUTPOST_CLASS[cls];
   for (const [rid, need] of Object.entries(oc.cost) as [ResourceId, number][]) s.resources[rid] -= need;
+  recordSpend(s, oc.cost);
   const kind = PROSPECTS[pid].kind as OutpostKind;
   s.survey.outposts.push({
     id: pid, kind, cls, claimedAt: s.simTime, readyAt: s.simTime + oc.deployS,

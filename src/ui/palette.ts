@@ -23,8 +23,11 @@ import { fmtClock } from '../core/daynight';
 import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
 import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
+import { autoTagLine } from '../core/automation';
+
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 import {
-  $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
+  $automation, $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $selection, $siteId, $tech,
   $vitals, spawnFloater,
 } from './stores';
 
@@ -130,7 +133,20 @@ export function tooltipHtml(type: BuildingId, locked: boolean, mods: Mods): stri
     <section>${ioRows(type, mods)}</section>
     <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
     ${unlock ? `<section><span class="label">⧗ Requires research — ${TECHS[unlock].name} · click to find it in the tree</span></section>` : ''}
-    ${never ? `<section><span class="label">✕ ${never}</span></section>` : ''}`;
+    ${never ? `<section><span class="label">✕ ${never}</span></section>` : ''}
+    ${!locked && orderableHere(type) ? '<section><span class="label">Ctrl-click: the rovers choose the site (⇧ ×3) · Enter while placing</span></section>' : ''}`;
+}
+
+/** Orders can place it (docs/13 §2.2): not the Lander, masts only with Self-Expanding Base. */
+function orderableHere(type: BuildingId): boolean {
+  if (type === 'lander') return false;
+  if (type === 'relayMast') return ($automation.get()?.families ?? []).includes('network');
+  return true;
+}
+
+/** a card's order intent: the building's main output */
+function mainOutput(type: BuildingId): ResourceId | undefined {
+  return Object.keys(BUILDINGS[type].outputs)[0] as ResourceId | undefined;
 }
 
 /** 'Feed (recent loads): 64% high-Ti · 8% highland → yield +17%' for the
@@ -200,6 +216,13 @@ export function mountPalette(root: HTMLElement, game: Game) {
           if (never) { spawnFloater(never.toUpperCase(), e.clientX, e.clientY - 20); return; }
           hideTooltip();
           openTechTreeAt(unlockingTech(type));
+          return;
+        }
+        // Ctrl/⌘-click: an order — the rovers choose the site (⇧: three)
+        if ((e.ctrlKey || e.metaKey) && orderableHere(type)) {
+          const res = mainOutput(type);
+          game.actions.push({ kind: 'order', type, count: e.shiftKey ? 3 : 1, intent: res ? { res } : undefined });
+          spawnFloater(`ORDER ${BUILDINGS[type].name.toUpperCase()}${e.shiftKey ? ' ×3' : ''}`, e.clientX, e.clientY - 20);
           return;
         }
         game.beginPlacement(type);
@@ -380,6 +403,26 @@ export function mountPalette(root: HTMLElement, game: Game) {
     }
   };
   const NOTE = 'class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)"';
+  /** the Builder's buttons: pause the rule that placed a site, order another like
+   *  this one, keep Feed Planner off an excavator */
+  /** the Builder's button rides the priority row, right-aligned (no extra
+   *  foot height): Pause rule on a rule's site, ＋1 on a finished building
+   *  the rovers can order */
+  const builderActions = (sel: BuildingState): string => {
+    const site = (sel.construction ?? 0) > 0;
+    const rule = sel.auto?.by === 'rule' && sel.auto.rule
+      ? $automation.get()?.rules.find((r) => r.id === sel.auto!.rule) : undefined;
+    if (site && rule?.on) return '<button class="btn insp-bld" id="insp-pause-rule" title="Switch off the rule that placed this site (the site stays)">Pause rule</button>';
+    if (!site && orderableHere(sel.type) && game.mods.unlocked.has(sel.type)) {
+      return '<button class="btn insp-bld" id="insp-another" title="Build another like this: the rovers choose the site">＋1</button>';
+    }
+    return '';
+  };
+  /** Feed Planner's per-excavator switch, in the body beside the AUTO line */
+  const builderBody = (sel: BuildingState): string =>
+    ((sel.construction ?? 0) <= 0 && sel.type === 'excavator' && game.mods.feedPlanner
+      ? `<section><span class="label">Feed Planner</span><div class="prio"><button class="btn${sel.feedPlanOff ? '' : ' active'}" id="insp-feedplan" aria-pressed="${!sel.feedPlanOff}" title="Feed Planner re-aims this excavator at the feed the furnaces want">${sel.feedPlanOff ? 'Off' : 'On'}</button></div></section>`
+      : '');
   /** Head (name, status) and foot (every button) stay in view; the stat body
    *  between them scrolls when the screen is short, so no button is ever
    *  below the fold. */
@@ -399,13 +442,16 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const overclock = OVERCLOCKABLE.includes(sel.type) && game.mods.actions.has('overclock');
     insp.innerHTML = `
       <div class="insp-head"><section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
-        <span class="label">#${sel.id}</span></div>
+        <span class="label">#${sel.id}${sel.auto ? ' · AUTO' : ''}</span></div>
         <span class="label" id="insp-status"></span></section></div>
       <div class="insp-body">
       <section>${ioRows(sel.type, game.mods, sel)}</section>
       ${sel.deposit ? `<section><span class="label">◎ ${sel.type === 'excavator'
         ? DEPOSIT_INFO[sel.deposit].ghost.replace(/^On /, 'Digs ') : DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
       ${fleetBodyHtml(sel)}
+      ${sel.auto ? `<section class="insp-auto"><span class="label">${esc(autoTagLine(sel))}</span>
+        ${sel.auto.survey ? '' : `<div ${NOTE}>Sites by distance only — Site Survey AI weighs deposits and haul lanes.</div>`}</section>` : ''}
+      ${builderBody(sel)}
       ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
       <section>
         <span class="label">Condition <span class="mono" style="float:right" id="insp-cond"></span></span>
@@ -426,7 +472,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       <section>
         <span class="label">Idle priority (0 = last to brown out)</span>
         <div class="prio">${[0, 1, 2, 3].map((p) =>
-          `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}</div>
+          `<button class="btn prio-btn${sel.priority === p ? ' active' : ''}" data-p="${p}">${p}</button>`).join('')}${builderActions(sel)}</div>
       </section>
       ${isLander ? `<section>
         <span class="label">Lander services — mission HQ</span>
@@ -482,6 +528,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
       canToggleCrew(vit.expedition, vit.crew, $tech.get()), vit.expedition, vit.crew > 0,
       sel.deposit ?? '', lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
       [...game.mods.actions].sort().join(','), fleetSig(sel),
+      sel.auto?.by ?? '', sel.auto?.rule ?? '', sel.feedPlanOff ?? false, game.mods.feedPlanner,
+      $automation.get()?.rules.find((r) => r.id === sel.auto?.rule)?.on ?? '',
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;
@@ -513,6 +561,15 @@ export function mountPalette(root: HTMLElement, game: Game) {
       case 'insp-oc-off': game.actions.push({ kind: 'setOverclock', id: sel.id, on: false }); break;
       case 'insp-demolish': game.actions.push({ kind: 'demolish', id: sel.id }); break;
       case 'insp-close': $selection.set(null); break;
+      case 'insp-another': {
+        const res = mainOutput(sel.type);
+        game.actions.push({ kind: 'order', type: sel.type, count: 1, intent: { like: sel.id, ...(res ? { res } : {}) } });
+        break;
+      }
+      case 'insp-pause-rule':
+        if (sel.auto?.rule) game.actions.push({ kind: 'setRule', rule: sel.auto.rule, on: false });
+        break;
+      case 'insp-feedplan': game.actions.push({ kind: 'setFeedPlan', id: sel.id, on: !!sel.feedPlanOff }); break;
     }
   });
 }

@@ -144,24 +144,24 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 
 | Building | Stock △ | Fully upgraded △ | Upgrades |
 |---|---|---|---|
-| Lander | 2,760 | 7,008 | 10 |
-| Solar Array | 896 | 1,964 | 7 |
+| Lander | 2,760 | 7,112 | 11 |
+| Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
-| Regolith Excavator | 1,044 | 1,964 | 7 |
+| Regolith Excavator | 1,044 | 2,036 | 8 |
 | Ice Harvester | 1,288 | 1,680 | 3 |
 | Regolith Smelter | 1,204 | 2,492 | 9 |
-| Silicon Refinery | 2,348 | 3,192 | 5 |
-| Storage Yard | 956 | 956 | 0 |
-| Robotics Bay | 1,336 | 2,086 | 5 |
-| Parts Fabricator | 1,048 | 1,264 | 2 |
+| Silicon Refinery | 2,348 | 3,272 | 6 |
+| Storage Yard | 956 | 1,016 | 1 |
+| Robotics Bay | 1,336 | 2,678 | 8 |
+| Parts Fabricator | 1,048 | 1,336 | 3 |
 | Chip Fab | 1,144 | 1,924 | 8 |
-| Habitat Module | 1,576 | 2,136 | 4 |
+| Habitat Module | 1,576 | 2,248 | 5 |
 | Hydroponics Farm | 1,372 | 2,220 | 4 |
 | Recreation Dome | 1,824 | 1,948 | 1 |
 | Research Lab | 1,680 | 3,248 | 6 |
-| Relay Mast | 1,616 | 1,736 | 1 |
-| Data Center | 1,604 | 2,796 | 7 |
+| Relay Mast | 1,616 | 2,012 | 2 |
+| Data Center | 1,604 | 2,932 | 8 |
 | Foil Factory | 1,416 | 2,362 | 5 |
 | Mass Driver | 1,052 | 1,704 | 3 |
 | Propellant Plant | 2,348 | 3,496 | 4 |
@@ -180,6 +180,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Laser Ranging | 7 | The Lander adds a laser-ranging telescope dome. | 262 |
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
 | Power Beaming Return | 8 | A rectenna mesh unfolds beside the Lander. | 96 |
+| Build Orders | 2 | The Lander raises a planning mast: a pole with a work lamp beside its top deck. | 104 |
 
 #### Solar Array
 
@@ -192,6 +193,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Skylight Heliostats (MARIUS HILLS TUBE) | 2 | Each Solar Array gains a heliostat mirror on a boom. | 56 |
 | Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 240 |
 | Wing Extensions | 5 | Solar Array wings grow a fifth row of cells. | 0 + 120 ↻ |
+| Automated Power | 4 | Solar Arrays gain a combiner box with a status lamp at the foot of the mast. | 48 |
 
 #### Battery Bank
 
@@ -220,6 +222,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
 | Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 240 |
+| Feed Planner | 5 | Excavators carry an assay drill beside the bucket. | 72 |
 
 #### Ice Harvester
 
@@ -252,6 +255,13 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Deployable Radiators | 5 | Smelters, Refineries and Chip Fabs unfold extra radiator wings. | 216 |
 | Refractory Linings | 6 | Smelter stacks and Refinery columns are banded with refractory courses. | 200 |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
+| Automated Smelting & Refining | 5 | Silicon Refineries grow an ore-sampler arm over the feed hopper. | 80 |
+
+#### Storage Yard
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Budget Governor | 4 | Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks. | 60 |
 
 #### Robotics Bay
 
@@ -262,6 +272,9 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Self-Replicating Systems | 7 | Parts Fabricators and Robotics Bays grow replicator assembly arms. | 76 |
 | Rover Autonomy | 4 | Robotics Bays raise a navigation mast: a radar dome and the lidar heads the rovers plan their paths by. | 310 |
 | Predictive Maintenance | 6 | Robotics Bays raise a diagnostics mast with a beacon. | 136 |
+| Automated Excavation | 3 | Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof. | 268 |
+| Site Survey AI | 3 | A survey drone rests on a pad on each Robotics Bay roof. | 212 |
+| Maintenance Automation | 7 | Robotics Bays get a service crane arm over the charging rover. | 112 |
 
 #### Parts Fabricator
 
@@ -269,6 +282,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 |---|---|---|---|
 | Tool Changers | 5 | Parts Fabricators add a tool-changer carousel on the roof. | 140 |
 | Self-Replicating Systems | 7 | Parts Fabricators and Robotics Bays grow replicator assembly arms. | 76 |
+| Automated Fabrication | 6 | Parts Fabricators get a gantry crane across the roof. | 72 |
 
 #### Chip Fab
 
@@ -291,6 +305,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Closed-Loop Life Support | 6 | Habitats add a CO₂ scrubber stack and water-recovery tanks. | 256 |
 | Lava-Tube Caverns | 3 | Habitats, Data Centers and Chip Fabs pile a sandbag overburden on their roofs. | 144 |
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
+| Automated Life Support | 4 | Each Habitat Module gets an air-monitor mast by its door. | 112 |
 
 #### Hydroponics Farm
 
@@ -323,6 +338,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Tech | Era | What changes | △ |
 |---|---|---|---|
 | Neutron Spectrometry | 2 | Relay Masts hang a neutron-spectrometer boom. | 120 |
+| Self-Expanding Base | 7 | Relay Masts wear a beacon crown and a cable reel at the foot. | 276 |
 
 #### Data Center
 
@@ -335,6 +351,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Superconducting Bus | 7 | Data Centers, Chip Fabs and Foil Factories run superconducting bus ducts. | 68 |
 | Liquid Cooling | 7 | Data Centers run coolant manifolds to a pump skid. | 152 |
 | Rack Densification | 7 | Data Centers add a rack annex at the berm. | 36 |
+| Predictive Scheduling | 6 | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. | 136 |
 
 #### Foil Factory
 

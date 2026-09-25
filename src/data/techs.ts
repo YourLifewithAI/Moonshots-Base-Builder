@@ -1,6 +1,7 @@
-/** 94 technologies in 7 swimlanes × 8 eras — the robots-first arc of lunar
+/** 106 technologies in 7 swimlanes × 8 eras — the robots-first arc of lunar
  *  development (docs/11-research-and-map-spec.md §3, expanded by
- *  docs/12-tree-expansion.md). Era N opens with 4 of era N−1's techs, or 2
+ *  docs/12-tree-expansion.md; the twelve Builder techs of docs/13 open
+ *  orders and standing rules, data/automation.ts). Era N opens with 4 of era N−1's techs, or 2
  *  plus that era's deed (ERA_GATES). Six doctrines are permanent either/or
  *  picks. Every card's pros and cons are generated from its effects by
  *  describeEffect(); `tradeoff` is flavour only, `visual` names the mesh
@@ -10,6 +11,7 @@ import { BUILDINGS, type BuildingId } from './buildings';
 import { RESOURCES, type ResourceId } from './resources';
 import { SITES, SITE_ORDER, type SiteId } from './sites';
 import { siteHasDeposit, type FeedKind } from './deposits';
+import { AUTO, FAMILY_LABEL, RULES, RULE_TEXT, rulesOf, type AutoFamily } from './automation';
 import type { ProspectId } from './lunarMap';
 import type { GameState } from '../core/state';
 import {
@@ -32,26 +34,32 @@ export type TechId =
   | 'batteryStorage' | 'thermalWadis' | 'peakLightMasts' | 'skylightHeliostats' | 'siliconRefining'
   | 'partsFabrication' | 'constructionRobotics' | 'regolithShielding' | 'moltenElectrolysis' | 'ilmeniteBeneficiation'
   | 'mpptInverters' | 'heatRecoveryJackets' | 'sublimationTents' | 'neutronSpectrometry' | 'benchRobots'
+  | 'buildOrders'
   // era 3 — robotic fabrication
   | 'thoriumPower' | 'regenFuelCells' | 'swarmRobotics' | 'heavyConstructors' | 'dustMitigation' | 'btLavaTubeCaverns'
   | 'stackedCells' | 'slagRecycling' | 'refluxColumns' | 'cryoSampleStore' | 'bunkRacks'
+  | 'autoExcavation' | 'siteSurveyAI'
   // era 4 — chip fabrication
   | 'waferFab' | 'acceleratorDesign' | 'radHardProcess' | 'cleanroomRobotics' | 'orbitalProspector' | 'btVolcanicGlass'
   | 'braytonConverters' | 'pressureTanks' | 'mliBlankets' | 'waferPolishing' | 'oreSorting' | 'heatedAugers' | 'growLights'
   | 'roverAutonomy'
+  | 'autoPower' | 'budgetGovernor' | 'autoLifeSupport'
   // era 5 — lunar compute
   | 'lunarDataCenter' | 'dynamicClocking' | 'cryoRadiators' | 'crewWellness'
   | 'wingExtensions' | 'deployableRadiators' | 'oxygenLiquefaction' | 'immersionLitho' | 'toolChangers'
   | 'nutrientRecirculation' | 'gravimetry' | 'autonomousHaulage'
+  | 'autoSmelting' | 'feedPlanner'
   // era 6 — human habitation
   | 'humanCohabitation' | 'closedLoopLS' | 'safetyProtocols' | 'conditionOptimization' | 'scienceCrews'
   | 'farSideRelay' | 'btColdTrapChemistry'
   | 'solidStateCells' | 'highBurnupFuel' | 'refractoryLinings' | 'predictiveMaintenance' | 'uplinkDishes' | 'galleyGarden'
   | 'launchSiteSurvey'
+  | 'autoFabrication' | 'predictiveScheduling'
   // era 7 — swarm industry
   | 'foilManufacturing' | 'massDriver' | 'propellantDepot' | 'selfReplication' | 'deepSounding'
   | 'superconductingBus' | 'rollToRoll' | 'foilAnnealing' | 'liquidCooling' | 'rackDensification' | 'lowGCourt'
   | 'laserRanging'
+  | 'selfExpandingBase' | 'maintenanceAutomation'
   // era 8 — dyson swarm (lane-free capstone column)
   | 'swarmProtocol' | 'powerBeaming' | 'vonNeumann' | 'railCapacitors' | 'cryocoolerHeads' | 'canisterPress';
 
@@ -96,6 +104,23 @@ export type TechEffect = EffectFilter & (
   | { kind: 'morale'; building: BuildingId; delta: number }    // morale while that building runs
   /** excavator haul cycle: drive speed, and bucket size (its dig time grows with it) */
   | { kind: 'haul'; speedMult?: number; bucketMult?: number }
+  // ── the Builder (docs/13, core/automation.ts) ──
+  /** held orders and the order book */
+  | { kind: 'orders'; book: number; maxCount: number }
+  /** a family of standing rules */
+  | { kind: 'autoRule'; family: AutoFamily }
+  /** Site Survey AI: auto sites weigh deposits, peaks of light and haul lanes */
+  | { kind: 'siting' }
+  /** Budget Governor: reserve floors, rule priority, crisis sites first */
+  | { kind: 'governor' }
+  /** Predictive Scheduling: rules act on forecasts while a Data Center runs */
+  | { kind: 'predictive' }
+  /** Feed Planner: excavators re-aimed at the feed the furnaces want */
+  | { kind: 'feedPlanner' }
+  /** Maintenance Automation: parts triage, worn machines replaced at this wear */
+  | { kind: 'maintenance'; wear: number }
+  /** extends the Builder (docs/14 Automation picks): rule dwell and caps, extra families */
+  | { kind: 'builder'; dwellMult?: number; capMult?: number; families?: AutoFamily[] }
 );
 export type TechEffectKind = TechEffect['kind'];
 
@@ -398,6 +423,18 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'The arm never sleeps, so the lab never does.',
   },
 
+  buildOrders: {
+    id: 'buildOrders', era: 2, lane: 'robotics', name: 'Build Orders', short: 'Build Orders',
+    costData: 120, requires: ['teleoperation'],
+    effects: [
+      { kind: 'orders', book: AUTO.bookMax, maxCount: AUTO.bookOrderMax },
+      { kind: 'powerDelta', building: 'lander', kw: -1 },
+    ],
+    desc: 'Earth planners keep a work list for the rovers: an order you cannot pay for yet waits in the book and is placed as the stock arrives.',
+    visual: 'The Lander raises a planning mast: a pole with a work lamp beside its top deck.',
+    tradeoff: 'A list is a promise the stockpile has to keep.',
+  },
+
   // ─── ERA 3 · ROBOTIC FABRICATION ───
   thoriumPower: {
     id: 'thoriumPower', era: 3, lane: 'power', name: 'Thorium Reactor', short: 'Thorium Reactor',
@@ -519,6 +556,29 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'A fifth berth in every module, folded against the airlock wall.',
     visual: 'Habitats bolt a bunk annex onto their airlock.',
     tradeoff: 'Nobody likes the top bunk.',
+  },
+
+  autoExcavation: {
+    id: 'autoExcavation', era: 3, lane: 'robotics', name: 'Automated Excavation', short: 'Auto Excavation',
+    costData: 150, costGoods: { parts: 10 }, requires: ['buildOrders'],
+    effects: [
+      { kind: 'autoRule', family: 'excavation' },
+      { kind: 'powerDelta', building: 'roboticsBay', kw: -1 },
+    ],
+    desc: 'The rovers watch the regolith books themselves: when the furnaces want more than the diggers deliver, they raise another excavator.',
+    visual: 'Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof.',
+    tradeoff: 'It spends your metals before you have decided what they were for.',
+  },
+  siteSurveyAI: {
+    id: 'siteSurveyAI', era: 3, lane: 'compute', name: 'Site Survey AI', short: 'Site Survey AI',
+    costData: 150, requires: ['buildOrders', 'prospectingRovers'],
+    effects: [
+      { kind: 'siting' },
+      { kind: 'upkeepMult', buildings: ['roboticsBay'], mult: 1.2 },
+    ],
+    desc: 'A survey drone flies every candidate pad first: the deposit under it, the light on it, the haul lanes across it.',
+    visual: 'A survey drone rests on a pad on each Robotics Bay roof.',
+    tradeoff: 'Drones that fly every pad wear like rovers.',
   },
 
   // ─── ERA 4 · CHIP FABRICATION ───
@@ -677,6 +737,41 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'Photons by the kilowatt.',
   },
 
+  autoPower: {
+    id: 'autoPower', era: 4, lane: 'power', name: 'Automated Power', short: 'Automated Power',
+    costData: 240, costGoods: { metals: 20 }, requires: ['autoExcavation'],
+    effects: [
+      { kind: 'autoRule', family: 'power' },
+      { kind: 'upkeepMult', buildings: ['solar'], mult: 1.1 },
+    ],
+    desc: 'The grid books itself: another array when the day runs thin, another bank at dawn after a night the bank ran dry.',
+    visual: 'Solar Arrays gain a combiner box with a status lamp at the foot of the mast.',
+    tradeoff: 'Every array now has a box to keep dust out of.',
+  },
+  budgetGovernor: {
+    id: 'budgetGovernor', era: 4, lane: 'compute', name: 'Budget Governor', short: 'Budget Governor',
+    costData: 240, costGoods: { chips: 5 }, requires: ['autoExcavation'],
+    effects: [
+      { kind: 'governor' },
+      { kind: 'upkeepMult', buildings: ['storageYard'], mult: 1.5 },
+    ],
+    desc: 'A ledger for the builder: floors it never spends below, the research goods it leaves alone, and an order its rules act in.',
+    visual: 'Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks.',
+    tradeoff: 'A careful builder is a slower one.',
+  },
+  autoLifeSupport: {
+    id: 'autoLifeSupport', era: 4, lane: 'robotics', name: 'Automated Life Support', short: 'Auto Life Support',
+    costData: 240, costGoods: { parts: 10 }, requires: ['autoExcavation'], crewTech: true,
+    robotic: { era: 7, costData: 1125 },
+    effects: [
+      { kind: 'autoRule', family: 'life' },
+      { kind: 'powerMult', buildings: ['habitat'], mult: 1.1 },
+    ],
+    desc: 'The rovers keep the crew ahead of their own lungs: another oxygen, food or water maker before the tanks run short, and a bed for the next settler.',
+    visual: 'Each Habitat Module gets an air-monitor mast by its door.',
+    tradeoff: 'The monitors never sleep, and neither does their draw.',
+  },
+
   // ─── ERA 5 · LUNAR COMPUTE ───
   lunarDataCenter: {
     id: 'lunarDataCenter', era: 5, lane: 'compute', name: 'Lunar Data Center', short: 'Data Center',
@@ -802,6 +897,29 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'A gradiometer at the Lander weighs the buried mass under every survey line.',
     visual: 'The Lander raises a gravimeter mast.',
     tradeoff: 'The quietest instrument needs the steadiest power.',
+  },
+
+  autoSmelting: {
+    id: 'autoSmelting', era: 5, lane: 'robotics', name: 'Automated Smelting & Refining', short: 'Auto Smelting',
+    costData: 400, costGoods: { parts: 20 }, requires: ['autoExcavation', 'siliconRefining'],
+    effects: [
+      { kind: 'autoRule', family: 'smelting' },
+      { kind: 'upkeepMult', buildings: ['smelter', 'refinery'], mult: 1.1 },
+    ],
+    desc: 'The furnaces count what the builders spend: another smelter or refinery when the base builds faster than it smelts, and a yard when a store tops out.',
+    visual: 'Silicon Refineries grow an ore-sampler arm over the feed hopper.',
+    tradeoff: 'Samplers in the feed wear like the feed.',
+  },
+  feedPlanner: {
+    id: 'feedPlanner', era: 5, lane: 'compute', name: 'Feed Planner', short: 'Feed Planner',
+    costData: 400, requires: ['siteSurveyAI'],
+    effects: [
+      { kind: 'feedPlanner' },
+      { kind: 'powerMult', buildings: ['excavator'], mult: 1.1 },
+    ],
+    desc: 'Assays at the pit face: each excavator digs the ground the furnaces want, as far as the haul still pays.',
+    visual: 'Excavators carry an assay drill beside the bucket.',
+    tradeoff: 'Richer ground is usually farther ground.',
   },
 
   // ─── ERA 6 · HUMAN HABITATION ───
@@ -965,6 +1083,29 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'The tracking radar never switches off.',
   },
 
+  autoFabrication: {
+    id: 'autoFabrication', era: 6, lane: 'robotics', name: 'Automated Fabrication', short: 'Auto Fabrication',
+    costData: 1000, costGoods: { chips: 10 }, requires: ['autoSmelting', 'partsFabrication'],
+    effects: [
+      { kind: 'autoRule', family: 'fabrication' },
+      { kind: 'upkeepMult', buildings: ['partsFab'], mult: 1.2 },
+    ],
+    desc: 'The fleet builds its own supply chain: parts fabricators when parts run behind, chip fabs when research waits on chips, bays when sites wait for rovers.',
+    visual: 'Parts Fabricators get a gantry crane across the roof.',
+    tradeoff: 'A crane that never rests wears its rails.',
+  },
+  predictiveScheduling: {
+    id: 'predictiveScheduling', era: 6, lane: 'compute', name: 'Predictive Scheduling', short: 'Predictive Sched.',
+    costData: 1000, costGoods: { chips: 10 }, requires: ['autoPower', 'lunarDataCenter'],
+    effects: [
+      { kind: 'predictive' },
+      { kind: 'powerMult', buildings: ['dataCenter'], mult: 1.1 },
+    ],
+    desc: 'The Data Center runs the base forward: tonight’s deficit, the sites still welding, the next hour of demand.',
+    visual: 'Each Data Center adds a scheduling antenna: a tall whip mast beside its dish.',
+    tradeoff: 'Forecasting the night costs some of it.',
+  },
+
   // ─── ERA 7 · SWARM INDUSTRY ───
   foilManufacturing: {
     id: 'foilManufacturing', era: 7, lane: 'materials', name: 'Thin-Film Foils', short: 'Thin-Film Foils',
@@ -1097,6 +1238,29 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Retroreflectors on every survey site tie the whole Moon to one centimetre grid.',
     visual: 'The Lander adds a laser-ranging telescope dome.',
     tradeoff: 'The laser fires all night.',
+  },
+
+  selfExpandingBase: {
+    id: 'selfExpandingBase', era: 7, lane: 'robotics', name: 'Self-Expanding Base', short: 'Self-Expanding',
+    costData: 1125, costGoods: { chips: 10, parts: 40 }, requires: ['autoFabrication', 'siteSurveyAI'],
+    effects: [
+      { kind: 'autoRule', family: 'network' },
+      { kind: 'powerMult', buildings: ['relayMast'], mult: 1.3 },
+    ],
+    desc: 'The network grows itself: when the rules run out of ground, the rovers carry a mast to its edge.',
+    visual: 'Relay Masts wear a beacon crown and a cable reel at the foot.',
+    tradeoff: 'Every mast it plants is another light to keep burning.',
+  },
+  maintenanceAutomation: {
+    id: 'maintenanceAutomation', era: 7, lane: 'compute', name: 'Maintenance Automation', short: 'Maint. Automation',
+    costData: 1125, costGoods: { parts: 30 }, requires: ['autoFabrication'],
+    effects: [
+      { kind: 'maintenance', wear: 0.4 },
+      { kind: 'upkeepMult', buildings: ['roboticsBay'], mult: 1.3 },
+    ],
+    desc: 'Short of parts, the critical loads are paid first; a machine that stays worn is replaced, and a tripped overclock comes back once it heals.',
+    visual: 'Robotics Bays get a service crane arm over the charging rover.',
+    tradeoff: 'Replacing is faster than repairing, and dearer.',
   },
 
   // ─── ERA 8 · DYSON SWARM (capstone column) ───
@@ -1323,6 +1487,11 @@ const pctDelta = (m: number) => (m >= 1 ? pctUp(m) : pctDown(m));
 const goodsText = (g: Partial<Record<ResourceId, number>>) =>
   Object.entries(g).map(([r, a]) => `${num(a ?? 0)}${glyph(r)}`).join(' ');
 const pro = (text: string, magnitude: number, unit: EffectUnit): EffectLine => ({ sign: 'pro', text, magnitude, unit });
+/** a building's build cost at the site (mare's ×0.8 when no site is given) */
+const siteCost = (b: BuildingId, siteId?: SiteId) => {
+  const m = SITES[siteId ?? 'mare'].buildCostMult;
+  return Object.fromEntries(Object.entries(BUILDINGS[b].buildCost).map(([r, a]) => [r, Math.ceil((a ?? 0) * m)])) as Partial<Record<ResourceId, number>>;
+};
 const con = (text: string, magnitude: number, unit: EffectUnit): EffectLine => ({ sign: 'con', text, magnitude, unit });
 
 const FEED_POSITIVE: Partial<Record<FeedKind, { coef: number; what: string }>> = {
@@ -1569,6 +1738,50 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       const text = `${fx.delta > 0 ? '+' : '−'}${Math.abs(fx.delta)} morale: ${bname(fx.building)}`;
       return [fx.delta > 0 ? pro(text, fx.delta, 'morale') : con(text, -fx.delta, 'morale')];
     }
+    case 'orders':
+      return [
+        pro(`NEW ORDER BOOK: ${fx.book} held orders, up to ×${fx.maxCount} each — orders wait for stock instead of skipping`, 1, 'flag'),
+        con('held orders take stock the moment it lands', 1, 'use'),
+      ];
+    case 'autoRule': {
+      const rules = rulesOf(fx.family).filter((r) => !(r === 'iceHarvester' && ctx.siteId && !SITES[ctx.siteId].hasIce));
+      const main = RULES[rules[0]].building;
+      const out = rules.map((r) => pro(`NEW RULE ${FAMILY_LABEL[fx.family]}: ${RULE_TEXT[r]}${/\(cap /.test(RULE_TEXT[r]) || RULES[r].capRange[1] <= 1 ? '' : ` (cap ${RULES[r].cap})`}`, 1, 'flag'));
+      const cost = main === 'producer' ? 'the maker’s build cost' : `${goodsText(siteCost(main, ctx.siteId))} per ${bname(main)}`;
+      out.push(con(`the builder spends your stock unasked: ${cost}`, 1, 'use'));
+      return out;
+    }
+    case 'siting':
+      return [pro('auto sites weigh deposits, peaks of light and haul lanes (before: distance only)', 1, 'flag')];
+    case 'governor':
+      return [
+        pro('RESERVES and PRIORITIES: floors the builder never spends below; queued research goods kept; rules act in your order; crisis sites jump the rover queue', 1, 'flag'),
+        con('rules wait for your floors — the builder acts later', 1, 'flag'),
+      ];
+    case 'predictive':
+      return [
+        pro('rules act on forecasts while a Data Center runs: batteries before dusk, sites still welding counted, dwell ×0.5', 1, 'flag'),
+        con('reactive again whenever no Data Center runs', 1, 'flag'),
+      ];
+    case 'feedPlanner':
+      return [
+        pro('excavators re-aimed at the feed the furnaces want, as far as the haul pays (opt one out in its panel)', 1, 'flag'),
+        con('longer hauls carry less', 1, 'flag'),
+      ];
+    case 'maintenance':
+      return [
+        pro(`parts triage: short of parts, priority 0 is paid first · machines worn ≥${Math.round(fx.wear * 100)}% for a lunar day replaced · tripped overclocks re-armed once healed`, 1, 'flag'),
+        con('a replacement costs a new build, less half the old one’s price', 1, 'use'),
+      ];
+    case 'builder': {
+      const out: EffectLine[] = [];
+      if (fx.dwellMult !== undefined) out.push(pro(`Builder: rule dwell ×${num(fx.dwellMult)}`, mag(fx.dwellMult), 'mult'));
+      if (fx.capMult !== undefined) out.push(pro(`Builder: rule caps ×${num(fx.capMult)}`, mag(fx.capMult), 'mult'));
+      for (const f of fx.families ?? []) {
+        for (const r of rulesOf(f)) out.push(pro(`NEW RULE ${FAMILY_LABEL[f]}: ${RULE_TEXT[r]} (cap ${RULES[r].cap})`, 1, 'flag'));
+      }
+      return out;
+    }
     case 'feedBonus': {
       const p = FEED_POSITIVE[fx.deposit];
       const text = p
@@ -1619,6 +1832,10 @@ export function techRelevance(def: TechDef, siteId: SiteId, exp: Expedition): bo
       case 'shadeImmune': if (site.terrain.roughness >= 1.0) return true; break;
       case 'nightDraw': if (site.nightSolarFraction < 0.5) return true; break;
       case 'feedBonus': if (fx.deposit !== 'plain' && siteHasDeposit(siteId, fx.deposit)) return true; break;
+      case 'autoRule':
+        // a family matters where one of the buildings it adds can stand
+        if (rulesOf(fx.family).some((r) => RULES[r].building === 'producer' || buildingPlaceableAt(RULES[r].building as BuildingId, siteId))) return true;
+        break;
       default: return true; // dust, survey, action, storage and the global construction/launch mods
     }
   }

@@ -19,6 +19,7 @@ import { fillStateDefaults, type BuildingState, type GameState } from './state';
 import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, type Mods } from './mods';
 import { alert, crewReserve, moraleWorkMult } from './economy';
 import { KIND_LABEL, baseStream, outpostSlots, surveyCost } from './exploration';
+import { recordSpend } from './flowBook';
 
 export type TechState =
   | 'hidden' | 'done' | 'queued' | 'stalled' | 'foreclosed'
@@ -490,6 +491,7 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
     if ((s.researchSpent[tid] ?? 0) + 1e-9 < cost.data) continue;
     if (goodsShortfall(cost.goods, s, mods).length === 0) {
       for (const [r, amt] of Object.entries(cost.goods)) s.resources[r as ResourceId] -= amt ?? 0;
+      recordSpend(s, cost.goods);
       completeTech(s, tid, cost);
       completed.push(tid);
     } else {

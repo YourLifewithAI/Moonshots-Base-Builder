@@ -10,7 +10,7 @@ import type { Game } from '../core/game';
 import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
   $milestones, $mode, $phase,
-  $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
+  $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
 } from './stores';
 
 export function fmt(n: number): string {
@@ -450,6 +450,32 @@ export function mountHud(root: HTMLElement, game: Game) {
       d.innerHTML = `<i style="width:${Math.round(m.frac * 100)}%"></i>`;
       wearLayer.appendChild(d);
     }
+  });
+
+  // ── AUTO tags over the Builder's pending sites (click selects) ──
+  const autoLayer = el('div', '');
+  root.prepend(autoLayer); // under every panel: a marker never covers the HUD
+  const autoEls = new Map<number, HTMLElement>();
+  $autoMarkers.subscribe((ms) => {
+    const live = new Set<number>();
+    for (const m of ms) {
+      live.add(m.id);
+      let d = autoEls.get(m.id);
+      if (!d) {
+        d = el('div', 'auto-mark interactive', 'AUTO');
+        d.dataset.id = String(m.id);
+        d.title = 'Placed by the Builder — click to inspect (Cancel ↩ refunds it in full)';
+        autoEls.set(m.id, d);
+        autoLayer.appendChild(d);
+      }
+      d.style.left = `${m.x}px`;
+      d.style.top = `${m.y}px`;
+    }
+    for (const [id, d] of autoEls) if (!live.has(id)) { d.remove(); autoEls.delete(id); }
+  });
+  autoLayer.addEventListener('click', (e) => {
+    const m = (e.target as HTMLElement).closest<HTMLElement>('.auto-mark[data-id]');
+    if (m) { e.stopPropagation(); game.select(Number(m.dataset.id)); }
   });
 
   // ── deposit overlay labels: glyphs at the rings' centres, '?' at leads;
