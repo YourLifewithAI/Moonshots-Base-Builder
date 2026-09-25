@@ -45,7 +45,8 @@ import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
 import { materials, PATCH_MARKER } from '../world/materials';
-import { BuildCam, HOME_DIST } from '../player/buildCam';
+import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buildCam';
+import { ISO_FOV, IsoCam } from '../player/isoCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
@@ -126,7 +127,8 @@ export class Game {
   private placement!: PlacementController;
   private overlays!: BaseOverlays;
   private life!: BaseLife;
-  private buildCam: BuildCam;
+  /** the command view: the free camera (High detail) or the isometric one (classic) */
+  private buildCam: CommandCam;
   private walk!: WalkController;
   private modes!: ModeManager;
 
@@ -202,7 +204,7 @@ export class Game {
     canvas.addEventListener('webglcontextrestored', () => {
       console.warn('[MOONSHOTS] WebGL context restored.');
     });
-    this.buildCam = new BuildCam(this.camera, canvas);
+    this.buildCam = this.classic ? new IsoCam(this.camera, canvas) : new BuildCam(this.camera, canvas);
     this.buildCam.enabled = false;
     this.bindInput();
     window.addEventListener('resize', () => this.onResize());
@@ -310,7 +312,7 @@ export class Game {
       this.buildCam.clearKeys();
       if (m === 'walk' && !this.opts.nolock) this.canvas.requestPointerLock();
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
-    });
+    }, this.classic ? { fov: ISO_FOV, near: 20, far: 5000 } : undefined);
     this.worldGroup = new THREE.Group();
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
       this.overlays.group, this.life.group);
@@ -445,7 +447,7 @@ export class Game {
           break;
         default:
           if (this.modes.mode === 'walk') this.walk.keyDown(e.code);
-          else if (BuildCam.handles(e.code)) {
+          else if (commandKey(e.code)) {
             e.preventDefault();
             this.buildCam.keyDown(e.code);
           }
@@ -1215,11 +1217,14 @@ export class Game {
     // sun follows the clock; the shadow window hugs the ground in view
     const day = currentDay(this.state, SITES[this.state.siteId]);
     const walking = this.modes.mode === 'walk';
-    const focus = walking ? this.walk.pos : this.buildCam.controls.target;
+    const focus = walking ? this.walk.pos : this.buildCam.target;
     this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
     this.camera.updateMatrixWorld();
     this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
       this.groundAnywhere);
+    // the isometric view never looks above the horizon: the sky only draws
+    // on foot and on the way down
+    if (this.classic) this.sky.group.visible = walking || tweening;
     this.rocks.update(this.camera);
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
@@ -1714,7 +1719,7 @@ export class Game {
 
   setModeInstant(m: 'build' | 'walk') {
     if (m === 'walk' && this.modes.mode !== 'walk') {
-      const t = this.buildCam.controls.target;
+      const t = this.buildCam.target;
       this.walk.spawnAt(t.x, t.z, 0);
     }
     this.modes.set(m);
@@ -1790,7 +1795,7 @@ export class Game {
   }
 
   debugCamera() {
-    const t = this.buildCam.controls.target, p = this.camera.position;
+    const t = this.buildCam.target, p = this.camera.position;
     return {
       pos: { x: p.x, y: p.y, z: p.z },
       target: { x: t.x, y: t.y, z: t.z },
@@ -1798,6 +1803,9 @@ export class Game {
       clearance: this.buildCam.clearance,
       dist: p.distanceTo(t),
       azimuth: Math.atan2(p.z - t.z, p.x - t.x),
+      fov: this.camera.fov,
+      /** the classic isometric view's steps (null in High detail) */
+      iso: this.buildCam instanceof IsoCam ? this.buildCam.info() : null,
     };
   }
 

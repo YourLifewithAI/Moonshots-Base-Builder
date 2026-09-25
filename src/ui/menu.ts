@@ -35,14 +35,27 @@ const STYLES = [
   { id: 'detailed', name: 'High detail', desc: 'shadows, ambient occlusion, bloom and a free camera; steps down on its own if the GPU struggles' },
 ] as const;
 
-export const CONTROLS: [string, string][] = [
+/** Camera lines by style: the isometric view steps, the free one orbits. */
+const CAMERA_KEYS: Record<'classic' | 'detailed', [string, string][]> = {
+  classic: [
+    ['Right-drag · middle-drag', 'pan'],
+    ['Wheel', 'zoom — five steps'],
+    ['W A S D · arrows', 'pan the camera'],
+    ['Q · E', 'turn the view 90°'],
+  ],
+  detailed: [
+    ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
+    ['W A S D · arrows', 'pan the camera'],
+    ['Q · E', 'orbit'],
+  ],
+};
+
+export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] => [
   ['Click', 'place · select a building'],
   ['⇧ Click', 'keep placing'],
   ['R', 'rotate while placing'],
   ['Right-click · Esc', 'stop placing · close the inspector'],
-  ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
-  ['W A S D · arrows', 'pan the camera'],
-  ['Q · E', 'orbit'],
+  ...CAMERA_KEYS[style],
   ['F', 'focus the selection'],
   ['H · Home', 'back to the Lander'],
   ['Space', 'pause'],
@@ -105,7 +118,8 @@ export function mountMenu(root: HTMLElement, game: Game) {
         <div class="menu-col">
           <section>
             <span class="label">Controls</span>
-            <div class="keys" id="menu-keys">${CONTROLS.map(([k, v]) => `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
+            <div class="keys" id="menu-keys">${controlsFor(game.opts.style).map(([k, v]) =>
+              `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
           </section>
         </div>
       </div>

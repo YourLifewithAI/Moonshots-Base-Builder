@@ -1,17 +1,19 @@
 /** Build ⇄ walk transition: one camera, one smooth ~1.2 s dolly (no hard cut —
  *  continuity teaches the player the two views are the same place). The lens
- *  changes with it: 55° in command view, a wider 70° on foot (a suit visor,
- *  not a telephoto) with the near plane pulled in to 0.15 m. */
+ *  changes with it: 55° in command view (20° in the classic isometric one,
+ *  whose clip planes the camera itself keeps), a wider 70° on foot (a suit
+ *  visor, not a telephoto) with the near plane pulled in to 0.15 m. */
 import * as THREE from 'three';
 import { EYE_HEIGHT } from '../data/balance';
-import { HOME_DIR, HOME_DIST, type BuildCam } from './buildCam';
+import { HOME_DIR, HOME_DIST, type CommandCam } from './buildCam';
 import type { WalkController } from './walk';
 
 export type Mode = 'build' | 'walk';
 
-const LENS: Record<Mode, { fov: number; near: number }> = {
-  build: { fov: 55, near: 0.5 },
-  walk: { fov: 70, near: 0.15 },
+type Lens = { fov: number; near: number; far: number };
+const LENS: Record<Mode, Lens> = {
+  build: { fov: 55, near: 0.5, far: 16000 },
+  walk: { fov: 70, near: 0.15, far: 16000 },
 };
 
 export class ModeManager {
@@ -25,15 +27,20 @@ export class ModeManager {
   } | null = null;
   private savedBuildPos = HOME_DIR.clone().multiplyScalar(HOME_DIST);
   private savedBuildTarget = new THREE.Vector3(0, 0, 0);
+  private lens: Record<Mode, Lens>;
 
+  /** `buildLens`: the command view's lens when not the free camera's (the
+   *  classic isometric view: narrow, its clip planes kept by the camera) */
   constructor(
     private camera: THREE.PerspectiveCamera,
-    private buildCam: BuildCam,
+    private buildCam: CommandCam,
     private walk: WalkController,
     private onModeChange: (m: Mode) => void,
+    buildLens?: Lens,
   ) {
-    camera.fov = LENS.build.fov;
-    this.setNear(LENS.build.near);
+    this.lens = { ...LENS, build: buildLens ?? LENS.build };
+    camera.fov = this.lens.build.fov;
+    this.setLens(this.lens.build);
   }
 
   get transitioning(): boolean { return this.tween !== null; }
@@ -41,10 +48,10 @@ export class ModeManager {
   toWalk() {
     if (this.mode !== 'build' || this.tween) return;
     this.savedBuildPos.copy(this.camera.position);
-    this.savedBuildTarget.copy(this.buildCam.controls.target);
+    this.savedBuildTarget.copy(this.buildCam.target);
     this.buildCam.enabled = false;
 
-    const t = this.buildCam.controls.target;
+    const t = this.buildCam.target;
     this.walk.spawnAt(t.x, t.z, Math.atan2(
       this.camera.position.x - t.x,
       this.camera.position.z - t.z,
@@ -55,8 +62,8 @@ export class ModeManager {
     dummy.rotation.set(0, 0, 0);
     dummy.rotateY(this.walk.yaw);
     dummy.rotateX(this.walk.pitch);
-    this.setNear(LENS.walk.near);
-    this.startTween(toPos, dummy.quaternion.clone(), LENS.walk.fov, () => {
+    this.setLens(this.lens.walk);
+    this.startTween(toPos, dummy.quaternion.clone(), this.lens.walk.fov, () => {
       this.mode = 'walk';
       this.onModeChange('walk');
     });
@@ -71,10 +78,10 @@ export class ModeManager {
     const dummy = new THREE.Object3D();
     dummy.position.copy(toPos);
     dummy.lookAt(target);
-    this.startTween(toPos, dummy.quaternion.clone(), LENS.build.fov, () => {
-      this.setNear(LENS.build.near);
+    this.startTween(toPos, dummy.quaternion.clone(), this.lens.build.fov, () => {
+      this.setLens(this.lens.build);
       this.mode = 'build';
-      this.buildCam.controls.target.copy(target);
+      this.buildCam.target.copy(target);
       this.buildCam.enabled = true;
       this.onModeChange('build');
     });
@@ -89,14 +96,15 @@ export class ModeManager {
   set(mode: Mode) {
     this.tween = null;
     this.mode = mode;
-    this.camera.fov = LENS[mode].fov;
-    this.setNear(LENS[mode].near);
+    this.camera.fov = this.lens[mode].fov;
+    this.setLens(this.lens[mode]);
     this.buildCam.enabled = mode === 'build';
     this.onModeChange(mode);
   }
 
-  private setNear(near: number) {
-    this.camera.near = near;
+  private setLens(lens: Lens) {
+    this.camera.near = lens.near;
+    this.camera.far = lens.far;
     this.camera.updateProjectionMatrix();
   }
 
