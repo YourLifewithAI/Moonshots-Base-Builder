@@ -128,8 +128,32 @@ The base chooser's naivety is deterministic and visible: an auto Smelter may sit
    - covers a **door apron** (the 1-cell strip in front of each building's door side, +z rotated by `rot`). This applies to both choosers: it keeps every door clear and is not a site preference;
    - falls outside the lava tube footprint or off the map edge;
    - crosses a **haul lane** (Site Survey AI only).
+
+   Then what placement would refuse on sight (docs/15-roads.md). Both choosers strike these before the ranking:
+   - covers a **road cell**, open or still sintering;
+   - is **too rough**: relief over `MAX_SLOPE_DELTA` (2.5 m);
+   - has **no road route**: no road could reach it. A field type not served already needs a reachable cell in its ring; any other type needs its door cell reachable. `roadReach` floods the cells a new road could reach from the open network, walked as the A* walks. It is memoised on the network and the buildings.
 3. **Score.** Lower is better; the terms are in the table below.
-4. **Validate** the best candidates, in score order, with the real `checkPlacement`, which stays the one truth. The first that passes wins. The caller has already checked the cost against its budget. Placement's own hard rules still apply to both choosers: an Ice Harvester only on confirmed ice, never a Habitat on KREEP.
+4. **Validate** every pad left, in score order, with the real `checkPlacement`, which stays the one truth. The walk stops once six pass. Of those six, the pick is the one whose score plus 1.5 m per new road cell is least (docs/15 §3). The caller has already checked the cost against its budget. Placement's own hard rules still apply to both choosers: an Ice Harvester only on confirmed ice, never a Habitat on KREEP.
+5. **Refuse**, if none passes, with a count of the open pads by reason (next table). An open pad is a candidate clear of footprints and door aprons.
+
+**Why there is no fixed window.** The walk used to stop after the first 200 pads by score. The raster did not know roads or relief, so near a crowded base those 200 could all be roads and rough ground. On the crewed pole (seed 1234, pure Automation) the solar rule sat in `nosite` for 38 min. 628 valid pads lay past the window (docs/14 §6). Now the cheap refusals never reach the walk. The walk's `checkPlacement` calls are cheap, since pads no road can reach are already struck and the A* only runs on the rest.
+
+**The refusal's count.**
+
+| Reason | Words |
+|---|---|
+| relief over the limit, or a large pad on rough ground | `too rough` |
+| covers a road cell | `on roads` |
+| no road could reach it | `no road route` |
+| crosses a haul lane | `on haul lanes` |
+| a player's veto | `vetoed` |
+| outside the lava tube | `outside the lava tube` |
+| anything else `checkPlacement` says | `refused (…)`, with the first such reason |
+
+Largest first: `no valid ground for a Solar Array inside the build network (of 412 open pads: 229 too rough, 150 on roads, 33 no road route) — a Relay Mast or Habitat extends it`.
+
+A pick that lays a road says so at the end of its `why`: `nearest free pad to the base centre · 23 m · a 9-cell road to it`.
 
 **Score terms.**
 
@@ -256,6 +280,8 @@ then, in order, the first that applies:
   nosite   ← chooseSite refused
   → REQUEST: one site, handed to Game.econStep
 ```
+
+- **No ground stays no ground.** A rule in `nosite` whose signal cannot be read (the solar margin out of full sun, the night) stays in `nosite`, with the same line. It does not fall back to `watching`. So its refusal alert holds, and the Network rule's 60 s clock runs on.
 
 - **Dwell and hysteresis.** The dwell counts up while the signal is past the trigger T. Between T and the re-arm level H it decays instead of resetting, so a signal hovering near T neither fires nor forgets. It resets only when the signal comes back past H.
 - **Cooldown and settle.**
@@ -448,7 +474,7 @@ LOG   12:40 Excavator #7 · Excavation · on high-Ti basalt, 38 m from Smelter #
 | waiting | `waiting · needs 16◆ above the 40◆ reserve (have 44)`, or `waiting for power · Solar Array #31 first` |
 | holding | `holding · 2 of 5 Excavators dark (power) — more would not help` |
 | capped | `cap 6/6 Excavators — raise the cap to let it build more` |
-| nosite | `no valid ground for an Excavator in the build network — a Relay Mast extends it` |
+| nosite | `no valid ground for a Solar Array inside the build network (of 412 open pads: 229 too rough, 150 on roads, 33 no road route) — a Relay Mast or Habitat extends it` (§2.3) |
 | vetoed | `you cancelled Excavator #9 — resumes in 11:20` |
 | founded? | `found the first Battery Bank yourself — the builder extends what you found` |
 | locked / off | `locked — Battery Banks` / `off` |
@@ -511,7 +537,7 @@ The builder speaks through the existing stack.
 | a held order waits | `ORDER WAITING — Excavator 3 of 3 needs 16◆ (have 9)` | condition · info |
 | a rule holds | `AUTO HOLD — Power: a Smelter's 12 kW would brown the grid out` | condition · warn |
 | a rule waits for budget | `AUTO WAITING — Life support: Hydroponics needs 20◆ above the reserve (have 12)` | condition · warn |
-| no site | `AUTO NO SITE — Excavation: no valid ground for an Excavator in the network; a Relay Mast extends it` | condition · info |
+| no site | `AUTO NO SITE — Power: no valid ground for a Solar Array inside the build network (of 412 open pads: …) — a Relay Mast or Habitat extends it` | condition · warn for Power and Life support, else info |
 | cap reached | `AUTO CAP — 6/6 Excavators: the Excavation rule stops here · raise the cap in [B]` | event · info, once |
 | veto | `AUTO SITE CANCELLED — the Excavation rule leaves that ground alone for a lunar day` | event · info |
 | replacement | `REPLACED — Chip Fab #12 (WORN 46%) by #40; #12 demolished, ½ refunded` | event · info |
@@ -616,7 +642,7 @@ The builder speaks through the existing stack.
 
 **Rules come after the rest of the tick.** Step 12 sees the whole tick: power, production, life support, research stalls, the era. A site it places enters the rover queue in the next tick's step 0. A tech completed this tick unlocks its family from the next tick on, after `modsFor` runs in `econStep`.
 
-**Performance.** `chooseSite` builds its raster once per call. It is called at most twice per tick, plus once per order site. Its candidate count is bounded by the network area (about 700 cells per node). At 20 network nodes and 150 buildings a call takes a few milliseconds.
+**Performance.** `chooseSite` builds its raster once per call. It is called at most twice per tick, plus once per order site. Its candidate count is bounded by the network area (about 700 cells per node). At 20 network nodes and 150 buildings a call takes a few milliseconds. The road reach is one flood of the map (65 536 cells), memoised until the network or the buildings change. On the pole with 440 road cells round the Lander, a pick past them takes about 25 ms (the flood included). With every pad on a road, the refusal takes about 3 ms.
 
 ### 6.3 Determinism
 
@@ -741,6 +767,8 @@ Run with `PWTEST_CACHE_DIR=$SP/pwcache-auto PORT=5471`. Every test uses `?debug&
 | 23 | **No silent failures** | Loop over every refusal path (§2.2 and §3.2): each raises an alert or shows a status line with its reason. |
 | 24 | **Flow book** | Mare, 2 smelters and 1 excavator for 120 s: `flowBook.regolith.want` ≈ 4.0/s ± 3%, and `made` within 5% of that excavator's delivered cycle rate (1.875/s on its own pad without fleet hauls), while `s.rates.regolith` is within ±0.1 of 0. This is the case the flow book exists for. |
 | 25 | **Discovery card** | For each of the 12 techs, `completeTech` puts a discovery card up whose **Next** line is its §5.4 line, never `It takes effect at once`. The reactor rule is on with cap 1, and with one reactor built it reads `capped`. |
+| 26 | **Siting on rough pole ground** (crewed pole, seed 1234) | At landing the Lander's own ground is rough: an order walks out and its `why` ends `· a N-cell road to it`, and once built it is served and linked. Then every pad within 14 cells of the Lander is put on a road (a crafted save): `planSite('solar')` still finds a pad past them (the old 200-pad window refused), and the solar rule places there, served and linked. |
+| 27 | **No ground a road can serve** (crewed pole, seed 1234) | Every pad in the network on a road: the refusal reads `(of N open pads: … on roads …)`, the solar rule is `nosite` with that line, it stays `nosite` at every sample the margin cannot be read, `AUTO NO SITE — Power:` is a `warn`, and the [B] row shows the line. |
 
 ---
 
