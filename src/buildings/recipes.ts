@@ -647,14 +647,14 @@ export const MOUNTS: Partial<Record<BuildingId, { part: PartId; p: [number, numb
 const cache = new Map<BuildingId, BufferGeometry>();
 export function recipeGeometry(id: BuildingId): BufferGeometry {
   let g = cache.get(id);
-  if (!g) { g = merge(R[id]()); cache.set(id, g); }
+  if (!g) { g = merge(R[id]()); g.userData.recipe = id; cache.set(id, g); }
   return g;
 }
 
 const partCache = new Map<PartId, BufferGeometry>();
 export function partGeometry(id: PartId): BufferGeometry {
   let g = partCache.get(id);
-  if (!g) { g = merge(id === 'wing' ? solarWing() : dishPart()); partCache.set(id, g); }
+  if (!g) { g = merge(id === 'wing' ? solarWing() : dishPart()); g.userData.part = id; partCache.set(id, g); }
   return g;
 }
 

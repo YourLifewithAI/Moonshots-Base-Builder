@@ -12,13 +12,18 @@
  *    a row's spacing fade out.
  *  - Past the edge the ground drops by d²/2R with R = 50 km — the Moon's
  *    curvature compressed ~35×, so the horizon "curves away too soon" and
- *    the ring's own rim always sits below it. */
+ *    the ring's own rim always sits below it.
+ *  - Classic style: coloured by the classic ground (its inner row by the
+ *    very function and samples the border chunks use), then faceted like
+ *    the chunks — every triangle its own vertices and face normal. */
 import * as THREE from 'three';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
 import { regolithAlbedo } from './chunks';
 import type { Crater, Heightfield } from './heightfield';
+import { classicActive } from '../core/style';
+import { classicGround, facet } from './classicGround';
 
 const HALF = MAP_M / 2;
 const REACH_M = 11_500;     // ring extent past the map edge
@@ -32,6 +37,8 @@ export class Horizon {
   readonly mesh: THREE.Mesh;
   private farCraters: Crater[] = [];
   private allCraters: Crater[];
+  /** the largest inner-row height gap at the last build (seamError) */
+  private seam = 0;
 
   constructor(private hf: Heightfield) {
     const rng = mulberry32(hf.seed ^ 0x401e20);
@@ -90,11 +97,14 @@ export class Horizon {
 
   /** Largest height gap between the ring's inner row and the grid edge (tests). */
   seamError(): number {
-    const pos = this.mesh.geometry.getAttribute('position');
+    return this.seam;
+  }
+
+  private measureSeam(pos: Float32Array): number {
     let worst = 0;
     for (let p = 0; p < PERIM; p++) {
       const [gx, gz] = perimCell(p);
-      worst = Math.max(worst, Math.abs(pos.getY(p) - this.hf.sampleGrid(gx, gz)));
+      worst = Math.max(worst, Math.abs(pos[p * 3 + 1] - this.hf.sampleGrid(gx, gz)));
     }
     return worst;
   }
@@ -117,6 +127,8 @@ export class Horizon {
     const pos = new Float32Array(verts * 3);
     const col = new Float32Array(verts * 3);
     const albedo = this.hf.site.terrain.albedo;
+    const classic = classicActive();
+    const fps = new Float32Array(verts);
     const bases: number[] = [];
     let v = 0;
     for (let k = 0; k < rows.length; k++) {
@@ -134,6 +146,8 @@ export class Horizon {
           pos[o + 2] = (gz * CELL_M - HALF) * s;
           pos[o + 1] = this.farHeight(pos[o], pos[o + 2], fp);
         }
+        fps[v] = fp;
+        if (classic) continue; // coloured once the normals are known
         const a = regolithAlbedo(albedo, this.allCraters, pos[o], pos[o + 2], fp);
         col[o] = a; col[o + 1] = a; col[o + 2] = a * 1.005;
       }
@@ -175,6 +189,14 @@ export class Horizon {
     for (let p = 0; p < PERIM; p++) {
       const [gx, gz] = perimCell(p);
       this.hf.gridNormal(gx, gz, nrm, p * 3);
+    }
+    this.seam = this.measureSeam(pos);
+    if (classic) {
+      const ground = classicGround(this.hf);
+      for (let i = 0; i < verts; i++) {
+        ground.color(pos[i * 3], pos[i * 3 + 2], pos[i * 3 + 1], nrm[i * 3 + 1], col, i * 3, fps[i], this.allCraters);
+      }
+      return facet(geo);
     }
     geo.computeBoundingSphere();
     return geo;

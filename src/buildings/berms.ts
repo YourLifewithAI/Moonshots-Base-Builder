@@ -4,7 +4,8 @@
  *  its doors. One merged mesh draped on the heightfield in the terrain's
  *  own material and albedo, so it shades, floods and falls back exactly
  *  like the ground it was pushed up from. Rebuilt only when the set of
- *  shielded structures or the ground under them changes. */
+ *  shielded structures or the ground under them changes. The classic style
+ *  colours it from the classic ground and facets it like the terrain. */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M } from '../data/balance';
@@ -13,6 +14,8 @@ import type { Heightfield } from '../terrain/heightfield';
 import { regolithAlbedo } from '../terrain/chunks';
 import { materials } from '../world/materials';
 import { centerOf } from './instances';
+import { classicActive } from '../core/style';
+import { classicGround, facet } from '../terrain/classicGround';
 
 type Side = '+x' | '-x' | '+z' | '-z';
 interface Gap { side: Side; at: number; w: number }
@@ -75,6 +78,8 @@ export class Berms {
   private build(list: readonly BuildingState[]): THREE.BufferGeometry {
     const pos: number[] = [], col: number[] = [], idx: number[] = [];
     const albedo = this.hf.site.terrain.albedo;
+    const ground = classicActive() ? classicGround(this.hf) : null;
+    const gc = [0, 0, 0];
     const P = PROFILE.length;
     for (const b of list) {
       const st = this.stations(b);
@@ -84,8 +89,13 @@ export class Berms {
         for (const [d, h] of PROFILE) {
           const x = s.x + s.nx * d, z = s.z + s.nz * d;
           pos.push(x, this.hf.sample(x, z) + h * s.f - (s.f === 0 ? 0.1 : 0), z);
-          const v = 0.9 * regolithAlbedo(albedo, this.hf.craters, x, z);
-          col.push(v, v, v * 1.005);
+          if (ground) {
+            ground.color(x, z, this.hf.sample(x, z), 1, gc, 0);
+            col.push(0.9 * gc[0], 0.9 * gc[1], 0.9 * gc[2]);
+          } else {
+            const v = 0.9 * regolithAlbedo(albedo, this.hf.craters, x, z);
+            col.push(v, v, v * 1.005);
+          }
         }
       }
       for (let i = 0; i < st.length; i++) {
@@ -101,6 +111,7 @@ export class Berms {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(idx);
+    if (ground) return facet(g);
     g.computeVertexNormals();
     g.computeBoundingSphere();
     return g;

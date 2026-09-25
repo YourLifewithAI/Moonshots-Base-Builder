@@ -182,7 +182,8 @@ rotatable 3D moon globe from the full design is deferred (09).
 
 ## 8. Walk mode: strip the console, keep the suit
 
-Tab toggles build ⇄ walk (one camera, no cut — see 08). On entering walk,
+Tab toggles build ⇄ walk (one camera, no cut — see 08; in Classic the dolly
+runs from the isometric lens down to the suit's and back). On entering walk,
 `#hud-layer.mode-walk` CSS **hides every build region** and shows:
 
 - **Helmet chips** (bottom-center): O₂ stock, stored power, morale — the
@@ -302,7 +303,20 @@ panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
 save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·
-the Controls list. Graphics is a 0–3
+Guidance (discovery pop-ups and era explainers) · the Controls list.
+
+Graphics opens with the **render style**, a two-way control: **Classic**
+(the default — flat colours, the fixed isometric view, no effects, made to
+run on any GPU; see 06 §12) or **High detail**. The running style is
+marked; a note says what it is and that switching saves the game and
+reloads. A switch does exactly that: the choice is stored, the game saved,
+and the page reloads straight back into it (the renderer's context
+attributes are fixed when it starts; `?style=` overrides the setting for
+one launch, and a switch drops it). The FX ladder and safe mode belong to
+High detail and show only there — except that Classic shows the safe-mode
+row while the render check has safe mode on, so it can be turned off.
+
+Under High detail, Graphics continues with a 0–3
 segmented control showing the level the render ladder is actually running,
 marked `AUTO` with its cause when the black-frame check lowered it; the
 player's own choice carries a ◆. Lowering is one click; a level that failed
@@ -316,6 +330,21 @@ check turned on says so and holds across launches. The choices live in
 frame. A browser without WebGL2 gets a page saying the game needs it, that
 hardware acceleration must be on, and that Chrome or Edge is recommended on
 Windows.
+
+**Camera and controls.** The Controls list follows the style, because the
+two command views move differently (06 §9, §12.6):
+
+| | Classic (isometric) | High detail (free) |
+|---|---|---|
+| Left button | select · place (never the camera) | select · place; drag pans |
+| Right / middle drag | pan — the ground follows the pointer | orbit |
+| Wheel | five zoom steps, eased | zoom toward the cursor |
+| W A S D · arrows | pan | pan |
+| Q · E | turn the view 90°, eased; a held key turns once | orbit while held |
+| F · H | glide to the selection (closer) · home to the Lander | the same |
+
+Everything else — R, Shift-click, Esc, Space, 1/2/3, T, M, I, Tab and the
+on-foot keys — is the same in both.
 
 Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio
 nodes only: a switch click on every control, a thunk on placement, a blip on
