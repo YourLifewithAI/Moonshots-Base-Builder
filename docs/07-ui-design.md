@@ -139,42 +139,72 @@ either one covers it. Full layout rules are in
 
 ### 6a. Research tree ([T], or the era chip)
 
-- **Swimlanes × eras.** Seven lane rows (⚡ POWER, ◆ MATERIALS,
-  ◉ ROBOTS & FAB, ▣ SILICON & COMPUTE, ⌂ HABITAT, ◎ EXPLORATION, ↑ EXPORT)
-  across eight era columns, plus a lane-free Era 8 capstone column that is
-  always on screen: the Civ trick of keeping the end of the road visible.
-  Lane heights come from the techs visible on this run, so a site's own
-  techs never leave holes. The detail sheet gives up height (148 → 112 px)
-  before a slot falls under 28 px; past that budget the tallest lanes give
-  up a row and their crowded cells pack as compact one-line cards (glyph,
-  name, cost), so the ~100-tech tree stays on one 1280×720 screen
-  (docs/12 §7).
-- **Era headers** show both charter routes live: `◼◼◻◻ 2/4 · or 2 + 50▣ fabbed
-  (12/50)`, plus `+ Cohabitation ✗` for era 7 on robotic runs.
-- **Cards** are two lines: state glyph and short name, then cost and the
-  first generated pro. Markers: ◇ and a bracket for a doctrine, ✦ for a
-  breakthrough (a dotted `✦ ?` placeholder until surveyed), ◬ for a site
-  tech, `✎−40%` for an earned insight, ⚠ for a tech waiting on goods.
+One page per era (docs/14 §1, destiny tracks). A page
+holds 8–16 cards instead of the ~100 of the old one-screen board.
+
+| Part | Holds |
+|---|---|
+| Top bar (32 px) | `RESEARCH`, the tabs E1…E8, the newest two alerts, the rate chip, `[M] Map`, `Close [T]` |
+| Page header (112 px) | era · destiny · goals, in three columns |
+| Lane board (≤ 392 px) | this era's cards only, one row per lane that has any |
+| Sheet (112–220 px) | the queue strip over the detail sheet; collapses to 28 px |
+
+- **Tabs.** Current `E3 ●` (a lit band), past `E2 ✓·3` (3 leftovers still
+  queueable), future `E5 ⊘` (dimmed, dashed). `#n` counts queued items.
+  The page on show is underlined. Each tab keeps an empty destiny-pip slot.
+- **Page header.**
+  - *Era:* `ERA 3 · CURRENT ERA`, the name, `ERA_BLURB`, and a count line.
+  - *Destiny* (`techDestiny.ts`, the boundary the destiny tracks replace):
+    Era 1 shows the landing expedition, chosen at landing. An era with a
+    doctrine shows its pair(s) under `DOCTRINE · choose one · permanent`;
+    a click only selects. Otherwise there is no box and the era column
+    widens.
+  - *Goals* (`techGoals.ts`): the next era's charter from `ResearchView.gates`,
+    live and in place: `◼◼◻◻ 2 of 4 Era-3 techs`, `or 2 + 600◇ refined`
+    with a bar, and robotic Cohabitation where it applies. A past page
+    reads `✓ opened Era n`; a future one what opens it. Era 8 is the
+    FIRST LIGHT checklist (Swarm Protocol, foils, launch, stored, launch).
+- **Lane board** (`techPage.ts`). Cards run roots first, then table order;
+  a doctrine pair sits side by side over one `◇ CHOOSE ONE` bracket. More
+  than 5 in a row (or a row that would not fit) packs as compact one-line
+  cards. Era 8 is the SWARM block: steps, the capstone double width, the
+  purpose pair. Rows shrink below 56 px only on screens under 720 px.
+- **Stubs.** `◂E2` on a card's left edge names off-page prerequisites,
+  `E6▸` on its right edge off-page dependents. Solid once all are done,
+  dashed before. A click opens that page with the tech selected.
+- **Cards** are three lines: state glyph and name; cost and goods (goods
+  you cannot spare struck through); the first generated pro. Markers: ◇
+  doctrine, ✦ breakthrough (a dotted `✦ ?` placeholder until surveyed), ◬
+  site tech, `✎−40%` earned insight, ⚠ waiting on goods.
 - **State by shape and value, never hue alone:** done = solid border + ✓;
   queued = `#n` + a 2 px bar; available = hairline; locked = dashed @ 38%;
-  foreclosed = struck through @ 25%; full = ⊘.
-- **Links** are one SVG layer routed through the gutters: solid from a done
-  source, dashed from a pending one, `requiresAny` edges meeting at an OR
-  diamond. Hovering a card highlights its prerequisite closure and
-  dependents and dims everything else.
-- **Detail sheet** (hover, or the sticky selection) has three columns:
+  foreclosed = struck through @ 25%; full = ⊘. A future page is read-only:
+  every card dashed, and a click gets the sim's `ERA LOCKED — … opens with
+  Era n · …` alert.
+- **Links** are drawn only for the hovered or selected card: its page's
+  prerequisite closure and direct dependents, routed through the gutters,
+  `requiresAny` edges meeting at an OR diamond. Hovering also dims the rest.
+  The default board draws no lines.
+- **Queue strip** (global): 5 slots from any era, each tagged `E3`. Click
+  an item to go to its page; ↑ and × reorder and cancel. Shift-click on a
+  card queues its whole path, across eras.
+- **Detail sheet** (global): hover, or the sticky selection, which stays
+  when you change page and then shows `on the E3 page ↩`. Three columns:
   1. identity and the exact lock reason;
-  2. the generated ⊕/⊖ lines and a **YOUR BASE** preview diffed from the
-     buildings you actually have (`Your 2 Data Centers: −21 kW`);
-  3. cost after insights, goods as have/need with the producer, ETA, and the
-     Queue / Queue path ⇧ / Cancel buttons.
+  2. the ⊕/⊖ lines and a **YOUR BASE** preview (`Your 2 Data Centers: −21 kW`);
+  3. cost, goods, ETA, the Queue / Queue path ⇧ / Cancel buttons, and
+     `Needs` / `Leads to` with era tags and jump links.
 - **Doctrines** never commit on a click. Selecting one shows both members
   side by side, and only `[Commit to … — permanent]` queues it.
-- **Queue** of 5: click to queue, click a queued card to cancel (dependents
-  drop with an alert), shift-click queues the whole prerequisite path, and
-  ↑/↓ reorders it. Keys: arrows move, Enter queues, Shift+Enter queues the
-  path, Esc or T closes.
-- A locked palette card opens the tree on the tech that unlocks it.
+- **Keys.** `T` opens on the current era (or closes); `[` `]` and PgUp/PgDn
+  change page; `Home` goes to the current era; arrows move within the page;
+  Enter queues, Shift+Enter queues the path (on a doctrine, Enter focuses
+  Commit); Esc closes. The digits 1–3 keep the game speed.
+- A new era while the tree is open leaves the page where it is and pulses
+  its tab once.
+- `openTechTreeAt(tid)` (locked palette cards, discovery cards, the map's
+  tier ladder, deposit cards) opens the page of the tech's resolved era,
+  with it selected and pulsing.
 
 ### 6b. Lunar Map ([M], or `[M] Map` in the tree header)
 
@@ -306,8 +336,9 @@ DOM updates at most once per game-second plus immediately after user actions
 **The signature-guard re-render rule.** Interactive DOM is only rebuilt when
 its *content signature* changes — never merely because a tick happened:
 
-- The tech screen re-renders on `era|done|queue` changes only; the head
-  progress bar mutates in place between renders.
+- The tech screen rebuilds a page only when its page signature changes
+  (its cards' states, queue positions and stubs, the era, the destiny
+  column); goals, bars and ETAs mutate in place between rebuilds.
 - The inspector's signature is `id|enabled|priority|idleReason|active|worn|dust-bucket`.
 - Alerts re-render on the id-list signature; palette cards on the
   unlock-set + site signature; the swarm meter is built once and updated by
