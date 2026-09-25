@@ -92,6 +92,29 @@ async function installBot(cfg) {
     'crewWellness', 'humanCohabitation', 'farSideRelay', 'scienceCrews', 'conditionOptimization',
     'foilManufacturing', 'massDriver', 'swarmProtocol', 'btColdTrapChemistry', 'deepSounding', 'selfReplication'];
   const move = (id, before) => { order = order.filter((x) => x !== id); order.splice(order.indexOf(before), 0, id); };
+  // the small steps (docs/12): a reasonable player takes the cheap upgrades for
+  // what it already runs once each era's main techs are in, not after the
+  // whole tree (the generic tail below would defer every one of them)
+  const SMALL_AFTER = {
+    prospectingRovers: ['grizzlyScreens', 'fieldSpectrometers'],
+    teleoperation: ['bifacialCells'],
+    siliconRefining: ['sampleCaches'],
+    partsFabrication: ['benchRobots'],
+    batteryStorage: ['mpptInverters', 'heatRecoveryJackets'],
+    regolithShielding: ['neutronSpectrometry', 'sublimationTents'],
+    thermalWadis: ['refluxColumns', 'cryoSampleStore', 'stackedCells', 'slagRecycling'],
+    ilmeniteBeneficiation: ['mliBlankets'],
+    acceleratorDesign: ['braytonConverters', 'pressureTanks', 'waferPolishing', 'oreSorting', 'heatedAugers'],
+    cryoRadiators: ['toolChangers', 'wingExtensions', 'oxygenLiquefaction', 'immersionLitho', 'deployableRadiators', 'gravimetry'],
+    humanCohabitation: ['uplinkDishes', 'solidStateCells', 'highBurnupFuel', 'refractoryLinings', 'predictiveMaintenance'],
+    conditionOptimization: ['bunkRacks', 'growLights', 'nutrientRecirculation', 'galleyGarden', 'liquidCooling', 'rackDensification'],
+    massDriver: ['rollToRoll', 'foilAnnealing', 'superconductingBus', 'laserRanging', 'lowGCourt'],
+    swarmProtocol: ['railCapacitors', 'cryocoolerHeads', 'canisterPress'],
+  };
+  for (const [after, list] of Object.entries(SMALL_AFTER)) {
+    const known = list.filter((t) => TECHS[t] && !order.includes(t));
+    order.splice(order.indexOf(after) + 1, 0, ...known);
+  }
   if (cfg.site === 'southpole') {
     order = order.map((x) => ({ regolithVolatiles: 'iceExtraction', thermalWadis: 'peakLightMasts' })[x] ?? x);
     order = order.filter((x) => x !== 'iceExtraction'); order.splice(1, 0, 'iceExtraction');
@@ -143,6 +166,10 @@ async function installBot(cfg) {
     return out;
   };
   const agentRun = (b) => b.automated;
+  /** a station's seats as its inspector shows them (the crew deltas of the techs done) */
+  const seatsOf = (t) => Math.max(0, BUILDINGS[t].crew +
+    (done('selfReplication') && ['partsFab', 'foilFactory'].includes(t) ? -1 : 0) +
+    (done('benchRobots') && t === 'lab' ? -1 : 0));
   const drawOf = (t, auto) => {
     let kw = BUILDINGS[t].powerKW;
     if (t === 'smelter' && done('moltenElectrolysis')) kw = -22;
@@ -308,7 +335,7 @@ async function installBot(cfg) {
     const chk = G.canPlace(t, spot.gx, spot.gz, spot.rot);
     if (chk.warn && t !== 'smelter') { blocked('metals'); return false; }
     if (!G.placeBuilding(t, spot.gx, spot.gz, spot.rot)) return false;
-    if (!robotic) freeHands -= BUILDINGS[t].crew;
+    if (!robotic) freeHands -= seatsOf(t);
     s = now();
     act('build', `${t}${why ? `(${why})` : ''}`);
     placedThisTick++;
@@ -360,6 +387,16 @@ async function installBot(cfg) {
     return { projSupply, projDemand, nightDeficit, capacity, recharge, full };
   }
 
+  const LAB_CLOCK = robotic
+    ? [[3.2, 1], [4, 2], [14, 3], [22, 4], [32, 5], [42, 6], [54, 7], [66, 8]]
+    : [[3.5, 1], [13, 2], [22, 3], [30, 4], [40, 5], [52, 6], [64, 7]];
+  const clockMult = cfg.site === 'southpole' ? 1.15 : cfg.site === 'lavatube' ? 1.12 : 1;
+  const labsByClock = () => {
+    let n = 0;
+    for (const [min, k] of LAB_CLOCK) if (s.simTime >= min * 60 * clockMult) n = k;
+    return Math.min(n, Math.max(...P.labs));
+  };
+
   // ── decisions ──
   let R = G.getResearch();
   let L = G.getLunar();
@@ -410,7 +447,7 @@ async function installBot(cfg) {
     // settlers take stations; anything left short-handed goes back to the agents
     const canToggle = (robotic && s.crew > 0) || done('constructionRobotics') && !robotic;
     if (!canToggle) return;
-    const seats = (b) => Math.max(0, BUILDINGS[b.type].crew + (done('selfReplication') && ['partsFab', 'foilFactory'].includes(b.type) ? -1 : 0));
+    const seats = (b) => seatsOf(b.type);
     const stations = s.buildings.filter((b) => BUILDINGS[b.type].crew > 0 && b.enabled && complete(b));
     for (const b of stations) {
       if (!b.automated && b.idleReason === 'crew') { G.setAutomated(b.id, true); act('automate', b.type); }
@@ -516,12 +553,12 @@ async function installBot(cfg) {
     const isru = site.isruMult;
     freeHands = robotic ? 99 : s.crew - s.buildings
       .filter((b) => BUILDINGS[b.type].crew > 0 && !b.automated && b.enabled)
-      .reduce((a, b) => a + BUILDINGS[b.type].crew, 0);
+      .reduce((a, b) => a + seatsOf(b.type), 0);
     // a crewed base builds what keeps it alive whatever the roster says (the
     // economy staffs by priority and idles the lab), and once Construction
     // Robotics allows it, agents take the stations hands cannot reach
     const essential = (t) => ['smelter', 'excavator', 'hydroponics', 'iceHarvester', 'partsFab'].includes(t) && nAll(t) < 1;
-    const crewOk = (t) => robotic || essential(t) || BUILDINGS[t].crew <= freeHands || done('constructionRobotics');
+    const crewOk = (t) => robotic || essential(t) || seatsOf(t) <= freeHands || done('constructionRobotics');
     const first = (t, why, o = {}) => unlocked(t) && nAll(t) < 1 && crewOk(t) && build(t, why, { critical: true, bypass: true, ...o });
 
     // power first: a daytime brownout, or the next loads outgrow the supply
@@ -560,8 +597,10 @@ async function installBot(cfg) {
       const o = { critical: res.regolith < 20, bypass: res.regolith < 20 };
       build('excavator', 'feed', { want: kind, ...o }) || build('excavator', 'feed', o);
     }
-    // science
-    const labTarget = P.labs[Math.min(era, 8)];
+    // science: the era's lab count, or the pacing model's clock (docs/11 §7:
+    // robotic 3 labs at 14 min … 8 at 66, crewed later; pole ×1.15, lava ×1.12),
+    // whichever is more — with long eras a player with spare metal adds labs
+    const labTarget = Math.max(P.labs[Math.min(era, 8)], labsByClock());
     if (nAll('lab') < labTarget && crewOk('lab')) build('lab', `era ${era}`);
     // metals: a smelter per era of growth, sooner when builds keep waiting on metals
     const metalsTight = (res.metals < 60 && (s.rates.metals ?? 0) < 0.15) || s.simTime - (lastBlocked.metals ?? -1e9) < 60 ||
@@ -754,6 +793,12 @@ function summarize(log) {
   }
   const maxGap = (gaps) => gaps.reduce((m, g) => (g.len > m.len ? g : m), { len: 0, at: 0 });
   const ag = maxGap(log.actionGaps), eg = maxGap(log.eventGaps);
+  // idle: a stretch with neither a player action nor an event to answer (spec §9 acceptance)
+  const marks = [...log.actions.map((a) => a[0]), ...log.events.map((e) => e[0]), log.final.t].sort((a, b) => a - b);
+  const idleGaps = [];
+  for (let i = 1; i < marks.length; i++) idleGaps.push({ at: marks[i - 1], len: marks[i] - marks[i - 1] });
+  const ig = maxGap(idleGaps);
+  const over5 = idleGaps.filter((g) => g.len > 300).map((g) => `${fmtMin(g.len)}@${fmtMin(g.at)}`);
   const pct = (x) => `${Math.round((100 * x) / Math.max(1, A.t))}%`;
   return {
     run: `${log.cfg.site}:${log.cfg.exp}:${log.cfg.policy}`, seed: log.cfg.seed,
@@ -766,6 +811,7 @@ function summarize(log) {
     eraOpen: Object.fromEntries(Object.entries(log.eraOpen).map(([e, t]) => [e, fmtMin(t)])),
     eraDur: eras.map((x) => (x == null ? '—' : x.toFixed(1))).join(' / '),
     via: log.eraVia,
+    idleMax: `${fmtMin(ig.len)} @${fmtMin(ig.at)}`, idleMin: ig.len / 60, idleOver5: over5,
     idleMaxAction: `${fmtMin(ag.len)} @${fmtMin(ag.at)}`,
     idleMaxEvent: `${fmtMin(eg.len)} @${fmtMin(eg.at)}`,
     brownout: pct(A.brownout), brownoutNight: pct(A.brownoutNight), shed: pct(A.shed),
@@ -819,15 +865,15 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
   }
 });
 
-console.log('\nrun                              | FIRST LIGHT | eras E1…E8 (min)                         | idle(act/evt) | brown | worn | goods-stall');
+console.log('\nrun                              | FIRST LIGHT | eras E1…E8 (min)                         | idle(both/act/evt) | brown | worn | goods-stall');
 for (const { summary: r } of results) {
-  console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(r.firstLight).padEnd(11)} | ${r.eraDur.padEnd(40)} | ${r.idleMaxAction.split(' ')[0]}/${r.idleMaxEvent.split(' ')[0]}`.padEnd(105) +
+  console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(r.firstLight).padEnd(11)} | ${r.eraDur.padEnd(40)} | ${r.idleMax.split(' ')[0]}/${r.idleMaxAction.split(' ')[0]}/${r.idleMaxEvent.split(' ')[0]}`.padEnd(110) +
     ` | ${r.brownout.padEnd(5)} | ${r.worn.padEnd(4)} | ${r.goodsStallMin} · ${r.outcome}`);
 }
 // medians across seeds (FIRST LIGHT not reached counts as the run length, flagged ›)
 const med = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
 if (SEEDS.length > 1) {
-  console.log('\nmedian over seeds ' + SEEDS.join(',') + '\nrun                         | FIRST LIGHT      | eras E1…E8 (min)                          | act gap | brown | worn | stall');
+  console.log('\nmedian over seeds ' + SEEDS.join(',') + '\nrun                         | FIRST LIGHT      | eras E1…E8 (min)                          | idle max | act gap | brown | worn | stall');
   for (const run of RUNS) {
     const key = `${run.site}:${run.exp}:${run.policy}`;
     const rs = results.map((x) => x.summary).filter((x) => x.run === key);
@@ -835,7 +881,7 @@ if (SEEDS.length > 1) {
     const flTxt = `${med(fl).toFixed(1)}${fl.some((x) => x > MINUTES) ? '›' : ''} [${fl.map((x) => (x > MINUTES ? '—' : x.toFixed(0))).join(',')}]`;
     const eras = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => med(rs.map((x) => x.eras[i])));
     console.log(`${key.padEnd(28)}| ${flTxt.padEnd(16)} | ${eras.map((x) => (x == null ? '—' : x.toFixed(1))).join(' / ').padEnd(41)} | ` +
-      `${med(rs.map((x) => x.actGap)).toFixed(1).padEnd(7)} | ${(100 * med(rs.map((x) => x.brownPct))).toFixed(0).padEnd(4)}% | ` +
+      `${Math.max(...rs.map((x) => x.idleMin)).toFixed(1).padEnd(8)} | ${med(rs.map((x) => x.actGap)).toFixed(1).padEnd(7)} | ${(100 * med(rs.map((x) => x.brownPct))).toFixed(0).padEnd(4)}% | ` +
       `${(100 * med(rs.map((x) => x.wornPct))).toFixed(0).padEnd(3)}% | ${med(rs.map((x) => x.stallMin)).toFixed(1)}`);
   }
 }
