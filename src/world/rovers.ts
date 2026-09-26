@@ -38,6 +38,7 @@ import { materials } from './materials';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
 import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, type Agent, type Driver } from './traffic';
+import type { WorkAnim } from './workAnim';
 
 const MAX_ROVERS = 64;
 /** a command view's listener height, as a share of the camera's distance */
@@ -76,10 +77,7 @@ function roverGeometry(): THREE.BufferGeometry {
     bar([0.32, 0.88, -0.45], [0.32, 1.45, -0.45], 0.06, TRIM),
     box(0.34, 0.14, 0.18, PLATE, 0.32, 1.5, -0.42),
     dome(0.05, BEACON, 0.32, 1.57, -0.42, 8),
-    // the print arm, folded over the nose
-    bar([-0.25, 0.88, 0.35], [-0.25, 1.25, 0.7], 0.07, TRIM),
-    bar([-0.25, 1.25, 0.7], [-0.25, 0.95, 1.05], 0.06, TRIM),
-    cyl(0.05, 0.03, 0.14, PLATE, -0.25, 0.88, 1.08, 0, 0, 8),
+    // the print arm moves: world/workAnim.ts draws it (folded over the nose at rest)
   ];
   for (const x of [-0.58, 0.58]) {
     for (const z of [-0.52, 0.52]) {
@@ -258,6 +256,11 @@ export class RoverFleet implements Driver {
   private ring: THREE.Mesh;
   /** the rover the inspector shows (its ring is drawn), by roster id */
   selected: number | null = null;
+
+  // ── the work animations' hooks (world/workAnim.ts) ──
+  /** the work animations (life.ts sets them): each rover's arm and sparks, the drones' beams */
+  private work: WorkAnim | null = null;
+  setWork(w: WorkAnim | null) { this.work = w; this.drones.work = w; }
 
   /** Per frame: `dt` game seconds (0 while paused). With a shared traffic
    *  layer the owner calls sync(), steps the traffic, then draw(). */
@@ -564,7 +567,11 @@ export class RoverFleet implements Driver {
     for (let i = 0; i < n; i++) {
       const r = this.drawn[i];
       let x = r.x, z = r.z, yaw = r.yaw, bob = 0;
-      if (r.working && r.spot) {
+      if (this.work) {
+        // at work: the weld's shuffle along its road, the sinter's crawl (world/workAnim.ts)
+        const o = this.work.roverOffset(r.id, r.spot, this.clock + r.phase);
+        x += o.dx; z += o.dz; yaw += o.dyaw; bob = o.bob;
+      } else if (r.working && r.spot) {
         const t = this.clock + r.phase;
         const sh = 0.25 * Math.sin(t * 0.9);
         x += r.spot.shuffle[0] * sh;
@@ -579,6 +586,7 @@ export class RoverFleet implements Driver {
       const y = (front + back + left + right) / 4 + bob;
       this.e.set(-Math.atan2(front - back, 1.8), yaw, Math.atan2(left - right, 1.2));
       this.mesh.setMatrixAt(i, this.m.compose(this.p.set(x, y, z), this.q.setFromEuler(this.e), this.s.set(1, 1, 1)));
+      this.work?.roverBody(r, this.m, Traffic.end(r.agent) - r.agent.s < 1e-3);
 
       const len = 2.2 + smear;
       const dcx = x + sx * smear * 0.45, dcz = z + sz * smear * 0.45;
@@ -635,10 +643,12 @@ export class RoverFleet implements Driver {
         const x = r.x - fx * 0.9, z = r.z - fz * 0.9;
         out.push({ d, e: { x, y: this.hf.sample(x, z), z, strength: 0.5 + 0.5 * k,
           vx: -fx * 1.3 * k, vy: 0.9, vz: -fz * 1.3 * k, hSpread: 0.7, vSpread: 1.4, size: 0.06 } });
-      } else if (r.working) {
-        const x = r.x + fx * 1.4, z = r.z + fz * 1.4;
-        out.push({ d, e: { x, y: this.hf.sample(x, z), z, strength: 0.6,
-          vx: fx * 0.4, vy: 0.5, vz: fz * 0.4, hSpread: 0.9, vSpread: 1.2, size: 0.05 } });
+      } else if (this.work ? this.work.welding(r.id) : r.working) {
+        // print dust: under the nozzle where the arm has it (world/workAnim.ts)
+        const n = this.work?.nozzle(r.id);
+        const x = n ? n.x : r.x + fx * 1.4, z = n ? n.z : r.z + fz * 1.4;
+        out.push({ d, e: { x, y: this.hf.sample(x, z), z, strength: 0.85,
+          vx: fx * 0.4, vy: 0.7, vz: fz * 0.4, hSpread: 1.1, vSpread: 1.5, size: 0.06 } });
       }
     }
   }
@@ -792,6 +802,8 @@ export class DroneFlight {
   private s = new THREE.Vector3(1, 1, 1);
   /** launches so far (the audio's data chirp) */
   launches = 0;
+  /** the work animations (RoverFleet.setWork): a printing drone's spark and beam */
+  work: WorkAnim | null = null;
 
   constructor(private hf: Heightfield, group: THREE.Group) {
     const geo = withInstanceState(droneGeometry(), MAX_DRONES);
@@ -941,6 +953,7 @@ export class DroneFlight {
       }
       this.e.set(pitch, d.yaw, roll);
       this.mesh.setMatrixAt(i, this.m.compose(this.p.set(x, y, z), this.q.setFromEuler(this.e), this.s.set(1, 1, 1)));
+      this.work?.droneAt(d.id, d.unit, d.working, x, y, z);
       // the ground under it, pushed down-sun by its height
       const g = this.hf.sample(x, z);
       const h = Math.max(0, y - g);

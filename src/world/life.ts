@@ -1,6 +1,6 @@
 /** Everything that moves or changes on its own around the base, in one
  *  place so the game loop makes a single call: the rover fleet, the hauling
- *  excavators, regolith
+ *  excavators and what they do at work (world/workAnim.ts), regolith
  *  dust, launch and resupply events, research made visible (berms, the
  *  swarm's glints, cleaner panels), the destiny's links and EVA walkers
  *  (docs/14 §4.3), and the astronaut's bootprints.
@@ -24,6 +24,7 @@ import { RoadMesh } from './roads';
 import { SwarmGlints } from './swarm';
 import { Links } from '../buildings/links';
 import { Settlers } from './settlers';
+import { WorkAnim } from './workAnim';
 
 export interface LifeFrame {
   /** real seconds since the last frame */
@@ -51,7 +52,7 @@ const NEAR_M = 45;
 const EMPTY: ReadonlySet<number> = new Set();
 
 type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film'
-  | 'links' | 'settlers';
+  | 'links' | 'settlers' | 'work';
 
 export class BaseLife {
   readonly group = new THREE.Group();
@@ -71,6 +72,8 @@ export class BaseLife {
   readonly links: Links;
   /** the Colony's EVA walkers (docs/14 §4.3) */
   readonly settlers: Settlers;
+  /** the machines at work: rover arms and sparks, drone beams, excavator wheels (docs/06 §7) */
+  readonly work: WorkAnim;
   /** The hazards' visual hooks (core/hazards.ts hazardView().fx): 'smoke'
    *  (a breach warned) and 'vent' (a breach open) plume from the hull. */
   fxOf?: (id: number) => readonly string[] | undefined;
@@ -92,10 +95,13 @@ export class BaseLife {
     this.prints = new Footprints(hf);
     this.links = new Links(hf);
     this.settlers = new Settlers(hf);
+    this.work = new WorkAnim(hf);
+    this.rovers.setWork(this.work);
+    this.haulers.work = this.work;
     this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = this.links.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
-      this.berms.mesh, this.swarm.group, this.prints.mesh, this.links.group, this.settlers.group);
+      this.berms.mesh, this.swarm.group, this.prints.mesh, this.links.group, this.settlers.group, this.work.group);
   }
 
   update(f: LifeFrame) {
@@ -110,8 +116,11 @@ export class BaseLife {
     this.run('haulers', () => this.haulers.sync(gdt, s, f.tickFrac ?? 0, night));
     this.run('traffic', () => this.traffic.step(gdt));
     if (this.failed.has('traffic')) this.run('haulers', () => this.haulers.follow());
+    // the units report themselves to the work animations as they draw
+    this.run('work', () => this.work.begin(gdt, s));
     this.run('rovers', () => this.rovers.draw(gdt, f.sunDir, f.sunLight));
     this.run('haulers', () => this.haulers.finish(gdt, f.sunLight));
+    this.run('work', () => this.work.end(f.camera, f.sunLight));
     this.run('resupply', () => this.resupply.update(s, this.earthAzim, vdt));
     this.run('launch', () => this.launch.update(vdt));
     this.run('berms', () => this.berms.update(s));
@@ -210,11 +219,13 @@ export class BaseLife {
       // a part gone: its units leave the ground traffic
       if (part === 'rovers') this.traffic.enlist('rover', []);
       if (part === 'haulers') this.traffic.enlist('digger', []);
+      // no work animations: the units draw as they did without them
+      if (part === 'work') { this.rovers.setWork(null); this.haulers.work = null; }
       console.warn(`[MOONSHOTS] ${part} visuals disabled after an error.`, e);
       const objects: Partial<Record<Part, THREE.Object3D>> = {
         rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
         resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group, prints: this.prints.mesh,
-        links: this.links.group, settlers: this.settlers.group,
+        links: this.links.group, settlers: this.settlers.group, work: this.work.group,
       };
       const o = objects[part];
       if (o) o.visible = false;
@@ -264,6 +275,7 @@ export class BaseLife {
       plumes: this.plumes.map((p) => ({ id: p.id, vent: p.vent })),
       links: this.links.info(),
       settlers: this.settlers.info(),
+      work: this.work.info(),
       panelFilm: Math.round(film * 1000) / 1000,
       failed: [...this.failed],
     };

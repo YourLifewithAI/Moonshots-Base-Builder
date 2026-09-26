@@ -128,6 +128,12 @@ function api(game: Game) {
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
+    /** the work animations (docs/06 §7): per rover its mode, arm (unfold, yaw,
+     *  reach, tip) and spark; per drone its spark; per excavator its wheel and
+     *  boom angles; the kit and glow instance counts */
+    getWorkAnim: () => clone((game as any).life.work.info()),
+    /** hide or show the work animations' two meshes (the draw-call budget) */
+    setWorkAnimVisible: (on: boolean) => { (game as any).life.work.group.visible = on; },
     /** one structure's own light: its darkness k (and what makes it), the
      *  lit channel its instance carries, the emissive gains and its flood slot */
     getBuildingLight: (id: number) => clone((game as any).instances.lightInfo(id)),

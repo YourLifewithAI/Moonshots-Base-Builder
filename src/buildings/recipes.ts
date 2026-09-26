@@ -7,7 +7,8 @@
  *
  *  Parts that move (sun-tracking solar wings, dishes aimed at Earth) are not
  *  in the recipe: MOUNTS places them, and buildings/trackers.ts instances
- *  them separately. */
+ *  them separately. Nor are the parts that move while a structure works
+ *  (the excavator's boom and bucket wheel): rigs.ts, world/workAnim.ts. */
 import * as THREE from 'three';
 import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
@@ -18,6 +19,7 @@ import {
   ladder, lathe, lattice, merge, pane, pipe, radiator, rail, vault, windowRing, windowStrip,
 } from './meshKit';
 import { flatten, upgradeTechs, upgradesIn, type Mount, type PartId } from './upgrades';
+import { rigParts, rigTriangles } from './rigs';
 
 export type { Mount, PartId } from './upgrades';
 type Parts = (BufferGeometry | BufferGeometry[])[];
@@ -124,12 +126,8 @@ function excavator(): Parts {
     pane(0.8, 0.5, -1.0, 2.45, 0.41, 0),
     box(0.26, 0.14, 0.1, LAMP, -0.22, 2.0, -0.85, PI / 2),
     box(0.26, 0.14, 0.1, LAMP, -0.22, 2.0, 0.05, PI / 2),
-    bar([0.4, 1.7, 0.7], [2.7, 1.5, 0.7], 0.45, BODY),
-    bar([0.4, 2.0, 0.7], [2.6, 1.9, 0.7], 0.12, TRIM),
+    // the mast; the boom, its stay and the bucket wheel move (rigs.ts)
     bar([0.2, 1.6, 0.7], [0.2, 3.6, 0.7], 0.2, TRIM),
-    bar([0.2, 3.6, 0.7], [2.5, 1.9, 0.7], 0.06, TRIM),
-    cyl(1.1, 1.1, 0.35, TRIM, 2.9, 1.45, 0.7, PI / 2, 0, 20, true),
-    cyl(0.25, 0.25, 0.5, PLATE, 2.9, 1.45, 0.7, PI / 2, 0, 10),
     radiator(1.2, 0.9, -1.84, 1.6, 0.7, -PI / 2),
     rail([[-1.75, 0.2], [-1.75, 1.25], [0.2, 1.25]], 1.6),
     antenna(-1.4, 2.9, -0.9, 1.4),
@@ -137,11 +135,6 @@ function excavator(): Parts {
   for (const side of [-1, 1]) {
     p.push(box(3.8, 0.7, 0.7, TRIM, 0, 0.4, side * 1.55));
     for (const x of [-1.4, -0.47, 0.47, 1.4]) p.push(cyl(0.34, 0.34, 0.74, PLATE, x, 0.36, side * 1.55, PI / 2, 0, 12));
-  }
-  for (let k = 0; k < 8; k++) {
-    const a = (k / 8) * PI * 2;
-    p.push(box(0.42, 0.42, 0.55, PLATE, 2.9 + Math.cos(a) * 1.15, 1.45 + Math.sin(a) * 1.15, 0.7, 0, a));
-    if (k % 2 === 0) p.push(bar([2.9, 1.45, 0.7], [2.9 + Math.cos(a) * 1.05, 1.45 + Math.sin(a) * 1.05, 0.7], 0.08, TRIM));
   }
   return p;
 }
@@ -842,11 +835,11 @@ export function partGeometry(id: PartId): BufferGeometry {
 const ghostCache = new Map<string, BufferGeometry>();
 export function ghostGeometry(id: BuildingId, key = ''): BufferGeometry {
   const mounts = mountsFor(id, key);
-  if (!mounts.length) return recipeGeometry(id, key);
+  if (!mounts.length && !rigTriangles(id, key)) return recipeGeometry(id, key);
   const k = `${id}|${key}`;
   let g = ghostCache.get(k);
   if (!g) {
-    const parts = [recipeGeometry(id, key).clone()];
+    const parts = [recipeGeometry(id, key).clone(), ...rigParts(id, key)];
     for (const m of mounts) {
       const q = m.part === 'dish'
         ? new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), PI / 4)
@@ -862,7 +855,7 @@ export function ghostGeometry(id: BuildingId, key = ''): BufferGeometry {
 
 const tris = (g: BufferGeometry) => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
 const withMounts = (id: BuildingId, key: string) =>
-  tris(recipeGeometry(id, key)) + mountsFor(id, key).reduce((n, m) => n + tris(partGeometry(m.part)), 0);
+  tris(recipeGeometry(id, key)) + mountsFor(id, key).reduce((n, m) => n + tris(partGeometry(m.part)), 0) + rigTriangles(id, key);
 
 /** Triangles per recipe, stock (probes; the art budget in docs/06). */
 export function recipeTriangles(key: Partial<Record<BuildingId, string>> = {}): Record<string, number> {

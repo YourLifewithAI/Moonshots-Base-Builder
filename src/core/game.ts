@@ -354,6 +354,8 @@ export class Game {
     // an excavator away from its pad is drawn by the haulers, not the pad instance
     this.life.haulers.onAway = (ids) => this.instances.setHidden(ids);
     this.life.haulers.darkOf = (id) => this.instances.darkness.of(id);
+    // ?lowfx: the work animations keep their motion and glow, drop their particles
+    this.life.work.lowFx = this.opts.lowfx;
     // the hazards' look (docs/14 §3): flicker, dark, tints on the instances; plumes in the dust
     const hazardFx = (id: number) => $hazards.get()?.fx?.[id];
     this.instances.fxOf = hazardFx;
