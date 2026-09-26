@@ -320,3 +320,28 @@ export function roverDown(s: Pick<GameState, 'simTime'>, r: RoverUnit): boolean 
 export function hazardSlotsLost(b: Pick<BuildingState, 'slotsLost'>): number {
   return Math.max(0, b.slotsLost ?? 0);
 }
+
+// ─────────────── drones (docs/14 §4.3): the Drone Hive's units fly ───────────────
+// Additive: the roster, the assignments and every rule above are the same for
+// both kinds. A unit docked at a Drone Hive is a drone: it flies straight to
+// its work and back (world/rovers.ts), off the roads, and never enters the
+// ground traffic; every other unit is a ground rover and keeps to the roads
+// (docs/15). The sim has no travel time for either kind, so this is a
+// classification only — deterministic, and pacing-neutral.
+
+export type UnitKind = 'rover' | 'drone';
+
+/** how a drone flies (the visuals): straight at `speed` m/s, cruising 6–10 m up */
+export const DRONE = { speed: 6, accel: 3, climb: 2.5, cruiseMin: 6, cruiseMax: 10 };
+
+/** The kind of a roster unit: a drone if it is tagged one or docks at a
+ *  Drone Hive. The one source of truth: hazards.ts's isDrone asks this. */
+export function unitKind(s: Pick<GameState, 'buildings'>, r: Pick<RoverUnit, 'home'> & { kind?: string }): UnitKind {
+  if (r.kind === 'drone') return 'drone';
+  const dock = s.buildings.find((b) => b.id === r.home);
+  return dock?.type === 'droneHive' ? 'drone' : 'rover';
+}
+
+/** A drone? (unitKind's shorthand) */
+export const isDrone = (s: Pick<GameState, 'buildings'>, r: Pick<RoverUnit, 'home'> & { kind?: string }): boolean =>
+  unitKind(s, r) === 'drone';

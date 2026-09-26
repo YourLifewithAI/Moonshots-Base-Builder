@@ -31,6 +31,10 @@ export const BEACON: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 2 };
 export const RADIATOR: Finish = { v: 0.81, rough: 0.9, metal: 0 };      // matte white panels
 export const FOIL: Finish = { v: 0.81, rough: 0.3, metal: 0.45 };       // MLI blankets
 export const PLATE: Finish = { v: 0.42, rough: 0.45, metal: 0.35 };     // bare machined metal
+/** foliage under glass (docs/14 §4.4): the Colony's green — trellises,
+ *  planters, canopies. A dark foliage gray in High detail (monochrome, as
+ *  docs/06 asks); Classic maps its unique signature to the `leaf` key. */
+export const LEAF: Finish = { v: 0.28, rough: 0.85, metal: 0 };
 
 type V3 = readonly [number, number, number];
 const UP = new THREE.Vector3(0, 1, 0);
@@ -84,6 +88,16 @@ export function dome(r: number, f: Finish, x = 0, y = 0, z = 0, seg = 24): THREE
 export function domeBand(r: number, t0: number, t1: number, f: Finish,
   x = 0, y = 0, z = 0, seg = 24, phi0 = 0, phiLen = Math.PI * 2): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(r, seg, 2, phi0, phiLen, t0, t1 - t0);
+  g.translate(x, y, z);
+  return bake(g, f);
+}
+
+/** An arc of an open cylinder about +y (a band that stops short of a door,
+ *  shutters over a run of panes). Angles as windowRing's: 0 = +x, toward +z. */
+export function arc(rt: number, rb: number, h: number, f: Finish, x = 0, y = 0, z = 0,
+  a0 = 0, a1 = Math.PI * 2, seg = 16): THREE.BufferGeometry {
+  // three's cylinder angle θ runs from +z toward +x: θ = π/2 − a
+  const g = new THREE.CylinderGeometry(rt, rb, h, seg, 1, true, Math.PI / 2 - a1, a1 - a0);
   g.translate(x, y, z);
   return bake(g, f);
 }
@@ -366,6 +380,7 @@ export function setInstanceHook(hook: InstanceHook | null) {
 
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
  *  own per-instance state: iState = (lit, dust, wear, print cut height),
+ *  iWarm (0 cold … 1 warm light) and iAlarm (the hazard hook, 0 calm),
  *  lit being 0 (unlit), 1 (lit at the night's darkness) or 2 + the darkness
  *  the structure stands in (buildingShader.ts litChannel). `prev`: the view
  *  an upgraded recipe replaces — its instances keep every per-instance
@@ -381,6 +396,11 @@ export function withInstanceState(src: THREE.BufferGeometry, max: number,
   const st = new Float32Array(max * 4);
   for (let i = 0; i < max; i++) { st[i * 4] = 1; st[i * 4 + 3] = CUT_NONE; }
   g.setAttribute('iState', new THREE.InstancedBufferAttribute(st, 4));
+  // the colour of its own light, 0 cold … 1 warm (docs/14 §4.4; instances.ts
+  // sets it per type and lean), and the building-state alarm hook: 0 calm,
+  // > 0 its windows and lamps flicker red (instances.ts `alarmOf`)
+  g.setAttribute('iWarm', new THREE.InstancedBufferAttribute(new Float32Array(max).fill(1), 1));
+  g.setAttribute('iAlarm', new THREE.InstancedBufferAttribute(new Float32Array(max), 1));
   instanceHook?.(g, src, max);
   if (prev) {
     for (const [name, attr] of Object.entries(prev.attributes)) {

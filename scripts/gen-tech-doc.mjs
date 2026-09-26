@@ -172,6 +172,8 @@ function renderUpgrades(T) {
   L('moment the tech completes, on placement ghosts and scaffolds, and after a load. △ is');
   L('the triangles the part adds to the recipe mesh; moving parts (an extra Earth dish,');
   L('the wider wing) reuse the shared dish and wing meshes and are counted apart (↻).');
+  L('Fully upgraded is the heaviest set one run can hold: every lane upgrade, one side');
+  L('of each era\'s destiny pick (the landing is Era 1\'s) and one capstone.');
   L();
   L('| Building | Stock △ | Fully upgraded △ | Upgrades |');
   L('|---|---|---|---|');

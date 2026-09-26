@@ -9,8 +9,9 @@
  *   - per-instance state (`iState` = lit, dust, wear, print cut height):
  *     the base's own light answers to how dark the structure stands (x
  *     carries it over the lit flag, see litChannel; buildings/darkness.ts)
- *     — windows glow warm-white with a faint day floor, work lamps light
- *     with their flood, beacons blink brighter in the dark — and all of it
+ *     — windows glow warm-white with a faint day floor (cold white by the
+ *     instance's iWarm), work lamps light with their flood, beacons blink
+ *     brighter in the dark, all of it flickers red while iAlarm is up — and all of it
  *     stays off while unlit; dust mattes and grays the glass, wear darkens, and
  *     fragments above the cut are discarded with a glowing band at the cut
  *     (the 3D-print reveal);
@@ -32,15 +33,22 @@ export const buildingUniforms = {
 };
 
 const warm = `vec3( ${FLOOD_COLOR.r.toFixed(3)}, ${FLOOD_COLOR.g.toFixed(3)}, ${FLOOD_COLOR.b.toFixed(3)} )`;
+/** the machines' light: a cold white (docs/14 §4.4), mixed with the warm
+ *  white by each instance's iWarm (0 cold … 1 warm) */
+export const COLD_WHITE = new THREE.Color(0.8, 0.92, 1.0);
+const cold = `vec3( ${COLD_WHITE.r.toFixed(3)}, ${COLD_WHITE.g.toFixed(3)}, ${COLD_WHITE.b.toFixed(3)} )`;
 
 const VERT_PARS = /* glsl */`
 #define ${PATCH_MARKER}
 attribute vec3 mat;
 #ifdef USE_INSTANCING
 	attribute vec4 iState;
+	attribute float iWarm;
+	attribute float iAlarm;
 #endif
 varying vec3 vBldMat;
 varying vec4 vBldState;
+varying vec2 vBldLook;
 varying vec3 vBldObj;
 varying vec3 vBldObjN;
 varying vec3 vBldWorld;
@@ -53,10 +61,12 @@ const VERT_MAIN = /* glsl */`
 	vBldObjN = objectNormal;
 	#ifdef USE_INSTANCING
 		vBldState = iState;
+		vBldLook = vec2( iWarm, iAlarm );
 		vBldWorld = ( modelMatrix * instanceMatrix * vec4( transformed, 1.0 ) ).xyz;
 		vBldPhase = fract( dot( instanceMatrix[ 3 ].xz, vec2( 0.1373, 0.2719 ) ) );
 	#else
 		vBldState = vec4( 1.0, 0.0, 0.0, ${CUT_NONE.toFixed(1)} );
+		vBldLook = vec2( 1.0, 0.0 );
 		vBldWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
 		vBldPhase = 0.0;
 	#endif
@@ -69,6 +79,7 @@ uniform float uBldNight;
 uniform float uBldTime;
 varying vec3 vBldMat;
 varying vec4 vBldState;
+varying vec2 vBldLook;
 varying vec3 vBldObj;
 varying vec3 vBldObjN;
 varying vec3 vBldWorld;
@@ -138,8 +149,12 @@ const FRAG_EMISSIVE = /* glsl */`
 		float beacon = step( 1.5, vBldMat.z ) * step( vBldMat.z, 2.5 );
 		float lamp = step( 2.5, vBldMat.z );
 		float blink = step( 0.9, fract( uBldTime * 0.5 + vBldPhase ) );
-		totalEmissiveRadiance += ${warm} * ( lit * ( win * max( dark, ${f(EMISSIVE.windowDay)} ) * ${f(EMISSIVE.window)}
+		vec3 bldLight = mix( ${cold}, ${warm}, clamp( vBldLook.x, 0.0, 1.0 ) );
+		totalEmissiveRadiance += bldLight * ( lit * ( win * max( dark, ${f(EMISSIVE.windowDay)} ) * ${f(EMISSIVE.window)}
 			+ lamp * dark * ${f(EMISSIVE.lamp)} ) );
+		// the alarm hook (instances.ts alarmOf): windows and lamps flicker red
+		float bldFlick = step( 0.5, fract( uBldTime * 2.3 + vBldPhase ) ) * step( 0.5, vBldMat.z );
+		totalEmissiveRadiance += vec3( 1.6, 0.2, 0.1 ) * ( clamp( vBldLook.y, 0.0, 1.0 ) * bldFlick );
 		totalEmissiveRadiance += vec3( 1.0 ) * ( beacon * lit * blink
 			* ( ${f(EMISSIVE.beaconDay)} + ${f(EMISSIVE.beaconDark)} * dark + ${f(EMISSIVE.beaconNight)} * uBldNight ) );
 		// the print head: a hot band just under the cut while building

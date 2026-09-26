@@ -2,12 +2,14 @@
  *  place so the game loop makes a single call: the rover fleet, the hauling
  *  excavators, regolith
  *  dust, launch and resupply events, research made visible (berms, the
- *  swarm's glints, cleaner panels) and the astronaut's bootprints.
+ *  swarm's glints, cleaner panels), the destiny's links and EVA walkers
+ *  (docs/14 §4.3), and the astronaut's bootprints.
  *
  *  Each part fails soft: an exception disables that part (its objects are
  *  hidden) and the game carries on. */
 import * as THREE from 'three';
 import { CYCLE_S } from '../data/balance';
+import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
@@ -20,6 +22,8 @@ import { Haulers } from './haulers';
 import { Traffic } from './traffic';
 import { RoadMesh } from './roads';
 import { SwarmGlints } from './swarm';
+import { Links } from '../buildings/links';
+import { Settlers } from './settlers';
 
 export interface LifeFrame {
   /** real seconds since the last frame */
@@ -44,8 +48,10 @@ const FILM_MAX = 0.35;
 const FILM_TAU = CYCLE_S;                  // uncleaned: a lunar day to settle
 const FILM_TAU_MITIGATED = 60;             // electrostatic curtains
 const NEAR_M = 45;
+const EMPTY: ReadonlySet<number> = new Set();
 
-type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film';
+type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film'
+  | 'links' | 'settlers';
 
 export class BaseLife {
   readonly group = new THREE.Group();
@@ -61,6 +67,15 @@ export class BaseLife {
   readonly berms: Berms;
   readonly swarm = new SwarmGlints();
   readonly prints: Footprints;
+  /** the destiny's links: walkways and conveyor spines (docs/14 §4.3) */
+  readonly links: Links;
+  /** the Colony's EVA walkers (docs/14 §4.3) */
+  readonly settlers: Settlers;
+  /** The hazards' visual hooks (core/hazards.ts hazardView().fx): 'smoke'
+   *  (a breach warned) and 'vent' (a breach open) plume from the hull. */
+  fxOf?: (id: number) => readonly string[] | undefined;
+  private plumes: { id: number; vent: boolean; e: DustEmitter }[] = [];
+  private plumeAcc = 1;
   private film = new Map<number, number>();
   private filmAcc = 0;
   private failed = new Set<Part>();
@@ -75,10 +90,12 @@ export class BaseLife {
     this.resupply = new ResupplyFx(hf);
     this.berms = new Berms(hf);
     this.prints = new Footprints(hf);
-    this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = requestShadowUpdate;
+    this.links = new Links(hf);
+    this.settlers = new Settlers(hf);
+    this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = this.links.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
-      this.berms.mesh, this.swarm.group, this.prints.mesh);
+      this.berms.mesh, this.swarm.group, this.prints.mesh, this.links.group, this.settlers.group);
   }
 
   update(f: LifeFrame) {
@@ -98,12 +115,16 @@ export class BaseLife {
     this.run('resupply', () => this.resupply.update(s, this.earthAzim, vdt));
     this.run('launch', () => this.launch.update(vdt));
     this.run('berms', () => this.berms.update(s));
+    this.run('links', () => this.links.update(s));
+    this.run('settlers', () => this.settlers.update(gdt, s, this.failed.has('links') ? EMPTY : this.links.ground, f.sunDir, f.sunLight));
     this.run('swarm', () => this.swarm.update(f.camera, f.sunDir, s.swarmPct, f.dt));
     if (f.walker) this.run('prints', () => this.prints.update(f.walker!));
     this.run('film', () => this.updateFilm(s, gdt));
     this.run('dust', () => {
       const list: DustEmitter[] = [];
       this.resupply.emitters(list);
+      this.updatePlumes(s, f.dt);
+      for (const p of this.plumes) if (list.length < 6) list.push(p.e);
       const cands = this.emitList;
       cands.length = 0;
       this.rovers.emitters(f.camera.position, cands);
@@ -117,6 +138,57 @@ export class BaseLife {
       // a faint floor so night dust near the floods is not pure black
       this.dust.update(vdt, list, 0.015 + 0.45 * f.sunLight);
     });
+  }
+
+  /** What the audio hears of the destiny's life at a listener point (x, z),
+   *  `lift` m up (docs/14 §4.6): rotors near the drones, walkers near
+   *  enough to hear their radios, greenhouses and domes breathing; and how
+   *  many drones have taken off so far (each a data chirp). */
+  soundscape(s: GameState, x: number, z: number, lift: number) {
+    let garden = 0;
+    for (const b of s.buildings) {
+      if (b.type !== 'greenhouseRing' && b.type !== 'gardenDome' || (b.construction ?? 0) > 0) continue;
+      const [bx, bz] = centerOf(b);
+      garden += 1 / (1 + (Math.hypot(bx - x, bz - z, lift) / 30) ** 2);
+    }
+    return {
+      rotor: this.failed.has('rovers') ? 0 : this.rovers.drones.rotorLevel(x, z, lift),
+      walkers: this.failed.has('settlers') ? 0 : Math.min(1, this.settlers.near(x, z, 60 + lift) / 3),
+      garden: Math.min(1, garden),
+      launches: this.rovers.drones.launches,
+    };
+  }
+
+  /** Breach plumes (docs/14 §3.4): a thin wisp of leaking air while a breach
+   *  is warned, a jet of ice and grit once it vents — through the dust slots,
+   *  so no draw call is added. Sources are refreshed twice a second. */
+  private updatePlumes(s: GameState, dt: number) {
+    this.plumeAcc += dt;
+    if (this.plumeAcc < 0.5) return;
+    this.plumeAcc = 0;
+    const next: typeof this.plumes = [];
+    if (this.fxOf) {
+      for (const b of s.buildings) {
+        const fx = this.fxOf(b.id);
+        if (!fx || !(fx.includes('smoke') || fx.includes('vent'))) continue;
+        const vent = fx.includes('vent');
+        const old = this.plumes.find((p) => p.id === b.id);
+        const [cx, cz] = centerOf(b);
+        const a = -b.rot * Math.PI / 2;
+        // out of the hull's +x flank, mid-height
+        const dx = Math.cos(a), dz = -Math.sin(a);
+        const half = BUILDINGS[b.type].footprint[0] * 2 - 1.2;
+        const x = cx + dx * half, z = cz + dz * half;
+        const y = this.hf.sample(x, z) + Math.min(4, BUILDINGS[b.type].height * 0.45);
+        const e = old?.e ?? { x, y, z, strength: 0, vx: 0, vy: 0, vz: 0, hSpread: 0, vSpread: 0, size: 0 };
+        Object.assign(e, vent
+          ? { x, y, z, strength: 1, vx: dx * 3.6, vy: 1.3, vz: dz * 3.6, hSpread: 0.9, vSpread: 1.6, size: 0.07 }
+          : { x, y, z, strength: 0.4, vx: dx * 0.8, vy: 0.6, vz: dz * 0.8, hSpread: 0.35, vSpread: 0.5, size: 0.05 });
+        next.push({ id: b.id, vent, e });
+        if (next.length >= 4) break;
+      }
+    }
+    this.plumes = next;
   }
 
   /** A volley just left the mass driver (Game.doLaunch). */
@@ -142,6 +214,7 @@ export class BaseLife {
       const objects: Partial<Record<Part, THREE.Object3D>> = {
         rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
         resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group, prints: this.prints.mesh,
+        links: this.links.group, settlers: this.settlers.group,
       };
       const o = objects[part];
       if (o) o.visible = false;
@@ -188,6 +261,9 @@ export class BaseLife {
       berms: this.berms.count,
       swarmGlints: this.swarm.count,
       footprints: this.prints.count,
+      plumes: this.plumes.map((p) => ({ id: p.id, vent: p.vent })),
+      links: this.links.info(),
+      settlers: this.settlers.info(),
       panelFilm: Math.round(film * 1000) / 1000,
       failed: [...this.failed],
     };

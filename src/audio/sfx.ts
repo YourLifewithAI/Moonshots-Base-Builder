@@ -5,6 +5,11 @@
  *  rovers are heard through the suit's contact mics (audio/roverVoices.ts),
  *  and a generative ambient score plays under it all (audio/music.ts).
  *
+ *  The destiny (docs/14 §4.6): the score follows the base's lean
+ *  (setDestiny); drones hum near their hives, EVA walkers' radios squelch
+ *  now and then, greenhouses breathe (setLife); Automation's hazards get a
+ *  dry modem chirp (the 'modem' cue), which a drone taking a job plays too.
+ *
  *  Buses: effects and music each have their own volume, both feed the
  *  master volume, and a limiter guards the output. Cues sit mostly above
  *  150 Hz so laptop speakers carry them; the sub layers are for headphones.
@@ -14,15 +19,27 @@
  *  the game. The sim stays silent; game.ts diffs state and calls play(). */
 
 export type Cue =
-  | 'tick' | 'place' | 'invalid' | 'built' | 'research' | 'warn' | 'crit' | 'nightfall' | 'launch' | 'era';
+  | 'tick' | 'place' | 'invalid' | 'built' | 'research' | 'warn' | 'crit' | 'nightfall' | 'launch' | 'era'
+  | 'modem' | 'squelch';
 
-export const CUES: readonly Cue[] = ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'era'];
+export const CUES: readonly Cue[] = ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'era',
+  'modem', 'squelch'];
 
 /** real-time floor between two plays of one cue, so 10× speed never spams */
 const MIN_GAP_MS: Record<Cue, number> = {
   tick: 45, place: 70, invalid: 160, built: 1200, research: 1500,
   warn: 3500, crit: 5000, nightfall: 20_000, launch: 2000, era: 4000,
+  modem: 900, squelch: 2500,
 };
+
+/** What lives near the listener (docs/14 §4.6), 0..1 each: the drones'
+ *  rotors, EVA walkers (their radios squelch now and then), greenhouses
+ *  and garden domes (their air handlers). */
+export interface Life {
+  rotor: number;
+  walkers: number;
+  garden: number;
+}
 
 const QUINDAR_IN = 2525;
 const QUINDAR_OUT = 2475;
@@ -71,6 +88,12 @@ class Sfx {
   private hum: { gain: GainNode; oscs: OscillatorNode[]; beat: OscillatorNode } | null = null;
   private breath: { gain: GainNode } | null = null;
   private warned = false;
+  /** the destiny's layers: the rotor hum, the greenhouse air, the walkers' squelch clock */
+  private life: Life = { rotor: 0, walkers: 0, garden: 0 };
+  private rotor: { gain: GainNode } | null = null;
+  private garden: { gain: GainNode } | null = null;
+  private nextSquelch = 0;
+  private lean = 0;
 
   /** First user gesture: create the context, or resume a suspended one. */
   unlock() {
@@ -140,6 +163,38 @@ class Sfx {
     }
   }
 
+  /** The base's lean, −1 (Automation) … +1 (Colony): the score follows on its next chord. */
+  setDestiny(lean: number) {
+    this.lean = Number.isFinite(lean) ? lean : 0;
+    try { this.music?.setDestiny(this.lean); } catch (e) { this.fail(e); }
+  }
+
+  /** The score's hazard hooks (docs/14 §4.6): hold the chord through a crit
+   *  telegraph; keep to the night pool after a death. */
+  holdScore(on: boolean) { try { this.music?.hold(on); } catch (e) { this.fail(e); } }
+  mourn() { try { this.music?.mourn(); } catch (e) { this.fail(e); } }
+
+  /** Twice a second: what lives near the listener (rotors, walkers, gardens). */
+  setLife(l: Life) {
+    this.life = l;
+    const ctx = this.ctx;
+    if (!ctx || this.dead || !this.master || ctx.state !== 'running') return;
+    try {
+      const now = ctx.currentTime;
+      if (l.rotor > 0.01 && !this.rotor) this.rotor = this.buildRotor();
+      if (l.garden > 0.01 && !this.garden) this.garden = this.buildGarden();
+      const duck = this.ducked ? 0.15 : 1;
+      this.rotor?.gain.gain.setTargetAtTime(0.05 * Math.min(1, l.rotor) * duck, now, 0.4);
+      this.garden?.gain.gain.setTargetAtTime(0.018 * Math.min(1, l.garden) * duck, now, 0.8);
+      // a walker's radio keys up now and then: more walkers, more often
+      const t = performance.now();
+      if (l.walkers > 0 && !this.ducked && t >= this.nextSquelch) {
+        if (this.nextSquelch > 0) this.play('squelch');
+        this.nextSquelch = t + (14_000 - 6_000 * Math.min(1, l.walkers)) * (0.7 + Math.random() * 0.6);
+      }
+    } catch (e) { this.fail(e); }
+  }
+
   setAmbience(a: Ambience) {
     this.amb = a;
     try { this.applyAmbience(); } catch (e) { this.fail(e); }
@@ -165,6 +220,8 @@ class Sfx {
       ducked: this.ducked,
       music: this.music?.info() ?? null,
       rovers: this.rovers?.info() ?? null,
+      /** the destiny's layers (docs/14 §4.6) */
+      life: { ...this.life, lean: this.lean, rotor: !!this.rotor, garden: !!this.garden },
       output: this.readMeter(),
     };
   }
@@ -262,6 +319,7 @@ class Sfx {
     try {
       this.music = new Music(ctx, this.musicBus);
       this.music.setMood(this.amb.night ? 'night' : 'day');
+      this.music.setDestiny(this.lean);
       this.music.setLevel(this.muted ? 0 : this.volume * this.musicVolume);
       this.music.start();
     } catch (e) {
@@ -376,6 +434,20 @@ class Sfx {
         this.tone('sine', 1174.66, t + 0.7, 1.4, 0.04, m, undefined, 0.005);
         break;
       }
+      case 'modem': {
+        // a dry two-tone data chirp (Automation's hazards; a drone taking a job)
+        for (let i = 0; i < 4; i++) {
+          this.tone('square', i % 2 ? 1270 : 2225, t + i * 0.045, 0.04, 0.03, m, undefined, 0.002);
+        }
+        this.tone('sine', 2100, t + 0.2, 0.05, 0.02, m, 1400, 0.002);
+        break;
+      }
+      case 'squelch': {
+        // a suit radio keying up: a burst of hiss through the radio band, a click
+        this.hiss(t, 0.16, 0.05, 'bandpass', 2200, 0.7, radio, 1500, 0.004);
+        this.tone('square', 1100, t + 0.15, 0.02, 0.03, radio, undefined, 0.001);
+        break;
+      }
       case 'launch': {
         const ctx = this.ctx!;
         const lp = ctx.createBiquadFilter();
@@ -441,6 +513,62 @@ class Sfx {
     room.connect(rg).connect(lp);
     room.start();
     return { gain, oscs: [base, beat, third], beat };
+  }
+
+  /** Drone rotors: a low buzz with a blade-pass flutter, band-passed, heard
+   *  as through the suit's contact mics. Built on first need. */
+  private buildRotor() {
+    const ctx = this.ctx!;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 900; lp.Q.value = 0.7;
+    lp.connect(gain).connect(this.fx!);
+    const saw = ctx.createOscillator();
+    saw.type = 'sawtooth'; saw.frequency.value = 118;
+    const am = ctx.createGain();
+    am.gain.value = 0.5;
+    const flutter = ctx.createOscillator();
+    flutter.frequency.value = 31;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.35;
+    flutter.connect(depth).connect(am.gain);
+    saw.connect(am).connect(lp);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = 240; bp.Q.value = 1.6;
+    const ng = ctx.createGain();
+    ng.gain.value = 0.6;
+    src.connect(bp).connect(ng).connect(am);
+    saw.start(); flutter.start(); src.start();
+    return { gain };
+  }
+
+  /** Greenhouse air: the rings' and domes' air handlers and misters, a soft
+   *  high hiss breathing slowly. Built on first need. */
+  private buildGarden() {
+    const ctx = this.ctx!;
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.loop = true;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1800; hp.Q.value = 0.5;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass'; lp.frequency.value = 5200; lp.Q.value = 0.5;
+    const amp = ctx.createGain();
+    amp.gain.value = 0.6;
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 0.09;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.35;
+    lfo.connect(depth).connect(amp.gain);
+    src.connect(hp).connect(lp).connect(amp).connect(gain).connect(this.fx!);
+    src.start(); lfo.start();
+    return { gain };
   }
 
   /** band-passed noise swelling on a slow LFO: one breath every ~4 s, the

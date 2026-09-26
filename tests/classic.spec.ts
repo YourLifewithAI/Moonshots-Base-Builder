@@ -503,3 +503,49 @@ test('frame cost: draw calls, triangles and frame time stay small in classic', a
   expect(classic.frame.calls).toBeLessThan(detailed.frame.calls);
   expect(classic.median, 'median frame (ms)').toBeLessThan(Math.max(250, detailed.median * 1.1));
 });
+
+test('palette: LEAF maps to its own key; the destiny buildings take their overrides and render on the classic program', async ({ page }) => {
+  test.setTimeout(150_000);
+  await boot(page, 'mare', '&exp=robotic');
+  const r = await page.evaluate(async () => {
+    const C = await import('/src/buildings/classicBuilding.ts');
+    const K = await import('/src/buildings/meshKit.ts');
+    const R = await import('/src/buildings/recipes.ts');
+    const Color = C.CLASSIC_COLD.constructor as any;
+    const has = (type: string, hex: number) => {
+      const col = C.classicColors(R.recipeGeometry(type as any)).array as Float32Array;
+      const c = new Color(hex);
+      for (let i = 0; i < col.length; i += 3) {
+        if (Math.abs(col[i] - c.r) < 1e-4 && Math.abs(col[i + 1] - c.g) < 1e-4 && Math.abs(col[i + 2] - c.b) < 1e-4) return true;
+      }
+      return false;
+    };
+    const g = window.__game!;
+    g.setPaused(true);
+    g.openRoads(true);
+    for (const t of ['droneHives', 'greenhouseRings', 'gardenDomes', 'fleetOS', 'lunarDataCenter']) g.completeTech(t);
+    g.grantResources({ metals: 900, silicon: 200, parts: 300, chips: 100 });
+    for (const type of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+      let ok = false;
+      for (let rr = 5; rr < 30 && !ok; rr++) for (let dx = -rr; dx <= rr && !ok; dx += 2) ok = g.placeBuilding(type, 127 + dx, 127 - rr) || g.placeBuilding(type, 127 + dx, 127 + rr);
+    }
+    g.finishConstruction();
+    g.advanceGameSeconds(1);
+    return {
+      leaf: C.finishKey(K.LEAF.v, K.LEAF.rough, K.LEAF.metal, K.LEAF.emit ?? 0),
+      leafHex: C.CLASSIC_PALETTE.leaf,
+      // the old fallback would have read LEAF's value as dark blue cells
+      others: [K.GLASS, K.TRIM, K.PLATE].map((f) => C.finishKey(f.v, f.rough, f.metal, f.emit ?? 0)),
+      ringLeaf: has('greenhouseRing', 0x5f8f3f), domeLeaf: has('gardenDome', 0x5f8f3f),
+      monolithHull: has('serverMonolith', 0x23262b), monolithGlass: has('serverMonolith', 0x0f3a44),
+      hiveHull: has('droneHive', 0x3a3f46), domeRibs: has('gardenDome', 0xc4c8ce),
+      habitatNoLeaf: !has('habitat', 0x5f8f3f),
+      materials: g.getRenderInfo().buildingMaterials,
+    };
+  });
+  expect(r.leaf).toBe('leaf');
+  expect(r.leafHex).toBe(0x5f8f3f);
+  expect(r.others).toEqual(['cell', 'trim', 'panel']);
+  expect(r).toMatchObject({ ringLeaf: true, domeLeaf: true, monolithHull: true, monolithGlass: true, hiveHull: true, domeRibs: true, habitatNoLeaf: true });
+  for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) expect(r.materials[t], t).toBe('ShaderMaterial');
+});

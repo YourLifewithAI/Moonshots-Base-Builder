@@ -66,6 +66,7 @@ import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBui
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
+import { leanFrom } from '../buildings/look';
 import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buildCam';
 import { ISO_FOV, IsoCam } from '../player/isoCam';
@@ -353,6 +354,10 @@ export class Game {
     // an excavator away from its pad is drawn by the haulers, not the pad instance
     this.life.haulers.onAway = (ids) => this.instances.setHidden(ids);
     this.life.haulers.darkOf = (id) => this.instances.darkness.of(id);
+    // the hazards' look (docs/14 §3): flicker, dark, tints on the instances; plumes in the dust
+    const hazardFx = (id: number) => $hazards.get()?.fx?.[id];
+    this.instances.fxOf = hazardFx;
+    this.life.fxOf = hazardFx;
     this.fleetTarget?.cancel();
     this.fleetTarget = new FleetTarget({
       state: () => this.state, mods: () => this.mods, hf: this.hf,
@@ -1534,6 +1539,7 @@ export class Game {
         margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening,
         night: currentDay(this.state, SITES[this.state.siteId]).nightFactor > 0.5,
       });
+      this.cueDestiny(tweening);
     }
     this.updateDepositMarkers();
 
@@ -1590,6 +1596,37 @@ export class Game {
       void this.doSave();
     }
   }
+
+  private droneLaunches = -1;
+  /** The destiny's sound (docs/14 §4.6), twice a second: the score follows
+   *  the lean from $destiny; rotors, walkers' radios and greenhouse air by
+   *  what is near the listener; a data chirp as a drone takes a job. */
+  private cueDestiny(tweening: boolean) {
+    const d = $destiny.get();
+    sfx.setDestiny(leanFrom(d.c, d.a, d.band));
+    const onFoot = this.modes.mode === 'walk' && !tweening;
+    const at = onFoot ? this.walk.pos : this.buildCam.target;
+    const lift = onFoot ? 0 : 0.3 * this.camera.position.distanceTo(this.buildCam.target);
+    const life = this.life.soundscape(this.state, at.x, at.z, lift);
+    sfx.setLife(life);
+    if (this.droneLaunches >= 0 && life.launches > this.droneLaunches) sfx.play('modem');
+    this.droneLaunches = life.launches;
+    // the hazards (docs/14 §4.6): a lethal telegraph holds the score; a death
+    // keeps it to the night pool; an Automation hazard starts with a modem chirp
+    const hz = $hazards.get();
+    if (!hz) return;
+    sfx.holdScore(hz.active.some((h) => h.phase === 'telegraph' && (h.lethal || h.destroys) && !h.drill));
+    const deaths = hz.deaths;
+    if (this.hazardDeaths >= 0 && deaths > this.hazardDeaths) sfx.mourn();
+    this.hazardDeaths = deaths;
+    let fresh = false;
+    for (const h of hz.active) {
+      if (h.side === 'automation' && !this.hazardsHeard.has(h.id)) { this.hazardsHeard.add(h.id); fresh = true; }
+    }
+    if (fresh) sfx.play('modem');
+  }
+  private hazardDeaths = -1;
+  private hazardsHeard = new Set<number>();
 
   /** A refused action (a warn event raised or repeated by it) blips, and
    *  stays off the radio: the player caused it and is looking at it. */

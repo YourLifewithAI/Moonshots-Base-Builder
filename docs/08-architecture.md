@@ -25,6 +25,7 @@ src/
     actions.ts            typed Action union + ActionQueue (UI → sim)
     economy.ts            the 1 Hz economy tick — the entire simulation
     mods.ts               tech-effect modifiers (computeMods) + era computation
+    fleet.ts              the rover roster and assignments; unitKind (a Drone Hive's units are drones)
     research.ts           availability, cost, the queue, charters (the destiny pick gates eras 3–8),
                           destinyOf (the meter, the band, the reach), techSchema migration
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
@@ -61,10 +62,17 @@ src/
     rocks.ts              instanced boulder scatter (power-law sizes, crater blocks)
   buildings/
     meshKit.ts            parametric kit + detail helpers; bakes value + per-vertex finish (`mat`)
-    recipes.ts            21 building silhouettes + moving-part mounts (cached)
+    recipes.ts            25 building silhouettes (the 4 destiny buildings too) + moving-part mounts (cached)
+    upgrades.ts           research you can see: each tech's parts per type, the upgrade key
+    destinyParts.ts       the destiny's parts (docs/14 §4.1): 16 picks, 3 capstones, the 4 new types' lists
+    look.ts               the destiny's lean (−1 ◉ … +1 ⌂) and each structure's light warmth (iWarm)
+    links.ts              walkways (⌂) and conveyor spines (◉): planned on the grid round the roads,
+                          skybridges over them; one merged mesh per layer, rebuilt on change
     buildingShader.ts     building patch: finishes, seams, windows, beacons, print reveal, floods
-    instances.ts          one InstancedMesh per type + iState; floods, discs fallback, scaffold, picking, AABBs
-    classicBuilding.ts    classic palette (per finish, per type), the classic building shader, lightLevel()
+    instances.ts          one InstancedMesh per type + iState, iWarm (per type and lean), iAlarm (the
+                          hazards' hook, `alarmOf`); floods, discs fallback, scaffold, picking, AABBs
+    classicBuilding.ts    classic palette (per finish incl. `leaf`, per type), the classic building shader
+                          (warm ↔ cold light by iWarm, the alarm flicker), lightLevel()
     classicFloods.ts      classic night floods: draped additive pools at each structure's light level
     contactDecals.ts      classic contact decals under every footprint (no shadow map)
     darkness.ts           per-structure darkness k (night, low or set sun, terrain shadow) for the base's own lights
@@ -86,7 +94,9 @@ src/
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
                           classic = plain, no ladder; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
-    rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads
+    rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads; and DroneFlight,
+                          the Drone Hive's units flying straight at 6–10 m, off the roads and out of traffic
+    settlers.ts           EVA walkers (⌂): one per EVA crew, on free cells only (never a road), home at night
     haulers.ts            excavators away from their pads, following the sim's road legs
     traffic.ts            units on the road cells: lane holds, excavator gates, queues, the deadlock breaker
     roads.ts              the road mesh: merged draped strips, markings by tier, beacon posts, pending cells
@@ -101,6 +111,12 @@ src/
     modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° or 20° iso / 70°)
     footprints.ts         instanced bootprint ring buffer
     roadTool.ts           the road tool [N]: drag out a road from the network, Alt-drag removes
+  audio/
+    sfx.ts                procedural cues, suit radio, hum, breath; buses, limiter, meter; the destiny's
+                          layers (docs/14 §4.6): rotor hum, walkers' squelch, greenhouse air, modem chirp
+    music.ts              the generative score: day and night pools, tilted by the lean (setDestiny);
+                          the hazards' hooks hold() and mourn()
+    roverVoices.ts        the rovers' motors and servo chirps
   ui/
     tokens.css / ui.css   design tokens + HUD layout (see 07)
     stores.ts             nanostores atoms — the one-way sim → UI bridge

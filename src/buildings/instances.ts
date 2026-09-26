@@ -41,6 +41,7 @@ import { lightLevel } from './classicBuilding';
 import { ContactDecals } from './contactDecals';
 import { ClassicFloods } from './classicFloods';
 import type { WorkSpot } from '../world/lighting';
+import { leanOf, warmthOf } from './look';
 
 const MAX_PER_TYPE = 96;
 
@@ -100,6 +101,18 @@ export class BuildingInstances {
   onShadowCastersChanged?: () => void;
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
+  /** Building-state visual hook (docs/14 §3, the hazards): how alarmed a
+   *  structure is, 0 calm … 1 full. Read on every rebuild (each economy tick)
+   *  into its instance's `iAlarm`; above 0 its windows and lamps flicker red
+   *  in both styles. Unset: every structure calm. */
+  alarmOf?: (b: BuildingState) => number;
+  /** The hazards' visual hooks (core/hazards.ts hazardView().fx), per
+   *  structure: 'flicker' (infected) and 'strip' (rogue drones) raise its
+   *  alarm; 'dark' (a cascade) puts its lights and pool out; 'blight' and
+   *  'dust' tint its hull; 'smoke' and 'vent' are plumes (world/life.ts). */
+  fxOf?: (id: number) => readonly string[] | undefined;
+  /** the lean the light colours were last written at (debug) */
+  lean = 0;
   /** buildings drawn elsewhere: an excavator away from its pad (world/haulers.ts) */
   private hidden = new Set<number>();
   /** classic style: per-instance light levels, contact decals */
@@ -285,12 +298,13 @@ export class BuildingInstances {
     const types = new Set<BuildingId>(this.meshes.keys());
     for (const b of state.buildings) types.add(b.type);
     let sig = '';
+    this.lean = leanOf(state.techsDone);
     for (const type of types) sig += this.rebuildType(state, type);
 
     sig += `|keys:${[...this.keys.values()].join(';')}`;
     // a digger out on its haul leaves its pad unlit: no flood, pool or disc
     const lit = state.buildings.filter((b) =>
-      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled && !this.hidden.has(b.id));
+      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled && !this.hidden.has(b.id) && !this.hasFx(b.id, 'dark'));
     this.litIds = lit.map((b) => b.id);
     this.litAt = lit.map((b) => {
       const [x, z] = centerOf(b);
@@ -363,13 +377,19 @@ export class BuildingInstances {
       const list = this.lists.get(type) ?? [];
       const glow = mesh.geometry.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
       if (!glow) continue;
-      for (let i = 0; i < mesh.count; i++) glow.setX(i, list[i] ? lightLevel(list[i], this.darkness.of(list[i].id)) : 0);
+      for (let i = 0; i < mesh.count; i++) {
+        glow.setX(i, list[i] && !this.hasFx(list[i].id, 'dark') ? lightLevel(list[i], this.darkness.of(list[i].id)) : 0);
+      }
       glow.needsUpdate = true;
     }
     const byId = new Map(this.litList.map((b) => [b.id, b]));
+    const crewed = (this.last?.crew ?? 0) > 0;
     this.pools?.setLevels((id) => {
       const b = byId.get(id);
       return b ? lightLevel(b, this.darkness.of(b.id)) : 0;
+    }, (id) => {
+      const b = byId.get(id);
+      return b ? warmthOf(b.type, this.lean, crewed) : 1;
     });
   }
 
@@ -395,7 +415,11 @@ export class BuildingInstances {
   }
 
   private static DIM = new THREE.Color(0.45, 0.45, 0.5);   // construction site (squash path)
-  private static DARK = new THREE.Color(0.55, 0.55, 0.6);   // browned-out (lights off)
+  private static DARK = new THREE.Color(0.55, 0.55, 0.6);   // browned-out (lights off), or a cascade
+  private static BLIGHT = new THREE.Color(0.86, 0.76, 0.56); // a blighted farm yellows
+  private static DUSTY = new THREE.Color(0.8, 0.78, 0.74);   // airlocks clogging with dust
+
+  private hasFx(id: number, f: string): boolean { return !!this.fxOf?.(id)?.includes(f); }
   private static FULL = new THREE.Color(1, 1, 1);
 
   /** Returns this type's caster signature (placements + rise). */
@@ -404,6 +428,9 @@ export class BuildingInstances {
     const list = state.buildings.filter((b) => b.type === type);
     mesh.count = Math.min(list.length, MAX_PER_TYPE);
     const st = mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
+    const warmA = mesh.geometry.getAttribute('iWarm') as THREE.InstancedBufferAttribute;
+    const alarmA = mesh.geometry.getAttribute('iAlarm') as THREE.InstancedBufferAttribute;
+    const warmth = warmthOf(type, this.lean, state.crew > 0);
     const topY = mesh.geometry.boundingBox?.max.y ?? BUILDINGS[type].height;
     const reveal = this.reveal;
     const mat = new THREE.Matrix4();
@@ -425,19 +452,28 @@ export class BuildingInstances {
       const sxz = this.hidden.has(b.id) ? 0 : 1;
       mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(sxz, sy, sxz));
       mesh.setMatrixAt(i, mat);
-      const powered = progress >= 1 && b.enabled && b.idleReason !== 'power';
+      const fx = this.fxOf?.(b.id);
+      const dark = !!fx?.includes('dark');
+      const powered = progress >= 1 && b.enabled && b.idleReason !== 'power' && !dark;
       const color = progress < 1 && !reveal ? BuildingInstances.DIM
-        : b.idleReason === 'power' ? BuildingInstances.DARK
+        : b.idleReason === 'power' || dark ? BuildingInstances.DARK
+        : fx?.includes('blight') ? BuildingInstances.BLIGHT
+        : fx?.includes('dust') ? BuildingInstances.DUSTY
         : BuildingInstances.FULL;
       mesh.setColorAt(i, color);
       // lit, and the darkness it stands in (the shader's light level)
       st.setXYZW(i, litChannel(powered, this.darkness.of(b.id)), b.dust ?? 0, b.wear ?? 0, cut);
+      warmA.setX(i, warmth);
+      const hazard = fx?.includes('flicker') ? 1 : fx?.includes('strip') ? 0.6 : 0;
+      alarmA.setX(i, Math.max(hazard, this.alarmOf ? Math.max(0, Math.min(1, this.alarmOf(b) || 0)) : 0));
       order.push(b.id);
       sig += `|${b.gx},${b.gz},${b.rot},${sy.toFixed(3)},${cut === CUT_NONE ? '-' : cut.toFixed(2)}`;
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     st.needsUpdate = true;
+    warmA.needsUpdate = true;
+    alarmA.needsUpdate = true;
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
     this.lists.set(type, list.slice(0, MAX_PER_TYPE));
@@ -475,6 +511,18 @@ export class BuildingInstances {
       const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
       // the lit channel is 0 (unpowered), 1 (lit at the night) or 2 + k: powered is ≥ 0.5
       return { glow: glow ? glow.getX(i) : null, powered: g.getAttribute('iState').getX(i) >= 0.5 ? 1 : 0 };
+    }
+    return null;
+  }
+
+  /** A structure's light colour and alarm as its instance carries them
+   *  (tests): iWarm (0 cold … 1 warm) and iAlarm (0 calm). */
+  lookOf(id: number): { warm: number; alarm: number; lean: number } | null {
+    for (const [type, order] of this.ids) {
+      const i = order.indexOf(id);
+      if (i < 0) continue;
+      const g = this.meshes.get(type)!.geometry;
+      return { warm: g.getAttribute('iWarm').getX(i), alarm: g.getAttribute('iAlarm').getX(i), lean: this.lean };
     }
     return null;
   }

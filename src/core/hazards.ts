@@ -34,6 +34,7 @@ import { alert, condition, landerAction } from './economy';
 import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 import { dropSpur } from './roads';
+import { isDrone as fleetIsDrone } from './fleet';
 import { buildCostAt, freezeRules, logAuto, postIncidentAudit, ruleBuilding, runawaySite, type AutoRequest } from './automation';
 import { centerOf } from '../buildings/instances';
 
@@ -546,9 +547,8 @@ export function wreckBuilding(s: GameState, id: number, wrecked: number[]) {
   wrecked.push(id);
 }
 
-/** a drone: a rover docked at a Drone Hive (fleet.ts may also tag it) */
-export const isDrone = (s: GameState, r: RoverUnit) =>
-  (r as RoverUnit & { kind?: string }).kind === 'drone' || byId(s, r.home)?.type === 'droneHive';
+/** a drone: fleet.ts's unit kind (tagged one, or docked at a Drone Hive) — one source of truth */
+export const isDrone = (s: GameState, r: RoverUnit) => fleetIsDrone(s, r);
 const away = (r: RoverUnit) => r.site !== null || r.road !== undefined;
 
 /** A rover lost for good: its dock slot stays empty until the dock prints another. */

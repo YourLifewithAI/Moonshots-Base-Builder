@@ -11,8 +11,9 @@
 import * as THREE from 'three';
 import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
+import { TECHS, type TechId } from '../data/techs';
 import {
-  BEACON, BODY, FOIL, GLASS, LAMP, PLATE, RADIATOR, TRIM, WINDOW,
+  BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW,
   antenna, archWall, bands, bar, berm, box, cableTray, circle, cyl, dome, domeBand, door, junction,
   ladder, lathe, lattice, merge, pane, pipe, radiator, rail, vault, windowRing, windowStrip,
 } from './meshKit';
@@ -632,86 +633,147 @@ function propellantPlant(): Parts {
   return p;
 }
 
-// ─── destiny buildings (docs/14 §2.8): placeholder silhouettes from the stock
-// kit, sized to their footprints; the look phase (docs/14 §4.2) replaces them ───
+// ─── the destiny buildings (docs/14 §2.8, §4.2) ───
 
-/** Greenhouse Ring (4×4 cells): eight glass vaults on sills round a domed hub, a porch at +z. */
+/** Greenhouse Ring (4×4 cells, 16 m): eight vault segments on BODY sills in
+ *  a ring round a domed hub — the vault shells LEAF (the crop seen through
+ *  the glass: green under glass is the Colony's signature), ribbed, with a
+ *  glazed crown and LAMP grow strips on the ribs; four spokes to the hub,
+ *  and a door porch at +z. */
 function greenhouseRing(): Parts {
   const p: Parts = [
-    cyl(2.3, 2.5, 2.0, BODY, 0, 1.0, 0, 0, 0, 20),
-    dome(2.3, GLASS, 0, 2.0, 0, 20),
-    domeBand(2.33, 1.0, 1.08, TRIM, 0, 2.0, 0, 20),
-    box(1.8, 1.9, 1.4, BODY, 0, 0.95, 7.0),
-    box(1.9, 0.14, 1.5, TRIM, 0, 1.97, 7.0),
-    door(0, 7.7, 0, 1.0, 1.5),
-    antenna(1.2, 4.0, 0, 1.6),
+    box(15.2, 0.3, 15.2, TRIM, 0, 0.15, 0),
+    cyl(2.2, 2.4, 2.4, BODY, 0, 1.2, 0, 0, 0, 16, true),
+    dome(2.2, GLASS, 0, 2.4, 0, 16),
+    domeBand(2.23, 0, 0.34, WINDOW, 0, 2.4, 0, 12),
+    domeBand(2.24, 1.0, 1.08, TRIM, 0, 2.4, 0, 16),
+    antenna(1.1, 4.1, -0.9, 1.6),
+    // the porch at +z (the ring's joint): an airlock box, its door and lamp
+    box(1.9, 2.1, 1.6, BODY, 0, 1.05, 7.0),
+    box(2.0, 0.14, 1.7, TRIM, 0, 2.17, 7.0),
+    door(0, 7.8, 0, 1.0, 1.6),
   ];
-  const r = 5.2;
+  const R0 = 5.4, len = 4.5;
   for (let k = 0; k < 8; k++) {
     const a = (k / 8) * PI * 2 + PI / 8;
-    const x = Math.cos(a) * r, z = Math.sin(a) * r;
+    const x = Math.cos(a) * R0, z = Math.sin(a) * R0;
+    const seg: BufferGeometry[] = [
+      box(3.9, 0.6, len, BODY, 0, 0.3, 0),
+      vault(1.72, len - 0.1, LEAF, 0, 0.6, 0, 0, PI, 12),
+      vault(1.74, len - 0.2, WINDOW, 0, 0.6, 0, PI / 2 - 0.34, 0.68, 2),
+      ...[-1.5, 0, 1.5].map((dz) => vault(1.78, 0.14, TRIM, 0, 0.6, dz, 0, PI, 12)),
+      box(0.12, 0.06, len - 0.6, LAMP, 1.05, 2.02, 0, 0, -0.63),
+      box(0.12, 0.06, len - 0.6, LAMP, -1.05, 2.02, 0, 0, 0.63),
+    ];
+    p.push(seg.map((g) => g.rotateY(-a).translate(x, 0, z)));
+  }
+  // spokes: pressurized corridors from the hub to the ring
+  for (const a of [0, PI / 2, PI, PI * 1.5]) {
+    if (Math.abs(a - PI / 2) < 1e-6) continue; // the porch side
+    const c = Math.cos(a), s = Math.sin(a);
+    p.push(bar([c * 2.2, 1.05, s * 2.2], [c * 3.9, 1.05, s * 3.9], 1.3, BODY));
+    p.push(bar([c * 2.2, 1.75, s * 2.2], [c * 3.9, 1.75, s * 3.9], 0.25, WINDOW));
+  }
+  return p;
+}
+
+/** Garden Dome (5×5 cells, 20 m): a 10 m glass dome — its crown GLASS on
+ *  silver TRIM ribs, its lower band LEAF (the park's canopy seen through the
+ *  glass) — on a BODY ring wall of three stepped terraces, each with a lit
+ *  WINDOW band (the ten beds); a porch at +z and park lamps at the corners. */
+function gardenDome(): Parts {
+  const R = 8.3, Y = 3.4;
+  const q = (t: number): [number, number] => [R * Math.sin(t), Y + R * Math.cos(t)];
+  const p: Parts = [
+    // the terraced ring wall, bottom to top: three storeys stepping in
+    lathe([[9.8, 0], [9.75, 1.15], [9.1, 1.2], [9.05, 2.3], [8.45, 2.35], [8.4, 3.4], [7.9, 3.4]], BODY, 36),
+    cyl(9.78, 9.78, 0.64, WINDOW, 0, 0.62, 0, 0, 0, 36, true),
+    cyl(9.08, 9.08, 0.6, WINDOW, 0, 1.76, 0, 0, 0, 36, true),
+    cyl(8.43, 8.43, 0.56, WINDOW, 0, 2.86, 0, 0, 0, 36, true),
+    ...[0, 1, 2].map((k) => lathe([[9.82 - k * 0.68, 1.16 + k * 1.12], [9.1 - k * 0.66, 1.21 + k * 1.12]], TRIM, 36)),
+    // the dome: canopy band below, glass crown above
+    lathe([q(PI / 2), q(1.28), q(1.02)], LEAF, 32),
+    lathe([q(1.02), q(0.74), q(0.46), q(0.2), [0.001, Y + R]], GLASS, 32),
+    lathe([q(1.035), q(0.995)].map(([r, y]) => [r + 0.05, y] as [number, number]), TRIM, 32),
+    lathe([q(0.62), q(0.58)].map(([r, y]) => [r + 0.05, y] as [number, number]), TRIM, 32),
+    cyl(0.55, 0.6, 0.3, TRIM, 0, Y + R - 0.02, 0, 0, 0, 10),
+    dome(0.2, BEACON, 0, Y + R + 0.12, 0, 8),
+    // the porch at +z, its door and a PLATE apron
+    box(2.8, 2.6, 1.6, BODY, 0, 1.3, 9.0),
+    box(2.9, 0.14, 1.7, TRIM, 0, 2.67, 9.0),
+    door(0, 9.8, 0, 1.4, 2.0),
+  ];
+  // meridian ribs: eight, each four chords held just proud of the dome
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * PI * 2 + PI / 8;
+    const c = Math.cos(a), s = Math.sin(a);
+    const pts = [PI / 2, 1.15, 0.8, 0.45, 0.1].map((t) => { const [r, y] = q(t); return [c * (r + 0.2), y + 0.2 * Math.cos(t), s * (r + 0.2)] as const; });
+    for (let i = 0; i < 4; i++) p.push(bar(pts[i], pts[i + 1], 0.16, TRIM));
+  }
+  // park lamps on the pad's corners, outside the ring
+  for (const [x, z] of [[8.2, 8.2], [-8.2, 8.2], [8.2, -8.2], [-8.2, -8.2]]) {
     p.push(
-      box(3.9, 0.45, 3.9, TRIM, 0, 0.22, 0).rotateY(-a).translate(x, 0, z),
-      vault(1.75, 3.7, GLASS, 0, 0.45, 0, 0, PI, 14).rotateY(-a).translate(x, 0, z),
-      vault(1.78, 0.14, TRIM, 0, 0.45, 1.8, 0, PI, 14).rotateY(-a).translate(x, 0, z),
-      box(0.3, 0.08, 0.1, LAMP, 0, 2.1, 0).rotateY(-a).translate(x, 0, z),
+      cyl(0.08, 0.1, 3.2, TRIM, x, 1.6, z, 0, 0, 6),
+      box(0.5, 0.14, 0.5, TRIM, x, 0.07, z),
+      box(0.36, 0.2, 0.36, LAMP, x, 3.25, z),
     );
   }
   return p;
 }
 
-/** Garden Dome (5×5 cells): a glass dome on a ring wall of lit terraces, a porch at +z. */
-function gardenDome(): Parts {
-  const p: Parts = [
-    cyl(8.8, 9.1, 2.6, BODY, 0, 1.3, 0, 0, 0, 40),
-    ...bands(8.85, 0, 0, [0.9, 1.8, 2.55], TRIM, 0.12, 40),
-    ...windowRing(8.95, 1.35, 0.5, 18, 1.3),
-    dome(8.6, GLASS, 0, 2.6, 0, 36),
-    domeBand(8.64, 0.52, 0.56, TRIM, 0, 2.6, 0, 36),
-    domeBand(8.64, 1.02, 1.06, TRIM, 0, 2.6, 0, 36),
-    box(2.6, 2.4, 1.6, BODY, 0, 1.2, 9.1),
-    box(2.7, 0.14, 1.7, TRIM, 0, 2.47, 9.1),
-    ...door(0, 9.9, 0, 1.4, 2.0),
-    dome(0.2, BEACON, 0, 11.25, 0, 8),
-  ];
-  for (let k = 0; k < 6; k++) {
-    const a = (k / 6) * PI * 2;
-    p.push(bar([Math.cos(a) * 8.62, 2.6, Math.sin(a) * 8.62], [0, 11.1, 0], 0.1, TRIM));
-  }
-  return p;
-}
-
-/** Drone Hive (3×3 cells): a honeycomb dock wall with a lamp at each mouth, a landing deck. */
+/** Drone Hive (3×3 cells, 12 m): a honeycomb of hex-cell docks, 3 rows × 4,
+ *  each mouth dark with a LAMP over it; a PLATE landing deck in front with
+ *  four marked pads (the parked drones perch there, world/rovers.ts), a
+ *  BEACON, and a RADIATOR on the back. The Classic hull is dark. Uncrewed:
+ *  no door but the dock's, on the road at its front. */
 function droneHive(): Parts {
   const p: Parts = [
-    box(9.2, 3.6, 4.0, BODY, 0, 1.8, -2.8),
-    box(9.4, 0.3, 4.2, TRIM, 0, 3.75, -2.8),
-    box(5.4, 0.25, 4.8, PLATE, 0, 1.4, 2.7),
-    dome(0.16, BEACON, 2.3, 1.55, 4.7, 8),
-    ...radiator(3.2, 1.3, 0, 3.9, -4.4, PI),
-    door(-3.9, -0.8, 0, 1.0, 1.8),
+    box(11.0, 0.3, 11.0, TRIM, 0, 0.15, 0),
+    box(8.4, 0.5, 4.2, BODY, 0, 0.55, -2.8),
+    // the landing deck on four legs, its pads and corner lamps
+    box(8.4, 0.22, 5.2, PLATE, 0, 1.45, 2.6),
+    ...[[-3.9, 0.3], [3.9, 0.3], [-3.9, 4.9], [3.9, 4.9]].map(([x, z]) => bar([x, 0.3, z], [x, 1.35, z], 0.2, TRIM)),
+    ...HIVE_PADS.map(([x, z]) => box(1.7, 0.05, 1.7, TRIM, x, 1.58, z)),
+    ...HIVE_PADS.map(([x, z]) => box(0.9, 0.03, 0.9, PLATE, x, 1.62, z)),
+    ...[[-4.05, 0.15], [4.05, 0.15], [-4.05, 5.05], [4.05, 5.05]].map(([x, z]) => box(0.24, 0.12, 0.24, LAMP, x, 1.62, z)),
+    dome(0.18, BEACON, 0, 1.6, 5.0, 8),
+    ...radiator(3.4, 1.4, 0, 1.2, -5.2, PI),
+    antenna(-3.2, 5.0, -3.9, 1.6),
   ];
-  for (const [x, z] of [[-2.4, 0.5], [2.4, 0.5], [-2.4, 4.9], [2.4, 4.9]]) p.push(bar([x, 0, z], [x, 1.3, z], 0.16, TRIM));
+  // the honeycomb: hex prisms along z, staggered rows
   for (let row = 0; row < 3; row++) {
-    for (let col = 0; col < 4; col++) {
-      const x = -3.3 + col * 2.2 + (row % 2) * 0.55, y = 0.75 + row * 1.0;
+    const n = row % 2 ? 4 : 5;
+    for (let col = 0; col < n; col++) {
+      const x = (col - (n - 1) / 2) * 1.6, y = 1.55 + row * 1.35;
       p.push(
-        cyl(0.46, 0.46, 0.3, PLATE, x, y, -0.7, PI / 2, 0, 6),
-        box(0.24, 0.12, 0.06, LAMP, x, y + 0.2, -0.52),
+        cyl(0.86, 0.86, 3.9, BODY, x, y, -2.75, PI / 2, 0, 6),
+        cyl(0.62, 0.62, 0.06, GLASS, x, y, -0.78, PI / 2, 0, 6),
+        cyl(0.88, 0.88, 0.16, PLATE, x, y, -0.83, PI / 2, 0, 6, true),
+        box(0.34, 0.08, 0.06, LAMP, x, y + 0.5, -0.74),
       );
     }
   }
   return p;
 }
+/** where the Drone Hive's parked drones perch on its deck (building frame, the deck top at y 1.62) */
+export const HIVE_PADS: readonly (readonly [number, number])[] = [[-2.1, 1.3], [2.1, 1.3], [-2.1, 3.9], [2.1, 3.9]];
+export const HIVE_DECK_Y = 1.64;
 
-/** Server Monolith (2×2 cells): a 16 m windowless slab, a lamp stripe, a fin stack behind. */
+/** Server Monolith (2×2 cells, 8 m): a 16 m windowless slab of black glass
+ *  (near black in both styles; Classic's override), a vertical cold LAMP
+ *  stripe and thin teal status slits down its face, a RADIATOR fin stack at
+ *  the rear, a BEACON on top. */
 function serverMonolith(): Parts {
   const p: Parts = [
-    box(4.0, 0.5, 6.6, TRIM, 0, 0.25, 0),
-    box(3.0, 14.6, 5.2, BODY, 0, 7.8, -0.2),
+    box(4.2, 0.5, 6.8, TRIM, 0, 0.25, 0),
+    box(3.0, 14.6, 5.2, GLASS, 0, 7.8, -0.2), // black glass: dark in both styles
     box(3.1, 0.3, 5.3, TRIM, 0, 15.25, -0.2),
+    box(3.06, 0.12, 5.26, PLATE, 0, 5.0, -0.2),
+    box(3.06, 0.12, 5.26, PLATE, 0, 10.0, -0.2),
     box(0.2, 12.6, 0.06, LAMP, 0, 7.8, 2.42),
-    ...door(0, 2.4, 0, 0.9, 1.9, 0.5),
+    ...[-0.9, -0.55, 0.55, 0.9].map((x) => box(0.07, 9.6, 0.05, WINDOW, x, 8.6, 2.42)),
+    ...[-1.52, 1.52].map((x) => box(0.05, 9.6, 0.07, WINDOW, x, 8.6, 1.4)),
+    door(0, 2.4, 0, 0.9, 1.9, 0.5),
     dome(0.2, BEACON, 0, 15.4, -0.2, 8),
     antenna(0.9, 15.4, -1.4, 0.5),
   ];
@@ -809,8 +871,24 @@ export function recipeTriangles(key: Partial<Record<BuildingId, string>> = {}): 
   return out;
 }
 
+/** The heaviest set of a type's upgrades one run can hold at once: every
+ *  lane upgrade, but one side of each era's destiny pick (the landing is
+ *  Era 1's) and one capstone (docs/14 §4.1). */
+function fullKey(id: BuildingId, techs: readonly TechId[], one: (t: TechId) => number): string {
+  const groups = new Map<string, TechId>();
+  for (const t of techs) {
+    const d = TECHS[t];
+    const g = d.track ? `era${d.track.era}` : d.band ? 'capstone' : t;
+    const cur = groups.get(g);
+    if (!cur || one(t) > one(cur)) groups.set(g, t);
+  }
+  const keep = new Set(groups.values());
+  return techs.filter((t) => keep.has(t)).join(',');
+}
+
 export interface UpgradeBudget {
-  /** stock and fully upgraded triangles, moving parts included */
+  /** stock and fully upgraded triangles, moving parts included (fully: the
+   *  heaviest set one run can hold — one side of each destiny pick, one capstone) */
   base: number;
   full: number;
   /** what each upgrade adds to the recipe mesh on its own */
@@ -831,7 +909,7 @@ export function upgradeTriangles(): Record<string, UpgradeBudget> {
       parts[t] = tris(recipeGeometry(id, t)) - mesh0;
       movers[t] = withMounts(id, t) - base - parts[t];
     }
-    out[id] = { base, full: withMounts(id, techs.join(',')), parts, movers };
+    out[id] = { base, full: withMounts(id, fullKey(id, techs, (t) => parts[t] + movers[t])), parts, movers };
   }
   return out;
 }

@@ -203,7 +203,7 @@ for (const [name, stub] of Object.entries(STUBS)) {
     await page.locator('#menu [data-act="resume"]').click();
     // every cue, walk-mode breathing, nightfall, placement
     await page.evaluate(() => {
-      for (const c of ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch']) {
+      for (const c of ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'modem', 'squelch']) {
         window.__game.playCue(c);
       }
     });

@@ -14,9 +14,9 @@
 
 **Status.** Phase A design, with the user's answers to its open questions
 applied (§10). **Phase B is under way:** D1 (per-era pages), D2 (data and
-research) and the D6 ending are on main. **D3 (hazards) ships on
-`work/hazards`** (§9, "As shipped (D3)"). D4 (the look) and D5 (audio) are
-still to come; their hooks are in place. As everywhere in these docs, the
+research) and the D6 ending are on main. **D3 (hazards) is on main too**
+(§9, "As shipped (D3)"). **D4 (the look) and D5 (audio) ship on
+`work/look`** (§9, "As shipped (D4 and D5)"). As everywhere in these docs, the
 code wins once it exists.
 
 **Glyphs.** ⌂ COLONY · ◉ AUTOMATION (these are the ⌂ HABITAT and ◉ ROBOTS lane
@@ -1235,7 +1235,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - `src/debug.ts`: `getHazards`, `forceHazard(kind, target?)`, `setHazardClock`.
 - `tests/hazards.spec.ts`.
 
-**D4 · The look.**
+**D4 · The look.** ✓ **SHIPPED** on `work/look` (see *As shipped (D4 and D5)* below).
 - `src/buildings/meshKit.ts`: `LEAF`.
 - `src/buildings/upgrades.ts`: parts for the 16 picks and 3 capstones, and upgrade lists for the 4 new types.
 - `src/buildings/recipes.ts`: 4 recipes.
@@ -1246,7 +1246,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - `src/buildings/instances.ts`: `iWarm` per type and lean.
 - `tests/upgrades.spec.ts`, `tests/classic.spec.ts`.
 
-**D5 · Audio.** `src/audio/music.ts` (`setDestiny`), `src/audio/sfx.ts` (chirp, squelch, rotor), `src/core/game.ts` wiring.
+**D5 · Audio.** ✓ **SHIPPED** on `work/look`. `src/audio/music.ts` (`setDestiny`), `src/audio/sfx.ts` (chirp, squelch, rotor), `src/core/game.ts` wiring.
 
 **D6 · The ending.** ✓ **SHIPPED** on `work/dest2`, all of it: the victory screen per band with the pips, CREW HOME, `ERA_BLURB_8`, the FIRST LIGHT hint.
 - `src/ui/screens.ts`: the victory screen per band, and the pips.
@@ -1408,6 +1408,91 @@ but the DOM markers.
   `decompressed`, `evacT`, `airlockDust`, `junk`, `slotsLost`.
 - Rover fields: `brickedUntil` (bricked: park it, lamp off), `heldUntil`
   (landed and waiting). `isDrone(s, r)` says which rovers are drones.
+
+### As shipped (D4 and D5)
+
+What the look and the audio do, where they differ from §4, and why. Where
+this section and §4 disagree, this one describes the code.
+
+**What shipped.**
+
+- **Parts** (`src/buildings/destinyParts.ts`, appended to `upgrades.ts`):
+  every one of the 16 track techs and 3 capstones adds a part to each type
+  its visual line names — 36 parts, plus 3 on the Monolith for Data Center
+  techs (docs/04 lists them). ≤ 600 △ a part.
+- **Four recipes** (`recipes.ts`): Greenhouse Ring 1,764 △, Garden Dome
+  2,156, Drone Hive 1,536, Server Monolith 516; each with its own upgrade list.
+- **Links** (`buildings/links.ts`): walkways and conveyor spines, with one
+  crossing rule — skybridges over roads, never on a road cell, door or bay.
+- **EVA walkers** (`world/settlers.ts`, wired through `life.ts`): walkers =
+  EVA crew, on free cells only.
+- **Drones** (`world/rovers.ts` `DroneFlight`; `core/fleet.ts` `unitKind`,
+  `DRONE`): a Drone Hive's units fly, off the roads and out of the traffic.
+- **Palette**: `LEAF` (`meshKit.ts`) → the Classic `leaf` key (`#5f8f3f`);
+  `CLASSIC_COLD` (`#bfe9ff`); per-instance `iWarm` in both styles
+  (`buildings/look.ts`, `instances.ts`); the overrides of §4.4.
+- **Hazard hook**: per-instance `iAlarm`, filled from
+  `BuildingInstances.alarmOf(b)`; its windows and lamps flicker red.
+- **Hazard looks** (after D3 merged): `hazardView().fx` drives the instances
+  and the dust — infected and stripped structures flicker, a cascade goes
+  dark, blight and airlock dust tint the hull, a breach plumes (a wisp warned,
+  a jet venting); bricked rovers and drones sit dark, held drones land where
+  they are (docs/06 §13.2). No draw call is added.
+- **One drone predicate**: `fleet.ts` `unitKind` (a unit tagged `drone`, or
+  docked at a Drone Hive) is the source; `hazards.ts` `isDrone` asks it.
+- **Audio**: `Music.setDestiny(lean)` (pools, bells, detune, breath, pulse),
+  `hold()` and `mourn()` hooks; `sfx` cues `modem` and `squelch`, a rotor hum
+  and a greenhouse air layer (`setLife`); `game.ts` feeds the lean from
+  `$destiny` and what is near the listener, twice a second.
+- **Debug**: `buildingLook(id)`, `setAlarmHook(fn)`; `getRenderInfo().life`
+  carries `links`, `settlers` and `rovers.drones`.
+- **Tests**: `tests/look.spec.ts` (new: links, walkers, drones, light, the
+  Era 8 frame budget in both styles, audio), `tests/upgrades.spec.ts` (every
+  pick's and capstone's part on the types it names, the new recipes' lists and
+  budgets, a pick's part and ghost live), `tests/classic.spec.ts` (`LEAF`, the
+  overrides, the new buildings on the classic program).
+
+**Cost** (a big Era 8 base on robotic mare, the same core in every band,
+Classic at 290 m, `getRenderInfo().frame`; main is the same scene on
+6221421, with the D2 placeholder recipes):
+
+| Band | Classic calls (main → look) | Classic △ | High detail calls | High detail △ | Layers drawn |
+|---|---|---|---|---|---|
+| ⌂ Colony | 51 → 54 | 248 k → 258 k | 97 → 100 | 296 k → 306 k | 15 walkways (2.6 k △, 13 bridge cells), 4 walkers |
+| ◉ Automation | 48 → 51 | 227 k → 237 k | 94 → 97 | 277 k → 287 k | 7 spines (1.7 k △, 8 bridge cells), 12 drones (3 flying) |
+| Concord | 51 → 53 | 227 k → 232 k | 97 → 99 | 276 k → 282 k | 8 drones |
+
++2 to +3 draw calls (a layer mesh and its decals, only while they exist) and
++2.5 % to +4 % triangles, mostly the destiny recipes' own detail and the
+parts. The Classic frame-cost test's small base is unchanged (no destiny
+yet). `tests/look.spec.ts` holds a big base under 90 calls and 600 k △ in
+Classic (160 and 1.2 M in High detail).
+
+**Deviations, and why.**
+
+| Topic | Spec | Shipped | Why |
+|---|---|---|---|
+| Visual lines | as §2.2 | eleven lines now name what the code draws: Drone Hives' drone perch on bays, Hydroponic Commons' trellis (no tables), Lights-Out Fabs' and Replicator Stacks' spines, Greenhouse Rings' seed bank, Fleet OS's annex, Garden Domes' glazed walkways and bulkheads, Commonwealth's rings, the robotic landing's stowed rover, three Data Center techs' Monolith parts | the line tells the truth |
+| Extra parts | §4.1 table | + Greenhouse Rings (a farm's seed bank), Garden Domes (bulkheads on habitats and rings), Replicator Stacks (a hive's drone printer), Commonwealth (the rings' lamps), and Liquid Cooling, Cryogenic Radiators, Rack Densification on the Monolith | every pick adds a part; every Data Center tech is a Monolith tech in `mods.ts` |
+| Greenhouse Ring | GLASS vaults, LEAF beds inside | LEAF vault shells with a glazed crown and ribs | the kit is opaque: beds inside glass would never show; green under glass must read from outside |
+| Garden Dome | trees inside, a PLATE path | a LEAF canopy band in the dome's lower glass; lamp posts at the pad's corners | same: nothing inside an opaque dome is seen |
+| Server Monolith | BODY, Classic overrides it near-black | black GLASS; Classic's override covers its `hull` and `cell` (`#23262b`), teal status slits (`window`) | a BODY slab would stand white in High detail, and the machines' skyline is black in both styles |
+| Drone Hive | 3 × 4 cells | 5-4-5 staggered hex prisms (14) | a honeycomb reads by its stagger |
+| Hydroponic Commons | galley end with long tables | a glazed, lit arch end behind the door | tables inside a vault are invisible |
+| Walkways | from Crew Rotation Charter (§4.3) / with Garden Domes (§2.2) | from Crew Rotation Charter; glazed with a lit window strip from Garden Domes | reconciles the two sections |
+| Link pairing | doors ≤ 18 m (walkways), ≤ 24 m (spines) | footprint gap ≤ 4 cells (walkways), ≤ 6 (spines); nearest first, a spanning forest | doors are road cells, so the tubes join walls; a forest keeps the web tidy |
+| Crossing roads | "skipped if a footprint is in the way" | skybridges: straight, ≤ 2 road cells, 5.4 m up; a riser inside the footprint where a road hugs the wall; never a door, bay or the apron | roads fill the gaps between buildings; without bridges almost no link fits |
+| Walkers | "loping between habitats and arrays or sites" | from a habitat's suit-port (+x); open ground only; a target across a road is skipped | walkers must never stand on the carriageway |
+| Drones in the sim | "hive units travel straight at 6 m/s (`fleet.ts`)" | `unitKind` classifies; 6 m/s is the drones' drawn flight speed | the fleet sim has no travel time for any unit; adding one would change pacing |
+| Drones' parking | the hive's bays (docs/15) | its deck's four pads; the bays stay | a drone lands on a pad; the dock layout is unchanged |
+| "Follows the lean" | — | `warm = clamp(0.75 + lean)`, lean = the band's (±1, Concord 0), else (C − A)/4 | the human landing keeps today's warm base; −¾ is fully cold |
+| Classic floods | warm | take the structure's warmth too | the machines' night must read cold, not only their windows |
+| Type budget | ≤ 7,500 △ with every upgrade | the heaviest set one run can hold | the Lander's six destiny parts come in exclusive pairs |
+| Pad detune | Colony widens to ±7 ¢ | Colony ±11, Concord ±7 (as today), Automation ±2 | ±7 is today's score |
+| Bells | "glassier FM index" | Colony index 0.55× f (from 1.1×), Automation 1.9× f at ratio 2.76 | — |
+| Hazard audio | crit ducks and holds; modem for Automation hazards; grief | `game.ts` reads `$hazards` twice a second: a lethal or destroying telegraph (not a drill) holds the score (`hold`), a new death keeps it to the night pool for four chords (`mourn`), a new Automation hazard plays the `modem` chirp | — |
+| Drone chirp | — | a `modem` chirp as a drone takes a job | the drones' own voice |
+| Greenhouses | — | a faint air-handler hiss near rings and domes | the task asked for a greenhouse sound |
 
 ---
 
