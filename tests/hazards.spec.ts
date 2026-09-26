@@ -954,6 +954,44 @@ test('control plane: with Fleet OS and every Data Center dark 15 s it drops; dro
   expect(r.frozen).toBe(true);
 });
 
+test('control plane flicker: a Data Center the brownout flickers on for a second holds one warning, not a new one each flicker', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    window.climb('AAAAAA', 7);
+    const dc = window.hz.place('dataCenter', 2);
+    g.finishConstruction();
+    g.grantPower(80000);
+    g.setHazardClock(99999);
+    g.advanceGameSeconds(2);
+    const n0 = window.hz.log().length;
+    g.setEnabled(dc, false);
+    g.advanceGameSeconds(3);
+    const first = window.hz.one('controlPlane')?.id;
+    // the bank topped up every second: the Data Center is dark only when switched off
+    const tick = (n: number) => { for (let i = 0; i < n; i++) { g.grantPower(5000); g.advanceGameSeconds(1); } };
+    for (let i = 0; i < 12; i++) {
+      g.setEnabled(dc, true);
+      tick(1);
+      g.setEnabled(dc, false);
+      tick(4);
+    }
+    const h = window.hz.one('controlPlane');
+    // and power for good: the warning stands down once the darkness has drained
+    g.setEnabled(dc, true);
+    tick(90);
+    const log = window.hz.log().filter((e: any) => e.kind === 'controlPlane');
+    const st = g.getHazards().state;
+    return { first, id: h?.id, n0, ended: log.filter((e: any) => e.id >= first), live: window.hz.one('controlPlane'), log,
+      dbg: JSON.stringify({ h, live: window.hz.one('controlPlane'), dark: st.computeDarkS, up: st.computeUpS, t: g.getState().simTime, dc: window.hz.b(dc) }) };
+  });
+  expect(r.first).toBeDefined();
+  expect(r.id).toBe(r.first);
+  expect(r.ended.length, r.dbg).toBe(1);
+  expect(r.ended[0].outcome).toBe('a Data Center came back');
+  expect(r.live).toBeUndefined();
+});
+
 // ───────────────────────────── the meters ─────────────────────────────
 
 test('cabin fever: at 70 the warning carries Commons night and Call home; at 100 a crisis — morale, a strike — and two send crew home', async ({ page }) => {

@@ -815,7 +815,9 @@ function controlPlaneWatch(s: GameState, mods: Mods, site: SiteDef, dt: number) 
   const half = !!g && g.nodes.length > 0 && g.nodes.filter((n) => n.infected).length >= g.nodes.length / 2;
   const infectedDC = mods.exposure.has('controlPlane') && compute.some((b) => b.infected);
   const up = running.length > 0 && !half && !infectedDC;
-  hz.computeDarkS = up ? 0 : hz.computeDarkS + dt;
+  // leaky, as a habitat's darkness is: Data Centers the brownout flickers on
+  // for a tick still count as dark, and one hazard covers the whole flicker
+  hz.computeDarkS = up ? Math.max(0, hz.computeDarkS - dt) : hz.computeDarkS + dt;
   hz.computeUpS = up ? hz.computeUpS + dt : 0;
   if (tier === null || !mods.exposure.has('controlPlane') || !compute.length) return;
   const live = hz.live.find((h) => h.kind === 'controlPlane');
@@ -827,8 +829,10 @@ function controlPlaneWatch(s: GameState, mods: Mods, site: SiteDef, dt: number) 
   if (live || up || liveOn(s, 'automation', 'window')) return;
   const drill = !hz.drilled.includes('controlPlane');
   const grace = HZ.controlPlane.darkS + (guard(mods, 'watchdogs') ? HZ.controlPlane.failoverS : 0) + (drill ? HZ.drillExtraS : 0);
+  // darkness carried over (a window hazard held this one back) never skips the warning
+  hz.computeDarkS = Math.min(hz.computeDarkS, grace - HZ.controlPlane.darkS);
   const h = startHazard(s, mods, site, 'controlPlane', { at: s.simTime - hz.computeDarkS + grace });
-  if (typeof h !== 'string') h.targetName = 'the control plane';
+  if (typeof h !== 'string') { h.targetName = 'the control plane'; h.n.grace = grace; }
 }
 
 // ── the ambient and meter kinds (DUST, CABIN FEVER) ──
@@ -1205,6 +1209,8 @@ function tickControlPlane(s: GameState, mods: Mods, h: LiveHazard) {
       endHazard(s, h, h.used.landDrones !== undefined ? 'answered: Land drones' : 'a Data Center came back');
       return;
     }
+    // it drops when the darkness adds up to the grace (a flicker of power holds the clock)
+    if (h.n.grace !== undefined) h.at = now + Math.max(0, h.n.grace - hz.computeDarkS);
     if (now < h.at) return;
     h.phase = 'active';
     // drones in flight: at major they fall, below it they land
@@ -1227,6 +1233,7 @@ function tickControlPlane(s: GameState, mods: Mods, h: LiveHazard) {
   s.auto.frozenUntil = Math.max(s.auto.frozenUntil, now + 2);
   for (const r of s.rovers) if (isDrone(s, r)) r.heldUntil = Math.max(r.heldUntil ?? 0, now + 2);
   if (hz.computeUpS >= HZ.controlPlane.resumeS || drillOver(s, h)) {
+    if (hz.computeUpS >= HZ.controlPlane.resumeS) hz.computeDarkS = 0; // a Data Center ran 30 s straight: a clean slate
     alert(s, 'CONTROL PLANE RESTORED — the agents and the Builder are back on the network', 'info');
     endHazard(s, h, h.drill ? 'drill' : 'restored');
   }

@@ -853,8 +853,8 @@ Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 **Results with hazards live (D3, `work/hazards` merged with main
 `46f58e9`).** The same probe, bot and flags as the table below, with
 hazards on; *off* is the same code with `--hazards=off` (every hazard held).
-Before the merge, *off* reproduced main `6221421` on all 18 runs to the
-decimal, so holding the hazards changes nothing else. The bot answers as
+*Off* matches main's own runs (the `work/siting` column below) on all 18
+runs to the decimal, so holding the hazards changes nothing else. The bot answers as
 *How the bot answers hazards* says (reasonable, every 20 s).
 
 | Run | off | hazards on | Δ | deaths · losses | hazards + near misses | Eras E1…E8 (on) |
@@ -892,7 +892,7 @@ decimal, so holding the hazards changes nothing else. The bot answers as
   again, so it builds a 3rd fabricator at 122 min. The smelters then wait
   until 152 min while three fabricators eat the metals: metals at 0 for
   41 min, a 29.4-min goods stall, and Era 6 at 44.8 min (off 31.0). That
-  is the manual build policy behind main's crewed-pole stalls (above),
+  is the manual build policy behind main's crewed-pole stalls (below),
   tipped by the parts the counters spent. The other two seeds run 170 and
   177 (off 183 and 172).
 - **Crewed pole, pure Automation (175.3 against 173.3):** seed 1234
@@ -1353,8 +1353,10 @@ section and an earlier one disagree, this one describes the code.
   `⚠ risk` line, the lost-mission screen, and the two menu toggles (docs/07 §4).
 - **Debug**: `getHazards`, `forceHazard(kind, target?, opts)`,
   `setHazardClock`, `holdHazards`, `counter`, `airGap`.
-- **Tests**: `tests/hazards.spec.ts`, 31 tests (§8 D3; the guards test covers 7 of the 18 guards). Specs not about
-  hazards hold them (`holdHazards`), as they open roads.
+- **Tests**: `tests/hazards.spec.ts`, 31 tests (§8 D3). The two guard
+  tests and the control-plane test cover 7 of the 18 guards (§8 test 6
+  asks for all). Specs not about hazards hold them (`holdHazards`), as
+  they open roads.
 - **The two D2 rows** *Hazard lines* and *Landing cards* are now as §3.10
   specifies.
 
