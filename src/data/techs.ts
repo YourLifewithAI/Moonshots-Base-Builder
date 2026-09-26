@@ -163,9 +163,9 @@ export type TechEffect = EffectFilter & (
   | { kind: 'moraleBase'; delta: number }
   /** hazard windows (docs/14 §3.2) come ×1/mult as often */
   | { kind: 'hazardRate'; mult: number }
-  /** a hazard guard (docs/14 §3.6); inert until the hazards ship */
+  /** a hazard guard (docs/14 §3.6, read by core/hazards.ts) */
   | { kind: 'guard'; guard: GuardId }
-  /** what a pick puts at risk (docs/14 §2.7); inert until the hazards ship */
+  /** what a pick puts at risk (docs/14 §2.7, read by core/hazards.ts) */
   | { kind: 'exposure'; hazard: HazardId; buildings?: BuildingId[] }
 );
 export type TechEffectKind = TechEffect['kind'];
@@ -386,7 +386,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'upkeepMult', buildings: 'all', mult: 0.85 },
       { kind: 'repair', mult: 0.5 },
-      { kind: 'guard', guard: 'micrometeoriteShield' }, // docs/14 §3.6 (inert until the hazards ship)
+      { kind: 'guard', guard: 'micrometeoriteShield' }, // docs/14 §3.6
     ],
     desc: 'Two metres of berm on every structure: thermal mass, radiation, micrometeorites.',
     visual: 'Regolith berms are bulldozed against every shielded wall.',
@@ -536,7 +536,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'dustMult', mult: 0.4 },
       { kind: 'upkeepMult', buildings: ['excavator'], mult: 0.5 },
       { kind: 'powerMult', buildings: ['solar'], mult: 0.95 },
-      { kind: 'guard', guard: 'dustScreens' }, // docs/14 §3.6 (inert until the hazards ship)
+      { kind: 'guard', guard: 'dustScreens' }, // docs/14 §3.6
     ],
     desc: 'Electrostatic curtains and sealed bearings against the Moon’s knife-dust.',
     visual: 'Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts.',
@@ -672,7 +672,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'outputMult', buildings: ['chipFab'], mult: 1.4 },
       { kind: 'agentTax', mult: 0.6 },
       { kind: 'outputMult', buildings: ['dataCenter'], mult: 0.85 },
-      { kind: 'guard', guard: 'radHard' }, // docs/14 §3.6 (inert until the hazards ship)
+      { kind: 'guard', guard: 'radHard' }, // docs/14 §3.6
     ],
     desc: 'Older, larger nodes and thick oxides that shrug off cosmic rays.',
     visual: 'Chip Fabs add a shielded ion-implanter annex.',
@@ -819,7 +819,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'governor' },
       { kind: 'upkeepMult', buildings: ['storageYard'], mult: 1.5 },
-      { kind: 'guard', guard: 'governorFloors' }, // docs/14 §3.6 (inert until the hazards ship)
+      { kind: 'guard', guard: 'governorFloors' }, // docs/14 §3.6
     ],
     desc: 'A ledger for the builder: floors it never spends below, the research goods it leaves alone, and an order its rules act in.',
     visual: 'Storage Yards get a manifest gantry: a scanner bar on two legs spanning the racks.',
@@ -1018,7 +1018,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'inputMult', buildings: ['habitat'], mult: 0.6 },
       { kind: 'powerMult', buildings: ['habitat'], mult: 1.3 },
-      { kind: 'guard', guard: 'closedLoop' }, // docs/14 §3.6 (inert until the hazards ship)
+      { kind: 'guard', guard: 'closedLoop' }, // docs/14 §3.6
     ],
     desc: 'Scrub, recycle, repeat.',
     visual: 'Habitats add a CO₂ scrubber stack and water-recovery tanks.',
@@ -1030,7 +1030,7 @@ export const TECHS: Record<TechId, TechDef> = {
     effects: [
       { kind: 'upkeepMult', buildings: 'all', mult: 0.8 },
       { kind: 'buildSpeed', mult: 1.15 },
-      { kind: 'guard', guard: 'safety' }, // docs/14 §3.6 (inert until the hazards ship)
+      { kind: 'guard', guard: 'safety' }, // docs/14 §3.6
     ],
     desc: 'Human inspectors walk the lines the agents only watch. This is the safety-measures purpose.',
     visual: 'Inspection lamp masts go up beside Habitats and the Lander.',

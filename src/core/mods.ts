@@ -122,7 +122,7 @@ export interface Mods {
   launchBurstMult: number;
   /** morale target everywhere */
   moraleBase: number;
-  /** hazard hooks (inert until the hazards ship, data/hazards.ts) */
+  /** hazard hooks (data/hazards.ts; read by core/hazards.ts) */
   hazardRateMult: number;
   guards: Set<GuardId>;
   exposure: Map<HazardId, Set<BuildingId>>;

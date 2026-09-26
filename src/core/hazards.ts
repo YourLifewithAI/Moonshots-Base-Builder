@@ -1458,7 +1458,9 @@ function tickRunaway(s: GameState, mods: Mods, site: SiteDef, h: LiveHazard, out
     if (req) out.build.push(req);
   }
   if (!endNow) return;
-  if (mine.some((b) => isSite(b) && now < (b.junkAt ?? 0) + R.weldS)) return; // the last welds land first
+  // the last welds land first (junkTick, after this, welds them): the loss keeps this warning.
+  // A drill's junk never welds; it goes back once its 20 s are up.
+  if (h.drill ? mine.some((b) => isSite(b) && now < (b.junkAt ?? 0) + R.weldS) : mine.some(isSite)) return;
   if (h.drill) {
     // the drill's junk goes back, every metal refunded
     for (const b of mine) removeJunk(s, site, b, out);

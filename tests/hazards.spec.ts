@@ -363,7 +363,8 @@ test('drill: the first of a kind is minor, warns 60 s longer and cannot kill eve
   expect(r.crew2).toBe(r.crew0 - 1);
   expect(r.drilled).toContain('breach');
   // the NEW HAZARD card (it pauses): what the counters do, and what the next one will do
-  for (let i = 0; i < 60; i++) {
+  // click through the cards queued before it (the landing, the era explainers), one a beat
+  for (let i = 0; i < 80; i++) {
     const t = (await page.locator('#era-banner').textContent()) ?? '';
     if (/NEW HAZARD/.test(t) && await page.locator('#era-banner').isVisible()) break;
     await page.evaluate(() => {
@@ -372,6 +373,7 @@ test('drill: the first of a kind is minor, warns 60 s longer and cannot kill eve
       const banner = document.getElementById('era-banner')!;
       (banner.style.display !== 'none' ? q : c)?.click();
     });
+    await page.waitForTimeout(150);
   }
   await expect(page.locator('#era-banner')).toContainText('NEW HAZARD');
   await expect(page.locator('#era-banner')).toContainText('Next time, the people inside die');
@@ -862,6 +864,8 @@ test('runaway rule: Freeze rules answers it; ignored, junk sites weld and half t
   expect(r.junk.every((j: any) => j.c === 0)).toBe(true); // welded by the hijacked drones
   expect(r.wasted.length).toBe(r.junk.length);
   expect(r.wasted[0].cause).toMatch(/welded as junk by the drifting rule: half its stock wasted/);
+  // every loss keeps the warning it followed: the telegraph and more
+  expect(r.wasted.every((l: any) => l.at - l.warnedAt >= 120)).toBe(true);
 });
 
 test('hacked outpost: Rotate keys answers it; ignored at major, the stream stops and the outpost is lost after a lunar day', async ({ page }) => {
@@ -1103,6 +1107,99 @@ test('Concord faces both sides, milder: each side minor while a pure side is maj
 });
 
 // ───────────────────────────── settings, saves, the UI ─────────────────────────────
+
+test('guards ⌂: Regolith Shielding halves the pitting, Safety Protocols stretch the telegraph ×1.5, Pressure bulkheads save everyone and seal in 30 s', async ({ page }) => {
+  await start(page, 'mare', 'human');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    window.climb('CC', 3);
+    const hab = window.hz.place('habitat');
+    g.finishConstruction();
+    g.advanceGameSeconds(1);
+    const risk = () => g.getHazards().kinds.find((k: any) => k.id === 'breach').risk;
+    const r0 = risk();
+    g.completeTech('regolithShielding');
+    g.advanceGameSeconds(1);
+    const r1 = risk();
+    g.completeTech('safetyProtocols');
+    g.advanceGameSeconds(1);
+    const id1 = g.forceHazard('breach', hab, { drill: false, tier: 1 });
+    const h1 = window.hz.one('breach');
+    g.grantResources({ parts: 50 });
+    g.counter('seal', id1);
+    g.advanceGameSeconds(25);
+    const sealed = window.hz.log().slice(-1)[0];
+    g.advanceGameSeconds(300);
+    g.completeTech('gardenDomes');
+    g.advanceGameSeconds(1);
+    const crew0 = g.getState().crew;
+    g.forceHazard('breach', hab, { drill: false, tier: 2 });
+    const h2 = window.hz.one('breach');
+    g.advanceGameSeconds(h2.at - g.getState().simTime + 1);
+    const open = { crew: g.getState().crew, breached: !!window.hz.b(hab).breached, alert: window.hz.alert('^BREACH')?.text };
+    g.advanceGameSeconds(31);
+    return { r0, r1, h1, sealed, crew0, open, after: g.getState().crew, deaths: g.getHazards().deaths.length, hab: window.hz.b(hab), log: window.hz.log().slice(-1)[0] };
+  });
+  expect(r.r1).toBeCloseTo(r.r0 - 0.075, 3);        // the micrometeorite term 0.15 → 0.075
+  expect(r.h1.at - r.h1.warnedAt).toBe(120 * 1.5);  // Safety Protocols
+  expect(r.sealed.outcome).toBe('answered: Seal');
+  expect(r.open.breached).toBe(true);
+  expect(r.open.crew).toBe(r.crew0);                // major, ignored, 4 aboard: nobody dies
+  expect(r.open.alert).toMatch(/the bulkheads seal it in 0:30/);
+  expect(r.after).toBe(r.crew0);
+  expect(r.deaths).toBe(0);
+  expect(r.hab.breached).toBeFalsy();
+  expect(r.hab.decompressed).toBeFalsy();
+  expect(r.log.outcome).toBe('sealed after it opened');
+});
+
+test('guards ◉: Signed firmware holds the rollout, Intrusion detection doubles the telegraph and isolates a new infection, Rule attestation stops a drift after one site', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    window.climb('AA', 3);
+    window.hz.place('roboticsBay', 2);
+    ['relayMast', 'lab', 'lab'].forEach((t) => window.hz.place(t, 2));
+    g.finishConstruction();
+    g.grantPower(20000);
+    g.advanceGameSeconds(2);
+    const kind = (id: string) => g.getHazards().kinds.find((k: any) => k.id === id);
+    const fw0 = kind('firmware').risk;
+    const mw0 = kind('malware').risk;
+    g.completeTech('lightsOutFabs');
+    g.completeTech('fleetOS');
+    g.advanceGameSeconds(1);
+    const fw1 = kind('firmware').risk;
+    const mw1 = kind('malware').risk;
+    g.forceHazard('malware', undefined, { drill: false, tier: 1 });
+    const h = window.hz.one('malware');
+    g.advanceGameSeconds(h.at - g.getState().simTime + 1);
+    const entry = window.hz.b(h.target);
+    const iso = entry.isolatedUntil - g.getState().simTime;
+    for (const b of g.getState().buildings) if (b.infected) g.counter('reimage', b.id);
+    g.grantData(500);
+    g.advanceGameSeconds(90);
+    // the drift: attested, it orders one site and stops
+    g.completeTech('replicatorStacks');
+    g.completeTech('autoExcavation');
+    window.hz.place('excavator', 3);
+    g.finishConstruction();
+    g.setRule('excavator', { on: true });
+    g.advanceGameSeconds(2);
+    g.grantResources({ metals: 600, parts: 300 });
+    g.forceHazard('runaway', undefined, { drill: false, tier: 2 });
+    const run = window.hz.one('runaway');
+    g.advanceGameSeconds(run.at - g.getState().simTime + 200);
+    return { fw0, fw1, mw0, mw1, tele: h.at - h.warnedAt, iso, junk: g.getState().buildings.filter((b: any) => b.junk).length, runLive: window.hz.one('runaway') };
+  });
+  expect(r.fw0).toBeGreaterThan(0.2);
+  expect(r.fw1).toBe(0);                  // Signed firmware: the window is a near miss
+  expect(r.mw1).toBeLessThan(r.mw0);      // exposure ×0.7
+  expect(r.tele).toBe(120 * 2);           // Intrusion detection
+  expect(r.iso).toBeGreaterThan(25);      // a new infection isolates itself for 30 s
+  expect(r.junk).toBe(1);                 // Rule attestation: 1 site, not 8
+  expect(r.runLive).toBeUndefined();
+});
 
 test('pause on: a new hazard pauses the game (on by default); the menu turns it off; every lethal warning pauses when asked', async ({ page }) => {
   await start(page, 'mare', 'human', '&hzpause');

@@ -13,10 +13,11 @@
 > digital viruses/hacks for the robotic version."
 
 **Status.** Phase A design, with the user's answers to its open questions
-applied (§10). **Phase B is under way:** D1 (per-era pages) is on main;
-**D2 (data and research) and the D6 ending ship on `work/dest2`** (§9, "As
-shipped"). D3 (hazards), D4 (the look) and D5 (audio) are still to come; their
-hooks are in place. As everywhere in these docs, the code wins once it exists.
+applied (§10). **Phase B is under way:** D1 (per-era pages), D2 (data and
+research) and the D6 ending are on main. **D3 (hazards) ships on
+`work/hazards`** (§9, "As shipped (D3)"). D4 (the look) and D5 (audio) are
+still to come; their hooks are in place. As everywhere in these docs, the
+code wins once it exists.
 
 **Glyphs.** ⌂ COLONY · ◉ AUTOMATION (these are the ⌂ HABITAT and ◉ ROBOTS lane
 glyphs) · ◆ metals · ◇ silicon · ≈ water · ○ O₂ · ✳ food · ⚙ parts · ▣ chips ·
@@ -849,6 +850,58 @@ Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 - *Automation*: the agent-tax cuts and faster builds push it faster. Downtime from malware and bricked rovers pushes it back.
 - *Era 8*: the pick replaces the launch-cadence step, so it is neutral.
 
+**Results with hazards live (D3, `work/hazards` merged with main
+`46f58e9`).** The same probe, bot and flags as the table below, with
+hazards on; *off* is the same code with `--hazards=off` (every hazard held).
+Before the merge, *off* reproduced main `6221421` on all 18 runs to the
+decimal, so holding the hazards changes nothing else. The bot answers as
+*How the bot answers hazards* says (reasonable, every 20 s).
+
+| Run | off | hazards on | Δ | deaths · losses | hazards + near misses | Eras E1…E8 (on) |
+|---|---|---|---|---|---|---|
+| mare robotic · ⌂ pure Colony | 211.9 [210, 212, 214] | **213.3** [213, 212, 215] | +1.3 | 0 · 0 | 26 + 14 | 24.1 / 26.0 / 32.1 / 24.1 / 24.5 / 27.5 / 27.8 / 24.3 |
+| mare robotic · ◉ pure Automation | 206.6 [207, 207, 203] | **206.6** [207, 207, 202] | +0.0 | 0 · 0 | 58 + 0 | 24.1 / 26.1 / 32.2 / 24.0 / 24.4 / 34.3 / 19.6 / 20.2 |
+| mare robotic · Concord | 212.9 [213, 213, 217] | **215.9** [217, 214, 216] | +3.0 | 0 · 0 | 33 + 7 | 24.1 / 26.0 / 32.1 / 24.1 / 24.5 / 28.3 / 28.8 / 24.2 |
+| south pole crewed · ⌂ pure Colony | 159.9 [158, 174, 160] | **161.3** [161, 182, 161] | +1.3 | 0 · 0 | 19 + 7 | 24.3 / 27.0 / 24.9 / 15.1 / 15.9 / 28.4 / 12.1 / 12.8 |
+| south pole crewed · ◉ pure Automation | 173.3 [172, 187, 173] | **175.3** [174, 186, 175] | +2.0 | 0 · 0 | 28 + 0 | 24.3 / 26.1 / 26.8 / 15.8 / 15.3 / 31.5 / 13.4 / 17.8 |
+| south pole crewed · Concord | 181.3 [183, 181, 172] | **177.4** [170, 211, 177] | −3.8 | 0 · 0 | 40 + 1 | 24.3 / 26.1 / 26.8 / 15.3 / 14.7 / 35.6 / 12.5 / 16.1 |
+
+- **Target: met, no lever moved.** On robotic mare all three are in
+  210 ± 25; max/min = 215.9 / 206.6 = 1.045 (off: 212.9 / 206.6 = 1.030).
+- **The fairness check: met.** Under the reasonable policy no hazard killed
+  anyone or destroyed anything on any of the 18 runs. The crewed pole's
+  pure Automation runs lose 17 crew at FIRST LIGHT: that is CREW HOME, not
+  a hazard.
+- **What answering costs.** Pure Automation loses nothing measurable: its
+  free counters (Air-gap, Hold rollout, Land drones, Freeze rules) cost
+  attention, not goods, and the control plane drops at night, when the Data
+  Centers are dark anyway. Colony pays in parts and water (Clean, Flush,
+  Quarantine), and runs 1.3 min slower on mare; Concord 3.0.
+- **What each path sees** (robotic mare, three seeds):
+  - ⌂ Colony: 26 hazards and 14 near misses (contamination 11, blight 9,
+    dose 6), answered with 31 Cleans, 11 Flushes, 9 Quarantines and 6
+    Recalls;
+  - ◉ Automation: 58 and none (control plane 25, malware 20, runaway 9,
+    firmware 4), answered with 63 Land drones, 20 Air-gaps, 9 Freeze rules,
+    3 Hold rollouts and 1 Dock fleet;
+  - Concord: 33 and 7 near misses, from both sides (malware 10, firmware 8,
+    contamination 6, control plane 6, runaway 3).
+- **Crewed pole, Concord seed 7 (211 against 181).** Off, the bot builds
+  its 2nd Parts Fabricator at 119 min and two smelters at 122 and 126. On,
+  four Cleans between 106 and 117 min pull parts under the bot's line
+  again, so it builds a 3rd fabricator at 122 min. The smelters then wait
+  until 152 min while three fabricators eat the metals: metals at 0 for
+  41 min, a 29.4-min goods stall, and Era 6 at 44.8 min (off 31.0). That
+  is the manual build policy behind main's crewed-pole stalls (above),
+  tipped by the parts the counters spent. The other two seeds run 170 and
+  177 (off 183 and 172).
+- **Crewed pole, pure Automation (175.3 against 173.3):** seed 1234
+  now runs 175, not 256; that was the siting fix merged from main (#29),
+  not the hazards.
+- **Not measured yet:** hazard-minutes (so the ±20% check between the pure
+  paths), resources lost, the *attentive* policy's pre-emption. The
+  *distracted* policy's deaths and losses are below.
+
 **Results on roads (D2 as shipped, merged with main `cf5d3a8`: roads, docs/15;
 hazards not live).** `node scripts/probe-pacing.mjs --auto=on
 --destiny=colony|automation|concord --runs=mare:robotic:reasonable,southpole:human:reasonable
@@ -1146,7 +1199,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - `src/debug.ts`: `pickDestiny(era, side)`, `getDestiny()`.
 - `tests/destiny.spec.ts`.
 
-**D3 · Hazards.**
+**D3 · Hazards.** ✓ **SHIPPED** on `work/hazards` (see *As shipped (D3)* below).
 - `src/data/hazards.ts` (new): `HazardId`, `GuardId`, `CounterId`, the `HAZARDS` table (side, kind, tier magnitudes, telegraphs, texts), `GUARDS`, `COUNTERS`.
 - `src/core/hazards.ts` (new, pure): risk scores, the scheduler, the network graph, `hazardTick`, counters, `hazardView`.
 - `src/core/economy.ts`:
@@ -1270,6 +1323,79 @@ section and an earlier one disagree, this one describes the code.
 | Visual lines | the D4 parts | the picks name their D4 parts; unlock picks name their building (Fleet OS: the Monolith) | the parts come with the look |
 | Victory, band unsettled | — | the plain ending | a save or a debug launch without the Era 8 pick |
 | Tree keys | ↑ from the top row reaches the destiny | as specified, plus ←/→ between the sides and ↓ back to the board | — |
+
+### As shipped (D3)
+
+What the code does, where it differs from §3 and §9 D3, and why. Where this
+section and an earlier one disagree, this one describes the code.
+
+**What shipped.**
+
+- **Data** (`src/data/hazards.ts`): `HAZARDS_LIVE = true`. The 13 kinds
+  (`HAZARDS`: side, class, minimum tier, glyph, lethal or destructive, their
+  counters, the free one, the ignored text per tier, the drill's next-time
+  line, the near-miss line), the 19 counters (`COUNTERS`), and every
+  magnitude in one table (`HZ`). The cards now carry their hazard lines
+  (`BREACH: … a breach can kill`), and docs/03 shows them.
+- **Engine** (`src/core/hazards.ts`, pure): tiers, the scheduler, occupancy,
+  the network graph, each kind's flow, suit air, the fleet's re-flash and
+  reprints, counters, air-gap, deaths, losses, wrecks and `hazardView`.
+- **Hooks**, each in its own function:
+  - `economy.ts`: step 8.3, and the hooks of docs/02 ("How hazards reach the economy");
+  - `fleet.ts`: `roverDown` (bricked or held rovers are never assigned) and `hazardSlotsLost`;
+  - `automation.ts`: `runawaySite` and `postIncidentAudit`;
+  - `exploration.ts`: a hacked outpost streams nothing.
+- **State**: `hazards`, `deaths`, `losses`, `grief`, the per-building and
+  per-rover fields (docs/08 §9), the `counter` and `airGap` actions, and
+  wrecking (removal, no refund).
+- **UI**: the chip, the [G] panel, alert counter buttons, the inspector
+  rows, the objectives line, the markers, the banner and drill cards, the
+  `⚠ risk` line, the lost-mission screen, and the two menu toggles (docs/07 §4).
+- **Debug**: `getHazards`, `forceHazard(kind, target?, opts)`,
+  `setHazardClock`, `holdHazards`, `counter`, `airGap`.
+- **Tests**: `tests/hazards.spec.ts`, 31 tests (§8 D3; the guards test covers 7 of the 18 guards). Specs not about
+  hazards hold them (`holdHazards`), as they open roads.
+- **The two D2 rows** *Hazard lines* and *Landing cards* are now as §3.10
+  specifies.
+
+**Where it differs.**
+
+| Item | Spec | Code | Why |
+|---|---|---|---|
+| Kind choice | the highest risk | the highest risk, but the kind of the side's last window counts half | one kind (the control plane on a DC base, contamination on an ice loop) fired window after window. The panel shows the halved risk, so the choice stays visible and deterministic |
+| Drills | minor tier | the kind's minimum tier (moderate for rogue drones, runaway and hacked outpost); effects end after 180 s | those kinds do nothing at minor. The drill still cannot kill or destroy |
+| Drill junk | — | removed with its whole cost refunded | a drill wastes nothing |
+| Drill rovers | — | re-flashed from Earth at the deadline | the same |
+| Meters | `s.isolation`, `s.doseLoad` | `s.hazards.isolation`, `s.hazards.doseLoad`, `s.hazards.loopAge` | one save field for the hazards |
+| Occupants | homes by beds | homes by beds (largest remainder); the Lander takes the overflow; a crewed pressurized station holds its seats while it works | the Lander is the lifeboat. A Lab with crew is a place people are |
+| Cascade alarm | dark for 20 s | leaky darkness: dark seconds rise while dark and fall while lit | a flickering brownout reset the clock, and the alarm never came |
+| Cascade spread | an overfilled habitat evacuates after 60 s | not built; the tier cap bounds the evacuations | the cap already says how bad it gets |
+| Re-flash | each Bay 1 per 30 s | at the rover's own dock (the Lander too), 1 per 30 s (a Hive 2 with Hive re-flash), only while the dock is complete, on, powered and clean | a dock that sheds its load cannot re-flash. That is why Dock fleet or Hold rollout, not Shed loads, answers firmware |
+| Land drones | drones set down | drones hold for the hazard; pressed in the last minutes before dusk, until dawn | a control plane that drops at dusk stays down all night |
+| Lander and malware | a node like any | never burns out; infected, it is degraded only | it is the base's core and the Earth gateway |
+| Air-gapped Lander | no links | no links, **no downlink, no outpost streams** | a free, permanent immunity to the malware entry, otherwise |
+| Rogue drones | Kill switch | Kill switch, or reimaging the dock | the dock is the infected node |
+| Outpost lost | claim again at ½ cost | claim again at the usual cost | the claim path has one price |
+| Medevac | the shipment slot | the slot for half a lunar day, with no cargo | the ride is the shipment |
+| Grief | growth pauses | growth and the crew rotation pause (`CREW ROTATION HELD`) | on a robotic base the rotation is the growth |
+| `last one running` | warn with one DC left | warn while loads are shed or the grid browns out | otherwise a base with one Data Center carried the warning all game |
+| Counter placement | alert, inspector, panel, power, robots, crew and Builder panels, Lunar Map | the alert, the target's inspector, the Hazards panel | every counter is on its alert and in [G]; the other panels come later |
+| Pause settings | pause | pause; a debug run pauses only with `&hzpause` | tests and the probe run at speed |
+| Probe, *attentive* | pre-empts the top target | not built | the acceptance is on *reasonable* |
+| Probe metrics | hazard-minutes, resources lost | hazards by kind, near misses, counters, deaths and losses with causes | the fairness check needs the last two; hazard-minutes are left for tuning |
+
+**For the look (D4).** Hazards expose state; they draw nothing in the world
+but the DOM markers.
+
+- `hazardView().fx[buildingId]`: `'flicker'` (infected), `'smoke'` (a
+  breach warned), `'vent'` (a breach open), `'strip'` (rogue drones at
+  work), `'blight'`, `'dust'` (clogging airlocks), `'dark'` (a cascade).
+- `$hazards` (the whole view) and `$hazardMarkers` (screen positions,
+  glyphs, occupants).
+- Building fields: `infected`, `airGapped`, `stripT`, `breached`,
+  `decompressed`, `evacT`, `airlockDust`, `junk`, `slotsLost`.
+- Rover fields: `brickedUntil` (bricked: park it, lamp off), `heldUntil`
+  (landed and waiting). `isDrone(s, r)` says which rovers are drones.
 
 ---
 
