@@ -1362,8 +1362,8 @@ section and an earlier one disagree, this one describes the code.
   `⚠ risk` line, the lost-mission screen, and the two menu toggles (docs/07 §4).
 - **Debug**: `getHazards`, `forceHazard(kind, target?, opts)`,
   `setHazardClock`, `holdHazards`, `counter`, `airGap`.
-- **Tests**: `tests/hazards.spec.ts`, 31 tests (§8 D3). The two guard
-  tests and the control-plane test cover 7 of the 18 guards (§8 test 6
+- **Tests**: `tests/hazards.spec.ts`, 33 tests (§8 D3). The two guard
+  tests and the control-plane tests cover 7 of the 18 guards (§8 test 6
   asks for all). Specs not about hazards hold them (`holdHazards`), as
   they open roads.
 - **The two D2 rows** *Hazard lines* and *Landing cards* are now as §3.10
