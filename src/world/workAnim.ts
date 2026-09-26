@@ -207,8 +207,12 @@ interface DiggerAnim {
   seen: number;
 }
 
-/** A drawn rover as rovers.ts reports it. */
-export interface WorkRover { id: number; unit: RoverUnit | null; spot: RoverSpot | null; x: number; z: number; v: number }
+/** A drawn rover as rovers.ts reports it. `mode`: the sim's own word on how
+ *  it works (the transit work's `r.mode`); present, it wins over `modeOf`. */
+export interface WorkRover {
+  id: number; unit: RoverUnit | null; spot: RoverSpot | null; x: number; z: number; v: number;
+  mode?: WorkMode | null;
+}
 
 interface RoverSlot { a: RoverAnim | null; B: THREE.Matrix4; r: WorkRover | null; there: boolean }
 interface DroneSlot { id: number; unit: RoverUnit | null; working: boolean; p: THREE.Vector3 }
@@ -451,7 +455,8 @@ export class WorkAnim {
     }
     a.seen = this.frame;
     const u = r.unit, spot = r.spot, dt = this.dt;
-    const mode = u && !((u.brickedUntil ?? 0) > 0) ? this.modeOf(s, u) : null;
+    const bricked = !!u && (u.brickedUntil ?? 0) > 0;
+    const mode = bricked ? null : r.mode !== undefined ? r.mode : u ? this.modeOf(s, u) : null;
     const stopped = sl.there && r.v < 0.1;
     const near = !!spot && Math.hypot(r.x - spot.x, r.z - spot.z) < 6;
     a.mode = mode;

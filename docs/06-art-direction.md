@@ -625,8 +625,10 @@ reading, `workModeOf`, is the sim's state as it stands:
 - A rover works while it stands on its slot (weld) or within 6 m of it
   (sinter: it chases the frontier cell to cell).
 - The sim may sinter before the rover gets there. The day the sim knows where
-  a rover is and what it does (the transit work), it sets `modeOf` to read
-  that. Nothing else changes.
+  a rover is and what it does (the transit work), the visual rover carries
+  `r.mode` (`'weld' | 'sinter' | null`). `roverBody` passes it through, and a
+  rover's own `mode` wins over `modeOf`. Nothing else changes.
+- `modeOf` stays the reading for drones, and for any rover without a `mode`.
 - Drones use the same hook: a site → weld, a road job → sinter.
 
 **Two meshes for all of it.**
