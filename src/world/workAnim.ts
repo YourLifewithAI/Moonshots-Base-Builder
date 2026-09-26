@@ -186,11 +186,12 @@ interface RoverAnim {
   /** the frontier cell it sinters, cached per road revision and job */
   front: RoadCell | null;
   frontRev: number;
-  frontJob: string;
+  /** the job it was found for: a site id, or −1 − the road job's */
+  frontJob: number;
   seen: number;
 }
 
-interface DroneAnim { id: number; mode: WorkMode | null; spark: boolean; front: RoadCell | null; frontRev: number; frontJob: string; seen: number }
+interface DroneAnim { id: number; mode: WorkMode | null; spark: boolean; front: RoadCell | null; frontRev: number; frontJob: number; seen: number }
 
 interface DiggerAnim {
   id: number;
@@ -255,6 +256,7 @@ export class WorkAnim {
   private digKey = '';
   private digTechs = -1;
   private digTop = 0;
+  private wheel: readonly RigBox[] = diggerWheel('');
   // cells that opened lately (they cool), and the closed set they came from
   private closed = new Set<number>();
   private roadRev = -1;
@@ -444,7 +446,7 @@ export class WorkAnim {
     let a = this.rovers.get(r.id);
     if (!a) {
       a = { id: r.id, weld: 0, sinter: 0, crawl: 0, mode: null, atWork: false, spark: false, yaw: 0, reach: 0,
-        tip: new THREE.Vector3(), front: null, frontRev: -1, frontJob: '', seen: 0 };
+        tip: new THREE.Vector3(), front: null, frontRev: -1, frontJob: 0, seen: 0 };
       this.rovers.set(r.id, a);
     }
     a.seen = this.frame;
@@ -467,8 +469,8 @@ export class WorkAnim {
     if (w > 0 && u?.site !== null && u?.site !== undefined) {
       const b = byId(s, u.site);
       if (b) {
-        const [cx, cz] = this.centre(b);
-        const dx = cx - e[12], dz = cz - e[14];
+        const c = this.centre(b);
+        const dx = c[0] - e[12], dz = c[1] - e[14];
         aim = clamp(Math.atan2(dx * e[0] + dz * e[2], dx * e[8] + dz * e[10]), -2.5, 2.5);
       }
     }
@@ -476,9 +478,9 @@ export class WorkAnim {
     const up = REST.up + w * (1.0 - REST.up) + sn * (SINTER.up - REST.up);
     const down = REST.down + w * (-0.42 + 0.12 * Math.sin(t * 2.7) - REST.down) + sn * (SINTER.down - REST.down);
     const l2 = REST.l2 + w * (1.65 + 0.3 * Math.sin(t * 1.19 + 1) - REST.l2) + sn * (SINTER.l2 - REST.l2);
-    const dir = (out: THREE.Vector3, el: number) => out.set(Math.sin(yaw) * Math.cos(el), Math.sin(el), Math.cos(yaw) * Math.cos(el));
-    dir(this.d1, up);
-    dir(this.d2, down);
+    const sy = Math.sin(yaw), cy = Math.cos(yaw);
+    this.d1.set(sy * Math.cos(up), Math.sin(up), cy * Math.cos(up));
+    this.d2.set(sy * Math.cos(down), Math.sin(down), cy * Math.cos(down));
     this.S.copy(SHOULDER);
     this.E.copy(this.d1).multiplyScalar(L1).add(this.S);
     this.N.copy(this.d2).multiplyScalar(l2).add(this.E);
@@ -517,7 +519,7 @@ export class WorkAnim {
 
   /** a rover's or drone's frontier cell glows as it sinters (once a frame per cell) */
   private frontier(s: GameState, a: RoverAnim | DroneAnim, u: RoverUnit) {
-    const job = `${u.site}:${u.road ?? ''}`;
+    const job = u.site !== null ? u.site : -1 - (u.road ?? 0);
     const rev = s.roadRev ?? 0;
     if (a.frontRev !== rev || a.frontJob !== job) {
       a.frontRev = rev;
@@ -533,7 +535,7 @@ export class WorkAnim {
     if (this.nFront < this.frontSeen.length) this.frontSeen[this.nFront++] = c;
     const done = clamp(1 - c.left / ROAD.cellS, 0, 1);
     if (done < 0.02) return;
-    const [x, z] = cellCentre(c.gx, c.gz);
+    const x = (c.gx + 0.5) * CELL_M - MAP_M / 2, z = (c.gz + 0.5) * CELL_M - MAP_M / 2;
     const size = 3.6 * Math.max(0.4, done);
     const fl = this.flicker(this.clock, c.gx * 7 + c.gz);
     this.patch(x, z, 0, size, size, 0.75 + 0.25 * fl.k, 0.15);
@@ -544,7 +546,7 @@ export class WorkAnim {
   private drone(s: GameState, sl: DroneSlot, night: number, sun: number) {
     let a = this.droneAnims.get(sl.id);
     if (!a) {
-      a = { id: sl.id, mode: null, spark: false, front: null, frontRev: -1, frontJob: '', seen: 0 };
+      a = { id: sl.id, mode: null, spark: false, front: null, frontRev: -1, frontJob: 0, seen: 0 };
       this.droneAnims.set(sl.id, a);
     }
     a.seen = this.frame;
@@ -580,6 +582,7 @@ export class WorkAnim {
     if (s.techsDone.length !== this.digTechs) {
       this.digTechs = s.techsDone.length;
       this.digKey = upgradeKey('excavator', s.techsDone);
+      this.wheel = diggerWheel(this.digKey);
       this.digTop = recipeGeometry('excavator', this.digKey).boundingBox?.max.y ?? 4;
     }
     const reveal = materials.patched('building') || materials.classicCustom('building');
@@ -603,9 +606,9 @@ export class WorkAnim {
       for (let i = 0; i < this.nAway; i++) if (this.awayIds[i] === b.id) { away = i; break; }
       if (away >= 0) { this.mB.copy(this.awayM[away]); v = this.awayV[away]; }
       else {
-        const [cx, cz] = this.centre(b);
+        const c = this.centre(b);
         this.q0.setFromAxisAngle(UP, -b.rot * PI / 2);
-        this.mB.compose(this.v0.set(cx, this.hf.sample(cx, cz), cz), this.q0, ONE);
+        this.mB.compose(this.v0.set(c[0], this.hf.sample(c[0], c[1]), c[1]), this.q0, ONE);
       }
       a.away = away >= 0;
       const h = left > 0 ? undefined : b.haul;
@@ -636,7 +639,7 @@ export class WorkAnim {
     this.m0.makeRotationZ(a.phi % (2 * PI));
     this.mW.multiplyMatrices(this.mF, this.TH).multiply(this.m0);
     for (const p of DIGGER_BOOM) this.kitRig(this.mF, p, wear, dark);
-    for (const p of diggerWheel(this.digKey)) this.kitRig(this.mW, p, wear, dark);
+    for (const p of this.wheel) this.kitRig(this.mW, p, wear, dark);
     // the stay: from the mast's head to the boom where it dips
     this.v1.subVectors(stayFoot, pivot).applyAxisAngle(ZAXIS, a.theta).add(pivot);
     this.kitBar(this.mB, stayTop, this.v1, stayT, dark ? this.dimmed(this.tint.trim) : this.tint.trim, wear);
@@ -855,25 +858,26 @@ export class WorkAnim {
   }
 
   /** this frame's instances up to the GPU (only the part in use) */
+  private up(attr: THREE.BufferAttribute, n: number, size: number) {
+    attr.clearUpdateRanges();
+    attr.addUpdateRange(0, n * size);
+    attr.needsUpdate = true;
+  }
+
   private flush() {
-    const up = (attr: THREE.BufferAttribute, n: number, size: number) => {
-      attr.clearUpdateRanges();
-      attr.addUpdateRange(0, n * size);
-      attr.needsUpdate = true;
-    };
     const k = this.nKit, f = this.nFx;
     this.kit.count = k;
     this.kit.visible = k > 0;
     if (k > 0) {
-      up(this.kit.instanceMatrix, k, 16);
-      up(this.kit.instanceColor!, k, 3);
-      up(this.kit.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute, k, 4);
+      this.up(this.kit.instanceMatrix, k, 16);
+      this.up(this.kit.instanceColor!, k, 3);
+      this.up(this.kit.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute, k, 4);
     }
     this.fx.count = f;
     this.fx.visible = f > 0;
     if (f > 0) {
-      up(this.fx.instanceMatrix, f, 16);
-      up(this.fx.instanceColor!, f, 3);
+      this.up(this.fx.instanceMatrix, f, 16);
+      this.up(this.fx.instanceColor!, f, 3);
     }
   }
 

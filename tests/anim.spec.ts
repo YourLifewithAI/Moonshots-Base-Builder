@@ -1,7 +1,7 @@
 /** Work animations (world/workAnim.ts, docs/06 §7): a welding rover's print
  *  arm unfolds, sweeps over its site with a spark at the nozzle and folds
  *  as it leaves; a sintering rover points its arm down, crawls at the
- *  frontier and the cells glow and cool; a printing drone sparks; the
+ *  frontier (the hook) and the cells glow and cool; a printing drone sparks; the
  *  excavator's wheel turns and its boom dips while it digs, home or away,
  *  and holds while it drives. Pause freezes all of it, 3× and 10× run it at
  *  game speed, both styles draw it, and it costs two draw calls at most. */
@@ -163,7 +163,7 @@ for (const style of ['classic', 'detailed']) {
   });
 }
 
-test('a sintering rover points its arm down and crawls at the frontier; the cells glow as they sinter and cool behind', async ({ page }) => {
+test('a sintering rover points its arm down, the cells glow as they sinter and cool behind it; then it welds', async ({ page }) => {
   test.setTimeout(180_000);
   await start(page);
   // a site out past the Lander: its crew sinters the spur first
