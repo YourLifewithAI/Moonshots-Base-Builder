@@ -34,7 +34,12 @@
  * still founds the first of each type, but no longer adds more itself, and it
  * raises a rule's cap by +3 (+8 for Solar Arrays) when the [B] panel shows it
  * capped. No per-seed tuning.
- * Doctrines follow each site's natural answer (spec S3) unless --pick overrides. */
+ * Doctrines follow each site's natural answer (spec S3) unless --pick overrides.
+ * Hazards (docs/14 §3, §6): the bot answers them from the alerts' counter
+ * buttons, as a player reads them — the named (paid) counter when it can
+ * afford it and there is time, else the free one that saves the people or
+ * the machines — and keeps 20⚙ spare for seals once ⌂ is at moderate tier.
+ * --hazards=off holds every hazard (a measurement against the old runs). */
 import { writeFileSync } from 'node:fs';
 import { withGame } from './harness.mjs';
 
@@ -62,6 +67,8 @@ const DESTINY = opt('destiny', 'natural');
 const PICKS_ARG = opt('picks', '');
 /** --replace=off: the pick is added to the era's research instead of replacing its last small step */
 const REPLACE_STEP = opt('replace', 'on') !== 'off';
+/** --hazards=off: every hazard held (the pre-D3 comparison) */
+const HAZARDS_ON = opt('hazards', 'on') !== 'off';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -76,6 +83,7 @@ async function installBot(cfg) {
   // in between evaluate chunks (debug advances still run the economy)
   G.setPaused(true);
   G.advanceGameSeconds(0);
+  if (!cfg.hazards) G.holdHazards(true);
   const site = SITES[cfg.site];
   const robotic = cfg.exp === 'robotic';
   const bcm = site.buildCostMult;
@@ -323,7 +331,7 @@ async function installBot(cfg) {
       queueEmpty: 0, goodsStall: 0, goodsBy: {}, siteIdle: {}, blockedBy: {}, bankMax: 0, deaths: 0,
       autoBy: {}, rulePhase: {}, rulePhaseBy: {},
     },
-    autoSeen: [],
+    autoSeen: [], hzSeen: {}, hzNear: 0, hzDone: new Set(),
     firstLight: null, swarmProtocolAt: null, milestones: {},
     lastAction: s.simTime, lastEvent: s.simTime, actionGaps: [], eventGaps: [],
   };
@@ -390,6 +398,8 @@ async function installBot(cfg) {
   /** the goods queued research is about to need (attentive), or is waiting on (both) */
   function reserved() {
     const out = {};
+    // once ⌂ is at moderate tier, 20⚙ stay spare for seals (docs/14 §6)
+    if (hzTier('colony') >= 1) out.parts = (out.parts ?? 0) + 20;
     for (const q of R.queue) {
       const c = R.cards[q.tid];
       if (!(q.stalled || (P.reserveGoods && c.pct >= 0.6))) continue;
@@ -659,6 +669,58 @@ async function installBot(cfg) {
     }
   }
 
+  // ── hazards (docs/14 §3.8, §6): the alerts carry their counters; the
+  // reasonable player presses the named one if it can pay and has the time,
+  // else the free one; it never presses the same button twice for one alert ──
+  const hzTier = (side) => { const x = HV?.sides?.find((y) => y.side === side); return x && x.tier !== null ? x.tier : -1; };
+  let HV = null;
+  const pressed = new Map();
+  const hzCount = {};
+  function press(a, c, why) {
+    const key = `${a.key}|${c.counter}|${c.id ?? ''}`;
+    const last = pressed.get(key);
+    // shed loads and land drones lapse: press again once they have; the meter's feasts every 5 min
+    if (last !== undefined && !((c.counter === 'shedLoads' && s.hazards.shedUntil <= s.simTime) ||
+      (c.counter === 'landDrones' && s.hazards.dronesHeldUntil <= s.simTime) ||
+      ((c.counter === 'commonsNight' || c.counter === 'callHome') && s.simTime - last >= 300))) return false;
+    pressed.set(key, s.simTime);
+    if (c.counter === 'airGap') G.airGap(c.id, true);
+    else G.counter(c.counter, c.id);
+    hzCount[c.counter] = (hzCount[c.counter] ?? 0) + 1;
+    act('counter', `${c.counter}${why ? `(${why})` : ''}`);
+    return true;
+  }
+  const AFFORD = {
+    seal: () => s.resources.parts >= 20, clean: () => s.resources.parts >= 5 + 10, reimage: () => s.data >= 40,
+    patch: () => s.data >= 200 && s.buildings.some((b) => (b.type === 'dataCenter' || b.type === 'serverMonolith') && b.active),
+    commonsNight: () => s.resources.food >= 30 + 20, callHome: () => s.data >= 60, rotateKeys: () => s.resources.chips >= 5,
+    medevac: () => !s.resupply?.pending, repair: () => s.resources.parts >= 30 + 10,
+  };
+  function decideHazards() {
+    if (!cfg.hazards) return;
+    HV = G.getHazards();
+    // an alert gone takes its presses with it (the same dust can come back)
+    const keys = new Set(s.alerts.map((a) => a.key));
+    for (const k of [...pressed.keys()]) if (!keys.has(k.split('|')[0]) && !k.startsWith('repair:')) pressed.delete(k);
+    for (const a of s.alerts) {
+      const cs = a.counters ?? [];
+      if (!cs.length) continue;
+      const live = HV.active.find((h) => a.key === `hz:${h.id}`);
+      const left = live ? (live.phase === 'telegraph' ? live.left : live.clockLeft ?? 999) : 999;
+      // the named counter first, if it can be paid and done in time (a seal takes 20 s)
+      const paid = cs.find((c) => AFFORD[c.counter] && AFFORD[c.counter]() && !(c.counter === 'seal' && left < 25));
+      const free = cs.find((c) => !AFFORD[c.counter]);
+      const pick = paid ?? free;
+      if (pick) press(a, pick, paid ? '' : 'free');
+    }
+    // a decompressed hall goes back on line
+    for (const b of s.buildings) if (b.decompressed && AFFORD.repair()) press({ key: `repair:${b.id}` }, { counter: 'repair', id: b.id }, '');
+    // the worm is gone: what it gapped goes back on the network
+    if (!HV.active.some((h) => h.kind === 'malware')) {
+      for (const b of s.buildings) if (b.airGapped) { G.airGap(b.id, false); act('counter', 'reconnect'); }
+    }
+  }
+
   // an idle rover goes to the longest build under way (the inspector's
   // Summon): the site keeps it until it is done
   function decideFleet() {
@@ -898,6 +960,14 @@ async function installBot(cfg) {
       }
     }
     A.bankMax = Math.max(A.bankMax, s.data);
+    // hazards: every log entry once (near misses and ended hazards)
+    for (const e of s.hazards?.log ?? []) {
+      const k = `${e.at}:${e.kind}:${e.id}`;
+      if (log.hzDone.has(k)) continue;
+      log.hzDone.add(k);
+      if (/^near miss/.test(e.outcome)) log.hzNear++;
+      else log.hzSeen[e.kind] = (log.hzSeen[e.kind] ?? 0) + 1;
+    }
     // events: techs, buildings, surveys, eras, outposts, crew
     if (s.techsDone.length > prev.techs) {
       for (const t of s.techsDone.slice(prev.techs)) event(`tech ${t}`);
@@ -930,6 +1000,7 @@ async function installBot(cfg) {
       if (s.simTime >= nextDecision) {
         R = G.getResearch();
         L = G.getLunar();
+        decideHazards();
         decideEmergency();
         decideResearch();
         decideCrew();
@@ -966,6 +1037,12 @@ async function installBot(cfg) {
   }
   function report() {
     const s2 = now();
+    const hz = s2.hazards;
+    delete log.hzDone;
+    log.hazards = {
+      byKind: log.hzSeen, counters: hzCount, deaths: s2.deaths ?? [], losses: s2.losses ?? [],
+      nearMiss: log.hzNear, live: hz ? hz.live.map((h) => `${h.kind}:${h.phase}`) : [],
+    };
     const R2 = G.getResearch();
     log.techs = s2.techsDone.map((t) => {
       const ev = log.events.find((e) => e[1] === `tech ${t}`);
@@ -1029,6 +1106,9 @@ function summarize(log) {
     siteIdleMin: Object.fromEntries(Object.entries(A.siteIdle).map(([k, v]) => [k, fmtMin(v)])),
     blockedMin: Object.fromEntries(Object.entries(A.blockedBy).map(([k, v]) => [k, fmtMin(v)])),
     deaths: A.deaths, bankMax: Math.round(A.bankMax),
+    hzDeaths: log.hazards.deaths.length, hzLosses: log.hazards.losses.length,
+    hzDeathCauses: log.hazards.deaths.map((d) => d.cause), hzLossCauses: log.hazards.losses.map((l) => `${l.what}: ${l.cause}`),
+    hzByKind: log.hazards.byKind, hzNear: log.hazards.nearMiss, hzCounters: log.hazards.counters, hzLive: log.hazards.live,
     outcome: log.firstLight ? 'FIRST LIGHT' : log.final.defeat ? 'DEFEAT' : `era ${log.final.era} at ${fmtMin(log.final.t)}`,
     techs: log.final.techsDone.length,
     buildings: log.final.buildings.map(([k, v]) => `${k}${v}`).join(' '),
@@ -1065,7 +1145,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
     const info = await page.evaluate(installBot, {
       ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY, destiny: DESTINY, picks: PICKS_ARG,
-      replaceStep: REPLACE_STEP,
+      replaceStep: REPLACE_STEP, hazards: HAZARDS_ON,
     });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · destiny ${info.picks} · doctrines ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {

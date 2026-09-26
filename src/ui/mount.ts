@@ -8,6 +8,7 @@ import { mountLunarMap } from './lunarMap';
 import { mountPalette } from './palette';
 import { mountFleetPanel } from './fleetPanel';
 import { mountBuilderPanel } from './builderPanel';
+import { mountHazardsPanel } from './hazardsPanel';
 import { mountDepositCard } from './depositCard';
 import { mountDiscovery } from './discovery';
 import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
@@ -40,6 +41,7 @@ export function mountUI(game: Game) {
   mountDiscovery(hudLayer, game);
   mountTechTree(hudLayer, game);
   mountLunarMap(hudLayer, game);
+  mountHazardsPanel(hudLayer, game);
   mountVictory(root, game);
   mountDefeat(root);
   mountSiteSelect(root, game);

@@ -64,6 +64,7 @@ export function dockSlots(s: GameState, mods: Pick<Mods, 'botPerBay'>): number[]
     if (!b.enabled || isSite(b)) continue;
     let n = BUILDINGS[b.type].bots ?? 0;
     if (b.type === 'roboticsBay') n += mods.botPerBay;
+    n -= hazardSlotsLost(b);
     for (let i = 0; i < n; i++) out.push(b.id);
   }
   return out;
@@ -130,7 +131,7 @@ export function syncRoster(s: GameState, mods: Pick<Mods, 'botPerBay'>) {
  *  never a pinned one. */
 export function borrowable(s: GameState): RoverUnit | null {
   const away = surveyRover(s);
-  const free = s.rovers.filter((r) => !r.pinned && r.id !== away);
+  const free = s.rovers.filter((r) => !r.pinned && r.id !== away && !roverDown(s, r));
   const idle = free.find((r) => r.site === null);
   if (idle) return idle;
   const posOf = (r: RoverUnit) => {
@@ -153,9 +154,10 @@ export function assignRovers(s: GameState): Map<number, number> {
     // the site is done (or gone): back to auto, pin and all
     if (r.site !== null && !siteIds.has(r.site)) { r.site = null; r.pinned = false; }
     if (r.id === away) { r.site = null; r.pinned = false; }
+    if (roverDown(s, r)) { r.site = null; r.pinned = false; delete r.road; }
   }
   const pinnedAt = new Set(s.rovers.filter((r) => r.pinned && r.site !== null).map((r) => r.site!));
-  const auto = s.rovers.filter((r) => !r.pinned && r.id !== away);
+  const auto = s.rovers.filter((r) => !r.pinned && r.id !== away && !roverDown(s, r));
   const targets = sites.filter((b) => b.enabled && !pinnedAt.has(b.id)).slice(0, auto.length);
   const wanted = new Set(targets.map((b) => b.id));
   const served = new Set<number>();
@@ -182,7 +184,7 @@ export function assignRovers(s: GameState): Map<number, number> {
     if (r.road !== undefined && (r.site !== null || r.pinned || r.id === away || !live.has(r.road))) delete r.road;
   }
   const onJob = new Set(s.rovers.filter((r) => r.road !== undefined).map((r) => r.road!));
-  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.id !== away && r.road === undefined);
+  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.id !== away && r.road === undefined && !roverDown(s, r));
   for (const id of jobs) {
     if (onJob.has(id)) continue;
     const r = idle.shift();
@@ -304,4 +306,17 @@ export function unpinRover(s: GameState, roverId: number): ActionResult {
   r.pinned = false;
   r.site = null;
   return OK;
+}
+
+// ─────────────────────────── hazards (docs/14 §3.5) ───────────────────────────
+
+/** A rover that takes no work: bricked until re-flashed, or held at its dock
+ *  (Dock fleet, Land drones, a kill switch, the control plane down). */
+export function roverDown(s: Pick<GameState, 'simTime'>, r: RoverUnit): boolean {
+  return (r.brickedUntil ?? 0) > 0 || (r.heldUntil ?? 0) > s.simTime;
+}
+
+/** A dock's slots emptied by lost rovers, until it prints replacements. */
+export function hazardSlotsLost(b: Pick<BuildingState, 'slotsLost'>): number {
+  return Math.max(0, b.slotsLost ?? 0);
 }

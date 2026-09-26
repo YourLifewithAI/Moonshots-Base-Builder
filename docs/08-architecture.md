@@ -30,6 +30,8 @@ src/
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
                           maintenance, the [B] view; economy step 12 returns AutoRequests
     siting.ts             the deterministic site chooser shared by orders and rules (+ Feed Planner aim)
+    hazards.ts            destiny hazards (docs/14 §3): tiers, the scheduler, occupancy, the network graph,
+                          each kind's flow, counters, deaths and losses; economy hooks; hazardView for the UI
     flowBook.ts           per-resource made / want / spend averages (supply against demand)
     roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads
     roadActions.ts        the road tool's actions (lay, remove) and their alerts
@@ -47,7 +49,8 @@ src/
     sites.ts              3 landing sites, every mechanical modifier
     milestones.ts         10 ordered goals (the tutorial) + swarm bands
     automation.ts         the Builder's rule table (RULES), families, AUTO constants, rule texts
-    hazards.ts            destiny hazard ids, guard and exposure texts (hooks only: HAZARDS_LIVE false)
+    hazards.ts            the 13 hazards (HAZARDS), their counters (COUNTERS), every magnitude (HZ), guard,
+                          exposure and risk texts; HAZARDS_LIVE true
     roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
@@ -106,6 +109,7 @@ src/
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
     builderPanel.ts       the [B] Builder panel and the resource panels' BUILDER section
+    hazardsPanel.ts       the [G] Hazards panel, the HUD hazard chip, counter buttons (alerts, inspector)
     techTree.ts / techPage.ts / techGoals.ts / techDestiny.ts
                           the research tree: pages, lane board, goals, the destiny column and meter
 tests/smoke.spec.ts       6-test full-loop Playwright suite
@@ -164,6 +168,7 @@ in `game.ts`):
 | 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap. The tick's net flow per resource so far (deliveries and research goods excluded) feeds a 20 s average, `state.rates`, which the info panels show |
 | 8 | Morale | Target = site base + active-building deltas + fed/starving + crowding + brownout + flare penalties, clamped 0–100; state lerps toward it at 0.05/tick |
 | 9 | Flare state machine | idle → telegraph (60 s warning alert) → active (45 s, solar = 0, −10 morale unless the site is flare-immune) → idle, next event at 2.0 ± 0.8 days, **seeded jitter** (§7) |
+| 9b | Hazards (`hazardTick`, economy step 8.3) | After the flare, before resupply. The scheduler opens a window per side in turn (credit by picks), picks the kind and the weakest target deterministically, and starts its warning. Each live hazard runs telegraph → active → resolved; its alert carries the counters, and a death or loss clock is a condition. Then the meters (airlock dust, cabin fever, dose), the fleet (bricked rovers re-flash at their own dock, deadlines, dock reprints) and runaway junk. Returns wrecked buildings, junk sites for `econStep`, and whether mods changed. Its hooks in the other steps are in 02 |
 | 10 | Research | Data drains into the queue head; on completion, era-3+ techs also gate on **manufactured goods** (Factorio rule: you cannot out-research your industry) — unaffordable techs stall with an alert. Completion recomputes era + mods |
 | 11 | Night tracking | Day→night edge detection; surviving a night increments the counter and fires the DAWN alert |
 | 11b | Autonomous Cadence | With the ◉ Era 8 pick: a ready volley fires itself, one a tick, only if the bank keeps the night's reserve (`launchVolley`, shared with the button). The first volley of a pure-Automation band runs CREW HOME |
@@ -300,7 +305,15 @@ SaveBlob = {
   destiny tracks add `forwarded` (techs a pick brought forward),
   `crewHome`, `launchDayUntil` and `evaCrew`, and put the landing pick in
   `techsDone`; `techSchema` 4 (`migrateTechSchema` step 3 → 4) adds it to
-  older saves. Restore = regenerate terrain from
+  older saves. The hazards add `state.hazards` (`schema: 1`: the scheduler's
+  clock, credit and windows, the live hazards, `drilled`, the log, the
+  meters, suit air, the air-gap and shipment state), `deaths`, `losses` and
+  `grief` (each record names its cause and the warning it followed), per
+  building `infected` / `airGapped` / `airlockDust` / `evacT` / `stripT` /
+  `breached` / `decompressed` / `junk` / `slotsLost` and the offline
+  timers, per rover `brickedUntil` / `heldUntil`, and `hacked` on outposts.
+  `fillStateDefaults` gives an older save a quiet scheduler that starts a
+  lunar day after load, and empty lists. Restore = regenerate terrain from
   `(siteId, seed)` → replay flattens → rebuild chunk meshes + instances +
   colliders → restore player pose and mode.
 
@@ -319,6 +332,13 @@ action queue) · `getAutomation()` (the [B] view) · `planSite(type, intent)`
 (a dry run of the chooser) · `setWear(id, wear)`. The destiny tracks add
 `pickDestiny(era, side)` (completes an era's pick) · `getDestiny()` (the
 meter, the band, the next volley's terms, the gates) · `setDust(id, dust)`.
+The hazards add `getHazards()` (the panel's view plus the raw state, deaths,
+losses, grief) · `forceHazard(kind, target?, {drill, tier})` ·
+`setHazardClock(seconds, id?)` (the next window, or a live hazard's clock) ·
+`holdHazards(on)` (tests not about hazards, and the probe's
+`--hazards=off`) · `counter(counter, id?)` · `airGap(id, on)` (both through
+the action queue). `&hzpause` lets the pause-on settings pause a debug run;
+without it they never do.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time
 waits make tests slow and flaky. `?nolock` makes walk mode drivable, and

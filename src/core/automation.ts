@@ -52,6 +52,8 @@ export type AutoRequest =
     replaces?: number;
     /** hazards (docs/14) may skip the cap or the reserve — never the weld debt */
     bypass?: { cap?: boolean; reserve?: boolean };
+    /** RUNAWAY RULE (docs/14 §3.5): a junk site for this hazard (its id) */
+    junk?: number;
   }
   | { kind: 'demolish'; id: number; why: string }
   /** a planned dig site, applied when an auto excavator stands */
@@ -953,4 +955,39 @@ export function autoTagLine(b: BuildingState): string {
     ? (t.rule === 'replace' ? 'Maintenance' : `${FAMILY_LABEL[RULES[t.rule].family]} rule`)
     : `your order #${t.order ?? '?'}`;
   return `AUTO · ${who} · ${when} — ${t.why}`;
+}
+
+// ─────────────────────────── hazards (docs/14 §3.5, §3.10) ───────────────────────────
+
+/** RUNAWAY RULE: the hijacked rule's next junk site — its own building, at
+ *  its own kind of ground, ignoring its cap and the rule reserve, never the
+ *  weld debt, the Governor's floors (Budget Governor) or life-support stock.
+ *  null when the stock is not there (the drift orders nothing it cannot pay). */
+export function runawaySite(s: GameState, mods: Mods, site: SiteDef, rule: AutoRuleId, hazard: number): AutoRequest | null {
+  const type = ruleBuilding(s, mods, rule);
+  if (!type || !mods.unlocked.has(type)) return null;
+  if (budgetShort(s, mods, site, type, { by: 'rule', bypassReserve: true })) return null;
+  const d = RULES[rule];
+  return {
+    kind: 'place', type, by: 'rule', rule, intent: { res: d.res, rule }, why: 'RULE DRIFT — a hijacked cap',
+    bypass: { cap: true, reserve: true }, junk: hazard,
+  };
+}
+
+/** The post-incident audit, the machines' grief: after a loss the Builder's
+ *  rules pause 120 s, and the rules that build the lost building's type are
+ *  vetoed for a lunar day (as a cancelled site is, docs/13 §3.2). */
+export function postIncidentAudit(s: GameState, mods: Mods, type?: BuildingId) {
+  const now = s.simTime;
+  s.auto.frozenUntil = Math.max(s.auto.frozenUntil, now + 120);
+  if (!type) return;
+  for (const id of RULE_ORDER) {
+    const r = s.auto.rules[id];
+    if (!r || !r.on || ruleBuilding(s, mods, id) !== type) continue;
+    r.nextAt = Math.max(r.nextAt, now + AUTO.vetoS);
+    r.dwell = 0;
+    r.phase = 'vetoed';
+    r.why = `post-incident audit: ${name(type)} lost`;
+  }
+  logAuto(s, `post-incident audit: rules paused 2:00${type ? `, ${name(type)} vetoed a lunar day` : ''}`);
 }

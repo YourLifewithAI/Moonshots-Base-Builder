@@ -197,8 +197,12 @@ The picks tilt the economy; no lane is ever removed.
 - **CREW HOME.** A crewed base whose band is pure Automation sends its last
   crew home at the first volley. Crew 0 is then no defeat, every station goes
   Autonomous, and nobody is invited again.
-- **Hazards** (docs/14 §3) are not live yet. The picks already carry their
-  `exposure` and `guard` hooks, with no card line.
+- **Hazards** (docs/14 §3, `core/hazards.ts`). A side with 2 picks or more
+  faces its own: ⌂ the environment (breaches, a life-support cascade,
+  blight, a fouled water loop, EVA doses, cabin fever, airlock dust), ◉ the
+  network (malware, bad firmware, rogue drones, a runaway rule, a hacked
+  outpost, the control plane). The picks' `exposure` (⊖) and `guard` (⊕)
+  lines are on the cards. The economy reads them as multipliers (below).
 
 ## The umbilical arc — Earth Supply Credits (CUT)
 
@@ -298,11 +302,44 @@ both numbers printed on it — pillar 1 applied to governance.
 | 3 | **Micrometeorite strikes** | CUT | Rare, unannounced single-building breach: building offline + parts cost + small crew-injury risk (Medical Bay demand). Punishes complacency between telegraphed events. Cut for slice pacing; needs Medical Bay to land fairly. |
 | 4 | **Dust abrasion** | SHIPPED | Persistent, not episodic: solar output −8%/lunar day (cap −50%), recovering 20%/day while parts upkeep is paid; excavators carry the highest wear. Dust Mitigation tech ×0.4. **There are no dust storms — the Moon is airless; that is a Mars trope.** |
 | 5 | **Earth-supply dependence** | CUT (softened) | The credits arc above. Slice ships the generous-stockpile substitute. |
-| 6 | **Morale + Unrest dual soft meters** | PARTIAL | Morale shipped; Unrest CUT. See morale design above. |
+| 6 | **Morale + Unrest dual soft meters** | PARTIAL | Morale shipped. Unrest returns for ⌂ Colony only as CABIN FEVER (system 7): a 0–100 meter whose crisis strikes a station and, twice in 3 days, sends 2 crew home. |
+| 7 | **Destiny hazards** ([14 §3](14-destiny-tracks.md)) | SHIPPED | A side with 2+ picks faces its own hazards, tier by its picks (2–3 minor · 4–5 moderate · 6–8 major); windows every 1.6 / 1.3 / 1.0 lunar days by era, ×clamp(30 / structures, 0.75, 1.25). ⌂ Colony's can kill crew; ◉ Automation's destroy machines, data and stock for good. Every one is telegraphed (90–150 s), names its target and carries its counters on its alert; a death or a loss needs a warning ignored and a second clock run out; the first of each kind is a drill. Table below. |
+
+**How hazards reach the economy** (`core/hazards.ts` hooks, `economy.ts`):
+
+| Step | Hook | Effect |
+|---|---|---|
+| 0.5 | `sickCrew` | dosed and sick crew are off work |
+| 2 | `hazardOff` · `hazardDrawMult` | offline: breached, decompressed, evacuated (a station), stripped, reimaging, a kill switch, on strike, junk, an air-gapped agent station, shed loads · an infected node draws ×1.3 (the phantom load) |
+| 2 | `hazardDuskLine` | the dusk forecast names the habitats or the Data Centers the bank will not carry, with Shed loads or Land drones |
+| 3 | `evaHeld` | EVA recalled for the flare |
+| 4 | `hazardOutputMult` | infected ×0.5 (data too) · blighted farm ×0.6 / 0.4 / 0.2 · a fouled loop's farms ×0.7 / 0.5 / 0.3 · agent-run stations while the control plane is down ×0.7 / 0.5 / 0.4 |
+| 5 | `hazardBedsOff` · `killCrew` · `growthHeld` | evacuated or breached beds are off (crowding) · every death goes through CREW LOST with its cause, −15 morale and −10 grief for a lunar day (to −30) · no settler (nor a rotation) boards during the grief |
+| 6 | `hazardUpkeepMult` | clogged airlock filters: upkeep ×2 (and wear +0.1/day, which feeds BREACH) |
+| 7 | `hazardMorale` | grief, a cabin-fever crisis (−20 for 360 s), a boil-water notice (−6 / −10 / −14) |
+| 8.3 | `hazardTick` | the scheduler, the flare and event kinds, the meters, each live hazard, suit air, re-flash deadlines, dock reprints, junk welds |
+
+| Hazard | Counter (free first) | Ignored |
+|---|---|---|
+| ⌂ BREACH | Evacuate · Seal (8–20⚙, 20 s) | 0 / 1 / 2 of those aboard die; vents 0.3–1.0○/s; decompressed after 120 s (repair 30⚙) |
+| ⌂ LIFE-SUPPORT CASCADE | Shed loads | crew with no bed on suit air (180 / 120 / 90 s), then 1 death every 30 s |
+| ⌂ BLIGHT | Quarantine (the crop) | −40 / −60 / −80% on the farm; spreads every 180 / 120 s; famine |
+| ⌂ CONTAMINATION | Flush (30% of ≈) | farms and morale drop; sick bay after a day; poisoning after 3 / 2 / 1 days, 1 death a day |
+| ⌂ DOSE | Recall EVA · Medevac | off work ½–1½ days; at major 1 in 3 caught, or past 6 crew-doses, a lethal dose (3:00) |
+| ⌂ CABIN FEVER | Commons night 30✳ · Call home 60≡ | a crisis: morale −20, a strike; two in 3 days send 2 crew home (alive) |
+| ⌂ DUST | Clean 5⚙ | clogged filters: upkeep ×2, wear |
+| ◉ MALWARE | Air-gap · Reimage 40≡ · Patch 200≡ | ×0.5 output, ×1.3 draw, spreads; ransom 15% of data a day (moderate); burn-out, wrecked (major) |
+| ◉ FIRMWARE | Hold rollout · Dock fleet | 30 / 50 / 70% of rovers bricked; lost at the re-flash deadline (480 / 360 / 240 s); drones in flight fall |
+| ◉ ROGUE DRONES | Kill switch | the target stripped 1%/s and wrecked, no refund |
+| ◉ RUNAWAY RULE | Freeze rules | 4 / 8 junk sites; half their stock wasted |
+| ◉ HACKED OUTPOST | Rotate keys 5▣ | the stream stops; lost after a day (major) |
+| ◉ CONTROL PLANE | Land drones | agent-run output drops, the Builder waits; at major drones in flight fall |
 
 Design intent for the set: pressures alternate between **scheduled** (night,
 flares — you prepare) and **ambient** (dust, parts, morale — you budget), with
 exactly one **unscheduled** spike (micrometeorites) to keep preparation honest.
+The micrometeorite returns telegraphed, as BREACH's pitting term (0.15, ×0.5
+with Regolith Shielding): no hazard is unannounced.
 
 ## Endgame economy
 

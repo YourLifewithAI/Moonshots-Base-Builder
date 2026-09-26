@@ -26,10 +26,14 @@ export interface Settings {
   muted: boolean;
   /** discovery pop-ups and era explainers (the running tutorial) */
   tips: boolean;
+  /** hazards (docs/14 §3.8): pause when a new hazard is announced; pause on every lethal warning */
+  pauseHazards: boolean;
+  pauseLethal: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false, tips: true,
+  pauseHazards: true, pauseLethal: false,
 };
 
 const isLevel = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
@@ -52,6 +56,8 @@ function read(): Settings {
       effects: clamp01(raw.effects, DEFAULT_SETTINGS.effects),
       muted: raw.muted === true,
       tips: raw.tips !== false,
+      pauseHazards: raw.pauseHazards !== false,
+      pauseLethal: raw.pauseLethal === true,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

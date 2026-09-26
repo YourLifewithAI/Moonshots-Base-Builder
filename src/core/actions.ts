@@ -5,6 +5,7 @@ import type { TechId } from '../data/techs';
 import type { ProspectId } from '../data/lunarMap';
 import type { ResourceId } from '../data/resources';
 import type { AutoFamily, AutoRuleId } from '../data/automation';
+import type { CounterId } from '../data/hazards';
 
 export type Action =
   | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3;
@@ -51,7 +52,11 @@ export type Action =
   | { kind: 'setReserve'; res: ResourceId; amount: number | null } // Governor floor (null = default)
   | { kind: 'moveFamily'; family: AutoFamily; delta: -1 | 1 }       // Governor priority
   | { kind: 'freezeRules'; seconds: number }    // every rule holds (0 = thaw)
-  | { kind: 'setFeedPlan'; id: number; on: boolean };               // Feed Planner opt-out
+  | { kind: 'setFeedPlan'; id: number; on: boolean }                // Feed Planner opt-out
+  // hazards (core/hazards.ts, docs/14 §3.7): a counter (id: the hazard, or
+  // the building for Clean, Reimage and Repair), and a node's air gap
+  | { kind: 'counter'; counter: CounterId; id?: number }
+  | { kind: 'airGap'; id: number; on: boolean };
 
 export class ActionQueue {
   private q: Action[] = [];
