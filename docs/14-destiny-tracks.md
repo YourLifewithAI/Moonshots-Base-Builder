@@ -878,12 +878,65 @@ Automation band, CREW HOME at FIRST LIGHT) and `CACACACA`.
 - **Crewed pole, Automation seed 1234 (256.3):** Swarm Protocol lands at
   172.8 min, then the first volley waits 83 min. The bank holds 1–20 while
   demand runs level with supply or up to 80 kW over it: the Builder's solar
-  rule spends 38 min in `nosite` (no ground a road can serve) and 43 min
-  watching, and the reactor rule is locked (no reactor tech on that run). A
-  volley needs its 300-energy burst stored, so neither the cadence nor the
-  button can fire. A road-era siting limit at the pole, not a destiny rule;
-  main's crewed pole shows the same pressure as 26–30 min goods stalls on
-  seeds 7 and 1234. The other two seeds run 172 and 187.
+  rule spends 38 min in `nosite` and 43 min watching, and the reactor rule is
+  locked (no reactor tech on that run). A volley needs its 300-energy burst
+  stored, so neither the cadence nor the button can fire. The other two seeds
+  run 172 and 187. **Resolved on `work/siting`: 173.3** (next paragraph).
+
+**The pole outlier, resolved (`work/siting`).** The cause was the chooser's
+window, not the ground. It validated only the first 200 pads by score, and
+its raster knew neither roads nor relief. At 158 min on that run:
+
+| Solar pads in the network | Count |
+|---|---|
+| candidates | 1579 |
+| clear of footprints and door aprons | 1007 |
+| valid (`checkPlacement`) | 628 |
+| the first 200 by score: on a road | 95–97 |
+| the first 200 by score: too rough | 103–105 |
+| no road route, anywhere | 0 |
+
+The other suspects, measured on the crewed pole at landing (seeds 42, 7,
+1234): a road reaches 64 439–64 501 of 65 536 cells; no flat pad and no
+peak of light is out of a road's reach; fields chain edge to edge already.
+The fix (docs/13 §2.3): roads, rough ground and pads no road can reach are
+struck before the ranking, and the walk tries every pad left. A rule with
+no ground now says so through the night too, and warns for Power.
+
+Same probe and bot as the table above; *main* is `6221421`.
+
+| Run | main | `work/siting` |
+|---|---|---|
+| mare robotic · ⌂ pure Colony | 211.9 [210, 212, 214] | 211.9 [210, 212, 214] |
+| mare robotic · ◉ pure Automation | 206.6 [207, 207, 203] | 206.6 [207, 207, 203] |
+| mare robotic · Concord | 212.9 [213, 213, 217] | 212.9 [213, 213, 217] |
+| south pole crewed · ⌂ pure Colony | 159.9 [158, 175, 160] | 159.9 [158, 174, 160] |
+| south pole crewed · ◉ pure Automation | 186.5 [172, 187, 256] | **173.3** [172, 187, 173] |
+| south pole crewed · Concord | 174.3 [174, 181, 173] | 181.3 [183, 181, 172] |
+
+- **Mare: unchanged** on every seed. Its valid pads already lay inside the
+  old window.
+- **Pole Automation seed 1234: 256.3 → 173.3.** The solar rule's `nosite`
+  goes from 38.3 min to 0 and its watching from 42.8 to 1.4. Eras 1–7 are
+  unchanged. Swarm Protocol lands at 172.1 min (172.8 before), and the first
+  volley follows it in 1.2 min, not 83. Pole Concord seed 1234 had 4.4 min
+  of solar `nosite` too; now none.
+- **Pole Concord seed 42: 174.3 → 183.3.** Its eras are identical, and
+  Swarm Protocol lands at 167.3 min in both. The first volley then waits
+  16 min, not 7: the bank sits at 1–20 through a sun dip. The Builder now
+  places some sites elsewhere (Site Survey AI ranks its best 24 pads by
+  planned path, and at the pole those 24 used to be mostly roads and rough
+  ground), and the timing of the pole's late power squeeze moves with them.
+  Seed 1234 moves the other way (173.3 → 171.9). The median moves because
+  seed 42 is now the high seed.
+- **Main's crewed-pole goods stalls** (`cf5d3a8`: 26.0 min on seed 7, 30.4
+  on seed 1234) are **not** siting. No Builder rule is in `nosite` on those
+  runs, and the fix applied to `cf5d3a8` leaves both stalls unchanged. They
+  are metals: one Regolith Smelter makes 33◆/min, two Parts Fabricators
+  want 36◆/min, and parts demand is 4–5⚙/min. Metals sit at 0 while parts
+  climb to the 500⚙ cap (seed 7, 84–102 min), and the bot cannot afford its
+  second smelter until the fabs idle full. That is the manual bot's policy
+  (it never pauses a fab), as in the manual seed-7 note below. Left as is.
 - **Era 3** runs 32.1–34.5 min (main 28.0), for the reason below.
 
 **Before roads** (on `9fb24f8`, before #26 and #27: the first measurement;

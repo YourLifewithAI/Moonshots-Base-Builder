@@ -136,9 +136,24 @@ const touches = (a: Placed, b: Placed) => {
 
 // ───────────────────────────── served ─────────────────────────────
 
+/** Memo for the siting scans (the chooser asks once a candidate): per road
+ *  list, on the network's revision and the buildings. */
+const fieldMemo = new WeakMap<RoadCell[], { key: string; served: Set<number> }>();
+const layoutKey = (s: GameState) => `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${s.nextBuildingId},${s.buildings.length}`;
+
 /** Field structures a road serves: one within reach of any road cell, or one
  *  sharing an edge with a served structure of its own type. */
 export function servedFields(s: GameState): Set<number> {
+  const list = s.roads;
+  const key = layoutKey(s);
+  const hit = list ? fieldMemo.get(list) : undefined;
+  if (hit && hit.key === key) return hit.served;
+  const out = findServed(s);
+  if (list) fieldMemo.set(list, { key, served: out });
+  return out;
+}
+
+function findServed(s: GameState): Set<number> {
   const map = roadMap(s);
   const out = new Set<number>();
   const fields = s.buildings.filter((b) => FIELD_TYPES.has(b.type));
@@ -366,6 +381,15 @@ export function planSpur(s: GameState, hf: Heights, b: Placed): SpurPlan {
   return out;
 }
 
+/** A field type's way round a missing road: its field's edge, else a road's side. */
+function fieldFix(s: GameState, t: BuildingId): string {
+  const name = BUILDINGS[t].name;
+  const served = servedFields(s);
+  return s.buildings.some((o) => o.type === t && served.has(o.id))
+    ? `set it edge to edge with a served ${name} (no road needed)`
+    : `set it within a cell of a road`;
+}
+
 function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const map = roadMap(s);
   const blocked = occupied(s, b);
@@ -377,7 +401,7 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   if (FIELD_TYPES.has(b.type)) {
     if (fieldReached(s, b)) return { cells: [], fresh: [], bays: [], reason: '' };
     targets = ringCells(b).filter(([x, z]) => inMap(x, z) && !blocked.has(cellKey(x, z)) && !map.get(cellKey(x, z))?.closed).map(([x, z]) => cellKey(x, z));
-    if (!targets.length) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — boxed in: no ground beside it for a road' };
+    if (!targets.length) return { cells: [], fresh: [], bays: [], reason: `NO ROAD ROUTE — boxed in: no ground beside it for a road; ${fieldFix(s, b.type)}` };
   } else {
     const d = doorCell(b)!;
     const dk = cellKey(d[0], d[1]);
@@ -390,9 +414,11 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   }
   const path = search(s, hf, sources, new Set(targets), blocked, haulSeed(s, b));
   if (!path) {
-    return { cells: [], fresh: [], bays: [], reason: sources.length
-      ? 'NO ROAD ROUTE — the rovers cannot reach it by road (walled in, or too steep)'
-      : 'NO ROAD ROUTE — no open road to start from' };
+    const field = FIELD_TYPES.has(b.type);
+    return { cells: [], fresh: [], bays: [], reason: !sources.length
+      ? 'NO ROAD ROUTE — no open road to start from'
+      : field ? `NO ROAD ROUTE — no road can reach its edge (walled in, or steps over ${ROAD.maxStep} m); ${fieldFix(s, b.type)}`
+      : 'NO ROAD ROUTE — the rovers cannot reach it by road (walled in, or too steep)' };
   }
   const cells = path.filter((k) => !isOpen(map.get(k)));
   const fresh = cells.filter((k) => !map.has(k));
@@ -410,6 +436,69 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
     }
   }
   return { cells, fresh, bays, reason: '' };
+}
+
+// ───────────────────────────── reach (for siting) ─────────────────────────────
+
+const reachMemo = new WeakMap<RoadCell[], { key: string; cells: Uint8Array }>();
+
+/** Every cell a new road could reach from the open network, walked as the A*
+ *  walks: footprints, doors, bays and the closed apron are walls, and so is a
+ *  step steeper than ROAD.maxStep. 1 = reachable, by cell key. A new
+ *  structure's own footprint is not a wall here, so this is a superset: a spot
+ *  whose road would end outside it has no route, and the A* still has the last
+ *  word on the rest. Memoised on the network and the buildings. */
+export function roadReach(s: GameState, hf: Heights): Uint8Array {
+  const list = s.roads;
+  const key = layoutKey(s);
+  const hit = list ? reachMemo.get(list) : undefined;
+  if (hit && hit.key === key) return hit.cells;
+  const out = new Uint8Array(MAP_CELLS * MAP_CELLS);
+  if (list) {
+    const map = roadMap(s);
+    const doors = doorKeys(s);
+    const blocked = occupied(s);
+    for (const k of doors) blocked.add(k);
+    const height = new Float32Array(MAP_CELLS * MAP_CELLS).fill(NaN);
+    const hAt = (k: number) => {
+      if (Number.isNaN(height[k])) { const [x, z] = keyCell(k); height[k] = hf.sample(...cellCentre(x, z)); }
+      return height[k];
+    };
+    const q = openSources(s, doors);
+    for (const k of q) out[k] = 1;
+    for (let i = 0; i < q.length; i++) {
+      const k = q[i];
+      const [x, z] = keyCell(k);
+      for (const [dx, dz] of N4) {
+        const nx = x + dx, nz = z + dz;
+        if (!inMap(nx, nz)) continue;
+        const nk = cellKey(nx, nz);
+        if (out[nk] || blocked.has(nk)) continue;
+        const road = map.get(nk);
+        if (road?.bay || road?.closed) continue;
+        if (Math.abs(hAt(nk) - hAt(k)) > ROAD.maxStep) continue;
+        out[nk] = 1;
+        q.push(nk);
+      }
+    }
+    reachMemo.set(list, { key, cells: out });
+  }
+  return out;
+}
+
+/** A cheap "no road can get there" for a spot (true: certainly none), before
+ *  the A*: a field type not served already whose ring holds no reachable
+ *  cell, or a door outside the reach. False: the spot needs no road, or one
+ *  may reach it (planSpur decides). */
+export function spurHopeless(s: GameState, hf: Heights, b: Placed): boolean {
+  if (!hasRoads(s)) return false;
+  const reach = roadReach(s, hf);
+  if (FIELD_TYPES.has(b.type)) {
+    if (fieldReached(s, b)) return false;
+    return !ringCells(b).some(([x, z]) => inMap(x, z) && reach[cellKey(x, z)] === 1);
+  }
+  const d = doorCell(b)!;
+  return inMap(d[0], d[1]) && reach[cellKey(d[0], d[1])] !== 1;
 }
 
 /** Lay a structure's spur (and a dock's bays); `open`: already sintered (the
