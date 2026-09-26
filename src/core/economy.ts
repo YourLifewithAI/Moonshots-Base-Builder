@@ -1098,6 +1098,12 @@ function crewRotationTick(s: GameState, mods: Mods, smelterO2: number) {
   const rot = s.crewRotation;
   if (!rot || s.simTime < rot.at) return;
   if (s.crew > 0) { s.crewRotation = null; return; }
+  // grief (docs/14 §3.10): nobody wants to come for a lunar day after a death
+  if (growthHeld(s)) {
+    rot.at = s.simTime + CREW_ROTATION.retryS;
+    alert(s, 'CREW ROTATION HELD — after the deaths, nobody boards for a lunar day', 'warn', { panel: 'crew' });
+    return;
+  }
   const short = rotationShortfall(s, mods, smelterO2, rot.count);
   if (short) {
     rot.at = s.simTime + CREW_ROTATION.retryS;

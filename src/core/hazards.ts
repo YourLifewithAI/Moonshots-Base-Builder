@@ -18,7 +18,7 @@
  *  hazardDrawMult, sickCrew, evaHeld, growthHeld, hazardMorale,
  *  hazardUpkeepMult, killCrew, hazardDuskLine) and hazardTick as step 8.3. */
 import { BUILDINGS, isCompute, type BuildingId } from '../data/buildings';
-import { CREW, CROP_LOSS, CYCLE_S, FLARE } from '../data/balance';
+import { CREW, CROP_LOSS, CYCLE_S, DAY_S, DUSK_WARN_S, FLARE } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { TECHS, destinyCounts } from '../data/techs';
@@ -786,10 +786,12 @@ function cascadeWatch(s: GameState, mods: Mods, site: SiteDef, dt: number) {
   const hz = s.hazards;
   const occ = occupancy(s, mods);
   const live = hz.live.find((h) => h.kind === 'cascade');
+  // leaky, as the crop-loss clock is: a home the brownout hysteresis flickers
+  // on for a second in nine still counts as dark
   for (const b of s.buildings) {
     if (!homeType(b) || isSite(b) || !b.enabled) continue;
     const dark = b.idleReason === 'power';
-    hz.darkS[b.id] = dark ? (hz.darkS[b.id] ?? 0) + dt : 0;
+    hz.darkS[b.id] = dark ? (hz.darkS[b.id] ?? 0) + dt : Math.max(0, (hz.darkS[b.id] ?? 0) - dt);
   }
   for (const k of Object.keys(hz.darkS)) if (!byId(s, Number(k))) delete hz.darkS[k];
   if (live || sideTier(s, 'colony') === null || s.crew <= 0 || liveOn(s, 'colony', 'window')) return;
@@ -801,7 +803,7 @@ function cascadeWatch(s: GameState, mods: Mods, site: SiteDef, dt: number) {
   const h = startHazard(s, mods, site, 'cascade', {
     at: s.simTime - (hz.darkS[first.id] ?? 0) + grace + (drill ? HZ.drillExtraS : 0), target: first.id,
   });
-  if (typeof h !== 'string') h.n.occupants = occ.get(first.id) ?? 0;
+  if (typeof h !== 'string') { h.n.occupants = occ.get(first.id) ?? 0; h.n.grace = grace + (drill ? HZ.drillExtraS : 0); }
 }
 
 function controlPlaneWatch(s: GameState, mods: Mods, site: SiteDef, dt: number) {
@@ -998,8 +1000,9 @@ function suitAirTick(s: GameState, mods: Mods, dt: number) {
   for (const x of [...hz.suit]) {
     const h = hz.live.find((y) => y.id === x.hazard);
     const from = byId(s, x.from);
-    // power back to their habitat, or beds free: they go in
-    const powered = !!from && from.idleReason !== 'power' && from.idleReason !== 'hazard' && !from.breached && !from.decompressed;
+    // power back to their habitat (steadily: its darkness drained), or beds free: they go in
+    const powered = !!from && (s.hazards.darkS[from.id] ?? 0) <= 0 && from.idleReason !== 'power' && from.idleReason !== 'hazard' &&
+      !from.breached && !from.decompressed;
     const beds = Math.max(0, freeBeds(s, mods));
     const moved = powered ? x.n : Math.min(x.n, beds);
     if (moved > 0) x.n -= moved;
@@ -1035,13 +1038,16 @@ function tickCascade(s: GameState, mods: Mods, h: LiveHazard) {
   const now = s.simTime;
   const homes = s.buildings.filter(homeType);
   const darkNow = (b: BuildingState) => b.idleReason === 'power';
+  const lit = (b: BuildingState) => (hz.darkS[b.id] ?? 0) <= 0;
   if (h.phase === 'telegraph') {
     const target = byId(s, h.target);
-    if (!target || !darkNow(target)) {
+    if (!target || lit(target)) {
       alert(s, `SCRUBBERS BACK — ${target ? label(target) : 'the habitat'} has power again`, 'info');
       endHazard(s, h, h.used.shedLoads !== undefined ? 'answered: Shed loads' : 'power returned');
       return;
     }
+    // the alarm comes when its darkness adds up to the grace (a flicker of power holds the clock)
+    h.at = now + Math.max(0, (h.n.grace ?? HZ.cascade.alarmS) - (hz.darkS[target.id] ?? 0));
     if (now < h.at) return;
     // the CO₂ alarm: dark crewed habitats evacuate, up to the tier's cap
     h.phase = 'active';
@@ -1067,8 +1073,8 @@ function tickCascade(s: GameState, mods: Mods, h: LiveHazard) {
   for (const id of h.hit) {
     const b = byId(s, id);
     if (!b) continue;
-    if (b.evacT === UNTIL_SEALED && b.idleReason !== 'power') b.evacT = now + HZ.cascade.evacHoldS;
-    else if (b.idleReason === 'power' && (b.evacT ?? 0) > 0) b.evacT = UNTIL_SEALED;
+    if (b.evacT === UNTIL_SEALED && lit(b)) b.evacT = now + HZ.cascade.evacHoldS;
+    else if (!lit(b) && (b.evacT ?? 0) > 0) b.evacT = UNTIL_SEALED;
     if ((b.evacT ?? 0) > now) open++;
   }
   const suit = hz.suit.some((x) => x.hazard === h.id);
@@ -1191,6 +1197,8 @@ function tickControlPlane(s: GameState, mods: Mods, h: LiveHazard) {
   const hz = s.hazards;
   const now = s.simTime;
   const up = hz.computeDarkS === 0;
+  // landed drones wait out the whole hazard
+  if (hz.dronesHeldUntil > now) hz.dronesHeldUntil = Math.max(hz.dronesHeldUntil, now + 2);
   if (h.phase === 'telegraph') {
     if (up) {
       alert(s, 'CONTROL PLANE HELD — a Data Center is running again', 'info');
@@ -1307,7 +1315,8 @@ function tickMalware(s: GameState, mods: Mods, h: LiveHazard, out: HazardTickRes
       }
       clock = clock ? Math.min(clock, now >= day ? day + CYCLE_S : day) : now >= day ? day + CYCLE_S : day;
     }
-    if (h.tier === 2) {
+    // the Lander, the lifeboat, is degraded but never burns out
+    if (h.tier === 2 && b.type !== 'lander') {
       const burn = since + CYCLE_S;
       if (now >= burn) {
         recordLoss(s, mods, { what: 'building', name: label(b), cause: `${label(b)} burned out, infected for a lunar day`, hazard: 'malware', warnedAt: h.warnedAt },
@@ -1315,7 +1324,7 @@ function tickMalware(s: GameState, mods: Mods, h: LiveHazard, out: HazardTickRes
         wreckBuilding(s, b.id, out.wrecked);
         continue;
       }
-      clock = clock ? Math.min(clock, burn) : burn;
+      if (!clock || burn < clock) { clock = burn; h.n.clockNode = b.id; }
     }
   }
   h.clockAt = clock;
@@ -1525,15 +1534,15 @@ function fleetTick(s: GameState, mods: Mods, dt: number, out: HazardTickResult) 
   for (const r of s.rovers) if ((r.heldUntil ?? 0) > 0 && r.heldUntil! <= now) r.heldUntil = 0;
   if (hz.dronesHeldUntil > now) for (const r of s.rovers) if (isDrone(s, r)) r.heldUntil = Math.max(r.heldUntil ?? 0, hz.dronesHeldUntil);
   const bricked = s.rovers.filter((r) => (r.brickedUntil ?? 0) > 0).sort((a, b) => a.brickedUntil! - b.brickedUntil! || a.id - b.id);
-  // each dock re-flashes 1 per 30 s (a Hive 2 with Hive re-flash): its own rovers first, then any
+  // each dock re-flashes its own rovers in their cradles, 1 per 30 s (a Hive 2
+  // with Hive re-flash) while it is up: complete, on, powered, clean
   if (bricked.length && Math.floor(now / HZ.firmware.reflashS) !== Math.floor((now - 1) / HZ.firmware.reflashS)) {
     const docks = s.buildings.filter((b) => (BUILDINGS[b.type].bots ?? 0) > 0 && dockUp(s, b));
     const room = new Map(docks.map((b) => [b.id, b.type === 'droneHive' && guard(mods, 'hiveReflash') ? 2 : 1]));
     const fixed: RoverUnit[] = [];
     for (const r of bricked) {
-      const own = room.get(r.home) ?? 0;
-      const at = own > 0 ? r.home : [...room].find(([, n]) => n > 0)?.[0];
-      if (at === undefined) continue;
+      const at = r.home;
+      if ((room.get(at) ?? 0) <= 0) continue;
       room.set(at, (room.get(at) ?? 0) - 1);
       r.brickedUntil = 0;
       r.brickedBy = undefined;
@@ -1705,7 +1714,7 @@ function raiseLive(s: GameState, mods: Mods, h: LiveHazard) {
     const b = byId(s, h.target);
     const text = h.kind === 'contamination' ? `POISONING — 1 crew critical: dies in ${t}`
       : h.kind === 'dose' ? `ACUTE DOSE — ${plural(h.n.lethal ?? 0, 'crew member')} will die in ${t}`
-      : h.kind === 'malware' ? (h.tier === 1 ? `RANSOM — 15% of banked data wiped in ${t}` : `BURN-OUT — ${h.hit.map((id) => byId(s, id)).filter(Boolean).map((x) => label(x!))[0] ?? 'a node'} wrecked in ${t}`)
+      : h.kind === 'malware' ? (h.tier === 1 ? `RANSOM — 15% of banked data wiped in ${t}` : `BURN-OUT — ${byId(s, h.n.clockNode) ? label(byId(s, h.n.clockNode)!) : 'a node'} wrecked in ${t}`)
       : h.kind === 'firmware' ? `RE-FLASH DEADLINE — a bricked rover is lost in ${t}`
       : h.kind === 'rogueDrones' ? `STRIP BAR — ${b ? label(b) : h.targetName} wrecked in ${t}`
       : h.kind === 'hackedOutpost' ? `OUTPOST LOST in ${t} — ${h.targetName}`
@@ -1862,10 +1871,12 @@ export function applyCounter(s: GameState, mods: Mods, counter: CounterId, id?: 
     case 'landDrones': {
       const drones = s.rovers.filter((r) => isDrone(s, r));
       if (!drones.length) return no('NO DRONES — only Drone Hives fly them');
-      hz.dronesHeldUntil = now + HZ.controlPlane.holdS;
+      // 120 s by day; from the dusk warning on, until dawn (the forecast's Data Centers go dark at night)
+      const t = now % CYCLE_S;
+      hz.dronesHeldUntil = t >= DAY_S - DUSK_WARN_S ? now - t + CYCLE_S : now + HZ.controlPlane.holdS;
       for (const r of drones) { r.heldUntil = hz.dronesHeldUntil; r.site = null; r.pinned = false; delete r.road; }
       for (const h of hz.live) if (h.kind === 'controlPlane') used(h);
-      alert(s, `DRONES LANDED — ${plural(drones.length, 'drone')} set down for ${fmtClock(HZ.controlPlane.holdS)}`, 'info');
+      alert(s, `DRONES LANDED — ${plural(drones.length, 'drone')} set down for ${fmtClock(hz.dronesHeldUntil - now)}, and while the control plane is down`, 'info');
       return yes;
     }
     case 'reimage': {
@@ -1959,7 +1970,12 @@ export function setAirGap(s: GameState, mods: Mods, id: number, on: boolean): Co
 /** debug.forceHazard: start one now, bypassing the scheduler (the first of a kind is still its drill unless opts say). */
 export function forceHazard(s: GameState, mods: Mods, site: SiteDef, kind: HazardId, target?: number, o: { drill?: boolean; tier?: Tier } = {}): LiveHazard | string {
   if (off(s)) return 'HAZARDS ARE NOT LIVE';
-  if (kind === 'cabinFever') s.hazards.isolation = Math.max(s.hazards.isolation, HZ.cabinFever.warnAt);
+  if (kind === 'cabinFever') {
+    s.hazards.isolation = Math.max(s.hazards.isolation, HZ.cabinFever.warnAt);
+    const h = startHazard(s, mods, site, kind, { at: s.simTime + CYCLE_S, drill: o.drill, tier: o.tier });
+    if (typeof h !== 'string') h.targetName = 'the crew';
+    return h;
+  }
   if (kind === 'dose') {
     const drill = o.drill ?? !s.hazards.drilled.includes('dose');
     if (s.flare.phase === 'idle') { s.flare.phase = 'telegraph'; s.flare.timer = FLARE.telegraphS; s.hazards.flarePrev = 'telegraph'; }
