@@ -26,6 +26,7 @@ import { footprintRect } from '../buildings/instances';
 import { BODY, GLASS, LAMP, PLATE, box, merge, withInstanceState } from '../buildings/meshKit';
 import { materials } from './materials';
 import { blobTexture } from './rovers';
+import { mixHash } from '../buildings/links';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
 
 type Cell = [number, number];
@@ -160,13 +161,11 @@ export class Settlers {
 
   /** what the walk grid depends on (allocation-free) */
   private signature(s: GameState, links: number): number {
-    let h = links;
-    const mix = (v: number) => { h = (Math.imul(h, 31) + (v | 0)) | 0; };
-    mix(s.roadRev ?? 0); mix(s.roads?.length ?? 0);
+    let h = mixHash(mixHash(links, s.roadRev ?? 0), s.roads?.length ?? 0);
     for (const b of s.buildings) {
-      mix(b.id); mix(b.gx); mix(b.gz); mix(b.rot); mix((b.construction ?? 0) > 0 ? 1 : 0);
-      mix(Math.round((b.wear ?? 0) * 4));
-      if (b.haul) { mix(Math.round(b.haul.digX)); mix(Math.round(b.haul.digZ)); }
+      h = mixHash(mixHash(mixHash(mixHash(mixHash(h, b.id), b.gx), b.gz), b.rot), (b.construction ?? 0) > 0 ? 1 : 0);
+      h = mixHash(h, Math.round((b.wear ?? 0) * 4));
+      if (b.haul) h = mixHash(mixHash(h, Math.round(b.haul.digX)), Math.round(b.haul.digZ));
     }
     return h;
   }

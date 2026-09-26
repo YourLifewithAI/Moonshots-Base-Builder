@@ -1258,7 +1258,17 @@ this section and §4 disagree, this one describes the code.
 Classic at 290 m, `getRenderInfo().frame`; main is the same scene on
 6221421, with the D2 placeholder recipes):
 
-COST_TABLE
+| Band | Classic calls (main → look) | Classic △ | High detail calls | High detail △ | Layers drawn |
+|---|---|---|---|---|---|
+| ⌂ Colony | 51 → 54 | 248 k → 258 k | 97 → 100 | 296 k → 306 k | 15 walkways (2.6 k △, 13 bridge cells), 4 walkers |
+| ◉ Automation | 48 → 51 | 227 k → 237 k | 94 → 97 | 277 k → 287 k | 7 spines (1.7 k △, 8 bridge cells), 12 drones (3 flying) |
+| Concord | 51 → 53 | 227 k → 232 k | 97 → 99 | 276 k → 282 k | 8 drones |
+
++2 to +3 draw calls (a layer mesh and its decals, only while they exist) and
++2.5 % to +4 % triangles, mostly the destiny recipes' own detail and the
+parts. The Classic frame-cost test's small base is unchanged (no destiny
+yet). `tests/look.spec.ts` holds a big base under 90 calls and 600 k △ in
+Classic (160 and 1.2 M in High detail).
 
 **Deviations, and why.**
 
@@ -1268,6 +1278,7 @@ COST_TABLE
 | Extra parts | §4.1 table | + Greenhouse Rings (a farm's seed bank), Garden Domes (bulkheads on habitats and rings), Replicator Stacks (a hive's drone printer), Commonwealth (the rings' lamps), and Liquid Cooling, Cryogenic Radiators, Rack Densification on the Monolith | every pick adds a part; every Data Center tech is a Monolith tech in `mods.ts` |
 | Greenhouse Ring | GLASS vaults, LEAF beds inside | LEAF vault shells with a glazed crown and ribs | the kit is opaque: beds inside glass would never show; green under glass must read from outside |
 | Garden Dome | trees inside, a PLATE path | a LEAF canopy band in the dome's lower glass; lamp posts at the pad's corners | same: nothing inside an opaque dome is seen |
+| Server Monolith | BODY, Classic overrides it near-black | black GLASS; Classic's override covers its `hull` and `cell` (`#23262b`), teal status slits (`window`) | a BODY slab would stand white in High detail, and the machines' skyline is black in both styles |
 | Drone Hive | 3 × 4 cells | 5-4-5 staggered hex prisms (14) | a honeycomb reads by its stagger |
 | Hydroponic Commons | galley end with long tables | a glazed, lit arch end behind the door | tables inside a vault are invisible |
 | Walkways | from Crew Rotation Charter (§4.3) / with Garden Domes (§2.2) | from Crew Rotation Charter; glazed with a lit window strip from Garden Domes | reconciles the two sections |

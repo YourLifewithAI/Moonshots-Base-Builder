@@ -759,13 +759,14 @@ function droneHive(): Parts {
 export const HIVE_PADS: readonly (readonly [number, number])[] = [[-2.1, 1.3], [2.1, 1.3], [-2.1, 3.9], [2.1, 3.9]];
 export const HIVE_DECK_Y = 1.64;
 
-/** Server Monolith (2×2 cells, 8 m): a 16 m windowless slab (Classic near
- *  black), a vertical cold LAMP stripe and thin teal status slits down its
- *  face, a RADIATOR fin stack at the rear, a BEACON on top. */
+/** Server Monolith (2×2 cells, 8 m): a 16 m windowless slab of black glass
+ *  (near black in both styles; Classic's override), a vertical cold LAMP
+ *  stripe and thin teal status slits down its face, a RADIATOR fin stack at
+ *  the rear, a BEACON on top. */
 function serverMonolith(): Parts {
   const p: Parts = [
     box(4.2, 0.5, 6.8, TRIM, 0, 0.25, 0),
-    box(3.0, 14.6, 5.2, BODY, 0, 7.8, -0.2),
+    box(3.0, 14.6, 5.2, GLASS, 0, 7.8, -0.2), // black glass: dark in both styles
     box(3.1, 0.3, 5.3, TRIM, 0, 15.25, -0.2),
     box(3.06, 0.12, 5.26, PLATE, 0, 5.0, -0.2),
     box(3.06, 0.12, 5.26, PLATE, 0, 10.0, -0.2),

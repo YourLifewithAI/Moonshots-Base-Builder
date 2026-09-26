@@ -672,12 +672,12 @@ direction, not an afterthought:
 
 | Budget | Target | Shipped reality |
 |---|---|---|
-| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply) |
-| Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each |
+| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply); the destiny adds ≤ 4 building types and ≤ 6 layer meshes, each only while it exists (walkways, spines; walkers and their decals; drones and theirs) |
+| Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each; drones ~200, walkers ~100; links ≤ 12 k |
 | Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
 | Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock path |
 | Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
-| Per-frame CPU | small and flat | ≤ 64 rover matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms rebuilt only on change |
+| Per-frame CPU | small and flat | ≤ 64 rover matrices, ≤ 48 drone and ≤ 24 walker matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms and links rebuilt only on change (a numeric signature) |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
 | Assets | 0 bytes binary | all procedural; fonts are system stacks (07) |
 
@@ -1028,10 +1028,18 @@ colour of each structure's light.
 
 ### 13.6 Cost of a big Era 8 base (measured)
 
-The same base on robotic mare, one per band, classic home view at 290 m
-(`tests/look.spec.ts` frame budget; the numbers in docs/14 "As shipped D4"):
-draw calls grow by the new types and layers only while they exist (≤ 2
-links, 2 walkers, 2 drones), so Classic stays near 50 calls and 0.2 M △.
+A big Era 8 base on robotic mare, the same core in every band, Classic at
+290 m (`getRenderInfo().frame`; main = the same scene on 6221421):
+
+| Band | Classic calls | Classic △ | High detail calls | High detail △ |
+|---|---|---|---|---|
+| ⌂ Colony | 51 → 54 | 248 k → 258 k | 97 → 100 | 296 k → 306 k |
+| ◉ Automation | 48 → 51 | 227 k → 237 k | 94 → 97 | 277 k → 287 k |
+| Concord | 51 → 53 | 227 k → 232 k | 97 → 99 | 276 k → 282 k |
+
+The layers cost a draw call each (and one for their decals) only while they
+exist; `tests/look.spec.ts` holds the big base under 90 calls and 600 k △
+in Classic.
 
 ---
 

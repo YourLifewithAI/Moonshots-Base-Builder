@@ -83,7 +83,7 @@ export const PALETTE_OVERRIDES: Partial<Record<BuildingId | PartId, Partial<Pale
   foilFactory: { trim: 0xcf9d36 },
   // the destiny buildings (docs/14 §4.4): near-black slabs with teal glass,
   // a dark hive, the dome's silver ribs
-  serverMonolith: { hull: 0x23262b, window: 0x0f3a44 },
+  serverMonolith: { hull: 0x23262b, cell: 0x23262b, window: 0x0f3a44 },
   droneHive: { hull: 0x3a3f46 },
   gardenDome: { trim: 0xc4c8ce },
 };

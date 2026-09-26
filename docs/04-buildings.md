@@ -195,10 +195,12 @@ Every tech that touches a building adds a part to that building type's recipe
 moment the tech completes, on placement ghosts and scaffolds, and after a load. △ is
 the triangles the part adds to the recipe mesh; moving parts (an extra Earth dish,
 the wider wing) reuse the shared dish and wing meshes and are counted apart (↻).
+Fully upgraded is the heaviest set one run can hold: every lane upgrade, one side
+of each era's destiny pick (the landing is Era 1's) and one capstone.
 
 | Building | Stock △ | Fully upgraded △ | Upgrades |
 |---|---|---|---|
-| Lander | 2,760 | 7,112 | 11 |
+| Lander | 2,760 | 7,480 | 17 |
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
@@ -207,22 +209,22 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Regolith Smelter | 1,204 | 2,492 | 9 |
 | Silicon Refinery | 2,348 | 3,272 | 6 |
 | Storage Yard | 956 | 1,016 | 1 |
-| Robotics Bay | 1,336 | 2,678 | 8 |
-| Parts Fabricator | 1,048 | 1,336 | 3 |
-| Chip Fab | 1,144 | 1,924 | 8 |
-| Habitat Module | 1,576 | 2,248 | 5 |
-| Hydroponics Farm | 1,372 | 2,220 | 4 |
+| Robotics Bay | 1,336 | 3,074 | 12 |
+| Parts Fabricator | 1,048 | 1,644 | 6 |
+| Chip Fab | 1,144 | 1,984 | 9 |
+| Habitat Module | 1,576 | 2,868 | 10 |
+| Hydroponics Farm | 1,372 | 2,400 | 6 |
 | Recreation Dome | 1,824 | 1,948 | 1 |
-| Research Lab | 1,680 | 3,248 | 6 |
-| Relay Mast | 1,616 | 2,012 | 2 |
-| Data Center | 1,604 | 2,932 | 8 |
-| Foil Factory | 1,416 | 2,362 | 5 |
-| Mass Driver | 1,052 | 1,704 | 3 |
-| Propellant Plant | 2,348 | 3,496 | 4 |
-| Drone Hive | 776 | 776 | 0 |
-| Greenhouse Ring | 1,400 | 1,400 | 0 |
-| Garden Dome | 2,616 | 2,616 | 0 |
-| Server Monolith | 420 | 420 | 0 |
+| Research Lab | 1,680 | 3,376 | 7 |
+| Relay Mast | 1,616 | 2,220 | 4 |
+| Data Center | 1,604 | 3,136 | 10 |
+| Foil Factory | 1,416 | 2,446 | 6 |
+| Mass Driver | 1,052 | 1,812 | 5 |
+| Propellant Plant | 2,348 | 3,556 | 6 |
+| Drone Hive | 1,536 | 1,596 | 1 |
+| Greenhouse Ring | 1,764 | 1,860 | 2 |
+| Garden Dome | 2,156 | 2,252 | 1 |
+| Server Monolith | 516 | 768 | 4 |
 
 #### Lander
 
@@ -239,6 +241,12 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
 | Power Beaming Return | 8 | A rectenna mesh unfolds beside the Lander. | 96 |
 | Build Orders | 2 | The Lander raises a planning mast: a pole with a work lamp beside its top deck. | 104 |
+| Crewed Landing (human only) | 1 | The Lander flies a flag, and its crew cabin shows a lit window band. | 88 |
+| Robotic Mission (robotic only) | 1 | The Lander’s cabin windows are blanked, and a rover rides stowed in a cradle on its hull. | 100 |
+| Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 48 |
+| Crew Rotation Charter | 3 | Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast; pressurized walkways join the lived-in buildings, and suited EVA crews walk out by day. | 84 |
+| Lunar Commonwealth | 8 | Habitats, Greenhouse Rings and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole. | 136 |
+| Concord | 8 | The Lander raises a joint-operations mast: a lit crew cabin under a drone perch. | 132 |
 
 #### Solar Array
 
@@ -333,6 +341,10 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Automated Excavation | 3 | Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof. | 268 |
 | Site Survey AI | 3 | A survey drone rests on a pad on each Robotics Bay roof. | 212 |
 | Maintenance Automation | 7 | Robotics Bays get a service crane arm over the charging rover. | 112 |
+| Pressure-Rated Halls | 2 | Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window. | 128 |
+| Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 136 |
+| Drone Hives | 3 | Drone Hives can rise: a honeycomb of docks by a landing deck, whose rovers fly as drones; Robotics Bays hang a drone perch off the back wall. | 132 |
+| Lights-Out Charter | 6 | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. | 128 |
 
 #### Parts Fabricator
 
@@ -341,6 +353,9 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Tool Changers | 5 | Parts Fabricators add a tool-changer carousel on the roof. | 140 |
 | Self-Replicating Systems | 7 | Parts Fabricators and Robotics Bays grow replicator assembly arms. | 76 |
 | Automated Fabrication | 6 | Parts Fabricators get a gantry crane across the roof. | 72 |
+| Pressure-Rated Halls | 2 | Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window. | 128 |
+| Lights-Out Fabs | 4 | Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp; conveyor spines join the industry. | 96 |
+| Replicator Stacks | 7 | Parts Fabricators and Foil Factories stack a second fab storey under a gantry, and Drone Hives a drone printer; conveyor spines light cold chevrons. | 84 |
 
 #### Chip Fab
 
@@ -354,6 +369,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Deployable Radiators | 5 | Smelters, Refineries and Chip Fabs unfold extra radiator wings. | 108 |
 | Immersion Lithography | 5 | Chip Fabs raise an immersion-lithography tower. | 264 |
 | Superconducting Bus | 7 | Data Centers, Chip Fabs and Foil Factories run superconducting bus ducts. | 80 |
+| Lights-Out Fabs | 4 | Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp; conveyor spines join the industry. | 60 |
 
 #### Habitat Module
 
@@ -364,6 +380,11 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Lava-Tube Caverns | 3 | Habitats, Data Centers and Chip Fabs pile a sandbag overburden on their roofs. | 144 |
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
 | Automated Life Support | 4 | Each Habitat Module gets an air-monitor mast by its door. | 112 |
+| Crew Rotation Charter | 3 | Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast; pressurized walkways join the lived-in buildings, and suited EVA crews walk out by day. | 180 |
+| Settler Charter | 6 | Habitats stack a second storey: a habitation terrace with a balcony rail, planters and warm windows. | 344 |
+| Lights-Out Charter | 6 | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. | 136 |
+| Garden Domes | 7 | Garden Domes can rise: a glass dome over a green park, ringed by lit window terraces; walkways are glazed and lit, and airlocks gain pressure bulkheads. | 48 |
+| Lunar Commonwealth | 8 | Habitats, Greenhouse Rings and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole. | 48 |
 
 #### Hydroponics Farm
 
@@ -373,6 +394,8 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Nutrient Recirculation | 5 | Hydroponics farms add a row of nutrient recirculation tanks. | 352 |
 | Galley Garden | 6 | Hydroponics farms open a galley bay with a picture window. | 48 |
 | Cold-Trap Chemistry | 6 | Hydroponics Farms and Propellant Plants rack process-gas bottles. | 400 |
+| Hydroponic Commons | 4 | Hydroponics vaults glaze their door end into a lit galley, and a leaf-green trellis runs down both flanks. | 132 |
+| Greenhouse Rings | 5 | Greenhouse Rings can rise: green vaults under glass round a domed hub; Hydroponics Farms keep a seed-bank vault. | 48 |
 
 #### Recreation Dome
 
@@ -390,6 +413,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | MLI Blankets (ILMENITE PLAINS, MARIUS HILLS TUBE) | 4 | Smelters, Refineries and Labs wear silver MLI blankets. | 24 |
 | Science Crews | 6 | Research Labs raise a glazed observation cupola. | 336 |
 | Lab Uplink Dishes | 6 | Research Labs raise a second uplink dish. | 52 + 740 ↻ |
+| Pressure-Rated Halls | 2 | Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window. | 128 |
 
 #### Relay Mast
 
@@ -397,6 +421,8 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 |---|---|---|---|
 | Neutron Spectrometry | 2 | Relay Masts hang a neutron-spectrometer boom. | 120 |
 | Self-Expanding Base | 7 | Relay Masts wear a beacon crown and a cable reel at the foot. | 276 |
+| Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 160 |
+| Lights-Out Charter | 6 | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. | 48 |
 
 #### Data Center
 
@@ -405,11 +431,13 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Lava-Tube Caverns | 3 | Habitats, Data Centers and Chip Fabs pile a sandbag overburden on their roofs. | 48 |
 | Accelerator Design | 4 | Data Centers mount accelerator cooling towers on the roof. | 504 |
 | Dynamic Clocking | 5 | Chip Fabs and Data Centers mount boost radiators for overclocking. | 144 |
-| Cryo Radiators | 5 | Data Centers unfold a second tier of cryo radiator fins. | 240 |
+| Cryo Radiators | 5 | Data Centers unfold a second tier of cryo radiator fins; Server Monoliths grow fins down both flanks. | 240 |
 | Superconducting Bus | 7 | Data Centers, Chip Fabs and Foil Factories run superconducting bus ducts. | 68 |
-| Liquid Cooling | 7 | Data Centers run coolant manifolds to a pump skid. | 152 |
-| Rack Densification | 7 | Data Centers add a rack annex at the berm. | 36 |
+| Liquid Cooling | 7 | Data Centers run coolant manifolds to a pump skid; Server Monoliths, coolant risers down their fin stack. | 152 |
+| Rack Densification | 7 | Data Centers add a rack annex at the berm, and Server Monoliths one at the foot. | 36 |
 | Predictive Scheduling | 6 | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. | 136 |
+| Fleet OS | 5 | Server Monoliths can rise: black slabs with a cold lamp stripe; Data Centers raise a monolith annex in their berm. | 48 |
+| Selenic Mind | 8 | Server Monoliths and Data Centers crown themselves with radiator fins. | 156 |
 
 #### Foil Factory
 
@@ -420,6 +448,7 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Canister Press | 8 | Foil Factories add a canister press at the loading dock. | 144 |
 | Von Neumann Foundry | 8 | Foil Factories sprout seed-factory pods on the roof. | 426 |
 | Superconducting Bus | 7 | Data Centers, Chip Fabs and Foil Factories run superconducting bus ducts. | 68 |
+| Replicator Stacks | 7 | Parts Fabricators and Foil Factories stack a second fab storey under a gantry, and Drone Hives a drone printer; conveyor spines light cold chevrons. | 84 |
 
 #### Mass Driver
 
@@ -428,6 +457,8 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Launch-Site Survey | 6 | Mass Drivers and Propellant Plants rise on staked, surveyed pads with reflector posts. | 216 |
 | Swarm Protocol | 8 | Mass Drivers and Propellant Plants raise a swarm-tracking beacon mast. | 196 |
 | Rail Capacitor Banks | 8 | Mass Drivers line their rail with capacitor banks. | 240 |
+| Crewed Mission Control | 8 | Mass Drivers and Propellant Plants gain a glazed launch-control blockhouse with lit consoles and a viewing gallery. | 108 |
+| Autonomous Cadence | 8 | Mass Drivers and Propellant Plants raise a black guidance monolith with a cold tracking lamp. | 60 |
 
 #### Propellant Plant
 
@@ -437,4 +468,34 @@ the wider wing) reuse the shared dish and wing meshes and are counted apart (↻
 | Cold-Trap Chemistry | 6 | Hydroponics Farms and Propellant Plants rack process-gas bottles. | 400 |
 | Swarm Protocol | 8 | Mass Drivers and Propellant Plants raise a swarm-tracking beacon mast. | 196 |
 | Cryocooler Heads | 8 | Propellant Plants cap their tanks with cryocooler heads. | 408 |
+| Crewed Mission Control | 8 | Mass Drivers and Propellant Plants gain a glazed launch-control blockhouse with lit consoles and a viewing gallery. | 60 |
+| Autonomous Cadence | 8 | Mass Drivers and Propellant Plants raise a black guidance monolith with a cold tracking lamp. | 48 |
+
+#### Drone Hive
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Replicator Stacks | 7 | Parts Fabricators and Foil Factories stack a second fab storey under a gantry, and Drone Hives a drone printer; conveyor spines light cold chevrons. | 60 |
+
+#### Greenhouse Ring
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Garden Domes | 7 | Garden Domes can rise: a glass dome over a green park, ringed by lit window terraces; walkways are glazed and lit, and airlocks gain pressure bulkheads. | 36 |
+| Lunar Commonwealth | 8 | Habitats, Greenhouse Rings and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole. | 60 |
+
+#### Garden Dome
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Lunar Commonwealth | 8 | Habitats, Greenhouse Rings and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole. | 96 |
+
+#### Server Monolith
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Liquid Cooling | 7 | Data Centers run coolant manifolds to a pump skid; Server Monoliths, coolant risers down their fin stack. | 44 |
+| Cryo Radiators | 5 | Data Centers unfold a second tier of cryo radiator fins; Server Monoliths grow fins down both flanks. | 72 |
+| Rack Densification | 7 | Data Centers add a rack annex at the berm, and Server Monoliths one at the foot. | 36 |
+| Selenic Mind | 8 | Server Monoliths and Data Centers crown themselves with radiator fins. | 100 |
 <!-- END GENERATED -->

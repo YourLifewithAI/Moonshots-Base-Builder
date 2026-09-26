@@ -93,17 +93,21 @@ const built = (b: BuildingState) => (b.construction ?? 0) <= 0;
  *  techs that switch layers, the structures, the road network, and where
  *  the excavators dig. */
 export function linkSignature(s: GameState): number {
-  const on = linkLayers(s.techsDone);
-  let h = (+on.walkway) | (+on.glazed << 1) | (+on.halls << 2) | (+on.spine << 3) | (+on.chevrons << 4);
-  const mix = (v: number) => { h = (Math.imul(h, 31) + (v | 0)) | 0; };
-  mix(s.roadRev ?? 0); mix(s.roads?.length ?? 0);
-  if (!on.walkway && !on.spine) return h;
+  const t = s.techsDone;
+  const walkway = t.includes('crewCharter'), spine = t.includes('lightsOutFabs');
+  let h = (+walkway) | (+t.includes('gardenDomes') << 1) | (+t.includes('pressureHalls') << 2) | (+spine << 3)
+    | (+t.includes('replicatorStacks') << 4);
+  h = mixHash(mixHash(h, s.roadRev ?? 0), s.roads?.length ?? 0);
+  if (!walkway && !spine) return h;
   for (const b of s.buildings) {
-    mix(b.id); mix(b.gx); mix(b.gz); mix(b.rot); mix(built(b) ? 1 : 0); mix(b.type.length);
-    if (b.haul) { mix(Math.round(b.haul.digX)); mix(Math.round(b.haul.digZ)); }
+    h = mixHash(mixHash(mixHash(mixHash(mixHash(mixHash(h, b.id), b.gx), b.gz), b.rot), built(b) ? 1 : 0), b.type.length);
+    if (b.haul) h = mixHash(mixHash(h, Math.round(b.haul.digX)), Math.round(b.haul.digZ));
   }
   return h;
 }
+
+/** one step of a small integer hash (allocation-free signatures) */
+export const mixHash = (h: number, v: number) => (Math.imul(h, 31) + (v | 0)) | 0;
 
 /** Cells a link may not use at all (footprints, doors, bays, the apron, digs),
  *  and the road cells it may only bridge. */
