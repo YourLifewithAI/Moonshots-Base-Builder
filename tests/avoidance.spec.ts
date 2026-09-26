@@ -275,10 +275,14 @@ test('a placement lays a road from the network to its door, and the rovers sinte
     return { out, done: b.construction <= 0, access: g.roadAccess().find((a: any) => a.id === id) };
   }, r.id);
   expect(trace.done).toBe(true);
-  // while any of its road is still to sinter, the site waits on it, unwelded
+  // while any of its road is still to sinter, the site waits on it, unwelded:
+  // its rover on its way first (core/transit.ts), then laying the road
   const sintering = trace.out.filter((o) => o.left > 0);
   expect(sintering.length).toBeGreaterThan(0);
-  expect(sintering.every((o) => o.c === r.total && o.why === 'road')).toBe(true);
+  expect(sintering.every((o) => o.c === r.total && (o.why === 'road' || o.why === 'enroute'))).toBe(true);
+  const firstRoad = sintering.findIndex((o) => o.why === 'road');
+  expect(firstRoad).toBeGreaterThan(0);
+  expect(sintering.slice(firstRoad).every((o) => o.why === 'road')).toBe(true);
   // then it welds, and stands at the end of an open road
   const welded = trace.out.findIndex((o) => o.c < r.total);
   expect(welded).toBeGreaterThan(sintering[sintering.length - 1].t - 1);

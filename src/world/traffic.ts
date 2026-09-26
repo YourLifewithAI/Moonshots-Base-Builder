@@ -188,6 +188,8 @@ export function cutSpans(pts: [number, number][], arcs: number[], wide: boolean,
 /** m a unit stops short of a cell it may not enter: room for a rover's
  *  corners as it turns (its diagonal is 0.21 m longer than its nose) */
 const GAP = 0.25;
+/** m off a road's centre line a rover's lane runs (data/roads.ts ROAD.lane) */
+const LANE_M = 1;
 const BREAK_S = 1;       // a wait cycle this old is broken
 const STEP_ASIDE_S = 3;  // a unit stood in another's way this long steps aside
 const RESCUE_S = 8;      // nothing worked this long: set down
@@ -404,6 +406,26 @@ export class Traffic {
     cov.clear();
     this.box(a, x, z, fx, fz, cov);
     for (const k of cov.keys()) if (!a.held.has(k) && this.clash(a, k, WHOLE)) return false;
+    return true;
+  }
+
+  /** As boxFree, for a rover set down in a lane: standing a lane's width off
+   *  a cell's centre line, along its road, it needs only that half of the
+   *  cells its body touches (a rover in the other half is no clash). */
+  laneFree(a: Agent, x: number, z: number, fx: number, fz: number): boolean {
+    if (a.wide) return this.boxFree(a, x, z, fx, fz);
+    const half = MAP_M / 2;
+    const [gx, gz] = cellOf(x, z);
+    const cx = (gx + 0.5) * CELL_M - half, cz = (gz + 0.5) * CELL_M - half;
+    // in a lane only if it is a lane's width off the centre line (two there pass a body apart)
+    const inLane = (o: number) => Math.abs(Math.abs(o) - LANE_M) < 0.2;
+    let mode: Mode = WHOLE;
+    if (Math.abs(fx) >= Math.abs(fz) && inLane(z - cz)) mode = laneMode(1, z > cz ? 1 : 0);
+    else if (Math.abs(fz) > Math.abs(fx) && inLane(x - cx)) mode = laneMode(0, x > cx ? 1 : 0);
+    const cov = this.boxScratch;
+    cov.clear();
+    this.box(a, x, z, fx, fz, cov);
+    for (const k of cov.keys()) if (this.clash(a, k, mode)) return false;
     return true;
   }
 

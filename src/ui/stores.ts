@@ -61,7 +61,8 @@ export const $lander = atom<{ resupplyPending: boolean; etaS: number; orderDays:
 /** the Builder: orders, standing rules, reserves (docs/13; the [B] panel) */
 export const $automation = atom<AutomationView | null>(null);
 /** AUTO tags over the Builder's pending sites (screen px) */
-export const $autoMarkers = atom<{ id: number; x: number; y: number }[]>([]);
+/** tags over construction sites: AUTO over the Builder's, and 'EN ROUTE 0:24' while a rover drives there */
+export const $autoMarkers = atom<{ id: number; x: number; y: number; auto?: boolean; text?: string }[]>([]);
 /** the Hazards panel [G], the HUD hazard chip, the objectives line (core/hazards.ts hazardView) */
 export const $hazards = atom<HazardView | null>(null);
 /** DOM markers over hazard targets (screen px): a hiss glyph with who is aboard, a blight glyph, ⚠ NET, a strip bar */
@@ -203,6 +204,9 @@ export const $placing = atom<{
   /** the road it would lay (cells), and the rover-seconds to sinter it */
   road?: number;
   roadS?: number;
+  /** game-seconds the nearest free rover would take to get there (core/transit.ts);
+   *  Infinity: every rover is busy; undefined: not asked */
+  travelS?: number;
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
 export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);
@@ -265,8 +269,10 @@ export interface RoverView {
   pinned: boolean;
   /** lent to a survey: not in the fleet until it returns */
   survey: boolean;
-  /** 'BUILDING Solar Array #7 · pinned', 'PARKED at the Lander', … */
+  /** 'BUILDING Solar Array #7 · pinned', 'PARKED at the Lander', 'EN ROUTE to Habitat #5 · 0:24', … */
   state: string;
+  /** on its way: game-seconds of its trip left (0: there, or parked) */
+  tripS: number;
 }
 /** a construction site's crew: rovers on it, pinned among them, and what they make of it */
 export interface SiteCrewView {
@@ -281,6 +287,9 @@ export interface SiteCrewView {
   speed: number;
   /** why Summon would do nothing here ('' = it can) */
   summon: string;
+  /** nobody there yet: 'enroute' (arrives in `arrive` s), 'noroad' (no road reaches it); '' someone is */
+  wait: '' | 'enroute' | 'noroad';
+  arrive: number;
 }
 /** a revealed deposit an excavator could dig, with the trip it would make */
 export interface DigOption {

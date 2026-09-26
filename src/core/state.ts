@@ -43,6 +43,8 @@ export interface BuildingState {
    *  'full' = no stockpile room for a tick of any of its outputs */
   active: boolean;
   idleReason: '' | 'power' | 'crew' | 'inputs' | 'reserve' | 'full' | 'off' | 'building' | 'queued' | 'road'
+    /** construction: its rover is on its way (core/transit.ts), or no road reaches it */
+    | 'enroute' | 'noroad'
     /** a hazard holds it offline (core/hazards.ts hazardOff says why); 'strike': a cabin-fever crisis */
     | 'hazard' | 'strike';
   /** Dynamic Clocking: ×1.5 draw, inputs, outputs and data; extra wear */
@@ -223,6 +225,45 @@ export interface RoverUnit {
   brickedBy?: number;
   /** held at its dock until then (Dock fleet, Land drones, a kill switch) */
   heldUntil?: number;
+  /** where the sim has it (core/transit.ts, docs/15 §6), world metres:
+   *  absent until it first settles (a new rover, a migrated save) */
+  x?: number;
+  z?: number;
+  /** the trip it is on, or last made (arrived: t ≥ dur) */
+  trip?: RoverTrip | null;
+  /** what it did this tick, at the spot it stands on (the visuals animate it) */
+  task?: 'weld' | 'sinter';
+  /** a save from before transit: it settles where its work is, arrived */
+  place?: boolean;
+}
+
+/** A rover's trip (core/transit.ts): planned once when its goal changes,
+ *  then advanced by the clock. Ground rovers keep to the road route; drones
+ *  fly straight. */
+export interface RoverTrip {
+  /** the goal: its kind, target and cell; a new goal is a new trip */
+  goal: string;
+  /** weld: a site's stand · front: the cell behind a road's frontier (it
+   *  sinters) · behind: queued behind a frontier · dock: parking ·
+   *  survey: into the Lander, lent · down: set down by a hazard (a drone) */
+  kind: 'weld' | 'front' | 'behind' | 'dock' | 'survey' | 'down';
+  site?: number;
+  job?: number;
+  /** the goal's road cell (cellKey), or -1 (a drone's, straight) */
+  cell: number;
+  /** the way, world metres: where it set off, then road cell centres, then its slot */
+  pts: [number, number][];
+  /** m of way, cruise m/s, acceleration m/s² */
+  len: number;
+  v: number;
+  a: number;
+  /** s since it set off, and s it takes rest to rest */
+  t: number;
+  dur: number;
+  /** a step from one stand to the next at the same work (the frontier's next cell) */
+  local?: boolean;
+  /** no road there: it waits where it is and asks again each tick */
+  stuck?: boolean;
 }
 
 /** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
@@ -495,6 +536,9 @@ export interface GameState {
   /** the construction rovers, one per dock slot (core/fleet.ts) */
   rovers: RoverUnit[];
   nextRoverId: number;
+  /** 1: rovers travel in the sim (core/transit.ts); older saves settle each
+   *  rover at its work on load */
+  fleetSchema?: number;
   /** the road network (core/roads.ts): cells in laying order, the jobs free
    *  rovers sinter, and a revision bumped whenever a cell opens, is laid or
    *  goes (routes are cached on it). roadSchema 1: roads exist (older saves
@@ -614,6 +658,7 @@ export function createInitialState(
     rates: {},
     bots: { total: 2, busy: 0 },
     rovers: [],
+    fleetSchema: 1,
     nextRoverId: 1,
     era: 1,
     // the landing is the Era 1 destiny pick (docs/14 §2.5)
@@ -731,6 +776,12 @@ export function fillStateDefaults(s: GameState): GameState {
   // (core/fleet.ts syncRoster) and each excavator digs its own pad (core/haul.ts)
   legacy.rovers ??= [];
   legacy.nextRoverId ??= 1 + legacy.rovers.reduce((m, r) => Math.max(m, r.id), 0);
+  // saves from before rovers travelled (docs/15 §6): each settles at its
+  // work, arrived, on the first tick — nothing stalls on load
+  if ((legacy.fleetSchema ?? 0) < 1) {
+    for (const r of legacy.rovers) { delete r.x; delete r.z; delete r.trip; r.place = true; }
+    legacy.fleetSchema = 1;
+  }
   // saves from before the Builder: every rule off (a loaded save never switches
   // one on), rules added later join with their defaults
   legacy.auto = fillAuto(legacy.auto);

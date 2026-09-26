@@ -270,6 +270,9 @@ function api(game: Game) {
     openRoads: (on = true) => { game.debugOpenRoads = on; },
     /** open every road cell now (sites stay as they are) */
     finishRoads: () => { openAll(game.state); game.publish(); },
+    /** from now on every rover and drone trip ends as it starts, and the ones
+     *  under way end now (tests where travel time is not the point; docs/15 §6) */
+    instantTravel: (on = true) => { game.debugInstantTravel(on); },
     /** each structure's way in by road (docs/15-roads.md): its door (fields: none),
      *  the road cell it is reached by, and whether open road joins that to the Lander */
     roadAccess: () => {

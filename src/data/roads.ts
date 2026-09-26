@@ -17,6 +17,21 @@ export const ROAD = {
   bayCap: 2,
 };
 
+/** A construction rover on the road (docs/15 §6): the sim times every trip
+ *  with these (core/transit.ts) and the visuals drive with them
+ *  (world/rovers.ts). `speed` is the cruise on a sintered road, before the
+ *  roadway tiers (Basalt Paving ×1.25, Guidance Beacons ×1.1 and ×1.25 at
+ *  night, Maglev ×1.3); `accel` sets the start and the stop: a trip of L m
+ *  takes L / v + v / a s (2·√(L/a) when it is too short to reach v). The
+ *  Apollo LRV did about 3.6 m/s. */
+export const ROVER = { speed: 4.5, accel: 3 };
+
+/** where the Drone Hive's parked drones perch on its deck (building frame,
+ *  the deck top at y 1.62): the sim's parking points (core/transit.ts) and
+ *  the recipe's marked pads (buildings/recipes.ts) */
+export const HIVE_PADS: readonly (readonly [number, number])[] = [[-2.1, 1.3], [2.1, 1.3], [-2.1, 3.9], [2.1, 3.9]];
+export const HIVE_DECK_Y = 1.64;
+
 /** Structures served from the edge of their field: no road between them. */
 export const FIELD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['solar', 'battery', 'relayMast']);
 

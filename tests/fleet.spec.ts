@@ -83,6 +83,7 @@ test('summon adds a rover to a site and builds it n^0.85 faster on the same weld
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // the rate is the point, not the drive (transit.spec times that)
     g.placeBuilding('habitat', 132, 126);
     g.finishRoads(); // its road open: the rovers weld from the first second (docs/15)
     g.advanceGameSeconds(1);
@@ -229,6 +230,7 @@ test('a survey never borrows a pinned rover', async ({ page }) => {
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // who is lent is the point, not the drive
     g.completeTech('prospectingRovers');
     g.grantResources({ oxygen: 300, water: 100, parts: 50 });
     g.placeBuilding('habitat', 132, 126);
@@ -588,6 +590,7 @@ test('the capability techs: pros and cons on every card, and they reach the sim'
   // in the sim: ×1.25 per rover at ×1.3 the draw; haul speed and bucket
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // the rate is the point, not the drive
     g.completeTech('roverAutonomy');
     g.placeBuilding('habitat', 132, 126);
     g.finishRoads();

@@ -742,6 +742,49 @@ function bfs(s: GameState, a: Cell, b: Cell): Cell[] | null {
   return null;
 }
 
+const distMemo = new Map<string, Map<number, number>>();
+
+/** Cells by open road from cell `to` (a BFS, memoised on the network):
+ *  cell key → steps, as roadRoute walks — bays only as ends, and the start
+ *  may be any cell. Who is nearest a site by road (core/fleet.ts). */
+export function roadDistances(s: GameState, to: Cell): Map<number, number> {
+  const tk = cellKey(to[0], to[1]);
+  const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${tk}`;
+  const hit = distMemo.get(key);
+  if (hit) return hit;
+  const map = roadMap(s);
+  const dist = new Map<number, number>([[tk, 0]]);
+  const q = [tk];
+  for (let i = 0; i < q.length; i++) {
+    const k = q[i];
+    // a bay is an end: nobody drives through one
+    if (i > 0 && map.get(k)?.bay) continue;
+    const [x, z] = keyCell(k);
+    for (const [dx, dz] of N4) {
+      const nk = cellKey(x + dx, z + dz);
+      if (dist.has(nk)) continue;
+      if (!isOpen(map.get(nk))) continue;
+      dist.set(nk, dist.get(k)! + 1);
+      q.push(nk);
+    }
+  }
+  if (distMemo.size > 96) distMemo.clear();
+  distMemo.set(key, dist);
+  return dist;
+}
+
+/** The open road cell a planned road leaves the network by: a non-bay open
+ *  neighbour of its first cell (null: none). */
+export function joinCell(s: GameState, first: number): Cell | null {
+  const map = roadMap(s);
+  const [x, z] = keyCell(first);
+  for (const [dx, dz] of N4) {
+    const c = map.get(cellKey(x + dx, z + dz));
+    if (c && isOpen(c) && !c.bay) return [c.gx, c.gz];
+  }
+  return null;
+}
+
 /** Open road cells reachable from `a` (a BFS), nearest first. */
 export function reachable(s: GameState, a: Cell, limit = 4000): Cell[] {
   const map = roadMap(s);

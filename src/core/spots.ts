@@ -10,13 +10,18 @@
  *     door first, nose in; a dock out of bays keeps the rest inside (not drawn);
  *   - sintering a road: the open cell behind the frontier, facing it;
  *   - welding a site: its door cell, then back along its road, then any road
- *     cell beside it; a field structure from the road cell that serves it. */
+ *     cell beside it; a field structure from the road cell that serves it;
+ *   - lent to a survey: into the Lander by its door, and gone.
+ *
+ *  The sim drives every rover to its slot (core/transit.ts) and the visuals
+ *  follow it there, so both read the same slots: groundSpots(). */
 import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from './state';
 import {
   besideCells, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, serviceCell,
 } from './roads';
 import { FIELD_TYPES, ROAD } from '../data/roads';
+import { unitKind } from './fleet';
 
 type Cell = [number, number];
 
@@ -38,6 +43,8 @@ export interface RoverSpot {
   inside?: boolean;
   /** the cell it must come in from (a bay's opening), so the way in keeps to its half */
   via?: [number, number];
+  /** lent to a survey: it leaves by the Lander's door (inside) */
+  survey?: boolean;
 }
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -217,5 +224,23 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
       out.set(id, { gx: d[0], gz: d[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: dock.id, inside: true });
     }
   }
+  // the one lent to a survey leaves by the Lander: in at its door, and gone
+  const lent = away !== undefined ? (s.rovers ?? []).find((u) => u.id === away) : undefined;
+  const ld = lander ? doorCell(lander) : null;
+  if (lent && lander && ld) {
+    const [x, z] = cellCentre(...centreCell(lander));
+    out.set(lent.id, {
+      gx: ld[0], gz: ld[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: lander.id, inside: true, survey: true,
+    });
+  }
   return out;
+}
+
+/** Every ground rover's slot: the roster without the Drone Hive's units,
+ *  which fly (core/fleet.ts unitKind) and take no road slot. The sim
+ *  (core/transit.ts) and the visuals (world/rovers.ts) both read these. */
+export function groundSpots(s: GameState): Map<number, RoverSpot> {
+  const all = s.rovers ?? [];
+  const ground = all.filter((u) => unitKind(s, u) !== 'drone');
+  return roverSpots(ground.length === all.length ? s : { ...s, rovers: ground });
 }

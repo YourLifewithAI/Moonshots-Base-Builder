@@ -28,6 +28,7 @@ import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import { settleJobs, sinter, spurLeft } from './roads';
+import { siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { updateFlowBook } from './flowBook';
 import { automationTick, type AutoRequest } from './automation';
@@ -197,6 +198,8 @@ export function economyTick(s: GameState, site: SiteDef, mods: Mods, dt: number)
   const seen = new Map<string, number>();
   raised = seen;
   const ev = runTick(s, site, mods, dt);
+  // the tick's end: every unit whose goal changed sets off now (core/transit.ts)
+  transitPlan(s, mods, currentDay(s, site).isNight);
   raised = null;
   settleConditions(s, seen);
   return ev;
@@ -244,10 +247,17 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 0 · construction rovers — the roster follows the docks; auto rovers
   // go one per site in queue order (placement order unless Build next), a
   // shut-down site keeps its place in line but frees its rover, pinned
-  // rovers stay put, and a survey borrows one (core/fleet.ts) ────────────
+  // rovers stay put, and a survey borrows one (core/fleet.ts). Then every
+  // trip advances a second, and a site works only with the units that have
+  // got there (core/transit.ts) ────────────
   const building = (b: BuildingState) => (b.construction ?? 0) > 0;
   syncRoster(s, mods);
   const crews = assignRovers(s);
+  const here: Arrivals = transitArrive(s, dt);
+  /** a site's road is still to sinter: its crew works from the frontier */
+  const roadFirst = (b: BuildingState) => !!b.spur?.length && spurLeft(s, b) > 0;
+  /** the units working a site this tick: behind its road's frontier, else at its stands */
+  const siteTeam = (b: BuildingState) => (roadFirst(b) ? here.front : here.weld).get(b.id) ?? [];
   const sites = s.buildings.filter(building).sort((a, b) => queuePos(a) - queuePos(b) || a.id - b.id);
   st.waitingSitesPeak = Math.max(st.waitingSitesPeak,
     sites.filter((b) => b.enabled && !crews.has(b.id)).length);
@@ -352,8 +362,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const b of s.buildings) {
     if (building(b)) {
       // an active construction site pulls welding power at its building's
-      // idle priority: each rover on it draws its own
-      const n = crews.get(b.id) ?? 0;
+      // idle priority: each rover there draws its own (one on its way, none)
+      const n = siteTeam(b).length;
       if (n > 0) wants.push({ b, draw: crewKW(mods, n) * dt, prio: b.priority, isSite: true });
       continue;
     }
@@ -430,19 +440,30 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
   }
 
-  // ── 2.5 · construction progress: needs a rover, grid power, AND parts;
-  // n rovers build n^0.85 times as fast, on the same weld parts per build ──
+  // ── 2.5 · construction progress: needs a rover there, grid power, AND
+  // parts; n rovers build n^0.85 times as fast, on the same weld parts per
+  // build. A rover on its way does nothing yet ──
   for (const b of sites) {
     b.active = false;
     if (!b.enabled) { b.idleReason = 'off'; continue; }
-    const crew = crews.get(b.id) ?? 0;
-    if (crew === 0) { b.idleReason = 'queued'; continue; }
+    if ((crews.get(b.id) ?? 0) === 0) { b.idleReason = 'queued'; continue; }
+    const road = roadFirst(b);
+    const team = siteTeam(b);
+    const crew = team.length;
+    if (crew === 0) {
+      // assigned, but nobody there: on its way, stepping to the next cell, or no road to it
+      const w = siteTransit(s, b.id).wait;
+      b.idleReason = w === 'enroute' ? 'enroute' : w === 'noroad' ? 'noroad' : road ? 'road' : 'building';
+      continue;
+    }
     if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
-    // its road first: the crew sinters the spur out to the door, cell by cell
-    // (the crew's draw, no weld parts), then welds (core/roads.ts)
-    if (b.spur?.length && spurLeft(s, b) > 0) {
+    // its road first: the crew sinters the spur out to the door, cell by
+    // cell from the network, stepping on to each cell it opens (the crew's
+    // draw, no weld parts), then welds (core/roads.ts)
+    if (road) {
       b.idleReason = 'road';
-      sinter(s, b.spur, dt * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
+      sinter(s, b.spur!, dt * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
+      for (const r of team) r.task = 'sinter';
       if (spurLeft(s, b) === 0) b.spur = [];
       continue;
     }
@@ -455,6 +476,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
     s.resources.parts -= weld;
     b.idleReason = 'building';
+    for (const r of team) r.task = 'weld';
     b.construction = Math.max(0, (b.construction ?? 0) - dt * mods.weldRateMult * crewRate(crew));
     if (b.construction === 0) {
       b.idleReason = '';
@@ -463,11 +485,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
   }
   // ── 2.6 · free rovers sinter the roads drawn and the haul roads, oldest
-  // first, one rover a job (their batteries: no grid draw) ──
+  // first, one rover a job, from the frontier it stands behind (their
+  // batteries: no grid draw) ──
   if (s.roadJobs?.length) {
     for (const j of s.roadJobs) {
-      const n = s.rovers.filter((r) => r.road === j.id).length;
-      if (n) sinter(s, j.cells, dt * mods.weldRateMult * crewRate(n) / mods.roadCellMult);
+      const team = here.jobs.get(j.id) ?? [];
+      if (!team.length) continue;
+      sinter(s, j.cells, dt * mods.weldRateMult * crewRate(team.length) / mods.roadCellMult);
+      for (const r of team) r.task = 'sinter';
     }
     settleJobs(s);
   }
@@ -1122,8 +1147,10 @@ export function refreshDerived(s: GameState): Mods {
   s.era = computeEra(s);
   const mods = modsFor(s);
   // saves from before fleet control: a roster from the docks, and every
-  // excavator digging its own pad — as it did
+  // excavator digging its own pad — as it did; every rover in its place
+  // (a save from before transit: at its work, arrived — core/transit.ts)
   fleetRefresh(s, mods);
+  transitPlan(s, mods, false);
   for (const b of s.buildings) ensureHaul(b);
   return mods;
 }

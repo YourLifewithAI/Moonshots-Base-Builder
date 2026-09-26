@@ -16,6 +16,15 @@
  *  by DroneFlight at the end of this file, they fly straight to their work
  *  and take no road slot and no part in the ground traffic.
  *
+ *  The sim drives them (core/transit.ts): each unit's trip — its route, its
+ *  speed, when it set off — says where it should be now, and the visual
+ *  follows, its progress along its own lane way matched to the sim's along
+ *  the route (the tick fraction added), chasing up to 1.6× cruise when the
+ *  traffic held it up. More than LAG_S of driving behind, or not yet at its
+ *  stand when the sim has it at work, it is set down where the sim has it
+ *  (if that ground is clear). Sim time the visuals never showed (a debug
+ *  advance, a load) sets every one down where the sim has it.
+ *
  *  Rovers use the building material (same program, finishes, lamps and a
  *  blinking beacon; unlit twin in safe mode) and cast no shadow-map shadow —
  *  a moving caster would re-render the map every frame. A soft decal smeared
@@ -23,13 +32,13 @@
 import * as THREE from 'three';
 import type { GameState, RoverUnit } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, roadRoute } from '../core/roads';
+import { cellAt, cellCentre, cellKey, doorCell, isOpen, roadMap, roadRoute } from '../core/roads';
 import { DRONE, unitKind } from '../core/fleet';
 import { BUILDINGS } from '../data/buildings';
 import { centerOf } from '../buildings/instances';
-import { HIVE_DECK_Y, HIVE_PADS } from '../buildings/recipes';
-import { roverSpots, type RoverSpot } from '../core/spots';
-import { ROAD } from '../data/roads';
+import { groundSpots, type RoverSpot } from '../core/spots';
+import { HIVE_DECK_Y, ROAD, ROVER } from '../data/roads';
+import { arrived, droneGoal, dronePads, padPoint, pointOn, spotGoal, travelled, tripPoint } from '../core/transit';
 import { TECHS, type TechId } from '../data/techs';
 import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
@@ -43,8 +52,11 @@ const MAX_ROVERS = 64;
 /** a command view's listener height, as a share of the camera's distance */
 const LISTENER_LIFT = 0.3;
 const SCALE = 1.25;
-const SPEED = 4.5;        // m/s cruise on a sintered road
-const ACCEL = 3;          // m/s²
+const SPEED = ROVER.speed; // m/s cruise on a sintered road (the sim's, data/roads.ts)
+const ACCEL = ROVER.accel; // m/s²
+const CATCH = 1.6;        // × cruise: the most a rover drives to catch up with the sim
+const GAIN = 1.5;         // 1/s: how hard it closes the gap
+const LAG_S = 4;          // s of driving a unit may trail the sim before it is set down where the sim has it
 const TURN = 2.4;         // rad/s
 const YIELD_S = 4;        // s a rover waits at a refuge before it heads on
 const PIVOT = 1;          // rad: a way that sets off further than this from its heading starts with a turn on the spot
@@ -137,11 +149,34 @@ interface Rover {
   turning: boolean;
   aim: number;
   agent: Agent;
+  /** the sim goal its way leads to (core/transit.ts spotGoal), and the sim trip it was built for */
+  goal: string;
+  tripId: string;
+  /** the sim's progress (0..1) along that trip, and the arc it stood at, when the two were matched */
+  p0: number;
+  s0: number;
+  /** the sim time it was first seen at work away from its stand (it gets a second to arrive) */
+  dueAt: number | null;
+  /** how it moves: along with the sim's trip, held (the sim has not set off yet), or on its own */
+  follow: 'sim' | 'hold' | 'free';
+  /** where the sim has it along its way (arc, m), and the sim's cruise while it drives */
+  target: number;
+  vSim: number;
+  /** lent to a survey (it leaves by the Lander) */
+  survey: boolean;
+  /** what it does at its stand, from the sim (core/transit.ts, RoverUnit.task): welding a
+   *  building, sintering a road cell, or nothing (driving, parked, waiting) */
+  mode: 'weld' | 'sinter' | null;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-const spotKey = (p: RoverSpot) => `${p.site ?? 'p'}:${p.road ?? ''}@${p.gx},${p.gz},${p.side}${p.inside ? 'in' : ''}`;
+const spotKey = (p: RoverSpot) => `${p.site ?? 'p'}:${p.road ?? ''}@${p.gx},${p.gz},${p.side}${p.inside ? 'in' : ''}${p.survey ? 's' : ''}`;
+/** a sim trip's identity: a new one (a replan) rebuilds the way */
+const tripKey = (t: RoverUnit['trip']) => (t ? `${t.goal}#${t.len.toFixed(2)}#${t.pts[0][0].toFixed(2)},${t.pts[0][1].toFixed(2)}${t.stuck ? '!' : ''}` : '');
+/** the sim's progress along a trip, 0..1, `ahead` s on from its last tick */
+const progress = (t: NonNullable<RoverUnit['trip']>, ahead: number) =>
+  t.len > 1e-6 ? travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a) / t.len : 1;
 type Cell = [number, number];
 
 /** The right-hand lane's offset for travel along `d` (a unit cell step). */
@@ -221,6 +256,16 @@ export class RoverFleet implements Driver {
   /** lit channel per drawn instance, as last written (bricked: 0) */
   private litSeen = new Float32Array(MAX_ROVERS).fill(1);
   private soundList: RoverSound[] = [];
+  /** the sim clock at the last frame: time the visuals missed sets them down where the sim has them */
+  private lastSim: number | null = null;
+  /** sim seconds a frame against the visuals' (≥ 1: slow frames drive faster), and the tick fraction */
+  private pace = 1;
+  private frac = 0;
+  /** the most any rover trailed the sim since the last read (s of driving), and set-downs so far */
+  private lagMax = 0;
+  private setDowns = 0;
+  /** the last set-downs: who, why (lag s, or due at work), when */
+  private downLog: string[] = [];
 
   constructor(private hf: Heightfield, traffic?: Traffic) {
     this.traffic = traffic ?? new Traffic();
@@ -268,61 +313,214 @@ export class RoverFleet implements Driver {
     this.draw(dt, sunDir, sunLight);
   }
 
-  /** The visuals follow the sim roster, keyed by rover id; the one lent to a
-   *  survey is away. Each rover's slot (core/spots.ts), and a way there along
-   *  the open road when the slot changes. */
-  sync(dt: number, state: GameState, night = false) {
+  /** The visuals follow the sim roster, keyed by rover id. Each rover's slot
+   *  (core/spots.ts groundSpots, the sim's too), a way there along the open
+   *  road when the slot or the sim's trip changes, and how far along it the
+   *  sim has it (core/transit.ts). `frac`: the part of the next economy
+   *  second already gone. */
+  sync(dt: number, state: GameState, night = false, frac = 0) {
     this.clock += dt;
     this.frozen = dt <= 0;
     this.state = state;
     this.speed = SPEED * roadSpeedFor(state.techsDone, night);
+    this.frac = Math.max(0, Math.min(1, frac));
     const sig = spotSignature(state);
     // a load hands over new roster objects under the same layout: re-read them
-    const fresh = sig !== this.spotSig || state !== this.seenState;
+    const loaded = state !== this.seenState;
+    const fresh = sig !== this.spotSig || loaded;
     this.seenState = state;
+    // sim time the visuals never showed (a debug advance, a load): set down where the sim has them
+    const simDelta = this.lastSim === null ? Infinity : state.simTime - this.lastSim;
+    this.lastSim = state.simTime;
+    const jumped = loaded || simDelta < 0 || (dt <= 0 ? simDelta > 1e-6 : simDelta - dt > 3);
+    this.pace = dt > 0 ? clamp(simDelta / dt, 1, 5) : 1;
     const away = state.survey?.active?.rover;
+    const all = state.rovers ?? [];
     if (fresh) {
       this.spotSig = sig;
       // hive units fly: they take no road slot, and leave the ground to the rovers
-      const all = state.rovers ?? [];
       this.hiveUnits = new Set(all.filter((u) => unitKind(state, u) === 'drone').map((u) => u.id));
-      this.droneUnits = all.filter((u) => this.hiveUnits.has(u.id) && u.id !== away);
-      this.spots = roverSpots(this.hiveUnits.size ? { ...state, rovers: all.filter((u) => !this.hiveUnits.has(u.id)) } : state);
+      this.spots = groundSpots(state);
     }
-    this.drones.sync(dt, state, this.droneUnits, fresh);
-    const roster = (state.rovers ?? []).filter((u) => u.id !== away && !this.hiveUnits.has(u.id)).slice(0, MAX_ROVERS);
+    // a drone lent to a survey flies to the Lander, then is away
+    this.droneUnits = all.filter((u) => this.hiveUnits.has(u.id) && (u.id !== away || !arrived(u.trip)));
+    this.drones.sync(dt, state, this.droneUnits, fresh, this.frac, jumped, this.pace);
+    const roster = all.filter((u) => !this.hiveUnits.has(u.id)).slice(0, MAX_ROVERS);
     const next: Rover[] = [];
+    const jump: Rover[] = [];
     for (const u of roster) {
       const spot = this.spots.get(u.id);
       if (!spot) continue;
       let r = this.byId.get(u.id);
       if (!r) {
-        // a new rover: parked on its slot, or inside its dock until it rolls out
-        const parked = spot.site === null && spot.road === undefined && !spot.inside;
-        const [x, z] = parked ? [spot.x, spot.z] : [spot.x, spot.z];
-        r = {
-          id: u.id, unit: u, x, z, yaw: spot.face, v: 0, home: spot.dock, site: spot.site, spot: parked ? spot : null,
-          key: parked ? spotKey(spot) : '', inside: !parked, working: false, phase: u.id * 2.399, yieldUntil: 0,
-          revUntil: -Infinity, turning: false, aim: spot.face, agent: null!,
-        };
-        r.agent = {
-          kind: 'rover', id: u.id, key: 1e6 + u.id, x, z, fx: Math.sin(r.yaw), fz: Math.cos(r.yaw),
-          hw: ROVER_BODY.hw, front: ROVER_BODY.front, back: ROVER_BODY.back, wide: false, cls: 1,
-          pts: [], arcs: [], spans: [], s: 0, v: 0, vmax: 0, stop: 0, accel: ACCEL, decel: 2 * ACCEL,
-          standMode: laneMode(spot.axis === 'x' ? 0 : 1, spot.side), held: new Map(), blocker: null, waited: 0, drv: this,
-        };
-        if (parked) this.traffic.setWay(r.agent, [[x, z]]);
-      }
+        r = this.born(u, spot);
+      } else if (jumped) jump.push(r);
       r.home = spot.dock;
       r.unit = u;
-      const key = spotKey(spot);
-      if (key !== r.key && this.clock >= r.yieldUntil) this.head(r, spot, state);
+      r.survey = !!spot.survey;
       next.push(r);
+    }
+    // the jump: everyone off their cells, then each set down where the sim has it (if clear)
+    if (jump.length) {
+      for (const r of jump) this.traffic.drop(r.agent);
+      for (const r of jump) {
+        const spot = this.spots.get(r.id)!;
+        if (!this.setDown(r, spot)) { if (!r.inside) this.traffic.place(r.agent); }
+      }
+    }
+    for (const r of next) {
+      const u = r.unit!, spot = this.spots.get(r.id)!;
+      const tk = tripKey(u.trip);
+      const key = spotKey(spot);
+      // a new slot: a new way there; the sim replanned for the slot it heads for: the same way, retimed
+      if (key !== r.key && this.clock >= r.yieldUntil) this.head(r, spot, state);
+      else if (tk !== r.tripId && key === r.key) this.retime(r, spot, state);
+      this.follow(r, spot, jumped, dt);
     }
     this.rovers = next;
     this.byId = new Map(next.map((r) => [r.id, r]));
     this.drawn = next.filter((r) => !r.inside);
     this.traffic.enlist('rover', this.drawn.map((r) => r.agent));
+  }
+
+  /** A rover new to the visuals: where the sim has it (inside its dock if
+   *  the sim has it in there), else on its slot (before the sim's first tick). */
+  private born(u: RoverUnit, spot: RoverSpot): Rover {
+    const t = u.trip;
+    const simAt = u.x !== undefined && u.z !== undefined;
+    const settled = !t || arrived(t);
+    const inside = !!spot.inside && settled;
+    const [x, z] = simAt ? [u.x!, u.z!] : [spot.x, spot.z];
+    let yaw = spot.face;
+    if (t && !settled && t.pts.length > 1) {
+      const u0 = travelled(t.t, t.len, t.v, t.a);
+      const [ax, az] = pointOn(t.pts, u0), [bx, bz] = pointOn(t.pts, u0 + 0.5);
+      if (Math.hypot(bx - ax, bz - az) > 1e-6) yaw = Math.atan2(bx - ax, bz - az);
+    }
+    // on its slot already: no way to drive
+    const onSlot = !inside && settled && Math.hypot(x - spot.x, z - spot.z) < 0.3;
+    const r: Rover = {
+      id: u.id, unit: u, x, z, yaw, v: 0, home: spot.dock, site: spot.site, spot: onSlot ? spot : null,
+      key: onSlot ? spotKey(spot) : '', inside, working: false, phase: u.id * 2.399, yieldUntil: 0,
+      revUntil: -Infinity, turning: false, aim: yaw, agent: null!,
+      goal: '', tripId: '', p0: 0, s0: 0, dueAt: null, follow: 'free', target: 0, vSim: 0, survey: !!spot.survey, mode: null,
+    };
+    r.agent = {
+      kind: 'rover', id: u.id, key: 1e6 + u.id, x, z, fx: Math.sin(yaw), fz: Math.cos(yaw),
+      hw: ROVER_BODY.hw, front: ROVER_BODY.front, back: ROVER_BODY.back, wide: false, cls: 1,
+      pts: [], arcs: [], spans: [], s: 0, v: 0, vmax: 0, stop: 0, accel: ACCEL, decel: 2 * ACCEL,
+      standMode: laneMode(spot.axis === 'x' ? 0 : 1, spot.side), held: new Map(), blocker: null, waited: 0, drv: this,
+    };
+    if (!inside) {
+      this.traffic.setWay(r.agent, [[x, z]]);
+      // a clear spot: it holds its cells now; else it waits inside its dock until the lag brings it out
+      if (this.traffic.laneFree(r.agent, x, z, r.agent.fx, r.agent.fz)) this.traffic.place(r.agent);
+      else { r.inside = true; r.key = ''; }
+    }
+    if (onSlot && t) { r.goal = t.goal; r.tripId = tripKey(t); r.p0 = 1; r.follow = 'sim'; }
+    return r;
+  }
+
+  /** Where the sim has it now: its trip's point (with the tick fraction) and
+   *  heading, or its slot once there. Null: the sim has no place for it yet. */
+  private simPose(r: Rover, spot: RoverSpot): { x: number; z: number; yaw: number; there: boolean } | null {
+    const u = r.unit;
+    const t = u?.trip;
+    if (!u || !t || t.stuck || u.x === undefined) return null;
+    if (arrived(t)) {
+      // there: its slot, if the sim's goal is the slot it heads for
+      const mine = spotGoal(this.state!, spot).key === t.goal;
+      const [x, z] = mine ? [spot.x, spot.z] : t.pts[t.pts.length - 1];
+      return { x, z, yaw: mine ? spot.face : r.yaw, there: true };
+    }
+    // on its way: the sim's point, in the right-hand lane of the road it drives
+    // (the sim's route runs down the centre line); or where its own way,
+    // retimed to the sim, has it
+    if (r.follow === 'sim' && !r.inside && this.clock >= r.yieldUntil) {
+      const q = pointAt(r.agent.pts, r.agent.arcs, r.target);
+      return { x: q.x, z: q.z, yaw: Math.atan2(q.dx, q.dz), there: false };
+    }
+    const u0 = travelled(Math.min(t.dur, t.t + this.frac), t.len, t.v, t.a);
+    const [x, z] = pointOn(t.pts, u0);
+    const [bx, bz] = pointOn(t.pts, u0 + 0.5);
+    const dx = bx - x, dz = bz - z, l = Math.hypot(dx, dz);
+    if (l < 1e-6) return { x, z, yaw: r.yaw, there: false };
+    const ux = dx / l, uz = dz / l;
+    // the lane: a lane's width to the right of the way on, along its axis
+    const [lx, lz] = Math.abs(ux) >= Math.abs(uz) ? [0, Math.sign(ux) * ROAD.lane] : [-Math.sign(uz) * ROAD.lane, 0];
+    const [cx, cz] = cellCentre(...cellAt(x, z));
+    const [px, pz] = Math.abs(ux) >= Math.abs(uz) ? [x, cz + lz] : [cx + lx, z];
+    return { x: px, z: pz, yaw: Math.atan2(Math.abs(ux) >= Math.abs(uz) ? Math.sign(ux) : 0, Math.abs(ux) >= Math.abs(uz) ? 0 : Math.sign(uz)), there: false };
+  }
+
+  /** Set it down where the sim has it, if that ground is clear (never onto
+   *  another unit); into its dock if the sim has it in there. True: done. */
+  private setDown(r: Rover, spot: RoverSpot, count = true): boolean {
+    const p = this.simPose(r, spot);
+    if (!p) return false;
+    const a = r.agent;
+    if (p.there && spot.inside) {
+      this.traffic.drop(a);
+      r.inside = true;
+      r.x = p.x; r.z = p.z; a.x = p.x; a.z = p.z;
+      r.key = spotKey(spot); r.spot = spot;
+      return true;
+    }
+    const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+    if (!this.traffic.laneFree(a, p.x, p.z, fx, fz)) return false;
+    this.traffic.drop(a);
+    r.x = p.x; r.z = p.z; r.yaw = r.aim = p.yaw; r.v = 0;
+    a.x = p.x; a.z = p.z; a.fx = fx; a.fz = fz; a.v = 0;
+    r.inside = false; r.turning = false; r.yieldUntil = 0; r.revUntil = -Infinity;
+    this.traffic.setWay(a, [[p.x, p.z]]);
+    this.traffic.place(a);
+    // on from here: a new way to its slot
+    r.key = ''; r.tripId = '';
+    if (count) this.setDowns++;
+    return true;
+  }
+
+  /** How it follows the sim this frame: its target arc along its way, and
+   *  set down where the sim has it if it trails too far, or is not at its
+   *  stand when the sim has it at work. */
+  private follow(r: Rover, spot: RoverSpot, jumped: boolean, dt: number) {
+    const u = r.unit!;
+    const t = u.trip;
+    const a = r.agent;
+    const yielding = this.clock < r.yieldUntil;
+    r.follow = !t || u.x === undefined ? 'free' : t.stuck || t.goal !== r.goal ? 'hold' : 'sim';
+    if (yielding) r.follow = 'free';
+    if (r.follow === 'sim' && t) {
+      const p = arrived(t) ? 1 : progress(t, this.frac);
+      const k = r.p0 >= 1 - 1e-6 ? 1 : clamp((p - r.p0) / (1 - r.p0), 0, 1);
+      const end = Traffic.end(a);
+      r.target = r.s0 + (end - r.s0) * k;
+      r.vSim = arrived(t) ? 0 : t.v;
+    } else {
+      r.target = Traffic.end(a);
+      r.vSim = 0;
+    }
+    if (jumped || dt <= 0 || !t || t.stuck || u.x === undefined) return;
+    // how far behind the sim it is, in seconds of driving
+    let lag = 0;
+    if (r.follow === 'sim' && !r.inside) lag = Math.max(0, r.target - a.s) / Math.max(this.speed, 0.1);
+    else {
+      const p = this.simPose(r, spot);
+      if (p && (r.inside ? !(p.there && spot.inside) : true)) lag = Math.hypot(p.x - r.x, p.z - r.z) / Math.max(this.speed, 0.1);
+    }
+    this.lagMax = Math.max(this.lagMax, lag);
+    // at work in the sim, and not at its stand: it must be seen there (a
+    // second's grace: the tick it arrives in may end before it pulls up)
+    const away = arrived(t) && !!u.task && r.follow === 'sim' && (r.inside || Traffic.end(a) - a.s > 0.3);
+    const now = this.state?.simTime ?? 0;
+    if (!away) r.dueAt = null;
+    else r.dueAt ??= now;
+    const due = r.dueAt !== null && now - r.dueAt >= 1 - 1e-6;
+    if ((lag > LAG_S || due) && this.setDown(r, spot)) {
+      r.dueAt = null;
+      this.downLog.push(`${r.id}:${due ? 'due' : `lag${lag.toFixed(1)}`}@${Math.round(now)}`);
+      if (this.downLog.length > 24) this.downLog.shift();
+    }
   }
 
   /** Head for a slot: a way along the open road from where it is (or out of
@@ -339,15 +537,21 @@ export class RoverFleet implements Driver {
         r.agent.standMode = WHOLE;
         r.spot = spot;
         r.key = spotKey(spot);
+        this.mark(r, spot, s);
         return;
       }
       r.spot = spot;
       r.key = spotKey(spot);
       r.inside = true;
+      this.mark(r, spot, s);
       return;
     }
     let from: Cell;
-    if (r.inside) {
+    if (r.inside && r.unit?.x !== undefined) {
+      // rolling out where the sim has it (its dock's door, as a rule), if that is clear
+      if (!this.setDown(r, spot, false)) return;
+      from = cellAt(r.x, r.z);
+    } else if (r.inside) {
       // rolling out of its dock by the door, if the door is clear
       const dock = s.buildings.find((b) => b.id === spot.dock);
       const d = dock ? doorCell(dock) : null;
@@ -395,6 +599,30 @@ export class RoverFleet implements Driver {
     r.site = spot.site;
     r.inside = false;
     r.working = false;
+    this.mark(r, spot, s);
+  }
+
+  /** The way now leads to this slot: the sim goal it serves, the sim trip it
+   *  was built for, and how far along that trip the sim had it then. */
+  private mark(r: Rover, spot: RoverSpot, s: GameState) {
+    r.goal = spotGoal(s, spot).key;
+    r.s0 = 0;
+    this.match(r);
+  }
+
+  /** The sim planned a new trip to the slot its way already leads to (it
+   *  set off, or replanned): what is left of the sim's trip is matched to
+   *  what is left of the way from where it stands. */
+  private retime(r: Rover, spot: RoverSpot, s: GameState) {
+    r.goal = spotGoal(s, spot).key;
+    r.s0 = r.agent.s;
+    this.match(r);
+  }
+
+  private match(r: Rover) {
+    const t = r.unit?.trip;
+    r.tripId = tripKey(t);
+    r.p0 = t && t.goal === r.goal && !t.stuck ? (arrived(t) ? 1 : progress(t, this.frac)) : 0;
   }
 
   // ── the traffic driver ──
@@ -406,6 +634,17 @@ export class RoverFleet implements Driver {
     const left = end - a.s;
     a.vmax = Math.min(this.speed, Math.sqrt(2 * ACCEL * Math.max(0, left)) + 0.3);
     a.stop = end;
+    // the sim drives it (core/transit.ts): never past where the sim has it,
+    // catching up (to CATCH × cruise) when the traffic held it back; held
+    // still while the sim has not set off on this way yet
+    if (r?.follow === 'hold') { a.vmax = 0; a.stop = a.s; }
+    else if (r?.follow === 'sim') {
+      const gap = r.target - a.s;
+      a.stop = Math.min(end, Math.max(a.s, r.target));
+      const chase = r.vSim * this.pace + GAIN * gap;
+      // (at least a crawl while short of it: it always pulls right up to its slot)
+      a.vmax = Math.min(Math.sqrt(2 * ACCEL * Math.max(0, left)) + 0.3, CATCH * Math.max(this.speed, r.vSim), Math.max(gap > 1e-4 ? 0.3 : 0, chase));
+    }
     // a way that sets off well away from its heading starts with a turn on the spot
     a.pivot = false;
     if (!r) return;
@@ -451,7 +690,10 @@ export class RoverFleet implements Driver {
       r.inside = true;
       this.traffic.drop(a);
     }
-    r.working = there && r.site !== null && r.spot?.site === r.site && a.v < 0.1;
+    // at work where the sim has it at work: welding a building or sintering a road cell
+    const task = r.unit?.task;
+    r.working = there && !!task && r.follow === 'sim' && a.v < 0.1;
+    r.mode = r.working ? task! : null;
   }
 
   /** Get out of their way: over into the other half of its own cell if their
@@ -535,6 +777,10 @@ export class RoverFleet implements Driver {
   rescue(a: Agent) {
     const r = this.byId.get(a.id);
     if (!r) return;
+    // set down where the sim has it, if clear; else back inside its dock
+    const spot = this.spots.get(r.id);
+    this.traffic.drop(a);
+    if (spot && this.setDown(r, spot)) return;
     r.inside = true;
     r.key = '';
     this.traffic.drop(a);
@@ -670,8 +916,11 @@ export class RoverFleet implements Driver {
   }
 
   info() {
+    const lag = this.lagMax;
+    this.lagMax = 0;
     return {
-      count: this.rovers.length,
+      /** the ground rovers in the fleet (the one lent to a survey is not) */
+      count: this.rovers.filter((r) => !r.survey).length,
       moving: this.rovers.filter((r) => r.v > 0.1).length,
       working: this.rovers.filter((r) => r.working).length,
       assigned: this.rovers.filter((r) => r.site !== null).length,
@@ -691,6 +940,16 @@ export class RoverFleet implements Driver {
       yaws: this.rovers.map((r) => Math.round(r.yaw * 100) / 100),
       selected: this.selected,
       ring: this.ring.visible,
+      /** at its stand, what it does there (the sim's RoverUnit.task): 'weld', 'sinter' or null */
+      modes: this.rovers.map((r) => r.mode),
+      /** how each follows the sim (core/transit.ts): 'sim', 'hold' (not set off) or 'free' */
+      follow: this.rovers.map((r) => r.follow),
+      /** debug: each one's target arc and where it is along its way */
+      track: this.rovers.map((r) => [Math.round(r.target * 10) / 10, Math.round(r.agent.s * 10) / 10, Math.round(Traffic.end(r.agent) * 10) / 10, r.goal, r.unit?.trip?.goal ?? '']),
+      /** the most any rover trailed the sim since the last read, s of driving; set-downs so far */
+      lagMaxS: Math.round(lag * 100) / 100,
+      setDowns: this.setDowns,
+      downLog: [...this.downLog],
       /** the hive units, drawn as drones (docs/14 §4.3) */
       drones: this.drones.info(),
     };
@@ -768,6 +1027,14 @@ interface Drone {
   unit: RoverUnit;
   /** held (landed, waiting) or bricked by a hazard: set down where it is */
   down: boolean;
+  /** the sim goal it is aimed at (core/transit.ts droneGoal) */
+  goal: string;
+  /** on its way: where the sim has it now (it chases that point), and the sim's cruise */
+  chase: boolean;
+  cx: number; cz: number;
+  vSim: number;
+  /** what it does over its stand, from the sim: welding a building, sintering a road cell, or nothing */
+  mode: 'weld' | 'sinter' | null;
 }
 
 /** The Drone Hive's units, drawn as quadcopters that fly straight at their
@@ -815,21 +1082,29 @@ export class DroneFlight {
     group.add(this.mesh, this.decals);
   }
 
-  /** The drones follow the sim roster's hive units (keyed by id); `fresh`:
-   *  the slots' signature changed (sites, roads, the roster), so re-aim. */
-  sync(dt: number, s: GameState, units: readonly RoverUnit[], fresh: boolean) {
+  /** The drones follow the sim roster's hive units (keyed by id) and the
+   *  sim's straight-line trips (core/transit.ts): each chases the point the
+   *  sim has it at now (the tick fraction added), and hovers or perches at
+   *  its goal once the sim has it there. `fresh`: the slots' signature
+   *  changed, so re-aim; `jumped`: sim time the visuals never showed, so
+   *  set each down where the sim has it. */
+  sync(dt: number, s: GameState, units: readonly RoverUnit[], fresh: boolean, frac = 0, jumped = false, pace = 1) {
     this.clock += dt;
+    const pads = dronePads(s);
     if (fresh || units.length !== this.list.length) {
       const next: Drone[] = [];
-      const perHive = new Map<number, number>();
       for (const u of units.slice(0, MAX_DRONES)) {
-        const pad = perHive.get(u.home) ?? 0;
-        perHive.set(u.home, pad + 1);
+        const pad = pads.get(u.id) ?? 0;
         let d = this.byId.get(u.id);
         if (!d) {
           const [px, py, pz] = this.padPoint(s, u.home, pad);
-          d = { id: u.id, x: px, y: py, z: pz, yaw: 0, v: 0, gx: px, gy: py, gz: pz, cruise: DRONE.cruiseMin + (u.id % 5),
-            site: null, job: false, perched: true, working: false, phase: u.id * 1.913, home: u.home, pad, unit: u, down: false };
+          // where the sim has it (a load, a drone already out), else on its pad
+          const [x, z] = u.x !== undefined && u.z !== undefined ? [u.x, u.z] : [px, pz];
+          const onPad = Math.hypot(x - px, z - pz) < 0.3;
+          const y = onPad ? py : this.hf.sample(x, z) + DRONE.cruiseMin;
+          d = { id: u.id, x, y, z, yaw: 0, v: 0, gx: px, gy: py, gz: pz, cruise: DRONE.cruiseMin + (u.id % 5),
+            site: null, job: false, perched: onPad, working: false, phase: u.id * 1.913, home: u.home, pad, unit: u, down: false,
+            goal: '', chase: false, cx: x, cz: z, vSim: 0, mode: null };
         }
         d.home = u.home;
         d.pad = pad;
@@ -837,20 +1112,36 @@ export class DroneFlight {
         if (d.site === null && u.site !== null && d.perched) this.launches++;
         d.site = u.site;
         d.job = false;
-        this.aim(d, s, u);
+        d.goal = ''; // re-aim below
         next.push(d);
       }
       this.list = next;
       this.byId = new Map(next.map((d) => [d.id, d]));
     }
     for (const d of this.list) {
+      const u = d.unit, t = u.trip;
       // a hazard holds it (Land drones, the control plane down) or bricks it:
       // it sets down where it is and waits; freed, it takes up its work again
-      const down = (d.unit.brickedUntil ?? 0) > 0 || (d.unit.heldUntil ?? 0) > s.simTime;
-      if (down) { d.gx = d.x; d.gz = d.z; d.gy = this.hf.sample(d.x, d.z); d.site = null; d.job = false; }
-      else if (d.down) { d.site = d.unit.site; this.aim(d, s, d.unit); }
+      const down = (u.brickedUntil ?? 0) > 0 || (u.heldUntil ?? 0) > s.simTime;
+      if (down) { d.gx = d.x; d.gz = d.z; d.gy = this.hf.sample(d.x, d.z); d.site = null; d.job = false; d.goal = 'down'; }
+      else if (d.down || (t && t.goal !== d.goal) || (!t && d.goal === '')) { d.site = u.site; this.aim(d, s, u); d.goal = t?.goal ?? '-'; }
       d.down = down;
-      this.fly(d, dt);
+      // follow the sim: the point it has the drone at now, until it is there
+      d.chase = !down && !!t && !t.stuck && !arrived(t) && u.x !== undefined;
+      if (d.chase) { [d.cx, d.cz] = tripPoint(t!, frac); d.vSim = t!.v; } else d.vSim = 0;
+      if (!down && t && !t.stuck && u.x !== undefined) {
+        const [sx, sz] = d.chase ? [d.cx, d.cz] : [d.gx, d.gz];
+        const off = Math.hypot(sx - d.x, sz - d.z);
+        // time the visuals missed, more than LAG_S behind, or not over its work when the sim has it at work
+        const due = !d.chase && !!u.task && off > 0.5;
+        if (jumped || (dt > 0 && (off > LAG_S * DRONE.speed || due))) {
+          d.x = sx; d.z = sz;
+          if (!d.chase) { d.y = d.gy; d.v = 0; }
+          else d.y = Math.max(d.y, this.hf.sample(sx, sz) + d.cruise);
+        }
+      }
+      this.fly(d, dt, pace);
+      d.mode = d.working && !d.chase ? u.task ?? null : null;
     }
     // a bricked drone is dark
     const st = this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
@@ -866,49 +1157,58 @@ export class DroneFlight {
   private padPoint(s: GameState, home: number, pad: number): [number, number, number] {
     const hive = s.buildings.find((b) => b.id === home);
     if (!hive) return [0, 0, 0];
+    const [x, z] = padPoint(hive, pad);
     const [cx, cz] = centerOf(hive);
-    const [lx, lz] = HIVE_PADS[pad % HIVE_PADS.length];
-    const a = -hive.rot * PI / 2, c = Math.cos(a), sn = Math.sin(a);
-    const x = cx + lx * c + lz * sn, z = cz - lx * sn + lz * c;
     return [x, this.hf.sample(cx, cz) + HIVE_DECK_Y, z];
   }
 
-  /** where it is going: over its site, over its road's frontier, or home to its pad */
+  /** where it is going, as the sim sends it (core/transit.ts droneGoal): over
+   *  its site, over the frontier of the road it sinters (its site's, while
+   *  that is unfinished, or a road job's), into the Lander when lent, or home
+   *  to its pad */
   private aim(d: Drone, s: GameState, u: RoverUnit) {
-    const site = u.site !== null ? s.buildings.find((b) => b.id === u.site && (b.construction ?? 0) > 0) : undefined;
-    if (site) {
-      const [cx, cz] = centerOf(site);
-      const def = BUILDINGS[site.type];
-      const r = Math.max(2, Math.min(def.footprint[0], def.footprint[1]) * 2 - 1.5);
-      const a = (d.id % 4) * PI / 2 + 0.6;
-      d.gx = cx + Math.cos(a) * r; d.gz = cz + Math.sin(a) * r;
-      d.gy = this.hf.sample(cx, cz) + Math.min(9, def.height * 0.6) + 2.5;
-      return;
+    const g = droneGoal(s, u, d.pad);
+    d.gx = g.x; d.gz = g.z;
+    d.job = false;
+    switch (g.kind) {
+      case 'weld': {
+        const site = s.buildings.find((b) => b.id === g.site);
+        const def = site ? BUILDINGS[site.type] : null;
+        const [cx, cz] = site ? centerOf(site) : [g.x, g.z];
+        d.gy = this.hf.sample(cx, cz) + Math.min(9, (def?.height ?? 4) * 0.6) + 2.5;
+        return;
+      }
+      case 'front': case 'behind':
+        d.gy = this.hf.sample(g.x, g.z) + 3.2;
+        d.job = true;
+        return;
+      case 'survey':
+        d.gy = this.hf.sample(g.x, g.z) + BUILDINGS.lander.height + 2;
+        return;
+      case 'down':
+        d.gy = this.hf.sample(g.x, g.z);
+        return;
+      default:
+        [d.gx, d.gy, d.gz] = this.padPoint(s, u.home, d.pad);
     }
-    const job = u.road !== undefined ? s.roadJobs?.find((j) => j.id === u.road) : undefined;
-    const f = job ? frontierOf(s, job.cells) : null;
-    if (f) {
-      const [x, z] = cellCentre(f.cell.gx, f.cell.gz);
-      d.gx = x + ((d.id % 3) - 1) * 1.2; d.gz = z;
-      d.gy = this.hf.sample(x, z) + 3.2;
-      d.job = true;
-      return;
-    }
-    [d.gx, d.gy, d.gz] = this.padPoint(s, u.home, d.pad);
   }
 
-  /** straight at its cruise height: climb, fly, descend onto its goal */
-  private fly(d: Drone, dt: number) {
+  /** straight at its cruise height: climb, fly, descend onto its goal. On
+   *  its way it chases where the sim has it (up to CATCH × cruise). */
+  private fly(d: Drone, dt: number, pace = 1) {
     if (dt <= 0) return;
-    const dx = d.gx - d.x, dz = d.gz - d.z;
+    const [hx, hz] = d.chase ? [d.cx, d.cz] : [d.gx, d.gz];
+    const dx = hx - d.x, dz = hz - d.z;
     const dist = Math.hypot(dx, dz);
+    const fin = Math.hypot(d.gx - d.x, d.gz - d.z);
     const ground = this.hf.sample(d.x, d.z);
     const cruiseY = Math.max(ground, this.hf.sample(d.gx, d.gz)) + d.cruise;
-    const near = dist < 9;
+    const near = fin < 9;
     const wantY = near ? d.gy : Math.max(cruiseY, d.gy);
     // the climb comes first: it sets off once it is up, or when the goal is close
     const up = d.y >= Math.min(wantY, ground + 3) - 0.3 || near;
-    const vmax = up ? Math.min(DRONE.speed, Math.sqrt(2 * DRONE.accel * dist) + 0.2) : 0;
+    const vmax = !up ? 0 : d.chase ? Math.min(CATCH * DRONE.speed, d.vSim * pace + GAIN * dist)
+      : Math.min(DRONE.speed, Math.sqrt(2 * DRONE.accel * dist) + 0.2);
     d.v = Math.min(vmax, d.v + DRONE.accel * dt);
     if (dist > 1e-3) {
       const step = Math.min(dist, d.v * dt);
@@ -917,8 +1217,8 @@ export class DroneFlight {
     } else d.v = 0;
     const dy = wantY - d.y;
     d.y += Math.max(-DRONE.climb * dt, Math.min(DRONE.climb * dt, dy));
-    d.y = Math.max(d.y, this.hf.sample(d.x, d.z) + 0.3 * (d.perched && dist < 0.2 ? 0 : 1));
-    const there = dist < 0.3 && Math.abs(dy) < 0.15;
+    d.y = Math.max(d.y, this.hf.sample(d.x, d.z) + 0.3 * (d.perched && fin < 0.2 ? 0 : 1));
+    const there = !d.chase && fin < 0.3 && Math.abs(dy) < 0.15;
     d.working = there && (d.site !== null || d.job);
     d.perched = there && d.site === null && !d.job;
   }
@@ -1008,6 +1308,8 @@ export class DroneFlight {
       heights: this.list.map((d) => Math.round((d.y - this.hf.sample(d.x, d.z)) * 10) / 10),
       positions: this.list.map((d) => [Math.round(d.x * 10) / 10, Math.round(d.z * 10) / 10]),
       launches: this.launches,
+      /** over its stand, what it does there: 'weld', 'sinter' or null */
+      modes: this.list.map((d) => d.mode),
     };
   }
 }
