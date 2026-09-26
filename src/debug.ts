@@ -149,6 +149,20 @@ function api(game: Game) {
     buildingLook: (id: number) => clone((game as any).instances.lookOf(id)),
     /** the building-state visual hook (instances.ts alarmOf): (b) => 0 calm … 1 alarmed; null clears it */
     setAlarmHook: (fn: ((b: unknown) => number) | null) => { (game as any).instances.alarmOf = fn ?? undefined; },
+    /** stand in for the hazards' fx (hazardView().fx) in the renderer: { id: ['flicker' | 'dark' | …] }; null restores it */
+    setHazardFx: (fx: Record<number, string[]> | null) => {
+      const g = game as any;
+      g.hazardFxHook ??= g.instances.fxOf;
+      const hook = fx ? (id: number) => fx[id] : g.hazardFxHook;
+      g.instances.fxOf = hook;
+      g.life.fxOf = hook;
+    },
+    /** a roster unit's hazard fields (tests): { brickedUntil, heldUntil } */
+    patchRover: (id: number, patch: { brickedUntil?: number; heldUntil?: number }) => {
+      const r = game.state.rovers.find((x) => x.id === id);
+      if (r) Object.assign(r, patch);
+      game.publish();
+    },
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     recipeTriangles: () => recipeTriangles(),
     /** the upgrade budget: stock and fully upgraded triangles per type, and each part's */

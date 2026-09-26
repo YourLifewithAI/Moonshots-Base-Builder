@@ -117,6 +117,8 @@ export function blobTexture(): THREE.DataTexture {
 interface Rover {
   /** the sim roster's id (core/fleet.ts): the voice and the selection follow it */
   id: number;
+  /** its roster unit (bricked by a hazard: parked, lamps and beacon off) */
+  unit: RoverUnit | null;
   x: number; z: number; yaw: number; v: number;
   home: number;
   site: number | null;
@@ -215,6 +217,9 @@ export class RoverFleet implements Driver {
   readonly drones: DroneFlight;
   private hiveUnits = new Set<number>();
   private droneUnits: RoverUnit[] = [];
+  private seenState: GameState | null = null;
+  /** lit channel per drawn instance, as last written (bricked: 0) */
+  private litSeen = new Float32Array(MAX_ROVERS).fill(1);
   private soundList: RoverSound[] = [];
 
   constructor(private hf: Heightfield, traffic?: Traffic) {
@@ -272,7 +277,9 @@ export class RoverFleet implements Driver {
     this.state = state;
     this.speed = SPEED * roadSpeedFor(state.techsDone, night);
     const sig = spotSignature(state);
-    const fresh = sig !== this.spotSig;
+    // a load hands over new roster objects under the same layout: re-read them
+    const fresh = sig !== this.spotSig || state !== this.seenState;
+    this.seenState = state;
     const away = state.survey?.active?.rover;
     if (fresh) {
       this.spotSig = sig;
@@ -294,7 +301,7 @@ export class RoverFleet implements Driver {
         const parked = spot.site === null && spot.road === undefined && !spot.inside;
         const [x, z] = parked ? [spot.x, spot.z] : [spot.x, spot.z];
         r = {
-          id: u.id, x, z, yaw: spot.face, v: 0, home: spot.dock, site: spot.site, spot: parked ? spot : null,
+          id: u.id, unit: u, x, z, yaw: spot.face, v: 0, home: spot.dock, site: spot.site, spot: parked ? spot : null,
           key: parked ? spotKey(spot) : '', inside: !parked, working: false, phase: u.id * 2.399, yieldUntil: 0,
           revUntil: -Infinity, turning: false, aim: spot.face, agent: null!,
         };
@@ -307,6 +314,7 @@ export class RoverFleet implements Driver {
         if (parked) this.traffic.setWay(r.agent, [[x, z]]);
       }
       r.home = spot.dock;
+      r.unit = u;
       const key = spotKey(spot);
       if (key !== r.key && this.clock >= r.yieldUntil) this.head(r, spot, state);
       next.push(r);
@@ -537,6 +545,14 @@ export class RoverFleet implements Driver {
   draw(_dt: number, sunDir: THREE.Vector3, sunLight: number) {
     const n = this.drawn.length;
     this.mesh.count = n;
+    // a bricked rover (docs/14 §3.5) sits dark: no lamps, no beacon
+    const st = this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
+    let dirty = false;
+    for (let i = 0; i < n; i++) {
+      const lit = (this.drawn[i].unit?.brickedUntil ?? 0) > 0 ? 0 : 1;
+      if (this.litSeen[i] !== lit) { this.litSeen[i] = lit; st.setX(i, lit); dirty = true; }
+    }
+    if (dirty) st.needsUpdate = true;
     const elev = Math.max(0.06, Math.asin(clamp(sunDir.y, -1, 1)));
     const smear = Math.min(7, (1.1 * SCALE) / Math.tan(elev));
     const hx = -sunDir.x, hz = -sunDir.z, hl = Math.hypot(hx, hz) || 1;
@@ -670,6 +686,8 @@ export class RoverFleet implements Driver {
       /** parked inside its dock (not drawn) */
       inside: this.rovers.map((r) => r.inside),
       drawn: this.drawn.length,
+      /** drawn dark: bricked by a hazard */
+      dark: this.drawn.filter((r, i) => this.litSeen[i] === 0).map((r) => r.id),
       yaws: this.rovers.map((r) => Math.round(r.yaw * 100) / 100),
       selected: this.selected,
       ring: this.ring.visible,
@@ -747,6 +765,9 @@ interface Drone {
   /** the hive it perches on and its pad there */
   home: number;
   pad: number;
+  unit: RoverUnit;
+  /** held (landed, waiting) or bricked by a hazard: set down where it is */
+  down: boolean;
 }
 
 /** The Drone Hive's units, drawn as quadcopters that fly straight at their
@@ -808,10 +829,11 @@ export class DroneFlight {
         if (!d) {
           const [px, py, pz] = this.padPoint(s, u.home, pad);
           d = { id: u.id, x: px, y: py, z: pz, yaw: 0, v: 0, gx: px, gy: py, gz: pz, cruise: DRONE.cruiseMin + (u.id % 5),
-            site: null, job: false, perched: true, working: false, phase: u.id * 1.913, home: u.home, pad };
+            site: null, job: false, perched: true, working: false, phase: u.id * 1.913, home: u.home, pad, unit: u, down: false };
         }
         d.home = u.home;
         d.pad = pad;
+        d.unit = u;
         if (d.site === null && u.site !== null && d.perched) this.launches++;
         d.site = u.site;
         d.job = false;
@@ -821,7 +843,23 @@ export class DroneFlight {
       this.list = next;
       this.byId = new Map(next.map((d) => [d.id, d]));
     }
-    for (const d of this.list) this.fly(d, dt);
+    for (const d of this.list) {
+      // a hazard holds it (Land drones, the control plane down) or bricks it:
+      // it sets down where it is and waits; freed, it takes up its work again
+      const down = (d.unit.brickedUntil ?? 0) > 0 || (d.unit.heldUntil ?? 0) > s.simTime;
+      if (down) { d.gx = d.x; d.gz = d.z; d.gy = this.hf.sample(d.x, d.z); d.site = null; d.job = false; }
+      else if (d.down) { d.site = d.unit.site; this.aim(d, s, d.unit); }
+      d.down = down;
+      this.fly(d, dt);
+    }
+    // a bricked drone is dark
+    const st = this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
+    let dirty = false;
+    for (let i = 0; i < this.list.length; i++) {
+      const lit = (this.list[i].unit.brickedUntil ?? 0) > 0 ? 0 : 1;
+      if (st.getX(i) !== lit) { st.setX(i, lit); dirty = true; }
+    }
+    if (dirty) st.needsUpdate = true;
   }
 
   /** a hive pad's world point (the deck top) */
@@ -963,6 +1001,9 @@ export class DroneFlight {
       flying: this.list.filter((d) => !d.perched).length,
       working: this.list.filter((d) => d.working).length,
       perched: this.list.filter((d) => d.perched).length,
+      /** set down by a hazard (held or bricked), and those dark (bricked) */
+      down: this.list.filter((d) => d.down).map((d) => d.id),
+      dark: this.list.filter((d) => (d.unit.brickedUntil ?? 0) > 0).map((d) => d.id),
       ids: this.list.map((d) => d.id),
       heights: this.list.map((d) => Math.round((d.y - this.hf.sample(d.x, d.z)) * 10) / 10),
       positions: this.list.map((d) => [Math.round(d.x * 10) / 10, Math.round(d.z * 10) / 10]),

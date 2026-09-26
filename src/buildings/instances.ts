@@ -106,6 +106,11 @@ export class BuildingInstances {
    *  into its instance's `iAlarm`; above 0 its windows and lamps flicker red
    *  in both styles. Unset: every structure calm. */
   alarmOf?: (b: BuildingState) => number;
+  /** The hazards' visual hooks (core/hazards.ts hazardView().fx), per
+   *  structure: 'flicker' (infected) and 'strip' (rogue drones) raise its
+   *  alarm; 'dark' (a cascade) puts its lights and pool out; 'blight' and
+   *  'dust' tint its hull; 'smoke' and 'vent' are plumes (world/life.ts). */
+  fxOf?: (id: number) => readonly string[] | undefined;
   /** the lean the light colours were last written at (debug) */
   lean = 0;
   /** buildings drawn elsewhere: an excavator away from its pad (world/haulers.ts) */
@@ -299,7 +304,7 @@ export class BuildingInstances {
     sig += `|keys:${[...this.keys.values()].join(';')}`;
     // a digger out on its haul leaves its pad unlit: no flood, pool or disc
     const lit = state.buildings.filter((b) =>
-      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled && !this.hidden.has(b.id));
+      (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled && !this.hidden.has(b.id) && !this.hasFx(b.id, 'dark'));
     this.litIds = lit.map((b) => b.id);
     this.litAt = lit.map((b) => {
       const [x, z] = centerOf(b);
@@ -372,7 +377,9 @@ export class BuildingInstances {
       const list = this.lists.get(type) ?? [];
       const glow = mesh.geometry.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
       if (!glow) continue;
-      for (let i = 0; i < mesh.count; i++) glow.setX(i, list[i] ? lightLevel(list[i], this.darkness.of(list[i].id)) : 0);
+      for (let i = 0; i < mesh.count; i++) {
+        glow.setX(i, list[i] && !this.hasFx(list[i].id, 'dark') ? lightLevel(list[i], this.darkness.of(list[i].id)) : 0);
+      }
       glow.needsUpdate = true;
     }
     const byId = new Map(this.litList.map((b) => [b.id, b]));
@@ -408,7 +415,11 @@ export class BuildingInstances {
   }
 
   private static DIM = new THREE.Color(0.45, 0.45, 0.5);   // construction site (squash path)
-  private static DARK = new THREE.Color(0.55, 0.55, 0.6);   // browned-out (lights off)
+  private static DARK = new THREE.Color(0.55, 0.55, 0.6);   // browned-out (lights off), or a cascade
+  private static BLIGHT = new THREE.Color(0.86, 0.76, 0.56); // a blighted farm yellows
+  private static DUSTY = new THREE.Color(0.8, 0.78, 0.74);   // airlocks clogging with dust
+
+  private hasFx(id: number, f: string): boolean { return !!this.fxOf?.(id)?.includes(f); }
   private static FULL = new THREE.Color(1, 1, 1);
 
   /** Returns this type's caster signature (placements + rise). */
@@ -441,15 +452,20 @@ export class BuildingInstances {
       const sxz = this.hidden.has(b.id) ? 0 : 1;
       mat.compose(new THREE.Vector3(cx, y, cz), rot, new THREE.Vector3(sxz, sy, sxz));
       mesh.setMatrixAt(i, mat);
-      const powered = progress >= 1 && b.enabled && b.idleReason !== 'power';
+      const fx = this.fxOf?.(b.id);
+      const dark = !!fx?.includes('dark');
+      const powered = progress >= 1 && b.enabled && b.idleReason !== 'power' && !dark;
       const color = progress < 1 && !reveal ? BuildingInstances.DIM
-        : b.idleReason === 'power' ? BuildingInstances.DARK
+        : b.idleReason === 'power' || dark ? BuildingInstances.DARK
+        : fx?.includes('blight') ? BuildingInstances.BLIGHT
+        : fx?.includes('dust') ? BuildingInstances.DUSTY
         : BuildingInstances.FULL;
       mesh.setColorAt(i, color);
       // lit, and the darkness it stands in (the shader's light level)
       st.setXYZW(i, litChannel(powered, this.darkness.of(b.id)), b.dust ?? 0, b.wear ?? 0, cut);
       warmA.setX(i, warmth);
-      alarmA.setX(i, this.alarmOf ? Math.max(0, Math.min(1, this.alarmOf(b) || 0)) : 0);
+      const hazard = fx?.includes('flicker') ? 1 : fx?.includes('strip') ? 0.6 : 0;
+      alarmA.setX(i, Math.max(hazard, this.alarmOf ? Math.max(0, Math.min(1, this.alarmOf(b) || 0)) : 0));
       order.push(b.id);
       sig += `|${b.gx},${b.gz},${b.rot},${sy.toFixed(3)},${cut === CUT_NONE ? '-' : cut.toFixed(2)}`;
     });

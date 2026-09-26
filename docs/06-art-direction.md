@@ -972,6 +972,17 @@ colour of each structure's light.
 - **The hazards' hook**: `iAlarm` (0 calm … 1), filled from
   `BuildingInstances.alarmOf(b)` on every rebuild; above 0 the windows and
   lamps flicker red in both styles. Unset, every structure is calm.
+- **The hazards' look** (`hazardView().fx`, read on every rebuild through
+  `instances.fxOf` and `life.fxOf`), at no draw-call cost:
+
+  | fx | Drawn as |
+  |---|---|
+  | `flicker` (infected) · `strip` (rogue drones) | `iAlarm` 1 · 0.6: windows and lamps flicker red |
+  | `dark` (a cascade) | lights, pool and glow out; the hull dimmed as in a brownout |
+  | `blight` · `dust` | the hull tinted (instance colour): yellowed · greyed |
+  | `smoke` (breach warned) · `vent` (breach open) | a plume from the hull's flank through the dust slots: a thin wisp · a jet of grit and ice |
+  | a bricked rover or drone (`brickedUntil`) | parked (the sim gives it no work), its lamps and beacon off |
+  | a held drone (`heldUntil`) | set down where it is, waiting; freed, back to work |
 
 ### 13.3 The links layer (`buildings/links.ts`)
 

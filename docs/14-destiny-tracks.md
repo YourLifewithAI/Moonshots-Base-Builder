@@ -1433,6 +1433,13 @@ this section and §4 disagree, this one describes the code.
   (`buildings/look.ts`, `instances.ts`); the overrides of §4.4.
 - **Hazard hook**: per-instance `iAlarm`, filled from
   `BuildingInstances.alarmOf(b)`; its windows and lamps flicker red.
+- **Hazard looks** (after D3 merged): `hazardView().fx` drives the instances
+  and the dust — infected and stripped structures flicker, a cascade goes
+  dark, blight and airlock dust tint the hull, a breach plumes (a wisp warned,
+  a jet venting); bricked rovers and drones sit dark, held drones land where
+  they are (docs/06 §13.2). No draw call is added.
+- **One drone predicate**: `fleet.ts` `unitKind` (a unit tagged `drone`, or
+  docked at a Drone Hive) is the source; `hazards.ts` `isDrone` asks it.
 - **Audio**: `Music.setDestiny(lean)` (pools, bells, detune, breath, pulse),
   `hold()` and `mourn()` hooks; `sfx` cues `modem` and `squelch`, a rotor hum
   and a greenhouse air layer (`setLife`); `game.ts` feeds the lean from
@@ -1483,7 +1490,7 @@ Classic (160 and 1.2 M in High detail).
 | Type budget | ≤ 7,500 △ with every upgrade | the heaviest set one run can hold | the Lander's six destiny parts come in exclusive pairs |
 | Pad detune | Colony widens to ±7 ¢ | Colony ±11, Concord ±7 (as today), Automation ±2 | ±7 is today's score |
 | Bells | "glassier FM index" | Colony index 0.55× f (from 1.1×), Automation 1.9× f at ratio 2.76 | — |
-| Hazard audio | crit ducks and holds; modem for Automation hazards; grief | `hold(on)`, `mourn()` and the `modem` cue exist; the hazards layer (D3) calls them | no hazards yet |
+| Hazard audio | crit ducks and holds; modem for Automation hazards; grief | `hold(on)`, `mourn()` and the `modem` cue exist; nothing calls them yet | written before D3 merged; wiring them to the hazards' events is a follow-up |
 | Drone chirp | — | a `modem` chirp as a drone takes a job | the drones' own voice |
 | Greenhouses | — | a faint air-handler hiss near rings and domes | the task asked for a greenhouse sound |
 

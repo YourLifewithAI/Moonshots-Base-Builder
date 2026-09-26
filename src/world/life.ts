@@ -9,6 +9,7 @@
  *  hidden) and the game carries on. */
 import * as THREE from 'three';
 import { CYCLE_S } from '../data/balance';
+import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
@@ -70,6 +71,11 @@ export class BaseLife {
   readonly links: Links;
   /** the Colony's EVA walkers (docs/14 §4.3) */
   readonly settlers: Settlers;
+  /** The hazards' visual hooks (core/hazards.ts hazardView().fx): 'smoke'
+   *  (a breach warned) and 'vent' (a breach open) plume from the hull. */
+  fxOf?: (id: number) => readonly string[] | undefined;
+  private plumes: { id: number; vent: boolean; e: DustEmitter }[] = [];
+  private plumeAcc = 1;
   private film = new Map<number, number>();
   private filmAcc = 0;
   private failed = new Set<Part>();
@@ -117,6 +123,8 @@ export class BaseLife {
     this.run('dust', () => {
       const list: DustEmitter[] = [];
       this.resupply.emitters(list);
+      this.updatePlumes(s, f.dt);
+      for (const p of this.plumes) if (list.length < 6) list.push(p.e);
       const cands = this.emitList;
       cands.length = 0;
       this.rovers.emitters(f.camera.position, cands);
@@ -149,6 +157,38 @@ export class BaseLife {
       garden: Math.min(1, garden),
       launches: this.rovers.drones.launches,
     };
+  }
+
+  /** Breach plumes (docs/14 §3.4): a thin wisp of leaking air while a breach
+   *  is warned, a jet of ice and grit once it vents — through the dust slots,
+   *  so no draw call is added. Sources are refreshed twice a second. */
+  private updatePlumes(s: GameState, dt: number) {
+    this.plumeAcc += dt;
+    if (this.plumeAcc < 0.5) return;
+    this.plumeAcc = 0;
+    const next: typeof this.plumes = [];
+    if (this.fxOf) {
+      for (const b of s.buildings) {
+        const fx = this.fxOf(b.id);
+        if (!fx || !(fx.includes('smoke') || fx.includes('vent'))) continue;
+        const vent = fx.includes('vent');
+        const old = this.plumes.find((p) => p.id === b.id);
+        const [cx, cz] = centerOf(b);
+        const a = -b.rot * Math.PI / 2;
+        // out of the hull's +x flank, mid-height
+        const dx = Math.cos(a), dz = -Math.sin(a);
+        const half = BUILDINGS[b.type].footprint[0] * 2 - 1.2;
+        const x = cx + dx * half, z = cz + dz * half;
+        const y = this.hf.sample(x, z) + Math.min(4, BUILDINGS[b.type].height * 0.45);
+        const e = old?.e ?? { x, y, z, strength: 0, vx: 0, vy: 0, vz: 0, hSpread: 0, vSpread: 0, size: 0 };
+        Object.assign(e, vent
+          ? { x, y, z, strength: 1, vx: dx * 3.6, vy: 1.3, vz: dz * 3.6, hSpread: 0.9, vSpread: 1.6, size: 0.07 }
+          : { x, y, z, strength: 0.4, vx: dx * 0.8, vy: 0.6, vz: dz * 0.8, hSpread: 0.35, vSpread: 0.5, size: 0.05 });
+        next.push({ id: b.id, vent, e });
+        if (next.length >= 4) break;
+      }
+    }
+    this.plumes = next;
   }
 
   /** A volley just left the mass driver (Game.doLaunch). */
@@ -221,6 +261,7 @@ export class BaseLife {
       berms: this.berms.count,
       swarmGlints: this.swarm.count,
       footprints: this.prints.count,
+      plumes: this.plumes.map((p) => ({ id: p.id, vent: p.vent })),
       links: this.links.info(),
       settlers: this.settlers.info(),
       panelFilm: Math.round(film * 1000) / 1000,

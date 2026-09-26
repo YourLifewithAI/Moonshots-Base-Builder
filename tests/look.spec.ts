@@ -362,3 +362,66 @@ test('audio: the score follows the lean, and the destiny\'s sounds play (modem c
   await expect.poll(async () => (await g(page, 'getAudio')).music.destiny, { timeout: 30_000 }).toBe('automation');
   await expect.poll(async () => (await g(page, 'getAudio')).life.rotor, { timeout: 30_000 }).toBe(true);
 });
+
+test('hazard looks: infected flicker, a cascade goes dark, blight tints, a breach plumes; bricked rovers sit dark, held drones land', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.openRoads(true);
+    for (const t of ['habitation', 'humanCohabitation', 'regolithProcessing', 'droneHives']) g.completeTech(t);
+    g.grantResources({ metals: 5000, parts: 2000 });
+    const place = (type: string) => {
+      for (let rr = 4; rr < 30; rr++) for (let dx = -rr; dx <= rr; dx += 2) {
+        if (g.placeBuilding(type, 127 + dx, 127 - rr) || g.placeBuilding(type, 127 + dx, 127 + rr)) return;
+      }
+    };
+    for (const t of ['habitat', 'smelter', 'hydroponics', 'droneHive']) place(t);
+    g.finishConstruction();
+    g.grantPower(50000);
+    g.advanceGameSeconds(2);
+    const id = (t: string) => g.getState().buildings.find((b: any) => b.type === t).id;
+    const hab = id('habitat'), smelter = id('smelter'), farm = id('hydroponics');
+    const calm = { hab: g.buildingGlow(hab), smelter: g.buildingLook(smelter) };
+    // the renderer's side of the hazards' fx hooks
+    g.setHazardFx({ [hab]: ['dark', 'vent'], [smelter]: ['flicker'], [farm]: ['blight'] });
+    g.advanceGameSeconds(1);
+    for (let k = 0; k < 8; k++) g.stepFrame(0.1); // the plume sources refresh twice a second
+    const info = g.getRenderInfo();
+    const hot = {
+      hab: g.buildingGlow(hab), smelter: g.buildingLook(smelter),
+      plumes: info.life.plumes, pools: info.base.discs,
+    };
+    g.setHazardFx(null);
+    g.advanceGameSeconds(1);
+    for (let k = 0; k < 8; k++) g.stepFrame(0.1);
+    const after = { hab: g.buildingGlow(hab), smelter: g.buildingLook(smelter), plumes: g.getRenderInfo().life.plumes };
+    return { calm, hot, after, hab };
+  });
+  expect(r.calm.hab.powered).toBe(1);
+  expect(r.calm.smelter.alarm).toBe(0);
+  expect(r.hot.hab.powered, 'a cascade: the habitat goes dark').toBe(0);
+  expect(r.hot.smelter.alarm, 'infected: its lights flicker').toBe(1);
+  expect(r.hot.plumes, 'a breach vents').toEqual([{ id: r.hab, vent: true }]);
+  expect(r.after.hab.powered).toBe(1);
+  expect(r.after.smelter.alarm).toBe(0);
+  expect(r.after.plumes).toEqual([]);
+  // a bricked drone sits dark on the ground where it was; a held one lands and waits
+  const d = await page.evaluate(() => {
+    const g = window.__game!;
+    g.stepFrame(0.1);
+    const drones = g.getRenderInfo().life.rovers.drones;
+    const now = g.getState().simTime;
+    g.patchRover(drones.ids[0], { brickedUntil: now + 300 });
+    g.patchRover(drones.ids[1], { heldUntil: now + 300 });
+    for (let k = 0; k < 20; k++) g.stepFrame(0.1);
+    const after = g.getRenderInfo().life.rovers.drones;
+    const rover = g.getState().rovers.find((u: any) => !drones.ids.includes(u.id));
+    g.patchRover(rover.id, { brickedUntil: now + 300 });
+    for (let k = 0; k < 3; k++) g.stepFrame(0.1);
+    return { ids: drones.ids, after, rover: rover.id, dark: g.getRenderInfo().life.rovers.dark };
+  });
+  expect(d.after.dark).toEqual([d.ids[0]]);
+  expect(d.after.down).toEqual(expect.arrayContaining([d.ids[0], d.ids[1]]));
+  expect(d.dark, 'a bricked ground rover sits dark').toContain(d.rover);
+});
