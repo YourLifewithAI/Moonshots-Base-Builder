@@ -33,6 +33,7 @@ export function expeditionCopy(exp: Expedition, siteId: SiteId | null): Expediti
       cons: [
         'Life support or death: O₂, water, food, habitats, recreation',
         'Lose the last settler and the mission ends',
+        'People can die: hazards are real once your colony grows',
       ],
       diff: 'THE WHAT-IF · HIGH CEILING · CAN FALL',
       tag: '⌂ COLONY · your first destiny choice',
@@ -52,6 +53,7 @@ export function expeditionCopy(exp: Expedition, siteId: SiteId | null): Expediti
       `Every crewed station pays the agent power tax: ×${tax} draw`,
       'Labs research at 75% — inference is not insight',
       'Human-comfort research (farms, wellness) locked until cohabitation',
+      'Machines can be lost to the network',
     ],
     diff: 'THE MISSION PLAN · ROBOTS FIRST',
     tag: '◉ AUTOMATION · your first destiny choice',

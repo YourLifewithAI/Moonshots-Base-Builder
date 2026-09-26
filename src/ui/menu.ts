@@ -65,6 +65,7 @@ export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] =
   ['I', 'deposit overlay'],
   ['N', 'road tool: drag out from a road · Alt-drag removes'],
   ['B', 'Builder — orders and standing rules'],
+  ['G', 'Hazards — risks, counters, the network'],
   ['Ctrl-click a card', 'order one: the rovers choose the site (⇧ ×3)'],
   ['Enter while placing', 'let the rovers choose the site'],
   ['Click a rover', 'inspect it · Send to… then click a site'],
@@ -137,6 +138,14 @@ export function mountMenu(root: HTMLElement, game: Game) {
             <div class="menu-row">
               <span>Discovery pop-ups &amp; era explainers</span>
               <button class="btn" data-act="tips" id="menu-tips" aria-pressed="true">On</button>
+            </div>
+            <div class="menu-row">
+              <span>Pause on new hazards</span>
+              <button class="btn" data-act="pause-hz" id="menu-pause-hz" aria-pressed="true">On</button>
+            </div>
+            <div class="menu-row">
+              <span>Pause on every lethal warning</span>
+              <button class="btn" data-act="pause-lethal" id="menu-pause-lethal" aria-pressed="false">Off</button>
             </div>
           </section>
         </div>
@@ -238,10 +247,12 @@ export function mountMenu(root: HTMLElement, game: Game) {
     muteBtn.textContent = s.muted ? 'Unmute' : 'Mute';
     muteBtn.classList.toggle('active', s.muted);
     muteBtn.setAttribute('aria-pressed', String(s.muted));
-    const tipsBtn = $<HTMLButtonElement>('#menu-tips');
-    tipsBtn.textContent = s.tips ? 'On' : 'Off';
-    tipsBtn.classList.toggle('active', s.tips);
-    tipsBtn.setAttribute('aria-pressed', String(s.tips));
+    for (const [id, on] of [['#menu-tips', s.tips], ['#menu-pause-hz', s.pauseHazards], ['#menu-pause-lethal', s.pauseLethal]] as const) {
+      const btn = $<HTMLButtonElement>(id);
+      btn.textContent = on ? 'On' : 'Off';
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    }
   };
 
   const pickFx = (n: number) => {
@@ -339,6 +350,8 @@ export function mountMenu(root: HTMLElement, game: Game) {
         renderAudio();
         break;
       }
+      case 'pause-hz': saveSettings({ pauseHazards: !loadSettings().pauseHazards }); renderAudio(); break;
+      case 'pause-lethal': saveSettings({ pauseLethal: !loadSettings().pauseLethal }); renderAudio(); break;
       case 'mute': {
         const muted = !loadSettings().muted;
         saveSettings({ muted });

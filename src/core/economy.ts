@@ -32,6 +32,11 @@ import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { updateFlowBook } from './flowBook';
 import { automationTick, type AutoRequest } from './automation';
 import { mulberry32 } from './rng';
+import { HZ } from '../data/hazards';
+import {
+  attachCounters, evaHeld, growthHeld, hazardBedsOff, hazardDrawMult, hazardDuskLine, hazardMorale, hazardOff,
+  hazardOutputMult, hazardTick, hazardUpkeepMult, killCrew, sickCrew, starveCause,
+} from './hazards';
 
 const PROD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',            // extraction
@@ -48,6 +53,8 @@ export interface EconEvents {
   defeat: boolean;
   /** step 12: what the Builder wants placed or demolished (Game.econStep resolves them) */
   build: AutoRequest[];
+  /** step 8.3: buildings a hazard wrecked or removed (Game refreshes the world) */
+  wrecked?: number[];
 }
 
 type AlertKind = AlertMsg['kind'];
@@ -246,9 +253,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     sites.filter((b) => b.enabled && !crews.has(b.id)).length);
   for (const n of crews.values()) st.crowdedSiteMax = Math.max(st.crowdedSiteMax ?? 0, n);
 
+  // hazards (docs/14 §3): what a hazard holds offline this tick, and who is off work
+  const hzOff = new Map<number, string>();
+  for (const b of s.buildings) { const o = hazardOff(s, b); if (o) hzOff.set(b.id, o); }
+  const hzIdle = (b: BuildingState) => { b.active = false; b.idleReason = hzOff.get(b.id)!.startsWith('ON STRIKE') ? 'strike' : 'hazard'; };
+
   // ── 0.5 · generator staffing — crewed generators take workers first,
   // because every other station's power depends on them ───────────────
-  let workers = s.crew;
+  let workers = s.crew - sickCrew(s);
   const staffed = new Set<number>();
   const crewedGen = (b: BuildingState) => eff(b.type).powerKW > 0 && BUILDINGS[b.type].crew > 0;
   for (const b of [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id)) {
@@ -256,6 +268,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     b.active = false;
     b.idleReason = '';
     if (!b.enabled) { b.idleReason = 'off'; continue; }
+    if (hzOff.has(b.id)) { hzIdle(b); continue; }
     const need = isAuto(b) ? 0 : Math.max(0, BUILDINGS[b.type].crew + mods.crewDelta[b.type]);
     if (workers >= need) {
       workers -= need;
@@ -345,10 +358,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       continue;
     }
     if (eff(b.type).powerKW >= 0) continue;
+    if (b.enabled && hzOff.has(b.id)) { hzIdle(b); continue; }
     if (b.enabled && outputFull(b)) { b.active = false; b.idleReason = 'full'; continue; }
     // autonomous agents trade crew and morale for watts (1 + agentTax); night
-    // and day draw multipliers and overclock ride the same number
-    wants.push({ b, draw: -rates(b).powerKW * dt, prio: b.priority, isSite: false });
+    // and day draw multipliers and overclock ride the same number; an
+    // infected node's phantom load rides it too (docs/14 §3.5)
+    wants.push({ b, draw: -rates(b).powerKW * dt * hazardDrawMult(s, b), prio: b.priority, isSite: false });
   }
   // within a priority, running loads keep their power ahead of new construction
   const drawOrder = (w: Draw) => (w.isSite ? queuePos(w.b) : w.b.id);
@@ -478,7 +493,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const short = demand - nightSupply;
     const runway = short > 0 ? s.powerStored / short : Infinity;
     const lead = `NIGHTFALL IN ${Math.ceil(day.phaseLeft)} s`;
-    if (short <= 0) {
+    // the hazards' lines: habitats or Data Centers the bank will not carry (docs/14 §3.4–3.5)
+    const upTo = (p: number) => wants.filter((w) => !w.isSite && w.prio <= p).reduce((n, w) => n + w.draw / dt, 0);
+    const hzLine = runway < NIGHT_S ? hazardDuskLine(s, mods, nightSupply, runway, upTo) : null;
+    if (hzLine) {
+      condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored lasts ~${fmtClock(runway)} of the ` +
+        `${fmtClock(NIGHT_S)} night at ${Math.ceil(short)} kW short${hzLine.text}`, 'warn', { panel: 'power' });
+      attachCounters(s, 'dusk', hzLine.counters);
+    } else if (short <= 0) {
       condition(s, 'dusk', `${lead} — night supply carries the base`, 'info', { panel: 'power' });
     } else if (runway >= NIGHT_S) {
       condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored carries the night at ${Math.ceil(short)} kW short`,
@@ -502,7 +524,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // EVA crews (Crew Rotation Charter): by day, a share of the free hands goes
   // outside — dust off the arrays, hands on the worn machines. Nobody walks
   // out into a flare (docs/14 §2.7)
-  const eva = mods.evaShare > 0 && s.crew > 0 && workers > 0 && !day.isNight && s.flare.phase !== 'active'
+  const eva = mods.evaShare > 0 && s.crew > 0 && workers > 0 && !day.isNight && s.flare.phase !== 'active' && !evaHeld(s, mods)
     ? Math.ceil(workers * mods.evaShare) : 0;
   s.evaCrew = eva;
 
@@ -551,7 +573,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (!byType.has(b.type)) byType.set(b.type, []);
     byType.get(b.type)!.push(b);
   }
-  const runs = (b: BuildingState) => b.enabled && !building(b) && staffed.has(b.id) &&
+  const runs = (b: BuildingState) => b.enabled && !building(b) && staffed.has(b.id) && !hzOff.has(b.id) &&
     (eff(b.type).powerKW >= 0 || powered.has(b.id));
   // agent-run labs share one DSN link: the share counts every agent lab that
   // runs this tick (labs have no inputs, so each that is powered and staffed runs)
@@ -600,12 +622,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         b.active = true;
         continue;
       }
-      // outputs — a farm that lost its crop is regrowing and makes nothing yet
-      const regrowing = type === 'hydroponics' && (b.cropRegrowT ?? 0) > 0;
+      // outputs — a farm that lost its crop is regrowing and makes nothing yet;
+      // a hazard's multiplier (infected, blighted, a fouled loop, the control plane)
+      const regrowing = (type === 'hydroponics' || type === 'greenhouseRing') && (b.cropRegrowT ?? 0) > 0;
+      const hzMult = hazardOutputMult(s, b);
       if (regrowing) b.cropRegrowT = Math.max(0, b.cropRegrowT! - dt);
       else {
         for (const [rid, rate] of Object.entries(r.outputs)) {
-          const amt = (rate ?? 0) * dt;
+          const amt = (rate ?? 0) * dt * hzMult;
           s.resources[rid as ResourceId] += amt;
           st.produced[rid as ResourceId] += amt;
           add(made, rid as ResourceId, amt);
@@ -614,7 +638,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       if (type === 'smelter') smelterO2 += r.outputs.oxygen ?? 0;
       // labs (uplink share on agent-run ones, crewed ones scale with morale)
       // and data centers: the same numbers researchRates reports
-      s.data += r.data * dt;
+      s.data += r.data * dt * hzMult;
       b.active = true;
     }
   }
@@ -622,7 +646,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {
-    if (building(b)) continue;
+    if (building(b) || hzOff.has(b.id)) continue;
     const def = eff(b.type);
     if (def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = b.enabled;
     if (b.enabled && def.powerKW < 0 && powered.has(b.id) && Object.keys(def.outputs).length === 0
@@ -665,6 +689,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const def = effectiveDef(b.type, mods);
     if (!def.housing || !b.enabled || building(b)) continue;
     if (def.powerKW < 0 && !powered.has(b.id)) continue;
+    if (hazardBedsOff(s, b)) continue; // evacuated, breached, decompressed (docs/14 §3.4)
     housing += def.housing;
   }
   s.housingActive = housing;
@@ -679,9 +704,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       if (losses > 0) {
         s.starveT = CREW.starveGraceS;
         if (s.crew > 0) {
-          s.crew -= 1;
-          s.morale = Math.max(0, s.morale - 15);
-          alert(s, 'CREW LOST — life support failure', 'crit', { panel: 'crew' });
+          // CREW LOST with its cause, and grief (docs/14 §3.10)
+          const c = starveCause(s, gone);
+          killCrew(s, 1, c.cause, c.hazard, c.warnedAt, '', { panel: gone });
         }
       }
     }
@@ -718,7 +743,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // Charter invites none, and a crew sent home at FIRST LIGHT does not return
   const invited = mods.growthMult > 0 && !s.crewHome;
   if (settlersWelcome(s) && invited && !s.crewRotation && sustainable && s.morale > CREW.growthMorale && s.crew < housing &&
-      o2ok && foodok && waterok) {
+      o2ok && foodok && waterok && !growthHeld(s)) {
     s.growthT += dt;
     if (s.growthT >= CREW.growthPeriod * mods.growthMult) {
       s.growthT = 0;
@@ -740,7 +765,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     ? [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id) : s.buildings;
   for (const b of upkeepOrder) {
     if (!b.enabled || building(b)) continue;
-    const rate = (rates(b).upkeepPartsPerDay / CYCLE_S) * dt;
+    const rate = (rates(b).upkeepPartsPerDay / CYCLE_S) * dt * hazardUpkeepMult(s, b);
     add(want, 'parts', rate);
     if (s.resources.parts >= rate) {
       s.resources.parts -= rate;
@@ -803,6 +828,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // the destiny: a capstone's morale everywhere, and a launch day's lift
   target += mods.moraleBase;
   if (s.simTime < (s.launchDayUntil ?? 0)) target += mods.volleyMorale;
+  // grief, a cabin-fever crisis, a boil-water notice (docs/14 §3)
+  target += hazardMorale(s);
   target = Math.max(0, Math.min(100, target));
   if (unmanned) s.morale = 70; // machines hold steady
   else s.morale += (target - s.morale) * MORALE.lerp * dt;
@@ -851,6 +878,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       { panel: 'power' });
   }
 
+  // ── 8.3 · hazards (core/hazards.ts, docs/14 §3): the scheduler, the
+  // flare and event kinds, the meters, each live hazard, the fleet's re-flash ──
+  const hz = hazardTick(s, site, mods, day, dt);
+  if (hz.modsChanged) ev.modsChanged = true;
+  if (hz.wrecked.length) ev.wrecked = hz.wrecked;
+
   // ── 8.5 · emergency Earth resupply (the anti-softlock) ─────────────
   // no smelter anywhere and not enough metals to build one = stuck; no
   // working parts fabricator and the spares cache nearly gone = stuck too,
@@ -863,7 +896,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const stranded = !hasSmelter && s.resources.metals < smelterCost ? 'metals'
     : !hasPartsFab && s.resources.parts < RESUPPLY.partsFloor ? 'parts'
     : '';
-  if (s.resupply.pending) {
+  if (s.resupply.pending && s.resupply.medevac && s.simTime >= s.resupply.arriveAt) {
+    // the slot flew a dosed crew member home (docs/14 §3.4): no cargo
+    s.resupply.pending = false;
+    s.resupply.medevac = false;
+    alert(s, 'MEDEVAC LANDED — the dosed crew member reached Earth alive; the shipment slot is free', 'info', landerAction(s));
+  } else if (s.resupply.pending) {
     if (s.simTime >= s.resupply.arriveAt) {
       // one slot, two cargoes: a resupply, or what a data downlink bought
       const downlink = !!s.resupply.downlink;
@@ -907,7 +945,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 8.9 · the flow book: supply against demand (the Builder's signal) ──
   updateFlowBook(s, made, want, dt);
   // the Era 7 deed: outposts have operated (a grounded hopper is not operating)
-  const operating = s.survey.outposts.filter((o) => o.live && o.fuelOk).length;
+  const operating = s.survey.outposts.filter((o) => o.live && o.fuelOk && !o.hacked).length;
   if (operating >= 1) st.outpostOpS += dt;
   if (operating >= 2) st.outpostPairOpS += dt;
   crewRotationTick(s, mods, smelterO2);
@@ -950,6 +988,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 12 · the Builder: standing rules, held orders, maintenance (core/automation.ts);
   // Game.econStep places what it asks for, through the same path as a click ──
   ev.build = automationTick(s, site, mods, day, dt);
+  if (hz.build.length) ev.build.push(...hz.build); // a runaway rule's junk sites
 
   return ev;
 }
@@ -989,6 +1028,8 @@ export function launchVolley(s: GameState, mods: Mods): string {
   s.powerStored -= v.burst;
   s.launches += 1;
   s.swarmPct += SWARM_PCT_PER_LAUNCH;
+  // Launch days (Crewed Mission Control): each volley eases cabin fever (docs/14 §3.6)
+  if (mods.guards.has('launchDays') && s.hazards) s.hazards.isolation = Math.max(0, s.hazards.isolation - HZ.cabinFever.launchDays);
   if (v.crewed && mods.volleyMorale > 0) s.launchDayUntil = s.simTime + CYCLE_S;
   alert(s, `COLLECTOR VOLLEY ${s.launches} AWAY — swarm ${(s.swarmPct).toFixed(4)}%${v.crewed ? ' · a launch day' : ''}`, 'info');
   if (s.launches === 1) crewHome(s);
@@ -1057,6 +1098,12 @@ function crewRotationTick(s: GameState, mods: Mods, smelterO2: number) {
   const rot = s.crewRotation;
   if (!rot || s.simTime < rot.at) return;
   if (s.crew > 0) { s.crewRotation = null; return; }
+  // grief (docs/14 §3.10): nobody wants to come for a lunar day after a death
+  if (growthHeld(s)) {
+    rot.at = s.simTime + CREW_ROTATION.retryS;
+    alert(s, 'CREW ROTATION HELD — after the deaths, nobody boards for a lunar day', 'warn', { panel: 'crew' });
+    return;
+  }
   const short = rotationShortfall(s, mods, smelterO2, rot.count);
   if (short) {
     rot.at = s.simTime + CREW_ROTATION.retryS;

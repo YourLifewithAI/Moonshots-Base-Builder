@@ -22,6 +22,9 @@ import { sfx } from '../audio/sfx';
 import { el } from './hud';
 import { openTechTreeAt } from './techTree';
 import { $announce, $menuOpen, $phase, $time, type Announcement } from './stores';
+import {
+  COUNTERS, HAZARDS, HAZARD_NAME, HAZARDS_LIVE, RISK_TEXT, TIER_LABEL, type HazardId, type HazardSide,
+} from '../data/hazards';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -113,6 +116,39 @@ function nextStep(fx: TechEffect[], s: GameState): string {
   return 'It takes effect at once — no action needed.';
 }
 
+/** A pick's `⚠ risk` line (docs/14 §3.10 rule 3): what its first exposure can do. */
+function riskLine(fx: TechEffect[]): string {
+  if (!HAZARDS_LIVE) return '';
+  const x = fx.find((f) => f.kind === 'exposure');
+  if (!x || x.kind !== 'exposure') return '';
+  return `<div class="dsc-risk"><span class="label">⚠ risk</span> ${esc(RISK_TEXT[x.hazard])}</div>`;
+}
+
+/** HAZARDS ARE LIVE (docs/14 §3.10): the banner when a side first reaches 2 picks. */
+function hazardsLiveHtml(side: HazardSide): string {
+  const what = side === 'colony' ? 'colony can fail and people can die' : 'network can fail and machines can be lost';
+  return `<div class="eb-panel">` +
+    `<div class="label eb-k">${side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'}</div>` +
+    `<h1 class="eb-name">HAZARDS ARE LIVE</h1>` +
+    `<p class="eb-blurb">From Era 3 your ${what}. Every hazard is announced first, names its target and has a counter.</p>` +
+    `<p class="eb-line">Open <b>[G]</b> to see the risks now. The first of each kind is a drill that cannot hurt anyone.</p>` +
+    `<div class="eb-foot"><button class="btn primary" data-dsc="ok">Continue ▸</button></div></div>`;
+}
+
+/** NEW HAZARD (docs/14 §3.10): the drill's card — its counters, and what the next one does. */
+function hazardHtml(kind: HazardId): string {
+  const d = HAZARDS[kind];
+  const counters = [...d.counters.map((c) => `<b>${esc(COUNTERS[c].name)}</b> (${esc(COUNTERS[c].cost)}) — ${esc(COUNTERS[c].desc)}`),
+    ...(d.free === 'airGap' ? ['<b>Air-gap</b> (free, in the node’s inspector) — no links: the worm cannot pass'] : [])];
+  return `<div class="eb-panel">` +
+    `<div class="label eb-k">${d.side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'} · NEW HAZARD · ${TIER_LABEL[d.minTier]}</div>` +
+    `<h1 class="eb-name">${esc(HAZARD_NAME[kind])}</h1>` +
+    `<p class="eb-blurb">${esc(d.ignored[2] === '—' ? d.ignored[1] : d.ignored[2]).replace(/^./, (c) => c.toUpperCase())} when ignored. Its alert names the target, counts down and carries the counter.</p>` +
+    counters.map((c) => `<p class="eb-line">${c}</p>`).join('') +
+    `<p class="eb-line"><span class="label">This one</span> ${esc(d.drillNext)}</p>` +
+    `<div class="eb-foot"><button class="btn primary" data-dsc="ok">Continue ▸</button></div></div>`;
+}
+
 /** Until the smelter is researched, every card's Next line says so first:
  *  the landing's metals are all there is until one stands (the early trap). */
 function smelterFirst(game: Game, tid: TechId): string {
@@ -138,7 +174,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
 
   const pop = () => {
     const [first, ...rest] = $announce.get();
-    if (first?.kind === 'era' && pausedByBanner) {
+    if (first && first.kind !== 'tech' && pausedByBanner) {
       game.actions.push({ kind: 'setPaused', paused: false });
       pausedByBanner = false;
     }
@@ -160,6 +196,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `<div class="dsc-fx">${pros.map((l) => `<div class="dsc-pro">⊕ ${esc(l.text)}</div>`).join('')}` +
       `${cons.map((l) => `<div class="dsc-con">⊖ ${esc(l.text)}</div>`).join('')}</div>` +
       (def.visual ? `<div class="dsc-look"><span class="label">Look for it</span> ${esc(def.visual)}</div>` : '') +
+      riskLine(def.effects) +
       `<div class="dsc-next"><span class="label">Next</span> ${esc(smelterFirst(game, tid) + nextStep(def.effects.filter((fx) => effectApplies(fx, s.siteId, s.expedition, s.techsDone)), s))}</div>` +
       `<div class="dsc-foot"><button class="btn primary" data-dsc="ok">Got it</button>` +
       `<button class="btn" data-dsc="tree" data-tech="${tid}">In the tree</button>` +
@@ -218,7 +255,8 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       card.style.display = '';
     } else {
       card.style.display = 'none';
-      banner.innerHTML = eraHtml(first.era, first.intro);
+      banner.innerHTML = first.kind === 'era' ? eraHtml(first.era, first.intro)
+        : first.kind === 'hazardsLive' ? hazardsLiveHtml(first.side) : hazardHtml(first.hazard);
       banner.style.display = 'flex';
       sfx.play('era');
       if (!$time.get().paused) {
@@ -245,7 +283,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
         if ((b as HTMLInputElement).checked) {
           saveSettings({ tips: false });
           const [first] = $announce.get();
-          if (first?.kind === 'era' && pausedByBanner) {
+          if (first && first.kind !== 'tech' && pausedByBanner) {
             game.actions.push({ kind: 'setPaused', paused: false });
             pausedByBanner = false;
           }
