@@ -147,6 +147,8 @@ export interface Goal {
   z: number;
   /** off the road, inside an extraction zone: reached from a gate (core/zones.ts) */
   off?: boolean;
+  /** a drone's: the frontier cell it hovers over (cellKey), when it sinters */
+  mark?: number;
 }
 
 const isSiteB = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -214,7 +216,7 @@ export function dronePads(s: GameState): Map<number, number> {
  *  Lander when lent, down where it is when a hazard holds it, else its pad. */
 export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
   const at = (kind: Kind, tgt: number | string, x: number, z: number, cell: number, extra: Partial<Goal> = {}): Goal =>
-    ({ key: `${kind}:${tgt}@${cell >= 0 ? cell : `${x.toFixed(1)},${z.toFixed(1)}`}`, kind, cell: null, x, z, ...extra });
+    ({ key: `${kind}:${tgt}@${cell >= 0 ? cell : `${x.toFixed(1)},${z.toFixed(1)}`}`, kind, cell: null, x, z, ...(cell >= 0 ? { mark: cell } : {}), ...extra });
   if (u.id === surveyRover(s)) {
     const lander = s.buildings.find((b) => b.type === 'lander');
     const [x, z] = lander ? centerOf(lander) : [0, 0];
@@ -268,7 +270,7 @@ export function planTrip(s: GameState, r: RoverUnit, g: Goal, v: number, a: numb
   const way = wayTo(s, x, z, g);
   const base = {
     goal: g.key, kind: g.kind, ...(g.site !== undefined ? { site: g.site } : {}), ...(g.job !== undefined ? { job: g.job } : {}),
-    cell: g.cell ? cellKey(g.cell[0], g.cell[1]) : -1, v, a, t: 0, ...(local ? { local: true } : {}),
+    cell: g.cell ? cellKey(g.cell[0], g.cell[1]) : g.mark ?? -1, v, a, t: 0, ...(local ? { local: true } : {}),
   };
   if (!way) return { ...base, pts: [[x, z]], len: 0, dur: 0, stuck: true };
   // off-road metres count 1 / ROAD.offroad: the trip is timed as that much road
@@ -284,7 +286,7 @@ function settled(r: RoverUnit, g: Goal, v: number, a: number): RoverTrip {
   r.z = g.z;
   return {
     goal: g.key, kind: g.kind, ...(g.site !== undefined ? { site: g.site } : {}), ...(g.job !== undefined ? { job: g.job } : {}),
-    cell: g.cell ? cellKey(g.cell[0], g.cell[1]) : -1, pts: [[g.x, g.z]], len: 0, v, a, t: 0, dur: 0,
+    cell: g.cell ? cellKey(g.cell[0], g.cell[1]) : g.mark ?? -1, pts: [[g.x, g.z]], len: 0, v, a, t: 0, dur: 0,
   };
 }
 

@@ -295,6 +295,52 @@ test('a drone flies straight at its speed, no road, and must arrive before it we
   expect(r.out[at].c).toBeLessThan(r.total);
 });
 
+test('a drone lays its site\'s road from the air, over each frontier cell in turn, then welds', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page, { exp: 'robotic' });
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('droneHives');
+    g.grantResources({ metals: 3000, parts: 1000 });
+    let ok = false;
+    for (let rr = 5; rr < 30 && !ok; rr++) {
+      for (let dx = -rr; dx <= rr && !ok; dx += 2) ok = g.placeBuilding('droneHive', 127 + dx, 127 - rr) || g.placeBuilding('droneHive', 127 + dx, 127 + rr);
+    }
+    g.finishConstruction();
+    g.advanceGameSeconds(2);
+    // a lab well out: a road of several cells to sinter first
+    near('lab', 50, -44);
+    const b = byType('lab');
+    const s0 = g.getState();
+    const hive = s0.buildings.find((x: any) => x.type === 'droneHive').id;
+    const drone = s0.rovers.find((x: any) => x.home === hive);
+    // the Lander's rovers held at home: only the drone works it
+    for (const u of s0.rovers) if (u.home !== hive) g.patchRover(u.id, { heldUntil: 1e9 });
+    g.sendRover(drone.id, b.id);
+    const out: { left: number; c: number; task: string }[] = [];
+    for (let i = 0; i < 400; i++) {
+      g.grantPower(1000);
+      g.advanceGameSeconds(1);
+      const s = g.getState();
+      const site = s.buildings.find((x: any) => x.id === b.id);
+      const map = new Map(s.roads.map((c: any) => [c.gz * 256 + c.gx, c.left]));
+      const u = s.rovers.find((x: any) => x.id === drone.id);
+      out.push({ left: (b.spur as number[]).reduce((n, k) => n + ((map.get(k) as number) ?? 0), 0), c: site.construction, task: u.task ?? '' });
+      if (site.construction < site.buildTotal - 2) break;
+    }
+    return { cells: b.spur.length, total: b.buildTotal, out };
+  });
+  expect(r.cells).toBeGreaterThan(2);
+  const last = r.out[r.out.length - 1];
+  expect(last.left).toBe(0);
+  expect(last.c).toBeLessThan(r.total);
+  // road first, by the drone: a cell's sintering only while it sinters
+  for (let i = 1; i < r.out.length; i++) {
+    if (r.out[i].left < r.out[i - 1].left) expect(r.out[i].task).toBe('sinter');
+    if (r.out[i].left > 0) expect(r.out[i].c).toBe(r.total);
+  }
+});
+
 // ───────────────────────────── the visuals ─────────────────────────────
 
 for (const style of ['classic', 'detailed']) {
