@@ -851,17 +851,18 @@ Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 - *Era 8*: the pick replaces the launch-cadence step, so it is neutral.
 
 **Results with hazards live (D3, `work/hazards` merged with main
-`46f58e9`).** The same probe, bot and flags as the table below, with
-hazards on; *off* is the same code with `--hazards=off` (every hazard held).
-*Off* matches main's own runs (the `work/siting` column below) on all 18
-runs to the decimal, so holding the hazards changes nothing else. The bot answers as
-*How the bot answers hazards* says (reasonable, every 20 s).
+`46f58e9`, measured at `30eaa50`).** The same probe, bot and flags as the
+table below, with hazards on. *Off* is the same code with
+`--hazards=off` (every hazard held). It matches main's own runs (the
+`work/siting` column below) on all 18 runs to the decimal, so holding the
+hazards changes nothing else. The bot answers as *How the bot answers
+hazards* says (reasonable, every 20 s).
 
 | Run | off | hazards on | Δ | deaths · losses | hazards + near misses | Eras E1…E8 (on) |
 |---|---|---|---|---|---|---|
 | mare robotic · ⌂ pure Colony | 211.9 [210, 212, 214] | **213.3** [213, 212, 215] | +1.3 | 0 · 0 | 26 + 14 | 24.1 / 26.0 / 32.1 / 24.1 / 24.5 / 27.5 / 27.8 / 24.3 |
-| mare robotic · ◉ pure Automation | 206.6 [207, 207, 203] | **206.6** [207, 207, 202] | +0.0 | 0 · 0 | 58 + 0 | 24.1 / 26.1 / 32.2 / 24.0 / 24.4 / 34.3 / 19.6 / 20.2 |
-| mare robotic · Concord | 212.9 [213, 213, 217] | **215.9** [217, 214, 216] | +3.0 | 0 · 0 | 33 + 7 | 24.1 / 26.0 / 32.1 / 24.1 / 24.5 / 28.3 / 28.8 / 24.2 |
+| mare robotic · ◉ pure Automation | 206.6 [207, 207, 203] | **206.6** [207, 207, 202] | +0.0 | 0 · 0 | 37 + 0 | 24.1 / 26.1 / 32.2 / 24.0 / 24.4 / 34.3 / 19.6 / 20.2 |
+| mare robotic · Concord | 212.9 [213, 213, 217] | **215.9** [217, 214, 216] | +3.0 | 0 · 0 | 32 + 7 | 24.1 / 26.0 / 32.1 / 24.1 / 24.5 / 28.3 / 28.8 / 24.2 |
 | south pole crewed · ⌂ pure Colony | 159.9 [158, 174, 160] | **161.3** [161, 182, 161] | +1.3 | 0 · 0 | 19 + 7 | 24.3 / 27.0 / 24.9 / 15.1 / 15.9 / 28.4 / 12.1 / 12.8 |
 | south pole crewed · ◉ pure Automation | 173.3 [172, 187, 173] | **175.3** [174, 186, 175] | +2.0 | 0 · 0 | 28 + 0 | 24.3 / 26.1 / 26.8 / 15.8 / 15.3 / 31.5 / 13.4 / 17.8 |
 | south pole crewed · Concord | 181.3 [183, 181, 172] | **177.4** [170, 211, 177] | −3.8 | 0 · 0 | 40 + 1 | 24.3 / 26.1 / 26.8 / 15.3 / 14.7 / 35.6 / 12.5 / 16.1 |
@@ -874,18 +875,17 @@ runs to the decimal, so holding the hazards changes nothing else. The bot answer
   a hazard.
 - **What answering costs.** Pure Automation loses nothing measurable: its
   free counters (Air-gap, Hold rollout, Land drones, Freeze rules) cost
-  attention, not goods, and the control plane drops at night, when the Data
-  Centers are dark anyway. Colony pays in parts and water (Clean, Flush,
+  attention and a few seconds of downtime, not goods. Colony pays in parts and water (Clean, Flush,
   Quarantine), and runs 1.3 min slower on mare; Concord 3.0.
 - **What each path sees** (robotic mare, three seeds):
   - ⌂ Colony: 26 hazards and 14 near misses (contamination 11, blight 9,
     dose 6), answered with 31 Cleans, 11 Flushes, 9 Quarantines and 6
     Recalls;
-  - ◉ Automation: 58 and none (control plane 25, malware 20, runaway 9,
-    firmware 4), answered with 63 Land drones, 20 Air-gaps, 9 Freeze rules,
+  - ◉ Automation: 37 and none (malware 20, runaway 10, firmware 4, control
+    plane 3), answered with 69 Land drones, 20 Air-gaps, 10 Freeze rules,
     3 Hold rollouts and 1 Dock fleet;
-  - Concord: 33 and 7 near misses, from both sides (malware 10, firmware 8,
-    contamination 6, control plane 6, runaway 3).
+  - Concord: 32 and 7 near misses, from both sides (malware 10, firmware 8,
+    contamination 6, control plane 5, runaway 3).
 - **Crewed pole, Concord seed 7 (211 against 181).** Off, the bot builds
   its 2nd Parts Fabricator at 119 min and two smelters at 122 and 126. On,
   four Cleans between 106 and 117 min pull parts under the bot's line
@@ -898,9 +898,18 @@ runs to the decimal, so holding the hazards changes nothing else. The bot answer
 - **Crewed pole, pure Automation (175.3 against 173.3):** seed 1234
   now runs 175, not 256; that was the siting fix merged from main (#29),
   not the hazards.
+- **Distracted** (`--runs=mare:robotic:distracted,southpole:human:distracted`,
+  the bot looks every 120 s; reported, not gated): **no deaths** on any of
+  the 18 runs. **3 machine losses**, all stock: a runaway rule's junk site
+  (a Battery Bank or a Solar Array) welded on pure Automation (mare seeds
+  42 and 7, crewed pole seed 1234). Each came **1:50 after its warning**
+  (the 90 s telegraph and the 20 s weld), and none from a drill. The
+  Colony warnings (150 s at minor, then the second clocks of suit air,
+  poisoning and the dose) outlast a 120 s glance. Concord's distracted
+  mare runs see 13–59 control-plane drops as its Data Centers brown out at
+  night (Concord takes no failover).
 - **Not measured yet:** hazard-minutes (so the ±20% check between the pure
-  paths), resources lost, the *attentive* policy's pre-emption. The
-  *distracted* policy's deaths and losses are below.
+  paths), resources lost, the *attentive* policy's pre-emption.
 
 **Results on roads (D2 as shipped, merged with main `cf5d3a8`: roads, docs/15;
 hazards not live).** `node scripts/probe-pacing.mjs --auto=on
