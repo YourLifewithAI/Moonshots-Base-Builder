@@ -1200,7 +1200,8 @@ function tickDose(s: GameState, mods: Mods, h: LiveHazard, flarePrev: GameState[
 function tickControlPlane(s: GameState, mods: Mods, h: LiveHazard) {
   const hz = s.hazards;
   const now = s.simTime;
-  const up = hz.computeDarkS === 0;
+  // recovered: a Data Center runs now and the darkness has drained
+  const up = hz.computeDarkS === 0 && hz.computeUpS > 0;
   // landed drones wait out the whole hazard
   if (hz.dronesHeldUntil > now) hz.dronesHeldUntil = Math.max(hz.dronesHeldUntil, now + 2);
   if (h.phase === 'telegraph') {

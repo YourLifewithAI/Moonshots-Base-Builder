@@ -992,6 +992,42 @@ test('control plane flicker: a Data Center the brownout flickers on for a second
   expect(r.live).toBeUndefined();
 });
 
+test('control plane without failover: a Data Center dark for good gives one warning, then the plane drops', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    window.climb('ACACAC', 7); // Fleet OS (E5 ◉) without the Lights-Out Charter's failover (E6 ◉)
+    const dc = window.hz.place('dataCenter', 2);
+    g.finishConstruction();
+    g.setHazardClock(99999);
+    const tick = (n: number) => { for (let i = 0; i < n; i++) { g.grantPower(5000); g.advanceGameSeconds(1); } };
+    const r0 = Math.ceil;
+    tick(2);
+    g.setEnabled(dc, false);
+    tick(3);
+    const h = window.hz.one('controlPlane');
+    tick(100);
+    const later = window.hz.one('controlPlane');
+    const ended = window.hz.log().filter((e: any) => e.kind === 'controlPlane').length;
+    // the drill ends (180 s down); still dark, the real one follows: its own 15 s warning, then down
+    tick(r0(window.hz.one('controlPlane').at + 180 - g.getState().simTime) + 1);
+    const h2 = window.hz.one('controlPlane');
+    tick(30);
+    const h2later = window.hz.one('controlPlane');
+    return { h, later, ended, h2, h2later, log: window.hz.log().filter((e: any) => e.kind === 'controlPlane').map((e: any) => e.outcome) };
+  });
+  expect(r.h.drill).toBe(true);
+  expect(r.h.at - r.h.warnedAt).toBeGreaterThanOrEqual(15 + 60 - 3); // the drill's extra minute
+  expect(r.later.id).toBe(r.h.id);
+  expect(r.later.phase).toBe('active');
+  expect(r.ended).toBe(0);
+  expect(r.log).toEqual(['drill']);
+  expect(r.h2.drill).toBe(false);
+  expect(r.h2.at - r.h2.warnedAt).toBeGreaterThanOrEqual(15);
+  expect(r.h2later.id).toBe(r.h2.id);
+  expect(r.h2later.phase).toBe('active');
+});
+
 // ───────────────────────────── the meters ─────────────────────────────
 
 test('cabin fever: at 70 the warning carries Commons night and Call home; at 100 a crisis — morale, a strike — and two send crew home', async ({ page }) => {

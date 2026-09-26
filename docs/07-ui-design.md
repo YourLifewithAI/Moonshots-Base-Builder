@@ -168,7 +168,7 @@ State is shape and value, never hue.
 | Inspector | `⚠ Hazards · n aboard`: the live hazard lines on this building, INFECTED + *Reimage*, DECOMPRESSED + *Repair*, the airlock dust + *Clean*, and on a network node its links + *Air-gap* / *Reconnect* |
 | Objectives | One `⚠` line under the next milestone: the most urgent lethal warning or clock (`⚠ Hab Module #12: breach in 1:30 — seal or evacuate`, `⚠ 3 crew members on suit air: 1:40 — power or a bed`) |
 | World | `.hz-mark` tags over targets, with who is aboard: `≋ 3` breach, `☍ 2` dark, `✲ BLIGHT`, `⚠ NET`, `✈ 40%` with a strip bar. A click selects |
-| Status line | `hazard` (offline: breached, blighted, reimaging, isolated) and `strike` (a rogue-drone strike) idle reasons |
+| Status line | the `hazard` idle reason names why (breached, decompressed, evacuated, stripped, reimaging, kill switch, air-gapped, loads shed, junk); `strike` is a cabin-fever strike |
 
 The first announcement is the `HAZARDS ARE LIVE` banner. The first of each
 kind brings a `NEW HAZARD` card with the drill. A destiny card with a risk
