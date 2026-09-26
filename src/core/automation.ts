@@ -455,7 +455,8 @@ function raiseRefusal(s: GameState, id: AutoRuleId, r: RuleState) {
   const fam = RULES[id].family;
   const crit = fam === 'life' || fam === 'power';
   const head = r.phase === 'holding' ? 'AUTO HOLD' : r.phase === 'nosite' ? 'AUTO NO SITE' : 'AUTO WAITING';
-  condition(s, `auto:${id}`, `${head} — ${FAMILY_LABEL[fam]}: ${r.why}`, crit && r.phase !== 'nosite' ? 'warn' : 'info', { panel: 'builder' });
+  // power or life support with no ground is as urgent as any other of their refusals
+  condition(s, `auto:${id}`, `${head} — ${FAMILY_LABEL[fam]}: ${r.why}`, crit ? 'warn' : 'info', { panel: 'builder' });
 }
 
 function setPhase(s: GameState, id: AutoRuleId, r: RuleState, phase: RulePhase, why: string, dt: number) {
@@ -573,6 +574,9 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     if (!sig.hold) r.dwell = sig.past ? r.dwell + dt : sig.rearmed ? 0 : Math.max(0, r.dwell - dt);
     const dwellS = d.dwellS * mods.builderDwellMult * (predictive ? 0.5 : 1);
     if (!force && !sig.now && !(sig.past && r.dwell >= dwellS)) {
+      // no ground last time, and the signal cannot be read now (the solar
+      // margin by night): it still has no ground, and says so
+      if (sig.hold && r.phase === 'nosite') { setPhase(s, id, r, 'nosite', r.why, dt); return; }
       if (!sig.past && r.dwell === 0) setPhase(s, id, r, 'ok', `ok · ${sig.text}`, dt);
       else setPhase(s, id, r, 'watching', `watching · ${sig.text} for ${Math.floor(r.dwell)} s of ${Math.round(dwellS)}`, dt);
       return;

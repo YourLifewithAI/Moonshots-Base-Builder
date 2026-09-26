@@ -321,6 +321,66 @@ test('a field of arrays needs no road between its arrays; one on its own gets a 
   expect(solars[3].spur.length).toBeGreaterThan(0);
 });
 
+test('solar at the pole: a refused spot says why and how to succeed — rough ground, a road, a pocket no road reaches', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page, { site: 'southpole', exp: 'human' });
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 3000, parts: 500 });
+    const L = g.getState().buildings.find((b: any) => b.type === 'lander');
+    const ok = (gx: number, gz: number) => g.canPlace('solar', gx, gz, 0).valid;
+    // rough ground by the Lander, on screen
+    let rough: any = null;
+    for (let dz = -6; dz <= 6 && !rough; dz++) for (let dx = -6; dx <= 6 && !rough; dx++) {
+      const c = g.canPlace('solar', L.gx + dx, L.gz + dz, 0);
+      if (!/^Terrain too rough/.test(c.reason)) continue;
+      const x = (L.gx + dx + 1) * 4 - 512, z = (L.gz + dz + 1) * 4 - 512;
+      const p = g.screenOf(x, z);
+      if (p.visible && document.elementFromPoint(p.x, p.y)?.tagName === 'CANVAS') rough = { reason: c.reason, px: p.x, py: p.y };
+    }
+    const apron = g.getState().roads.find((c: any) => c.closed);
+    const onRoad = g.canPlace('solar', apron.gx, apron.gz, 0).reason;
+    // a pocket: twelve arrays walling a 4×4 patch (one field, served from outside), then one inside it
+    let pocket: any = null;
+    for (let d = 8; d < 30 && !pocket; d++) {
+      for (const [x0, z0] of [[L.gx + d, L.gz], [L.gx - d, L.gz], [L.gx, L.gz + d], [L.gx, L.gz - d], [L.gx + d, L.gz + d], [L.gx - d, L.gz - d]]) {
+        // round the ring, each touching the last
+        const wall: [number, number][] = [
+          [x0 - 2, z0 - 2], [x0, z0 - 2], [x0 + 2, z0 - 2], [x0 + 4, z0 - 2], [x0 + 4, z0], [x0 + 4, z0 + 2],
+          [x0 + 4, z0 + 4], [x0 + 2, z0 + 4], [x0, z0 + 4], [x0 - 2, z0 + 4], [x0 - 2, z0 + 2], [x0 - 2, z0],
+        ];
+        if (![...wall, [x0 + 1, z0 + 1], [x0, z0]].every(([x, z]) => ok(x, z))) continue;
+        pocket = { x0, z0, wall };
+        break;
+      }
+    }
+    if (!pocket) return { rough, onRoad, pocket };
+    // the wall, from the side the road comes from (each new one touches the field)
+    const placed = pocket.wall.map(([x, z]: [number, number]) => g.placeBuilding('solar', x, z, 0));
+    const roadIn = g.getState().roads.filter((c: any) => c.gx >= pocket.x0 && c.gx < pocket.x0 + 4 && c.gz >= pocket.z0 && c.gz < pocket.z0 + 4).length;
+    const inside = g.canPlace('solar', pocket.x0 + 1, pocket.z0 + 1, 0);
+    const edge = g.canPlace('solar', pocket.x0, pocket.z0, 0);
+    return { rough, onRoad, pocket, placed, roadIn, inside, edge };
+  });
+  expect(r.rough, 'a rough pad on screen').toBeTruthy();
+  expect(r.rough.reason).toMatch(/^Terrain too rough \(\d+\.\d m relief > 2\.5 m\) — find flatter ground, or grade it \(Site Grading\)$/);
+  expect(r.onRoad).toBe('On a road — pick open ground beside it');
+  expect(r.pocket, 'a flat 8×8 patch near the Lander').toBeTruthy();
+  expect(r.placed.every(Boolean)).toBe(true);
+  expect(r.roadIn).toBe(0);
+  // no road can get into the pocket: the refusal says so, and names the way that needs none
+  expect(r.inside.valid).toBe(false);
+  expect(r.inside.reason).toMatch(/^NO ROAD ROUTE — no road can reach its edge \(walled in, or steps over 1\.6 m\); set it edge to edge with a served Solar Array \(no road needed\)$/);
+  // ...and that way works: against the wall, it is served through the field
+  expect(r.edge.valid, r.edge.reason).toBe(true);
+  expect(r.edge.road).toEqual([]);
+  // the ghost says the same as the check
+  await page.evaluate(() => window.__game.beginPlacement('solar'));
+  await page.mouse.move(r.rough.px, r.rough.py);
+  await expect(page.locator('#place-hint .blocked')).toContainText('Terrain too rough (');
+  await expect(page.locator('#place-hint .blocked')).toContainText('grade it (Site Grading)');
+});
+
 // ───────────────────────────── the road tool ─────────────────────────────
 
 test('the road tool: N starts it, a road laid is sintered by free rovers, a removal warns when it strands a door', async ({ page }) => {

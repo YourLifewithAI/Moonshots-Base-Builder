@@ -86,7 +86,43 @@ door (for a field type: to any cell within reach).
 - The same rule runs for every caller of placement (the palette, the debug
   API, the Builder). The Builder's site chooser also weighs the road: of its
   first six valid pads it takes the one whose score plus 1.5 m a new road
-  cell is least, so its bases do not sprawl roads.
+  cell is least, so its bases do not sprawl roads. Its `why` names a road it
+  lays: `nearest free pad to the base centre · 23 m · a 9-cell road to it`.
+
+### Refusals: the reason and the way out
+
+| Spot | Refusal |
+|---|---|
+| on a road cell | `On a road — pick open ground beside it` |
+| too rough | `Terrain too rough (3.1 m relief > 2.5 m) — find flatter ground, or grade it (Site Grading)` (without Site Grading at the site: `find flatter ground`) |
+| a door against a structure, off the map, on the apron, on a door | `NO ROAD ROUTE — its door (the front) is against a structure; R rotates`, and so on |
+| a structure no road reaches | `NO ROAD ROUTE — the rovers cannot reach it by road (walled in, or too steep)` |
+| a field type, every cell round it taken | `NO ROAD ROUTE — boxed in: no ground beside it for a road; set it edge to edge with a served Solar Array (no road needed)` |
+| a field type no road reaches | `NO ROAD ROUTE — no road can reach its edge (walled in, or steps over 1.6 m); set it edge to edge with a served Solar Array (no road needed)` |
+
+A field type's way out names its own field when one is served, else `set it
+within a cell of a road`.
+
+### Where a road can go (the Builder's reach)
+
+`roadReach` floods every cell a new road could reach from the open network,
+walked as the A\* walks: footprints, doors, bays and the closed apron are
+walls, and so is a step over 1.6 m. The Builder's chooser strikes a pad whose
+road would end outside it before it runs the A\* (docs/13 §2.3). The flood
+ignores the new structure's own footprint, so it can only be too generous;
+the A\* has the last word.
+
+What the flood shows at the pole (crewed landing, seeds 42, 7, 1234):
+
+| Measure | Value |
+|---|---|
+| Cells a road can reach | 64 439–64 501 of 65 536 (the rest is the map's border ring) |
+| Flat pads (relief ≤ 2.5 m) no road can reach | 0 |
+| Peak-of-light pads no road can reach | 0 of 99–111 |
+| Solar pads in the Lander's 60 m refused as too rough | 110–409 of 716 |
+
+So the 1.6 m step never walls off good ground there. Rough pads, and the
+roads a base lays, are what the pole takes away.
 
 ### Building it
 
