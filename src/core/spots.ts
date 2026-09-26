@@ -169,10 +169,27 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     return backAlong(cells, f.from).map((c) => ({ c, dir, face }));
   };
 
-  // sites: their crews at the frontier of their road, else at the door
+  // every road's frontier first: the cell behind it goes to that road's own
+  // crew, two to the cell (the sim sinters a cell only with a rover there,
+  // core/transit.ts), so no one standing for other work keeps a road unbuilt
   for (const b of s.buildings) {
     const team = crews.get(b.id);
-    if (!team) continue;
+    const st = team && b.spur?.length ? frontier(b.spur)?.[0] : undefined;
+    if (!team || !st) continue;
+    for (let i = 0; i < team.length && i < ROAD.bayCap; i++) if (!take(team[i], st, b.id)) break;
+  }
+  for (const j of s.roadJobs ?? []) {
+    const team = jobs.get(j.id);
+    const st = team ? frontier(j.cells)?.[0] : undefined;
+    if (!team || !st) continue;
+    for (let i = 0; i < team.length && i < ROAD.bayCap; i++) if (!take(team[i], st, null, j.id)) break;
+  }
+
+  // sites: their crews at the frontier of their road, else at the door
+  for (const b of s.buildings) {
+    const all = crews.get(b.id);
+    const team = all?.filter((id) => !out.has(id));
+    if (!team?.length) continue;
     const r = centreCell(b);
     let stands = b.spur?.length ? frontier(b.spur) : null;
     if (!stands && FIELD_TYPES.has(b.type)) {
@@ -188,8 +205,8 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
 
   // road jobs: at their frontier
   for (const j of s.roadJobs ?? []) {
-    const team = jobs.get(j.id);
-    if (!team) continue;
+    const team = jobs.get(j.id)?.filter((id) => !out.has(id));
+    if (!team?.length) continue;
     for (const id of along(team, frontier(j.cells) ?? [], null, j.id)) push(parked, dockOf.get(id)!.id, id);
   }
 
