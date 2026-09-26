@@ -19,6 +19,7 @@ import { worldRect } from './core/paths';
 import { accessCell, doorCell, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
+import { workModeOf, type WorkModeFn } from './world/workAnim';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -134,6 +135,9 @@ function api(game: Game) {
     getWorkAnim: () => clone((game as any).life.work.info()),
     /** hide or show the work animations' two meshes (the draw-call budget) */
     setWorkAnimVisible: (on: boolean) => { (game as any).life.work.group.visible = on; },
+    /** the work animations' weld/sinter hook (WorkAnim.modeOf): a stand-in for
+     *  the sim's own word on how each unit works; null restores today's reading */
+    setWorkMode: (fn: WorkModeFn | null) => { (game as any).life.work.modeOf = fn ?? workModeOf; },
     /** one structure's own light: its darkness k (and what makes it), the
      *  lit channel its instance carries, the emissive gains and its flood slot */
     getBuildingLight: (id: number) => clone((game as any).instances.lightInfo(id)),

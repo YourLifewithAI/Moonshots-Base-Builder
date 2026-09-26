@@ -681,7 +681,18 @@ recipe for `rigs.ts`, as boxes of the kit. The mast stays in the recipe.
 Safe mode and `?lowfx`: the motion and the glow stay, the particles (clods,
 plume) drop. The dust emitters fly wherever dust is on.
 
-**Cost** (measured): see §10.
+**Cost** (measured). A busy Automation base on robotic mare (3 excavators
+digging, a rover welding, 2 drones printing, 2 drone hives, a Robotics Bay),
+Classic at 290 m and High detail at the look.spec view, `getRenderInfo().frame`;
+main = the same scene on d51e543:
+
+| | Draw calls | Triangles | Kit / glow instances | CPU (`end()`) |
+|---|---|---|---|---|
+| Classic | 45 → 47 | 176.2 k → 176.6 k | 141 / 19 | 0.09 ms |
+| High detail FX 0 | 136 → 138 | 351.7 k → 351.0 k | 141 / 19 | 0.10 ms |
+
+`tests/anim.spec.ts` holds the cost at ≤ 2 draw calls and < 30 k △ (the
+meshes hidden against shown) on a busy base, in both styles.
 
 ---
 

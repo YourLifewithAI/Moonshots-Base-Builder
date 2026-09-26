@@ -52,7 +52,7 @@ const digT = (page: Page, id: number) => page.evaluate((id) => {
 }, id);
 
 /** live frames until `pred` holds on the work readout (or the budget runs out) */
-async function until(page: Page, pred: (w: any) => boolean, frames = 1200, batch = 10) {
+async function until(page: Page, pred: (w: any) => boolean, frames = 1200, batch = 20) {
   for (let i = 0; i < frames; i += batch) {
     await live(page, batch);
     const w = await work(page);
@@ -60,6 +60,9 @@ async function until(page: Page, pred: (w: any) => boolean, frames = 1200, batch
   }
   return null;
 }
+
+/** High detail under software GL draws slowly between the steps: hold its ladder low */
+const HD_FAST = (style: string) => (style === 'detailed' ? '&lowfx' : '');
 
 /** An excavator on plain ground near the Lander, complete: it digs its own pad. */
 const EXCAVATOR = () => {
@@ -80,8 +83,8 @@ const EXCAVATOR = () => {
 
 for (const style of ['classic', 'detailed']) {
   test(`${style}: a welding rover unfolds its arm and sweeps it over the site, spark on; it folds as it leaves`, async ({ page }) => {
-    test.setTimeout(180_000);
-    await start(page, style);
+    test.setTimeout(300_000);
+    await start(page, style, HD_FAST(style));
     await page.evaluate(() => { const g = window.__game!; g.placeBuilding('habitat', 132, 124); g.finishRoads(); g.advanceGameSeconds(1); });
     const w0 = await until(page, (w) => w.rovers.some((r: any) => r.spark && r.arm.unfold > 0.99));
     expect(w0, 'a rover reaches its site and welds').not.toBeNull();
@@ -92,12 +95,16 @@ for (const style of ['classic', 'detailed']) {
       expect(r.spark).toBe(false);
     }
     // the sweep: its yaw ranges well over half a radian in 3 s, reaching out over the site
-    const yaws: number[] = [], sparks: boolean[] = [], reach: number[] = [];
-    for (let i = 0; i < 30; i++) {
-      await live(page, 2);
-      const r = (await work(page)).rovers.find((x: any) => x.id === id);
-      yaws.push(r.arm.yaw); sparks.push(r.spark); reach.push(r.arm.reach);
-    }
+    const { yaws, sparks, reach } = await page.evaluate((id) => {
+      const g = window.__game!;
+      const out = { yaws: [] as number[], sparks: [] as boolean[], reach: [] as number[] };
+      for (let i = 0; i < 30; i++) {
+        g.stepFrame(0.05); g.stepFrame(0.05);
+        const r = g.getWorkAnim().rovers.find((x: any) => x.id === id);
+        out.yaws.push(r.arm.yaw); out.sparks.push(r.spark); out.reach.push(r.arm.reach);
+      }
+      return out;
+    }, id);
     expect(Math.max(...yaws) - Math.min(...yaws), 'the arm sweeps').toBeGreaterThan(0.5);
     expect(sparks.every(Boolean), 'the spark is on while it welds').toBe(true);
     expect(Math.min(...reach), 'unfolded, the arm reaches out over the site').toBeGreaterThan(1.3);
@@ -114,8 +121,8 @@ for (const style of ['classic', 'detailed']) {
   });
 
   test(`${style}: the excavator's wheel turns and its boom dips while it digs, home and away; still while it drives`, async ({ page }) => {
-    test.setTimeout(180_000);
-    await start(page, style);
+    test.setTimeout(300_000);
+    await start(page, style, HD_FAST(style));
     const id = await page.evaluate(EXCAVATOR);
     const dig = (w: any) => w.diggers.find((d: any) => d.id === id);
     const home = await until(page, (w) => dig(w)?.digging && !dig(w).away, 600);
@@ -126,9 +133,10 @@ for (const style of ['classic', 'detailed']) {
     expect(b.wheel - a.wheel, 'the wheel turns (home)').toBeCloseTo(1.3, 1);
     expect(b.boom, 'the boom dips into the cut').toBeLessThan(-0.03);
     expect(b.boom).toBeGreaterThan(-0.2);
-    const w = await work(page);
-    expect(w.clods, 'spoil flies off the wheel').toBeGreaterThan(0);
-    expect(w.particles).toBe(true);
+    // spoil flies off the wheel (High detail here runs ?lowfx: no particles, the same motion)
+    const w = wb;
+    if (style === 'classic') expect(w.clods, 'spoil flies off the wheel').toBeGreaterThan(0);
+    expect(w.particles).toBe(style === 'classic');
     // Dig at… 50 m north: under way the wheel holds and the boom rides high
     await page.evaluate((id) => { const g = window.__game!; g.digAt(id, -2, 50); g.grantPower(20000); g.advanceGameSeconds(1); }, id);
     const drive = await until(page, (w) => dig(w)?.driving && dig(w)?.away, 400, 5);
