@@ -1490,7 +1490,7 @@ Classic (160 and 1.2 M in High detail).
 | Type budget | ≤ 7,500 △ with every upgrade | the heaviest set one run can hold | the Lander's six destiny parts come in exclusive pairs |
 | Pad detune | Colony widens to ±7 ¢ | Colony ±11, Concord ±7 (as today), Automation ±2 | ±7 is today's score |
 | Bells | "glassier FM index" | Colony index 0.55× f (from 1.1×), Automation 1.9× f at ratio 2.76 | — |
-| Hazard audio | crit ducks and holds; modem for Automation hazards; grief | `hold(on)`, `mourn()` and the `modem` cue exist; nothing calls them yet | written before D3 merged; wiring them to the hazards' events is a follow-up |
+| Hazard audio | crit ducks and holds; modem for Automation hazards; grief | `game.ts` reads `$hazards` twice a second: a lethal or destroying telegraph (not a drill) holds the score (`hold`), a new death keeps it to the night pool for four chords (`mourn`), a new Automation hazard plays the `modem` chirp | — |
 | Drone chirp | — | a `modem` chirp as a drone takes a job | the drones' own voice |
 | Greenhouses | — | a faint air-handler hiss near rings and domes | the task asked for a greenhouse sound |
 

@@ -1611,7 +1611,22 @@ export class Game {
     sfx.setLife(life);
     if (this.droneLaunches >= 0 && life.launches > this.droneLaunches) sfx.play('modem');
     this.droneLaunches = life.launches;
+    // the hazards (docs/14 §4.6): a lethal telegraph holds the score; a death
+    // keeps it to the night pool; an Automation hazard starts with a modem chirp
+    const hz = $hazards.get();
+    if (!hz) return;
+    sfx.holdScore(hz.active.some((h) => h.phase === 'telegraph' && (h.lethal || h.destroys) && !h.drill));
+    const deaths = hz.deaths;
+    if (this.hazardDeaths >= 0 && deaths > this.hazardDeaths) sfx.mourn();
+    this.hazardDeaths = deaths;
+    let fresh = false;
+    for (const h of hz.active) {
+      if (h.side === 'automation' && !this.hazardsHeard.has(h.id)) { this.hazardsHeard.add(h.id); fresh = true; }
+    }
+    if (fresh) sfx.play('modem');
   }
+  private hazardDeaths = -1;
+  private hazardsHeard = new Set<number>();
 
   /** A refused action (a warn event raised or repeated by it) blips, and
    *  stays off the radio: the player caused it and is looking at it. */

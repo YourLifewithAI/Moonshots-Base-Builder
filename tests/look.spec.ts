@@ -361,6 +361,10 @@ test('audio: the score follows the lean, and the destiny\'s sounds play (modem c
   });
   await expect.poll(async () => (await g(page, 'getAudio')).music.destiny, { timeout: 30_000 }).toBe('automation');
   await expect.poll(async () => (await g(page, 'getAudio')).life.rotor, { timeout: 30_000 }).toBe(true);
+  // an Automation hazard starts with the modem chirp
+  const modem = (await g(page, 'getAudio')).played.modem;
+  expect(await g(page, 'forceHazard', 'malware')).toEqual(expect.any(Number));
+  await expect.poll(async () => (await g(page, 'getAudio')).played.modem, { timeout: 30_000 }).toBeGreaterThan(modem);
 });
 
 test('hazard looks: infected flicker, a cascade goes dark, blight tints, a breach plumes; bricked rovers sit dark, held drones land', async ({ page }) => {
