@@ -144,6 +144,10 @@ function api(game: Game) {
     terrainError: () => game.debugTerrainError(),
     /** a structure's light: { glow (classic iGlow), powered } */
     buildingGlow: (id: number) => game.debugBuildingGlow(id),
+    /** a structure's light colour and alarm (docs/14 §4.4): { warm (iWarm 0 cold … 1 warm), alarm (iAlarm), lean } */
+    buildingLook: (id: number) => clone((game as any).instances.lookOf(id)),
+    /** the building-state visual hook (instances.ts alarmOf): (b) => 0 calm … 1 alarmed; null clears it */
+    setAlarmHook: (fn: ((b: unknown) => number) | null) => { (game as any).instances.alarmOf = fn ?? undefined; },
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     recipeTriangles: () => recipeTriangles(),
     /** the upgrade budget: stock and fully upgraded triangles per type, and each part's */

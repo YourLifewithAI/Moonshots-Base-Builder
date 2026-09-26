@@ -75,8 +75,10 @@ reference; the floats are canonical.
 | Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — hull panels (also radiators, MLI foil, lamps, beacons: same value, other finish) |
 | Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — frames, struts, stacks, rails, bare metal |
 | Building GLASS | `0.07` | `#121212` | `meshKit.ts` — PV cells and windows (dark glass, roughness 0.18) |
+| Building LEAF | `0.28` | `#474747` | `meshKit.ts` — foliage under glass (docs/14 §4.4): trellises, planters, the rings' vaults, the dome's canopy band; a dark matte foliage gray, roughness 0.85 |
 | Rovers, cargo lander | the building finishes (BODY / TRIM / GLASS / PLATE, LAMP, BEACON) | — | `world/rovers.ts`, `world/events.ts` — no new values |
 | Window / print band / floods | `#fff4e0`-ish warm white (`1.0, 0.955, 0.88`) | — | the only light the base makes; neutral enough to stay "gray" |
+| Machines' window and lamp light | cold white (`0.8, 0.92, 1.0`) | — | per instance by `iWarm` (0 cold … 1 warm, §13): Data Centers, Monoliths, fabs, bays, hives, masts; everything else by the destiny's lean |
 | Headlamp | `#fff6ea` | — | the suit lamp (§9) |
 | Dust grains | linear gray `0.015 + 0.45 × sun`, opacity 0.9 | — | `world/life.ts` → `world/dust.ts`; sunlit grains catch the light brighter than the ground they leave |
 | Bootprints | black @ 0.42 × tread alpha | — | `player/footprints.ts`: compacted soil reads darker |
@@ -437,8 +439,9 @@ on their skirts. Two draw calls, one more in the shadow pass.
 
 ## 6. Parametric building language (`src/buildings/meshKit.ts`, `recipes.ts`)
 
-Zero modeled assets. Every one of the 21 structures (20 buildable + the
-Lander) is merged from a tiny parametric kit:
+Zero modeled assets. Every one of the 25 structures (24 buildable, the four
+destiny buildings among them, + the Lander) is merged from a tiny parametric
+kit:
 
 - **Primitives**: `box`, `cyl` (cylinder/cone/tank), `dome` (half-sphere),
   `domeBand` (window belts, skylights), `vault` (half-pipe greenhouse),
@@ -451,7 +454,8 @@ Lander) is merged from a tiny parametric kit:
   `junction`, `bands`.
 - Each part is baked with a **Finish**: its value into vertex colors, its
   roughness / metalness / emissive id into a per-vertex `mat` attribute.
-  UVs deleted (no textures anywhere), normals recomputed. One geometry + one
+  UVs deleted (no textures anywhere), normals recomputed. The destiny adds
+  one finish, `LEAF` (foliage under glass; §13). One geometry + one
   shared material = **one `InstancedMesh` per building type = one draw call
   per type** (cap 96 instances/type). 500–2,800 triangles per building. The
   rovers (436 triangles) and the cargo lander (720) are built from the same
@@ -530,6 +534,11 @@ on game time: pause freezes the fleet, ×10 speeds it up with everything else.
 - Rovers never enter the shadow map (a moving caster would re-render it every
   frame). A soft contact decal smeared down-sun — `min(7 m, 1.4 m / tan
   elev)` long, 0.5 × sun opacity — grounds them instead.
+
+**Drones and EVA walkers** (docs/14 §4.3; §13 here). A Drone Hive's units
+fly as quadcopters, straight at 6–10 m, off the roads and out of the ground
+traffic; the Colony's EVA crew walk as suited figures on open ground only.
+The links (walkways, conveyor spines) join the buildings, bridging the roads.
 
 **Regolith dust** (`world/dust.ts`). One Points cloud of 1,920 grains in 20
 pooled emitter slots (96 grains each). Each grain flies a closed-form vacuum
@@ -749,12 +758,21 @@ High detail's):
 | Lamps | warm white | `#fff1d6` |
 | Beacons | red, blinking | `#b02a22` → bright red flash |
 | MLI foil (`FOIL`) | gold | `#d8a53a` |
-| Window / lamp light | warm sodium yellow (linear 1.0, 0.66, 0.29) | ≈ `#ffd494` |
+| Foliage (`LEAF`) | greenhouse green | `#5f8f3f` |
+| Window / lamp light, warm | warm sodium yellow (linear 1.0, 0.66, 0.29) | ≈ `#ffd494` |
+| Window / lamp light, cold (`CLASSIC_COLD`) | server cyan (linear 0.52, 0.815, 1.0) | ≈ `#bfe9ff` |
 
 Per structure: the solar wings' frames are silver (`#c4c8ce`, panels
 `#aeb2b8`), the solar array's mast and the dishes silver-gray (`#b7bbc1`),
-and the Foil Factory's trim gold (`#cf9d36`). Rovers and the cargo lander
-use the default mapping (white body, orange trim, blue roof cells).
+and the Foil Factory's trim gold (`#cf9d36`). The destiny buildings (§13):
+the Server Monolith's hull near-black (`#23262b`) with teal glass
+(`#0f3a44`), the Drone Hive's hull dark (`#3a3f46`), the Garden Dome's ribs
+silver (`#c4c8ce`). Rovers, drones, walkers and the cargo lander use the
+default mapping (white body, orange trim, blue roof cells).
+
+Each instance mixes its windows' and lamps' light between the warm and the
+cold colour by its `iWarm` (§13); its flood pool takes the same mix
+(`classicFloods.ts`: warm `(1.0, 0.74, 0.42)` … cold `(0.62, 0.84, 1.0)`).
 
 ### 12.3 Terrain, ring, rocks (`terrain/classicGround.ts`)
 
@@ -900,6 +918,120 @@ drivers and on software rasterizers:
   WARP, llvmpipe) still draws — slower, never black or blank: the frame is
   a handful of draw calls with trivial fragment work, and the black-frame
   check has safe mode's unlit twins to fall back to.
+
+---
+
+## 13. Destinies: two bases by Era 8 (docs/14 §4)
+
+> "They should look very different visually by the time we arrive at the
+> final era."
+
+⌂ Colony grows green under glass, lit tubes and people on foot. ◉ Automation
+grows black slabs, honeycombs, conveyors and drones, and its lights go cold.
+Both styles, one mechanism: parts, four recipes, base-wide layers, and the
+colour of each structure's light.
+
+### 13.1 Parts and recipes
+
+- **Picks are techs, so they carry parts** (`buildings/destinyParts.ts`,
+  appended to each type's list in `upgrades.ts`). All 16 track techs (the
+  landing included) and the 3 capstones add at least one; the full list is
+  generated into docs/04 ("Research you can see").
+- **Colony parts are lived in**: porches with round windows, a hab-ring
+  collar and suit-port, terraces with LEAF planters, a glazed galley, bulkheads,
+  a launch blockhouse, festival lamps, a flag.
+- **Automation parts are for machines**: whips and node lamps, shutters (BODY a
+  hair proud of the panes: the base goes dark from outside), cable trays,
+  black monolith annexes and guidance slabs, antenna farms, drone perches,
+  second fab storeys, fin crowns.
+- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded — the
+  heaviest set one run can hold (one side of each era's pick, one capstone);
+  the four new stock recipes ≤ 3,500 △.
+
+| Recipe | △ | Reads as |
+|---|---|---|
+| Greenhouse Ring (4×4) | 1,764 | eight LEAF vaults on BODY sills in a ring, ribbed, a glazed crown and grow lamps; a GLASS hub dome; a porch at +z |
+| Garden Dome (5×5) | 2,156 | a 10 m dome: GLASS crown on silver ribs over a LEAF canopy band; three stepped BODY terraces, each a lit WINDOW band; park lamps |
+| Drone Hive (3×3) | 1,536 | a honeycomb of hex docks (dark hull), a LAMP at each mouth; a PLATE deck with four pads (where its drones perch); a RADIATOR at the back |
+| Server Monolith (2×2) | 516 | a 16 m near-black slab, a cold LAMP stripe, thin teal status slits, a RADIATOR fin stack behind |
+
+### 13.2 Light: `iWarm`
+
+- A per-instance attribute beside `iState` (`meshKit.withInstanceState`), 0
+  cold … 1 warm, set per type and lean on every rebuild (`buildings/look.ts`).
+- **Always warm**: habitats, farms, the Recreation Dome, the rings and domes,
+  and the Lander while anyone lives aboard. **Always cold**: Data Centers,
+  Monoliths, Drone Hives, Chip Fabs, Parts Fabricators, Robotics Bays, Relay
+  Masts. **The rest** follow the lean: `warm = clamp(0.75 + lean)`.
+- **The lean**: −1 ◉ … +1 ⌂. The band's once the Era 8 pick settles it
+  (Concord 0), else `(C − A) / 4`, clamped. A human landing (+¼) keeps
+  today's warm base; a robotic one (−¼) starts half-cold.
+- Classic mixes `CLASSIC_WARM` and `CLASSIC_COLD` in its shader, and its flood
+  pools take the same mix. High detail mixes the warm white with a cold
+  white in the building patch; its floods stay warm white (monochrome).
+- **The hazards' hook**: `iAlarm` (0 calm … 1), filled from
+  `BuildingInstances.alarmOf(b)` on every rebuild; above 0 the windows and
+  lamps flicker red in both styles. Unset, every structure is calm.
+
+### 13.3 The links layer (`buildings/links.ts`)
+
+| Layer | From | Joins | Looks |
+|---|---|---|---|
+| Walkways ⌂ | Crew Rotation Charter | habitats, farms, the Recreation Dome, labs, rings, domes (+ fabs and bays with Pressure-Rated Halls) | BODY tubes (r 0.9 m) on short legs with TRIM ribs; a PLATE strip each side, glazed (lit WINDOW) from Garden Domes; warm |
+| Spines ◉ | Lights-Out Fabs | excavator pads, smelters, refineries, fabs, foil factories, storage yards | box-truss conveyors at 1.2 m: a PLATE belt on a TRIM truss with rails; cold LAMP chevrons each cell from Replicator Stacks; cold |
+
+- **Routes**: straight or one L-bend on the 4 m grid, from a free cell beside
+  one footprint to one beside the other (walkways ≤ 4 cells apart, spines
+  ≤ 6). Never through a footprint, an excavator's dig or another link. Pairs
+  join nearest first as a spanning forest (no loops), ≤ 40 a layer.
+- **The crossing rule** (one rule, both layers): a link never touches a road
+  cell. It crosses a road only straight across, ≤ 2 road cells at a time, as
+  a **skybridge** 5.4 m up (the tube's underside ≥ 4.5 m: an excavator's
+  mast passes under). Its gantry posts stand on the free cells either side;
+  where the road runs along a building's wall, a **riser** tower inside the
+  footprint carries that end. Door cells, bays and the Lander's apron are
+  never crossed, not even from above; no bend is made over a road.
+- **Cost**: one merged `InstancedMesh` of one instance per layer on the
+  building material (2 draw calls at most), rebuilt only when a numeric
+  signature changes (structures, roads, digs, the layer techs). A big Era 8
+  base: 15 walkways ≈ 2.6 k △, 7 spines ≈ 1.7 k △ (test cap 12 k).
+
+### 13.4 EVA walkers (`world/settlers.ts`)
+
+- **Walkers = EVA crew** (`s.evaCrew`, economy step 3), ≤ 24 drawn. They step
+  out of a habitat's suit-port (its +x side), lope to the arrays, a worn
+  machine or a site, work 12–24 s, and go on; at night (no EVA crew) they
+  walk home and go in.
+- **Never on the carriageway**: they move on a grid of free cells — not a
+  road cell (carriageway, bays, apron), not a footprint, not a link's leg, not
+  a dig — cell centre to cell centre plus a fixed offset (±0.6 m) inside the
+  cell. A target reachable only across a road is skipped, so walkers never
+  meet the ground traffic.
+- **Cost**: one instanced suited figure (~100 △, building material, warm) and
+  one decal mesh; routes by BFS only when a walker sets off; nothing
+  allocated per frame.
+
+### 13.5 Drones (`world/rovers.ts`, `DroneFlight`)
+
+- A roster unit docked at a Drone Hive is a **drone** (`core/fleet.ts`
+  `unitKind`). The sim treats it as any rover (it has no travel time); the
+  visuals fly it.
+- Parked, it perches on one of its hive's four deck pads. Sent to a site it
+  climbs, flies straight at 6 m/s at its cruise height (6–10 m, by id),
+  hovers over the site and prints from the air (print dust below); on a road
+  job it hovers over the frontier.
+- **Off the roads**: drones take no road slot (`spots.ts` sees only ground
+  rovers) and are never enlisted in `world/traffic.ts`; ground rovers keep
+  the roads-only rule.
+- **Cost**: one instanced quadcopter (~200 △, cold light) and one decal mesh
+  (fainter with height), ≤ 48 drawn; no shadow-map shadow.
+
+### 13.6 Cost of a big Era 8 base (measured)
+
+The same base on robotic mare, one per band, classic home view at 290 m
+(`tests/look.spec.ts` frame budget; the numbers in docs/14 "As shipped D4"):
+draw calls grow by the new types and layers only while they exist (≤ 2
+links, 2 walkers, 2 drones), so Classic stays near 50 calls and 0.2 M △.
 
 ---
 

@@ -51,11 +51,13 @@ export const BRIDGE_M = 5.4;
 /** the most road cells one crossing spans */
 const MAX_SPAN = 2;
 /** footprint gap a link may bridge, cells (walkways ≈ 18 m door to door, spines ≈ 24 m) */
-const GAP: Record<LinkLayer, number> = { walkway: 4, spine: 5 };
+const GAP: Record<LinkLayer, number> = { walkway: 4, spine: 6 };
 /** tube / belt centre height over the ground, m */
 const HEIGHT: Record<LinkLayer, number> = { walkway: 1.35, spine: 1.2 };
 /** how far into the footprint the tube reaches (into the wall), m */
 const INSET = 1.3;
+/** where a bridge landing on a building stands its riser: just inside the footprint, m */
+const EDGE = 0.45;
 
 const WALKWAY_BASE: ReadonlySet<BuildingId> = new Set<BuildingId>([
   'habitat', 'hydroponics', 'recDome', 'lab', 'greenhouseRing', 'gardenDome',
@@ -177,8 +179,8 @@ function candidates(p: Rect, q: Rect): Cell[][] {
   }
   // an L: out of p along x then into q along z, or along z then x
   const right = q.gx0 >= p.gx1, down = q.gz0 >= p.gz1;
-  const pRows = nearestFirst(p.gz0, p.gz1, down ? p.gz1 : p.gz0).slice(0, 2);
-  const qCols = nearestFirst(q.gx0, q.gx1, right ? q.gx0 : q.gx1).slice(0, 2);
+  const pRows = nearestFirst(p.gz0, p.gz1, down ? p.gz1 : p.gz0).slice(0, 6);
+  const qCols = nearestFirst(q.gx0, q.gx1, right ? q.gx0 : q.gx1).slice(0, 6);
   for (const r of pRows) {
     for (const c of qCols) {
       const a: Cell = [right ? p.gx1 : p.gx0 - 1, r];
@@ -187,8 +189,8 @@ function candidates(p: Rect, q: Rect): Cell[][] {
       out.push([...line(a, corner), ...line(corner, end).slice(1)]);
     }
   }
-  const pCols = nearestFirst(p.gx0, p.gx1, right ? p.gx1 : p.gx0).slice(0, 2);
-  const qRows = nearestFirst(q.gz0, q.gz1, down ? q.gz0 : q.gz1).slice(0, 2);
+  const pCols = nearestFirst(p.gx0, p.gx1, right ? p.gx1 : p.gx0).slice(0, 6);
+  const qRows = nearestFirst(q.gz0, q.gz1, down ? q.gz0 : q.gz1).slice(0, 6);
   for (const c of pCols) {
     for (const r of qRows) {
       const a: Cell = [c, down ? p.gz1 : p.gz0 - 1];
@@ -203,22 +205,27 @@ function candidates(p: Rect, q: Rect): Cell[][] {
 /** The crossing rule on one route: a road cell is allowed only as part of a
  *  straight run of at most MAX_SPAN, never at either end, never at the bend.
  *  Returns the per-cell bridge flags, or null if the route breaks a rule. */
-function checkRoute(cells: Cell[], hard: Set<number>, road: Set<number>, used: Set<number>): boolean[] | null {
+function checkRoute(cells: Cell[], hard: Set<number>, road: Set<number>, used: Set<number>,
+  why?: Record<string, number>): boolean[] | null {
   const n = cells.length;
-  if (!n) return null;
+  const no = (r: string) => { if (why) why[r] = (why[r] ?? 0) + 1; return null; };
+  if (!n) return no('empty');
   const over: boolean[] = [];
   let run = 0;
   for (let i = 0; i < n; i++) {
     const [x, z] = cells[i];
-    if (x < 1 || z < 1 || x >= MAP_CELLS - 1 || z >= MAP_CELLS - 1) return null;
+    if (x < 1 || z < 1 || x >= MAP_CELLS - 1 || z >= MAP_CELLS - 1) return no('map');
     const k = cellKey(x, z);
-    if (hard.has(k) || used.has(k)) return null;
+    if (hard.has(k)) return no('hard');
+    if (used.has(k)) return no('used');
     const isRoad = road.has(k);
     if (isRoad) {
-      if (i === 0 || i === n - 1) return null;
-      const [px, pz] = cells[i - 1], [nx, nz] = cells[i + 1];
-      if (px !== nx && pz !== nz) return null; // a bend over a road
-      if (++run > MAX_SPAN) return null;
+      // at an end, the building carries the bridge (a riser inside its footprint)
+      if (i > 0 && i < n - 1) {
+        const [px, pz] = cells[i - 1], [nx, nz] = cells[i + 1];
+        if (px !== nx && pz !== nz) return no('bend over a road');
+      }
+      if (++run > MAX_SPAN) return no('span');
     } else run = 0;
     over.push(isRoad);
   }
@@ -226,7 +233,7 @@ function checkRoute(cells: Cell[], hard: Set<number>, road: Set<number>, used: S
 }
 
 /** Plan both layers (pure; the same state gives the same links). */
-export function planLinks(s: GameState): Link[] {
+export function planLinks(s: GameState, why?: Record<string, number>): Link[] {
   const on = linkLayers(s.techsDone);
   if (!on.walkway && !on.spine) return [];
   const { hard, road } = obstacles(s);
@@ -254,7 +261,7 @@ export function planLinks(s: GameState): Link[] {
       if (n >= MAX_LINKS) break;
       if (find(a.id) === find(b.id)) continue;
       for (const cells of candidates(rect.get(a.id)!, rect.get(b.id)!)) {
-        const over = checkRoute(cells, hard, road, used);
+        const over = checkRoute(cells, hard, road, used, why);
         if (!over) continue;
         for (const [x, z] of cells) used.add(cellKey(x, z));
         out.push({ layer, a: a.id, b: b.id, cells, over });
@@ -329,13 +336,13 @@ export class Links {
     this.group.add(m);
   }
 
-  /** A wall point: the middle of the edge a cell shares with the footprint, pushed into it. */
-  private wall(b: BuildingState, c: Cell): [number, number] {
+  /** A wall point: the middle of the edge a cell shares with the footprint, pushed `inset` m into it. */
+  private wall(b: BuildingState, c: Cell, inset = INSET): [number, number] {
     const r = footprintRect(b);
     const [cx, cz] = cellCentre(c[0], c[1]);
     const nx = c[0] < r.gx0 ? 1 : c[0] >= r.gx1 ? -1 : 0;
     const nz = c[1] < r.gz0 ? 1 : c[1] >= r.gz1 ? -1 : 0;
-    return [cx + nx * (2 + INSET), cz + nz * (2 + INSET)];
+    return [cx + nx * (2 + inset), cz + nz * (2 + inset)];
   }
 
   /** One link's geometry: its points (a's wall, the cell centres, b's wall),
@@ -346,40 +353,57 @@ export class Links {
     const n = l.cells.length;
     // lifted: the road cells and their neighbours (the gantry posts)
     const lift = l.over.map((o, i) => o || l.over[i - 1] || l.over[i + 1]);
+    const [ax, az] = this.wall(a, l.cells[0]);
+    const [bx, bz] = this.wall(b, l.cells[n - 1]);
+    const [ex, ez] = this.wall(a, l.cells[0], EDGE);
+    const [fx, fz] = this.wall(b, l.cells[n - 1], EDGE);
     let top = -Infinity;
     l.cells.forEach(([x, z], i) => {
       if (!lift[i]) return;
       const [cx, cz] = cellCentre(x, z);
       top = Math.max(top, this.hf.sample(cx, cz));
     });
+    if (l.over[0]) top = Math.max(top, this.hf.sample(ex, ez));
+    if (l.over[n - 1]) top = Math.max(top, this.hf.sample(fx, fz));
+    const high = top + BRIDGE_M;
     const pts: V3[] = [];
-    const [ax, az] = this.wall(a, l.cells[0]);
+    const at: number[] = [];
     pts.push([ax, this.hf.sample(ax, az) + H, az]);
+    // a bridge that lands on a building: a riser tower against its wall, inside its footprint
+    if (l.over[0]) pts.push([ex, this.hf.sample(ex, ez) + H, ez], [ex, high, ez]);
     l.cells.forEach(([x, z], i) => {
       const [cx, cz] = cellCentre(x, z);
-      pts.push([cx, lift[i] ? top + BRIDGE_M : this.hf.sample(cx, cz) + H, cz]);
+      at.push(pts.length);
+      pts.push([cx, lift[i] ? high : this.hf.sample(cx, cz) + H, cz]);
     });
-    const [bx, bz] = this.wall(b, l.cells[n - 1]);
+    if (l.over[n - 1]) pts.push([fx, high, fz], [fx, this.hf.sample(fx, fz) + H, fz]);
     pts.push([bx, this.hf.sample(bx, bz) + H, bz]);
     const out: THREE.BufferGeometry[] = [];
     // runs: split where the direction or the lift changes
+    const dir = (p: V3, q: V3) => `${Math.sign(Math.round((q[0] - p[0]) * 100))},${Math.sign(Math.round((q[2] - p[2]) * 100))}`;
     let i0 = 0;
     for (let i = 1; i < pts.length; i++) {
       const last = i === pts.length - 1;
-      const turn = !last && (Math.sign(pts[i + 1][0] - pts[i][0]) !== Math.sign(pts[i][0] - pts[i - 1][0])
-        || Math.sign(pts[i + 1][2] - pts[i][2]) !== Math.sign(pts[i][2] - pts[i - 1][2])
+      const turn = !last && (dir(pts[i - 1], pts[i]) !== dir(pts[i], pts[i + 1])
         || Math.abs(pts[i + 1][1] - pts[i][1]) > 0.8 || Math.abs(pts[i][1] - pts[i - 1][1]) > 0.8);
       if (last || turn) {
         out.push(...(l.layer === 'walkway' ? this.tube(pts[i0], pts[i], extra) : this.belt(pts[i0], pts[i])));
         i0 = i;
       }
     }
+    // the riser towers: a TRIM frame up the wall
+    for (const [x, z, on] of [[ex, ez, l.over[0]], [fx, fz, l.over[n - 1]]] as const) {
+      if (!on) continue;
+      const g = this.hf.sample(x, z);
+      out.push(box(0.22, high - g + 0.3, 0.22, TRIM, x, g + (high - g + 0.3) / 2, z));
+    }
     // per cell: a rib (walkways) or a chevron (spines), and what holds it up
     l.cells.forEach(([x, z], i) => {
-      const p = pts[i + 1];
+      const k = at[i];
+      const p = pts[k];
       const [cx, cz] = [p[0], p[2]];
       const g = this.hf.sample(cx, cz);
-      const q = pts[i + 2], o = pts[i];
+      const q = pts[k + 1], o = pts[k - 1];
       const dx = q[0] - o[0], dz = q[2] - o[2], dl = Math.hypot(dx, dz) || 1;
       const ux = dx / dl, uz = dz / dl;
       if (l.layer === 'walkway') {
@@ -387,19 +411,19 @@ export class Links {
       } else if (extra) {
         // a cold chevron on the belt, pointing along it
         const yaw = Math.atan2(ux, uz);
-        out.push(box(0.12, 0.05, 0.7, LAMP, cx + Math.cos(yaw) * 0.25, p[1] + 0.12, cz - Math.sin(yaw) * 0.25, yaw + 0.7));
-        out.push(box(0.12, 0.05, 0.7, LAMP, cx - Math.cos(yaw) * 0.25, p[1] + 0.12, cz + Math.sin(yaw) * 0.25, yaw - 0.7));
+        out.push(box(0.14, 0.06, 0.8, LAMP, cx + Math.cos(yaw) * 0.28, p[1] + 0.16, cz - Math.sin(yaw) * 0.28, yaw + 0.7));
+        out.push(box(0.14, 0.06, 0.8, LAMP, cx - Math.cos(yaw) * 0.28, p[1] + 0.16, cz + Math.sin(yaw) * 0.28, yaw - 0.7));
       }
       if (l.over[i]) return; // nothing touches a road
       if (lift[i]) {
         // a gantry: two posts either side of the tube, a crossbeam under it
         const sx = -uz * 1.3, sz = ux * 1.3;
-        const beam = p[1] - (l.layer === 'walkway' ? 0.95 : 0.4);
+        const beam = p[1] - (l.layer === 'walkway' ? 0.95 : 0.45);
         out.push(bar([cx + sx, g, cz + sz], [cx + sx, beam + 0.1, cz + sz], 0.2, TRIM));
         out.push(bar([cx - sx, g, cz - sz], [cx - sx, beam + 0.1, cz - sz], 0.2, TRIM));
         out.push(bar([cx + sx * 1.05, beam, cz + sz * 1.05], [cx - sx * 1.05, beam, cz - sz * 1.05], 0.22, TRIM));
       } else {
-        out.push(bar([cx, g, cz], [cx, p[1] - (l.layer === 'walkway' ? 0.85 : 0.35), cz], 0.16, TRIM));
+        out.push(bar([cx, g, cz], [cx, p[1] - (l.layer === 'walkway' ? 0.85 : 0.4), cz], 0.16, TRIM));
       }
     });
     return out;
@@ -408,7 +432,8 @@ export class Links {
   /** a pressurized tube from a to b: BODY, with a WINDOW strip down each side (glazed: lit) */
   private tube(a: V3, b: V3, glazed: boolean): THREE.BufferGeometry[] {
     const out = [pipe(a, b, 0.9, BODY, 8)];
-    const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz) || 1;
+    const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz);
+    if (dl < 0.5) return out; // a riser
     const sx = (-dz / dl) * 0.86, sz = (dx / dl) * 0.86;
     const f = glazed ? WINDOW : PLATE;
     for (const k of [1, -1]) {
@@ -419,12 +444,13 @@ export class Links {
 
   /** a conveyor belt from a to b: a PLATE belt on a TRIM box truss, with side rails */
   private belt(a: V3, b: V3): THREE.BufferGeometry[] {
-    const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz) || 1;
-    const sx = (-dz / dl) * 0.55, sz = (dx / dl) * 0.55;
+    const dx = b[0] - a[0], dz = b[2] - a[2], dl = Math.hypot(dx, dz);
+    if (dl < 0.5) return [bar(a, b, 0.7, TRIM)]; // a lift up a riser
+    const sx = (-dz / dl) * 0.72, sz = (dx / dl) * 0.72;
     return [
-      bar([a[0], a[1] - 0.2, a[2]], [b[0], b[1] - 0.2, b[2]], 0.5, TRIM),
-      bar([a[0] + sx, a[1] + 0.05, a[2] + sz], [b[0] + sx, b[1] + 0.05, b[2] + sz], 0.08, TRIM),
-      bar([a[0] - sx, a[1] + 0.05, a[2] - sz], [b[0] - sx, b[1] + 0.05, b[2] - sz], 0.08, TRIM),
+      bar([a[0], a[1] - 0.3, a[2]], [b[0], b[1] - 0.3, b[2]], 0.6, TRIM),
+      bar([a[0] + sx, a[1] + 0.08, a[2] + sz], [b[0] + sx, b[1] + 0.08, b[2] + sz], 0.12, TRIM),
+      bar([a[0] - sx, a[1] + 0.08, a[2] - sz], [b[0] - sx, b[1] + 0.08, b[2] - sz], 0.12, TRIM),
       ...this.beltDeck(a, b),
     ];
   }
@@ -433,7 +459,7 @@ export class Links {
   private beltDeck(a: V3, b: V3): THREE.BufferGeometry[] {
     const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
     const len = Math.hypot(dx, dy, dz);
-    const g = box(1.0, 0.06, len, PLATE, 0, 0, 0);
+    const g = box(1.4, 0.1, len, PLATE, 0, 0, 0);
     const yaw = Math.atan2(dx, dz), pitch = -Math.atan2(dy, Math.hypot(dx, dz));
     g.applyMatrix4(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(pitch, yaw, 0, 'YXZ')));
     g.translate((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2);

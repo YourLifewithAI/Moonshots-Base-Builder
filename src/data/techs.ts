@@ -863,7 +863,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'upkeepMult', buildings: ['dataCenter'], mult: 1.6 },
     ],
     desc: 'Reject heat to a 3 K sky.',
-    visual: 'Data Centers unfold a second tier of cryo radiator fins.',
+    visual: 'Data Centers unfold a second tier of cryo radiator fins; Server Monoliths grow fins down both flanks.',
     tradeoff: 'Acres of foil that micrometeorites love.',
   },
   autonomousHaulage: {
@@ -1293,7 +1293,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'upkeepMult', buildings: ['dataCenter'], mult: 1.25 },
     ],
     desc: 'Cold plates on every die, a pump loop to the radiators: fans retire.',
-    visual: 'Data Centers run coolant manifolds to a pump skid.',
+    visual: 'Data Centers run coolant manifolds to a pump skid; Server Monoliths, coolant risers down their fin stack.',
     tradeoff: 'Every fitting is a leak waiting.',
   },
   rackDensification: {
@@ -1304,7 +1304,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'powerMult', buildings: ['dataCenter'], mult: 1.15 },
     ],
     desc: 'Twice the boards per rack, and an annex for the overflow.',
-    visual: 'Data Centers add a rack annex at the berm.',
+    visual: 'Data Centers add a rack annex at the berm, and Server Monoliths one at the foot.',
     tradeoff: 'Density is heat.',
   },
   lowGCourt: {
@@ -1444,7 +1444,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 0, requires: [], expeditions: ['robotic'], track: { era: 1, side: 'automation', landing: true },
     effects: [],
     desc: 'No one aboard: the robotic expedition, chosen on the landing screen.',
-    visual: 'The Lander’s cabin windows are blanked, and a rover cradle rides the deck.',
+    visual: 'The Lander’s cabin windows are blanked, and a rover rides stowed in a cradle on its hull.',
     tradeoff: 'Machines cannot die, and cannot dream either.',
   },
   pressureHalls: {
@@ -1490,7 +1490,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'guard', guard: 'earthContact' },
     ],
     desc: 'A standing charter with Earth: crews rotate in on a schedule, and the ones aboard go outside to keep the base.',
-    visual: 'Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast.',
+    visual: 'Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast; pressurized walkways join the lived-in buildings, and suited EVA crews walk out by day.',
     tradeoff: 'People who come to stay have to be kept.',
   },
   droneHives: {
@@ -1503,7 +1503,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'firmware' },
     ],
     desc: 'More machines instead of more people: a hive docks four construction drones on one pad.',
-    visual: 'Drone Hives can rise: a honeycomb of docks under a landing deck.',
+    visual: 'Drone Hives can rise: a honeycomb of docks by a landing deck, whose rovers fly as drones; Robotics Bays hang a drone perch off the back wall.',
     tradeoff: 'Four drones, one firmware image.',
   },
   hydroCommons: {
@@ -1518,7 +1518,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'blight' },
     ],
     desc: 'The farms become the base’s living room: a galley among the vines, tended by the people who eat from it.',
-    visual: 'Hydroponics vaults open a glazed galley end with long tables, and a trellis runs the vault.',
+    visual: 'Hydroponics vaults glaze their door end into a lit galley, and a leaf-green trellis runs down both flanks.',
     tradeoff: 'A garden is thirsty.',
   },
   lightsOutFabs: {
@@ -1533,7 +1533,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'firmware' },
     ],
     desc: 'Fabs that need no window and no seat: masks and firmware arrive over the network, and the lights stay off.',
-    visual: 'Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp.',
+    visual: 'Chip Fabs and Parts Fabricators shutter their windows and run a roof cable tray to a node with a cold lamp; conveyor spines join the industry.',
     tradeoff: 'A fab that takes updates takes bad ones too.',
   },
   greenhouseRings: {
@@ -1547,7 +1547,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'contamination' },
     ],
     desc: 'What grows here is food: a ring of glass vaults round a hub, three farms’ harvest on two crew.',
-    visual: 'Greenhouse Rings can rise: glass vaults round a domed hub.',
+    visual: 'Greenhouse Rings can rise: green vaults under glass round a domed hub; Hydroponics Farms keep a seed-bank vault.',
     tradeoff: 'One ring, one monoculture.',
   },
   fleetOS: {
@@ -1562,7 +1562,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'controlPlane' },
     ],
     desc: 'What grows here is compute: one operating system for every agent, rover and rule, run from the racks.',
-    visual: 'Server Monoliths can rise: black slabs with a cold lamp stripe.',
+    visual: 'Server Monoliths can rise: black slabs with a cold lamp stripe; Data Centers raise a monolith annex in their berm.',
     tradeoff: 'One control plane is one thing to lose.',
   },
   settlerCharter: {
@@ -1606,7 +1606,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'breach', buildings: ['gardenDome'] },
     ],
     desc: 'Domes, not replicators: ten beds round a park under glass, the best place on the Moon to live.',
-    visual: 'Garden Domes can rise: a glass dome over trees, ringed by lit window terraces.',
+    visual: 'Garden Domes can rise: a glass dome over a green park, ringed by lit window terraces; walkways are glazed and lit, and airlocks gain pressure bulkheads.',
     tradeoff: 'The biggest hull holds the most air to lose.',
   },
   replicatorStacks: {
@@ -1621,7 +1621,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'runaway' },
     ],
     desc: 'Replicators, not domes: fabs stacked two storeys high, and a Builder allowed twice as far.',
-    visual: 'Parts Fabricators and Foil Factories stack a second fab storey under a gantry.',
+    visual: 'Parts Fabricators and Foil Factories stack a second fab storey under a gantry, and Drone Hives a drone printer; conveyor spines light cold chevrons.',
     tradeoff: 'A replicator does exactly what the rules say.',
   },
   missionControl: {
@@ -1664,7 +1664,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'exposure', hazard: 'cabinFever' },
     ],
     desc: 'The Moon has citizens: a charter, a flag, and a city under glass that means to stay.',
-    visual: 'Habitats and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole.',
+    visual: 'Habitats, Greenhouse Rings and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole.',
     tradeoff: 'Citizens ask for more than settlers did.',
   },
   selenicMind: {

@@ -64,6 +64,7 @@ import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBui
 import { Sky } from '../world/sky';
 import { PostFX } from '../world/post';
 import { BaseLife } from '../world/life';
+import { leanFrom } from '../buildings/look';
 import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buildCam';
 import { ISO_FOV, IsoCam } from '../player/isoCam';
@@ -1507,6 +1508,7 @@ export class Game {
         margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening,
         night: currentDay(this.state, SITES[this.state.siteId]).nightFactor > 0.5,
       });
+      this.cueDestiny(tweening);
     }
     this.updateDepositMarkers();
 
@@ -1562,6 +1564,22 @@ export class Game {
       this.autosaveAcc = 0;
       void this.doSave();
     }
+  }
+
+  private droneLaunches = -1;
+  /** The destiny's sound (docs/14 §4.6), twice a second: the score follows
+   *  the lean from $destiny; rotors, walkers' radios and greenhouse air by
+   *  what is near the listener; a data chirp as a drone takes a job. */
+  private cueDestiny(tweening: boolean) {
+    const d = $destiny.get();
+    sfx.setDestiny(leanFrom(d.c, d.a, d.band));
+    const onFoot = this.modes.mode === 'walk' && !tweening;
+    const at = onFoot ? this.walk.pos : this.buildCam.target;
+    const lift = onFoot ? 0 : 0.3 * this.camera.position.distanceTo(this.buildCam.target);
+    const life = this.life.soundscape(this.state, at.x, at.z, lift);
+    sfx.setLife(life);
+    if (this.droneLaunches >= 0 && life.launches > this.droneLaunches) sfx.play('modem');
+    this.droneLaunches = life.launches;
   }
 
   /** A refused action (a warn event raised or repeated by it) blips, and

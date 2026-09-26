@@ -376,9 +376,13 @@ export class BuildingInstances {
       glow.needsUpdate = true;
     }
     const byId = new Map(this.litList.map((b) => [b.id, b]));
+    const crewed = (this.last?.crew ?? 0) > 0;
     this.pools?.setLevels((id) => {
       const b = byId.get(id);
       return b ? lightLevel(b, this.darkness.of(b.id)) : 0;
+    }, (id) => {
+      const b = byId.get(id);
+      return b ? warmthOf(b.type, this.lean, crewed) : 1;
     });
   }
 

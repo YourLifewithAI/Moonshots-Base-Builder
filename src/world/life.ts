@@ -132,6 +132,25 @@ export class BaseLife {
     });
   }
 
+  /** What the audio hears of the destiny's life at a listener point (x, z),
+   *  `lift` m up (docs/14 §4.6): rotors near the drones, walkers near
+   *  enough to hear their radios, greenhouses and domes breathing; and how
+   *  many drones have taken off so far (each a data chirp). */
+  soundscape(s: GameState, x: number, z: number, lift: number) {
+    let garden = 0;
+    for (const b of s.buildings) {
+      if (b.type !== 'greenhouseRing' && b.type !== 'gardenDome' || (b.construction ?? 0) > 0) continue;
+      const [bx, bz] = centerOf(b);
+      garden += 1 / (1 + (Math.hypot(bx - x, bz - z, lift) / 30) ** 2);
+    }
+    return {
+      rotor: this.failed.has('rovers') ? 0 : this.rovers.drones.rotorLevel(x, z, lift),
+      walkers: this.failed.has('settlers') ? 0 : Math.min(1, this.settlers.near(x, z, 60 + lift) / 3),
+      garden: Math.min(1, garden),
+      launches: this.rovers.drones.launches,
+    };
+  }
+
   /** A volley just left the mass driver (Game.doLaunch). */
   onLaunch(state: GameState) {
     this.run('launch', () => this.launch.fire(state));

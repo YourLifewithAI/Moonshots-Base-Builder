@@ -377,9 +377,9 @@ const serverMonolith: Upgrade[] = [
       box(2.2, 0.5, 0.6, TRIM, 0, 0.75, -3.75),
     ],
   },
-  { // Cryogenic Radiators: fin stacks down both flanks
+  { // Cryogenic Radiators: tall fins down both flanks
     tech: 'cryoRadiators',
-    parts: () => [-1.75, 1.75].flatMap((x) => [0, 1, 2, 3, 4].map((i) => box(0.5, 0.08, 4.4, RADIATOR, x, 3.4 + i * 2.4, -0.4))),
+    parts: () => [-1.68, 1.68].flatMap((x) => [-2.0, -0.4, 1.2].map((z) => box(0.36, 10.4, 0.07, RADIATOR, x, 8.4, z))),
   },
   { // Rack Densification: a rack annex at the foot, beside the door
     tech: 'rackDensification',

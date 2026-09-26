@@ -99,8 +99,19 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 ## Destiny buildings
 
 Four buildings open with a destiny pick (docs/14 §2.8). Standing rules never
-build them until Selenic Mind; orders and clicks place them. Their recipes are
-placeholders from the stock kit until the look phase (docs/14 §4.2).
+build them until Selenic Mind; orders and clicks place them. Their recipes
+(docs/14 §4.2, docs/06 §13) are each side's skyline:
+
+| Building | Looks | △ stock | Its own upgrades |
+|---|---|---|---|
+| Drone Hive | a dark honeycomb of hex docks, a lamp at each mouth; a landing deck whose four pads its drones perch on | 1,536 | Replicator Stacks: a drone printer gantry over the deck |
+| Greenhouse Ring | eight green (LEAF) vaults under glass on white sills, round a domed hub; a porch at the front | 1,764 | Garden Domes: pressure bulkheads · Commonwealth: festival lamps |
+| Server Monolith | a 16 m near-black slab, a cold lamp stripe, teal status slits, fins behind | 516 | Liquid Cooling, Cryogenic Radiators, Rack Densification (as a Data Center) · Selenic Mind: a fin crown |
+| Garden Dome | a 10 m glass dome over a green canopy band, on three lit terraces; park lamps | 2,156 | Commonwealth: festival lamps |
+
+A Drone Hive's four units fly as drones (docs/06 §13.5): they perch on its
+deck, not in its bays, and never drive the roads. The road dock and its bays
+stay as docs/15 lays them.
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
 |---|---|---|---|---|---|
@@ -149,6 +160,34 @@ fully upgraded ≤ 7,500 △ per type (checked by `tests/upgrades.spec.ts`).
 Pure unlocks need no part — their visual is the building itself; Regolith
 Shielding's berms (`berms.ts`) and Dust Mitigation's clean glass are drawn
 by their own systems as before.
+
+**The destiny's parts** (docs/14 §4.1, `src/buildings/destinyParts.ts`). Every
+pick (the landing included) and every capstone adds a part to the types its
+visual line names; the per-type rows below list them with the lane techs'.
+
+| Pick | Types | Part |
+|---|---|---|
+| ⌂ Crewed Landing / ◉ Robotic Mission | Lander | a flag and a lit cabin window band / a hull band blanking the windows, a rover stowed in a cradle |
+| ⌂ Pressure-Rated Halls | Lab, Parts Fabricator, Robotics Bay | an airlock porch: a round lit window, a lamp over the door |
+| ◉ Dispatch Mesh | Robotics Bay, Relay Mast, Lander | a mesh whip with a node lamp / a router cabinet |
+| ⌂ Crew Rotation Charter | Habitat, Lander | a lit hab-ring collar and a suit-port porch / a beacon mast |
+| ◉ Drone Hives | Robotics Bay | a drone perch off the back wall, a drone on it |
+| ⌂ Hydroponic Commons | Hydroponics Farm | a glazed (lit) galley end, a LEAF trellis down both flanks |
+| ◉ Lights-Out Fabs | Chip Fab, Parts Fabricator | shutters over the windows, a roof tray to a cold node lamp |
+| ⌂ Greenhouse Rings | Hydroponics Farm | a seed-bank vault |
+| ◉ Fleet OS | Data Center | a black monolith annex in the berm |
+| ⌂ Settler Charter | Habitat | a second storey: terrace, rail, LEAF planters, a window band |
+| ◉ Lights-Out Charter | Relay Mast, Robotics Bay, Habitat | a firewall node / an antenna farm / shutters |
+| ⌂ Garden Domes | Habitat, Greenhouse Ring | pressure bulkheads round the airlock |
+| ◉ Replicator Stacks | Parts Fabricator, Foil Factory, Drone Hive | a second fab storey under a gantry / a drone printer |
+| ⌂ Crewed Mission Control | Mass Driver, Propellant Plant | a glazed control blockhouse, lit consoles, a gallery |
+| ◉ Autonomous Cadence | Mass Driver, Propellant Plant | a black guidance monolith, a tracking lamp |
+| Lunar Commonwealth | Habitat, Greenhouse Ring, Garden Dome, Lander | festival lamps / a commons plaza and a flagpole |
+| Selenic Mind | Server Monolith, Data Center | a crown of radiator fins |
+| Concord | Lander | a joint-operations mast: a lit cabin under a drone perch |
+
+"Fully upgraded" below is the heaviest set one run can hold: every lane
+upgrade, one side of each era's pick and one capstone.
 
 <!-- BEGIN GENERATED: node scripts/gen-tech-doc.mjs -->
 Every tech that touches a building adds a part to that building type's recipe

@@ -17,6 +17,8 @@ const REACH_M = 7;        // past the footprint's half-width
 const LIFT_M = 0.25;
 const GAIN = 0.16;
 const WARM = new THREE.Color(1.0, 0.74, 0.42);
+/** the machines' pools (docs/14 §4.4): the same light as their windows, cold */
+const COLD = new THREE.Color(0.62, 0.84, 1.0);
 
 export class ClassicFloods {
   readonly mesh: THREE.Mesh;
@@ -80,8 +82,9 @@ export class ClassicFloods {
     this.falloff = new Float32Array(fall);
   }
 
-  /** Colour every pool by its structure's light level (0 = dark). */
-  setLevels(level: (id: number) => number) {
+  /** Colour every pool by its structure's light level (0 = dark) and its
+   *  light's warmth (0 cold … 1 warm, as its windows: instances.ts iWarm). */
+  setLevels(level: (id: number) => number, warmth: (id: number) => number = () => 1) {
     const col = this.mesh.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
     let any = false;
     if (col) {
@@ -89,9 +92,11 @@ export class ClassicFloods {
       for (const sp of this.spans) {
         const l = level(sp.id) * GAIN;
         if (l > 0.005) any = true;
+        const w = Math.max(0, Math.min(1, warmth(sp.id)));
+        const r = COLD.r + (WARM.r - COLD.r) * w, gg = COLD.g + (WARM.g - COLD.g) * w, bb = COLD.b + (WARM.b - COLD.b) * w;
         for (let i = sp.start; i < sp.start + sp.count; i++) {
           const f = this.falloff[i] * l;
-          a[i * 3] = WARM.r * f; a[i * 3 + 1] = WARM.g * f; a[i * 3 + 2] = WARM.b * f;
+          a[i * 3] = r * f; a[i * 3 + 1] = gg * f; a[i * 3 + 2] = bb * f;
         }
       }
       col.needsUpdate = true;

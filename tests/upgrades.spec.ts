@@ -34,12 +34,11 @@ test('data: 129 techs, each with a visual line, a generated pro and con, relevan
       }
     }
     // every tech with a non-unlock effect on a building has a part there (unless its
-    // visual is drawn elsewhere: Shielding's berms, Grading's pads). The destiny
-    // picks and capstones get their parts with the look (docs/14 §4, phase D4).
+    // visual is drawn elsewhere: Shielding's berms, Grading's pads) — the destiny
+    // picks and capstones included (docs/14 §4, phase D4)
     const upgraded = new Set(Object.values(U.UPGRADES).flat().map((u: any) => u.tech));
     const partless = T.TECH_ORDER.filter((t: string) => {
       const d = T.TECHS[t];
-      if (d.track || d.band) return false;
       const touches = d.effects.some((fx: any) => fx.kind !== 'unlock' && (fx.building || fx.buildings));
       return touches && !upgraded.has(t);
     });
@@ -228,4 +227,88 @@ test('classic: a swap keeps each instance\'s light and state, repaints the palet
   expect(r.after.glow).toEqual(r.before.glow);
   expect(r.after.up.decals).toBe(r.before.up.decals);
   expect(r.after.up.pools).toBe(r.before.up.pools);
+});
+
+/** The destiny's parts (docs/14 §4.1): the types each pick's and capstone's visual line names. */
+const DESTINY_PARTS: Record<string, string[]> = {
+  landingCrew: ['lander'], landingRobotic: ['lander'],
+  pressureHalls: ['lab', 'partsFab', 'roboticsBay'],
+  dispatchMesh: ['roboticsBay', 'relayMast', 'lander'],
+  crewCharter: ['habitat', 'lander'],
+  droneHives: ['roboticsBay'],
+  hydroCommons: ['hydroponics'],
+  lightsOutFabs: ['chipFab', 'partsFab'],
+  greenhouseRings: ['hydroponics'],
+  fleetOS: ['dataCenter'],
+  settlerCharter: ['habitat'],
+  lightsOutCharter: ['relayMast', 'roboticsBay', 'habitat'],
+  gardenDomes: ['habitat', 'greenhouseRing'],
+  replicatorStacks: ['partsFab', 'foilFactory', 'droneHive'],
+  missionControl: ['massDriver', 'propellantPlant'],
+  autoCadence: ['massDriver', 'propellantPlant'],
+  commonwealth: ['habitat', 'gardenDome', 'greenhouseRing', 'lander'],
+  selenicMind: ['serverMonolith', 'dataCenter'],
+  concord: ['lander'],
+};
+
+test('destiny: every pick and capstone grows a part on each type its visual names; the four new buildings have their own lists, on budget', async ({ page }) => {
+  await start(page, 'mare');
+  const r = await page.evaluate(async () => {
+    const T = await import('/src/data/techs.ts');
+    const U = await import('/src/buildings/upgrades.ts');
+    const picks = [...Object.values(T.TRACKS).flatMap((t: any) => [t.colony, t.automation]), ...Object.values(T.CAPSTONES)];
+    const lists: Record<string, string[]> = {};
+    for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) lists[t] = U.upgradeTechs(t as any);
+    return { picks, budget: window.__game.upgradeTriangles(), lists, tris: window.__game.recipeTriangles() };
+  });
+  expect(r.picks.sort()).toEqual(Object.keys(DESTINY_PARTS).sort()); // all 16 picks and 3 capstones
+  for (const [tech, types] of Object.entries(DESTINY_PARTS)) {
+    for (const type of types) {
+      const n = (r.budget[type]?.parts[tech] ?? 0) + (r.budget[type]?.movers[tech] ?? 0);
+      expect(n, `${tech} on ${type}`).toBeGreaterThan(0);
+      expect(n, `${tech} on ${type}`).toBeLessThanOrEqual(600);
+    }
+  }
+  for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+    expect(r.lists[t].length, `${t} upgrade list`).toBeGreaterThanOrEqual(1);
+    expect(r.tris[t], `${t} stock recipe`).toBeLessThanOrEqual(3500);
+    expect(r.budget[t].full, `${t} fully upgraded`).toBeLessThanOrEqual(7500);
+  }
+});
+
+for (const style of ['classic', 'detailed']) test(`${style}: a pick grows its part on the buildings it names, and the ghost follows`, async ({ page }) => {
+  await start(page, 'mare', 'robotic', `&style=${style}`);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.openRoads(true);
+    g.completeTech('habitation');
+    g.completeTech('humanCohabitation');
+    g.grantResources({ metals: 2000, parts: 500 });
+    let ok = false;
+    for (let rr = 4; rr < 20 && !ok; rr++) for (let dx = -rr; dx <= rr && !ok; dx += 2) ok = g.placeBuilding('habitat', 127 + dx, 127 - rr);
+    g.finishConstruction();
+    g.advanceGameSeconds(1);
+    const stock = g.getUpgrades();
+    g.pickDestiny(3, 'colony');
+    g.advanceGameSeconds(1);
+    const collar = g.getUpgrades();
+    g.pickDestiny(6, 'colony');
+    g.advanceGameSeconds(1);
+    const storey = g.getUpgrades();
+    g.beginPlacement('habitat');
+    g.advanceGameSeconds(0);
+    g.stepFrame(0.016);
+    const ghost = g.getUpgrades().ghost;
+    g.cancelPlacement();
+    return { ok, stock, collar, storey, ghost };
+  });
+  expect(r.ok).toBe(true);
+  expect(r.stock.meshes.habitat.key).toBe('');
+  expect(r.collar.meshes.habitat.key).toBe('crewCharter');
+  expect(r.collar.meshes.habitat.triangles).toBeGreaterThan(r.stock.meshes.habitat.triangles);
+  expect(r.storey.meshes.habitat.key).toBe('crewCharter,settlerCharter');
+  expect(r.storey.meshes.habitat.triangles, 'a second storey').toBeGreaterThan(r.collar.meshes.habitat.triangles + 200);
+  expect(r.ghost).toBe(r.storey.meshes.habitat.triangles);
+  // the Lander wears the landing's part from the start
+  expect(r.stock.meshes.lander.key).toContain('landingRobotic');
 });
