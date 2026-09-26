@@ -755,7 +755,7 @@ export function fillStateDefaults(s: GameState): GameState {
     b.evacT ??= 0;
     b.stripT ??= 0;
   }
-  for (const r of legacy.rovers) r.brickedUntil ??= 0;
+  // rovers: an absent brickedUntil reads as 0 everywhere, and a save's roster stays as it was written
   return s;
 }
 

@@ -1325,7 +1325,7 @@ test('migration: a save from before the hazards gets a lunar day of grace, a dri
     g.loadBlob(blob);
     const s = g.getState();
     const filled = { hz: !!s.hazards, grace: s.hazards.graceUntil - t0, drilled: s.hazards.drilled, deaths: s.deaths, losses: s.losses,
-      b: s.buildings.every((b: any) => b.airlockDust === 0 && b.infected === false && b.airGapped === false), rv: s.rovers.every((x: any) => x.brickedUntil === 0) };
+      b: s.buildings.every((b: any) => b.airlockDust === 0 && b.infected === false && b.airGapped === false), rv: s.rovers.every((x: any) => (x.brickedUntil ?? 0) === 0) };
     g.setPaused(true);
     g.advanceGameSeconds(700);
     const quiet = window.hz.log().length + window.hz.live().length;
