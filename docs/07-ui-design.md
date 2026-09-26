@@ -156,6 +156,26 @@ marker floats over each auto site until it stands. Builder alerts carry
 `[B]`: `AUTO — …`, `AUTO CAP — …`, `AUTO HOLD / WAITING / NO SITE — …` (a
 condition while it lasts), `AUTO SITE CANCELLED — …`, `REPLACED — …`.
 
+**Hazards** (`ui/hazardsPanel.ts`; design in 14 §3.8). Everything comes
+from `$hazards` (`core/hazards.ts: hazardView`). Every button is an action.
+State is shape and value, never hue.
+
+| Where | What it shows |
+|---|---|
+| HUD chip `#hazard-chip` | Under the era chip, once a side has 2 picks: one gauge per side in play, `⚠ ⌂ HAB ▮▮▯ · ◉ NET ▮▯▯`. It flashes while a warning is up and turns solid while a death or loss clock runs. A click opens the panel |
+| **[G]** `#hazards-panel` | In the left column, like the Builder panel. Top to bottom: the fairness rules (one at a time), `n dead · n machine losses` with the cabin-fever and dose meters, or when hazards start; each side's tier, picks and next window; **Warned now** (each live hazard, its clock and its counter buttons); the kinds per side with a ▮▯ risk gauge, the named target, each guard ✓ or —, and the counter; **The network** (an SVG of the node graph: ring = node, filled square = infected, dashed ring = air-gapped; a click selects); the log |
+| Alerts | A hazard alert carries its counters as buttons (`.alert-ctrs`): `Seal 12⚙`, `Evacuate`. A click presses the counter and never dismisses the alert |
+| Inspector | `⚠ Hazards · n aboard`: the live hazard lines on this building, INFECTED + *Reimage*, DECOMPRESSED + *Repair*, the airlock dust + *Clean*, and on a network node its links + *Air-gap* / *Reconnect* |
+| Objectives | One `⚠` line under the next milestone: the most urgent lethal warning or clock (`⚠ Hab Module #12: breach in 1:30 — seal or evacuate`, `⚠ 3 crew members on suit air: 1:40 — power or a bed`) |
+| World | `.hz-mark` tags over targets, with who is aboard: `≋ 3` breach, `☍ 2` dark, `✲ BLIGHT`, `⚠ NET`, `✈ 40%` with a strip bar. A click selects |
+| Status line | `hazard` (offline: breached, blighted, reimaging, isolated) and `strike` (a rogue-drone strike) idle reasons |
+
+The first announcement is the `HAZARDS ARE LIVE` banner. The first of each
+kind brings a `NEW HAZARD` card with the drill. A destiny card with a risk
+carries a `⚠` line. A lost mission names its cause and the warning that
+went unanswered (`#defeat-cause`, `#defeat-warning`), and the title
+screen's save line says `✕ Mission lost — …, day N: <cause>.`
+
 ## 5. The fixed tooltip template (`palette.ts: tooltipHtml`)
 
 Every building tooltip renders the same sections in the same order — the
@@ -429,7 +449,8 @@ inspector, the rover inspector, a resource panel or the Builder panel, the tree 
 (also ☰ beside the speed buttons). The sim pauses while it is open and
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
 save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·
-Guidance (discovery pop-ups and era explainers) · the Controls list.
+Guidance (discovery pop-ups and era explainers; *Pause on new hazards*,
+on by default; *Pause on every lethal warning*, off) · the Controls list.
 
 Graphics opens with the **render style**, a two-way control: **Classic**
 (the default — flat colours, the fixed isometric view, no effects, made to
@@ -470,7 +491,7 @@ two command views move differently (06 §9, §12.6):
 | F · H | glide to the selection (closer) · home to the Lander | the same |
 
 Everything else — R, Shift-click, Ctrl-click (order), Enter while placing,
-Esc, Space, 1/2/3, T, M, I, B, N, Tab and the on-foot keys — is the same in
+Esc, Space, 1/2/3, T, M, I, B, G, N, Tab and the on-foot keys — is the same in
 both.
 
 Vacuum carries no sound, so all audio is suit radio and telemetry, WebAudio

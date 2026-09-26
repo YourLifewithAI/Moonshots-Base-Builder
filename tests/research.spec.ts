@@ -12,8 +12,9 @@ const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
   await page.waitForFunction(() => window.__game !== undefined);
-  // game time moves only through the fast-forwards: every reading lands on a known tick
-  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  // game time moves only through the fast-forwards: every reading lands on a known tick;
+  // hazards (docs/14 §3) are held — tests/hazards.spec.ts owns them
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.holdHazards(true); window.__game.advanceGameSeconds(0); });
   await page.evaluate(POWERED);
 }
 
