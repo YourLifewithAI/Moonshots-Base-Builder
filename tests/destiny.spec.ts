@@ -744,11 +744,12 @@ for (const style of ['classic', 'detailed']) {
         .map((a: any) => [a.type, a]));
       const d = access.droneHive.door;
       const hiveBays = (s.roads ?? []).filter((c: any) => c.bay && Math.abs(c.gx - d[0]) + Math.abs(c.gz - d[1]) === 1).length;
+      const up = g.getUpgrades(); // before a Data Center tech re-keys the Monolith
       // a Data Center tech changes the Monolith too: Rack Densification, output ×1.12
       g.completeTech('rackDensification');
       const dense = g.getResearch().production;
       return {
-        placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: g.getUpgrades().meshes,
+        placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: up.meshes, want: up.want,
         rates, dense, mono: s.buildings.find((b: any) => b.type === 'serverMonolith'), access, hiveBays,
       };
     });
@@ -756,7 +757,9 @@ for (const style of ['classic', 'detailed']) {
     for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
       expect(r.tris[t], t).toBeGreaterThan(100);
       expect(r.tris[t], t).toBeLessThanOrEqual(3500);
-      expect(r.meshes[t]?.triangles, t).toBe(r.tris[t]);
+      // drawn with the parts its techs done add (docs/14 §4: the Ring's bulkheads with Garden Domes)
+      expect(r.meshes[t]?.key, t).toBe(r.want[t]);
+      expect(r.meshes[t]?.triangles, t).toBeGreaterThanOrEqual(r.tris[t]);
     }
     expect(r.bots - r.bots0).toBe(4); // the hive's dock
     expect(r.mono.active).toBe(true);
