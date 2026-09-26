@@ -424,6 +424,11 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     if (o.upkeepOk) move('parts', -upkeep);
     else condition(s, `outpostWorn:${o.id}`, `OUTPOST WORN — ${p.short} stream ×0.5 (no parts for its upkeep)`, 'warn', { panel: 'parts' });
     if (o.hacked) continue; // HACKED OUTPOST (docs/14 §3.5): the stream is diverted
+    // outposts link to the Lander: an air-gapped Lander cuts their streams (docs/14 §3.5)
+    if (s.buildings.some((b) => b.type === 'lander' && b.airGapped)) {
+      condition(s, `gapped:${o.id}`, `OUTPOST OFF THE NETWORK — ${p.short} streams again when the Lander is reconnected`, 'info');
+      continue;
+    }
     const { res, data } = baseStream(o.id);
     const k = mult * (o.upkeepOk ? 1 : 0.5);
     // a hopper that cannot fuel grounds its stream; its own delivery counts

@@ -1960,7 +1960,8 @@ export function setAirGap(s: GameState, mods: Mods, id: number, on: boolean): Co
   const g = networkGraph({ ...s, buildings: s.buildings.map((x) => (x.id === id ? { ...x, airGapped: false } : x)) }, mods);
   if (!g.byId.has(id)) return no(`NOT A NETWORK NODE — ${label(b)} has no link to gap`);
   b.airGapped = on;
-  alert(s, on ? `AIR-GAPPED — ${label(b)} has no links${agentStation(s, b) ? '; agent-run, it idles unless crewed' : ''}`
+  alert(s, on ? `AIR-GAPPED — ${label(b)} has no links${agentStation(s, b) ? '; agent-run, it idles unless crewed' : ''}` +
+    (b.type === 'lander' ? '; the Earth link is cut: no downlink, no outpost streams' : '')
     : `RECONNECTED — ${label(b)} is back on the network`, 'info', { select: b.id });
   return yes;
 }

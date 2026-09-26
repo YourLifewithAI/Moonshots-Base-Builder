@@ -1142,6 +1142,11 @@ export class Game {
       alert(s, `DOWNLINK NEEDS ${cost}≡ BANKED — have ${Math.floor(s.data)}`, 'warn');
       return;
     }
+    // the Lander is the Earth gateway (docs/14 §3.5): air-gapped, it has no link to sell over
+    if (s.buildings.some((b) => b.type === 'lander' && b.airGapped)) {
+      alert(s, 'DOWNLINK NEEDS THE EARTH LINK — the Lander is air-gapped; reconnect it in its inspector', 'warn');
+      return;
+    }
     s.data -= cost;
     s.downlinks += 1;
     s.resupply = { ...(s.resupply ?? { shipments: 0 }), pending: true, downlink: true, arriveAt: s.simTime + DOWNLINK.delayS };
