@@ -56,7 +56,7 @@ const SPEED = ROVER.speed; // m/s cruise on a sintered road (the sim's, data/roa
 const ACCEL = ROVER.accel; // m/s²
 const CATCH = 1.6;        // × cruise: the most a rover drives to catch up with the sim
 const GAIN = 1.5;         // 1/s: how hard it closes the gap
-const LAG_S = 4;          // s of driving a unit may trail the sim before it is set down where the sim has it
+const LAG_S = 6;          // s of driving a unit may trail the sim (held up in traffic) before it is set down where the sim has it
 const TURN = 2.4;         // rad/s
 const YIELD_S = 4;        // s a rover waits at a refuge before it heads on
 const PIVOT = 1;          // rad: a way that sets off further than this from its heading starts with a turn on the spot
@@ -509,13 +509,16 @@ export class RoverFleet implements Driver {
       if (p && (r.inside ? !(p.there && spot.inside) : true)) lag = Math.hypot(p.x - r.x, p.z - r.z) / Math.max(this.speed, 0.1);
     }
     this.lagMax = Math.max(this.lagMax, lag);
-    // at work in the sim, and not at its stand: it must be seen there (a
-    // second's grace: the tick it arrives in may end before it pulls up)
-    const away = arrived(t) && !!u.task && r.follow === 'sim' && (r.inside || Traffic.end(a) - a.s > 0.3);
+    // at work in the sim, and not at its stand: it must be seen there — a
+    // second's grace (the tick it arrives in may end before it pulls up), or
+    // the lag cap's while it is visibly driving up, held back by the traffic
+    // (a detour, a yield)
+    const away = arrived(t) && !!u.task && (r.follow === 'sim' || yielding) && (r.inside || Traffic.end(a) - a.s > 0.3 || yielding);
     const now = this.state?.simTime ?? 0;
     if (!away) r.dueAt = null;
     else r.dueAt ??= now;
-    const due = r.dueAt !== null && now - r.dueAt >= 1 - 1e-6;
+    const grace = yielding ? YIELD_S + LAG_S : !r.inside && a.v > 0.3 ? LAG_S : 1;
+    const due = r.dueAt !== null && now - r.dueAt >= grace - 1e-6;
     if ((lag > LAG_S || due) && this.setDown(r, spot)) {
       r.dueAt = null;
       this.downLog.push(`${r.id}:${due ? 'due' : `lag${lag.toFixed(1)}`}@${Math.round(now)}`);
@@ -771,6 +774,64 @@ export class RoverFleet implements Driver {
       }
     }
     return false;
+  }
+
+  /** A detour: its slot by another road, round the cells a unit that is
+   *  not moving holds (the player's side roads work as one), if it is no
+   *  more than three times the way it had left (+40 m). */
+  reroute(a: Agent, avoid: ReadonlySet<number>): boolean {
+    const r = this.byId.get(a.id);
+    const s = this.state;
+    const spot = r?.spot;
+    if (!r || !s || !spot || r.inside || spot.inside) return false;
+    const map = roadMap(s);
+    const start = cellAt(r.x, r.z);
+    const goal: Cell = spot.via ?? [spot.gx, spot.gz];
+    const gk = cellKey(goal[0], goal[1]), sk = cellKey(start[0], start[1]);
+    const blocked = (gx: number, gz: number) => avoid.has(gz * 4096 + gx);
+    const from = new Map<number, number>([[sk, -1]]);
+    const q = [sk];
+    let found = false;
+    for (let i = 0; i < q.length && !found; i++) {
+      const [x, z] = [q[i] % 256, Math.floor(q[i] / 256)];
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nk = cellKey(x + dx, z + dz);
+        if (from.has(nk) || blocked(x + dx, z + dz)) continue;
+        const c = map.get(nk);
+        if (!c || !isOpen(c) || (c.bay && nk !== gk)) continue;
+        from.set(nk, q[i]);
+        if (nk === gk) { found = true; break; }
+        q.push(nk);
+      }
+    }
+    if (!found) return false;
+    const cells: Cell[] = [];
+    for (let k = gk; k !== -1; k = from.get(k)!) cells.push([k % 256, Math.floor(k / 256)]);
+    cells.reverse();
+    if (spot.via) cells.push([spot.gx, spot.gz]);
+    if ((cells.length - 1) * 4 > 3 * Math.max(0, Traffic.end(a) - a.s) + 40) return false;
+    const keep = this.traffic.taken(a, start[0], start[1]);
+    let pts = laneWay(cells, [r.x, r.z], [spot.x, spot.z], keep);
+    r.revUntil = -Infinity;
+    // it sets off at a turn from its heading, pulled up short of the one in its
+    // way: it backs up to its cell's centre first, where the turn on the spot
+    // needs no one else's cell
+    const [cx, cz] = cellCentre(start[0], start[1]);
+    const back = Math.hypot(cx - r.x, cz - r.z);
+    if (pts.length > 1 && back > 0.2) {
+      const turn = Math.abs(wrap(Math.atan2(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) - r.yaw));
+      const behind = Math.sin(r.yaw) * (cx - r.x) + Math.cos(r.yaw) * (cz - r.z) < 0;
+      if (turn > PIVOT && behind) {
+        pts = [[r.x, r.z], [cx, cz], ...laneWay(cells, [cx, cz], [spot.x, spot.z], keep).slice(1)];
+        r.revUntil = back;
+      }
+    }
+    this.traffic.setWay(a, pts);
+    r.turning = false;
+    // what is left of the sim's trip now maps onto the detour
+    r.s0 = 0;
+    this.match(r);
+    return true;
   }
 
   /** The last resort: back inside its dock (it rolls out again when the door is clear). */

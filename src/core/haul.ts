@@ -244,13 +244,21 @@ export function creditFeed(feed: FeedGrade, kind: FeedKind, amt: number) {
 const roomFor = (s: GameState, caps: Partial<Record<ResourceId, number>>, rid: ResourceId) =>
   caps[rid] === undefined ? Infinity : Math.max(0, caps[rid]! - s.resources[rid]);
 
-/** Waiting to unload: the stockpile has no room for the load (economy step 2
- *  stands it by, like a producer whose output is full — no power drawn). A
- *  load bigger than the whole store tips once the store is empty. */
+/** No room in the store for this load (a load bigger than the whole store tips once the store is empty). */
+function noRoom(s: GameState, h: HaulState, caps: Partial<Record<ResourceId, number>>): boolean {
+  const reg = h.cargo.regolith ?? 0;
+  return reg > 0 && roomFor(s, caps, 'regolith') < Math.min(reg, caps.regolith ?? Infinity);
+}
+
+/** Waiting to unload: the stockpile has no room for the load. It waits at
+ *  its dig spot with the bucket full — its pad, or its haul road's end —
+ *  never on the carriageway or at a consumer's stand, where it would hold
+ *  up everyone behind it (docs/15 §5). Economy step 2 stands it by, like a
+ *  producer whose output is full: no power drawn. */
 export function haulWaiting(s: GameState, b: BuildingState, caps: Partial<Record<ResourceId, number>>): boolean {
   const h = b.haul;
-  const reg = h?.phase === 'unload' ? h.cargo.regolith ?? 0 : 0;
-  return reg > 0 && roomFor(s, caps, 'regolith') < Math.min(reg, caps.regolith ?? Infinity);
+  if (!h) return false;
+  return h.phase === 'dig' && h.full === true && noRoom(s, h, caps);
 }
 
 /** Drive along the path for up to `t` seconds; returns the time left over on arrival. */
@@ -298,6 +306,7 @@ function startDig(s: GameState, b: BuildingState, h: HaulState) {
 }
 
 function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
+  delete h.full;
   const drop = dropFor(s, mods, h.x, h.z);
   h.phase = 'toDrop';
   h.t = 0;
@@ -336,7 +345,8 @@ export function haulTick(
       // no road to where it digs (cut, or not open yet): it waits and asks again
       if (h.noRoad) { startDig(s, b, h); if (h.noRoad) break; }
       t = drive(h, speed, t);
-      if (!h.path.length) { h.phase = 'dig'; h.t = 0; }
+      // back with a bucket it could not unload: it waits there, full
+      if (!h.path.length) { h.phase = 'dig'; h.t = h.full ? spec.digS : 0; }
       continue;
     }
     if (h.phase === 'toDrop') {
@@ -344,10 +354,21 @@ export function haulTick(
       const drop = s.buildings.find((x) => x.id === h.drop);
       if (!drop || !drop.enabled || h.noRoad) { startDrop(s, mods, b, h); if (h.noRoad) break; }
       t = drive(h, speed, t);
-      if (!h.path.length) { h.phase = 'unload'; h.t = 0; }
+      if (!h.path.length) {
+        // no room to tip it after all: back to wait at its dig spot, off the road
+        if (noRoom(s, h, caps)) { h.full = true; startDig(s, b, h); continue; }
+        h.phase = 'unload'; h.t = 0;
+      }
       continue;
     }
     if (h.phase === 'dig') {
+      // a full bucket waiting for room in the store: it sets off once there is
+      if (h.full) {
+        if (noRoom(s, h, caps)) break;
+        h.full = false;
+        startDrop(s, mods, b, h);
+        continue;
+      }
       if (h.t <= 0) {
         const over = digBlocked(s, b, h);
         if (over) {
@@ -369,16 +390,21 @@ export function haulTick(
       h.t += step;
       t -= step;
       out.dugS += step;
-      if (h.t >= spec.digS - 1e-9) startDrop(s, mods, b, h);
+      if (h.t >= spec.digS - 1e-9) {
+        // no room for it: it waits here, full, rather than at the consumer's stand
+        if (noRoom(s, h, caps)) { h.full = true; break; }
+        startDrop(s, mods, b, h);
+      }
       continue;
     }
-    // unload: tip the bucket, then back to the dig
+    // unload: tip the bucket, then back to the dig; the store full, back to
+    // its dig spot to wait there, off the road
+    if (noRoom(s, h, caps)) { h.full = true; startDig(s, b, h); continue; }
     const step = Math.min(t, spec.unloadS - h.t);
     h.t += step;
     t -= step;
     if (h.t < spec.unloadS - 1e-9) continue;
     const reg = h.cargo.regolith ?? 0;
-    if (haulWaiting(s, b, caps)) break; // waits for room (step 2 stands it by from the next tick)
     for (const [rid, amt] of Object.entries(h.cargo) as [ResourceId, number][]) {
       const add = Math.min(amt, roomFor(s, caps, rid));
       s.resources[rid] += add;

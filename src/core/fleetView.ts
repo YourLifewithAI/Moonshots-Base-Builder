@@ -152,7 +152,7 @@ export function fleetView(
     const n = (v: number) => Math.floor(v);
     const line = !b.enabled ? 'SHUT DOWN'
       : b.idleReason === 'power' ? `IDLE — no power · ${n(cargo)}/${n(bucket)}${G} aboard`
-      : waiting ? `WAITING TO UNLOAD — no room for ${n(cargo)}${G}; the regolith store is full`
+      : waiting ? `WAITING TO UNLOAD — no room for ${n(cargo)}${G}; the regolith store is full (it waits ${home ? 'on its pad' : 'at its dig'}, off the road)`
       : phase === 'dig' ? `DIGGING ${groundName(b.deposit)} · ${n(cargo)}/${n(bucket)}${G}`
       : phase === 'toDrop' ? `HAULING ${n(cargo)}${G} to ${drop ? label(drop) : 'a consumer'}`
       : phase === 'unload' ? `UNLOADING ${n(cargo)}${G} at ${drop ? label(drop) : 'a consumer'}`

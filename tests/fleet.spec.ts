@@ -516,7 +516,13 @@ test('saves keep the dig site and the cycle mid-haul; an old excavator digs its 
     g.advanceGameSeconds(0);
     g.finishRoads(); // its haul road open at once (docs/15)
     const h = () => g.getState().buildings.find((b: any) => b.id === id).haul;
-    const tick = () => { g.grantPower(100); g.advanceGameSeconds(1); };
+    // room in the store: a full one keeps a full bucket waiting at the dig (docs/15 §5)
+    const tick = () => {
+      g.grantPower(100);
+      const reg = g.getState().resources.regolith;
+      if (reg > 0) g.grantResources({ regolith: -reg });
+      g.advanceGameSeconds(1);
+    };
     // the bucket it had started goes home first; then a whole one at the new dig
     for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x + 2, h().z - 60) < 0.5); i++) tick();
     // into the haul: bucket full, on the road

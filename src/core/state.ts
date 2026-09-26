@@ -294,6 +294,9 @@ export interface HaulState {
   roadJob?: number;
   /** no road to where this leg goes (cut, or not open yet): it waits, asking each tick */
   noRoad?: boolean;
+  /** a full bucket and no room in the store: it waits at its dig spot (its pad, or its haul
+   *  road's end), off the carriageway, until there is (docs/15 §5) */
+  full?: boolean;
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
