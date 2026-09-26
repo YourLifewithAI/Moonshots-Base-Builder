@@ -346,7 +346,7 @@ export class WorkAnim {
   private tintOf(f: Finish): THREE.Color { return f === TRIM ? this.tint.trim : f === PLATE ? this.tint.plate : this.tint.body; }
 
   /** spoil clods: chunky for Classic's zooms, finer in High detail's close views */
-  private readonly clodScale = this.classic ? 1 : 0.65;
+  private readonly clodScale = this.classic ? 1 : 0.85;
 
   /** The particles (spoil clods, the print plume) are drawn: not in safe mode or ?lowfx. */
   get particles(): boolean { return !this.lowFx && !materials.safeMode; }
@@ -739,6 +739,8 @@ export class WorkAnim {
    *  nozzle), a halo, a warm pool on the ground at night, and the plume. */
   private spark(p: THREE.Vector3, fl: { k: number; s: number }, scale: number, night: number, sun: number, plume: boolean) {
     const k = fl.k;
+    // High detail's wider lens draws it smaller at the same framing: a bigger core there
+    scale *= this.classic ? 1 : 1.5;
     p = this.sp.copy(p);
     this.sc.subVectors(this.camP, p).normalize().multiplyScalar(0.35).add(p);
     // the arc: a hot core, a four-point glint that turns as it flickers, a halo
@@ -747,7 +749,8 @@ export class WorkAnim {
     this.streak(this.sc, 0.2 * scale, len, rot, 1.0, 0.78, 0.4, 0.8 * k * this.hot);
     this.streak(this.sc, 0.2 * scale, len * 0.7, rot + PI / 2, 1.0, 0.78, 0.4, 0.8 * k * this.hot);
     this.bill(this.sc, 3.4 * scale, 1.0, 0.5, 0.15, 0.34 * k * this.warm);
-    if (night > 0) this.ground(p.x, p.z, 0, 11 * scale, 11 * scale, 1.0, 0.6, 0.28, 0.65 * night * (0.8 + 0.2 * k) * this.warm);
+    const pool = this.classic ? 11 * scale : 11;
+    if (night > 0) this.ground(p.x, p.z, 0, pool, pool, 1.0, 0.6, 0.28, 0.65 * night * (0.8 + 0.2 * k) * this.warm);
     if (plume && this.particles) {
       const P = 1.8;
       const lit = 0.12 + 0.88 * sun;

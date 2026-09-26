@@ -673,10 +673,10 @@ recipe for `rigs.ts`, as boxes of the kit. The mast stays in the recipe.
 
 | | Classic | High detail |
 |---|---|---|
-| Spark core | bright unlit colour, scale pulse | HDR × 6: it blooms |
+| Spark | bright unlit colour, scale pulse | HDR × 6: it blooms; 1.5 × the size (the 55° lens draws it smaller at the same framing) |
 | Patches, beams, pools | as authored | × 1.8 |
 | Kit | the classic palette: orange arms and rims, grey buckets, soil clods | the same finishes, lit |
-| Clods | 0.22–0.42 m cubes | × 0.65 |
+| Clods | 0.22–0.42 m cubes | × 0.85 |
 
 Safe mode and `?lowfx`: the motion and the glow stay, the particles (clods,
 plume) drop. The dust emitters fly wherever dust is on.
@@ -833,7 +833,7 @@ can fail silently. It is the default; High detail stays in the menu.
 | Shadows | none — the shadow map is off; a soft contact decal grounds each footprint (§12.4) |
 | Tone mapping | none: the palette is authored as the colours you see, sRGB output |
 | Pixel ratio | ≤ 1.5 (a HiDPI laptop does not quadruple the fill) |
-| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant |
+| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant — but one line in the work glow's stock `MeshBasicMaterial` (§7.1: a slab's cover fades with its colour; no anchor, no line, it still compiles) |
 | FX ladder, stored level | untouched: classic never builds, reads, stores or steps a level, so it raises no "RENDER —" alert unless a frame genuinely fails to draw |
 | Black-frame check | still reads frames (by day, and at night: the classic night keeps open ground well off black); a black frame turns safe mode's unlit twins on, as in High detail |
 | Shader fault | the classic building program carries `MBB_CLASSIC`; if it fails to compile, every building, part and rover takes stock Lambert in the same palette (glow and print reveal go) with one alert |
