@@ -18,8 +18,9 @@
 import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from './state';
 import {
-  besideCells, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, serviceCell,
+  besideCells, cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, serviceCell, zoneStand,
 } from './roads';
+import { centerOf } from '../buildings/instances';
 import { FIELD_TYPES, ROAD } from '../data/roads';
 import { unitKind } from './fleet';
 
@@ -45,6 +46,8 @@ export interface RoverSpot {
   via?: [number, number];
   /** lent to a survey: it leaves by the Lander's door (inside) */
   survey?: boolean;
+  /** off the road inside an extraction zone (a site there): reached from a gate (core/zones.ts) */
+  offroad?: boolean;
 }
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -185,6 +188,27 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     for (let i = 0; i < team.length && i < ROAD.bayCap; i++) if (!take(team[i], st, null, j.id)) break;
   }
 
+  /** a site inside an extraction zone: its crew off the road at its door
+   *  (a field's wall), two abreast facing it, reached from a gate */
+  const offRoad = (ids: number[], b: BuildingState, x: number, z: number): number[] => {
+    const [bx, bz] = centerOf(b);
+    const l = Math.hypot(bx - x, bz - z) || 1;
+    const ux = (bx - x) / l, uz = (bz - z) / l;
+    const [gx, gz] = cellAt(x, z);
+    const left = [...ids];
+    for (const side of [0, 1] as const) {
+      if (!left.length || taken.has(slotKey(gx, gz, side))) continue;
+      taken.add(slotKey(gx, gz, side));
+      const o = (side ? 1 : -1) * ROAD.lane;
+      const id = left.shift()!;
+      out.set(id, {
+        gx, gz, side, axis: 'x', x: x - uz * o, z: z + ux * o, face: Math.atan2(ux, uz), shuffle: [Math.abs(uz), Math.abs(ux)],
+        site: b.id, dock: dockOf.get(id)!.id, offroad: true,
+      });
+    }
+    return left;
+  };
+
   // sites: their crews at the frontier of their road, else at the door
   for (const b of s.buildings) {
     const all = crews.get(b.id);
@@ -192,6 +216,12 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     if (!team?.length) continue;
     const r = centreCell(b);
     let stands = b.spur?.length ? frontier(b.spur) : null;
+    // inside an extraction zone (core/zones.ts), its road done: off the road at its door
+    const zs = stands ? null : zoneStand(s, b);
+    if (zs?.gate) {
+      for (const id of offRoad(team, b, zs.x, zs.z)) push(parked, dockOf.get(id)!.id, id);
+      continue;
+    }
     if (!stands && FIELD_TYPES.has(b.type)) {
       const c = serviceCell(s, b);
       stands = c ? [c, ...neighbours(s, c)].map((x) => ({ c: x, dir: openingOf(s, x) ?? [0, 1], face: r })) : [];

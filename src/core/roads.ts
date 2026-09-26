@@ -13,8 +13,9 @@
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
 import { APRON, DOCK_TYPES, FIELD_TYPES, ROAD } from '../data/roads';
-import type { BuildingState, GameState, RoadCell, RoadJob } from './state';
+import type { BuildingState, GameState, RoadCell, RoadJob, ZoneState } from './state';
 import { footprintRect } from '../buildings/instances';
+import { rimOf, zoneCells, zoneOfCell } from './zones';
 
 export interface Heights { sample(x: number, z: number): number }
 type Cell = [number, number];
@@ -219,12 +220,15 @@ const MAX_EXPAND = 40000;
 /** A* on cells: from `sources` (cost 0) to any of `targets`. New cells cost 1
  *  plus the height step; closed road cells (being sintered) 0.5; open road
  *  free (it is a source anyway). Footprints, bays and steps steeper than
- *  ROAD.maxStep are walls. Returns the cells after the source, in order. */
+ *  ROAD.maxStep are walls. `sink`: a cost to add on reaching each target (a
+ *  zone's rim: the off-road drive on from it). Returns the cells after the
+ *  source, in order. */
 function search(
   s: GameState, hf: Heights, sources: number[], targets: Set<number>, blocked: Set<number>,
-  seed?: Map<number, number>,
+  seed?: Map<number, number>, sink?: Map<number, number>,
 ): number[] | null {
   if (!sources.length || !targets.size) return null;
+  if (sink) return sinkSearch(s, hf, sources, targets, blocked, sink);
   const map = roadMap(s);
   const tcells = [...targets].map(keyCell);
   const h = (k: number) => {
@@ -280,6 +284,221 @@ function search(
   const out: number[] = [];
   for (let k = found; from.get(k) !== -1; k = from.get(k)!) out.push(k);
   return out.reverse();
+}
+
+/** search() with a cost on reaching each target: the cheapest road to a
+ *  zone's rim plus the drive on from there (a virtual sink past the targets). */
+function sinkSearch(
+  s: GameState, hf: Heights, sources: number[], targets: Set<number>, blocked: Set<number>, sink: Map<number, number>,
+): number[] | null {
+  const map = roadMap(s);
+  const SINK = -2;
+  const tcells = [...targets].map(keyCell);
+  const h = (k: number) => {
+    if (k === SINK) return 0;
+    const [x, z] = keyCell(k);
+    let best = Infinity;
+    for (const [tx, tz] of tcells) best = Math.min(best, Math.abs(tx - x) + Math.abs(tz - z));
+    return best;
+  };
+  const height = new Map<number, number>();
+  const hAt = (k: number) => {
+    let v = height.get(k);
+    if (v === undefined) { const [x, z] = keyCell(k); v = hf.sample(...cellCentre(x, z)); height.set(k, v); }
+    return v;
+  };
+  const cost = new Map<number, number>();
+  const from = new Map<number, number>();
+  const done = new Set<number>();
+  const open = new Heap();
+  const reach = (k: number, g: number) => {
+    const t = sink.get(k);
+    if (t === undefined) return;
+    if (g + t < (cost.get(SINK) ?? Infinity)) { cost.set(SINK, g + t); from.set(SINK, k); open.push(g + t, SINK); }
+  };
+  for (const k of [...sources].sort((a, b) => a - b)) {
+    cost.set(k, 0);
+    from.set(k, -1);
+    open.push(h(k), k);
+    if (targets.has(k)) reach(k, 0);
+  }
+  let n = 0;
+  while (open.size && n++ < MAX_EXPAND) {
+    const k = open.pop();
+    if (done.has(k)) continue;
+    done.add(k);
+    if (k === SINK) break;
+    if (targets.has(k)) reach(k, cost.get(k)!);
+    const [x, z] = keyCell(k);
+    for (const [dx, dz] of N4) {
+      const nx = x + dx, nz = z + dz;
+      if (!inMap(nx, nz)) continue;
+      const nk = cellKey(nx, nz);
+      if (done.has(nk) || blocked.has(nk)) continue;
+      const road = map.get(nk);
+      if (road?.bay || road?.closed) continue;
+      const step = Math.abs(hAt(nk) - hAt(k));
+      if (step > ROAD.maxStep) continue;
+      const c = cost.get(k)! + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step;
+      if (c < (cost.get(nk) ?? Infinity)) {
+        cost.set(nk, c);
+        from.set(nk, k);
+        open.push(c + h(nk), nk);
+      }
+    }
+  }
+  if (!done.has(SINK)) return null;
+  const out: number[] = [];
+  for (let k = from.get(SINK)!; from.get(k) !== -1; k = from.get(k)!) out.push(k);
+  return out.reverse();
+}
+
+// ───────────────────────────── zones (core/zones.ts) ─────────────────────────────
+
+/** m of off-road drive from a zone's rim cell to a point, in road cells' time */
+const offCost = (k: number, x: number, z: number) => {
+  const [cx, cz] = cellCentre(...keyCell(k));
+  return Math.hypot(cx - x, cz - z) / CELL_M / ROAD.offroad;
+};
+
+/** Where an auto road into zone `zone` may stop, for a drive on to (x, z):
+ *  its rim's free cells, each with that drive's cost. */
+function rimTargets(s: GameState, zone: ZoneState, blocked: Set<number>, x: number, z: number): Map<number, number> {
+  const map = roadMap(s);
+  const out = new Map<number, number>();
+  for (const k of [...rimOf(s, zone).keys()].sort((a, b) => a - b)) {
+    const [gx, gz] = keyCell(k);
+    if (!inMap(gx, gz) || blocked.has(k) || map.get(k)?.bay || map.get(k)?.closed) continue;
+    out.set(k, offCost(k, x, z));
+  }
+  return out;
+}
+
+const gateMemo = new WeakMap<RoadCell[], { key: string; gates: Map<string, Cell[]> }>();
+
+/** A zone's gates: the open road cells on its rim (a road stops there; units
+ *  go on off-road). In cell-key order; memoised on the network and the zones. */
+export function gatesOf(s: GameState, zone: ZoneState): Cell[] {
+  const list = s.roads ?? [];
+  const key = `${s.roadRev ?? 0},${list.length}|${s.zones?.length ?? 0}`;
+  let m = gateMemo.get(list);
+  if (!m || m.key !== key) { m = { key, gates: new Map() }; gateMemo.set(list, m); }
+  let g = m.gates.get(zone.id);
+  if (!g) {
+    const map = roadMap(s);
+    g = [...rimOf(s, zone).keys()].sort((a, b) => a - b)
+      .filter((k) => { const c = map.get(k); return isOpen(c) && !c!.bay; }).map(keyCell);
+    m.gates.set(zone.id, g);
+  }
+  return g;
+}
+
+/** Is this cell a gate (an open road cell on a zone's rim)? */
+export function isGate(s: GameState, gx: number, gz: number): boolean {
+  const k = cellKey(gx, gz);
+  const cells = zoneCells(s);
+  if (cells.has(k)) return false;
+  for (const [dx, dz] of N4) {
+    const i = cells.get(cellKey(gx + dx, gz + dz));
+    if (i !== undefined && gatesOf(s, s.zones![i]).some(([x, z]) => x === gx && z === gz)) return true;
+  }
+  return false;
+}
+
+/** Off the road inside a zone? (a point whose cell is in a zone and is no open road) */
+export function offRoadAt(s: GameState, x: number, z: number): ZoneState | null {
+  const [gx, gz] = cellAt(x, z);
+  const zone = zoneOfCell(s, gx, gz);
+  if (!zone) return null;
+  const c = roadMap(s).get(cellKey(gx, gz));
+  return c && isOpen(c) ? null : zone;
+}
+
+export interface GroundWay {
+  /** the way, world metres: from a, by gates and road cell centres, to b */
+  pts: [number, number][];
+  /** each segment's time per metre against road (1 on road, 1 / ROAD.offroad off it); absent: all road */
+  w?: number[];
+}
+
+/** A ground unit's way from a to b (docs/15 §5a): off-road straight between
+ *  a point inside a zone and a gate of it (or straight across the zone, both
+ *  ends in it), the shortest open road between. An end on an open road cell
+ *  is on the road; one off it inside a zone (or given its zone) is reached
+ *  off-road from a gate. `aVia`, `bVia`: the road cell an end joins the road
+ *  by, through its centre (a pad's door). Null: no way. */
+export function groundWay(
+  s: GameState, a: [number, number], b: [number, number], aVia?: Cell | null, bVia?: Cell | null,
+  aZone?: ZoneState | null, bZone?: ZoneState | null,
+): GroundWay | null {
+  const za = aVia ? null : aZone ?? offRoadAt(s, a[0], a[1]);
+  const zb = bVia ? null : bZone ?? offRoadAt(s, b[0], b[1]);
+  const OFF = 1 / ROAD.offroad;
+  if (za && zb && za.id === zb.id) return { pts: [a, b], w: [OFF] };
+  // the road ends: each end's cell, or a gate of its zone (the pair the quickest way)
+  const ends = (p: [number, number], zone: ZoneState | null, via: Cell | null | undefined): Cell[] =>
+    zone ? gatesOf(s, zone) : [via ?? cellAt(p[0], p[1])];
+  const as = ends(a, za, aVia), bs = ends(b, zb, bVia);
+  if (!as.length || !bs.length) return null;
+  let best: { ga: Cell; gb: Cell; t: number } | null = null;
+  for (const gb of bs) {
+    const dist = roadDistances(s, gb);
+    const tb = zb ? Math.hypot(...sub(cellCentre(...gb), b)) * OFF : 0;
+    for (const ga of as) {
+      const n = ga[0] === gb[0] && ga[1] === gb[1] ? 0 : dist.get(cellKey(ga[0], ga[1]));
+      if (n === undefined) continue;
+      const t = (za ? Math.hypot(...sub(cellCentre(...ga), a)) * OFF : 0) + n * CELL_M + tb;
+      if (!best || t < best.t - 1e-9) best = { ga, gb, t };
+    }
+  }
+  if (!best) return null;
+  const cells = best.ga[0] === best.gb[0] && best.ga[1] === best.gb[1] ? [best.ga] : roadRoute(s, best.ga, best.gb);
+  if (!cells) return null;
+  const pts: [number, number][] = [a];
+  const w: number[] = [];
+  const push = (p: [number, number], wt: number) => {
+    const l = pts[pts.length - 1];
+    if (Math.hypot(p[0] - l[0], p[1] - l[1]) <= 1e-6) return;
+    pts.push(p); w.push(wt);
+  };
+  // off-road to the gate it leaves by; out by its via cell; or on along the road from the cell it stands in
+  if (za) push(cellCentre(...best.ga), OFF);
+  else if (aVia) push(cellCentre(...aVia), 1);
+  for (let i = 1; i < cells.length - 1; i++) push(cellCentre(...cells[i]), 1);
+  if (zb) { if (cells.length > 1) push(cellCentre(...best.gb), 1); push(b, OFF); }
+  else { if (bVia && cells.length > 1) push(cellCentre(...bVia), 1); push(b, 1); }
+  return za || zb ? { pts, w } : { pts };
+}
+const sub = (p: [number, number], q: [number, number]): [number, number] => [p[0] - q[0], p[1] - q[1]];
+
+/** Where a structure inside a zone is worked from (null: it is not in one):
+ *  its zone, the gate nearest it (null: no gate yet), and the off-road point
+ *  it is worked at — its door cell's centre, or off a field structure's wall
+ *  nearest that gate. */
+export function zoneStand(s: GameState, b: Placed): { zone: ZoneState; gate: Cell | null; x: number; z: number } | null {
+  const d = doorCell(b);
+  const r = footprintRect(b);
+  const [cgx, cgz] = d ?? [Math.floor((r.gx0 + r.gx1) / 2), Math.floor((r.gz0 + r.gz1) / 2)];
+  const zone = zoneOfCell(s, cgx, cgz);
+  if (!zone) return null;
+  const gates = gatesOf(s, zone);
+  let [px, pz] = cellCentre(cgx, cgz);
+  let gate: Cell | null = null, bd = Infinity;
+  for (const g of gates) {
+    const [gx, gz] = cellCentre(...g);
+    const dd = Math.hypot(gx - px, gz - pz);
+    if (dd < bd - 1e-9) { bd = dd; gate = g; }
+  }
+  if (!d && gate) {
+    // a field structure: the point off its wall nearest the gate
+    const [gx, gz] = cellCentre(...gate);
+    const x0 = r.gx0 * CELL_M - MAP_M / 2, x1 = r.gx1 * CELL_M - MAP_M / 2;
+    const z0 = r.gz0 * CELL_M - MAP_M / 2, z1 = r.gz1 * CELL_M - MAP_M / 2;
+    const cx = Math.max(x0, Math.min(x1, gx)), cz = Math.max(z0, Math.min(z1, gz));
+    const ux = gx - cx, uz = gz - cz, l = Math.hypot(ux, uz) || 1;
+    [px, pz] = [cx + (ux / l) * 2, cz + (uz / l) * 2];
+  }
+  return { zone, gate, x: px, z: pz };
 }
 
 /** The open network a new road may start from: not a bay, not the closed
@@ -394,10 +613,22 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const map = roadMap(s);
   const blocked = occupied(s, b);
   const doors = doorKeys(s, b);
-  // a new road runs through no one's door
+  // a new road runs through no one's door, and never inside an extraction zone (core/zones.ts)
   for (const k of doors) blocked.add(k);
+  for (const k of zoneCells(s).keys()) if (!map.has(k)) blocked.add(k);
   const sources = openSources(s, doors);
   let targets: number[];
+  // inside a zone: its road stops at the zone's rim, the drive on off-road
+  const inZone = zoneStand(s, b);
+  if (inZone) {
+    if (FIELD_TYPES.has(b.type) && inZone.gate) return { cells: [], fresh: [], bays: [], reason: '' };
+    const sink = rimTargets(s, inZone.zone, blocked, inZone.x, inZone.z);
+    if (!sink.size) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — no ground on the rim of its zone for a road to stop at' };
+    const path = search(s, hf, sources, new Set(sink.keys()), blocked, undefined, sink);
+    if (!path) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — no road can reach the rim of its zone (walled in, or too steep)' };
+    const cells = path.filter((k) => !isOpen(map.get(k)));
+    return { cells, fresh: cells.filter((k) => !map.has(k)), bays: [], reason: '' };
+  }
   if (FIELD_TYPES.has(b.type)) {
     if (fieldReached(s, b)) return { cells: [], fresh: [], bays: [], reason: '' };
     targets = ringCells(b).filter(([x, z]) => inMap(x, z) && !blocked.has(cellKey(x, z)) && !map.get(cellKey(x, z))?.closed).map(([x, z]) => cellKey(x, z));
@@ -616,7 +847,11 @@ export function sinter(s: GameState, cells: readonly number[], amount: number): 
 
 export interface LinkPlan { cells: number[]; fresh: number[]; reason: string }
 
-/** A road from road cell `a` to cell `b` (the road tool, a haul road). */
+/** A road from road cell `a` to cell `b`: the road tool's (`a` given: the
+ *  player may draw it anywhere, into a zone too), or an auto road from the
+ *  network (`a` null: a haul road) — which never runs inside an extraction
+ *  zone and, for a `b` inside one, stops at the zone's rim (the dig is
+ *  reached off-road from there; core/zones.ts). */
 export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell): LinkPlan {
   if (!hasRoads(s)) return { cells: [], fresh: [], reason: 'NO ROADS ON THIS BASE' };
   const map = roadMap(s);
@@ -626,6 +861,17 @@ export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell): Li
   if (!inMap(b[0], b[1])) return { cells: [], fresh: [], reason: 'OUTSIDE THE SURVEY AREA' };
   if (doors.has(bk) || map.get(bk)?.closed) return { cells: [], fresh: [], reason: 'AT A DOOR — a door is the end of its own road; end beside it' };
   if (blocked.has(bk)) return { cells: [], fresh: [], reason: 'UNDER A STRUCTURE — end the road on open ground' };
+  const zone = a ? null : zoneOfCell(s, b[0], b[1]);
+  if (!a) for (const k of zoneCells(s).keys()) if (!map.has(k)) blocked.add(k);
+  if (zone) {
+    for (const k of doors) blocked.add(k);
+    const [bx, bz] = cellCentre(b[0], b[1]);
+    const sink = rimTargets(s, zone, blocked, bx, bz);
+    const path = sink.size ? search(s, hf, openSources(s, doors), new Set(sink.keys()), blocked, undefined, sink) : null;
+    if (!path) return { cells: [], fresh: [], reason: 'NO ROAD ROUTE — no road can reach the rim of its zone (walled in, or too steep)' };
+    const cells = path.filter((k) => !isOpen(map.get(k)));
+    return { cells, fresh: cells.filter((k) => !map.has(k)), reason: '' };
+  }
   let sources: number[];
   if (a) {
     const ak = cellKey(a[0], a[1]);

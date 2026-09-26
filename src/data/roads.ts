@@ -15,6 +15,8 @@ export const ROAD = {
   lane: 1,
   /** parking slots a bay cell holds */
   bayCap: 2,
+  /** inside an extraction zone units drive off-road (core/zones.ts): this share of road speed */
+  offroad: 0.5,
 };
 
 /** A construction rover on the road (docs/15 §6): the sim times every trip

@@ -23,7 +23,7 @@ import type { BuildingState, GameState, RoverTrip, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { DRONE, isDrone, roverDown, surveyRover, whereIs } from './fleet';
 import { groundSpots, type RoverSpot } from './spots';
-import { cellAt, cellCentre, cellKey, doorCell, frontierOf, hasRoads, roadDistances, roadRoute, spurLeft } from './roads';
+import { cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, roadDistances, spurLeft } from './roads';
 import { centerOf } from '../buildings/instances';
 
 type Pt = [number, number];
@@ -61,6 +61,35 @@ export function pathLen(pts: readonly Pt[]): number {
   return l;
 }
 
+/** The point `u` time-equivalent metres along a polyline whose segments
+ *  weigh `w` each (an off-road metre counts 1 / ROAD.offroad; no `w`: all 1). */
+export function pointOnW(pts: readonly Pt[], w: readonly number[] | undefined, u: number): Pt {
+  if (!w) return pointOn(pts, u);
+  return pointOn(pts, actualAt(pts, w, u));
+}
+
+/** Real metres along the polyline at `u` time-equivalent metres. */
+export function actualAt(pts: readonly Pt[], w: readonly number[] | undefined, u: number): number {
+  if (!w) return u;
+  let left = Math.max(0, u), m = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const l = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    const e = l * (w[i - 1] ?? 1);
+    if (left <= e) return m + (e > 1e-9 ? (left / e) * l : l);
+    left -= e;
+    m += l;
+  }
+  return m;
+}
+
+/** Time-equivalent length: each segment's metres × its weight. */
+export function weighedLen(pts: readonly Pt[], w: readonly number[] | undefined): number {
+  if (!w) return pathLen(pts);
+  let l = 0;
+  for (let i = 1; i < pts.length; i++) l += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]) * (w[i - 1] ?? 1);
+  return l;
+}
+
 /** The point `u` m along a polyline (clamped to its ends). */
 export function pointOn(pts: readonly Pt[], u: number): Pt {
   if (!pts.length) return [0, 0];
@@ -90,7 +119,16 @@ export const tripLeft = (t: RoverTrip | null | undefined): number =>
   !t || t.stuck ? Infinity : Math.max(0, t.dur - t.t);
 /** Where the trip has it `ahead` s from now (the visuals' tick fraction). */
 export function tripPoint(t: RoverTrip, ahead = 0): Pt {
-  return pointOn(t.pts, travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a));
+  return pointOnW(t.pts, t.w, travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a));
+}
+
+/** How far along its way (real metres, a share of the whole) the trip has it `ahead` s from now. */
+export function tripShare(t: RoverTrip, ahead = 0): number {
+  if (t.len <= 1e-6) return 1;
+  const u = travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a);
+  if (!t.w) return u / t.len;
+  const all = pathLen(t.pts);
+  return all > 1e-6 ? actualAt(t.pts, t.w, u) / all : 1;
 }
 
 // ───────────────────────────── goals ─────────────────────────────
@@ -107,6 +145,8 @@ export interface Goal {
   /** the slot, world metres */
   x: number;
   z: number;
+  /** off the road, inside an extraction zone: reached from a gate (core/zones.ts) */
+  off?: boolean;
 }
 
 const isSiteB = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -133,7 +173,7 @@ export function spotGoal(s: GameState, spot: RoverSpot): Goal {
   }
   const tgt = spot.site ?? spot.road ?? spot.dock;
   return {
-    key: `${kind}:${tgt}@${ck}${spot.inside ? 'i' : ''}`, kind, cell, x, z,
+    key: `${kind}:${tgt}@${ck}${spot.inside ? 'i' : ''}${spot.offroad ? 'o' : ''}`, kind, cell, x, z, ...(spot.offroad ? { off: true } : {}),
     ...(spot.site !== null ? { site: spot.site } : {}), ...(spot.road !== undefined ? { job: spot.road } : {}),
   };
 }
@@ -205,37 +245,37 @@ export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
 // ───────────────────────────── trips ─────────────────────────────
 
 /** The way from (x, z) to a goal: the road route's cell centres, then the
- *  slot (straight for a drone, or a base with no roads). Null: no road there. */
-function wayTo(s: GameState, x: number, z: number, g: Goal): Pt[] | null {
-  const pts: Pt[] = [[x, z]];
-  if (!g.cell || !hasRoads(s)) { pts.push([g.x, g.z]); return pts; }
-  const at = cellAt(x, z);
-  const cells = at[0] === g.cell[0] && at[1] === g.cell[1] ? [at] : roadRoute(s, at, g.cell);
-  if (!cells) return null;
-  for (let i = 1; i < cells.length - 1; i++) pts.push(cellCentre(cells[i][0], cells[i][1]));
-  pts.push([g.x, g.z]);
+ *  slot (straight for a drone, or a base with no roads); off-road inside a
+ *  zone to and from its gate (core/roads.ts groundWay). Null: no road there. */
+function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: number[] } | null {
+  if (!g.cell || !hasRoads(s)) return { pts: [[x, z], [g.x, g.z]] };
+  // a slot on a road cell is reached by it; an off-road one (inside a zone) by a gate
+  const way = groundWay(s, [x, z], [g.x, g.z]);
+  if (!way) return null;
   // drop points it already stands on
-  const out: Pt[] = [pts[0]];
-  for (let i = 1; i < pts.length; i++) {
-    const l = out[out.length - 1];
-    if (Math.hypot(pts[i][0] - l[0], pts[i][1] - l[1]) > 1e-6) out.push(pts[i]);
+  const pts: Pt[] = [way.pts[0]];
+  const w: number[] = [];
+  for (let i = 1; i < way.pts.length; i++) {
+    const l = pts[pts.length - 1];
+    if (Math.hypot(way.pts[i][0] - l[0], way.pts[i][1] - l[1]) > 1e-6) { pts.push(way.pts[i]); w.push(way.w?.[i - 1] ?? 1); }
   }
-  return out;
+  return way.w ? { pts, w } : { pts };
 }
 
 /** A new trip for `r` from where it stands (a rover, a drone). */
 export function planTrip(s: GameState, r: RoverUnit, g: Goal, v: number, a: number, local = false): RoverTrip {
   const x = r.x ?? g.x, z = r.z ?? g.z;
-  const pts = wayTo(s, x, z, g);
+  const way = wayTo(s, x, z, g);
   const base = {
     goal: g.key, kind: g.kind, ...(g.site !== undefined ? { site: g.site } : {}), ...(g.job !== undefined ? { job: g.job } : {}),
     cell: g.cell ? cellKey(g.cell[0], g.cell[1]) : -1, v, a, t: 0, ...(local ? { local: true } : {}),
   };
-  if (!pts) return { ...base, pts: [[x, z]], len: 0, dur: 0, stuck: true };
-  const len = pathLen(pts);
+  if (!way) return { ...base, pts: [[x, z]], len: 0, dur: 0, stuck: true };
+  // off-road metres count 1 / ROAD.offroad: the trip is timed as that much road
+  const len = weighedLen(way.pts, way.w);
   const dur = TRANSIT.instant ? 0 : travelTime(len, v, a);
   if (TRANSIT.instant) { r.x = g.x; r.z = g.z; }
-  return { ...base, pts, len, dur };
+  return { ...base, pts: way.pts, ...(way.w ? { w: way.w } : {}), len, dur };
 }
 
 /** A trip already over: it stands at its goal. */

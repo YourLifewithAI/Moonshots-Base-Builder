@@ -253,7 +253,10 @@ export interface RoverTrip {
   cell: number;
   /** the way, world metres: where it set off, then road cell centres, then its slot */
   pts: [number, number][];
-  /** m of way, cruise m/s, acceleration m/s² */
+  /** off-road inside a zone (core/zones.ts): each segment's time per metre
+   *  against road (1 on road, 1 / ROAD.offroad off it); absent: all road */
+  w?: number[];
+  /** m of way (time-equivalent: an off-road metre counts 1 / ROAD.offroad), cruise m/s, acceleration m/s² */
   len: number;
   v: number;
   a: number;
@@ -264,6 +267,13 @@ export interface RoverTrip {
   local?: boolean;
   /** no road there: it waits where it is and asks again each tick */
   stuck?: boolean;
+}
+
+/** An extraction zone (core/zones.ts): a revealed deposit's circle, world metres. */
+export interface ZoneState {
+  id: string;
+  kind: DepositKind;
+  cx: number; cz: number; r: number;
 }
 
 /** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
@@ -290,6 +300,9 @@ export interface HaulState {
   pad?: DepositKind;
   /** the whole leg being driven, from where it began (the visuals follow it; absent in old saves) */
   route?: [number, number][];
+  /** off-road inside a zone: each waypoint's segment's time per metre against road (1 road, 2 off-road
+   *  at ROAD.offroad 0.5), matching path; absent: all road */
+  w?: number[];
   /** Dig at…: the haul road job it waits on (it digs its pad until the road opens) */
   roadJob?: number;
   /** no road to where this leg goes (cut, or not open yet): it waits, asking each tick */
@@ -542,6 +555,10 @@ export interface GameState {
   /** 1: rovers travel in the sim (core/transit.ts); older saves settle each
    *  rover at its work on load */
   fleetSchema?: number;
+  /** the extraction zones the player sees (core/zones.ts): the revealed
+   *  deposits but the peaks of light, kept by the game from the heightfield.
+   *  Auto roads stop at their rim; units drive off-road inside */
+  zones?: ZoneState[];
   /** the road network (core/roads.ts): cells in laying order, the jobs free
    *  rovers sinter, and a revision bumped whenever a cell opens, is laid or
    *  goes (routes are cached on it). roadSchema 1: roads exist (older saves
