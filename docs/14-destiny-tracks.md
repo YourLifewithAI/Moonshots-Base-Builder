@@ -1228,7 +1228,8 @@ this section and §4 disagree, this one describes the code.
 
 - **Parts** (`src/buildings/destinyParts.ts`, appended to `upgrades.ts`):
   every one of the 16 track techs and 3 capstones adds a part to each type
-  its visual line names — 39 parts in all (docs/04 lists them). ≤ 600 △ a part.
+  its visual line names — 36 parts, plus 3 on the Monolith for Data Center
+  techs (docs/04 lists them). ≤ 600 △ a part.
 - **Four recipes** (`recipes.ts`): Greenhouse Ring 1,764 △, Garden Dome
   2,156, Drone Hive 1,536, Server Monolith 516; each with its own upgrade list.
 - **Links** (`buildings/links.ts`): walkways and conveyor spines, with one
