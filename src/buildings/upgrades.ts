@@ -354,7 +354,8 @@ const excavator: Upgrade[] = [
     ],
   },
   { tech: 'conditionOptimization', parts: () => [sensorMast(1.7, 1.6, -1.2, 1.3)] },
-  { // wider bucket lips round the wheel and a haul-road lidar bar on the cab
+  { // a haul-road lidar bar on the cab; the wider bucket lips round the
+    // wheel turn with it (rigs.ts diggerWheel)
     tech: 'autonomousHaulage',
     parts: () => {
       const out: Parts = [
@@ -363,10 +364,6 @@ const excavator: Upgrade[] = [
       ];
       for (const z of [-0.95, -0.4, 0.15]) out.push(cyl(0.08, 0.08, 0.12, GLASS, -0.15, 2.78, z, 0, PI / 2, 8));
       out.push(box(0.12, 0.05, 0.03, LAMP, -0.15, 2.9, -0.4));
-      for (let k = 0; k < 8; k++) {
-        const a = (k / 8) * PI * 2 + PI / 8;
-        out.push(box(0.26, 0.12, 0.72, PLATE, 2.9 + Math.cos(a) * 1.36, 1.45 + Math.sin(a) * 1.36, 0.7, 0, a));
-      }
       return out;
     },
   },

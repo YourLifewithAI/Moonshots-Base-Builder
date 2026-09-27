@@ -524,8 +524,8 @@ roads (docs/15) in the right-hand lane — 4.5 m/s cruise on a sintered road,
 faster with each roadway tier, 3 m/s², 2.4 rad/s turn limit — backing out of
 its bay first and turning on the spot where its way sets off away from its
 heading. It works at its site's door (or at the frontier of the road it
-sinters): a slow shuffle along the road, a 2 cm bob, a small yaw wobble —
-and drives home to park when the work is done. The ground traffic
+sinters), and the work shows (§7.1) — and drives home to park when the work
+is done. The ground traffic
 (`world/traffic.ts`) shares the road cells out, so rovers queue, pass in
 opposite lanes and give way to excavators. The chassis sits on the
 heightfield, pitched and rolled to the ground under its wheels. Motion runs
@@ -556,7 +556,7 @@ camera first:
 | Source | When | Kick (m/s) |
 |---|---|---|
 | Rover wheels | driving > 0.6 m/s | 1.3 back (× speed), 0.9–2.3 up, ±0.7 |
-| Rover print head | working a site | 0.4 ahead, 0.5–1.7 up, ±0.9 |
+| Rover print head | welding a site: under the nozzle (§7.1) | 0.4 ahead, 0.7–2.2 up, ±1.1 |
 | Excavator bucket wheel | the excavator is running | 0.9 forward, 1.3–2.4 up, ±0.9, from 0.3 m |
 | Resupply landing sheet | engine below 28 m (six slots) | radial 5–17.5, only 0.2–2.6 up: flat and fast, as in the Apollo descent films |
 
@@ -589,6 +589,122 @@ is a pure function of `simTime − arriveAt`, so saves, pauses and time jumps
 all land on the right frame. The pad is picked beside the Lander toward
 Earth: the first spot 36–90 m out that is 7 m clear of every footprint and
 level to 1.2 m.
+
+### 7.1 Work (`world/workAnim.ts`, `buildings/rigs.ts`)
+
+> "There's also no animation for the excavators or the rovers when they're
+> working."
+
+Every machine at work shows what it does. The motion and the light are sized
+for Classic's isometric zooms (170 and 290 m), not for a close-up.
+
+| Unit | At work | Otherwise |
+|---|---|---|
+| Rover welding a site | The print arm unfolds off the nose (1.2 s) and reaches 1.6–2 m out over the site. It sweeps ±0.5 rad (3.4 s), telescopes ±0.3 m (5.3 s) and bobs the nozzle. A spark at the nozzle; a warm pool at night; a regolith plume. The old shuffle, bob and wobble stay. | The arm folds back over the nose as it leaves. |
+| Rover sintering a road cell | The arm points down at the nose. A hot spot under the head, a strip cooling behind it. Stopped at the frontier, it crawls toward it (0.4 m/s, ≤ 1.2 m) and eases back as it drives on. The frontier cell glows orange as it fills; a cell that opens cools to dull red over ~8 s. | — |
+| Drone printing | Its hover and circle, a spark under the nozzle, a beam down to the print, a spark and pool where it lands. On a road job: an orange beam to the frontier, the cell glowing. | Perched: nothing. |
+| Excavator digging, home or away | The wheel turns 1.3 rad/s (a bucket every 0.6 s). The boom dips 0.05–0.13 rad into the cut and rises again (6.5 s). Spoil clods fly off the wheel's face. | Driving: the wheel still, the boom carried 0.09 rad up. |
+| Excavator unloading | A 3.2 s dump: the boom lifts 0.3 rad and falls back, the wheel turns back, clods spill off its face. | — |
+
+**The spark.** A hot core with a scale pulse, a four-point glint that turns as
+it flickers, a halo. It flickers 17 steps a second and stutters on 7% of them.
+Classic has no bloom: the core is a bright unlit colour and the pulse does the
+work. High detail's core is HDR (× 6): it blooms.
+
+**Weld or sinter: the sim's word.** The sim says what each unit does at its
+stand (core/transit.ts, `RoverUnit.task`: set in the tick it welds or
+sinters, and only then). The visuals carry it on the unit:
+
+| Where | Field | Set when |
+|---|---|---|
+| `rovers.ts` `Rover.mode` | `'weld' \| 'sinter' \| null` | it stands at its stand, stopped, following the sim, and the sim has it at work |
+| `DroneFlight` `Drone.mode` | the same | it hovers over its work, and the sim has it at work |
+
+- Both reach the animations through the hooks (`roverBody`, `droneAt`) and
+  win over `WorkAnim.modeOf`. They are also `getRenderInfo().life.rovers.modes`
+  and `.drones.modes`.
+- `modeOf` (`workModeOf`) is the fallback for a unit without a mode: its
+  site's `idleReason` (`'road'` sinter, `'building'` weld, else none), or an
+  open road job (sinter).
+- No task, no work: a site waiting on power, parts or its turn, a rover on its
+  way — arm folded, no spark.
+- A rover sinters only while it stands behind the frontier, then drives on to
+  the next cell. Its arm stays down through that hop (2.5 s), and the crawl
+  eases back while it drives.
+
+**Excavators** read the haul state (core/haul.ts):
+
+| Haul | Drawn |
+|---|---|
+| `dig`, running, stopped | digging: the wheel turns, the boom dips, spoil |
+| `dig` with `full` (no room in the store: it waits at its dig spot) | still: no dig, no spoil |
+| `toDig`, `toDrop` (by road, or off-road inside a zone) | driving: the wheel still, the boom high |
+| `unload`, stopped at the unload cell | the dump |
+
+**Two meshes for all of it.**
+
+| Mesh | Holds | Material |
+|---|---|---|
+| Kit | one unit box, ≤ 4,096 instances: rover arms (3 boxes each), excavator rigs (23; 31 with Autonomous Haulage), spoil clods (≤ 10 a digger) | the building material, both styles, safe-mode twin included; tinted per instance (trim, plate, soil), dimmed with a brownout, worn with the structure |
+| Glow | one quad, ≤ 1,024 instances: sparks, glints, halos, pools, beams, sinter patches, plume puffs | unlit; light added over what it covers: `src + dst · (1 − a)` |
+
+- The glow's quad is two quads wound opposite ways. One carries a radial glow
+  that only adds (sparks, pools, puffs). The other carries a soft slab that
+  also covers what is under it (sinter patches, beams), so a patch reads
+  orange on a sunlit road, not just paler. Its cover fades with its colour.
+  A mirrored instance turns one quad away and the other to the camera: one
+  draw call carries both.
+- Each mesh draws only while it holds something, and uploads only the part in
+  use.
+- Nothing is allocated per frame. Nothing is random: every motion is a
+  function of the game clock and each unit's id. Pause freezes it; 3× and 10×
+  run it at game speed.
+- Moving parts cast no shadow-map shadow (as the rovers).
+
+**The excavator's rig.** The boom, its stay and the bucket wheel left the
+recipe for `rigs.ts`, as boxes of the kit. The mast stays in the recipe.
+
+- On its pad the building instance still draws the body (its shadow, floods,
+  decal), and the rig stands on the pad's pose. Away, `haulers.ts` reports
+  the digger's pose and the rig rides it.
+- On a site the rig stands once the print passes its top (3.6 m).
+- The rest pose is merged into the placement ghost and counted in the
+  triangle budget (docs/04). Autonomous Haulage's wider bucket lips turn with
+  the wheel.
+
+**Hooks in the units** (kept small; the logic lives in `workAnim.ts`):
+
+| Where | Hook |
+|---|---|
+| `rovers.ts` draw | `roverOffset` (the weld's shuffle, the sinter's crawl) before a rover is composed; `roverBody` after |
+| `DroneFlight.draw` | `droneAt` per drone |
+| `haulers.ts` draw | `diggerAt` per digger away from its pad |
+| `life.ts` | `begin` before the units draw, `end` after; a fault drops the hooks and the units draw as before |
+
+**Styles and fallbacks.**
+
+| | Classic | High detail |
+|---|---|---|
+| Spark | bright unlit colour, scale pulse | HDR × 6: it blooms; 1.5 × the size (the 55° lens draws it smaller at the same framing) |
+| Patches, beams, pools | as authored | × 1.8 |
+| Kit | the classic palette: orange arms and rims, grey buckets, soil clods | the same finishes, lit |
+| Clods | 0.22–0.42 m cubes | × 0.85 |
+
+Safe mode and `?lowfx`: the motion and the glow stay, the particles (clods,
+plume) drop. The dust emitters fly wherever dust is on.
+
+**Cost** (measured). A busy Automation base on robotic mare (3 excavators
+digging, a rover welding, 2 drones printing, 2 drone hives, a Robotics Bay),
+Classic at 290 m and High detail at the look.spec view, `getRenderInfo().frame`;
+main = the same scene on d51e543:
+
+| | Draw calls | Triangles | Kit / glow instances | CPU (`end()`) |
+|---|---|---|---|---|
+| Classic | 45 → 47 | 176.2 k → 176.6 k | 141 / 19 | 0.09 ms |
+| High detail FX 0 | 136 → 138 | 351.7 k → 351.0 k | 141 / 19 | 0.10 ms |
+
+`tests/anim.spec.ts` holds the cost at ≤ 2 draw calls and < 30 k △ (the
+meshes hidden against shown) on a busy base, in both styles.
 
 ---
 
@@ -672,12 +788,12 @@ direction, not an afterthought:
 
 | Budget | Target | Shipped reality |
 |---|---|---|
-| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply); the destiny adds ≤ 4 building types and ≤ 6 layer meshes, each only while it exists (walkways, spines; walkers and their decals; drones and theirs) |
-| Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 436 each; drones ~200, walkers ~100; links ≤ 12 k |
+| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply); the destiny adds ≤ 4 building types and ≤ 6 layer meshes, each only while it exists (walkways, spines; walkers and their decals; drones and theirs); the work animations add ≤ 2 (the kit, the glow: §7.1), each only while it holds something |
+| Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 380 each (+ 36 of print arm in the work kit); an excavator's rig 276 (372 with the wider lips); drones ~200, walkers ~100; links ≤ 12 k |
 | Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
 | Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock path |
 | Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
-| Per-frame CPU | small and flat | ≤ 64 rover matrices, ≤ 48 drone and ≤ 24 walker matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; paths planned only on (re)assignment; berms and links rebuilt only on change (a numeric signature) |
+| Per-frame CPU | small and flat | ≤ 64 rover matrices, ≤ 48 drone and ≤ 24 walker matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; the work kit's and glow's matrices in use (only that part uploaded: ~0.1 ms for 160 on a busy base); paths planned only on (re)assignment; berms and links rebuilt only on change (a numeric signature) |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
 | Assets | 0 bytes binary | all procedural; fonts are system stacks (07) |
 
@@ -695,9 +811,9 @@ Designed during research, deliberately cut from the slice (sequencing in
 2. **Blue-noise dither upgrade** — the shipped grain is white-noise
    `NoiseEffect`; a tiled blue-noise texture would dither gradients with less
    visible crawl at the same 0.14 opacity.
-3. **Rover tracks and a turning bucket wheel** — wheel ruts in the ring
-   buffer the bootprints use, and the excavator's wheel as a moving part
-   (trackers.ts); the dust already says where both happen.
+3. **Rover tracks** — wheel ruts in the ring buffer the bootprints use; the
+   dust already says where they drive. (The turning bucket wheel shipped
+   with the work animations, §7.1.)
 4. **Moving casters in the shadow map** — rovers and a descending lander
    would need a second, small shadow map (or per-frame re-renders of the one
    we have); the contact decal carries it for now.
@@ -729,7 +845,7 @@ can fail silently. It is the default; High detail stays in the menu.
 | Shadows | none — the shadow map is off; a soft contact decal grounds each footprint (§12.4) |
 | Tone mapping | none: the palette is authored as the colours you see, sRGB output |
 | Pixel ratio | ≤ 1.5 (a HiDPI laptop does not quadruple the fill) |
-| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant |
+| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant — but one line in the work glow's stock `MeshBasicMaterial` (§7.1: a slab's cover fades with its colour; no anchor, no line, it still compiles) |
 | FX ladder, stored level | untouched: classic never builds, reads, stores or steps a level, so it raises no "RENDER —" alert unless a frame genuinely fails to draw |
 | Black-frame check | still reads frames (by day, and at night: the classic night keeps open ground well off black); a black frame turns safe mode's unlit twins on, as in High detail |
 | Shader fault | the classic building program carries `MBB_CLASSIC`; if it fails to compile, every building, part and rover takes stock Lambert in the same palette (glow and print reveal go) with one alert |

@@ -204,7 +204,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
-| Regolith Excavator | 1,044 | 2,036 | 8 |
+| Regolith Excavator | 1,060 | 2,052 | 8 |
 | Ice Harvester | 1,288 | 1,680 | 3 |
 | Regolith Smelter | 1,204 | 2,492 | 9 |
 | Silicon Refinery | 2,348 | 3,272 | 6 |
@@ -287,7 +287,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
 | Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
-| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 240 |
+| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 144 + 96 ↻ |
 | Feed Planner | 5 | Excavators carry an assay drill beside the bucket. | 72 |
 
 #### Ice Harvester

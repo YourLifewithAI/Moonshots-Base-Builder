@@ -27,6 +27,7 @@ import { materials } from './materials';
 import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
 import { Traffic, WHOLE, pointAt, type Agent, type Driver } from './traffic';
+import type { WorkAnim } from './workAnim';
 
 const MAX = 48;
 const TURN = 2.2;          // rad/s: tracks turn on the spot
@@ -102,6 +103,9 @@ export class Haulers implements Driver {
   onAway?: (ids: ReadonlySet<number>) => void;
   /** how dark a structure stands (buildings/darkness.ts): its lights follow it out */
   darkOf?: (id: number) => number;
+  /** the work animations (life.ts sets them): the boom and bucket wheel on
+   *  each digger drawn here (world/workAnim.ts; on its pad it draws them itself) */
+  work: WorkAnim | null = null;
   /** the recipe's upgrade key the mesh was built with (the same parts as the pad's) */
   private key = '';
   /** the sim clock at the last frame: time the visuals missed is caught up, or jumped */
@@ -449,6 +453,7 @@ export class Haulers implements Driver {
       this.bz.crossVectors(this.bx, this.by).normalize();
       this.m.makeBasis(this.bx, this.by, this.bz).setPosition(v.x, y, v.z);
       this.mesh.setMatrixAt(i, this.m);
+      this.work?.diggerAt(v.id, this.m, v.v);
       this.q.setFromAxisAngle(this.by.set(0, 1, 0), v.yaw);
       this.m.compose(this.p.set(v.x, hf.sample(v.x, v.z) + 0.05, v.z), this.q, this.sc.set(9, 1, 5.2));
       this.decals.setMatrixAt(i, this.m);
