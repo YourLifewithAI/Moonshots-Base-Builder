@@ -804,15 +804,15 @@ T3  CYCLE        ▁▂▃▅▆▇█▇ now ▲ · maximum in 1.8 lunar days �
 
 | Protection | From | What it does in a flare | Con |
 |---|---|---|---|
-| **Regolith Shielding** (changed) | E2 ⌂ | σ 0.5 on every bermed structure (§4.1). A machine in a bermed dock is sheltered (σ 1): docs/17's "shielded hub". | unchanged: wear heals ×0.5 |
+| **Regolith Shielding** (changed) | E2 ⌂ | σ 0.5 on every bermed structure (§4.1). **Field berms:** stowed arrays fold behind a low berm (σ 0.5). A machine in a bermed dock is sheltered (σ 1): docs/17's "shielded hub". | unchanged: wear heals ×0.5 |
 | **Water-Wall Shielding** (new) | E4 ⌂ | σ 0.85 on Habitats, pressurized halls, Labs, Data Centers, Monoliths, Chip Fabs and hubs: a water jacket fed by the Water Management Plant. Bag-wall kits become water-wall domes. | +10% upkeep: Habitat Module, Research Lab |
 | **Storm shelters** (the ⌂ guard, changed) | Settler Charter, E6 ⌂ pick | today's: EVA recalls itself on the warning, doses ×0.5. New: the crew indoors σ 1, and flare morale ×0.5. | the pick's own |
 | **Rad-Hard Process** (the doctrine, changed) | E4 ▣ | today's bit flips ×0.5. New: latch-ups and burn-outs ×0.5; chip yield loss, compute errors and rad scars ×0.5. | unchanged: Data Center −15% |
-| **Fault-Tolerant Avionics** (new) | E4 ◉ | Machines: reboot odds and times ×0.5. An X's latch-ups and burn-outs become 60 s reboots. Bit flips ×0.5. | +10% draw: Robotics Bay, Drone Hive |
-| **Rad-Hard Cells** (new) | E5 ⚡ | Cell loss ×0.4: an M costs 0.4%, an X 1.2%. | −5% output: Solar Array |
-| **The Shield Coil** (new building) | Mini-Magnetosphere, E6 ◎ breakthrough (§8.4) | σ 1 within 45 m while powered: arrays generate with no loss. | 40 kW through every flare |
+| **Fault-Tolerant Avionics** (new) | E4 ◉ | Machines: reboot odds and times ×0.5. An X's latch-ups and burn-outs become 60 s reboots. Bit flips and machine rad scars ×0.5. | +10% draw: Robotics Bay, Drone Hive |
+| **Rad-Hard Cells** (new) | E5 ⚡ | Every array flare damage ×0.4: running, an X destroys 20% (not 50%) and an M 6%; scars ×0.4; stowed damage ×0.4. With field berms it is the "proper shielding" for stowed arrays (§4.3). | −5% output: Solar Array |
+| **The Shield Coil** (new building) | Mini-Magnetosphere, E6 ◎ breakthrough (§8.4) | σ 1 within 45 m while powered: arrays run with no damage and are never stowed by a share. | 40 kW through every flare |
 | **Laser Ranging** (changed) | E7 ◎ | The comms blackout ×0.5. | unchanged: −1.5 kW Lander |
-| **Maintenance Automation** (changed) | E7 ▣ | Also replaces arrays under 85% cells and compute scarred −8% or worse. | unchanged |
+| **Maintenance Automation** (changed) | E7 ▣ | Replaces any building or unit under 75% capability (50–95%), one at a time (§4.14). | unchanged |
 
 ### 7.2 Temporary: deployable domes
 
@@ -850,7 +850,8 @@ packs it away after.
 | **A pit's floor** (docs/17 §8) | a water-wall dome; a bag wall at the ramp's foot | **a shelter in the pit**: its units park inside on the recall instead of driving home |
 | A zone's gate, or open ground off the road | either | a shelter point: machines within 90 s drive in on the recall |
 | Where EVA crews work | a water-wall dome within 60 m | their walk-in takes 10 s, not 20 |
-| **Not arrays** | — | a dome would shade them: stow instead |
+| **Stowed arrays**, a field or part of one | either | the stow's σ (§4.3): a water dome over a stowed field leaves it near undamaged |
+| **Not running arrays** | — | a dome would shade them |
 | Not roads or pads | — | it would block traffic and launches |
 
 ### 7.3 Targeting
@@ -862,7 +863,8 @@ cost them (§4) and gives each its buttons:
 SHELTER   KITS 3 · 11 uses (2 bag walls, 1 water dome)                  [Deploy top 3]
  Habitat #7     4 aboard · σ 0.5 · an X: 1 sick ½ day, morale −6      [Bag wall] [Dome]
  Pit P2 (◆ #0)  2 units, 1:10 from home · an X: ~1 lost, 1 bricked     [Dome]
- Data Center #12 σ 0 · an X: rad scar −4%                              [Bag wall] [Dome]
+ Data Center #12 σ 0 · an X: rad scar −5%                              [Bag wall] [Dome]
+ Field F2       8 arrays, stowed · an X: −20% each, 16⚙ to repair       [Dome]
 ```
 
 - **The Dome tool:** [Dome] or [Bag wall] with no target picks a spot. The ghost is a
@@ -877,19 +879,23 @@ SHELTER   KITS 3 · 11 uses (2 bag walls, 1 water dome)                  [Deploy
 
 ### 7.4 Protocols
 
-Before research, each protocol is a button on the telegraph alert, pressed flare by
-flare. **Flare Protocols** (E3 ▣) sets them by class, once:
+Before research, the arrays' choice is the pop-up's (§5), and it can be remembered by
+class from landing. The other protocols are one-flare buttons in the pop-up. **Flare
+Protocols** (E3 ▣) lets the remembered choice cover every row, adds the tail, and shows
+them all as a grid:
 
 ```
 PROTOCOLS              C          M            X             the tail
-Arrays                 generate   stow         stow          generate
+Arrays                 run all    all but the  all but the   stay stowed
+                                  critical     critical
+                                  feed         feed
 Machines               work       recall       recall        stay docked
 Research               run        checkpoint   checkpoint    (held)
-Chip Fabs · compute    run        run          shut down     (held)
+Shut down exposed      run        run          shut down     (held)
 Domes                  —          —            deploy        (held)
 ```
 
-(the defaults shown; each cell is a toggle)
+(the defaults shown; each cell is a toggle; the arrays row takes any pop-up choice)
 
 - **Recall** (Machines): every machine whose trip home fits in the time left goes home;
   the rest go to the nearest dome or shelter point in reach, else keep working. The alert
@@ -907,7 +913,8 @@ Domes                  —          —            deploy        (held)
 
 | Rule or behaviour | Family · unlocked by | Does | Default |
 |---|---|---|---|
-| `flareStance` | power · Automated Power (E4 ⚡) with Flare Protocols | §5.4: stow or generate each field by break-even | on |
+| `flareStance` | power · Automated Power (E4 ⚡) | §5.5: stow M and X but the critical feed, run through C; queues repairs; rebuilds wrecks | on |
+| Replacement | maintenance · Maintenance Automation (E7 ▣) | replaces buildings and units under 75% capability (§4.14) | on with the tech |
 | `domeKits` | fabrication · Automated Fabrication (E6 ◉) | `KEEP ≥ T dome uses` (T 8, 0–40): a Parts Fabricator prints a kit when uses fall below | on once Deployable Shelters is done |
 | Shelter planning | Predictive Scheduling (E6 ▣), with T1 or better | at a forecast window's opening: domes to the top targets, the bank topped up, fab shutdowns lined up; with T3, the next three flares | on with the tech |
 
@@ -965,7 +972,7 @@ survey finds which is fixed by the host table, so it is deterministic.
 
 | id | Footprint | Cost | Build | Power | Upkeep | Priority | Radius | Does |
 |---|---|---|---|---|---|---|---|---|
-| `shieldCoil` | 3×3, a field structure | 80◆ 20▣ 30⚙ | 180 s | −1 kW idle · **−40 kW from the telegraph's last 20 s to the flare's end** | 3⚙ a lunar day | 0 | 45 m | σ 1 within its radius: arrays generate with no cell loss; crew, labs, compute and machines are sheltered |
+| `shieldCoil` | 3×3, a field structure | 80◆ 20▣ 30⚙ | 180 s | −1 kW idle · **−40 kW from the telegraph's last 20 s to the flare's end** | 3⚙ a lunar day | 0 | 45 m | σ 1 within its radius: arrays run with no damage; crew, labs, compute and machines are sheltered and never scar |
 
 - **In a brownout the field drops**, and everything inside goes back to its own σ.
   Overlapping coils add nothing.
@@ -1002,7 +1009,7 @@ survey finds which is fixed by the host table, so it is deterministic.
 |---|---|---|
 | Heliophysics Forecasting | −40% | a lab operates through an M-class flare |
 | Fault-Tolerant Avionics | −30% | a machine reboots in a flare |
-| Rad-Hard Cells | −30% | a field generates through three flares |
+| Rad-Hard Cells | −30% | a flare destroys or scars an array |
 
 ## 9. Destiny interplay
 
@@ -1056,10 +1063,10 @@ Its recall line still counts to 20 s before the protons (`walkInS`).
 | Rule | How flares keep it |
 |---|---|
 | 1 · Announced | Every flare is telegraphed: 60 s, 120 s for an X, and the spot-group watch half a day before an X. Research only adds warning. |
-| 2 · Target, cost and counter named | The alert names what is exposed and its buttons: `5 machines out · 3 crew in unshielded homes · 8 fields generating · [Recall machines] [Checkpoint]`. |
+| 2 · Target, cost and counter named | The alert names what is exposed and its buttons: `5 machines out · 3 crew in unshielded homes · 24 arrays: your choice · [Recall machines] [Checkpoint]`. |
 | 3 · Deterministic | Times, classes, CMEs and every machine's draw are seeded. Forecasts never lie (§6.2). |
 | 4 · Near miss | A flare that finds nothing exposed says so: `☉ M PASSED — everything was docked, stowed or shielded`. |
-| 5 · Losses only from an unanswered warning | Permanent damage needs a real X and a 120 s warning unanswered. The cells are lost only on arrays the player set to generate. |
+| 5 · Losses only from an unanswered warning | Permanent damage falls only on what was left unshielded and unprepared: scars on hardware nobody docked, shut down or shielded; arrays the player chose to keep running. The unanswered default stows the arrays. |
 | 6 · A free counter | Recall machines, Recall EVA, Stow arrays, Checkpoint and Shut down cost nothing. |
 | 7 · Pressure matches commitment | The destiny layer scales by tier, as today. The common layer scales by class, the same for everyone. |
 | 8 · Drills | The first flare is a C drill; the first X is a drill in its permanent parts; the first DOSE and bit flips are drills as today. The first M is announced with a card; its costs are temporary anyway. |
@@ -1096,20 +1103,25 @@ Panel key `weather` in `#hud-left`, 360 px wide, built like the Hazards panel. A
 
 ```
 SPACE WEATHER                           activity ▮▮▯ ACTIVE · rising · T1 forecast   ✕
-NOW   quiet · the last: M, day 7 (2 reboots, −14≡)
+NOW   quiet · the last: M, day 7 (stowed 18, 1 destroyed, 2 reboots, −14≡)
 NEXT  C–M in 0:40–1:30  ▕░░░░████████░░░░░▏  Solar Observatory #14 (blind at dusk 2:10)
 
 EXPOSURE
- Arrays     8 fields · 240 kW generating · cells 96% on average · stance: by class
+ Arrays     24 in 6 fields · 240 kW · critical feed 60 kW · M choice: all but the feed
  Crew       12 · 4 in unshielded homes · 2 on EVA
  Machines   14 · 5 out · the longest trip home 1:10 (E2, Pit P2)
  Research   Rover Autonomy 62% · 2 labs unshielded
- Fabs       2 Chip Fabs · 3 compute (σ 0.5)
+ Buildings  9 unshielded with a scar at stake · 3 compute (σ 0.5)
  Comms      a resupply lands in 1:20: held if the blackout comes
 
+AFTER THE LAST FLARE
+ WRECKS 1 (F3)           [Rebuild 12◆]   [Clear +3◆]
+ REPAIRS 18 queued       18⚙ · rover #4 on F1 (2 of 8)
+ SCARRED 2 under 85%     Smelter #3 84% · rover #9 83%     [Replace worst]
+
 ACTIONS (for the next flare)
- ✓ [Recall machines · 5 · 0:40]   ✓ [Checkpoint research]   [Stow arrays · −240 kW 0:55]
-   [Keep generating · cells −1%]    [Deploy domes · 3 kits]    [Shut down fabs · −0.3▣/s]
+ [Arrays: choose now…]   ✓ [Recall machines · 5 · 0:40]   ✓ [Checkpoint research]
+ [Deploy domes · 3 kits]    [Shut down exposed · 9]
 
 ▸ PROTOCOLS   (§7.4)
 ▸ SHELTER     KITS 3 · 11 uses   (§7.3)
@@ -1117,31 +1129,82 @@ TIMELINE  ▕day░░░░░░night▒▒▒▒day░░░░░░░░�
 ▸ LOG     the last 8 flares
 ```
 
-- **✓ marks the recommended actions:** those whose §4 cost exceeds their own, by the
-  §5.1 break-even and the exposure. Each button shows its cost.
+- **Arrays: choose now…** opens the pop-up ahead of the flare, from a forecast (T1 or
+  better). The choice waits for the telegraph.
+- **✓ marks the recommended actions:** those whose §4 cost exceeds their own. Each button
+  shows its cost.
 - **EXPOSURE is live.** Each line opens its resource panel or selects its target.
-- **LOG:** `M · day 7 · stowed 0:55 · 2 rovers rebooted · −14≡ Rover Autonomy (3%) · F1
-  generated: cells −1%`.
+- **LOG:** `M · day 7 · stowed 18, ran 6 on the feed · 1 destroyed · 18 repaired (18⚙) ·
+  2 rovers rebooted · −14≡ Rover Autonomy (3%) · 9 buildings scarred −0.4%`.
 
-### 10.3 Alerts
+### 10.3 The flare pop-up
+
+It opens at the telegraph and is where the arrays are decided (§5.2). At 1280×720 it is a
+640 × 300 px card, top centre under the swarm meter, 12 px mono:
+
+```
+┌ ☉ FLARE INBOUND — class M–X (a range: firm in 0:18) ─────────────── protons in 0:58 ┐
+│ 24 arrays in 6 fields · 240 kW · the bank carries the base 1:16 · critical feed 60 kW │
+│                                                                                        │
+│ ○ Keep all running   full power · an X: 12 destroyed (144◆) · 12 scarred −6.5%         │
+│ ○ Stow all           −240 kW for 3:10 · the bank runs dry at 1:52: Habitat #4 dark ⚠   │
+│                      −20% on all 24, repaired for 48⚙                                  │
+│ ● Stow a portion  [25%] [50%] [75%] [All but the feed]   ▕━━━━━━━━━━━━━━●━━▏ 75%       │
+│                      stows F1, F2, F4 and 3 of F3 (18) · runs F3 (6, 60 kW)            │
+│                      an X: 3 destroyed (36◆) · 18 repaired for 36⚙                     │
+│ [✓] Repair stowed arrays after the flare     [ ] Use this choice for future X flares  │
+│ ALSO  [Recall machines 5]  [Checkpoint research]  [Shut down exposed 9]  [Domes 2]    │
+│ Unanswered in 0:58: the safe default (stow all but the critical feed)     [Confirm]   │
+└────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **One choice, then Confirm** (or Enter). The slider takes ← and → in 5% steps. Previews
+  update as the slider moves.
+- **After Confirm** it folds into the flare's alert with the result (§10.4), and the
+  arrays fold in the world.
+- **Compact form:** with a remembered choice, or the Builder deciding, it opens as one
+  line and does not pause: `☉ M FLARE in 0:58 · your M choice: stow all but the feed
+  (18 of 24) · [Change]`. [Change] opens the full card.
+- **A C** opens the compact form unless the player has never answered one.
+- Monochrome: the chosen option is inverted; ⚠ marks a choice that darkens life support;
+  the destroyed count is bold.
+
+**On touch** (docs/07 §13.3) the pop-up takes the top of the screen, as a discovery card
+does: 563 px wide between the rails on a 667×375 screen, 262 px tall.
+
+```
+☉ FLARE M–X · protons in 0:58                    24 arrays · 240 kW · feed 60 kW
+[ Keep all ][ 25% ][ 50% ][ 75% ][ All but feed ][ Stow all ]      ← 6 × 44 px
+stows F1, F2, F4 and 3 of F3 · an X: 3 destroyed (36◆) · 18 repaired for 36⚙
+[✓ Repair after]                        [ Remember for X ]            ← 44 px
+[Recall 5] [Checkpoint] [Shut down 9] [Domes 2]  ›                   ← scrolls
+Unanswered: the safe default                               [ Confirm ]
+```
+
+- The options are one segmented row of six 44 px buttons; the slider is under a `Fine…`
+  toggle.
+- The ALSO chips scroll sideways. Every control is 44 px or more; no text under 11 px.
+- Nothing needs hover.
+
+### 10.4 Alerts
 
 | When | Alert | Kind |
 |---|---|---|
 | The spot-group watch | `☉ BIG SPOT GROUP — an X-class flare is possible within ½ day · [Space weather]` | condition · warn |
-| A C telegraph | `☉ C FLARE — protons in 0:58 · arrays generate (cells −0.25%) · [Stow arrays]` | condition · info |
-| An M telegraph | `☉ M FLARE — protons in 0:58 · 5 machines out · 8 fields stowing · Rover Autonomy exposed · [Recall machines] [Checkpoint] [Keep generating]` | condition · warn |
-| An X telegraph | `☉ X FLARE — protons in 1:58, then a proton storm · ⚠ destroys: 5 machines out, Data Center #12 unshielded · [Recall machines] [Shut down] [Deploy domes] [Checkpoint]` | condition · **crit** |
-| Active | `☉ M FLARE — 0:30 · 8 fields stowed (−240 kW) · comms dark` | condition · warn (crit for X) |
-| Passed | `☉ M PASSED — 2 rovers rebooted, −14≡ of Rover Autonomy, F1's cells −1% · the next in ~1.6 lunar days` | event · info |
+| A telegraph | **the flare pop-up** (§10.3); its compact form is the condition | condition · info (C) · warn (M) · **crit** (X, `⚠ destroys`) |
+| After the choice | `☉ M FLARE — protons in 0:41 · STOWED 18 (F1, F2, F4, 3 of F3) · RUNNING 6, 60 kW · the bank covers the rest ✓ · [Change]` | condition, as above |
+| Active | `☉ M FLARE — 0:30 · 18 stowed (−180 kW) · comms dark` | condition · warn (crit for X) |
+| Passed | `☉ M PASSED — 1 array destroyed [Rebuild 12◆] · 18 repairs queued (18⚙) · 2 rovers rebooted · −14≡ of Rover Autonomy · 9 buildings scarred −0.4% · the next in ~1.6 lunar days` | event · info (warn with a wreck) |
 | A near miss | `☉ M PASSED — everything was docked, stowed or shielded` | event · info |
+| Capability | `CAPABILITY — Smelter #3 is down to 84% from rad scars · [Replace 20◆ 5⚙]` (once, crossing 85%) | event · warn |
 | A loss | `ROVER LOST — #14 burned out in the X flare · warned 2:00 before; it was not docked` | event · crit |
 
 - At most four buttons on an alert; the rest are in the panel.
 - The first flare of each class opens its card (it pauses, as discovery cards do).
-- The menu gains **Pause on X-class flares**, on by default, beside docs/14's hazard
-  settings.
+- The menu gains **Pause on flare warnings** (M and X · all · off; default M and X),
+  beside docs/14's hazard settings.
 
-### 10.4 The timeline
+### 10.5 The timeline
 
 - Two lunar days wide at T1, one at T0 (only today's bulletin), three at T3.
 - Day and night as bands; night hatched.
@@ -1149,22 +1212,23 @@ TIMELINE  ▕day░░░░░░night▒▒▒▒day░░░░░░░░�
   CMEs and sail windows are brackets. A now line. Past flares fade out over half a day.
 - At T3 the cycle curve runs along its top, with the maximum marked.
 
-### 10.5 Monochrome
+### 10.6 Monochrome
 
 State is shape and value, never hue (docs/06, docs/07 §3): open, half and solid squares
 for the classes; hatch for the tail; dashes for a watch; inversion for crit; the
 activity as a bar gauge. Nothing in the panel needs colour to be read.
 
-### 10.6 Inspector lines
+### 10.7 Inspector lines
 
 | On | Line |
 |---|---|
-| A Solar Array | `FIELD F3 · 12 arrays · 120 kW · CELLS 91% · stance: follow base (stow) ▾ · [Apply to field]` |
-| Any structure | `FLARE SHIELD σ 0.5 (berms) · [Bag wall] [Dome]` · `RAD SCAR −4% · X flare, day 11` |
-| A machine | `σ 0 in the open · last flare: rebooted 0:40` |
+| A Solar Array | `FIELD F3 · 12 arrays · 120 kW · CAPABILITY 97% · stowed damage −5% [Repair 12⚙] · override: follow the flare choice ▾` |
+| A wreck | `✕ WRECK — destroyed in the X flare, day 11 · [Rebuild 12◆] [Clear +3◆]` |
+| Any structure | `FLARE SHIELD σ 0.5 (berms) · [Bag wall] [Dome]` · `CAPABILITY 86% · rad scars from 7 flares · [Replace 20◆ 5⚙ · pays back in 3:10]` |
+| A machine | `σ 0 in the open · last flare: rebooted 0:40 · CAPABILITY 93% · [Re-print 5◆ 8⚙]` |
 | A pit (docs/17) | `STORM-CHARGED ×2.5≈ 0:42` · `SHELTER: a water dome on the floor` |
 
-### 10.7 Touch (docs/07 §13)
+### 10.8 Touch (docs/07 §13)
 
 - The chip sits in the top bar after the clock, 44 px tall. A tap opens the Space Weather
   **side sheet**.
@@ -1172,8 +1236,9 @@ activity as a bar gauge. Nothing in the panel needs colour to be read.
   already takes 312 of 331).
 - Alert buttons are 44 px. The protocol grid's cells are 44 px toggles: five rows by
   four columns, 176 × 220 px with labels, in a 300 px sheet.
-- The Dome tool uses the bottom bar. A hold on an array shows its field card with the
-  stance.
+- The Dome tool uses the bottom bar. A hold on an array shows its field card with its
+  override and damage.
+- The flare pop-up's touch layout is §10.3.
 - Nothing needs hover.
 
 ## 11. Look and audio
