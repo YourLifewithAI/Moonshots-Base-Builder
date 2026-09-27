@@ -479,7 +479,8 @@ export function mountHud(root: HTMLElement, game: Game) {
     if (m) { e.stopPropagation(); game.select(Number(m.dataset.id)); }
   });
 
-  // ── AUTO tags over the Builder's pending sites (click selects) ──
+  // ── tags over construction sites (click selects): AUTO over the Builder's,
+  // and EN ROUTE 0:24 while a site's rover drives there (core/transit.ts) ──
   const autoLayer = el('div', '');
   root.prepend(autoLayer); // under every panel: a marker never covers the HUD
   const autoEls = new Map<number, HTMLElement>();
@@ -487,21 +488,26 @@ export function mountHud(root: HTMLElement, game: Game) {
     const live = new Set<number>();
     for (const m of ms) {
       live.add(m.id);
+      const auto = m.auto ?? true;
       let d = autoEls.get(m.id);
+      if (d && d.classList.contains('auto-mark') !== auto) { d.remove(); d = undefined; }
       if (!d) {
-        d = el('div', 'auto-mark interactive', 'AUTO');
+        d = el('div', `${auto ? 'auto-mark' : 'site-mark'} interactive`, '');
         d.dataset.id = String(m.id);
-        d.title = 'Placed by the Builder — click to inspect (Cancel ↩ refunds it in full)';
+        d.title = auto ? 'Placed by the Builder — click to inspect (Cancel ↩ refunds it in full)'
+          : 'Its rover is on its way — click to inspect';
         autoEls.set(m.id, d);
         autoLayer.appendChild(d);
       }
+      const text = auto ? (m.text ? `AUTO · ${m.text}` : 'AUTO') : m.text ?? '';
+      if (d.textContent !== text) d.textContent = text;
       d.style.left = `${m.x}px`;
       d.style.top = `${m.y}px`;
     }
     for (const [id, d] of autoEls) if (!live.has(id)) { d.remove(); autoEls.delete(id); }
   });
   autoLayer.addEventListener('click', (e) => {
-    const m = (e.target as HTMLElement).closest<HTMLElement>('.auto-mark[data-id]');
+    const m = (e.target as HTMLElement).closest<HTMLElement>('.auto-mark[data-id], .site-mark[data-id]');
     if (m) { e.stopPropagation(); game.select(Number(m.dataset.id)); }
   });
 

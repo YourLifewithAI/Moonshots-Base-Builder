@@ -22,7 +22,7 @@ import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
 import { litChannel } from '../buildings/buildingShader';
 import { pathLength } from '../core/paths';
-import { cellAt, roadRoute, routePoints } from '../core/roads';
+import { cellAt, groundWay, roadRoute, routePoints } from '../core/roads';
 import { materials } from './materials';
 import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
@@ -172,8 +172,10 @@ export class Haulers implements Driver {
       const pad = centerOf(b);
       const padYaw = -b.rot * PI / 2;
       const driving = (h.phase === 'toDig' || h.phase === 'toDrop') && h.path.length > 0 && b.active;
+      // the sim's pace on the segment it drives: off-road inside a zone slower (core/haul.ts)
+      const legV = speed / (h.w?.[0] ?? 1);
       // how much of the leg the sim has left, advanced by the tick fraction
-      const rem = Math.max(0, pathLength(h.x, h.z, h.path) - (driving ? speed * clamp(frac, 0, 1) : 0));
+      const rem = Math.max(0, pathLength(h.x, h.z, h.path) - (driving ? legV * clamp(frac, 0, 1) : 0));
       let v = this.all.get(b.id);
       if (!v) {
         v = {
@@ -225,7 +227,7 @@ export class Haulers implements Driver {
         }
         this.traffic?.place(a);
       }
-      v.simV = driving && !yielding ? speed : 0;
+      v.simV = driving && !yielding ? legV : 0;
       v.pace = pace;
       v.pad = pad;
       v.padYaw = padYaw;
@@ -276,10 +278,12 @@ export class Haulers implements Driver {
       }
     }
     if (!joined && this.state) {
-      const cells = roadRoute(this.state, cellAt(v.x, v.z), cellAt(lx, lz));
+      // to where the leg begins: by road, off-road inside a zone (core/roads.ts groundWay)
+      const gw = groundWay(this.state, [v.x, v.z], [lx, lz]);
+      const cells = gw ? null : roadRoute(this.state, cellAt(v.x, v.z), cellAt(lx, lz));
       // no road from here to the leg (cut, or not open yet): it waits where it is
-      if (!cells) { v.leg = ''; return; }
-      head.push(...routePoints(cells).slice(1));
+      if (!gw && !cells) { v.leg = ''; return; }
+      head.push(...(gw ? gw.pts.slice(1, -1) : routePoints(cells!).slice(1)));
     }
     const way: [number, number][] = [];
     for (const p of [...head, [lx, lz] as [number, number], ...leg.slice(1)]) {

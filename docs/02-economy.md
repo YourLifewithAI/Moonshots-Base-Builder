@@ -105,6 +105,10 @@ unload (4 s) → back to the dig
   free rovers open it, the excavator keeps digging its pad. A leg's time is
   its road route over the haul speed × the roadway tier (Basalt Paving,
   Guidance Beacons, Guideway Rails, Maglev Freight Lines).
+- **Off-road inside an extraction zone** (docs/15 §5a). A dig inside a
+  deposit's zone gets a haul road only to the zone's rim (a gate); from
+  there it drives over the regolith at half speed. A leg's time is road
+  metres / road speed + off-road metres / (road speed × 0.5).
 - **Credited on unload.** Regolith (and the Solar-Wind Volatiles water trickle)
   lands in the stockpile when the bucket tips, not per second. The smoothed net
   rate the HUD shows counts each cycle's *average* delivery instead of the lumps.
@@ -122,28 +126,39 @@ unload (4 s) → back to the dig
   richer feed; a smelter needs 2▲/s, so a rich remote pit wants two diggers.
   Autonomous Haulage (Era 5) drives ×1.3 and fills a ×1.25 bucket, which pays
   most on the long hauls.
-- **Standby.** Short of room for its load, a digger waits at the consumer
-  (STANDBY — output full, no power). Its power draw is as before, while the
-  cycle runs.
+- **Standby.** Short of room for its load, a digger waits with the bucket
+  full at its dig spot — its pad, or the end of its haul road — never on the
+  road or at the consumer, where it would hold up the traffic (WAITING TO
+  UNLOAD, no power). It sets off when there is room. Its power draw is as
+  before, while the cycle runs.
 
 ## The construction fleet — rovers as units
 
 Construction rovers are units the sim knows (`core/fleet.ts`, economy step 0):
-`s.rovers = { id, home, site, pinned }[]`, one per dock slot (the Lander 2,
-each Robotics Bay 2 ± its `botPerBay` techs). `s.bots` stays derived for the
-HUD, surveys and milestones.
+`s.rovers = { id, home, site, pinned, x, z, trip }[]`, one per dock slot (the
+Lander 2, each Robotics Bay 2 ± its `botPerBay` techs). `s.bots` stays
+derived for the HUD, surveys and milestones.
 
 - **Auto** rovers take the construction queue one site each, in queue order
-  (placement order unless *Build next*), exactly as before.
-- **Pinned** rovers add to a site: *Summon* (at the site) pins the nearest free
-  rover, or else one from the site with the most; *Send to…* (a selected rover)
-  pins that one. The crew already there is pinned with it, so the auto layer
-  never hands it back down the queue. A pin lasts until the site completes;
-  *Release* unpins one.
-- **Rate:** n rovers build n^0.85 times as fast as one (2 → ×1.80,
+  (placement order unless *Build next*). Each site takes the free rover
+  soonest there by road from where it is now.
+- **Pinned** rovers add to a site: *Summon* (at the site) pins the free
+  rover nearest by road, or else one from the site with the most; *Send
+  to…* (a selected rover) pins that one. The crew already there is pinned
+  with it, so the auto layer never hands it back down the queue. A pin
+  lasts until the site completes; *Release* unpins one.
+- **Travel** (`core/transit.ts`, docs/15 §6a). A rover drives to its site
+  first: its road route at 4.5 m/s × the roadway tiers, L / v + v / a rest
+  to rest (a = 3 m/s²), a drone straight at 6 m/s. **A site draws power and
+  builds only with the rovers that have arrived**; until the first does it
+  reads `ROVER EN ROUTE — arrives in 0:24`. A site's road is sintered from
+  the network outward by the rover on the cell behind its frontier, which
+  steps on to each cell it opens.
+- **Rate:** n rovers there build n^0.85 times as fast as one (2 → ×1.80,
   3 → ×2.54, 4 → ×3.25), on top of the rate techs; each draws its own
   construction kW; a build's weld parts stay the same, drawn faster.
-- A survey borrows one unpinned rover — never a pinned one.
+- A survey borrows one unpinned rover — never a pinned one. It drives to
+  the Lander and leaves by its door; it comes back there.
 
 Every run can research capability on top of the doctrine fleet bonuses:
 **Rover Autonomy** (Era 4: +25% build rate per rover, construction draw ×1.3)

@@ -11,8 +11,9 @@ const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
 
 async function game(page: Page) {
   await page.waitForFunction(() => window.__game !== undefined);
-  // roads open as they are laid: these tests time the builds themselves (roads: avoidance.spec)
-  await page.evaluate(() => window.__game.openRoads(true));
+  // roads open as they are laid, and every rover's trip ends as it starts: these
+  // tests time the builds themselves (roads: avoidance.spec; the drive: transit.spec)
+  await page.evaluate(() => { window.__game.openRoads(true); window.__game.instantTravel(true); });
 }
 
 test.describe.configure({ mode: 'serial' });

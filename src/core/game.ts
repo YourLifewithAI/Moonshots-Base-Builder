@@ -39,8 +39,10 @@ import {
   revealRadiusM, startSurvey, strikeEffect, type LunarUi,
 } from './exploration';
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
+import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { dropSpur, layApron, laySpur, migrateRoads } from './roads';
+import { accessCell, bumpRoads, dropSpur, joinCell, layApron, laySpur, migrateRoads } from './roads';
+import { zonesFrom } from './zones';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
@@ -265,6 +267,7 @@ export class Game {
     const gx = 126, gz = 126;
     this.commitPlace('lander', gx, gz, 0, true);
     fleetRefresh(this.state, this.mods); // the Lander's rovers, before the first tick
+    transitPlan(this.state, this.mods, false); // parked in its bays
     this.syncDeposits(false);
     this.homeCamera(false);
     this.introPending = true;
@@ -1000,9 +1003,11 @@ export class Game {
     };
     this.stampDeposit(b);
     s.buildings.push(b);
+    // building on unmapped ground maps it — first, so its road knows the zone it stands in
+    if (dep && !free) { this.strike(b, dep); this.syncZones(); }
     // its road (core/roads.ts): the Lander lands with its apron, the rest get a spur
+    // (one inside an extraction zone stops at the zone's rim, core/zones.ts)
     if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
-    if (dep && !free) this.strike(b, dep);
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
     // deadlock early-warning: metals gone before your first smelter exists
@@ -1069,6 +1074,7 @@ export class Game {
     revealDeposits(s, this.hf.deposits);
     const tier = this.mods.surveyTier;
     const now = this.hf.deposits.filter((d) => depositRevealed(s, d, tier));
+    this.syncZones(now);
     const fresh = now.filter((d) => !this.revealedIds.has(d.id));
     if (!fresh.length && this.depositOverlay) return;
     this.revealedIds = new Set(now.map((d) => d.id));
@@ -1078,6 +1084,14 @@ export class Game {
     for (const d of fresh) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
     const list = [...count].map(([k, n]) => `${DEPOSIT_INFO[k].name}${n > 1 ? ` ×${n}` : ''}`).join(' · ');
     alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info');
+  }
+
+  /** The extraction zones are the deposits the player sees (core/zones.ts):
+   *  auto roads stop at their rims from now on. */
+  private syncZones(revealed = this.hf.deposits.filter((d) => depositRevealed(this.state, d, this.mods.surveyTier))) {
+    const s = this.state;
+    const next = zonesFrom(s.zones, revealed);
+    if (next !== s.zones) { s.zones = next; bumpRoads(s); }
   }
 
   /** Settlers take agent-run stations in the order the economy staffs them,
@@ -1481,7 +1495,7 @@ export class Game {
           const p = this.placement.probe!;
           $placing.set({
             type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
-            road: p.road?.length, roadS: p.roadS,
+            road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
           });
         }
       } else {
@@ -1778,22 +1792,31 @@ export class Game {
   }
 
   /** Damaged buildings get an on-screen condition bar (build mode only). */
-  /** AUTO tags over the Builder's pending sites (build mode) */
+  /** Tags over construction sites (build mode): AUTO over the Builder's,
+   *  and over any whose rover is on its way, when it gets there
+   *  ('EN ROUTE 0:24', core/transit.ts) */
   private updateAutoMarkers() {
     if (!this.playing || this.modes.mode !== 'build') { if ($autoMarkers.get().length) $autoMarkers.set([]); return; }
     const v = new THREE.Vector3();
-    const out: { id: number; x: number; y: number }[] = [];
+    const out: { id: number; x: number; y: number; auto: boolean; text: string }[] = [];
     for (const b of this.state.buildings) {
-      if (!b.auto || (b.construction ?? 0) <= 0) continue;
+      if ((b.construction ?? 0) <= 0) continue;
+      let text = '';
+      if (b.enabled && b.idleReason === 'enroute') {
+        const eta = siteTransit(this.state, b.id).eta;
+        text = `EN ROUTE${Number.isFinite(eta) ? ` ${fmtClock(Math.ceil(eta))}` : ''}`;
+      }
+      if (!b.auto && !text) continue;
       const [cx, cz] = centerOf(b);
       v.set(cx, this.hf.sample(cx, cz) + BUILDINGS[b.type].height * 0.5 + 3, cz);
       v.project(this.camera);
       if (v.z > 1 || v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue;
-      out.push({ id: b.id, x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight });
+      out.push({ id: b.id, x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight, auto: !!b.auto, text });
       if (out.length >= 12) break;
     }
     const prev = $autoMarkers.get();
-    if (out.length !== prev.length || out.some((m, i) => m.id !== prev[i].id || Math.abs(m.x - prev[i].x) > 0.5 || Math.abs(m.y - prev[i].y) > 0.5)) {
+    if (out.length !== prev.length || out.some((m, i) => m.id !== prev[i].id || m.text !== prev[i].text || m.auto !== prev[i].auto
+      || Math.abs(m.x - prev[i].x) > 0.5 || Math.abs(m.y - prev[i].y) > 0.5)) {
       $autoMarkers.set(out);
     }
   }
@@ -2347,6 +2370,37 @@ export class Game {
   /** run one frame of play as if `realDt` wall-seconds had passed (no render) */
   debugFrame(realDt: number) {
     if (this.playing) this.step(realDt);
+  }
+
+  private travelMemo = { key: '', s: Infinity };
+  /** The ghost's ETA (docs/15 §6): how long the nearest free rover would
+   *  take, from where it is, to where the placement's road leaves the
+   *  network (its door or service cell when it needs none). Once a second. */
+  private placeTravel(p: { type: BuildingId | 'grade'; gx: number; gz: number; rot: 0 | 1 | 2 | 3; road?: number[] }): number {
+    if (p.type === 'grade') return Infinity;
+    const s = this.state;
+    const key = `${p.type},${p.gx},${p.gz},${p.rot}|${s.roadRev ?? 0}|${Math.floor(s.simTime)}`;
+    if (key === this.travelMemo.key) return this.travelMemo.s;
+    const probe = { type: p.type, gx: p.gx, gz: p.gz, rot: p.rot };
+    const to = p.road?.length ? joinCell(s, p.road[0]) : accessCell(s, probe);
+    const night = currentDay(s, SITES[s.siteId]).isNight;
+    const t = freeReach(s, this.mods, night, to, centerOf(probe));
+    this.travelMemo = { key, s: t };
+    return t;
+  }
+
+  /** every trip ends as it starts (core/transit.ts TRANSIT.instant); on, the ones under way end now */
+  debugInstantTravel(on: boolean) {
+    TRANSIT.instant = on;
+    if (on) {
+      for (const r of this.state.rovers ?? []) {
+        const t = r.trip;
+        if (!t || t.stuck) continue;
+        t.t = t.dur;
+        [r.x, r.z] = t.pts[t.pts.length - 1];
+      }
+    }
+    this.publish();
   }
 
   debugCompleteTech(id: TechId) {

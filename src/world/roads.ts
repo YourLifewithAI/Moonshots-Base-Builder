@@ -12,11 +12,15 @@
  *  | Guideway Rails | as before | twin steel rails down the centre |
  *  | Maglev Freight Lines | as before | a glowing coil strip down the centre |
  *
+ *  A gate (a road cell on an extraction zone's rim, core/zones.ts) carries a
+ *  striped line across its edge facing into the zone.
+ *
  *  Classic reads its colours from the classic palette (`road`, `roadMark`). */
 import * as THREE from 'three';
 import type { GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { cellCentre, cellKey, isOpen, roadMap } from '../core/roads';
+import { zoneCells } from '../core/zones';
 import { ROAD } from '../data/roads';
 import { CLASSIC_PALETTE } from '../buildings/classicBuilding';
 import { materials } from './materials';
@@ -118,7 +122,7 @@ export class RoadMesh {
   /** Per frame: rebuild what changed; `night` lights the beacons. */
   update(s: GameState, night: number) {
     const tier = roadTier(s.techsDone);
-    const sig = `${s.roadRev ?? 0}:${s.roads?.length ?? 0}:${tier}`;
+    const sig = `${s.roadRev ?? 0}:${s.roads?.length ?? 0}:${tier}:z${s.zones?.length ?? 0}`;
     if (sig !== this.sig) {
       this.sig = sig;
       this.tier = tier;
@@ -138,6 +142,7 @@ export class RoadMesh {
 
   private buildOpen(s: GameState) {
     const map = roadMap(s);
+    const zones = zoneCells(s);
     const { road, mark, bay, rail } = this.colors();
     const b = new Builder(this.hf);
     const glow = new Builder(this.hf);
@@ -165,6 +170,17 @@ export class RoadMesh {
       if (!S) kerb(x - H, z + H - 0.1 - kw, x + H, z + H - 0.1);
       if (!W) kerb(x - H + 0.1, z - H, x - H + 0.1 + kw, z + H);
       if (!E) kerb(x + H - 0.1 - kw, z - H, x + H - 0.1, z + H);
+      // a gate (core/zones.ts): the road stops at an extraction zone's rim; a
+      // striped line across its edge facing into the zone, where units go on off-road
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        if (has(dx, dz) || !zones.has(cellKey(c.gx + dx, c.gz + dz))) continue;
+        const ex = x + dx * (H - 0.45), ez = z + dz * (H - 0.45);
+        for (let k = -1; k <= 1; k++) {
+          const o = k * 1.2;
+          if (dx) b.rect(ex - 0.2, ez + o - 0.4, ex + 0.2, ez + o + 0.4, mark, MARK_LIFT, 1);
+          else b.rect(ex + o - 0.4, ez - 0.2, ex + o + 0.4, ez + 0.2, mark, MARK_LIFT, 1);
+        }
+      }
       if (c.bay) {
         // two parking stripes across the bay
         const alongX = E || W;

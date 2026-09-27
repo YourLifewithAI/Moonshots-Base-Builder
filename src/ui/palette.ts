@@ -20,6 +20,7 @@ import { DEPOSIT_INFO, FEED_KINDS, FEED_LABEL, type FeedGrade } from '../data/de
 import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
 import { fmtClock } from '../core/daynight';
+import { spurLeft } from '../core/roads';
 import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
 import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
@@ -327,10 +328,17 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const road = p.valid && p.type !== 'grade'
       ? `<div class="road-note" id="place-road">${p.road
         ? `ROAD ${p.road} cell${p.road === 1 ? '' : 's'} · ${Math.round(p.roadS ?? 0)} rover-s to sinter, before it rises`
-        : 'ROAD — on the network already'}</div>`
+        : 'ROAD — on the network already'}${p.offM !== undefined
+        ? ` · to its zone's rim, then ${Math.round(p.offM)} m off-road` : ''}</div>`
+      : '';
+    // who would come, and when (core/transit.ts): the nearest free rover's drive
+    const eta = p.valid && p.type !== 'grade' && p.travelS !== undefined
+      ? `<div class="road-note" id="place-eta">${Number.isFinite(p.travelS)
+        ? `ROVER ${fmtClock(Math.ceil(p.travelS))} away — the nearest free one, by road`
+        : 'NO FREE ROVER — it waits its turn in the queue'}</div>`
       : '';
     const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
-      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${road}${warn}`
+      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${road}${eta}${warn}`
       : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
     if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
   };
@@ -374,6 +382,11 @@ export function mountPalette(root: HTMLElement, game: Game) {
     'Every settler aboard already works a station ahead of this one (priority 0 first). ' +
     (canAgents ? 'Set it Autonomous, give it a lower priority number, or grow the crew with Habitats.'
       : `Give it a lower priority number, or grow the crew with Habitats; ${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets agents run it.`);
+  /** 'ROVER EN ROUTE — arrives in 0:24' (core/transit.ts) */
+  const enRoute = (sel: BuildingState): string => {
+    const eta = $fleet.get().sites[sel.id]?.arrive ?? Infinity;
+    return Number.isFinite(eta) ? `ROVER EN ROUTE — arrives in ${fmtClock(Math.ceil(eta))}` : 'ROVER EN ROUTE — setting off';
+  };
   const statusLine = (sel: BuildingState): string => {
     const def = BUILDINGS[sel.type];
     const vit = $vitals.get();
@@ -384,6 +397,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const status = conRemaining > 0
       ? (!sel.enabled ? `CONSTRUCTION PAUSED — shut down (${conPct}%)`
         : sel.idleReason === 'queued' ? 'QUEUED — waiting for a free robot'
+        : sel.idleReason === 'enroute' ? enRoute(sel)
+        : sel.idleReason === 'noroad' ? 'NO ROAD — no road reaches it; its rovers wait (draw one with N)'
+        : sel.idleReason === 'road' ? `LAYING ITS ROAD — ${spurLeft(game.state, sel)} cell${spurLeft(game.state, sel) === 1 ? '' : 's'} to go`
         : sel.idleReason === 'power' ? `CONSTRUCTION PAUSED — no power (${conPct}%)`
         : sel.idleReason === 'inputs' ? `CONSTRUCTION STALLED — no parts (${conPct}%)`
         : `UNDER CONSTRUCTION — ${conPct}%`)

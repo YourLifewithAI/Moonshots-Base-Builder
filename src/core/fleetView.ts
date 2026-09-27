@@ -11,6 +11,8 @@ import type { DigOption, FleetView, HaulView, RoverView, SiteCrewView } from '..
 import type { BuildingState, GameState } from './state';
 import { effectiveRates, type Mods } from './mods';
 import { crewKW, crewRate, roversAt, siteEta, summonPick, surveyRover } from './fleet';
+import { arrived, siteTransit, tripLeft } from './transit';
+import { fmtClock } from './daynight';
 import { digsHome, haulSpec, tripFor } from './haul';
 import { centerOf } from '../buildings/instances';
 import { inside, worldRect } from './paths';
@@ -70,13 +72,25 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
   }
   const site = r.site !== null ? s.buildings.find((b) => b.id === r.site) : undefined;
   const home = s.buildings.find((b) => b.id === r.home);
+  // on its way (core/transit.ts): where to, and when it gets there
+  const t = r.trip;
+  const going = !!t && !t.stuck && !arrived(t) && !t.local;
+  const left = going ? ` · ${fmtClock(Math.ceil(tripLeft(t)))}` : '';
   if (!site && r.road !== undefined) {
     const j = s.roadJobs?.find((x) => x.id === r.road);
     const by = j?.by !== undefined ? s.buildings.find((b) => b.id === j.by) : undefined;
+    const what = j?.kind === 'haul' && by ? `the haul road out to ${label(by)}'s dig` : 'the road you drew';
+    if (t?.stuck) return `NO ROAD — it cannot reach ${what} by road`;
+    if (going && t!.job === r.road) return `EN ROUTE to ${what}${left}`;
     return j?.kind === 'haul' && by ? `LAYING A HAUL ROAD — out to ${label(by)}'s dig` : 'LAYING A ROAD — the one you drew';
   }
-  if (!site) return `PARKED — at ${home ? label(home) : 'its dock'}, free for the next site`;
+  if (!site) {
+    if (going && t!.kind === 'dock') return `RETURNING to ${home ? label(home) : 'its dock'}${left}`;
+    return `PARKED — at ${home ? label(home) : 'its dock'}, free for the next site`;
+  }
   const pin = r.pinned ? ' · pinned' : '';
+  if (t?.site === site.id && t.stuck) return `NO ROAD — it cannot reach ${label(site)} by road${pin}`;
+  if (going && t!.site === site.id) return `EN ROUTE to ${label(site)}${left}${pin}`;
   if (!site.enabled) return `WAITING — ${label(site)} is paused${pin}`;
   if (site.idleReason === 'power') return `HELD — ${label(site)} has no power${pin}`;
   if (site.idleReason === 'inputs') return `HELD — ${label(site)} is out of weld parts${pin}`;
@@ -96,6 +110,7 @@ export function fleetView(
       id: r.id, home: r.home, homeName: home ? label(home) : '—',
       site: r.site, siteName: siteB ? label(siteB) : '', pinned: r.pinned, survey: r.id === away,
       state: roverState(s, r, r.id === away),
+      tripS: r.trip && !r.trip.stuck ? tripLeft(r.trip) : 0,
     };
   });
   const sites: Record<number, SiteCrewView> = {};
@@ -104,10 +119,17 @@ export function fleetView(
     const crew = roversAt(s, b.id);
     const n = b.enabled ? crew.length : 0;
     const roadS = spurSeconds(s, b);
+    // nobody there yet: the first to arrive, and the drive before the build
+    const tr = crew.length ? siteTransit(s, b.id) : { wait: '' as const, eta: Infinity };
+    const wait = tr.wait === 'enroute' || tr.wait === 'noroad' ? tr.wait : '';
+    const drive = wait === 'enroute' && Number.isFinite(tr.eta) ? tr.eta : 0;
+    // the draw: the ones at their stands (one on its way, or queued behind a frontier, draws nothing)
+    const there = crew.filter((r) => r.trip?.site === b.id && arrived(r.trip) && (r.trip.kind === 'weld' || r.trip.kind === 'front')).length;
     sites[b.id] = {
       n: crew.length, pinned: crew.filter((r) => r.pinned).length,
-      eta: siteEta(mods, b, n, roadS), etaPlus: siteEta(mods, b, n + 1, roadS),
-      kw: crewKW(mods, n), speed: crewRate(n), summon: summonPick(s, b.id).reason,
+      eta: drive + siteEta(mods, b, n, roadS), etaPlus: drive + siteEta(mods, b, n + 1, roadS),
+      kw: crewKW(mods, there), speed: crewRate(n), summon: summonPick(s, b.id).reason,
+      wait, arrive: tr.eta,
     };
   }
   const hauls: Record<number, HaulView> = {};
@@ -130,7 +152,7 @@ export function fleetView(
     const n = (v: number) => Math.floor(v);
     const line = !b.enabled ? 'SHUT DOWN'
       : b.idleReason === 'power' ? `IDLE — no power · ${n(cargo)}/${n(bucket)}${G} aboard`
-      : waiting ? `WAITING TO UNLOAD — no room for ${n(cargo)}${G}; the regolith store is full`
+      : waiting ? `WAITING TO UNLOAD — no room for ${n(cargo)}${G}; the regolith store is full (it waits ${home ? 'on its pad' : 'at its dig'}, off the road)`
       : phase === 'dig' ? `DIGGING ${groundName(b.deposit)} · ${n(cargo)}/${n(bucket)}${G}`
       : phase === 'toDrop' ? `HAULING ${n(cargo)}${G} to ${drop ? label(drop) : 'a consumer'}`
       : phase === 'unload' ? `UNLOADING ${n(cargo)}${G} at ${drop ? label(drop) : 'a consumer'}`

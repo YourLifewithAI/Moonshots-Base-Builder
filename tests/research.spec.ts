@@ -482,6 +482,7 @@ test('tech mods reach the grid: Lander comms loads, agent tax, night draw, const
   const heavy = await page.evaluate(() => {
     const g = window.__game!;
     g.completeTech('heavyConstructors');
+    g.instantTravel(true); // its rover there at once (the drive is transit.spec's)
     g.placeBuilding('solar', 132, 126);
     g.finishRoads(); // its road open: welding from the first second (docs/15)
     const c0 = g.getState().buildings.find((b: any) => b.type === 'solar').construction;

@@ -208,6 +208,13 @@ regolith panel show the live feed shares. Deposits start hidden: orbital data
 gives a `?` lead for some kinds within 400 m of the Lander, and the [I]
 overlay rings each kind with its own line pattern (never by colour alone).
 
+Every revealed deposit but a peak of light is an **extraction zone**
+(docs/15 §5a): the ring the overlay draws is its edge. No auto road runs
+inside one; a road to a dig, or to a structure placed in the zone, stops at
+a gate on the rim, and excavators and rovers drive the rest over the
+regolith at half road speed. A deposit is mapped before its site's road is
+planned, so a building on unmapped ground still gets a road to the rim.
+
 The **Lunar Map** ([M]) starts at the landing site and grows with research,
 from the build grid out to the whole Moon. It has six views (SITE, VICINITY,
 REGION, NEAR, FAR, MOON), and 34 real prospects sit at their real

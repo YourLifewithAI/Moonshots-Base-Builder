@@ -38,7 +38,7 @@ export interface LifeFrame {
   sunLight: number;
   /** the astronaut, while walking */
   walker: Walker | null;
-  /** the part of the next economy second already gone (the haulers glide on it) */
+  /** the part of the next economy second already gone (the haulers and rovers glide on it) */
   tickFrac?: number;
 }
 
@@ -112,7 +112,7 @@ export class BaseLife {
     // all of them (they keep off each other), then drawn where they got to
     const night = f.sunLight < 0.1;
     this.run('roads', () => this.roads.update(s, 1 - Math.min(1, f.sunLight * 4)));
-    this.run('rovers', () => { syncGround(this.traffic, s); this.rovers.sync(gdt, s, night); });
+    this.run('rovers', () => { syncGround(this.traffic, s); this.rovers.sync(gdt, s, night, f.tickFrac ?? 0); });
     this.run('haulers', () => this.haulers.sync(gdt, s, f.tickFrac ?? 0, night));
     this.run('traffic', () => this.traffic.step(gdt));
     if (this.failed.has('traffic')) this.run('haulers', () => this.haulers.follow());

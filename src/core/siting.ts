@@ -36,6 +36,8 @@ export type Ground = Pick<Heightfield, 'depositAt' | 'maxDelta' | 'deposits' | '
 
 /** A new road cell weighs this many metres of distance, over the first ROAD_PICKS valid pads. */
 const ROAD_M = 1.5;
+/** score-metres a metre of off-road drive inside an extraction zone costs a pad (driven at half speed, every trip) */
+const OFF_M = 1;
 const ROAD_PICKS = 6;
 
 /** Why open pads (clear of footprints and door aprons) were not taken, by
@@ -340,7 +342,8 @@ export function chooseSite(
       strike(k);
       continue;
     }
-    const cost = c.score + ROAD_M * (chk.roadS ?? 0) / ROAD.cellS;
+    // a new road cell costs ROAD_M; a pad inside an extraction zone its off-road drive from the gate too (OFF_M a metre)
+    const cost = c.score + ROAD_M * (chk.roadS ?? 0) / ROAD.cellS + OFF_M * (chk.offM ?? 0);
     if (cost < best) { best = cost; pick = c; pickRoad = chk.road?.length ?? 0; }
     if (++valid >= ROAD_PICKS) break;
   }

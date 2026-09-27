@@ -399,6 +399,7 @@ test('Automated Life Support on a crewed base: short O₂ runway builds a produc
   await start(page, 'mare', 'human');
   const r = await page.evaluate(() => {
     const G = window.__game;
+    G.instantTravel(true); // the rule's timing is the point, not the rovers' drive (transit.spec)
     base({ smelters: 1 });
     G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoExcavation'); G.completeTech('autoLifeSupport');
     G.grantResources({ oxygen: -G.getState().resources.oxygen + 40 });

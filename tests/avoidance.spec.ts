@@ -2,7 +2,8 @@
  *  core/spots.ts, world/traffic.ts): a placement lays its road first and the
  *  rovers sinter it before they weld; a field of arrays needs no road
  *  between its arrays; the road tool lays and removes roads; an excavator
- *  hauls only on roads, its trip timed by the road and its tier; an old save
+ *  hauls on roads (off-road only inside an extraction zone, zones.spec), its
+ *  trip timed by the road and its tier; an old save
  *  gets roads; and the rovers and excavators on the roads never share
  *  ground, never leave it, and never lock up. And the early smelter trap:
  *  the palette warns before a placement that would leave too few metals for
@@ -36,8 +37,8 @@ async function start(page: Page, opts: { site?: string; exp?: 'human' | 'robotic
  *    wait-cycle breaks and last-resort rescues. `watch(i)` may return true to
  *    stop early. */
 declare function near(type: string, x: number, z: number): [number, number, number] | null;
-declare function drive(frames: number, watch?: (i: number) => boolean | void): {
-  frames: number; worst: number; pair: string; offroad: string[]; lagMaxS: number; breaks: number; rescues: number;
+declare function drive(frames: number, watch?: (i: number) => boolean | void, full?: boolean): {
+  frames: number; worst: number; pair: string; offroad: string[]; lagMaxS: number; breaks: number; rescues: number; detours: number;
 };
 declare function roverAt(id: number): any;
 /** the sim's next n loaded legs by day out from a dig away from the pad: game-seconds, and the route's length, m */
@@ -88,7 +89,7 @@ window.roverAt = (id) => {
   const i = r.ids.indexOf(id);
   return i < 0 ? null : { pos: r.positions[i], spot: r.spots[i], legs: r.legs[i], site: r.sites[i], inside: r.inside[i] };
 };
-window.drive = (frames, watch) => {
+window.drive = (frames, watch, full) => {
   const g = window.__game;
   g.setPaused(false);
   g.setSpeed(10);
@@ -96,11 +97,15 @@ window.drive = (frames, watch) => {
   g.getRenderInfo(); // clears the closest-pair record
   let worst = Infinity, pair = '', lagMaxS = 0, i = 0, T = null;
   const offroad = [];
+  // an extraction zone's cells are ground too: units drive off-road inside one (core/zones.ts)
+  const zc = new Set(g.getZones().flatMap((z) => z.cells.map(([x, k]) => k * 256 + x)));
   for (; i < frames; i++) {
     if (i % 10 === 0) {
       g.grantPower(50000);
+      // (full: the store kept full instead)
       const reg = g.getState().resources.regolith;
-      if (reg > 0) g.grantResources({ regolith: -reg });
+      if (full) g.grantResources({ regolith: 5000 });
+      else if (reg > 0) g.grantResources({ regolith: -reg });
     }
     g.stepFrame(0.1);
     const life = g.getRenderInfo().life;
@@ -112,7 +117,7 @@ window.drive = (frames, watch) => {
     const open = new Set(st.roads.filter((x) => x.left <= 0).map((x) => x.gz * 256 + x.gx));
     for (const u of T.units) {
       const gx = Math.floor((u.x + 512) / 4), gz = Math.floor((u.z + 512) / 4);
-      if (open.has(gz * 256 + gx)) continue;
+      if (open.has(gz * 256 + gx) || zc.has(gz * 256 + gx)) continue;
       if (u.kind === 'digger') {
         const fp = g.footprintOf(u.id);
         if (fp && u.x >= fp.x0 - 0.01 && u.x <= fp.x1 + 0.01 && u.z >= fp.z0 - 0.01 && u.z <= fp.z1 + 0.01) continue;
@@ -123,7 +128,7 @@ window.drive = (frames, watch) => {
   }
   g.setPaused(true);
   g.stepFrame(0);
-  return { frames: i, worst, pair, offroad, lagMaxS, breaks: T ? T.breaks : 0, rescues: T ? T.rescues : 0 };
+  return { frames: i, worst, pair, offroad, lagMaxS, breaks: T ? T.breaks : 0, rescues: T ? T.rescues : 0, detours: T ? T.detours : 0 };
 };
 })()`;
 
@@ -158,9 +163,14 @@ for (const style of ['classic', 'detailed']) {
     expect(setup.rovers).toBe(8); // the Lander's 2, three per Bay
     expect(setup.sites).toBe(5);
 
+    const sd0 = await page.evaluate(() => window.__game.getRenderInfo().life.rovers.setDowns);
     const r = await page.evaluate(() => drive(600));
+    const setDowns = (await page.evaluate(() => window.__game.getRenderInfo().life.rovers.setDowns)) - sd0;
+    test.info().annotations.push({ type: 'crowd', description: `closest ${r.worst.toFixed(3)} m · breaks ${r.breaks} · detours ${r.detours} · rescues ${r.rescues} · set down ${setDowns}` });
     expect(r.worst, `closest pair ${r.pair}`).toBeGreaterThan(-TOL);
     expect(r.offroad).toEqual([]);
+    // the rovers follow the sim (core/transit.ts): now and then one held up in the jam is set down where the sim has it
+    expect(setDowns).toBeLessThanOrEqual(12);
     // the diggers hauled all the while, their visuals never far behind the sim
     const s = await page.evaluate(() => window.__game.getState());
     expect(s.stats.produced.regolith).toBeGreaterThan(1000);
@@ -234,6 +244,195 @@ test('two rovers on one road the opposite ways pass in their lanes, and both arr
   expect(r.b.legs).toBe(0);
 });
 
+// ───────────────────────────── getting out of each other's way ─────────────────────────────
+
+test('no smelter, the store full, the Lander\'s rovers in their bays: the digger waits on its pad, not on the apron, and a rover leaves and comes home', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  const setup = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 2000, parts: 1000 });
+    near('solar', 20, 0);
+    near('excavator', -20, 12);
+    g.finishConstruction();
+    const ex = g.getState().buildings.find((b: any) => b.type === 'excavator');
+    return { id: ex.id, fp: g.footprintOf(ex.id) };
+  });
+  // the store kept full: its first bucket has nowhere to go
+  const wait = await page.evaluate(({ id }) => {
+    const g = window.__game!;
+    for (let i = 0; i < 200; i++) {
+      g.grantPower(1000);
+      g.grantResources({ regolith: 5000 });
+      g.advanceGameSeconds(1);
+      const b0 = g.getState().buildings.find((x: any) => x.id === id);
+      if (!b0.haul.full) continue;
+      // the next tick stands it by (step 2): no power drawn while it waits
+      g.grantResources({ regolith: 5000 });
+      g.advanceGameSeconds(1);
+      const b = g.getState().buildings.find((x: any) => x.id === id);
+      return { h: b.haul, why: b.idleReason, line: g.getFleet().hauls[id].line };
+    }
+    return null;
+  }, setup);
+  expect(wait, 'a full bucket, no room').not.toBeNull();
+  expect(wait!.h.phase).toBe('dig');
+  const pad = [(setup.fp.x0 + setup.fp.x1) / 2, (setup.fp.z0 + setup.fp.z1) / 2];
+  expect(Math.hypot(wait!.h.x - pad[0], wait!.h.z - pad[1])).toBeLessThan(0.5);
+  expect(wait!.why).toBe('full');
+  expect(wait!.line).toContain('it waits on its pad, off the road');
+  // a site: a Lander rover rolls out of its bay, builds it, and comes home
+  const site = await page.evaluate(() => {
+    const g = window.__game!;
+    const ids = new Set(g.getState().buildings.map((b: any) => b.id));
+    near('solar', 30, -30);
+    return g.getState().buildings.find((b: any) => !ids.has(b.id)).id;
+  });
+  const r = await page.evaluate(({ site, id }) => {
+    const g = window.__game!;
+    const sd0 = g.getRenderInfo().life.rovers.setDowns;
+    let built = -1, digAway = 0;
+    const out = drive(900, (i) => {
+      const s = g.getState();
+      const b = s.buildings.find((x: any) => x.id === site);
+      const d = g.getRenderInfo().life.traffic.units.find((u: any) => u.kind === 'digger' && u.id === id);
+      const fp = g.footprintOf(id);
+      if (d && !(d.x >= fp.x0 && d.x <= fp.x1 && d.z >= fp.z0 && d.z <= fp.z1)) digAway++;
+      if (b.construction <= 0 && built < 0) built = i;
+      return built >= 0 && i > built + 5 && g.getRenderInfo().life.rovers.legs.every((n: number) => n === 0);
+    }, true);
+    return { ...out, built, digAway, setDowns: g.getRenderInfo().life.rovers.setDowns - sd0 };
+  }, { site, id: setup.id });
+  expect(r.built, 'the site was built').toBeGreaterThan(0);
+  expect(r.frames, 'every rover home again').toBeLessThan(900);
+  expect(r.digAway, 'the digger never left its pad').toBe(0);
+  expect(r.worst, `closest pair ${r.pair}`).toBeGreaterThan(-TOL);
+  expect(r.offroad).toEqual([]);
+  expect(r.setDowns, 'nobody set down').toBe(0);
+  expect(r.rescues).toBe(0);
+});
+
+/** An excavator out at a dig 30 m past its pad, its haul road open (a
+ *  one-cell stub): its id, the dig cell, its pad's footprint. */
+async function outAtDig(page: Page) {
+  return page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 3000, parts: 3000 });
+    near('solar', 20, 0);
+    near('excavator', -24, 0);
+    g.finishConstruction();
+    const ex = g.getState().buildings.find((b: any) => b.type === 'excavator');
+    const fp = g.footprintOf(ex.id);
+    g.digAt(ex.id, fp.x0 - 30, (fp.z0 + fp.z1) / 2);
+    g.advanceGameSeconds(0);
+    g.finishRoads();
+    for (let i = 0; i < 400; i++) {
+      g.grantPower(1000);
+      const reg = g.getState().resources.regolith;
+      if (reg > 0) g.grantResources({ regolith: -reg });
+      g.advanceGameSeconds(1);
+      const h = g.getState().buildings.find((b: any) => b.id === ex.id).haul;
+      if (h.phase === 'dig' && Math.hypot(h.x - h.digX, h.z - h.digZ) < 0.5 && h.t > 20) break;
+    }
+    const h = g.getState().buildings.find((b: any) => b.id === ex.id).haul;
+    return { id: ex.id, fp, dig: [h.digX, h.digZ] as [number, number], cell: [Math.floor((h.digX + 512) / 4), Math.floor((h.digZ + 512) / 4)] as [number, number] };
+  });
+}
+
+test('head-on on a one-cell stub: the rover working on it gets out of the loaded digger\'s way, and both get on', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  const ex = await outAtDig(page);
+  // a solar array beside the stub, halfway out: its rover welds from a stub cell, in the digger's way
+  const site = await page.evaluate(({ ex }) => {
+    const g = window.__game!;
+    const ids = new Set(g.getState().buildings.map((b: any) => b.id));
+    const c = { gx: Math.round(((ex.dig[0] + ex.fp.x0) / 2 + 512) / 4), gz: Math.round((ex.dig[1] - 7 + 512) / 4) };
+    for (let r = 0; r < 6; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+      if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+      if (g.canPlace('solar', c.gx + dx, c.gz + dz, 0).valid && g.placeBuilding('solar', c.gx + dx, c.gz + dz, 0)) {
+        return g.getState().buildings.find((b: any) => !ids.has(b.id)).id;
+      }
+    }
+    return null;
+  }, { ex });
+  expect(site).not.toBeNull();
+  const r = await page.evaluate(({ site, id }) => {
+    const g = window.__game!;
+    const sd0 = g.getRenderInfo().life.rovers.setDowns;
+    const p0 = g.getState().stats.produced.regolith;
+    let built = -1;
+    const out = drive(400, (i) => {
+      const b = g.getState().buildings.find((x: any) => x.id === site);
+      if (b.construction <= 0 && built < 0) built = i;
+      return built >= 0 && i > built + 60 && g.getState().stats.produced.regolith > p0
+        && g.getRenderInfo().life.rovers.legs.every((n: number) => n === 0);
+    });
+    return { ...out, built, loads: g.getState().stats.produced.regolith - p0, setDowns: g.getRenderInfo().life.rovers.setDowns - sd0, id };
+  }, { site, id: ex.id });
+  expect(r.built, 'the array was built').toBeGreaterThan(0);
+  expect(r.loads, 'the digger got its load out').toBeGreaterThan(0);
+  expect(r.breaks, 'someone gave way').toBeGreaterThan(0);
+  expect(r.frames, 'and everyone got home').toBeLessThan(400);
+  expect(r.worst, `closest pair ${r.pair}`).toBeGreaterThan(-TOL);
+  expect(r.offroad).toEqual([]);
+  expect(r.rescues).toBe(0);
+  expect(r.setDowns).toBe(0);
+});
+
+test('held up by one that is not moving, a rover takes the side road round it', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  const ex = await outAtDig(page);
+  // the player makes the dig a through road, with a bypass round the digger's cells;
+  // the store full, the digger stays at its dig with a full bucket: a standing blocker
+  const setup = await page.evaluate(({ ex }) => {
+    const g = window.__game!;
+    const [X, Z] = ex.cell;
+    const lay = (a: [number, number], b: [number, number]) => { g.layRoad(a, b); g.advanceGameSeconds(0); };
+    lay([X + 2, Z], [X + 2, Z - 2]);
+    lay([X + 2, Z - 2], [X - 2, Z - 2]);
+    lay([X - 2, Z - 2], [X - 2, Z]);
+    lay([X - 2, Z], [X - 8, Z]);
+    lay([X, Z], [X - 1, Z]);
+    g.finishRoads();
+    for (let k = 0; k < 90; k++) { g.grantPower(1000); g.grantResources({ regolith: 5000 }); g.advanceGameSeconds(1); }
+    const h = g.getState().buildings.find((b: any) => b.id === ex.id).haul;
+    const ids = new Set(g.getState().buildings.map((b: any) => b.id));
+    near('solar', (X - 8 + 0.5) * 4 - 512, (Z + 0.5) * 4 - 512 - 6);
+    const site = g.getState().buildings.find((b: any) => !ids.has(b.id))?.id ?? null;
+    const bypass = [[X + 2, Z - 1], [X + 2, Z - 2], [X + 1, Z - 2], [X, Z - 2], [X - 1, Z - 2], [X - 2, Z - 2], [X - 2, Z - 1]];
+    return { site, full: !!h.full, at: [h.x, h.z], bypass };
+  }, { ex });
+  expect(setup.full).toBe(true);
+  expect(setup.site).not.toBeNull();
+  const r = await page.evaluate(({ site, bypass }) => {
+    const g = window.__game!;
+    const sd0 = g.getRenderInfo().life.rovers.setDowns;
+    const on = new Set<number>();
+    const keys = new Set(bypass.map(([x, z]: number[]) => z * 256 + x));
+    let built = -1;
+    const out = drive(300, (i) => {
+      for (const u of g.getRenderInfo().life.traffic.units) {
+        if (u.kind !== 'rover') continue;
+        const k = Math.floor((u.z + 512) / 4) * 256 + Math.floor((u.x + 512) / 4);
+        if (keys.has(k)) on.add(k);
+      }
+      const b = g.getState().buildings.find((x: any) => x.id === site);
+      if (b.construction <= 0 && built < 0) built = i;
+      return built >= 0 && i > built + 5;
+    }, true);
+    return { ...out, built, bypassed: on.size, detours: g.getRenderInfo().life.traffic.detours, setDowns: g.getRenderInfo().life.rovers.setDowns - sd0 };
+  }, setup);
+  expect(r.detours, 'a detour').toBeGreaterThan(0);
+  expect(r.bypassed, 'along the side road').toBeGreaterThanOrEqual(4);
+  expect(r.built, 'and the site built').toBeGreaterThan(0);
+  expect(r.worst, `closest pair ${r.pair}`).toBeGreaterThan(-TOL);
+  expect(r.offroad).toEqual([]);
+  expect(r.rescues).toBe(0);
+  expect(r.setDowns, 'driven round, not set down').toBe(0);
+});
+
 // ───────────────────────────── spurs ─────────────────────────────
 
 test('a placement lays a road from the network to its door, and the rovers sinter it before they weld', async ({ page }) => {
@@ -275,10 +474,14 @@ test('a placement lays a road from the network to its door, and the rovers sinte
     return { out, done: b.construction <= 0, access: g.roadAccess().find((a: any) => a.id === id) };
   }, r.id);
   expect(trace.done).toBe(true);
-  // while any of its road is still to sinter, the site waits on it, unwelded
+  // while any of its road is still to sinter, the site waits on it, unwelded:
+  // its rover on its way first (core/transit.ts), then laying the road
   const sintering = trace.out.filter((o) => o.left > 0);
   expect(sintering.length).toBeGreaterThan(0);
-  expect(sintering.every((o) => o.c === r.total && o.why === 'road')).toBe(true);
+  expect(sintering.every((o) => o.c === r.total && (o.why === 'road' || o.why === 'enroute'))).toBe(true);
+  const firstRoad = sintering.findIndex((o) => o.why === 'road');
+  expect(firstRoad).toBeGreaterThan(0);
+  expect(sintering.slice(firstRoad).every((o) => o.why === 'road')).toBe(true);
   // then it welds, and stands at the end of an open road
   const welded = trace.out.findIndex((o) => o.c < r.total);
   expect(welded).toBeGreaterThan(sintering[sintering.length - 1].t - 1);
@@ -424,7 +627,8 @@ test('the road tool: N starts it, a road laid is sintered by free rovers, a remo
     const g = window.__game!;
     g.grantResources({ metals: 3000, parts: 3000 });
     const last = cells[cells.length - 1];
-    near('lab', (last % 256) * 4 - 512 + 2, Math.floor(last / 256) * 4 - 512 + 10);
+    // (south of it: the high-Ti patch to the north is an extraction zone, where a door gets no road)
+    near('lab', (last % 256) * 4 - 512 + 2, Math.floor(last / 256) * 4 - 512 - 10);
     g.finishConstruction();
     const lab = g.roadAccess().find((a: any) => a.type === 'lab');
     g.removeRoad([lab.door]);

@@ -83,6 +83,7 @@ test('summon adds a rover to a site and builds it n^0.85 faster on the same weld
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // the rate is the point, not the drive (transit.spec times that)
     g.placeBuilding('habitat', 132, 126);
     g.finishRoads(); // its road open: the rovers weld from the first second (docs/15)
     g.advanceGameSeconds(1);
@@ -229,6 +230,7 @@ test('a survey never borrows a pinned rover', async ({ page }) => {
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // who is lent is the point, not the drive
     g.completeTech('prospectingRovers');
     g.grantResources({ oxygen: 300, water: 100, parts: 50 });
     g.placeBuilding('habitat', 132, 126);
@@ -514,9 +516,16 @@ test('saves keep the dig site and the cycle mid-haul; an old excavator digs its 
     g.advanceGameSeconds(0);
     g.finishRoads(); // its haul road open at once (docs/15)
     const h = () => g.getState().buildings.find((b: any) => b.id === id).haul;
-    const tick = () => { g.grantPower(100); g.advanceGameSeconds(1); };
+    // room in the store: a full one keeps a full bucket waiting at the dig (docs/15 §5)
+    const tick = () => {
+      g.grantPower(100);
+      const reg = g.getState().resources.regolith;
+      if (reg > 0) g.grantResources({ regolith: -reg });
+      g.advanceGameSeconds(1);
+    };
     // the bucket it had started goes home first; then a whole one at the new dig
-    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x + 2, h().z - 60) < 0.5); i++) tick();
+    // (the dig snaps to its cell's centre: -2, 62)
+    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - h().digX, h().z - h().digZ) < 0.5); i++) tick();
     // into the haul: bucket full, on the road
     for (let i = 0; i < 200 && h().phase !== 'toDrop'; i++) tick();
     g.grantPower(100);
@@ -588,6 +597,7 @@ test('the capability techs: pros and cons on every card, and they reach the sim'
   // in the sim: ×1.25 per rover at ×1.3 the draw; haul speed and bucket
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // the rate is the point, not the drive
     g.completeTech('roverAutonomy');
     g.placeBuilding('habitat', 132, 126);
     g.finishRoads();

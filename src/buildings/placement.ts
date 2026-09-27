@@ -19,7 +19,7 @@ import { ghostGeometry } from './recipes';
 import { upgradeKey } from './upgrades';
 import { centerOf, footprintRect } from './instances';
 import { createGhost, setGhostBlocked } from './ghost';
-import { footprintCells, planSpur, roadMap } from '../core/roads';
+import { cellCentre, footprintCells, keyCell, planSpur, roadMap, zoneStand } from '../core/roads';
 import { CellPreview } from './cellPreview';
 import { ROAD } from '../data/roads';
 
@@ -39,6 +39,8 @@ export interface PlacementProbe {
   /** the road it would need (cell keys, in order), and its sintering, rover-seconds */
   road?: number[];
   roadS?: number;
+  /** inside an extraction zone: m of off-road drive from its road's end (the zone's gate) to where it is worked */
+  offM?: number;
 }
 
 export function buildCost(type: BuildingId, site: SiteDef): Partial<Record<string, number>> {
@@ -207,7 +209,7 @@ export class PlacementController {
 
   validate(state: GameState, unlocked: Set<BuildingId>, tier: SurveyTier = 0): boolean {
     const p = this.probe!;
-    const res: { valid: boolean; reason: string; warn?: string; note?: string; road?: number[]; roadS?: number } = p.type === 'grade'
+    const res: { valid: boolean; reason: string; warn?: string; note?: string; road?: number[]; roadS?: number; offM?: number } = p.type === 'grade'
       ? checkGrade(state, this.hf, p.gx, p.gz)
       : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot, tier);
     p.valid = res.valid;
@@ -216,6 +218,7 @@ export class PlacementController {
     p.note = res.note ?? '';
     p.road = res.road;
     p.roadS = res.roadS;
+    p.offM = res.offM;
     return p.valid;
   }
 }
@@ -280,7 +283,7 @@ export function checkPlacement(
   gz: number,
   rot: 0 | 1 | 2 | 3,
   tier: SurveyTier = 0,
-): { valid: boolean; reason: string; warn?: string; note?: string; road?: number[]; roadS?: number } {
+): { valid: boolean; reason: string; warn?: string; note?: string; road?: number[]; roadS?: number; offM?: number } {
   const def = BUILDINGS[type];
   const probe = { type, gx, gz, rot };
   const r = footprintRect(probe);
@@ -337,8 +340,12 @@ export function checkPlacement(
   const road = [...spur.cells, ...spur.bays];
   let roadS = 0;
   for (const k of road) roadS += roads.get(k)?.left ?? ROAD.cellS;
+  // inside an extraction zone (core/zones.ts): its road stops at the rim; the drive on is off-road
+  const zs = zoneStand(state, probe);
+  const end = zs ? (spur.cells.length ? keyCell(spur.cells[spur.cells.length - 1]) : zs.gate) : null;
+  const offM = zs && end ? Math.hypot(cellCentre(...end)[0] - zs.x, cellCentre(...end)[1] - zs.z) : undefined;
   return {
     valid: true, reason: '', warn: smelterWarning(state, site, type, unlocked),
-    note: known ? DEPOSIT_INFO[known.kind].ghost : '', road, roadS,
+    note: known ? DEPOSIT_INFO[known.kind].ghost : '', road, roadS, ...(offM !== undefined ? { offM } : {}),
   };
 }
