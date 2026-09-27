@@ -315,6 +315,8 @@ export interface TimelineMark {
   label: string;
   /** 0..1: past flares fade out over half a day */
   fade: number;
+  /** the flare's index (forecast boxes) */
+  n?: number;
 }
 
 export interface ForecastView {
@@ -506,13 +508,13 @@ export function forecastView(s: GameState, mods: Mods, site: SiteDef, day: DayIn
     const end = f.phase === 'telegraph' ? now + f.timer + C.activeS + C.tailS : f.phase === 'active' ? now + f.timer + C.tailS : now + f.timer;
     marks.push({ a: f.startedAt ?? now, b: end, kind: 'now-flare', label: v.classText || f.cls, fade: 0 });
   }
-  if (next) marks.push({ a: now + next.inLo, b: now + next.inHi, kind: 'flare', label: next.classText, fade: 0 });
+  if (next) marks.push({ a: now + next.inLo, b: now + next.inHi, kind: 'flare', label: next.classText, fade: 0, n: next.n });
   if (tier >= 3) {
     const k = Math.floor(now / F.updateS);
     for (const p of predictFlares(s, F.aheadN)) {
       if (idle && next && p.n === next.n) continue;
       const win = placeWindow(seed, p.n, k, p.flash, k * F.updateS, F.window.t3);
-      marks.push({ a: win.lo - lead, b: win.hi - lead, kind: 'far', label: rangeText(rangeOf(seed, p.n, p.cls)), fade: 0 });
+      marks.push({ a: win.lo - lead, b: win.hi - lead, kind: 'far', label: rangeText(rangeOf(seed, p.n, p.cls)), fade: 0, n: p.n });
     }
   }
   if (tier >= 1 && f.cme && f.cme.until > from) {

@@ -2521,7 +2521,10 @@ export class Game {
     });
     $destiny.set(destinyOf(s));
     $hazards.set(hazardView(s, this.mods));
-    $weather.set(withForecast(weatherView(s, this.mods, site, day), s, this.mods, site, day, this.forecastUi));
+    const wv = withForecast(weatherView(s, this.mods, site, day), s, this.mods, site, day, this.forecastUi);
+    // the ahead card closes once there is nothing to choose ahead for (a telegraph opened, the forecast went)
+    if (this.forecastUi.ahead && !wv.forecast?.popup) this.forecastUi.ahead = false;
+    $weather.set(wv);
     $lossStory.set(lossStory(s));
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $feed.set({ ...s.feed });
@@ -2591,6 +2594,8 @@ export class Game {
     const site = SITES[s.siteId];
     return previewChoice(s, this.mods, site, currentDay(s, site), choice, cls);
   }
+
+  get forecastAheadOpen() { return this.forecastUi.ahead; }
 
   /** The Space Weather panel's 'Arrays: choose now…' card opens or closes (docs/16 §10.2). */
   setForecastAhead(open: boolean) {

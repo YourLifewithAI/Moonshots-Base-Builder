@@ -206,7 +206,7 @@ function api(game: Game) {
       const s = game.state;
       const site = SITES[s.siteId];
       const day = currentDay(s, site);
-      return clone(withForecast(weatherView(s, game.mods, site, day, slider), s, game.mods, site, day));
+      return clone(withForecast(weatherView(s, game.mods, site, day, slider), s, game.mods, site, day, { ahead: game.forecastAheadOpen, slider }));
     },
     // ── forecasting (docs/16 §6, core/forecast.ts) ──
     /** 'Arrays: choose now…': the choice set ahead for the next flare (null clears) */

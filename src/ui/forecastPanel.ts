@@ -60,8 +60,6 @@ export function refreshForecast(game: Game, root: ParentNode, v: WeatherView) {
   if (!fc) { hide(sec, true); hide(root.querySelector('.fc-tl-sec'), true); return; }
   hide(sec, false);
   hide(root.querySelector('.fc-tl-sec'), false);
-  // the ahead card closes once its flare's own telegraph opens
-  if (v.phase !== 'idle') game.setForecastAhead(false);
   const day = Math.floor(game.state.simTime / 720) + 1;
   let flare: string;
   if (v.phase !== 'idle') flare = `NEXT FLARE  after this one${fc.tier >= 3 && fc.three[0] ? `: ${fc.three[0].classText} ${fc.three[0].text}` : ''}`;
