@@ -155,6 +155,10 @@
 #tooltip .caution { color: var(--paper); font-weight: 600; }
 :is(#place-hint, #fleet-hint) .deposit-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; }
 #place-hint .road-note { color: rgba(var(--paper-rgb), var(--op-secondary)); margin-top: 3px; font-size: 11px; }
+/* the ghost's HUB block (docs/17 §5.2): the headline, then its lines, indented */
+#place-hint .hub-block .hb-head { color: rgba(var(--paper-rgb), 0.86); }
+#place-hint .hub-block .hb-line { padding-left: 10px; text-indent: -6px; margin-top: 1px; }
+#place-hint .hub-block .hb-line::before { content: '· '; color: rgba(var(--paper-rgb), var(--op-muted)); }
 
 /* regolith panel: the excavators' last dig as a stacked bar (segments are
    labelled; alternating fill separates neighbours) */
@@ -287,6 +291,22 @@
 .deposit-mark .t { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 .deposit-mark.lead .g { font-size: 13px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 .deposit-mark.lead .t { font-style: italic; color: rgba(var(--paper-rgb), var(--op-muted)); }
+/* a hub's highlight (docs/17 §6.1): label chips for its lit deposits; weight,
+   border and pattern carry the state, never colour alone */
+.deposit-mark.hl-lit { background: rgba(14, 15, 17, 0.62); border-color: rgba(var(--paper-rgb), 0.45); }
+.deposit-mark.hl-lit .t { color: var(--paper); font-family: var(--font-mono); letter-spacing: 0; }
+.deposit-mark.hl-lit.hl-best { border-color: var(--paper); border-width: 2px; padding: 1px 4px; }
+.deposit-mark.hl-lit.hl-best .t { font-weight: 600; }
+.deposit-mark.hl-far { background: rgba(14, 15, 17, 0.4); border-color: rgba(var(--paper-rgb), 0.2); }
+.deposit-mark.hl-far .g, .deposit-mark.hl-far .t { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+.deposit-mark.hl-full { border-style: dashed; }
+.deposit-mark.hl-exhausted, .deposit-mark.hl-boxed {
+  background: repeating-linear-gradient(45deg, rgba(14, 15, 17, 0.7) 0 4px, rgba(var(--paper-rgb), 0.12) 4px 5px);
+}
+.deposit-mark.hl-stake { border-style: dashed; }
+.deposit-mark.hl-dim .t { color: rgba(var(--paper-rgb), var(--op-secondary)); font-style: italic; }
+.deposit-mark.pitmark { cursor: default; }
+#deposit-marks.placing .deposit-mark { pointer-events: none; }
 
 /* ── floaters ── */
 @keyframes float-up {

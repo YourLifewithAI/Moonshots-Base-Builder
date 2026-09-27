@@ -45,9 +45,11 @@ import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, l
 import { zonesFrom } from './zones';
 import {
   assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, facePoint, hopperRoom, migrateHubs, newHubState, openPit,
-  hubGhostLine, plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
+  plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
+import { ghostBlock, hubLight, type HubLight, type LightSource } from './hubPreview';
+import { DepositHighlight } from '../world/depositHighlight';
 import { ROAD } from '../data/roads';
 import { bindTerrain, digSiteKey, onDig, pitsView, restoreTerrain, saveTerrain, syncPitZones } from './pits';
 import { encodeDelta, takeCarved } from '../terrain/pitCarve';
@@ -106,6 +108,7 @@ import {
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
   $fleet, $fleetTarget, $roverSel, $unitSel,
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather,
+  $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -210,6 +213,16 @@ export class Game {
   private depositOverlay: THREE.Group | null = null;
   private revealedIds = new Set<string>();
   private markerSig = '';
+  /** the resource highlight (docs/17 §6): a hub ghost's, a selected hub's or a hub card's lit deposits */
+  private highlight: DepositHighlight | null = null;
+  private light: HubLight | null = null;
+  private lightKey = '';
+  private lightClock = 0;
+  /** $deposits as the last publish made it, before the highlight is merged in */
+  private depBase: DepositView[] = [];
+  private depLitSig: string | null = null;
+  /** the lit ids the base overlay leaves to the highlight, and whether it fades the rest */
+  private overlayLit = '';
   /** Lunar Map screen bookkeeping (the view shown, the tier last seen) */
   private lunarUi: LunarUi = { open: false, view: 'site', seenTier: 0 };
   /** the Space Weather panel's 'Arrays: choose now…' card is open (docs/16 §10.2): its previews are built only then */
@@ -291,7 +304,7 @@ export class Game {
     this.bindInput();
     if (opts.touch) this.bindTouch();
     window.addEventListener('resize', () => this.onResize());
-    $depositOverlay.subscribe((v) => { if (this.depositOverlay) this.depositOverlay.visible = v; });
+    $depositOverlay.subscribe(() => this.showOverlay());
     // safe mode (the player's, or the render check's from an earlier launch)
     // holds from the very first frame
     if (opts.safe) this.enableSafeMode(opts.safeAuto ?? false, false);
@@ -408,6 +421,9 @@ export class Game {
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
     if (this.lighting instanceof ClassicLighting) this.lighting.setSite(SITES[state.siteId]);
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
+    // a hub ghost's own warning (a water plant with no ice in reach), asked once like the rest
+    this.placement.extraWarn = (p) => (p.type !== 'grade' && isHubType(p.type)
+      ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }).warn : '');
     this.overlays = new BaseOverlays(this.hf);
     this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
     this.instances.panelDust = (b) => this.life.panelDust(b);
@@ -444,8 +460,15 @@ export class Game {
       if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
     }, this.classic ? { fov: ISO_FOV, near: 20, far: 5000 } : undefined);
     this.worldGroup = new THREE.Group();
+    this.highlight?.dispose();
+    this.highlight = new DepositHighlight(this.hf, this.classic);
+    this.light = null;
+    this.lightKey = '';
+    this.overlayLit = '';
+    this.depLitSig = null;
+    $hubLight.set(null);
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
-      this.overlays.group, this.life.group, this.fleetTarget.group);
+      this.overlays.group, this.life.group, this.fleetTarget.group, this.highlight.group);
     for (const c of this.depositOverlay?.children ?? []) (c as THREE.LineSegments).geometry.dispose();
     this.depositOverlay = null;
     this.revealedIds = new Set();
@@ -765,8 +788,8 @@ export class Game {
     $selection.set(null);
     $roverSel.set(null);
     this.placement.begin(type, this.state.techsDone);
-    // where you dig is a production decision: show the ground
-    if (type === 'iceHarvester' || type === 'excavator') $depositOverlay.set(true);
+    // where you dig is a production decision: a hub's ghost lights its ground
+    // (docs/17 §6.1: updateHubLight, which shows the rings whatever [I] says)
     $placing.set({ type, valid: false, reason: '', warn: '', note: '' });
   }
 
@@ -953,6 +976,7 @@ export class Game {
       this.overlayOwed = false;
       this.overlayClock = 0;
       if (this.depositOverlay) this.rebuildDepositOverlay();
+      this.highlight?.redrape();
     }
   }
 
@@ -2035,10 +2059,12 @@ export class Game {
           this.placement.update(this.state, this.mods.unlocked,
             this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
           const p = this.placement.probe!;
+          const block = p.valid && p.type !== 'grade' && isHubType(p.type)
+            ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : null;
           $placing.set({
             type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
             road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
-            hub: p.valid && p.type !== 'grade' && isHubType(p.type) ? hubGhostLine(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : undefined,
+            hub: block?.headline || undefined, hubBlock: block?.lines.length ? block.lines : undefined,
           });
         }
       } else {
@@ -2100,6 +2126,7 @@ export class Game {
       });
       this.cueDestiny(tweening);
     }
+    this.updateHubLight(dt);
     this.updateDepositMarkers();
 
     // sun follows the clock; the shadow window hugs the ground in view
@@ -2406,29 +2433,133 @@ export class Game {
   }
 
   /** The overlay's glyph labels at the projected deposit centres and '?'
-   *  leads (build mode, overlay on); the atom changes only when they move. */
+   *  leads (build mode, overlay on); the atom changes only when they move.
+   *  With a hub's highlight up (docs/17 §6.1) only its lit and dimmer
+   *  deposits are labelled — trip, faces, pit — and its plain pits and the
+   *  ghost's stake join them, overlay on or off. */
   private updateDepositMarkers() {
-    if (!this.playing || this.modes.mode !== 'build' || !$depositOverlay.get()) {
+    const light = this.light;
+    if (!this.playing || this.modes.mode !== 'build' || (!$depositOverlay.get() && !light)) {
       if (this.markerSig) { this.markerSig = ''; $depositMarkers.set([]); }
       return;
     }
     const v = new THREE.Vector3();
-    const out: { id: string; x: number; y: number; glyph: string; label: string; lead: boolean }[] = [];
-    for (const d of $deposits.get()) {
-      const at = d.revealed ? { x: d.x, z: d.z } : d.lead;
-      if (!at) continue;
-      v.set(at.x, this.hf.sample(at.x, at.z) + 2.5, at.z).project(this.camera);
-      if (v.z > 1 || v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) continue;
+    const out: { id: string; x: number; y: number; glyph: string; label: string; lead: boolean; lit?: string; pit?: boolean }[] = [];
+    const put = (m: Omit<(typeof out)[number], 'x' | 'y'>, x: number, z: number) => {
+      v.set(x, this.hf.sample(x, z) + 2.5, z).project(this.camera);
+      if (v.z > 1 || v.x < -1 || v.x > 1 || v.y < -1 || v.y > 1) return;
       out.push({
-        id: d.id, glyph: d.glyph, label: d.label, lead: !d.revealed,
+        ...m,
         x: Math.round((v.x * 0.5 + 0.5) * window.innerWidth),
         y: Math.round((-v.y * 0.5 + 0.5) * window.innerHeight),
       });
+    };
+    for (const d of $deposits.get()) {
+      // a hub's highlight labels only its own kinds
+      if (light && !d.lit) continue;
+      const at = d.revealed ? { x: d.x, z: d.z } : d.lead;
+      if (!at) continue;
+      put({
+        id: d.id, glyph: d.glyph, label: d.lit ? d.lit.label : d.label, lead: !d.revealed,
+        lit: d.lit ? `${d.lit.tier} ${d.lit.state}${d.lit.best ? ' best' : ''}` : '',
+      }, at.x, at.z);
     }
-    const sig = out.map((m) => `${m.id}${m.x},${m.y}${m.glyph}`).join('|');
+    for (const e of light?.entries ?? []) {
+      if (e.state !== 'plain' && e.state !== 'stake') continue;
+      put({ id: e.id, glyph: e.glyph, label: e.label, lead: false, lit: `lit ${e.state}${e.best ? ' best' : ''}`, pit: true },
+        e.pit?.cx ?? e.cx, e.pit?.cz ?? e.cz);
+    }
+    const sig = out.map((m) => `${m.id}${m.x},${m.y}${m.glyph}${m.label}${m.lit ?? ''}`).join('|');
     if (sig === this.markerSig) return;
     this.markerSig = sig;
     $depositMarkers.set(out);
+  }
+
+  // ─────────────────────────── the resource highlight (docs/17 §5–§6) ───────────────────────────
+
+  /** What lights: a hub's ghost, else a selected hub, else a hub's palette
+   *  card (hover, or the touch info card). Build mode only. */
+  private lightSource(): LightSource | null {
+    if (!this.playing || this.modes.mode !== 'build') return null;
+    const p = this.placement?.active ? this.placement.probe : null;
+    if (p) return p.type !== 'grade' && isHubType(p.type) ? { kind: 'ghost', type: p.type, gx: p.gx, gz: p.gz, rot: p.rot } : null;
+    const sel = $selection.get();
+    if (sel && isHubType(sel.type)) return { kind: 'selected', id: sel.id };
+    const card = $hubCard.get() ?? $touchInfo.get()?.type ?? null;
+    if (card && isHubType(card)) return { kind: 'card', type: card };
+    return null;
+  }
+
+  /** The highlight follows its source: at once when the ghost moves a cell
+   *  or the source changes, else at most four times a second (trips, faces
+   *  and pits move with the sim). The base rings leave the lit ones to it and
+   *  fade to 30%; $deposits and $hubLight carry it to the labels and the map. */
+  private updateHubLight(dt: number) {
+    const src = this.lightSource();
+    this.lightClock += dt;
+    let key = '';
+    if (src) {
+      const who = src.kind === 'ghost' ? `g${src.type},${src.gx},${src.gz},${src.rot}` : src.kind === 'selected' ? `s${src.id}` : `c${src.type}`;
+      key = `${who}|${Math.floor(this.lightClock * 4)}`;
+    }
+    if (key === this.lightKey) return;
+    this.lightKey = key;
+    const site = SITES[this.state.siteId];
+    const light = !src ? null
+      : src.kind === 'ghost' ? ghostBlock(this.state, this.mods, site, src).light
+      : hubLight(this.state, this.mods, site, src);
+    this.light = light && light.entries.length ? light : null;
+    this.highlight?.set(this.light);
+    const lit = this.light ? this.light.entries.map((e) => e.id).sort().join(',') + '|' : '';
+    if (lit !== this.overlayLit) {
+      this.overlayLit = lit;
+      if (this.depositOverlay) this.rebuildDepositOverlay();
+    }
+    this.showOverlay();
+    const L = this.light;
+    const view: HubLightView | null = L ? {
+      type: L.type, source: L.source, hubId: L.hubId, reachS: L.reachS, mre: L.mre,
+      extra: L.entries.filter((e) => e.state === 'plain' || e.state === 'stake').map((e) => ({
+        id: e.id, x: e.pit?.cx ?? e.cx, z: e.pit?.cz ?? e.cz, r: e.r, fullR: e.fullR, state: e.state as 'plain' | 'stake',
+        label: e.label, pitR: e.pit?.R ?? null,
+      })),
+    } : null;
+    const prev = $hubLight.get();
+    if (JSON.stringify(prev) !== JSON.stringify(view)) $hubLight.set(view);
+    this.publishLit();
+  }
+
+  /** $deposits: the last publish's, with the highlight's lit states in (docs/17 §6.1). */
+  private publishLit() {
+    const L = this.light;
+    const sig = L ? `${L.sig}#${L.labelSig}` : '';
+    if (sig === this.depLitSig) return;
+    this.depLitSig = sig;
+    const byId = new Map((L?.entries ?? []).filter((e) => e.state !== 'plain' && e.state !== 'stake').map((e) => [e.id, e]));
+    if (!byId.size) { $deposits.set(this.depBase); return; }
+    $deposits.set(this.depBase.map((d) => {
+      const e = byId.get(d.id);
+      if (!e) return d;
+      return {
+        ...d,
+        lit: {
+          tier: e.tier, state: e.state, eta: e.eta, approx: e.approx, faces: e.faces, used: e.used,
+          pitR: e.pit?.R ?? null, ...(e.pit ? { pitX: e.pit.cx, pitZ: e.pit.cz } : {}), fullR: e.fullR, best: e.best, label: e.label,
+          ...(e.reserves?.left !== undefined ? { ore: { left: e.reserves.left, ...(e.reserves.precision ? { precision: e.reserves.precision } : {}) } } : {}),
+          ...(e.reserves?.cutQ !== undefined ? { grade: e.reserves.cutQ } : {}),
+        },
+      };
+    }));
+  }
+
+  /** The base rings show with the overlay on [I], and whenever a hub's highlight is up. */
+  private showOverlay() {
+    if (this.depositOverlay) this.depositOverlay.visible = $depositOverlay.get() || !!this.light;
+  }
+
+  /** The highlight as drawn (tests). */
+  debugHighlight() {
+    return { drawn: this.highlight?.info() ?? null, light: this.light };
   }
 
   private updateLookAt() {
@@ -2537,7 +2668,9 @@ export class Game {
     $lossStory.set(lossStory(s));
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $feed.set({ ...s.feed });
-    $deposits.set(depositsView(s, this.hf.deposits, this.mods.surveyTier));
+    this.depBase = depositsView(s, this.hf.deposits, this.mods.surveyTier);
+    this.depLitSig = null;
+    this.publishLit();
     // a tier that grows while the map is open moves the view out at once;
     // while it is shut the chip pulses until the next open
     const ui = this.lunarUi;
@@ -2657,11 +2790,16 @@ export class Game {
   private ringMats = {
     strong: new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.7, depthWrite: false }),
     faint: new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.34, depthWrite: false }),
+    // a hub's highlight is up: the kinds it does not want, at 30% (docs/17 §6.1)
+    strongFaded: new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.7 * 0.3, depthWrite: false }),
+    faintFaded: new THREE.LineBasicMaterial({ color: 0xdfe9f5, transparent: true, opacity: 0.34 * 0.3, depthWrite: false }),
   };
 
   /** Terrain-conforming rings around the revealed deposits. Kinds differ by
    *  pattern (solid, dashed, dotted, double, thin, thin dotted) and by their
-   *  DOM glyphs, never by colour. */
+   *  DOM glyphs, never by colour. With a hub's highlight up, its lit and
+   *  dimmer deposits are the highlight's to draw (world/depositHighlight.ts),
+   *  and the rest fade to 30%. */
   private rebuildDepositOverlay() {
     if (!this.worldGroup) return;
     if (this.depositOverlay) {
@@ -2683,8 +2821,9 @@ export class Game {
         out.push(...at(i), ...at(i + 1));
       }
     };
+    const lit = new Set(this.light?.entries.map((e) => e.id) ?? []);
     for (const d of this.hf.deposits) {
-      if (!this.revealedIds.has(d.id)) continue;
+      if (!this.revealedIds.has(d.id) || lit.has(d.id)) continue;
       switch (DEPOSIT_INFO[d.kind].pattern) {
         case 'solid': ring(strong, d.cx, d.cz, d.r, 1, 0); break;
         case 'dashed': ring(strong, d.cx, d.cz, d.r, 4, 2); break;
@@ -2695,7 +2834,10 @@ export class Game {
       }
     }
     const group = new THREE.Group();
-    for (const [pts, mat] of [[strong, this.ringMats.strong], [faint, this.ringMats.faint]] as const) {
+    const fade = !!this.light;
+    for (const [pts, mat] of [
+      [strong, fade ? this.ringMats.strongFaded : this.ringMats.strong], [faint, fade ? this.ringMats.faintFaded : this.ringMats.faint],
+    ] as const) {
       if (!pts.length) continue;
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pts), 3));
@@ -2703,7 +2845,7 @@ export class Game {
       lines.renderOrder = 3;
       group.add(lines);
     }
-    group.visible = $depositOverlay.get();
+    group.visible = $depositOverlay.get() || fade;
     this.depositOverlay = group;
     this.worldGroup.add(group);
   }

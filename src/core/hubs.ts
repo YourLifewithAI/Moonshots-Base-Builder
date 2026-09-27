@@ -385,59 +385,7 @@ export function hubHunger(mods: Mods, site: SiteDef, b: BuildingState): number {
   return effectiveRates(b.type, mods, site, b, { feed: b.hub?.feed }).inputs.regolith ?? 0;
 }
 
-/** The ghost's HUB line (§15; Phase 5 draws the full block): where a hub
- *  placed here would send its units, how long one way, and what a unit
- *  delivers there against what the hub burns — so placement reads the
- *  choice: nearer the deposit is more ▲ a unit. The trip is the estimate a
- *  target no road reaches gets (1.3 × the straight line to its rim, then
- *  off-road). '' for a type that is not a hub. */
-let ghostMemo = { key: '', line: '' };
-export function hubGhostLine(s: GameState, mods: Mods, site: SiteDef, g: Pick<BuildingState, 'type' | 'gx' | 'gz' | 'rot'>): string {
-  const def = HUB_DEFS[g.type];
-  if (!def) return '';
-  // the ghost asks every frame: once a game-second a spot is enough
-  const key = `${g.type},${g.gx},${g.gz},${g.rot}|${s.siteId}|${s.zones?.length ?? 0}|${Math.floor(s.simTime)}`;
-  if (key === ghostMemo.key) return ghostMemo.line;
-  const line = ghostLine(s, mods, site, def, g);
-  ghostMemo = { key, line };
-  return line;
-}
-
-function ghostLine(s: GameState, mods: Mods, site: SiteDef, def: NonNullable<(typeof HUB_DEFS)[BuildingId]>, g: Pick<BuildingState, 'type' | 'gx' | 'gz' | 'rot'>): string {
-  const type = def.unit(site);
-  const wants = new Set(def.wants(site));
-  const v = unitSpeed(mods, type);
-  const offW = 1 / (ROAD.offroad * mods.haulOffroadMult);
-  const stub = {
-    id: -1, type: g.type, gx: g.gx, gz: g.gz, rot: g.rot, enabled: true, automated: true, priority: 2, wear: 0, dust: 0,
-    construction: 0, buildTotal: 0, active: true, idleReason: '',
-  } as BuildingState;
-  const [dx, dz] = standPoint(stub);
-  const hunger = hubHunger(mods, site, stub);
-  const specs = new Map<string, UnitSpec>();
-  let best: { name: string; t: number; rate: number; q: number; score: number } | null = null;
-  for (const z of s.zones ?? []) {
-    if (z.kind === 'plain' || z.kind === 'pit' || !wants.has(z.kind)) continue;
-    const t = (Math.max(0, Math.hypot(z.cx - dx, z.cz - dz) - z.r) * 1.3 + z.r * (1 - HUB.faceR) * offW) / v;
-    if (t > HUB.reachS) continue;
-    let spec = specs.get(z.kind);
-    if (!spec) { spec = unitSpec(mods, type, unitRates(s, mods, site, { type, wear: 0 }, z.kind)); specs.set(z.kind, spec); }
-    const rate = spec.bucket / (spec.digS + spec.unloadS + 2 * t);
-    const q = groundQ(mods, site, g.type, z.kind);
-    const score = Math.min(rate, hunger) * q;
-    if (!best || score > best.score + 1e-9) best = { name: `${DEPOSIT_INFO[z.kind].name} #${z.id.split('-').pop()}`, t, rate, q, score };
-  }
-  const unit = unitName(type).toLowerCase();
-  const G = RESOURCES.regolith.glyph;
-  if (best) {
-    const feed = Math.abs(best.q - 1) > 0.005 ? ` · feed ×${best.q.toFixed(2)}` : '';
-    return `HUB — its ${unit}s dig ${best.name}, ~${Math.round(best.t)} s one way · ~${best.rate.toFixed(2)}${G}/s a unit; it burns ${hunger.toFixed(1)}${G}/s${feed}`;
-  }
-  const names = [...wants].map((k) => DEPOSIT_INFO[k].name).join(' or ');
-  return def.plain(site)
-    ? `HUB — no ${names} within ${HUB.reachS} s one way: it stakes a plain pit by its door`
-    : `HUB — no ${names} within ${HUB.reachS} s one way: its ${unit}s would stand idle`;
-}
+// The ghost's HUB line and block (Phase 5): core/hubPreview.ts.
 
 export interface Choice {
   target: Target;

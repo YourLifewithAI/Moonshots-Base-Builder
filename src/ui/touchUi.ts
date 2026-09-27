@@ -23,7 +23,7 @@ import { el } from './hud';
 import { notBuildableHere, orderCard, orderableHere, tooltipHtml, unlockingTech } from './palette';
 import { openTechTreeAt } from './techTree';
 import {
-  $depositOverlay, $depositSel, $fleetTarget, $hazards, $lunar, $menuOpen, $phase, $placing, $research,
+  $depositOverlay, $depositSel, $fleetTarget, $hazards, $hubLight, $lunar, $menuOpen, $phase, $placing, $research,
   $resourcePanel, $roadTool, $roverSel, $selection, $swarm, $time, $touchInfo, overlayUp, spawnFloater,
 } from './stores';
 import { onLongPress } from './longPress';
@@ -162,6 +162,8 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
     rRisk.classList.toggle('active', k === 'hazards');
   });
   $depositOverlay.subscribe((on) => rDeps.classList.toggle('active', on));
+  // a hub's ground lit (placing it, selected, its card up: docs/17 §6.1) shows the rings too
+  $hubLight.subscribe((v) => rDeps.classList.toggle('lit', !!v));
   const focusable = () => { rFocus.disabled = !$selection.get() && $roverSel.get() === null; };
   $selection.subscribe(focusable);
   $roverSel.subscribe(focusable);
