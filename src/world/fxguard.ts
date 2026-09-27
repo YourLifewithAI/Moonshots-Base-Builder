@@ -48,6 +48,11 @@ vec4 mbbSanitize( vec4 c ) {
 /** Shared by every sanitiser: off only for a test that shows what it stops. */
 export const sanitizeUniform = { value: true };
 
+/** Hardened N8AO composites alive now, with their stock source (debug: a
+ *  test draws the same frame with and without the hardening). */
+const hardened = new Map<THREE.ShaderMaterial, { stock: string; patched: string }>();
+let hardening = true;
+
 type Edit = [anchor: string, replace: string];
 
 /** N8AO's composite: fog factor initialised, AO and weights guarded, the
@@ -70,16 +75,30 @@ interface N8AOLike {
 }
 
 function patchComposite(mat: THREE.ShaderMaterial): boolean {
-  let src = mat.fragmentShader;
-  if (src.includes('mbbSanitize(')) return true;
+  if (hardened.has(mat)) return true;
+  const stock = mat.fragmentShader;
+  let src = stock;
   for (const [anchor, rep] of N8AO_EDITS) {
     if (src.split(anchor).length !== 2) return false; // missing or ambiguous: leave it stock
     src = src.replace(anchor, rep);
   }
-  mat.fragmentShader = src;
+  hardened.set(mat, { stock, patched: src });
+  mat.addEventListener('dispose', () => hardened.delete(mat));
+  mat.fragmentShader = hardening ? src : stock;
   mat.uniforms.mbbSanitizeOn = sanitizeUniform;
   mat.needsUpdate = true;
   return true;
+}
+
+/** Debug: the N8AO hardening and the sanitiser on or off together (off
+ *  draws exactly what the stock chain drew). */
+export function setHardening(on: boolean) {
+  hardening = on;
+  sanitizeUniform.value = on;
+  for (const [mat, src] of hardened) {
+    mat.fragmentShader = on ? src.patched : src.stock;
+    mat.needsUpdate = true;
+  }
 }
 
 /** Harden an N8AOPostPass in place (and again whenever it rebuilds its

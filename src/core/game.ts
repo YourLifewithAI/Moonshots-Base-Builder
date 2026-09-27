@@ -69,7 +69,7 @@ import { Sky } from '../world/sky';
 import { FX_PLAIN, PostFX } from '../world/post';
 import { FxSelfCheck, type FxCheckResult } from '../world/fxcheck';
 import { REPORT_EXTENSIONS, diagnosticTargets } from '../world/fxcaps';
-import { applyFxBreak, fxBreak, sanitizeUniform, setFxBreak, type FxBreak } from '../world/fxguard';
+import { applyFxBreak, fxBreak, sanitizeUniform, setFxBreak, setHardening, type FxBreak } from '../world/fxguard';
 import { copyText, gpuStrings, installRenderLog, logRender, pollGlErrors, renderLog } from '../world/renderReport';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
@@ -1635,6 +1635,10 @@ export class Game {
 
   /** The HDR sanitiser on or off (a test that shows what it stops). */
   debugSetSanitize(on: boolean) { sanitizeUniform.value = on; }
+
+  /** The whole hardening (N8AO composite + sanitiser) on or off: off draws
+   *  what the stock chain drew (a test that the look did not change). */
+  debugSetHardening(on: boolean) { setHardening(on); }
 
   /** check `frames` from now (unless a probe is holding the check off) */
   private reprobe(frames = 40) {

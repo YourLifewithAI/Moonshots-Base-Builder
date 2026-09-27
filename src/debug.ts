@@ -145,6 +145,8 @@ function api(game: Game) {
     debugBreakFx: (level: number | null, mode?: 'player' | 'zero' | 'nan') => game.debugBreakFx(level, mode),
     /** the HDR sanitiser on or off */
     setFxSanitize: (on: boolean) => game.debugSetSanitize(on),
+    /** N8AO's hardened composite and the sanitiser on or off together (off = the stock chain) */
+    setFxHardening: (on: boolean) => game.debugSetHardening(on),
     /** the work animations (docs/06 §7): per rover its mode, arm (unfold, yaw,
      *  reach, tip) and spark; per drone its spark; per excavator its wheel and
      *  boom angles; the kit and glow instance counts */
