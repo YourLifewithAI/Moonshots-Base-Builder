@@ -25,7 +25,10 @@ src/
     actions.ts            typed Action union + ActionQueue (UI → sim)
     economy.ts            the 1 Hz economy tick — the entire simulation
     mods.ts               tech-effect modifiers (computeMods) + era computation
-    fleet.ts              the rover roster and assignments; unitKind (a Drone Hive's units are drones)
+    fleet.ts              the rover roster and assignments (who is soonest there by road); unitKind (a Drone Hive's units are drones)
+    transit.ts            rovers in transit (docs/15 §6a): each unit's place and trip, planned on a new goal,
+                          advanced by the clock; who has arrived where (economy step 0); ETAs
+    zones.ts              extraction zones (docs/15 §5a): the revealed deposits' cells and rims
     research.ts           availability, cost, the queue, charters (the destiny pick gates eras 3–8),
                           destinyOf (the meter, the band, the reach), techSchema migration
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
@@ -34,9 +37,11 @@ src/
     hazards.ts            destiny hazards (docs/14 §3): tiers, the scheduler, occupancy, the network graph,
                           each kind's flow, counters, deaths and losses; economy hooks; hazardView for the UI
     flowBook.ts           per-resource made / want / spend averages (supply against demand)
-    roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads
+    roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads;
+                          zone gates and ground ways (road, then off-road inside a zone)
     roadActions.ts        the road tool's actions (lay, remove) and their alerts
-    spots.ts              where each rover stands on the roads: its bay, a site's door, a road's frontier
+    spots.ts              where each rover stands: its bay, a site's door, a road's frontier (that road's crew
+                          first), off-road at a site inside a zone; the sim and the visuals read the same slots
     daynight.ts           compressed lunar clock → DayInfo {sunFactor, elevation, night}
     save.ts               SaveBlob ⇄ idb-keyval ('mbb-save-v1') with localStorage fallback
     rng.ts                mulberry32 seeded PRNG + string hash
@@ -94,8 +99,9 @@ src/
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
                           classic = plain, no ladder; frame probe
     life.ts               the motion layer, one call per frame; each part fails soft
-    rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads; and DroneFlight,
-                          the Drone Hive's units flying straight at 6–10 m, off the roads and out of traffic
+    rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads, following the sim's
+                          trips (core/transit.ts); and DroneFlight, the Drone Hive's units flying straight at
+                          6–10 m, off the roads and out of traffic, following theirs
     settlers.ts           EVA walkers (⌂): one per EVA crew, on free cells only (never a road), home at night
     haulers.ts            excavators away from their pads, following the sim's road legs
     traffic.ts            units on the road cells: lane holds, excavator gates, queues, the deadlock breaker
@@ -176,6 +182,7 @@ in `game.ts`):
 | # | Step | What happens |
 |---|---|---|
 | 1 | Action drain | UI commands applied to state (place/demolish/research/speed/…) |
+| 1b | Rovers (`syncRoster`, `assignRovers`, `transitArrive`; economy step 0) | The roster follows the docks; auto rovers take sites in queue order, each the free one soonest there by road from where it is. Then every trip advances a second, and each site counts the units that have arrived: its welders at their stands, or the ones behind its road's frontier while the road is unfinished (docs/15 §6a). Only they draw power and build (step 2.5), and only a unit behind a road job's frontier sinters it (2.6) |
 | 2 | Power supply | Sum generators: solar × `sunFactor` × (1 − dust), wear > 0.3 halves output; + power-beaming return (4 kW × launches) once researched; battery capacity summed |
 | 3 | Demand + priority idling | Consumers sorted by `(priority, id)` ascending draw from `supply·dt + stored`. Priority 0 (habitats, power) feeds first; 3 (labs) browns out first — Timberborn-style shortage triage. Net surplus charges storage at 85% round-trip efficiency; deficit drains it. Brownout raises an alert |
 | 4 | Worker allocation | Crew assigned in the same `(priority, id)` order; unstaffed buildings idle with reason `crew`. Then agents cover: once stations may run on agents, a short-handed one goes agent-run (`agentCover`) from the next tick, and every 30 s free workers take covered ones back (not a station set to Crewed by hand, `crewPinned`; off with `s.agentCover = false`) |
@@ -191,6 +198,7 @@ in `game.ts`):
 | 12 | Milestones | Checked **in order**, only the next incomplete one — progressive disclosure by construction. `first-light` (first launch) raises the victory event |
 | 12b | Flow book | Folded in at the end of production, life support and upkeep: per resource, `made` (outputs and hauled deliveries), `want` (what running buildings, the crew, upkeep and welding asked for, covered or not) and `spend` (build costs, research goods, surveys, claims) — the rates' averages, spend over 300 s. `made − want − spend` is the Builder's supply against demand |
 | 12c | Builder (`automationTick`) | Families newly unlocked switch their rules on; completed auto sites settle their rule; each rule reads its signal and walks its state machine in family order (≤ 2 placements a tick, one pending site a family); held orders; Maintenance; Feed Planner. Returns `AutoRequest[]` for `econStep` — the tick itself never places |
+| 12d | Trips (`transitPlan`, after the tick) | Every unit whose goal changed — a new assignment, a frontier moved on, a slot changed, home — plans one trip from where it stands (a road route, off-road inside a zone; a drone straight). It sets off at this second, so the visuals see it from its first metre |
 | 13 | Publish | `game.publish()` copies state slices into the nanostores atoms |
 
 The tick is `O(buildings)` with a handful of passes — trivial at the 96/type
@@ -329,7 +337,13 @@ SaveBlob = {
   `breached` / `decompressed` / `junk` / `slotsLost` and the offline
   timers, per rover `brickedUntil` / `heldUntil`, and `hacked` on outposts.
   `fillStateDefaults` gives an older save a quiet scheduler that starts a
-  lunar day after load, and empty lists. Restore = regenerate terrain from
+  lunar day after load, and empty lists. Rovers in transit (docs/15 §6a) add
+  `state.fleetSchema` (1) and per rover `x` / `z` and `trip` (goal, kind,
+  route, weights off-road, length, cruise, elapsed and total seconds); an
+  excavator's haul adds `full` and `w`. A save without `fleetSchema`
+  settles each rover where its work is, arrived, on load. `state.zones`
+  (docs/15 §5a) is rebuilt from the heightfield and the reveals on every
+  load. Restore = regenerate terrain from
   `(siteId, seed)` → replay flattens → rebuild chunk meshes + instances +
   colliders → restore player pose and mode.
 
@@ -353,7 +367,9 @@ losses, grief) · `forceHazard(kind, target?, {drill, tier})` ·
 `setHazardClock(seconds, id?)` (the next window, or a live hazard's clock) ·
 `holdHazards(on)` (tests not about hazards, and the probe's
 `--hazards=off`) · `counter(counter, id?)` · `airGap(id, on)` (both through
-the action queue). `&hzpause` lets the pause-on settings pause a debug run;
+the action queue). Transit adds `instantTravel(on)` (every trip ends as it
+starts: tests where the drive is not the point) and `getZones()` (each
+extraction zone, its cells and gates). `&hzpause` lets the pause-on settings pause a debug run;
 without it they never do.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time
