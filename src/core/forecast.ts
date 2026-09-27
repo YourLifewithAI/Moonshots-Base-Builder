@@ -380,7 +380,7 @@ function aheadPopup(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, v: We
     criticalKW: criticalKW(s, feedMargin(s, mods), flareSeconds(cls)),
     criticalN: options.find((o) => o.key === 'feed')?.runN ?? 0,
     options, autoRepair: w.ahead?.repair ?? w.autoRepair, rememberCls: cls,
-    headline: `☉ NEXT FLARE — class ${next.classText} · due ${next.text} · choose now: it waits for the telegraph`,
+    headline: `☉ NEXT FLARE — class ${next.classText} · choose now: it waits for the telegraph`,
     defaultLine,
     ahead: true,
     clockText: `due ${next.text}`,

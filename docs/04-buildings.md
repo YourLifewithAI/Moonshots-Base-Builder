@@ -84,6 +84,7 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 |---|---|---|---|---|---|
 | Research Lab (1) | S | 2 crew, −5 kW → Data | Buildable from the start (the tree's entry point); priority 3: first to idle in a crunch | The only way forward: data toward every unlock | Produces nothing you can eat, breathe, or burn — and idles first in a crunch |
 | Data-Core Foundry (3) | C | electronics + Data → Data Cores | Manufactured science: Era 4+ techs cost Cores (03) | Turns research into a product your industry can scale | Science itself now has a supply chain that can starve |
+| **Solar Observatory** (2) | S | no crew, −2 kW, 1⚙/day → 0.05 data/s while it sees the Sun | Unlocked by Heliophysics Forecasting (docs/16 §6.3): the next flare's window and class range, a flare's data ×2, telegraphs +30 s. 2×2, off-road like a Relay Mast; one is enough, a second is a spare for the night side of a hill | Sees the next flare coming: a window and a likely class | Blind at night, and in the shade of a ridge |
 | Deep-Space Observatory (4) | C | crew, power → Data surge + Breakthrough discovery | Farside/radio-quiet concept: must sit far from the base, linked by Comms Relay | Finds the Breakthroughs no lab can compute its way to | Exiled beyond your perimeter — a remote outpost with your smartest people in it |
 
 ## Logistics & export
@@ -129,7 +130,7 @@ stay as docs/15 lays them.
   Hydroponics Farm, Recreation Dome, Research Lab, Parts Fabricator, Foil
   Factory, Mass Driver — plus the free pre-placed Lander. Later additions
   (Storage Yard, Robotics Bay, Chip Fab, Data Center, Relay Mast, Propellant
-  Plant, and the four destiny buildings above) are in `buildings.ts`.
+  Plant, the Solar Observatory of docs/16, and the four destiny buildings above) are in `buildings.ts`.
 - **Merged (2 → 1):** HRI Ilmenite Reduction Plant + MRE Electrolyzer → the
   shipped Regolith Smelter. Unmerging them restores a real strategic choice:
   oxygen-rich ilmenite reduction (site-dependent) vs. site-agnostic,
