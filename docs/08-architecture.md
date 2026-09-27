@@ -45,6 +45,9 @@ src/
     spaceWeather.ts       space weather (docs/16), economy step 8: the solar cycle, flare classes and drills,
                           the phases, the arrays' plan (the portion rule, the critical feed), previews,
                           wrecks and repairs, the legacy flare, migration; weatherView for the UI
+    forecast.ts           flare forecasting (docs/16 §6, F3), first in economy step 8: the tier (the observatory,
+                          the sentinel), the telegraph's lead, the honest window and class range, the schedule
+                          run forward (T3), the sentinel's launch, Arrays: choose now…; forecastView for the UI
     flowBook.ts           per-resource made / want / spend averages (supply against demand)
     roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads;
                           zone gates and ground ways (road, then off-road inside a zone)
@@ -69,6 +72,7 @@ src/
                           exposure and risk texts; HAZARDS_LIVE true
     spaceWeather.ts       the flare classes, the cycle, the array rows, repairs, wrecks, the draw seeds
                           (SPACE_WEATHER); the legacy flare (LEGACY_FLARE)
+    forecast.ts           the forecast tiers, leads, window widths, the observatory's data, the sentinel (FORECAST)
     roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast; the pits' delta grid
@@ -155,6 +159,7 @@ src/
     hazardsPanel.ts       the [G] Hazards panel, the HUD hazard chip, counter buttons (alerts, inspector)
     weatherPanel.ts       the ☉ chip, the flare pop-up (desktop and touch), the [O] panel, the arrays'
                           inspector lines (weather.css)
+    forecastPanel.ts      the panel's NEXT block and TIMELINE (docs/16 §6.5, §10.5), placed after NOW and before LOG
     techTree.ts / techPage.ts / techGoals.ts / techDestiny.ts
                           the research tree: pages, lane board, goals, the destiny column and meter
 tests/smoke.spec.ts       6-test full-loop Playwright suite
@@ -215,7 +220,7 @@ in `game.ts`):
 | 6 | Life support & crew | O₂ 0.02 and food 0.008 per crew-second (× closed-loop mult). Shortage runs a 60 s grace timer, then loses 1 crew per 30 s with a −15 morale hit. Growth: morale > 60 + a free powered bed + fed + life support that carries crew+1 for a lunar day at the current flow → +1 crew per lunar day |
 | 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap. The tick's net flow per resource so far (deliveries and research goods excluded) feeds a 20 s average, `state.rates`, which the info panels show |
 | 8 | Morale | Target = site base + active-building deltas + fed/starving + crowding + brownout + flare penalties, clamped 0–100; state lerps toward it at 0.05/tick |
-| 9 | Space weather (`weatherTick`, economy step 8) | docs/16. idle → telegraph (60 · 60 · 120 s by class, +60 s on a drill; the pop-up; the plan locks 10 s before the protons and the wings turn) → active (30 · 45 · 60 s: morale and data by class; the arrays' outcome at its end) → an X's 120 s tail → idle (repairs queue, the log line, the next in (2.3 − a)(1 ± 0.3) lunar days). The class is drawn at the telegraph from the seeded cycle and the era; an X is locked by the spot-group watch half a day ahead. Repairs, Rebuild and Clear become construction sites on the array (step 2.5 works them, `siteDone`). `s.weather.legacy`: the old machine, for the probe |
+| 9 | Space weather (`weatherTick`, economy step 8) | docs/16. idle → telegraph (60 · 60 · 120 s by class, +60 s on a drill; the pop-up; the plan locks 10 s before the protons and the wings turn) → active (30 · 45 · 60 s: morale and data by class; the arrays' outcome at its end) → an X's 120 s tail → idle (repairs queue, the log line, the next in (2.3 − a)(1 ± 0.3) lunar days). The class is drawn at the telegraph from the seeded cycle and the era; an X is locked by the spot-group watch half a day ahead. Repairs, Rebuild and Clear become construction sites on the array (step 2.5 works them, `siteDone`). `s.weather.legacy`: the old machine, for the probe. Forecasting runs first (`forecastTick`, `core/forecast.ts`): its tier's lead starts the telegraph 30 or 60 s early, and the flash (`f.flashAt`) keeps the schedule's time; the window forecasts that flash |
 | 9b | Hazards (`hazardTick`, economy step 8.3) | After the flare, before resupply. The scheduler opens a window per side in turn (credit by picks), picks the kind and the weakest target deterministically, and starts its warning. Each live hazard runs telegraph → active → resolved; its alert carries the counters, and a death or loss clock is a condition. Then the meters (airlock dust, cabin fever, dose), the fleet (bricked rovers re-flash at their own dock, deadlines, dock reprints) and runaway junk. Returns wrecked buildings, junk sites for `econStep`, and whether mods changed. Its hooks in the other steps are in 02 |
 | 10 | Research | Data drains into the queue head; on completion, era-3+ techs also gate on **manufactured goods** (Factorio rule: you cannot out-research your industry) — unaffordable techs stall with an alert. Completion recomputes era + mods |
 | 11 | Night tracking | Day→night edge detection; surviving a night increments the counter and fires the DAWN alert |
@@ -490,7 +495,10 @@ Space weather adds `forceFlare(cls, {drill})` · `getSpaceWeather(slider?)`
 `repairArrays(id?)` (all through the action queue) · `setFlareMode('legacy' |
 'on')` (the probe's `--flares`) · `setWeatherStub({arrayHard})` (Rad-Hard
 Cells' stand-in until F4) · `weatherCycle(T)` · `classOdds` · `drawClass` ·
-`arrayInfo(id)` · `arrayFields()` · `forceEra(n)`.
+`arrayInfo(id)` · `arrayFields()` · `forceEra(n)`. Forecasting (F3) adds
+`flareAhead(choice | null, {repair, remember})` · `setForecastAhead(open)` ·
+`launchSentinel()` · `predictFlares(n)` · `trueClass()`; `getSpaceWeather()`
+carries its `forecast`.
 `&hzpause` lets the pause-on settings pause a debug run, and `&flarepause`
 the flare pop-up's; without them they never do.
 The render path adds `getRenderInfo()` ·

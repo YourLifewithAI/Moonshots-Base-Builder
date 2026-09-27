@@ -27,6 +27,7 @@ import type { CounterId, HazardId, Tier } from './data/hazards';
 import type { ArrayChoice, FlareClass } from './data/spaceWeather';
 import { WEATHER_STUB, activity, arrayView, classOdds, cycleOf, drawClass, fieldsOf, weatherView } from './core/spaceWeather';
 import { currentDay } from './core/economy';
+import { predictFlares, trueClass, withForecast } from './core/forecast';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -206,8 +207,21 @@ function api(game: Game) {
     getSpaceWeather: (slider?: number) => {
       const s = game.state;
       const site = SITES[s.siteId];
-      return clone(weatherView(s, game.mods, site, currentDay(s, site), slider));
+      const day = currentDay(s, site);
+      return clone(withForecast(weatherView(s, game.mods, site, day, slider), s, game.mods, site, day, { ahead: game.forecastAheadOpen, slider }));
     },
+    // ── forecasting (docs/16 §6, core/forecast.ts) ──
+    /** 'Arrays: choose now…': the choice set ahead for the next flare (null clears) */
+    flareAhead: (choice: ArrayChoice | null, o: { repair?: boolean; remember?: boolean } = {}) =>
+      game.actions.push({ kind: 'flareAhead', choice, ...o }),
+    /** open or close the ahead card (its previews are built only while it is open) */
+    setForecastAhead: (open: boolean) => game.setForecastAhead(open),
+    /** Launch sentinel (the Lander's action) */
+    launchSentinel: () => game.actions.push({ kind: 'launchSentinel' }),
+    /** the schedule run forward, as T3 reads it: the next flares' true classes and flashes (tests) */
+    predictFlares: (count = 3) => clone(predictFlares(game.state, count)),
+    /** the next flare's true class at this era, as the telegraph will draw it (tests) */
+    trueClass: () => trueClass(game.state, game.state.era),
     /** the pop-up's preview of one choice (the slider's), or null outside a telegraph */
     flarePreview: (choice: ArrayChoice) => clone(game.flarePreview(choice)),
     /** the pop-up's Confirm: the choice for every array, Repair after, Use this choice for future flares */

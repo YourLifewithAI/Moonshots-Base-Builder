@@ -35,7 +35,7 @@ import { touchOn } from '../core/touch';
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 import {
   $automation, $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
-  $vitals, spawnFloater, $hazards, $touchInfo, $hubCard,
+  $vitals, spawnFloater, $hazards, $touchInfo, $weather, $hubCard,
 } from './stores';
 import { isHubType } from '../data/hubs';
 
@@ -44,6 +44,7 @@ const ICONS: Record<BuildingId, string> = {
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
   foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
+  solarObservatory: '☉',
   waterPlant: '≋', iceMiner: '❄',
   // destiny buildings (docs/14 §2.8)
   greenhouseRing: '❁', gardenDome: '◓', droneHive: '⬢', serverMonolith: '▥',
@@ -557,6 +558,17 @@ export function mountPalette(root: HTMLElement, game: Game) {
     setText('insp-oc', overclockLine(sel));
     refreshFleet(insp, sel);
     refreshHub(insp, sel);
+    // the L1 Sentinel's launch (docs/16 §6.4): its cost, its cruise, on station
+    const sn = insp.querySelector<HTMLButtonElement>('#insp-sentinel');
+    const snv = $weather.get()?.forecast?.sentinel;
+    if (sn && snv) {
+      const label = snv.state === 'none' ? `☉ Launch sentinel · ${snv.cost}`
+        : snv.state === 'cruise' ? `☉ Sentinel cruising to L1 — on station in ${fmtClock(snv.inS)}` : '☉ L1 Sentinel on station';
+      if (sn.textContent !== label) sn.textContent = label;
+      sn.disabled = snv.state !== 'none' || !snv.can;
+      const title = snv.state === 'none' ? (snv.can ? 'A sun-watcher at L1: a lunar day of cruise, then the next flare’s class for sure, day and night' : snv.why) : '';
+      if (sn.title !== title) sn.title = title;
+    }
     const dl = insp.querySelector<HTMLButtonElement>('#insp-downlink');
     if (dl) {
       const t = downlinkText();
@@ -647,6 +659,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
             ? '<span class="label" id="insp-eta"></span>'
             : `<button class="btn" id="insp-order">▲ Order Earth shipment — arrives in ${orderDays} day${orderDays === 1 ? '' : 's'}</button>`}
           ${downlink ? '<button class="btn" id="insp-downlink"></button>' : ''}
+          ${isLander && game.mods.actions.has('sentinel') ? '<button class="btn" id="insp-sentinel"></button>' : ''}
           ${crewAll ? `<button class="btn" id="insp-crewall">${PERSON_SVG} Crew all eligible stations</button>` : ''}
         </div>
       </section>` : ''}
@@ -725,6 +738,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       case 'insp-toggle': game.actions.push({ kind: 'setEnabled', id: sel.id, enabled: !sel.enabled }); break;
       case 'insp-order': game.actions.push({ kind: 'orderResupply' }); break;
       case 'insp-downlink': game.actions.push({ kind: 'downlink' }); break;
+      case 'insp-sentinel': game.actions.push({ kind: 'launchSentinel' }); break;
       case 'insp-map': window.dispatchEvent(new CustomEvent('moonshots:open-map')); break;
       case 'insp-crewall': game.actions.push({ kind: 'crewAll' }); break;
       case 'insp-crewed': game.actions.push({ kind: 'setAutomated', id: sel.id, automated: false }); break;
