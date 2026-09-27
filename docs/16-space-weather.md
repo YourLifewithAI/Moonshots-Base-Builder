@@ -239,7 +239,196 @@ what lives in the tube.
 - The site card's pro becomes `Sheltered from flares: crew, labs and compute live in
   the tube`.
 
-## 4. Consequences by class (draft)
+## 4. Consequences by class
+
+### 4.1 Shielding: one number, σ
+
+Each thing a flare can hurt has a shield value **σ from 0 to 1**: the best of its
+sources, never their sum. Every effect below is multiplied by **(1 − σ)** unless it says
+otherwise. The inspector shows it: `FLARE SHIELD σ 0.5 · berms`.
+
+| Source | σ | What it covers |
+|---|---|---|
+| Nothing | 0 | Everything, before research |
+| **Regolith Shielding** (E2 ⌂, extended) | 0.5 | Every structure with berms: all but Solar Arrays, Relay Masts, the Mass Driver, the Shield Coil and units |
+| A dock | 0.5 bare · **1.0 bermed** | A machine parked at its Lander, Robotics Bay, Drone Hive or hub bay (docs/17 §16.4) |
+| **Water-Wall Shielding** (E4 ⌂) | 0.85 | Habitats and every pressurized hall, Labs, Data Centers, Server Monoliths, Chip Fabs, hubs |
+| A **bag wall**, deployed (§7.2) | 0.6 | One structure up to 3×3, or up to 3 machines parked inside it |
+| A **water-wall dome**, deployed (§7.2) | 0.9 | A 14 m circle: structures whose centre is inside, up to 6 machines, and EVA crews |
+| **Storm shelters** (⌂ guard, extended) | 1.0 | The crew indoors (and EVA recalls itself, as today) |
+| The **Shield Coil**, powered (§8.4) | 1.0 | Everything within 45 m, arrays included |
+| The **lava tube** (§3.6) | 1.0 | Pressurized and compute buildings |
+| A **stowed** array | 1.0 | Its cells |
+
+A machine that is driving, digging, flying or welding has **σ 0**. Only a dock or a dome
+covers it.
+
+### 4.2 The table
+
+Unprotected (σ 0), per flare. The X column is the flash; the tail adds its row.
+
+| What | C | M | X | The tail (X) | Protected by | Permanent? |
+|---|---|---|---|---|---|---|
+| **Cells** on arrays left generating | −0.25% | −1% | −3% | −1% | stowing; Rad-Hard Cells ×0.4; the Shield Coil | **Yes**, the chosen risk; floor 80% |
+| **Solar** on stowed arrays | 30 s + 10 s motion | 45 s + 10 s | 60 s + 10 s | 120 s | keep generating; the Shield Coil | no |
+| **Crew indoors** | — | — | 1 in 4 sick, off work ½ lunar day | — | berms, water walls, domes, storm shelters, the tube | no: never lethal |
+| **Crew on EVA** (⌂ DOSE, §9.2) | ¼ day off | the tier's days off | the tier's days off; lethal by tier | recall holds | Recall EVA (free), storm shelters, a dome within reach | **X only**: a death |
+| **Machines in the open** | 15% reboot (20 s) | 40% reboot (40 s), the job lost | 40% reboot (60 s) · **45% latch up** · **15% burn out** | as a C | docks, domes, Fault-Tolerant Avionics, Rad-Hard | **X only**: burned out |
+| **Labs** | data ×0.7 | data ×0.5 · the head tech −3% | data ×0.2 · the head tech −10% | data ×0.72 | Checkpoint, berms, water walls, domes, the tube | no |
+| **Chip Fabs** | yield −20% | −50% | −100% and the batch scrapped · **rad scar** | −35% | Shut down, Rad-Hard, σ | **X only**: the scar |
+| **Data Centers, Monoliths** | data ×0.8 | ×0.6 | ×0.3 · **rad scar** | ×0.75 | Shut down, Rad-Hard, σ | **X only**: the scar |
+| **Comms** | — | blackout 45 s | blackout to 60 s after the tail (240 s) | (in it) | Laser Ranging ×0.5 | no |
+| **Wear** | — | +3% · machines +5% | +8% · machines +15% | — | σ | no: heals with upkeep |
+| **Morale** (crewed) | −3, target −5 | −8, target −10 | −12, target −15 | target −10 | σ of the homes, storm shelters, the tube | no |
+| **Power beam** | ×0.5 | 0 | 0 | 0 | — | no |
+| **Heliophysics data** (a pro) | +15≡ | +30≡ | +60≡ | — | ×2 with a Solar Observatory, ×3 more with the Particle Telescope | — |
+
+### 4.3 Cells
+
+§5 has the choice. The numbers:
+
+- Loss per flare = the class's rate × the share of the active phase the array spent
+  generating × (1 − σ) × the Rad-Hard Cells multiplier.
+- It is stored as `b.cells` (1.0 new), and output is × `b.cells`. Dust (`b.dust`) stays
+  separate: dust cleans off, radiation does not.
+- **The floor:** cells never fall below 0.80. A worn array reads
+  `CELLS 91% · 4 flares generated through`.
+- The only way back is a new array: demolish and rebuild (15◆), or Maintenance
+  Automation (docs/13), which now also replaces arrays under 85%.
+
+### 4.4 Crew indoors
+
+- **X only.** Each home's crew takes a sick share of 0.25 × (1 − σ of that home),
+  rounded down per home, then 1 more on the home with the largest remainder if the
+  total remainder ≥ 0.5 (deterministic, by building id). They join the sick list
+  (`hazards.sick`, `src/core/hazards.ts:612`) for ½ lunar day.
+- **Never lethal indoors,** in any run. Indoor doses do not feed the cumulative EVA dose
+  (`doseLoad`), so a large crew never trips the EVA limit from its beds.
+- A robotic base with no crew takes nothing.
+
+### 4.5 Machines in the open
+
+**Who is in the open:** every rover or drone away from its dock (`away`,
+`src/core/hazards.ts:552`), every hub unit out of its bay (docs/17 §4.3), and every
+machine a transit trip is carrying (docs/15 §6a). A machine at a dock takes the dock's σ.
+
+**Each machine** draws once at the active start:
+`u = mulberry32((seed ^ 0x5f1e) + n · 4096 + id)()`, against the class's odds × (1 − σ)
+× its hardening.
+
+| Outcome | What happens | Undo |
+|---|---|---|
+| **Reboot** | It stops where it is: 20 s (C), 40 s (M), 60 s (X). At M and X **the job's work is lost**: a unit's bucket is dumped at its face, a survey restarts its core, a weld stops for the reboot, a drone lands for it and flies on. | none: it resumes |
+| **Latch-up** (X) | **Bricked** where it stands. Its dock re-flashes it over the radio, 1 per 30 s (a Hive 2), as FIRMWARE does (`src/core/hazards.ts:1546-1570`). **Lost if not re-flashed within 480 s.** | the re-flash queue; more docks |
+| **Burn-out** (X) | **Lost at once.** Logged as a machine loss (`LossRecord`, cause the flare, docs/14 §3.10). The dock reprints it (10◆ 15⚙, 120 s); a hub reprints a unit at its price (docs/17 §4.2). | none |
+
+- **Fault-Tolerant Avionics** (§7.1): reboot odds and times ×0.5, and an X's latch-ups
+  and burn-outs become 60 s reboots.
+- **Rad-Hard Process** (`radHard`, extended): latch-ups and burn-outs ×0.5, as it halves
+  bit flips today.
+- **Machine batteries** (work/unitpower): a machine rebooting on its pack keeps its
+  charge. A unit on a **Radioisotope Power Unit** reboots in half the time, since its
+  computer never loses power, but its electronics glitch like any other: the RPU is
+  rad-tolerant, the avionics are not. A latched RPU unit cannot drive home either.
+- **The recall** (§7.4) is the counter: a machine home before the active phase is
+  behind its dock's σ.
+
+### 4.6 Labs and research
+
+- **Data from labs** while active: × (1 − L × (1 − σ)), with L 0.3 · 0.5 · 0.8 by class
+  (0.28 in the tail).
+- **The head tech loses progress** at the active start: M 3%, X 10% of its data cost,
+  × (1 − the labs' output-weighted σ), and never more than it has spent. The data is
+  gone: `RESEARCH SET BACK — the flare corrupted 14≡ of Rover Autonomy (3%) ·
+  Checkpoint next time`.
+- **Checkpoint** (a button on the telegraph, a protocol after Flare Protocols): research
+  transfers pause from the active start to the end of the flare (and its tail). The labs
+  keep filling the bank, so the only cost is the delay. Nothing is lost.
+- **Banked data is never touched.** Wiping data stays MALWARE's (docs/14 §3.5).
+
+### 4.7 Chip Fabs and compute
+
+- **Chip yield** while active: chips made × (1 − loss × (1 − σ)), loss 0.2 · 0.5 · 1.0
+  (0.35 in the tail). The inputs are still used. At X the batch in the fab, 60 s of its
+  output, is scrapped.
+- **Soft errors:** Data Center and Server Monolith output × 0.8 · 0.6 · 0.3 (0.75 in the
+  tail).
+- **Rad scar** (X flash only, permanent): each **running** Chip Fab, Data Center and
+  Server Monolith with σ < 0.5 loses 4% of its output (`b.radScar`), to −12%. The
+  inspector: `RAD SCAR −4% · X flare, day 11 · rebuild to clear`. Maintenance
+  Automation replaces a building at −8% or worse.
+- **Shut down** (a button, or a protocol): a building switched off before the active
+  phase takes no yield loss and no scar. It makes nothing while off and restarts 20 s
+  after the flare (warm-up).
+- **Guard:** the shut-down protocol never takes down the last running Data Center once
+  Fleet OS is done, since that would drop the CONTROL PLANE (docs/14 §3.5).
+
+### 4.8 The comms blackout
+
+| Class | Blackout |
+|---|---|
+| C | none |
+| M | the active phase (45 s) |
+| X | the flash, the tail and 60 s more (240 s) |
+
+Laser Ranging (E7 ◎) halves it: the optical link is not a radio. While dark:
+
+- **Earth resupply, downlink cargo and a crew rotation** due to land **hold** until the
+  link returns, then land.
+- **Downlink** and **Call home** cannot be pressed.
+- **Earth Teleoperation's** build speed (×0.85) is lost; builds run at ×1.0.
+- **Outpost streams buffer** and arrive when the link returns. Nothing is lost.
+- **Lunar Map surveys:** a hopper in flight holds its hop (its clock pauses); a new
+  survey waits.
+- **Cabin fever's Earth contact** (docs/14 §3.4) comes late, not never.
+
+### 4.9 Wear
+
+At the active start, every running building's wear rises by 3% (M) or 8% (X) × (1 − σ);
+every machine in the open by 5% or 15%. It heals with parts upkeep, as all wear does
+(`WEAR`, `src/data/balance.ts:97-101`), and it feeds BREACH (⌂, docs/14 §3.4). Arrays
+that generate take the cell loss instead.
+
+### 4.10 Morale
+
+This replaces `MORALE.flare` and `FLARE.moraleHit`.
+
+| | C | M | X |
+|---|---|---|---|
+| At once | −3 | −8 | −12 |
+| Target while active | −5 | −10 | −15 (the tail −10) |
+
+Scaled by the crew-weighted (1 − σ) of the homes. Storm shelters halve it. The tube
+takes none. The drill costs −3 and no target.
+
+### 4.11 The first X: a drill in its permanent parts
+
+- Machines that would burn out latch up instead.
+- No rad scars and no lethal doses.
+- Generating arrays lose cells as for an M (1%).
+- Everything temporary happens at full strength.
+- Its card says what the next X would have cost, computed on this flare:
+  `THIS ONE WAS A DRILL — a real X on this base would have burned out 2 rovers, scarred
+  Data Center #12 (−4%) and cost your generating arrays 3% of their cells. Dock, stow,
+  shut down or shield before the next.`
+
+### 4.12 What ignoring costs
+
+One flare of each class on a mid-game mare base (30 arrays, 8 labs, 2 Chip Fabs, 2 Data
+Centers, 8 machines out), with no research and no buttons pressed. The default stows the
+arrays, so no cells are lost:
+
+| | C | M | X (the second) |
+|---|---|---|---|
+| Solar | 40 s stowed (~10,000 kW·s) | 55 s (~14,000) | 190 s (~48,000: 1.5 banks) |
+| Machines | 1 reboot | 3 reboots, 3 loads lost | 3 reboots, 4 bricked, **1 lost** |
+| Research | labs ×0.7 for 30 s | labs ×0.5 for 45 s; −14≡ | labs ×0.2 for 180 s; −58≡ |
+| Fabs and compute | −20% chips for 30 s | −50% for 45 s | the batch lost, **2 scars (−4%)** |
+| Comms | — | 45 s | 240 s; a shipment held |
+| Wear | — | +3% everywhere | +8% everywhere |
+
+A C costs little. An M costs about a minute of the base. An X costs several minutes and
+leaves marks. None of it ends a run alone (§12).
 
 ## 5. Stow or risk (draft)
 
