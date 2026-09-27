@@ -1777,7 +1777,7 @@ streams (buffered, delivered after) and a survey's hop; wear spikes; DOSE and bi
 | Wear | Rovers and drones have no wear axis; the machines' spike (+5% M, +15% X) falls on hub units and legacy excavators in the open | Only they wear |
 | Capability at work | Weld, sinter and dig × capability; driving and surveys are not | Transit keeps one speed a kind, so the traffic stays coherent |
 | Re-print a rover | Paid at once, the rover held at its dock 72 s, then new; no queue at the dock | A dock's reprints of lost rovers keep their own queue |
-| Replace | A construction site on the building (rovers weld it, weld parts as any build); demolishing it refunds half the build cost, as a building. Solar Arrays can be replaced too | No new job kind in the fleet, as F2a's repairs |
+| Replace | A construction site on the building (rovers weld it, weld parts as any build); demolishing it refunds half the build cost, as a building. Solar Arrays can be replaced too; a hub keeps its units, bays and queue, and prints nothing until it stands again | No new job kind in the fleet, as F2a's repairs |
 | Payback | `offline × capability ÷ (1 − capability)`: when the new one has out-made the old; the cost is shown beside it | Outputs and costs are in different units |
 | The head tech | σ weighted by the running labs' and compute's data; nothing is lost if none runs | The corruption is in the running machines |
 | The X's batch | Scrapped from the chips in stock: 60 s of each running fab's output × (1 − σ) × Rad-Hard | The batch is chips the base counts |

@@ -980,6 +980,34 @@ test('hub units: their hub recalls them on M and X by itself and sends them back
   expect(r.alert.text).toMatch(/^UNIT LOST — E\d+ was never re-flashed after the X flare’s latch-up/);
 });
 
+test('Replace a scarred hub: a construction site of 60% its build, its units stay with it, and it comes back new', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.grantPower(20000);
+    fx.field(6);
+    const hub = fx.hubBy('smelter', 'ilmenite-0');
+    g.finishConstruction();
+    g.advanceGameSeconds(5);
+    const mine = () => g.getState().haulers.filter((u: any) => u.hub === hub).map((u: any) => u.id);
+    const units0 = mine();
+    g.setCapability('b', hub, 0.7);
+    g.grantResources({ metals: 200, parts: 100 });
+    g.flareCounter('flareReplace', hub);
+    g.advanceGameSeconds(2);
+    const during = { site: fx.b(hub).construction > 0, units: mine() };
+    let t = 0;
+    for (; t < 300 && fx.b(hub).construction > 0; t++) g.advanceGameSeconds(1);
+    return { units0, during, t, after: { cap: fx.b(hub).cap ?? null, units: mine(), hub: !!fx.b(hub).hub } };
+  });
+  expect(r.units0.length).toBe(1);
+  expect(r.during.site).toBe(true);
+  expect(r.during.units).toEqual(r.units0);
+  expect(r.t).toBeLessThan(300);
+  expect(r.after).toEqual({ cap: null, units: r.units0, hub: true });
+});
+
 test('crew and comms: an X sickens a quarter of each home’s crew ½ lunar day indoors, never feeding the EVA dose; a C’s DOSE is drill-grade; the X’s 240 s blackout holds the resupply and shows ⌁; an M’s is its 45 s and refuses the downlink', async ({ page }) => {
   await start(page, { exp: 'human' });
   const r = await page.evaluate(() => {

@@ -1073,7 +1073,8 @@ export function ensureHubs(s: GameState, mods: Mods, site: SiteDef) {
       }
     }
   }
-  const alive = new Set(s.buildings.filter((b) => b.hub && !isSite(b)).map((b) => b.id));
+  // a hub being replaced for its rad scars (docs/16 §4.14) keeps its units, bays and queue
+  const alive = new Set(s.buildings.filter((b) => b.hub && (!isSite(b) || !!b.replace)).map((b) => b.id));
   for (const u of [...s.haulers]) {
     if (alive.has(u.hub)) continue;
     const old = s.buildings.find((b) => b.id === u.hub);
