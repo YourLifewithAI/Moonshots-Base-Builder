@@ -1,11 +1,15 @@
-/** Space weather, phases F1 and F2a (docs/16 §15): classed flares on a
+/** Space weather, phases F1, F2a and F2b (docs/16 §15): classed flares on a
  *  seeded solar cycle, drills and era floors, the telegraphs, the tail and
  *  the CME, the spot-group watch, the legacy mode; the flare pop-up and its
  *  previews, the portion rule and the critical feed, remembered choices,
  *  field overrides and the safe default; arrays destroyed or scarred while
  *  running, repairable damage when stowed, wrecks, repairs, field berms,
- *  flareStance, the migration, and the pop-up's fit. Every test pauses the
- *  game and drives time with advanceGameSeconds. */
+ *  flareStance, the migration, and the pop-up's fit; F2b's rad scars and
+ *  capability, Replace and Re-print, machines' reboots, latch-ups and
+ *  burn-outs (rovers and hub units), Recall machines, crew indoors, labs and
+ *  Checkpoint, Chip Fabs and Shut down exposed, the blackout, wear, DOSE by
+ *  class and migration step 6. Every test pauses the game and drives time
+ *  with advanceGameSeconds. */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
 
 const expect = baseExpect.configure({ timeout: 20_000 });
@@ -83,6 +87,46 @@ const HELPERS = `(() => {
     mulberry32(seed) {
       let a = seed >>> 0;
       return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    },
+    /** a construction site of a type near the Lander from ring r0, left unbuilt; its id */
+    site(type, r0 = 8) {
+      g.grantResources({ metals: 200, parts: 100 });
+      for (let r = r0; r < 60; r++) for (const [gx, gz] of ring(r)) {
+        if (g.canPlace(type, gx, gz, 0).valid && g.placeBuilding(type, gx, gz, 0)) { const s = g.getState(); return s.buildings[s.buildings.length - 1].id; }
+      }
+      return null;
+    },
+    /** what an X does to a machine in the open by its seeded draw (docs/16 §4.5): 15% burn · 45% latch · 40% reboot */
+    xDraw(n, key) {
+      const u = window.fx.mulberry32((g.getState().seed ^ 0x5f1e) + n * 4096 + key)();
+      return u < 0.15 ? 'burn' : u < 0.6 ? 'latch' : 'reboot';
+    },
+    /** the first flare index from k0 whose X draws give each key its wanted outcome */
+    indexFor(want, k0 = 1) {
+      for (let k = k0; k < k0 + 4000; k++) if (Object.entries(want).every(([key, o]) => window.fx.xDraw(k, Number(key)) === o)) return k;
+      return -1;
+    },
+    rover: (id) => g.getState().rovers.find((r) => r.id === id),
+    unit: (id) => g.getState().haulers.find((u) => u.id === id),
+    /** a hub of a type just outside a deposit's ring (hubs.spec's hubBy); its id */
+    hubBy(type, depId) {
+      const d = g.getDeposits().find((q) => q.id === depId);
+      const cgx = Math.floor((d.x + 512) / 4), cgz = Math.floor((d.z + 512) / 4);
+      const R0 = Math.ceil(d.r / 4);
+      g.grantResources({ metals: 400, parts: 100 });
+      for (let rr = R0; rr <= R0 + 16; rr++) {
+        const found = [];
+        for (let i = -rr; i <= rr; i++) for (const [gx, gz] of [[cgx + i, cgz - rr], [cgx + i, cgz + rr], [cgx - rr, cgz + i], [cgx + rr, cgz + i]]) {
+          for (const rot of [0, 1, 2, 3]) {
+            if (!g.canPlace(type, gx, gz, rot).valid) continue;
+            const w = (rot % 2 ? 2 : 3), dd = (rot % 2 ? 3 : 2);
+            found.push({ gx, gz, rot, dist: Math.hypot((gx + w / 2) * 4 - 512 - d.x, (gz + dd / 2) * 4 - 512 - d.z) });
+          }
+        }
+        found.sort((a, b) => a.dist - b.dist || a.gx - b.gx || a.gz - b.gz || a.rot - b.rot);
+        for (const f of found) if (g.placeBuilding(type, f.gx, f.gz, f.rot)) return g.getState().buildings[g.getState().buildings.length - 1].id;
+      }
+      return null;
     },
   };
 })()`;
@@ -594,6 +638,9 @@ test('migration: a save mid-flare finishes as an M at 45 s; the index, seen flag
     delete st.weather; delete st.flareSchema;
     st.flare = { phase: 'active', timer: 20, nextAt: st.simTime - 25 - 60 };
     for (const b of st.buildings) if (b.type === 'solar') { b.cap = 0.5; b.flareDmg = 0.3; b.fieldOverride = 'run'; }
+    // F2b: capability on every structure and machine (migration step 6)
+    for (const b of st.buildings) if (b.type !== 'solar') { b.cap = 0.7; b.scars = 3; }
+    for (const rv of st.rovers) rv.cap = 0.6;
     const t0 = st.simTime;
     g.loadBlob(blob);
     g.setPaused(true);
@@ -602,6 +649,7 @@ test('migration: a save mid-flare finishes as an M at 45 s; the index, seen flag
     const out = {
       t0, schema: s.flareSchema, cls: f.cls, phase: f.phase, n: f.n, seen: f.seen, grace: f.noXUntil - t0,
       arrays: s.buildings.filter((b: any) => b.type === 'solar').map((b: any) => ({ cap: b.cap ?? 1, dmg: b.flareDmg ?? 0, ov: b.fieldOverride ?? null })),
+      scarred: s.buildings.filter((b: any) => b.cap !== undefined || b.scars !== undefined).length + s.rovers.filter((x: any) => x.cap !== undefined).length,
       remember: s.weather.remember, autoRepair: s.weather.autoRepair,
       alert: !!s.alerts.find((a: any) => /^SPACE WEATHER — flares now come as C, M and X/.test(a.text)),
     };
@@ -616,6 +664,7 @@ test('migration: a save mid-flare finishes as an M at 45 s; the index, seen flag
   expect(r.seen).toEqual({ C: true, M: false, X: false, xReal: false });
   expect(r.grace).toBe(720);
   for (const a of r.arrays) expect(a).toEqual({ cap: 1, dmg: 0, ov: null });
+  expect(r.scarred).toBe(0);
   expect(r.remember).toEqual({});
   expect(r.autoRepair).toBe(true);
   expect(r.alert).toBe(true);
@@ -641,6 +690,465 @@ test('determinism: two runs of seed 42 with a forced X give the same flare state
   const a = await once();
   const b = await once();
   expect(a).toBe(b);
+});
+
+// ─────────────────────────── F2b: scars and the rest of §4 ───────────────────────────
+
+test('rad scars: a structure with an output scars by class × (1 − σ)² × a tenth when prepared, cumulative and floored at 10%; homes and the Lander never; a bank’s capacity × capability; wear spikes at the protons', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.completeTech('batteryStorage'); g.completeTech('partsFabrication');
+    g.grantPower(20000);
+    fx.field(6);
+    const fab = fx.place('partsFab');
+    const off = fx.place('partsFab');
+    const bank = fx.place('battery');
+    const yard = fx.place('storageYard');
+    const lab = fx.place('lab');
+    const lander = g.getState().buildings.find((b: any) => b.type === 'lander').id;
+    const cap = (id: number) => fx.b(id).cap ?? 1;
+    const run = (cls: string) => { g.forceFlare(cls, { drill: false }); fx.finish(); g.advanceGameSeconds(25); };
+    g.setEnabled(off, false);
+    g.advanceGameSeconds(2);
+    const capacity0 = g.getState().power.capacity;
+    run('C');
+    const c = { fab: cap(fab), off: cap(off) };
+    // an M: the wear spike as the protons arrive (+3% on a running structure)
+    g.forceFlare('M', { drill: false });
+    fx.toProtons(1);
+    const w0 = fx.b(lab).wear;
+    const active = fx.b(lab).active;
+    g.advanceGameSeconds(2);
+    const w1 = fx.b(lab).wear;
+    fx.finish(); g.advanceGameSeconds(25);
+    const m = { fab: cap(fab), off: cap(off) };
+    g.setWeatherStub({ sigma: 0.5 });
+    run('M');
+    const half = cap(fab);
+    g.setWeatherStub({ sigma: 0 });
+    run('X');
+    const x = { fab: cap(fab), bank: cap(bank), scars: fx.b(fab).scars };
+    const capacity1 = g.getState().power.capacity;
+    // the floor
+    g.setCapability('b', off, 0.105);
+    g.setEnabled(off, true);
+    g.advanceGameSeconds(1);
+    run('X');
+    const log = fx.log()[fx.log().length - 1];
+    return { c, m, half, x, w0, w1, active, floor: cap(off), capacity0, capacity1, yard: fx.b(yard), lander: fx.b(lander), log };
+  });
+  expect(r.c.fab).toBeCloseTo(1 - 0.0025, 6);
+  expect(r.c.off).toBeCloseTo(1 - 0.00025, 6);                     // shut down: prepared, a tenth
+  expect(r.m.fab).toBeCloseTo(r.c.fab * (1 - 0.015), 6);
+  expect(r.m.off).toBeCloseTo(r.c.off * (1 - 0.0015), 6);
+  expect(r.half).toBeCloseTo(r.m.fab * (1 - 0.015 * 0.25), 6);     // σ 0.5: (1 − σ)² a quarter
+  expect(r.x.fab).toBeCloseTo(r.half * (1 - 0.05) * (1 - 0.01), 6); // the flash and the tail
+  expect(r.x.bank).toBeCloseTo(r.x.fab, 6);
+  expect(r.x.scars).toBe(4);
+  expect(r.capacity0 - r.capacity1).toBeCloseTo(3000 * (1 - r.x.bank), 0);
+  expect(r.floor).toBeCloseTo(0.1, 6);
+  expect(r.active).toBe(true);
+  expect(r.w1 - r.w0).toBeGreaterThan(0.025);
+  expect(r.yard.type).toBe('storageYard');
+  expect(r.yard.cap).toBeUndefined();
+  expect(r.lander.cap).toBeUndefined();
+  expect(r.log.scarredB).toBeGreaterThanOrEqual(2);
+});
+
+test('capability: the 85% alert fires once with its Replace button; Replace costs half, is offline 60% of the build while a rover welds, and comes back new; a scarred rover re-prints at its dock for 5◆ 8⚙ in 72 s', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.completeTech('batteryStorage');
+    g.grantPower(20000);
+    const bank = fx.place('battery');
+    g.setCapability('b', bank, 0.86);
+    g.forceFlare('M', { drill: false });
+    fx.finish();
+    const a1 = g.getState().alerts.filter((a: any) => /^CAPABILITY — Battery Bank/.test(a.text));
+    g.forceFlare('M', { drill: false });
+    fx.finish();
+    const a2 = g.getState().alerts.filter((a: any) => /^CAPABILITY — Battery Bank/.test(a.text)).length;
+    const view = g.flareCapability(bank);
+    const scarred = g.getSpaceWeather().fx.scarred;
+    g.grantResources({ metals: 200, silicon: 50, parts: 50 });
+    g.advanceGameSeconds(1);
+    const s0 = g.getState().resources;
+    g.flareCounter('flareReplace', bank);
+    g.advanceGameSeconds(1);
+    const s1 = g.getState().resources;
+    const site = { total: fx.b(bank).buildTotal, replace: !!fx.b(bank).replace, construction: fx.b(bank).construction };
+    let t = 0;
+    for (; t < 300 && (fx.b(bank).construction ?? 0) > 0; t++) g.advanceGameSeconds(1);
+    const after = fx.b(bank);
+    const replaced = fx.alert('^REPLACED — Battery Bank');
+    // a rover's scars: Re-print at its dock
+    const rv = g.getState().rovers[0].id;
+    g.setCapability('r', rv, 0.8);
+    g.advanceGameSeconds(1);
+    const m0 = g.getState().resources.metals, p0 = g.getState().resources.parts;
+    g.flareCounter('flareReprint', rv);
+    g.advanceGameSeconds(1);
+    const printing = fx.rover(rv);
+    const paidR = { metals: m0 - g.getState().resources.metals, parts: p0 - g.getState().resources.parts };
+    g.advanceGameSeconds(72);
+    return {
+      a1: a1.map((a: any) => ({ text: a.text, counters: a.counters })), a2, view, scarred,
+      paid: { metals: s0.metals - s1.metals, silicon: s0.silicon - s1.silicon }, site, t, after, replaced: !!replaced,
+      printing, paidR, reprinted: fx.rover(rv), count: g.getState().weather.replaced,
+    };
+  });
+  expect(r.a1.length).toBe(1);
+  expect(r.a1[0].text).toMatch(/^CAPABILITY — Battery Bank #\d+ is down to 84% from rad scars · Replace 20◆ 4◇ in its inspector/);
+  expect(r.a1[0].counters.map((c: any) => c.counter)).toEqual(['flareReplace']);
+  expect(r.a2).toBe(1);                                     // once, crossing 85%
+  expect(r.scarred.under).toBe(1);
+  expect(r.view.payback).toBeGreaterThan(0);
+  expect(r.paid).toEqual({ metals: 20, silicon: 4 });       // half of 40◆ 8◇ (50◆ 10◇ at the mare's ×0.8)
+  expect(r.site.replace).toBe(true);
+  expect(r.site.total).toBe(r.view.secs);
+  expect(r.site.total).toBeLessThanOrEqual(Math.round(60 * 0.8 * 0.6));
+  expect(r.t).toBeLessThan(300);
+  expect(r.after.cap).toBeUndefined();
+  expect(r.after.wear).toBe(0);
+  expect(r.after.replace).toBeUndefined();
+  expect(r.replaced).toBe(true);
+  expect(r.paidR.metals).toBe(5);
+  expect(r.paidR.parts).toBeCloseTo(8, 1);                   // (a second's upkeep aside)
+  expect(r.printing.reprintUntil).toBeGreaterThan(0);
+  expect(r.reprinted.cap).toBeUndefined();
+  expect(r.count).toBe(1);
+});
+
+test('machines at an unanswered X: each rover in the open draws by its seed — 15% burn out (lost, logged, its dock prints another), 45% latch up (bricked, re-flashed at its dock inside 480 s), 40% reboot; the first X latches what would burn; docked, a rover only reboots; Recall machines docks them in time', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.grantPower(20000);
+    const lander = g.getState().buildings.find((b: any) => b.type === 'lander').id;
+    const ids = () => g.getState().rovers.map((x: any) => x.id).sort((a: number, b: number) => a - b);
+    const out = () => { fx.site('lab', 7); fx.site('lab', 10); g.advanceGameSeconds(1); };
+    // 1 · a real X: one rover burns out, the other latches up
+    const [a, b] = ids();
+    g.setFlareIndex(fx.indexFor({ [a]: 'burn', [b]: 'latch' }));
+    g.forceFlare('X', { drill: false });
+    fx.toProtons(3);
+    out();
+    const away = g.getState().rovers.filter((x: any) => x.site !== null).length;
+    g.advanceGameSeconds(3);
+    const s1 = g.getState();
+    const real = { burned: !fx.rover(a), bricked: fx.rover(b)?.brickedUntil - s1.simTime, latch: fx.rover(b)?.latch,
+      loss: s1.losses.find((l: any) => l.hazard === 'flare'), alert: fx.alert('^ROVER LOST — #'), slots: fx.b(lander).slotsLost };
+    g.advanceGameSeconds(31);
+    real.reflashed = { bricked: fx.rover(b)?.brickedUntil ?? 0, latch: fx.rover(b)?.latch ?? null };
+    fx.finish();
+    // the Lander prints the lost one (10◆ 15⚙, 120 s)
+    g.grantResources({ metals: 100, parts: 100 });
+    g.advanceGameSeconds(125);
+    const after = ids();
+    // 2 · the first X is a drill in its permanent parts: what would burn latches up
+    const [c, d] = after;
+    g.setFlareIndex(fx.indexFor({ [c]: 'burn', [d]: 'reboot' }));
+    g.forceFlare('X', { drill: true });
+    fx.toProtons(3);
+    out();
+    g.advanceGameSeconds(3);
+    const drill = { c: fx.rover(c), d: fx.rover(d), now: g.getState().simTime };
+    fx.finish();
+    g.advanceGameSeconds(60);
+    // 3 · docked: a rover that would burn in the open only reboots (odds × (1 − 0.5))
+    const k3 = fx.indexFor({ [c]: 'burn', [d]: 'burn' });
+    g.setFlareIndex(k3);
+    g.forceFlare('X', { drill: false });
+    fx.toProtons(0);
+    const home = g.getState().rovers.filter((x: any) => x.site === null && x.road === undefined).length;
+    g.advanceGameSeconds(3);
+    const docked = { rovers: ids(), c: fx.rover(c), losses: g.getState().losses.filter((l: any) => l.hazard === 'flare').length };
+    fx.finish();
+    // 4 · Recall machines before the protons: they dock in time, nothing is lost
+    g.setFlareIndex(fx.indexFor({ [c]: 'burn', [d]: 'burn' }, k3 + 1));
+    g.forceFlare('X', { drill: false });
+    fx.toProtons(10);
+    out();
+    const pop = g.getSpaceWeather().fx.also.map((x: any) => x.label);
+    g.flareCounter('flareRecall');
+    g.advanceGameSeconds(14);
+    const recalled = { rovers: ids(), losses: g.getState().losses.filter((l: any) => l.hazard === 'flare').length, out: g.getState().rovers.filter((x: any) => x.site !== null).length };
+    fx.finish();
+    const log = fx.log()[fx.log().length - 1];
+    return { away, real, after, drill, home, docked, pop, recalled, log, first: [a, b] };
+  });
+  expect(r.away).toBe(2);
+  expect(r.real.burned).toBe(true);
+  expect(r.real.loss).toMatchObject({ what: 'rover', hazard: 'flare' });
+  expect(r.real.alert.text).toMatch(/^ROVER LOST — #\d+ burned out in the X flare · warned 2:0\d before; it was not docked · Lander #\d+ prints a replacement/);
+  expect(r.real.slots).toBe(1);
+  expect(r.real.bricked).toBeGreaterThan(470);
+  expect(r.real.bricked).toBeLessThanOrEqual(480);
+  expect(r.real.latch).toEqual({ real: true, n: expect.any(Number) });
+  expect(r.real.reflashed).toEqual({ bricked: 0, latch: null }); // its dock re-flashed it in its cradle
+  expect(r.after.length).toBe(2);                                  // the dock printed a new one
+  expect(r.drill.c).toBeTruthy();                                  // not lost: latched instead
+  expect(r.drill.c.latch).toEqual({ real: false, n: expect.any(Number) });
+  expect(r.drill.d.rebootUntil - r.drill.now).toBeGreaterThan(55);  // an X's reboot: 60 s
+  expect(r.home).toBe(2);
+  expect(r.docked.rovers.length).toBe(2);
+  expect(r.docked.losses).toBe(1);                                 // only the first
+  expect(r.docked.c.rebootUntil ?? 0).toBeGreaterThan(0);         // docked, it only rebooted
+  expect(r.pop.some((l: string) => /^Recall machines \d/.test(l))).toBe(true);
+  expect(r.recalled.rovers.length).toBe(2);
+  expect(r.recalled.losses).toBe(1);
+  expect(r.recalled.out).toBe(0);
+  expect(r.log.recalled).toBe(true);
+});
+
+test('hub units: their hub recalls them on M and X by itself and sends them back after; one sent out into an X draws as a rover does; latched, it limps home to be re-flashed in its bay — lost at 480 s when its hub cannot; its scars re-print at its hub for half its price', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.grantPower(20000);
+    fx.field(6);
+    const hub = fx.hubBy('smelter', 'ilmenite-0');
+    g.finishConstruction();
+    g.advanceGameSeconds(5);
+    const id = g.getState().haulers.find((u: any) => u.hub === hub).id;
+    for (let i = 0; i < 120 && fx.unit(id).haul.phase === 'park'; i++) g.advanceGameSeconds(1);
+    const outPhase = fx.unit(id).haul.phase;
+    // an M: the hub recalls it by itself, and sends it back after
+    g.forceFlare('M', { drill: false });
+    g.advanceGameSeconds(1);
+    const recalled = fx.unit(id).parked ?? null;
+    fx.finish();
+    const back = fx.unit(id).parked ?? null;
+    // a real X, the unit sent back out into it: it latches (its seeded draw), limps home and is re-flashed in its bay
+    g.setFlareIndex(fx.indexFor({ [700 + id]: 'latch' }));
+    g.forceFlare('X', { drill: false });
+    g.advanceGameSeconds(1);
+    g.dispatchUnit(id);
+    fx.toProtons(0);
+    g.advanceGameSeconds(3);
+    const latched = fx.unit(id);
+    let t = 0;
+    for (; t < 400 && fx.unit(id)?.latch; t++) g.advanceGameSeconds(1);
+    const reflashed = { t, alert: !!fx.alert('^RE-FLASHED — E') };
+    fx.finish();
+    const cap = fx.unit(id).cap;
+    // Re-print: a job in its hub's queue at half the unit's price
+    g.grantResources({ metals: 100, parts: 50 });
+    g.advanceGameSeconds(1);
+    const m0 = g.getState().resources.metals;
+    g.flareCounter('flareReprintUnit', id);
+    g.advanceGameSeconds(2);
+    const job = g.getHubs().hubs[hub].queue[0];
+    const paid = m0 - g.getState().resources.metals;
+    for (let i = 0; i < 120 && g.getHubs().hubs[hub].queue.length; i++) g.advanceGameSeconds(1);
+    const reprinted = fx.unit(id);
+    // lost at its deadline: latched, with its hub shut down (no re-flash)
+    g.setFlareIndex(fx.indexFor({ [700 + id]: 'latch' }, 2000));
+    g.forceFlare('X', { drill: false });
+    g.advanceGameSeconds(1);
+    g.dispatchUnit(id);
+    fx.toProtons(0);
+    g.advanceGameSeconds(3);
+    const latched2 = !!fx.unit(id)?.latch;
+    g.setEnabled(hub, false);
+    g.advanceGameSeconds(490);
+    const s = g.getState();
+    return { outPhase, recalled, back, latched, reflashed, cap, job, paid, reprinted, latched2, lost: !fx.unit(id),
+      loss: s.losses.filter((l: any) => l.hazard === 'flare'), alert: fx.alert('^UNIT LOST — E') };
+  });
+  expect(r.outPhase).not.toBe('park');
+  expect(r.recalled).toBe('recalled');
+  expect(r.back).toBeNull();
+  expect(r.latched.latch).toEqual({ until: expect.any(Number), real: true, n: expect.any(Number) });
+  expect(r.latched.parked).toBe('recalled');                 // home in safe mode
+  expect(r.reflashed.t).toBeLessThan(400);
+  expect(r.reflashed.alert).toBe(true);
+  expect(r.cap).toBeLessThan(1);
+  expect(r.job.kind).toBe('reprint');
+  expect(r.paid).toBe(8);                                     // half of 16◆ (20◆ at the mare's ×0.8)
+  expect(r.reprinted.cap).toBeUndefined();
+  expect(r.reprinted.wear).toBe(0);
+  expect(r.latched2).toBe(true);
+  expect(r.lost).toBe(true);
+  expect(r.loss.length).toBe(1);
+  expect(r.alert.text).toMatch(/^UNIT LOST — E\d+ was never re-flashed after the X flare’s latch-up/);
+});
+
+test('crew and comms: an X sickens a quarter of each home’s crew ½ lunar day indoors, never feeding the EVA dose; a C’s DOSE is drill-grade; the X’s 240 s blackout holds the resupply and shows ⌁; an M’s is its 45 s and refuses the downlink', async ({ page }) => {
+  await start(page, { exp: 'human' });
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    const keep = () => g.grantResources({ oxygen: 200, food: 100, water: 100 });
+    const wait = (n: number) => { for (let t = 0; t < n; t += 5) { keep(); g.advanceGameSeconds(Math.min(5, n - t)); } };
+    keep();
+    g.completeTech('teleoperation');
+    // a C's DOSE: off work ¼ lunar day, never lethal
+    g.forceFlare('C', { drill: false });
+    g.forceHazard('dose', undefined, { drill: false, tier: 2 });
+    fx.toProtons(0);
+    g.advanceGameSeconds(2);
+    const cDose = fx.alert('^DOSE — ');
+    const cDeaths = g.getHazards().deaths.length;
+    fx.finish();
+    wait(100);
+    // the resupply lands inside the X's blackout
+    g.orderResupply();
+    g.advanceGameSeconds(1);
+    const due = g.getState().resupply.arriveAt;
+    wait(Math.round(due - 125 - g.getState().simTime));
+    const crew = g.getState().crew;
+    const dose0 = g.getHazards().state.doseLoad;
+    g.forceFlare('X', { drill: false });
+    fx.toProtons(1);
+    const n0 = g.getHazards().state.sick.length;
+    g.advanceGameSeconds(2);
+    const hz = g.getHazards().state;
+    const f = g.getState().flare;
+    const sick = hz.sick.slice(n0).map((x: any) => ({ n: x.n, left: x.until - g.getState().simTime }));
+    const dark = { len: f.blackoutUntil - f.activeAt, chip: g.getSpaceWeather().chip };
+    wait(Math.round(due + 5 - g.getState().simTime));
+    const held = { pending: g.getState().resupply.pending, cond: !!fx.alert('^RESUPPLY HELD') };
+    wait(Math.round(f.blackoutUntil + 3 - g.getState().simTime));
+    const landed = { pending: g.getState().resupply.pending, shipments: g.getState().resupply.shipments };
+    fx.finish();
+    wait(30);
+    // an M's blackout is its active phase: the downlink waits
+    g.forceFlare('M', { drill: false });
+    fx.toProtons(0);
+    g.advanceGameSeconds(2);
+    const fm = g.getState().flare;
+    g.grantData(500);
+    g.downlink();
+    g.advanceGameSeconds(1);
+    return { cDose: cDose?.text, cDeaths, crew, dose0, doseLoad: hz.doseLoad, sick, dark, held, landed, mDark: fm.blackoutUntil - fm.activeAt,
+      refused: !!fx.alert('^DOWNLINK WAITS') };
+  });
+  expect(r.cDose).toMatch(/^DOSE — 1 crew member caught outside by the C flare: off work 0.25 lunar day$/);
+  expect(r.cDeaths).toBe(0);
+  expect(r.sick.length).toBe(1);
+  expect(r.sick[0].n).toBe(Math.floor(r.crew / 4) + (r.crew % 4 >= 2 ? 1 : 0));
+  expect(r.sick[0].left).toBeGreaterThan(355);
+  expect(r.sick[0].left).toBeLessThanOrEqual(360);
+  expect(r.doseLoad).toBeCloseTo(r.dose0, 3);                 // indoor doses never feed the EVA dose
+  expect(r.dark.len).toBe(240);
+  expect(r.dark.chip).toContain('⌁');
+  expect(r.held).toEqual({ pending: true, cond: true });
+  expect(r.landed.pending).toBe(false);
+  expect(r.mDark).toBe(45);
+  expect(r.refused).toBe(true);
+});
+
+test('research: labs make half at an M; the head tech loses 3% of its cost at the protons, capped at its spend; Checkpoint holds the transfers to the flare’s end and loses nothing', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.grantPower(20000);
+    fx.field(6);
+    fx.place('lab'); fx.place('lab');
+    g.advanceGameSeconds(5);
+    const rate = (n: number) => { const d0 = g.getState().data; g.advanceGameSeconds(n); return (g.getState().data - d0) / n; };
+    // the labs' rate with no queue (the bank only fills): quiet, then in an M
+    const quiet = rate(10);
+    g.forceFlare('M', { drill: false });
+    fx.toProtons(0);
+    g.advanceGameSeconds(2);
+    const inM = rate(10);
+    fx.finish();
+    // the head tech: set back 3% of its cost as the protons arrive
+    const tid = 'prospectingRovers';
+    g.research(tid);
+    g.grantData(3000);
+    g.advanceGameSeconds(30);
+    const cost = g.getResearch().cards[tid].cost.data;
+    const spent = () => g.getState().researchSpent[tid] ?? 0;
+    g.forceFlare('M', { drill: false });
+    fx.toProtons(2);
+    const p0 = spent(); g.advanceGameSeconds(1); const tr = spent() - p0;
+    const p1 = spent(); g.advanceGameSeconds(2); const p2 = spent();
+    const setBack = p1 + 2 * tr - p2;
+    const alert = fx.alert('^RESEARCH SET BACK');
+    fx.finish();
+    // Checkpoint: nothing lost; transfers pause through the protons
+    g.forceFlare('M', { drill: false });
+    g.advanceGameSeconds(2);
+    g.flareCounter('flareCheckpoint');
+    fx.toProtons(1);
+    const q0 = spent();
+    g.advanceGameSeconds(10);
+    const q1 = spent();
+    fx.finish();
+    g.advanceGameSeconds(5);
+    const q2 = spent();
+    const log = fx.log()[fx.log().length - 1];
+    return { quiet, inM, cost, tr, setBack, alert: alert?.text, q0, q1, q2, log };
+  });
+  expect(r.inM / r.quiet).toBeGreaterThan(0.45);
+  expect(r.inM / r.quiet).toBeLessThan(0.55);
+  expect(r.setBack).toBeGreaterThan(0.03 * r.cost - 1);
+  expect(r.setBack).toBeLessThan(0.03 * r.cost + 1);
+  expect(r.alert).toMatch(/^RESEARCH SET BACK — the flare corrupted \d+≡ of Prospecting Rovers \(3%\) · Checkpoint next time/);
+  expect(r.q1).toBeCloseTo(r.q0, 6);                             // held through the protons
+  expect(r.q2).toBeGreaterThan(r.q1);                            // and resumed
+  expect(r.log.checkpoint).toBe(true);
+  expect(r.log.researchLost ?? 0).toBe(0);
+});
+
+test('fabs: an X scraps the Chip Fab’s batch and its yield is nil while the protons are in; Shut down exposed takes the exposed (not life support or power), a tenth of the scar, and restarts them 20 s after the flare', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fx = window.fx;
+    g.completeTech('waferFab'); g.completeTech('batteryStorage');
+    g.grantPower(20000);
+    fx.field(8);
+    const fab = fx.place('chipFab');
+    const bank = fx.place('battery');
+    const lab = fx.place('lab');
+    g.grantResources({ silicon: 300, parts: 100, chips: 20 });
+    g.advanceGameSeconds(10);
+    const running = fx.b(fab).active;
+    g.forceFlare('X', { drill: false });
+    fx.toProtons(1);
+    const c0 = g.getState().resources.chips;
+    g.advanceGameSeconds(2);
+    const c1 = g.getState().resources.chips;
+    g.advanceGameSeconds(20);
+    const c2 = g.getState().resources.chips;
+    fx.finish();
+    const xlog = fx.log()[fx.log().length - 1];
+    g.advanceGameSeconds(25);
+    const cap0 = fx.b(fab).cap ?? 1;
+    // an M, answered: Shut down exposed
+    g.forceFlare('M', { drill: false });
+    g.advanceGameSeconds(2);
+    const label = g.getSpaceWeather().fx.also.find((c: any) => c.counter === 'flareShutDown')?.label;
+    g.flareCounter('flareShutDown');
+    g.advanceGameSeconds(1);
+    const shut = { fab: fx.b(fab).enabled, lab: fx.b(lab).enabled, bank: fx.b(bank).enabled };
+    fx.finish();
+    const end = { fab: fx.b(fab).enabled, warm: fx.b(fab).flareShut?.warm ?? null };
+    g.advanceGameSeconds(21);
+    return { running, c0, c1, c2, xlog, cap0, cap1: fx.b(fab).cap ?? 1, label, shut, end, back: fx.b(fab).enabled, flag: fx.b(fab).flareShut ?? null };
+  });
+  expect(r.running).toBe(true);
+  expect(r.c0 - r.c1).toBeGreaterThan(1);                   // the batch: 60 s of its output
+  expect(r.xlog.chipsLost).toBeGreaterThan(1);
+  expect(Math.abs(r.c2 - r.c1)).toBeLessThan(0.01);         // an X's yield is nil
+  expect(r.label).toMatch(/^Shut down exposed \d/);
+  expect(r.shut).toEqual({ fab: false, lab: false, bank: true });
+  expect(r.end.fab).toBe(false);
+  expect(r.end.warm).toBeGreaterThan(0);
+  expect(r.back).toBe(true);
+  expect(r.flag).toBeNull();
+  expect(r.cap1).toBeCloseTo(r.cap0 * (1 - 0.015 * 0.1), 6); // prepared: a tenth of an M's scar
 });
 
 // ─────────────────────────── the fit ───────────────────────────

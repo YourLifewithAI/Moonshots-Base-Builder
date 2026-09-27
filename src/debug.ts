@@ -222,6 +222,15 @@ function api(game: Game) {
     /** the flare's counters (docs/16 §4): 'flareRecall' | 'flareCheckpoint' | 'flareShutDown' | 'flareReplace' (id) | 'flareReprint' (rover id)
      *  | 'flareReprintUnit' (unit id) | 'flareReplaceWorst' — as the alert and pop-up buttons push them */
     flareCounter: (counter: FlareCounterId, id?: number) => game.actions.push({ kind: 'counter', counter, ...(id !== undefined ? { id } : {}) }),
+    /** a structure's ('b'), rover's ('r') or hub unit's ('h') capability, as rad scars would leave it (tests) */
+    setCapability: (kind: 'b' | 'r' | 'h', id: number, cap: number) => {
+      const s = game.state;
+      const x: { cap?: number } | undefined = kind === 'b' ? s.buildings.find((b) => b.id === id) : kind === 'r' ? s.rovers.find((r) => r.id === id) : s.haulers.find((u) => u.id === id);
+      if (x) x.cap = cap;
+      game.publish();
+    },
+    /** the next flare's index (its seeded draws: the class, each machine's glitch; tests) */
+    setFlareIndex: (n: number) => { game.state.flare.n = n; game.publish(); },
     /** the scarred, worst first (the panel's SCARRED line): kind 'b' a structure, 'r' a rover or drone, 'h' a hub unit */
     flareScarred: () => clone(scarredList(game.state)),
     /** a structure's capability line (σ, capability, scars, Replace's cost, time and payback) */

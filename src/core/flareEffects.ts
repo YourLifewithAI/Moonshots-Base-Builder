@@ -454,7 +454,7 @@ export function resolveScars(s: GameState, site: SiteDef, mods: Mods, part: 'fla
     const u = ref?.[0] === 'h' ? s.haulers.find((x) => x.id === Number(ref.slice(1))) : undefined;
     const hb = u ? hubOf(s, u) : undefined;
     const cap = b ? capOf(b) : r ? capOf(r) : u ? capOf(u) : 0;
-    const text = `CAPABILITY — ${name} is down to ${pct(cap)} from rad scars · ${fix}`;
+    const text = `CAPABILITY — ${name} is down to ${Math.floor(cap * 100)}% from rad scars · ${fix}`;
     alert(s, text, 'warn', b ? { select: b.id } : r ? { select: r.home } : hb ? { select: hb.id } : undefined);
     const counter: AlertCounter | null = b ? { counter: 'flareReplace', id: b.id, label: `Replace ${costText(replaceCost(b, site))}` }
       : r ? { counter: 'flareReprint', id: r.id, label: `Re-print ${E.reprint.metals}◆ ${E.reprint.parts}⚙` }
@@ -564,6 +564,8 @@ export function effectsTick(s: GameState, site: SiteDef, mods: Mods) {
   }
   for (const b of s.buildings) {
     if (b.rebootUntil !== undefined && b.rebootUntil <= now) delete b.rebootUntil;
+    // a Replace finished outside the weld (debug.finishConstruction): new all the same
+    if (b.replace && !isSite(b)) replaceDone(s, b);
     // a shut-down structure restarts after its warm-up (the player may have switched it on already)
     if (b.flareShut && b.flareShut.warm > 0 && now >= b.flareShut.warm) {
       delete b.flareShut;
