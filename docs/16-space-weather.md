@@ -817,11 +817,208 @@ survey finds which is fixed by the host table, so it is deterministic.
 | Fault-Tolerant Avionics | −30% | a machine reboots in a flare |
 | Rad-Hard Cells | −30% | a field generates through three flares |
 
-## 9. Destiny interplay (draft)
+## 9. Destiny interplay
 
-## 10. UI (draft)
+### 9.1 What each path leans on
 
-## 11. Look and audio (draft)
+Every protection is a lane tech that both destinies can take, except the guards that
+come with picks. Each path has its own exposure and its own natural answer.
+
+| | ⌂ Colony | ◉ Automation |
+|---|---|---|
+| Most exposed | crew: EVA (DOSE), homes, morale | machines: drones, rovers, hub units, compute |
+| Its guards (changed) | **Storm shelters** (Settler Charter): crew indoors σ 1, flare morale ×0.5, plus today's auto-recall and doses ×0.5 | **Hive re-flash** (Drone Hives): its 2 per 30 s also clears latch-ups · **Watchdogs and failover** (Lights-Out Charter): a reboot takes 10 s |
+| Natural lane picks | Water-Wall Shielding, domes over homes, Deployable Shelters | Fault-Tolerant Avionics, Rad-Hard Process, the recall protocol, domes over pits |
+| Its counters | Recall EVA, Checkpoint, domes | Recall machines (Dock fleet), Shut down, domes |
+| Fleet OS (◉ E5) | — | A flare's soft errors never drop the CONTROL PLANE; only a dark or shut Data Center does, so the shut-down protocol keeps the last one running (§4.7) |
+
+### 9.2 DOSE by class (⌂)
+
+DOSE still rides the telegraph and names the EVA crews (`src/core/hazards.ts:757-770`).
+Its recall line still counts to 20 s before the protons (`walkInS`).
+
+| | C | M | X |
+|---|---|---|---|
+| Off work, caught outside | ¼ lunar day (drill-grade) | the tier's: ½ · 1 · 1½ | the tier's |
+| Lethal | never | never | **0 · ¼ · ⅓** of those caught, by tier (today: 0 · 0 · ⅓ on every flare) |
+| The cumulative limit (6 crew-doses) | counts | counts; past it the crew member is **grounded**: no EVA, off work, until the load falls under 5 | past it, the next dose is **lethal** (today's rule) |
+| Morale | −5 (today) | −5 | −5 |
+
+- A water-wall dome within 60 m makes the walk in 10 s.
+- The first DOSE is a drill, as today. Only an X kills, and only the second X or later is
+  real (§4.11).
+- Indoor doses never feed the load (§4.4).
+
+### 9.3 Bit flips by class (◉)
+
+| | C | M | X |
+|---|---|---|---|
+| Who | the tier's share ×0.5 of the machines in the open | the tier's share | the tier's share ×1.25 (to 90%) |
+| What | a 30 s reboot | **bricked** until re-flashed | bricked |
+| A missed re-flash deadline | — | re-flashed from Earth, 60 s late: **no loss** | **lost** (today's rule) |
+| Drones in flight | land | land | from moderate, fall and are lost |
+
+- The hazard picks its share first, by id, as today (`tickFirmware`,
+  `src/core/hazards.ts:1349-1391`). The common layer (§4.5) draws for the rest. A machine
+  hit by both takes the worse.
+- Rad-Hard Process ×0.5 (today) and Fault-Tolerant Avionics ×0.5 stack.
+- The first bit flips are a drill, as today.
+
+### 9.4 The fairness rules hold (docs/14 §3.1)
+
+| Rule | How flares keep it |
+|---|---|
+| 1 · Announced | Every flare is telegraphed: 60 s, 120 s for an X, and the spot-group watch half a day before an X. Research only adds warning. |
+| 2 · Target, cost and counter named | The alert names what is exposed and its buttons: `5 machines out · 3 crew in unshielded homes · 8 fields generating · [Recall machines] [Checkpoint]`. |
+| 3 · Deterministic | Times, classes, CMEs and every machine's draw are seeded. Forecasts never lie (§6.2). |
+| 4 · Near miss | A flare that finds nothing exposed says so: `☉ M PASSED — everything was docked, stowed or shielded`. |
+| 5 · Losses only from an unanswered warning | Permanent damage needs a real X and a 120 s warning unanswered. The cells are lost only on arrays the player set to generate. |
+| 6 · A free counter | Recall machines, Recall EVA, Stow arrays, Checkpoint and Shut down cost nothing. |
+| 7 · Pressure matches commitment | The destiny layer scales by tier, as today. The common layer scales by class, the same for everyone. |
+| 8 · Drills | The first flare is a C drill; the first X is a drill in its permanent parts; the first DOSE and bit flips are drills as today. The first M is announced with a card; its costs are temporary anyway. |
+| 9 · Every loss reported | `ROVER LOST — #14 burned out in the X flare · warned 2:00 before; it was not docked`. |
+
+**Pacing across paths.** Colony exposes crew and Automation exposes machines. The two
+pure paths' flare-minutes (building-minutes lost, weighted by output) should sit within
+±20% of each other, as docs/14 §6 asks of hazard-minutes.
+
+## 10. UI
+
+### 10.1 The space-weather chip
+
+It sits under the era chip, beside the hazard chip (docs/14 §3.8). The clock loses its
+`FLARE −45s` (`src/ui/hud.ts:247-251`); the chip carries it. Click it, or press **[O]**
+(the Sun's disc; a free key), for the panel.
+
+| State | Chip | Shape and value |
+|---|---|---|
+| Quiet, T0 | `☉ ▮▯▯` | the activity band as a 3-step gauge |
+| Forecast, T1 | `☉ C–M 0:40–1:30` | the class range as squares: C open, M half-filled, X solid |
+| Forecast, T2 | `☉ M 1:05 ±0:07` | one square |
+| The spot-group watch | `☉ X? ½d` | dashed border |
+| Telegraph | `☉ M 0:42` | the border flashes; an X's is inverted |
+| Active | `☉ M ▮▮▮ 0:30` | solid, inverted |
+| The tail | `☉ X tail 1:40` | hatched fill |
+| Blackout | `⌁` added | — |
+| The sentinel in cruise | `☉ … L1 in 0:32` | dotted border |
+
+### 10.2 The Space Weather panel
+
+Panel key `weather` in `#hud-left`, 360 px wide, built like the Hazards panel. At
+1280×720 it fits with PROTOCOLS and LOG folded; it scrolls inside if opened.
+
+```
+SPACE WEATHER                           activity ▮▮▯ ACTIVE · rising · T1 forecast   ✕
+NOW   quiet · the last: M, day 7 (2 reboots, −14≡)
+NEXT  C–M in 0:40–1:30  ▕░░░░████████░░░░░▏  Solar Observatory #14 (blind at dusk 2:10)
+
+EXPOSURE
+ Arrays     8 fields · 240 kW generating · cells 96% on average · stance: by class
+ Crew       12 · 4 in unshielded homes · 2 on EVA
+ Machines   14 · 5 out · the longest trip home 1:10 (E2, Pit P2)
+ Research   Rover Autonomy 62% · 2 labs unshielded
+ Fabs       2 Chip Fabs · 3 compute (σ 0.5)
+ Comms      a resupply lands in 1:20: held if the blackout comes
+
+ACTIONS (for the next flare)
+ ✓ [Recall machines · 5 · 0:40]   ✓ [Checkpoint research]   [Stow arrays · −240 kW 0:55]
+   [Keep generating · cells −1%]    [Deploy domes · 3 kits]    [Shut down fabs · −0.3▣/s]
+
+▸ PROTOCOLS   (§7.4)
+▸ SHELTER     KITS 3 · 11 uses   (§7.3)
+TIMELINE  ▕day░░░░░░night▒▒▒▒day░░░░░░░░░▏   [C–M]      [M–X]        ⟦sail⟧
+▸ LOG     the last 8 flares
+```
+
+- **✓ marks the recommended actions:** those whose §4 cost exceeds their own, by the
+  §5.1 break-even and the exposure. Each button shows its cost.
+- **EXPOSURE is live.** Each line opens its resource panel or selects its target.
+- **LOG:** `M · day 7 · stowed 0:55 · 2 rovers rebooted · −14≡ Rover Autonomy (3%) · F1
+  generated: cells −1%`.
+
+### 10.3 Alerts
+
+| When | Alert | Kind |
+|---|---|---|
+| The spot-group watch | `☉ BIG SPOT GROUP — an X-class flare is possible within ½ day · [Space weather]` | condition · warn |
+| A C telegraph | `☉ C FLARE — protons in 0:58 · arrays generate (cells −0.25%) · [Stow arrays]` | condition · info |
+| An M telegraph | `☉ M FLARE — protons in 0:58 · 5 machines out · 8 fields stowing · Rover Autonomy exposed · [Recall machines] [Checkpoint] [Keep generating]` | condition · warn |
+| An X telegraph | `☉ X FLARE — protons in 1:58, then a proton storm · ⚠ destroys: 5 machines out, Data Center #12 unshielded · [Recall machines] [Shut down] [Deploy domes] [Checkpoint]` | condition · **crit** |
+| Active | `☉ M FLARE — 0:30 · 8 fields stowed (−240 kW) · comms dark` | condition · warn (crit for X) |
+| Passed | `☉ M PASSED — 2 rovers rebooted, −14≡ of Rover Autonomy, F1's cells −1% · the next in ~1.6 lunar days` | event · info |
+| A near miss | `☉ M PASSED — everything was docked, stowed or shielded` | event · info |
+| A loss | `ROVER LOST — #14 burned out in the X flare · warned 2:00 before; it was not docked` | event · crit |
+
+- At most four buttons on an alert; the rest are in the panel.
+- The first flare of each class opens its card (it pauses, as discovery cards do).
+- The menu gains **Pause on X-class flares**, on by default, beside docs/14's hazard
+  settings.
+
+### 10.4 The timeline
+
+- Two lunar days wide at T1, one at T0 (only today's bulletin), three at T3.
+- Day and night as bands; night hatched.
+- Each forecast flare is a box as wide as its window, with its class range in it.
+  CMEs and sail windows are brackets. A now line. Past flares fade out over half a day.
+- At T3 the cycle curve runs along its top, with the maximum marked.
+
+### 10.5 Monochrome
+
+State is shape and value, never hue (docs/06, docs/07 §3): open, half and solid squares
+for the classes; hatch for the tail; dashes for a watch; inversion for crit; the
+activity as a bar gauge. Nothing in the panel needs colour to be read.
+
+### 10.6 Inspector lines
+
+| On | Line |
+|---|---|
+| A Solar Array | `FIELD F3 · 12 arrays · 120 kW · CELLS 91% · stance: follow base (stow) ▾ · [Apply to field]` |
+| Any structure | `FLARE SHIELD σ 0.5 (berms) · [Bag wall] [Dome]` · `RAD SCAR −4% · X flare, day 11` |
+| A machine | `σ 0 in the open · last flare: rebooted 0:40` |
+| A pit (docs/17) | `STORM-CHARGED ×2.5≈ 0:42` · `SHELTER: a water dome on the floor` |
+
+### 10.7 Touch (docs/07 §13)
+
+- The chip sits in the top bar after the clock, 44 px tall. A tap opens the Space Weather
+  **side sheet**.
+- The left rail stays at six buttons. A seventh does not fit a 375 px screen (6 × 52 px
+  already takes 312 of 331).
+- Alert buttons are 44 px. The protocol grid's cells are 44 px toggles: five rows by
+  four columns, 176 × 220 px with labels, in a 300 px sheet.
+- The Dome tool uses the bottom bar. A hold on an array shows its field card with the
+  stance.
+- Nothing needs hover.
+
+## 11. Look and audio
+
+Cheap enough for Classic on an old laptop: no new shader program, no post pass, and a
+few hundred triangles a dome.
+
+| Thing | What you see | Cost |
+|---|---|---|
+| **Speckle** | Proton hits on the camera, as SOHO's images fill with snow in a storm. A 2D canvas over the WebGL canvas draws white dots of 1–2 px at 60–90% alpha while the flare is active: 15 a frame for C, 50 for M, 150 for X, 50 in the tail (at 1080p, scaled by area). An X adds a few 6–12 px streaks. *Reduce motion* turns it off. | CPU, under 0.1 ms a frame |
+| **The frame** | A 1 px hatched frame around the viewport while active, solid for X. **No tint:** earthshine is the only colour (docs/06). | DOM |
+| **The sky** (High detail, walk mode, the landing) | An X's flash lifts the Sun's glare sprite by 30% for 3 s: a white-light flare. When a CME front arrives, a faint aurora ring on Earth's night limb: the colour stays on Earth. No aurora on the Moon, which has no air. | two sprite values |
+| **Arrays stowing** | §5.6: the wing turns edge-on, cells down, over 10 s; the foot lamp blinks slowly. | a tween on the existing wing |
+| **Bag walls** | An instanced ring of 24 bags a course, three courses, rising course by course as the rover stacks them; they come down the same way. | 1 instanced box mesh |
+| **Water-wall domes** | A lathe hemisphere (16 segments, ~300 △) that inflates from flat, scale y 0.05 → 1 with a 5% overshoot over 15 s, then darkens a shade as it fills. Classic shows the facets as ribs; High detail adds a specular band. Deflating reverses it; the kit folds into the rover's bed as a box. | ≤ 6 up, ~1.8k △ |
+| **Glitches** | A rebooting machine's lamps strobe twice, and a DOM marker reads `⟲ 0:40`. A latched one goes dark with `⊘ 7:40`, its deadline. A burn-out throws one spark sprite and the dust puff (`src/world/dust.ts`); the wreck stays 60 s and fades. | markers are DOM |
+| **The Solar Observatory** | A white dome on a pier with a slit and a coronagraph tube on a sun-tracking mount. The slit closes at night. | ~700 △ |
+| **The Shield Coil** | A torus on a low pier. In a flare its lamp band lights and a faint dashed ground ring shows its 45 m. | ~900 △ |
+| **The sentinel launch** | The hopper's plume from the Lander pad, then a tracking dish on the Lander that points sunward. | the existing plume |
+
+**Audio** (`src/audio/sfx.ts`, new cues, with `MIN_GAP_MS` entries):
+
+| Cue | Sound |
+|---|---|
+| `flareC` | the warn tone, once |
+| `flareM` | two Quindar beeps and a burst of 12 Geiger clicks |
+| `flareX` | a falling two-tone siren and a dense crackle |
+| The active bed | filtered-noise Geiger clicks through the effects bus: 3, 8 and 20 a second by class, 6 in the tail |
+| `blackout` | the radio hiss drops out as the squelch closes, and comes back with a Quindar tone |
+
+An X's telegraph ducks the bells and holds the chord, as a crit telegraph does
+(docs/14 §4.6).
 
 ## 12. Pacing and balance (draft)
 
