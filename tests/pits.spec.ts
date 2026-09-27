@@ -271,7 +271,8 @@ test('a building placed later near a pit stops its growth toward it from then on
   expect(r.toward1).toBeLessThanOrEqual(r.toward0);
   const bx = ((r.pad.gx0 + r.pad.gx1) / 2) * 4 - 512, bz = ((r.pad.gz0 + r.pad.gz1) / 2) * 4 - 512;
   const away = (p: any) => Math.hypot(p.cx - bx, p.cz - bz);
-  expect(away(r.pit)).toBeGreaterThan(away(r.pit0) + 3);
+  expect(away(r.pit)).toBeGreaterThan(away(r.pit0) + 1);
+  expect(r.westAfter).toBeLessThan(r.west0);
 });
 
 test('placement near and on a pit is refused with the words; grading refuses a pit and levels a heap', async ({ page }) => {
@@ -524,7 +525,25 @@ for (const style of ['classic', 'detailed']) {
         if (t.delta <= -20) ratios.push(lum(ix, iz) / before.get(iz * 257 + ix)!);
       }
       ratios.sort((a, b) => a - b);
-      return { style: g.getRenderInfo().style, err: g.terrainError(), n: ratios.length, median: ratios[Math.floor(ratios.length / 2)], queue: g.getPits().queue };
+      // rocks: none left on a cell the pit or its heap took
+      let rocks = 0, cells = 0;
+      for (let iz = box[1]; iz < box[3]; iz++) for (let ix = box[0]; ix < box[2]; ix++) {
+        const all = [[0, 0], [1, 0], [0, 1], [1, 1]].every(([dx, dz]) => g.terrainSample(ix + dx, iz + dz).delta !== 0);
+        if (!all) continue;
+        cells++;
+        rocks += g.rocksIn(ix * 4 - 512, iz * 4 - 512, ix * 4 - 508, iz * 4 - 508);
+      }
+      // walk mode stands on the pit's floor
+      const pit = g.getPits().pits[0];
+      g.setMode('walk');
+      g.setView({ x: pit.cx, y: 0, z: pit.cz }, { x: pit.cx + 10, y: 0, z: pit.cz });
+      const me = g.getPlayer();
+      const floor = g.terrainSample(Math.round((me.x + 512) / 4), Math.round((me.z + 512) / 4));
+      g.setMode('build');
+      return {
+        style: g.getRenderInfo().style, err: g.terrainError(), n: ratios.length, median: ratios[Math.floor(ratios.length / 2)],
+        queue: g.getPits().queue, rocks, cells, walkY: me.y, floorH: floor.h, floorBase: floor.base,
+      };
     });
     expect(r.style).toBe(style === 'detailed' ? 'detailed' : 'classic');
     expect(r.queue.queued).toBe(0);
@@ -533,6 +552,11 @@ for (const style of ['classic', 'detailed']) {
     expect(r.err.vertex).toBeLessThan(0.01);
     // fresh regolith: brighter than the weathered ground it was cut from
     expect(r.median).toBeGreaterThan(1.1);
+    expect(r.cells).toBeGreaterThan(20);
+    expect(r.rocks).toBe(0);
+    // on foot, in the pit: its floor, metres below the ground it was cut from
+    expect(Math.abs(r.walkY - r.floorH)).toBeLessThan(1);
+    expect(r.floorBase - r.walkY).toBeGreaterThan(2);
     await page.screenshot({ path: `test-results/pits-${style}.png` });
   });
 }

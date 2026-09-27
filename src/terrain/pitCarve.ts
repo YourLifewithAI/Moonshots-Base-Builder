@@ -325,15 +325,22 @@ function gatherPit(hf: Heightfield, win: Win, p: PitShape, rHi: number) {
   }
 }
 
-/** The ramp's top for rim radius R: the farthest along its line the wall cuts. */
+/** The ramp's top for rim radius R: where the first bench meets its line (a
+ *  smooth function of R, so the ramp deepens evenly as the rim moves out),
+ *  never more than a sample past the farthest the wall actually cuts along it
+ *  (a blocked gate side stops it). Never less than before: monotone. */
 function rampTop(p: PitShape, R: number): number {
-  let A = p.A;
+  let cut = -Infinity;
   for (let i = 0; i < nCand; i++) {
     const a = cAlong[i];
-    if (a !== a || a <= A || cPerp[i] > PIT.rampHalfW) continue; // NaN: behind the ramp
-    if (bench(Math.min((R - cRho[i]) / 2, cCap[i])) > 0) A = a;
+    if (a !== a || a <= cut || cPerp[i] > PIT.rampHalfW) continue; // NaN: behind the ramp
+    if (bench(Math.min((R - cRho[i]) / 2, cCap[i])) > 0) cut = a;
   }
-  return A;
+  const dx = p.cx - p.ox, dz = p.cz - p.oz;
+  const proj = dx * p.ux + dz * p.uz, perp = Math.abs(-dx * p.uz + dz * p.ux);
+  const r0 = R - PIT.bench; // the first bench's edge (a wall 1 m deep rounds to it)
+  const rim = r0 > perp ? proj + Math.sqrt(r0 * r0 - perp * perp) : -Infinity;
+  return Math.max(p.A, Math.min(rim, cut + CELL_M));
 }
 
 /** Target depth (dm) of candidate i at rim radius R and ramp top A. */
