@@ -607,6 +607,7 @@ desktop game is unchanged.
 | Hover (a tech) | the first tap shows it in the sheet; the second queues (or cancels) |
 | Shift-click (a tech) | hold the card, or Queue path in the sheet |
 | Right-click | ✕ in the bar |
+| Tab (walk mode) | none: touch mode has no walk mode (§13.9) |
 
 ### 13.6 The full screens
 
@@ -639,15 +640,28 @@ desktop game is unchanged.
 | Saves | on every `visibilitychange` to hidden and on `pagehide`: the database save, and a synchronous `localStorage` copy that outlives a tab iOS kills; the newer of the two loads |
 | Relaunch | the title screen offers Continue base |
 
-Frame time in Chromium's mobile emulation (844×390, dpr 3, Classic, a
-mid-game base; software GL on the test machine, so a ceiling, not a phone's
-number): __PERF__.
+Frame time in Chromium's mobile emulation on a mid-game base: Eras 1–3
+researched, 22 structures, 9 rovers, 3× speed. The test machine has no GPU
+(SwiftShader, software GL, other runs sharing the CPU), so these are a
+ceiling, not a phone's numbers. The draw calls and triangles are what a
+phone's GPU gets.
+
+| Screen | Style | Pixel ratio · canvas | Draw calls · triangles | Frame (median · p95) |
+|---|---|---|---|---|
+| 844×390, dpr 3 | Classic | 1.5 · 1266×585 | 33 · 154 k | 233 · 300 ms |
+| 844×390, dpr 3 | High detail | 2 · 1688×780 | 111 · 304 k | 1467 · 1700 ms |
+| 667×375, dpr 2 | Classic | 1.5 · 1000×562 | 31 · 150 k | 217 · 283 ms |
+| 1440×900 desktop, dpr 1 | Classic | 1 · 1440×900 | 31 · 150 k | 300 · 383 ms |
+
+- On the same machine the phone in Classic draws faster than the desktop reference. Classic is the default, and it is the phone's style.
+- High detail costs about six times Classic here (shadows, post, twice the pixels). It stays a choice in the menu.
 
 ### 13.9 Hidden or deferred in touch mode
 
-- **Walk mode** (Tab, first person) is hidden: a virtual stick is not cheap and good enough. A desktop save made on foot loads in the command view.
+- **Walk mode** (Tab, first person) is hidden: a virtual stick is not cheap and good enough. Tab does nothing, even with a keyboard attached. A desktop save made on foot loads in the command view.
 - The era chip and the map chip: the Tree and Map rail buttons carry their state (research progress, the map's pulse).
 - Hover tooltips: tap-to-show (§13.5).
+- Key hints in shared texts: `[B]`, `[G]`, `[M]`, `[T]`, `[N]` and `[I]` are rewritten as they render (`untangleKeys` in `ui/touchUi.ts`). After "with", "in" or "Open", or before "to", a hint becomes the rail's name ("tune it with Builder"). A hint alone in a label goes. Anywhere else it is dropped ("Open Lunar Map").
 - The research header's alert echo and the transfer-rate chip (on screens under 900 px).
 - The Lunar Map's legend and thumbnail captions.
 
@@ -659,7 +673,8 @@ production and serves it with `vite preview`.
 
 | Test | Checks |
 |---|---|
-| detection | Auto and `?touch` on; the desktop off, with no touch DOM; the menu's Off reloads into the base |
+| detection | Auto and `?touch` on; the desktop off, with no touch DOM; Tab walks on the desktop only; the menu's Off reloads into the base |
+| key hints | a module's `[B]` reads as Builder; the Builder and Hazards panels and the map show no key |
 | portrait | the overlay, the pause, the resume |
 | gestures | pan; pinch steps the zoom; twist turns 90°; a tap selects; empty ground clears; a hold shows info; a drag never selects |
 | placement | ghost mid-view; the refusal shown; a drag moves the ghost, not the camera; ⟳; ✓ places; Order and a held card order |
