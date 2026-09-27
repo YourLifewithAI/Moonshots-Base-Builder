@@ -1615,6 +1615,18 @@ export class Game {
     return this.fxCheck ? this.fxCheck.history.map((r) => JSON.parse(JSON.stringify(r))) : [];
   }
 
+  /** The last self-check's two images (display luminance, bottom row first). */
+  debugFxCheckImages() {
+    const im = this.fxCheck?.lastImages;
+    return im ? { W: im.W, H: im.H, chain: [...im.chain].map((v) => Math.round(v)), plain: [...im.plain].map((v) => Math.round(v)) } : null;
+  }
+
+  /** Hold the black-frame sentinel off (a test of what only the self-check sees). */
+  debugHoldProbe(on: boolean) {
+    this.probeHeld = on;
+    this.nextProbe = on ? Number.POSITIVE_INFINITY : this.playFrames + 40;
+  }
+
   /** Automatic self-checks on or off (an explicit debugFxCheckNext still runs). */
   debugSetFxCheckAuto(on: boolean) { this.fxCheckAuto = on; }
 

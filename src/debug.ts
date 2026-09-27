@@ -134,6 +134,10 @@ function api(game: Game) {
     /** run the FX self-check on the next drawn frame; getFxChecks() gains a result */
     fxCheckNext: () => game.debugFxCheckNext(),
     getFxChecks: () => game.debugFxChecks(),
+    /** the last self-check's chain and plain images (display luminance) */
+    getFxCheckImages: () => game.debugFxCheckImages(),
+    /** hold the black-frame sentinel off (true) or resume it */
+    holdBlackFrameCheck: (on: boolean) => game.debugHoldProbe(on),
     /** automatic self-checks (boot, level changes) on or off */
     setFxCheckAuto: (on: boolean) => game.debugSetFxCheckAuto(on),
     /** make FX `level` draw wrong: 'player' (the report: black ground, flat grey hulls),

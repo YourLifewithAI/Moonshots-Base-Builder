@@ -59,6 +59,8 @@ export interface FxCheckResult {
   reasons: string[];
   size: [number, number];
   ms: number;
+  /** ms per step: grab (waits for the frame itself), plain, hdr, cpu */
+  phase: Record<string, number>;
   chain: ImgStats;
   plain: ImgStats;
   hdr: HdrStats | null;
@@ -96,6 +98,8 @@ export const VERDICT = {
 };
 
 const TILE = 6;
+/** the plain render's supersampling per axis */
+const SS = 4;
 const EXPOSURE_FALLBACK = 1.1;
 
 // ── the chain's last pass, on the CPU (three's AgX, postprocessing's grain and vignette) ──
@@ -225,6 +229,8 @@ export class FxSelfCheck {
   /** the last results, newest last (the render report) */
   readonly history: FxCheckResult[] = [];
   private seq = 0;
+  /** the last compared images (display luminance, bottom row first; debug) */
+  lastImages: { W: number; H: number; chain: Float32Array; plain: Float32Array } | null = null;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -304,12 +310,16 @@ export class FxSelfCheck {
   run(level: number, reference: (on: boolean) => void): FxCheckResult | null {
     const t0 = performance.now();
     const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    const phase: Record<string, number> = {};
+    let tp = t0;
+    const lap = (k: string) => { const t = performance.now(); phase[k] = +(t - tp).toFixed(1); tp = t; };
     const dw = gl.drawingBufferWidth, dh = gl.drawingBufferHeight;
     if (!dw || !dh || gl.getContextAttributes()?.antialias) return null;
     let mip = 0;
     while ((dw >> mip) > 120 && mip < 8) mip++;
     const grab = this.grabCanvas(mip);
     if (!grab) return null;
+    lap('grab');
     const { w: W, h: H, px } = grab;
     const C = new Float32Array(W * H);
     for (let i = 0; i < W * H; i++) C[i] = lum(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
@@ -317,25 +327,32 @@ export class FxSelfCheck {
     reference(true);
     let ldr: Uint8Array | Float32Array | null = null, hdrPx: Uint8Array | Float32Array | null = null;
     try {
-      ldr = this.drawScene(this.target('ldr', W * 2, H * 2), false);
+      ldr = this.drawScene(this.target('ldr', W * SS, H * SS), false);
+      lap('plain');
       if (this.halfFloatOk) hdrPx = this.drawScene(this.target('hdr', W, H), true);
+      lap('hdr');
     } finally {
       reference(false);
     }
     if (!ldr) return null;
 
-    // the plain frame: 2×2 box in linear light, then the chain's last pass
+    // the plain frame: SS×SS box in linear light (the chain's frame is box-
+    // filtered from full size: a point-sampled small render would alias
+    // sub-pixel relief into detail the chain never had), then the chain's
+    // last pass
     const exposure = this.renderer.toneMappingExposure || EXPOSURE_FALLBACK;
     const R = new Float32Array(W * H);
-    const W2 = W * 2;
+    const WS = W * SS, n2 = SS * SS;
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         let r = 0, g = 0, b = 0;
-        for (const [ox, oy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-          const k = ((y * 2 + oy) * W2 + x * 2 + ox) * 4;
-          r += lin[ldr[k]]; g += lin[ldr[k + 1]]; b += lin[ldr[k + 2]];
+        for (let oy = 0; oy < SS; oy++) {
+          for (let ox = 0; ox < SS; ox++) {
+            const k = ((y * SS + oy) * WS + x * SS + ox) * 4;
+            r += lin[ldr[k]]; g += lin[ldr[k + 1]]; b += lin[ldr[k + 2]];
+          }
         }
-        const [tr, tg, tb] = agx(r / 4, g / 4, b / 4, exposure);
+        const [tr, tg, tb] = agx(r / n2, g / n2, b / n2, exposure);
         const v = vignette((x + 0.5) / W, (y + 0.5) / H);
         R[y * W + x] = lum(enc(grain(tr) * v), enc(grain(tg) * v), enc(grain(tb) * v));
       }
@@ -358,12 +375,14 @@ export class FxSelfCheck {
     }
 
     const metrics = compareFrames(C, R, W, H);
+    this.lastImages = { W, H, chain: C, plain: R };
+    lap('cpu');
     const chain = stats(C), plain = stats(R);
     const { verdict, reasons } = judge(metrics, plain.mean, hdr);
     const round = (o: ImgStats) => ({ mean: +o.mean.toFixed(2), black: +o.black.toFixed(4), hist: o.hist.map((h) => +h.toFixed(4)) });
     const res: FxCheckResult = {
       seq: ++this.seq, at: new Date().toISOString(), level, verdict, reasons, size: [W, H],
-      ms: +(performance.now() - t0).toFixed(1),
+      ms: +(performance.now() - t0).toFixed(1), phase,
       chain: round(chain), plain: round(plain), hdr,
       metrics: {
         ...metrics,
