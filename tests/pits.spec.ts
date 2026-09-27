@@ -100,6 +100,25 @@ window.P = {
     }
     return out;
   },
+  /** 8-connected pieces of the cut (sign -1) or of the spoil (sign 1) */
+  pieces(carved, sign) {
+    const set = new Set(carved.filter(([, , d]) => Math.sign(d) === sign).map(([x, z]) => z * N + x));
+    let n = 0;
+    const seen = new Set();
+    for (const k of set) {
+      if (seen.has(k)) continue;
+      n++;
+      const st = [k]; seen.add(k);
+      while (st.length) {
+        const c = st.pop(), x = c % N, z = Math.floor(c / N);
+        for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+          const q = (z + dz) * N + x + dx;
+          if (set.has(q) && !seen.has(q)) { seen.add(q); st.push(q); }
+        }
+      }
+    }
+    return n;
+  },
   /** what the pits changed within 'rings' samples of each structure and road cell */
   intrusions(carved, padRings, roadRings) {
     const bad = [];
@@ -184,17 +203,30 @@ test('a pit never digs within its setback: 12 m of a structure, 8 m of a road, d
     const z = g.getZones().find((z: any) => z.kind === 'ilmenite');
     // structures round the deposit before the digging starts
     for (const [dx, dz] of [[34, 0], [-34, 0], [0, 36], [0, -36]]) P.place('solar', z.cx + dx, z.cz + dz, 4);
+    // two excavators on the one deposit, digging their own pads
     P.excavator();
+    P.place('excavator', z.cx + 10, z.cz + 2, 6);
+    g.finishConstruction();
     const before = P.footings();
     P.run(90);
     const carved = P.carved();
     const after = P.footings();
     const moved = Object.keys(before).filter((id) => before[id].some((h: number, i: number) => h !== after[id][i]));
-    return { carved: carved.length, bad: P.intrusions(carved, pr, rr), moved, pads: P.pads().length, pits: g.getPits().pits };
+    return {
+      carved: carved.length, bad: P.intrusions(carved, pr, rr), moved, pads: P.pads().length, pits: g.getPits().pits,
+      cutPieces: P.pieces(carved, -1), heapPieces: P.pieces(carved, 1),
+      diggers: g.getState().buildings.filter((b: any) => b.type === 'excavator').length,
+    };
   }, [PAD_RINGS, ROAD_RINGS]);
   expect(r.pads).toBeGreaterThanOrEqual(4);
   expect(r.carved).toBeGreaterThan(80);
   expect(r.bad).toEqual([]);
+  // the deposit's diggers share its pit; the pit is one hole, its heap one heap
+  expect(r.diggers).toBe(2);
+  expect(r.pits.length).toBe(1);
+  expect(r.pits[0].key).toMatch(/^dep:ilmenite-/);
+  expect(r.cutPieces).toBe(1);
+  expect(r.heapPieces).toBe(1);
   // the pit never undermines a structure: every pad and its skirt stand exactly as they were
   expect(r.moved).toEqual([]);
 });

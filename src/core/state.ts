@@ -285,7 +285,8 @@ export interface ZoneState {
  *  derived from (seed, id) and its ground, never stored. */
 export interface PitState {
   id: number;
-  /** today's adapter (Phase 3): the dig site it serves, `dig:gx,gz` (core/pits.ts digSiteKey) */
+  /** today's adapter (Phase 3): what it serves — a deposit (`dep:<id>`, every digger on it) or a
+   *  plain-ground dig cell (`dig:gx,gz`) (core/pits.ts onDig) */
   key: string;
   /** the deposit under its dig (null: plain ground) */
   deposit: string | null;

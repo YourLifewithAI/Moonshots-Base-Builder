@@ -4,7 +4,8 @@
  *  - **Today's adapter.** Hub units (Phases 1–2) are not in yet, so the pits
  *    follow today's hauling: `onDig(s, digSiteKey(x, z), tonnes, q)` is one
  *    line in the excavator's dig phase (core/haul.ts). It finds, or opens, the
- *    pit for that dig site and adds the dug volume. Phase 2 repoints the call
+ *    pit for that dig site — its deposit's, shared by every digger on it, or
+ *    on plain ground the dig cell's own — and adds the dug volume. Phase 2 repoints the call
  *    at hub units (`digInto(s, pit, tonnes, q)`, the same growth).
  *  - **The volume.** ▲ is a tonne; the hole is ▲ ÷ 1.5 m³ whatever the grade
  *    (§9.2: the grade sets how much product a tonne makes, so a lean cut digs
@@ -19,7 +20,9 @@
  *    Lander.
  *  - **Step 4.2** (economy): in batches — a pit carves at most every 5 game-s,
  *    once its rim would move 0.5 m or 150 m³ is owed — in id order, on the
- *    pits' own tick clock, in integer decimetres (terrain/pitCarve.ts).
+ *    pits' own tick clock, in integer decimetres (terrain/pitCarve.ts). A pit
+ *    only grows over ground joined to its own cut, never across a road or a
+ *    structure's setback.
  *  - **Grow away, never toward** (the player's rule, docs/17 §8.1): nothing
  *    is dug within 12 m of a structure's walls (its pad, the two-sample skirt
  *    and a 4 m margin) or 8 m of a road, door, bay or the Lander's apron;
@@ -75,10 +78,14 @@ export function digGrade(kind: FeedKind): number {
   return 1;
 }
 
-/** `tonnes` of regolith dug at a dig site: into its pit (opened when first dug). */
+/** `tonnes` of regolith dug at a dig site: into its pit (opened when first dug).
+ *  Every digger on one deposit shares that deposit's pit (`dep:<id>`); on plain
+ *  ground each dig site is its own pit. */
 export function onDig(s: GameState, siteKey: string, tonnes: number, q: number) {
   if (!(tonnes > 0)) return;
   s.pits ??= [];
+  const hf = terrains.get(s);
+  if (hf) siteKey = pitKeyOf(hf, siteKey);
   let p: PitState | undefined;
   for (let i = s.pits.length - 1; i >= 0; i--) if (s.pits[i].key === siteKey) { p = s.pits[i]; break; }
   if (!p) p = newPit(s, siteKey);
@@ -105,8 +112,28 @@ function newPit(s: GameState, key: string): PitState {
   return p;
 }
 
-/** The dig site a key names (its cell's centre). */
-function keyPoint(key: string): [number, number] {
+/** A dig site's pit key: its deposit's (`dep:<id>`), else its own cell's. Memoised per heightfield. */
+const keyMemo = new WeakMap<Heightfield, Map<string, string>>();
+function pitKeyOf(hf: Heightfield, siteKey: string): string {
+  if (!siteKey.startsWith('dig:')) return siteKey;
+  let m = keyMemo.get(hf);
+  if (!m) { m = new Map(); keyMemo.set(hf, m); }
+  let k = m.get(siteKey);
+  if (k === undefined) {
+    const [x, z] = keyPoint(null, siteKey);
+    const d = hf.depositAt(x, z);
+    k = d && d.kind !== 'ridge' ? `dep:${d.id}` : siteKey;
+    m.set(siteKey, k);
+  }
+  return k;
+}
+
+/** The point a key names: a dig cell's centre, or a deposit's centre. */
+function keyPoint(hf: Heightfield | null | undefined, key: string): [number, number] {
+  if (key.startsWith('dep:')) {
+    const d = hf?.deposits.find((x) => x.id === key.slice(4));
+    if (d) return [d.cx, d.cz];
+  }
   const [gx, gz] = key.slice(4).split(',').map(Number);
   return cellCentre(gx, gz);
 }
@@ -188,8 +215,8 @@ export function pitsStep(s: GameState, dt: number) {
 
 /** Open a pit: its ground (the dig's deposit), centre, ramp and heap. */
 function stake(s: GameState, hf: Heightfield, p: PitState, bl: Blockers): boolean {
-  const [x, z] = keyPoint(p.key);
-  p.deposit = hf.depositAt(x, z)?.id ?? null;
+  const [x, z] = keyPoint(hf, p.key);
+  p.deposit = p.key.startsWith('dep:') ? p.key.slice(4) : hf.depositAt(x, z)?.id ?? null;
   const L = looseLayer(s, p);
   const planR = planRadius(hf, p, L);
   // other pits' and heaps' planned ground is taken
@@ -210,12 +237,13 @@ function stake(s: GameState, hf: Heightfield, p: PitState, bl: Blockers): boolea
   const cx = at.x + (rng() - 0.5) * 1.6, cz = at.z + (rng() - 0.5) * 1.6;
   p.cx = p.ox = cx;
   p.cz = p.oz = cz;
-  // the ramp faces its diggers (the dig site); a dig at the centre faces the Lander
+  // the ramp faces its diggers (the dig site, or the deposit's heart where their
+  // pads stand); a pit opened right there faces the Lander
   let gx = x - cx, gz = z - cz;
   if (Math.hypot(gx, gz) < 1 && away) { gx = away.x - cx; gz = away.z - cz; }
-  const gl = Math.hypot(gx, gz) || 1;
-  p.ux = gl > 0 && (gx || gz) ? gx / gl : 1;
-  p.uz = gl > 0 && (gx || gz) ? gz / gl : 0;
+  const gl = Math.hypot(gx, gz);
+  p.ux = gl > 1e-6 ? gx / gl : 1;
+  p.uz = gl > 1e-6 ? gz / gl : 0;
   p.A = 0;
   const h = stakeHeap(hf, { ...bl, discs }, { x: cx, z: cz, gateX: p.ux, gateZ: p.uz }, planR, heapPlanR());
   p.heap = { x: h.x, z: h.z, Rh: 0, anchor: -1 };
@@ -386,7 +414,7 @@ export function pitsView(s: GameState, hf: Heightfield | undefined) {
     ...p, box: [...p.box], heap: p.heap ? { ...p.heap } : null,
     L: looseLayer(s, p),
     heapRatio: p.cutM3 > 0 ? p.heapM3 / p.cutM3 : 0,
-    rimFromKey: (() => { const [x, z] = keyPoint(p.key); return Math.hypot(x - p.ox, z - p.oz); })(),
+    rimFromKey: (() => { const [x, z] = keyPoint(hf, p.key); return Math.hypot(x - p.ox, z - p.oz); })(),
     samples: hf ? countOwn(hf, p) : 0,
   }));
 }

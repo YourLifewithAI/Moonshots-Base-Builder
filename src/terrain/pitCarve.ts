@@ -72,6 +72,7 @@ let cap = 0;
 let blocked = new Uint8Array(0);
 let dist = new Float32Array(0);     // m to the nearest blocked sample
 let own = new Uint8Array(0);        // this pit's (or heap's) own samples
+let reach = new Uint8Array(0);      // ground joined to its own through unblocked samples
 let stack = new Int32Array(0);
 let cIdx = new Int32Array(0), cRho = new Float32Array(0), cCap = new Float32Array(0);
 let cAlong = new Float32Array(0), cPerp = new Float32Array(0), cCur = new Int16Array(0);
@@ -81,7 +82,7 @@ let lineV = new Int32Array(0);
 function ensure(n: number, side: number) {
   if (n > cap) {
     cap = n;
-    blocked = new Uint8Array(n); dist = new Float32Array(n); own = new Uint8Array(n);
+    blocked = new Uint8Array(n); dist = new Float32Array(n); own = new Uint8Array(n); reach = new Uint8Array(n);
     stack = new Int32Array(n); cIdx = new Int32Array(n); cRho = new Float32Array(n);
     cCap = new Float32Array(n); cAlong = new Float32Array(n); cPerp = new Float32Array(n); cCur = new Int16Array(n);
   }
@@ -202,7 +203,6 @@ function buildMask(hf: Heightfield, win: Win, bl: Blockers, mode: 'dig' | 'dump'
       }
     }
   }
-  void mode;
 }
 
 /** 1-D squared distance transform (Felzenszwalb–Huttenlocher) of line[0..n). */
@@ -239,6 +239,35 @@ function distances(win: Win) {
     for (let x = 0; x < w; x++) line[x] = dist[row + x];
     edt1(w);
     for (let x = 0; x < w; x++) dist[row + x] = Math.min(1e6, Math.sqrt(lineOut[x]) * CELL_M);
+  }
+}
+
+/** reach[] = the unblocked ground joined, 4-connected and within r of (x, z),
+ *  to this shape's own samples or its centre: a pit or heap only grows over
+ *  ground it can reach, never across a road or a structure's setback. */
+function reachFrom(win: Win, x: number, z: number, r: number) {
+  const n = win.w * win.h, r2 = r * r;
+  reach.fill(0, 0, n);
+  let sp = 0;
+  for (let l = 0; l < n; l++) if (own[l] && !blocked[l]) { reach[l] = 1; stack[sp++] = l; }
+  const clx = nearest(x) - win.x0, clz = nearest(z) - win.z0;
+  if (clx >= 0 && clz >= 0 && clx < win.w && clz < win.h) {
+    const l = clz * win.w + clx;
+    if (!blocked[l] && !reach[l]) { reach[l] = 1; stack[sp++] = l; }
+  }
+  while (sp > 0) {
+    const l = stack[--sp];
+    const lx = l % win.w, lz = (l - lx) / win.w;
+    for (let d = 0; d < 4; d++) {
+      const nx = lx + (d === 0 ? 1 : d === 1 ? -1 : 0), nz = lz + (d === 2 ? 1 : d === 3 ? -1 : 0);
+      if (nx < 0 || nz < 0 || nx >= win.w || nz >= win.h) continue;
+      const nl = nz * win.w + nx;
+      if (reach[nl] || blocked[nl]) continue;
+      const dx = sx(win.x0 + nx) - x, dz = sx(win.z0 + nz) - z;
+      if (dx * dx + dz * dz > r2) continue;
+      reach[nl] = 1;
+      stack[sp++] = nl;
+    }
   }
 }
 
@@ -304,7 +333,7 @@ function gatherPit(hf: Heightfield, win: Win, p: PitShape, rHi: number) {
     if (dz * dz > r2) continue;
     for (let lx = 0; lx < win.w; lx++) {
       const l = lz * win.w + lx;
-      if (blocked[l]) continue;
+      if (blocked[l] || !reach[l]) continue;
       const ix = win.x0 + lx, x = sx(ix), dx = x - p.cx;
       const d2 = dx * dx + dz * dz;
       if (d2 > r2) continue;
@@ -421,6 +450,7 @@ export function carvePit(hf: Heightfield, p: PitShape, bl: Blockers, addM3: numb
   buildMask(hf, win, bl, 'dig');
   distances(win);
   drift(win, p, dR);
+  reachFrom(win, p.cx, p.cz, rHi);
   gatherPit(hf, win, p, rHi);
   const Ldm = Math.round(p.L * 10);
   let R = rHi;
@@ -470,13 +500,14 @@ export function dumpHeap(hf: Heightfield, h: HeapShape, bl: Blockers, addM3: num
   floodOwn(hf, win, h.anchor, 1);
   buildMask(hf, win, bl, 'dump');
   distances(win);
+  reachFrom(win, h.hx, h.hz, rHi);
   nCand = 0;
   const r2 = rHi * rHi;
   for (let lz = 0; lz < win.h; lz++) {
     const iz = win.z0 + lz, dz = sx(iz) - h.hz;
     for (let lx = 0; lx < win.w; lx++) {
       const l = lz * win.w + lx;
-      if (blocked[l]) continue;
+      if (blocked[l] || !reach[l]) continue;
       const ix = win.x0 + lx, dx = sx(ix) - h.hx;
       const d2 = dx * dx + dz * dz;
       if (d2 > r2) continue;
