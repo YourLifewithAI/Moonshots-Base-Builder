@@ -18,7 +18,9 @@ import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
-import { choicesFor, hubGhostLine, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
+import { $deposits, $hubCard, $hubLight } from './ui/stores';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -352,6 +354,48 @@ function api(game: Game) {
     /** a hub ghost's HUB line at (gx, gz, rot): where its units would dig, how far one way */
     hubGhost: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
       hubGhostLine(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot }),
+    /** a hub ghost's whole HUB block at (gx, gz, rot): headline, lines, warning, stake, lit entries (docs/17 §5.2) */
+    hubBlock: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => {
+      const b = ghostBlock(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot });
+      return { headline: b.headline, lines: [...b.lines], warn: b.warn, stake: b.stake, entries: b.light?.entries ?? [] };
+    },
+    /** the highlight a selected hub (its id) or a hub card (its type) would light */
+    hubLightOf: (src: number | BuildingId) =>
+      hubLight(game.state, game.mods, SITES[game.state.siteId], typeof src === 'number' ? { kind: 'selected', id: src } : { kind: 'card', type: src })?.entries ?? null,
+    /** the highlight up now: what is drawn, and its entries (docs/17 §6.1) */
+    getHighlight: () => ({ ...game.debugHighlight(), view: $hubLight.get() }),
+    /** R: turn the ghost a quarter */
+    rotatePlacement: () => game.rotatePlacement(),
+    /** glide the build camera to look at world (x, z) */
+    focusGround: (x: number, z: number) => game.focusGround(x, z),
+    /** $deposits as the UI has it: the lit ones, with their lit state (docs/17 §6.1) */
+    litDeposits: () => clone($deposits.get().filter((d) => d.lit)),
+    /** view tests only: stand-in units hold faces at `key` till `n` are held in all (0 takes them away; never advance with them) */
+    holdFaces: (key: string, n: number) => {
+      const s = game.state;
+      s.haulers = s.haulers.filter((u) => u.id < 90000);
+      const proto = s.haulers[0];
+      if (!proto || n <= 0) return 0;
+      const held = new Set(s.haulers.filter((u) => u.target === key && u.face >= 0).map((u) => u.face));
+      let k = 0;
+      for (let f = 0; held.size + k < n && f < 12; f++) {
+        if (held.has(f)) continue;
+        s.haulers.push({ ...clone(proto), id: 90000 + f, hub: -1, target: key, face: f });
+        k++;
+      }
+      return k;
+    },
+    /** view tests only: set the pit at `key`'s state ('boxed', 'exhausted', 'open') */
+    setPitState: (key: string, state: 'open' | 'boxed' | 'exhausted') => {
+      const p = game.state.pits?.find((x) => x.key === key);
+      if (p) p.state = state;
+      return !!p;
+    },
+    /** a hub's palette card hovered (null: none) */
+    setHubCard: (type: BuildingId | null) => $hubCard.set(type),
+    /** the ring warning a structure at (gx, gz, rot) would carry ('' none) */
+    pitWayWhy: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
+      pitWayWarning(game.state, SITES[game.state.siteId], { type, gx, gz, rot }),
     /** why a plain pit may not be staked at world (x, z) ('' = it may) */
     plainPitWhy: (x: number, z: number) => plainPitRefusal(game.state, game.mods, SITES[game.state.siteId], x, z),
     sendUnit: (unit: number, key: string) => game.actions.push({ kind: 'sendUnit', unit, key }),

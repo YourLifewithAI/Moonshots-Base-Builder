@@ -3,7 +3,8 @@
 **Status:** Phase A design, revision 2, on `work/hubs` from main `97e1373`.
 **Phases 1–3 have shipped.** Phase 3 (heightfield editing and pits) shipped first,
 on `work/pits`. Phases 1–2 (hub units, haul to hub) followed on `work/hubunits`, and
-hub units now dig the pits (§22, "As shipped"). Revision 2
+hub units now dig the pits (§22, "As shipped"). Phase 5 (the preview and the
+highlight) shipped on `work/hubview`, ahead of Phase 4. Revision 2
 takes in the player's answers (§23) and redesigns extraction as **strip mining that
 deforms the terrain** (Part 2). Phase B starts after
 **work/unitpower** (machine battery packs) merges, since it changes the same files.
@@ -23,8 +24,10 @@ zones, the refusals) and `src/terrain/pitCarve.ts` (the height-delta grid, carvi
 heaps, masks, the codec). **Code shipped (Phases 1–2):** `src/data/hubs.ts` (hub and
 unit tables), `src/core/hubs.ts` (units, printing, bays, the choice, trips, plain
 pits, the pile and hoppers, migration), `src/core/hubView.ts` and
-`src/ui/hubPanel.ts` (the inspectors). **Code to come:** grade, reserves, faces and
-surveys in `src/core/pits.ts`.
+`src/ui/hubPanel.ts` (the inspectors). **Code shipped (Phase 5):** `src/core/hubPreview.ts`
+(the highlight, the ghost's HUB block, the ring warning, Phase 4's `reservesOf` hook) and
+`src/world/depositHighlight.ts` (the lit rings on the ground). **Code to come:** grade,
+reserves, faces and surveys in `src/core/pits.ts`.
 
 If a number here disagrees with the code once it ships, the code wins.
 
@@ -1665,7 +1668,7 @@ Each phase merges on its own and leaves the game playable.
 | 2 | **Haul to hub** ✅ **shipped** (`work/hubunits`) | hoppers; ▲ as their sum; the pile; per-hub grade and feed; trips hub → gate → face → hub; plain pits as staked points (no carving yet); reach; the auto choice; Assign, Open pit…, Send…, Recall; the haul road with the spur; power per unit | Hubs live on their own hauls |
 | 3 | **Heightfield editing and pits** ✅ **shipped** (`work/pits`) | `src/terrain/pitCarve.ts`: the delta grid, carving, heaps, ramps, no-dig and no-build masks; `s.pits` and step 4.2; saving (base → deltas → flattens); the chunk rebuild queue and shadow throttle; placement, road A*, `roadReach`, zones and gates on the new terrain; Site Grading on pits and heaps; rocks | The ground deforms as units dig |
 | 4 | **Grade, reserves, faces, surveys and morale** | the grade tables and q; the ore halo and cutoff; exhaustion and boxed-in pits; bedrock benches; faces as benches; the survey job, precision and the card; strip-mine morale; Reclaim | Pits run out and you can see why |
-| 5 | **The preview and the highlight** | the ghost's HUB block, its plain-pit stake and ring warnings; lit rings, rims and labels; the Lunar Map; touch | Placement shows its strategy |
+| 5 | **The preview and the highlight** ✅ **shipped** (`work/hubview`) | the ghost's HUB block, its plain-pit stake and ring warnings; lit rings, rims and labels; the Lunar Map; touch | Placement shows its strategy |
 | 6 | **The research reshuffle** | Pit Mapping and the six other new techs; §14.4's changes; techSchema 5; milestones; discovery; the 71 test references | The ladder is in |
 | 7 | **The Builder and the probe** | `hubUnit`; siting's anchors and ring-keeping; plain-pit staking; relocation; Site Survey AI surveys; Feed Planner routing; the probe bot, its metrics and the pacing pass against §18 | Automation and pacing are tuned |
 | 8 | **The look and the migration** | recipes (the water plant, the ice miner, bays, chutes, stakes); bench lips, the cut's tone, bedrock and rubble; the ice miner rig and work animations; the full migration | Finished |
@@ -1812,6 +1815,54 @@ repoint it without rewriting pits.
 
   The run digs one pit on high-Ti basalt #0: 36.4k▲, 24.2k m³ cut (R 48 m, 5 m deep)
   and a 19.5k m³ heap. Its grid is 2.5 KB.
+
+### As shipped: Phase 5 (`work/hubview`), ahead of Phase 4
+
+Placing a Regolith Smelter, a Silicon Refinery or a Water Management Plant now
+shows where it should go. The deposits it wants light up, each with its trip from
+the hub's door, its faces and its pit. The ghost's HUB block reads the choice.
+Nothing in the sim changed.
+
+| Piece | As shipped |
+|---|---|
+| Sources | A hub's ghost, else a selected hub, else its palette card (hover on the desktop; the touch info card for a locked card). Build mode only. Recomputed at once when the ghost moves a cell or the source changes, else at most 4 times a second. |
+| Lit | The kinds in `HUB_DEFS.wants`: ◆ for the smelter, ◇ for the refinery, ❄ or ≈ for the water plant. A smelter's ○ glass (`O₂ +60%`) and ☢ KREEP (`reactor make-up at 15%`) show at normal weight. A selected hub's plain pit and any target its units work light too. So does the plain pit a ghost would stake. Every other ring fades to 30% and loses its label. The rings show whatever [I] says. |
+| States | open · pit · far (beyond 90 s) · full (every face held) · exhausted · boxed (from `PitState.state`) · plain · stake. Drawn by weight, pattern, fill and hatch, never by colour alone. |
+| On the ground | `world/depositHighlight.ts`, draped like the overlay's rings and re-draped with them (at most once a second). A lit ring is a 1.2 m ribbon in its kind's pattern with a faint fill, and the full-size ring is dashed outside it. A cut pit adds its rim (solid), its heap's outline, and the ore still in the ground: the full-size disc hatched one way, less the pit. Far is a plain line, full is long dashes, and exhausted or boxed in is cross-hatched. High detail adds an emissive rim line, bright enough for the bloom. Classic uses the palette keys `depositLit`, `depositFull`, `depositSpent` and `pitRim`. |
+| Labels | The overlay's DOM markers, as chips: `≈0:08 · 0/5 faces`, `0:20 · 1/5 faces · pit 14 m`, `FULL 5/5 · 0:20`, `> 1:30`, `EXHAUSTED`, `BOXED IN`, `P3 · q 1.00 · 0/3`, `plain pit here · q 1.00 · 0:09`. The best choice's chip is heavier. While placing, labels let clicks and taps through to the ground. |
+| Time | A deposit a road reaches reads the road: the ghost's spur, the open network to the nearest gate, off-road to the face. A selected hub reads `choicesFor`. Anything else is the estimate (1.3 × the straight line to the rim, then off-road), marked ≈. A card has no position, so it shows no time. |
+| Full-size ring | `fullRadius`: the pit's plan ring (`core/pits.ts` planRadius). That is a deposit's ring × 1.3, where the ore halo ends, or three lunar days of a plain pit. Phase 4's survey may name it (`Reserves.fullR`). |
+| The HUB block | The headline keeps Phases 1–2's words, now from the road-aware best. Under it: `◆ high-Ti basalt #0 · 19 m by road + 11 m off-road · trip 0:09 · faces 0/5 working`, then `a regolith excavator brings ~1.64▲/s of the 2.0▲/s it burns: 2 units keep it fed — it comes with one; its 2 bays hold 2`, then the full-size pit against its 12 m setback, then the next choice (or `high-Ti basalt #0 is full (5/5 faces) — its units would go to …`). |
+| Plain-pit stake | With no wanted deposit in reach (by the estimate, as `Game.hubPlaced` decides), the ghost stakes the plain pit that placing would stake. It runs `proposePlainPit` with the ghost and its spur stood up for the call. The block says `no highland anorthosite in reach: its regolith excavator opens a plain pit here, 34 m from its door (the dashed ring) · q 1.00`, and a dashed ribbon marks the spot. |
+| MRE | `MRE melts any soil: a plain pit serves it as well as a deposit`. |
+| Ring warning | **IN THE PIT'S WAY**, for any structure whose 12 m pit setback reaches into the full-size ring of a deposit some hub digs, or into a plain pit's three-day ring. It names the share of ore left in the ground, weighted by the ore halo (`~25%`). It is added to `checkPlacement`'s warning, so the first click asks and the second builds. A different warning asks again. |
+| NO ICE IN REACH | A water plant on the ice with no mapped cold trap within 90 s: `NO ICE IN REACH — the nearest mapped cold trap is 2:10 away (reach 1:30); map further or build nearer`. It comes through `PlacementController.extraWarn`, so it asks once. |
+| Phase 4's hooks | `reservesOf(s, key)` returns null today. Its `Reserves` (left, total, precision, cutQ, centreQ, facesFull, fullR, lifeDays) fill the block's ore, grade, faces-at-full-size and life words, the labels' `12k▲`, and `$deposits[].lit.ore` / `.grade`. Each renders only when present, and nothing shows `?` yet. |
+| The Lunar Map | The SITE view draws the same states from `$deposits` (`lit`: tier, state, eta, approx, faces, used, pitR, pitX/Z, fullR, best, label, ore?, grade?) and `$hubLight` (the plain pits and the stake). A lit ring is heavy with a faint fill, and the full-size ring is dashed. The pit's rim is solid and its ore band hatched. Full is long dashes and exhausted is cross-hatched; the rest fade. Labels read `high-Ti basalt · 0:12 · 1/5 faces`. Opening the map with a hub selected keeps it. |
+| Touch | The first tap on a hub's card lights its ground (the ghost, or a locked card's info card). So does a tap on a built hub. The block rides the placement bar's scrolling hint. The ◌ Ore rail button is underlined while a hub's ground is lit. The chips keep to 11 px, with no hit area while placing. |
+
+**Deviations from the design.**
+
+- **Faces** are today's fixed count, shown `used/total`, not "now / at full size",
+  until Phase 4's benches. **Ore, grade and survey `?`** wait on Phase 4's
+  `reservesOf`.
+- **Time to an unconnected deposit** is the ≈ estimate. The preview plans no haul
+  road, as Phase 2 lays that road only when a unit first picks the deposit.
+- **No dotted Level II/III bay cells** or bay apron on the ghost. Nothing buys a
+  level yet (Phase 6).
+- **No morale line** for a crewed base's plain pit. Strip-mine morale is Phase 4.
+- **Boxed in** is the Phase 3 carve's `boxed` (a carve that could not widen), not
+  Phase 4's full test. The label says `BOXED IN`, without "Deep Coring".
+- **The ring warning** applies to every structure, not only hubs (§11.3). It
+  weighs ore by the halo profile, a stand-in until Phase 4's grades.
+
+**Tests:** `tests/hubview.spec.ts`. It covers the smelter ghost (◆ only, labels,
+the block, near against far) and the refinery and water plant kinds. It covers
+the plain-pit stake against the one placement stakes, and MRE. It checks that IN
+THE PIT'S WAY asks once. It covers a selected hub's pit, full and boxed-in
+states, and the pole's NO ICE IN REACH. It covers card hover, the Lunar Map, and
+High detail's rim line. It covers the phone: the card tap, the bar's block, a
+tapped hub. `tests/hubs.spec.ts` still passes.
 
 ## 23. The player's answers
 

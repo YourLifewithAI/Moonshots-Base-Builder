@@ -25,8 +25,9 @@ import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
 import { openTechTreeAt } from './techTree';
 import {
-  $alerts, $defeat, $deposits, $lunar, $menuOpen, $mode, $phase, $research, $siteId, $victory, overlayUp,
+  $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $mode, $phase, $research, $siteId, $victory, overlayUp,
   type DepositView, type LunarOutpostView, type LunarProspectView, type LunarView,
+  type HubLightView,
 } from './stores';
 
 // ─────────────────────────── vocabulary ───────────────────────────
@@ -389,9 +390,34 @@ function pmMarkup(p: LunarProspectView, surveying: boolean): string {
 
 const DASH: Record<string, string> = { solid: '', dashed: '6 4', dotted: '1 3', double: '', thin: '', thinDotted: '1 4' };
 
+/** A hub's highlight on the SITE map (docs/17 §6.1): the lit ring twice as
+ *  heavy with a faint fill and its full-size pit ring dashed, the pit's rim
+ *  and the ore still in the ground hatched; out of reach at half weight;
+ *  full in long dashes; exhausted or boxed in cross-hatched. The kinds it
+ *  does not want fade. */
+function litMarkup(d: DepositView, uid: string): string {
+  const L = d.lit!;
+  if (L.tier === 'dim') return '';
+  let out = '';
+  const st = L.state;
+  if (st === 'open' || st === 'pit' || st === 'full') out += `<circle class="dep-fill" cx="${d.x}" cy="${d.z}" r="${d.r}"/>`;
+  if (st === 'exhausted' || st === 'boxed') out += `<circle class="dep-spent" cx="${d.x}" cy="${d.z}" r="${d.r}" fill="url(#xh${uid})"/>`;
+  out += `<circle class="dep-full" cx="${d.x}" cy="${d.z}" r="${L.fullR}"/>`;
+  if (L.pitR !== null && L.pitR >= 1) {
+    const px = L.pitX ?? d.x, pz = L.pitZ ?? d.z;
+    if (L.pitR < L.fullR - 1) {
+      const mid = (L.pitR + L.fullR) / 2;
+      out += `<circle class="ore-band" cx="${px}" cy="${pz}" r="${mid}" stroke-width="${L.fullR - L.pitR}" stroke="url(#hp${uid})"/>`;
+    }
+    out += `<circle class="pit-rim" cx="${px}" cy="${pz}" r="${L.pitR}"/>`;
+  }
+  return out;
+}
+
 /** The 1 km SITE map in world metres: ground, the unmapped hatch, the
- *  network and survey rings, deposits by ring pattern, leads, buildings. */
-function siteBase(v: LunarView, deps: DepositView[], siteId: SiteId, uid: string, mpp: number): string {
+ *  network and survey rings, deposits by ring pattern, leads, buildings;
+ *  with a hub's highlight up, its lit deposits, plain pits and stake. */
+function siteBase(v: LunarView, deps: DepositView[], siteId: SiteId, uid: string, mpp: number, light: HubLightView | null = null): string {
   const s = v.site;
   const half = MAP_M / 2, B = half + 60;
   const masts = s.buildings.filter((b) => b.type === 'relayMast' && b.complete);
@@ -401,6 +427,8 @@ function siteBase(v: LunarView, deps: DepositView[], siteId: SiteId, uid: string
   const mapped = s.revealM >= half * Math.SQRT2;
   let out = `<defs><pattern id="hp${uid}" patternUnits="userSpaceOnUse" width="6" height="6" ` +
     `patternTransform="rotate(45) scale(${mpp})"><path class="hl" d="M0 0V6"/></pattern>` +
+    `<pattern id="xh${uid}" patternUnits="userSpaceOnUse" width="6" height="6" ` +
+    `patternTransform="rotate(45) scale(${mpp})"><path class="hl" d="M0 0V6M0 0H6"/></pattern>` +
     `<mask id="hm${uid}" maskUnits="userSpaceOnUse" x="${-B}" y="${-B}" width="${2 * B}" height="${2 * B}">` +
     `<rect x="${-B}" y="${-B}" width="${2 * B}" height="${2 * B}" fill="#fff"/>` +
     `<circle cx="${s.lander.x}" cy="${s.lander.z}" r="${s.revealM}" fill="#000"/>` +
@@ -423,10 +451,19 @@ function siteBase(v: LunarView, deps: DepositView[], siteId: SiteId, uid: string
     if (d.lead && !d.revealed) out += `<circle class="lead" cx="${d.lead.x}" cy="${d.lead.z}" r="${Math.max(6, 7 * mpp)}"/>`;
     if (!d.revealed) continue;
     const pat = DEPOSIT_INFO[d.kind].pattern;
-    const cls = `dep${pat === 'thin' || pat === 'thinDotted' ? ' thin' : ''}${d.inNetwork ? '' : ' away'}`;
-    const dash = DASH[pat] ? ` stroke-dasharray="${DASH[pat]}"` : '';
+    const L = d.lit;
+    const lit = L ? (L.tier === 'lit' ? ` lit st-${L.state}${L.best ? ' best' : ''}` : ' dimk') : light ? ' faded' : '';
+    if (L) out += litMarkup(d, uid);
+    const cls = `dep${pat === 'thin' || pat === 'thinDotted' ? ' thin' : ''}${d.inNetwork ? '' : ' away'}${lit}`;
+    const dashes = L?.tier === 'lit' && L.state === 'full' ? '10 5' : DASH[pat];
+    const dash = dashes ? ` stroke-dasharray="${dashes}"` : '';
     out += `<circle class="${cls}" cx="${d.x}" cy="${d.z}" r="${d.r}"${dash}/>`;
     if (pat === 'double') out += `<circle class="${cls}" cx="${d.x}" cy="${d.z}" r="${Math.max(1, d.r - 3.5 * mpp)}"/>`;
+  }
+  // its plain pits (a solid rim) and the ghost's stake (dashed), each with its three-lunar-day ring
+  for (const e of light?.extra ?? []) {
+    out += `<circle class="dep-full" cx="${e.x}" cy="${e.z}" r="${e.fullR}"/>`;
+    out += `<circle class="plainpit st-${e.state}" cx="${e.x}" cy="${e.z}" r="${e.pitR && e.pitR >= 1 ? e.pitR : e.r}"/>`;
   }
   // click anywhere in a ring (or on a lead) for what the ground is
   for (const d of deps) {
@@ -456,6 +493,14 @@ function thumbMarkup(v: LunarView, siteId: SiteId): string {
   s += `<circle class="pin-ring" cx="${q(p[0])}" cy="${q(p[1])}" r="0.1"/><circle class="pin" cx="${q(p[0])}" cy="${q(p[1])}" r="0.045"/>`;
   return s;
 }
+
+/** what a deposit's highlight changes on the SITE map */
+const litSig = (d: DepositView) => (d.lit
+  ? `~${d.lit.tier}${d.lit.state}${d.lit.best ? 'b' : ''}${d.lit.label}${Math.round(d.lit.pitR ?? 0)}${Math.round(d.lit.fullR)}` : '');
+const lightSig = () => {
+  const L = $hubLight.get();
+  return L ? `${L.type}${L.source}` + L.extra.map((e) => `${e.id}${e.state}${Math.round(e.x)},${Math.round(e.z)}${e.label}`).join(';') : '';
+};
 
 // ─────────────────────────── the screen ───────────────────────────
 
@@ -568,7 +613,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       return `site|${siteId}|${lv.tier}|${s.revealM}|${s.lander.x},${s.lander.z}|` +
         s.network.map((n) => `${n.x},${n.z},${n.r}`).join(';') + '|' +
         s.buildings.map((b) => `${b.id}${b.complete ? '' : '~'}`).join(',') + '|' +
-        $deposits.get().map((d) => `${d.id}${d.revealed ? 'r' : ''}${d.lead ? 'l' : ''}${d.inNetwork ? 'n' : ''}`).join(',');
+        $deposits.get().map((d) => `${d.id}${d.revealed ? 'r' : ''}${d.lead ? 'l' : ''}${d.inNetwork ? 'n' : ''}${litSig(d)}`).join(',') +
+        `|${lightSig()}`;
     }
     return `${L.fam}|${siteId}|${lv.tier}|${lv.active?.id ?? ''}|` +
       lv.prospects.map((p) => (p.visible ? `${p.id}${p.surveyed ? 's' : ''}${p.outpost ? 'o' : ''}` : '')).join(',');
@@ -587,7 +633,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     };
     if (L.fam === 'site') {
       const deps = $deposits.get();
-      base = siteBase(lv, deps, sid, `s${++uidN}`, (2 * winFor('site').h) / H);
+      base = siteBase(lv, deps, sid, `s${++uidN}`, (2 * winFor('site').h) / H, $hubLight.get());
       const s = lv.site;
       add(mark([s.lander.x, s.lander.z], 'tag', 95, { lx: 0, ly: -12, anchor: 'middle' }),
         '<g class="tag" data-m=""><text class="lbl" y="-12" text-anchor="middle">⌂ LANDER</text></g>');
@@ -611,16 +657,27 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         add(mark([n0.x, n0.z + n0.r], 'tag', 60, { lx: 0, ly: 13, anchor: 'middle' }),
           `<g class="tag" data-m=""><text class="lbl ring-l" y="13" text-anchor="middle">network ${n0.r} m</text></g>`);
       }
+      const light = $hubLight.get();
       for (const d of deps) {
         if (d.revealed) {
-          add(mark([d.x, d.z], 'tag', 40, { lx: 9, ly: 0 }),
-            `<g class="tag dep-t${d.inNetwork ? '' : ' away'}" data-m="" data-dep="${d.id}"><title>${esc(d.label)}${d.inNetwork ? ' — in the build network' : ''}</title>` +
-            `<text class="tg">${esc(d.glyph)}${TX}</text><text class="lbl" x="9" y="3.5">${esc(d.label)}</text></g>`);
+          // a hub's highlight (docs/17 §6.1): its lit kinds say trip, faces, pit; the rest fade
+          const L = d.lit;
+          const lcls = L ? ` lit ${L.tier === 'lit' ? `st-${L.state}${L.best ? ' best' : ''}` : 'dimk'}` : light ? ' faded' : '';
+          const words = L?.label ? `${d.label} · ${L.label}` : d.label;
+          add(mark([d.x, d.z], 'tag', L ? (L.best ? 85 : 60) : 40, { lx: 9, ly: 0 }),
+            `<g class="tag dep-t${d.inNetwork ? '' : ' away'}${lcls}" data-m="" data-dep="${d.id}"><title>${esc(words)}${d.inNetwork ? ' — in the build network' : ''}</title>` +
+            `<text class="tg">${esc(d.glyph)}${TX}</text><text class="lbl" x="9" y="3.5">${esc(words)}</text></g>`);
         } else if (d.lead) {
+          if (light) continue;
           add(mark([d.lead.x, d.lead.z], 'tag', 20, { lx: 9, ly: 0 }),
             `<g class="tag leadq" data-m="" data-dep="${d.id}"><title>${esc(d.label)} — beyond the survey</title>` +
             `<text class="tg">?</text><text class="lbl dim" x="9" y="3.5">${esc(d.label.replace(/^\? /, ''))}</text></g>`);
         }
+      }
+      for (const e of light?.extra ?? []) {
+        add(mark([e.x, e.z], 'tag', 70, { lx: 9, ly: 0 }),
+          `<g class="tag dep-t lit st-${e.state}" data-m=""><title>${esc(e.label)}</title>` +
+          `<text class="tg">▭${TX}</text><text class="lbl" x="9" y="3.5">${esc(e.label)}</text></g>`);
       }
     } else {
       const P = L.proj;
@@ -1280,10 +1337,10 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     if (showInset) {
       const s = lv.site;
       const isig = `${siteId}|${s.revealM}|${s.buildings.map((b) => b.id + (b.complete ? '' : '~')).join(',')}|` +
-        $deposits.get().map((d) => `${d.id}${d.revealed ? 'r' : ''}${d.lead ? 'l' : ''}`).join(',') + `|${s.network.length}`;
+        $deposits.get().map((d) => `${d.id}${d.revealed ? 'r' : ''}${d.lead ? 'l' : ''}${litSig(d)}`).join(',') + `|${s.network.length}|${lightSig()}`;
       if (isig !== insetSig) {
         insetSig = isig;
-        insetSvg.innerHTML = siteBase(lv, $deposits.get(), siteId!, 'in', (MAP_M * 1.04) / 148);
+        insetSvg.innerHTML = siteBase(lv, $deposits.get(), siteId!, 'in', (MAP_M * 1.04) / 148, $hubLight.get());
       }
     }
     const fam = shownView ? FAM[shownView] : 'site';
@@ -1425,6 +1482,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
 
   $lunar.subscribe(schedule);
   $deposits.subscribe(schedule);
+  $hubLight.subscribe(schedule);
   $research.subscribe(schedule);
   $alerts.subscribe(() => { if (isOpen) renderAlert(); });
   $siteId.subscribe(() => { reset(); schedule(); });
