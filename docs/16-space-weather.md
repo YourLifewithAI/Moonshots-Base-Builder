@@ -510,9 +510,9 @@ Flare Protocols as well.
 
 | Flare, stowed by day | Solar lost (today's 210 kW median) | Share of the median bank: mare · pole |
 |---|---|---|
-| C (40 s) | ~8,400 kW·s | 23% · 90% |
-| M (55 s) | ~11,500 | 32% · 125% |
-| X through the tail (190 s) | ~40,000 | 110% · 430% |
+| C (40 s) | ~8,400 kW·s | 26% · 105% |
+| M (55 s) | ~11,500 | 35% · 145% |
+| X through the tail (190 s) | ~40,000 | 120% · 500% |
 
 (Bank shares scale today's measured 29% and 118% for 45 s, §2.)
 
@@ -611,9 +611,209 @@ T3  CYCLE        ▁▂▃▅▆▇█▇ now ▲ · maximum in 1.8 lunar days �
     NEXT 3       M 1:05 · C–M 22:10–31:40 · M–X 38:00–52:20
 ```
 
-## 7. Protection (draft)
+## 7. Protection
 
-## 8. Benefits from exploration (draft)
+### 7.1 Permanent
+
+| Protection | From | What it does in a flare | Con |
+|---|---|---|---|
+| **Regolith Shielding** (changed) | E2 ⌂ | σ 0.5 on every bermed structure (§4.1). A machine in a bermed dock is sheltered (σ 1): docs/17's "shielded hub". | unchanged: wear heals ×0.5 |
+| **Water-Wall Shielding** (new) | E4 ⌂ | σ 0.85 on Habitats, pressurized halls, Labs, Data Centers, Monoliths, Chip Fabs and hubs: a water jacket fed by the Water Management Plant. Bag-wall kits become water-wall domes. | +10% upkeep: Habitat Module, Research Lab |
+| **Storm shelters** (the ⌂ guard, changed) | Settler Charter, E6 ⌂ pick | today's: EVA recalls itself on the warning, doses ×0.5. New: the crew indoors σ 1, and flare morale ×0.5. | the pick's own |
+| **Rad-Hard Process** (the doctrine, changed) | E4 ▣ | today's bit flips ×0.5. New: latch-ups and burn-outs ×0.5; chip yield loss, compute errors and rad scars ×0.5. | unchanged: Data Center −15% |
+| **Fault-Tolerant Avionics** (new) | E4 ◉ | Machines: reboot odds and times ×0.5. An X's latch-ups and burn-outs become 60 s reboots. Bit flips ×0.5. | +10% draw: Robotics Bay, Drone Hive |
+| **Rad-Hard Cells** (new) | E5 ⚡ | Cell loss ×0.4: an M costs 0.4%, an X 1.2%. | −5% output: Solar Array |
+| **The Shield Coil** (new building) | Mini-Magnetosphere, E6 ◎ breakthrough (§8.4) | σ 1 within 45 m while powered: arrays generate with no loss. | 40 kW through every flare |
+| **Laser Ranging** (changed) | E7 ◎ | The comms blackout ×0.5. | unchanged: −1.5 kW Lander |
+| **Maintenance Automation** (changed) | E7 ▣ | Also replaces arrays under 85% cells and compute scarred −8% or worse. | unchanged |
+
+### 7.2 Temporary: deployable domes
+
+The player's idea. A rover carries a kit to a target, puts it up before the protons, and
+packs it away after.
+
+| | **Bag wall** | **Water-wall dome** |
+|---|---|---|
+| From | Deployable Shelters (E2 ⌂) | Water-Wall Shielding (E4 ⌂): new kits, and bag-wall kits are refitted as they come home |
+| The kit | 6⚙, printed at a Parts Fabricator in 40 s | 12⚙ 4◇, 60 s |
+| Uses | 4 | 6 |
+| Covers | one structure up to 3×3, or up to 3 machines parked in it | a 14 m circle: every structure whose centre is inside, up to 6 machines, EVA crews |
+| σ | 0.6 | 0.9 |
+| Putting it up | the rover fills and stacks bags from the ground at hand: 40 s | the rover inflates it (15 s) and fills the wall with 20≈ (20 s): 35 s |
+| Packing | 20 s: the bags emptied and folded | 20 s: drained (18≈ back), deflated, folded |
+| Left up | one use a lunar day | one use a lunar day |
+| A use costs | 1.5⚙ and ~80 rover-seconds | 2⚙ 0.7◇ 2≈ and ~75 rover-seconds |
+
+- **Kits** live in the Lander's kit locker: 6, and 2 more a Storage Yard. The HUD reads
+  `KITS 3 · 11 uses`. A kit with no uses left is scrapped.
+- **Who carries it:** the nearest free construction rover. It really drives there
+  (docs/15 §6a). A Drone Hive's drone flies a kit straight, and fills bags at ×1.5 time.
+- **Up in time or not:** a dome counts once it is up. One still filling when the protons
+  arrive gives σ × its fill share. **The rover that put it up shelters under it**, so the
+  work is safe.
+- **Why forecasts matter.** A 60 s telegraph leaves a rover at its dock about 20 s of
+  driving before a bag wall must start: 90 m. T1's window lets you put domes up at its
+  opening, at one use a lunar day. T2 lets you time it to the minute.
+
+**What a dome can go on:**
+
+| Target | Kind | Gives |
+|---|---|---|
+| A structure (not an array, mast, launcher or road) | either | its σ to the structure and the crew inside |
+| **A pit's floor** (docs/17 §8) | a water-wall dome; a bag wall at the ramp's foot | **a shelter in the pit**: its units park inside on the recall instead of driving home |
+| A zone's gate, or open ground off the road | either | a shelter point: machines within 90 s drive in on the recall |
+| Where EVA crews work | a water-wall dome within 60 m | their walk-in takes 10 s, not 20 |
+| **Not arrays** | — | a dome would shade them: stow instead |
+| Not roads or pads | — | it would block traffic and launches |
+
+### 7.3 Targeting
+
+**The SHELTER block** in the Space Weather panel ranks targets by what the flare would
+cost them (§4) and gives each its buttons:
+
+```
+SHELTER   KITS 3 · 11 uses (2 bag walls, 1 water dome)                  [Deploy top 3]
+ Habitat #7     4 aboard · σ 0.5 · an X: 1 sick ½ day, morale −6      [Bag wall] [Dome]
+ Pit P2 (◆ #0)  2 units, 1:10 from home · an X: ~1 lost, 1 bricked     [Dome]
+ Data Center #12 σ 0 · an X: rad scar −4%                              [Bag wall] [Dome]
+```
+
+- **The Dome tool:** [Dome] or [Bag wall] with no target picks a spot. The ghost is a
+  circle, dashed until valid, and says what it covers and when it will be up:
+  `WATER-WALL DOME · covers Habitat #7, Lab #9 · rover #4 is 0:18 away · up by 0:53 ·
+  the protons in 1:10`. It warns in capitals when it will not be up in time.
+- **The inspector** of every coverable structure and pit has
+  `FLARE SHIELD σ 0.5 (berms) · [Bag wall] [Dome]`.
+- **A dome is selectable:** its kind, uses left, what it covers, and [Pack now].
+- **Touch:** the same rows in the side sheet. The Dome tool uses the bottom bar
+  (✓ Place, ✕), as placing does (docs/07 §13.3).
+
+### 7.4 Protocols
+
+Before research, each protocol is a button on the telegraph alert, pressed flare by
+flare. **Flare Protocols** (E2 ▣) sets them by class, once:
+
+```
+PROTOCOLS              C          M            X             the tail
+Arrays                 generate   stow         stow          generate
+Machines               work       recall       recall        stay docked
+Research               run        checkpoint   checkpoint    (held)
+Chip Fabs · compute    run        run          shut down     (held)
+Domes                  —          —            deploy        (held)
+```
+
+(the defaults shown; each cell is a toggle)
+
+- **Recall** (Machines): every machine whose trip home fits in the time left goes home;
+  the rest go to the nearest dome or shelter point in reach, else keep working. The alert
+  names who cannot make it: `FLARE IN 1:00 — Smelter #3 recalls 1 of 2 excavators; E2 is
+  1:10 out, at the bottom of a 12 m pit` (docs/17 §16.4). Recalled rovers pause their
+  construction, as Dock fleet does today (`src/core/hazards.ts:1930-1935`). It is the free
+  counter that saves the machines.
+- **From landing**, docs/17's hubs recall their units on M and X by themselves: that is
+  the Machines row's default before the tech. C flares keep units digging.
+- **Checkpoint** and **Shut down** are §4.6 and §4.7.
+- With T1 or better, the Domes row can run at the forecast window's opening instead of
+  the telegraph: `deploy early`.
+
+### 7.5 The Builder
+
+| Rule or behaviour | Family · unlocked by | Does | Default |
+|---|---|---|---|
+| `flareStance` | power · Automated Power (E4 ⚡) with Flare Protocols | §5.4: stow or generate each field by break-even | on |
+| `domeKits` | fabrication · Automated Fabrication (E6 ◉) | `KEEP ≥ T dome uses` (T 8, 0–40): a Parts Fabricator prints a kit when uses fall below | on once Deployable Shelters is done |
+| Shelter planning | Predictive Scheduling (E6 ▣), with T1 or better | at a forecast window's opening: domes to the top targets, the bank topped up, fab shutdowns lined up; with T3, the next three flares | on with the tech |
+
+- **Guards:** it never takes more than half the free rovers; it never spends a kit's last
+  use below the top three targets; Budget Governor's floors hold for kit prints.
+- **The log:** `DOMES — water dome over Habitat #7, bag wall over Data Center #12, for the
+  M due 0:40–1:30 (rover #4, #6)`.
+
+## 8. Benefits from exploration
+
+### 8.1 Four breakthroughs, four hosts each way
+
+Breakthroughs work as docs/11 S5 says: surveying any host adds the tech to
+`s.discoveries`, it waits for its era, and it has a fixed Exploration-lane slot. Which
+survey finds which is fixed by the host table, so it is deterministic.
+
+| Breakthrough | Era · slot | Hosts, and the real basis | Found by T1 (regional) at |
+|---|---|---|---|
+| **Solar-Wind Implantation** | E3 ◎ · slot 2 | **Central Tranquillitatis soil**: the highest solar-wind H and ³He in the maria. **Haworth PSR**: solar-wind hydrogen that migrated into the cold. | mare (7°), pole (3°) · the lava tube at T2 |
+| **Particle Telescope** | E5 ◎ · slot 1 | **Ina**: a surface too young to hold solar-flare tracks, a clean baseline. **Malapert Massif**: a 5 km peak over the ridge, open to the sky. **Copernicus**: ray rocks whose cosmic-ray exposure dated the crater. | mare (Ina 25°), pole (Malapert 4°) · the lava tube at T2 (Copernicus 36°) |
+| **Mini-Magnetosphere** | E6 ◎ · slot 1 | **Reiner Gamma**: a crustal field that turns the solar wind aside and keeps its swirl bright. **Descartes**: Apollo 16 measured the Moon's strongest surface field there, 313 nT. | lava tube (7°), mare (12°) · the pole at T2 |
+| **Storm Sails** | E7 ◎ · slot 1 | **Tranquility Base** and **Hadley Rille**: the Solar Wind Composition foils of Apollo 11 and 15. **Von Kármán**: Chang'e 4's neutral-atom detector. | mare (0°) · the lava tube and pole at T2 |
+
+- Every site finds two of the four by T1 and all four by T2 (Orbital Prospector, E4).
+- Ina, Malapert, Copernicus and Reiner Gamma lose `ANOMALY_BONUS_DATA`
+  (`src/data/lunarMap.ts:161`) now that they host a breakthrough, as hosting anomalies do.
+- The slots: E3 ◎ gains slot 2, E5, E6 and E7 ◎ gain slot 1 (§13.4).
+
+### 8.2 Solar-Wind Implantation (E3)
+
+- **Storm-charged cut.** For one lunar day after an M or X, and 1.5 lunar days after a
+  CME arrives, every load cut from a pit's **top two benches** (docs/17 §8.2) carries more
+  water: **×1.5 after an M, ×2.5 after an X or a CME**. The Water Management Plant's
+  mature-soil recipe and the smelter's water trickle both read it.
+- The pit's card: `STORM-CHARGED — the top benches carry ×2.5≈ for 0:42`.
+- **He-3 is flavour:** `³He in your cut this run: 0.8 g`. There is no stockpile and no
+  use, since the game has no fusion.
+- **Honest about the physics:** the solar wind and CME plasma implant H and He in the top
+  micrometres; a flare's protons add little. The bonus is sized as a treat, not a supply.
+- The pole's ice is old water, so the bonus reaches the pole only through its smelters.
+- **Con:** +10% draw: Water Management Plant (the retort runs the charged cut hotter).
+
+### 8.3 Particle Telescope (E5)
+
+- The Solar Observatory gains a particle-telescope annex: **flare data ×3** on top of its
+  ×2. With an observatory, a flare pays C 90≡, M 180≡, X 360≡.
+- Its T1 window narrows: f 0.6 → 0.4.
+- **Why data, not power:** the protons of a storm carry milliwatts a square metre.
+  There is nothing to harvest. Their value is science.
+- **Con:** −3 kW: Solar Observatory.
+
+### 8.4 Mini-Magnetosphere (E6): the Shield Coil
+
+| id | Footprint | Cost | Build | Power | Upkeep | Priority | Radius | Does |
+|---|---|---|---|---|---|---|---|---|
+| `shieldCoil` | 3×3, a field structure | 80◆ 20▣ 30⚙ | 180 s | −1 kW idle · **−40 kW from the telegraph's last 20 s to the flare's end** | 3⚙ a lunar day | 0 | 45 m | σ 1 within its radius: arrays generate with no cell loss; crew, labs, compute and machines are sheltered |
+
+- **In a brownout the field drops**, and everything inside goes back to its own σ.
+  Overlapping coils add nothing.
+- The ghost and the selection draw its 45 m ring.
+- **The real idea:** a superconducting coil makes a small dipole field that turns protons
+  aside. Reiner Gamma is such a bubble, made by the crust.
+- **Pro:** `A field bubble: everything within 45 m rides out a flare.`
+  **Con:** `40 kW through every flare, from the bank if the sun is down.`
+- It is the pole's answer: arrays inside a coil generate through every flare.
+
+### 8.5 Storm Sails (E7)
+
+- **CMEs:** every X, and one M in three (`mulberry32((seed ^ 0x5f1f) + n)() < 1/3`), send
+  one. It arrives 0.4 lunar day (288 s) after the flash. **The sail window** is the 180 s
+  after it arrives.
+- **A volley launched in the window** adds ×1.5 swarm. With the Propellant Depot
+  architecture its ↑ cost is ×2/3: the sail does part of the climb, so the water plants'
+  propellant line (docs/17 §3.3) goes further.
+- **The real idea:** an electric sail's charged tethers ride the solar wind's protons, and
+  a CME's wind is several times denser and faster. The foils carry the tethers.
+- **The CME's own harm:** a 30 s comms scintillation, a C-grade blackout. Nothing else.
+- With T2 the window is exact. With T3 the Builder holds foils and ↑ for it:
+  `SAIL WINDOW in 4:48 for 3:00 · holding 2 volleys (20▰ 6↑)`.
+- **Con:** −5% output: Foil Factory (tethered foils weigh more).
+
+### 8.6 Pros that stay, and new insights
+
+- **Heliophysics data** (today's +25≡ pro) is scaled by class (§4.2).
+- **The Regolith Shielding insight** (a flare goes active with ≥ 6 structures running)
+  is unchanged.
+- **New insights** (docs/11 S4):
+
+| Tech | Discount | The deed |
+|---|---|---|
+| Heliophysics Forecasting | −40% | a lab operates through an M-class flare |
+| Fault-Tolerant Avionics | −30% | a machine reboots in a flare |
+| Rad-Hard Cells | −30% | a field generates through three flares |
 
 ## 9. Destiny interplay (draft)
 
