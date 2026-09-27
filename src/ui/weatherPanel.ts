@@ -11,11 +11,15 @@ import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
 import type { ChoicePreview, WeatherView } from '../core/spaceWeather';
 import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
-import { SPACE_WEATHER } from '../data/spaceWeather';
+import { FLARE_EFFECTS, SPACE_WEATHER } from '../data/spaceWeather';
+
+const SPACE_WEATHER_ALERT = FLARE_EFFECTS.alertAt;
 import { fmtClock } from '../core/daynight';
 import { el } from './hud';
 import { $hazards, $resourcePanel, $weather, $placing, $mode } from './stores';
 import { counterButton, counterClick } from './hazardsPanel';
+import { capabilityView } from '../core/flareEffects';
+import { SITES } from '../data/sites';
 import { forecastClick, mountForecastSections, refreshForecast } from './forecastPanel';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -43,12 +47,14 @@ const choiceOf = (k: string): ArrayChoice => (k.startsWith('p') ? { mode: 'porti
 const shortChoice = (c: ArrayChoice) => (c.mode === 'run' ? 'keep all running' : c.mode === 'stow' ? 'stow all'
   : c.mode === 'feed' ? 'stow all but the feed' : `stow ${Math.round((c.p ?? 0) * 100)}%`);
 
-/** the counters of the hazards riding this flare (DOSE's Recall EVA, bit flips' Dock fleet) */
+/** the flare's own counters (Recall machines, Checkpoint research, Shut down exposed: docs/16 §4.5–4.7),
+ *  then those of the hazards riding it (DOSE's Recall EVA; bit flips' Dock fleet, which Recall machines covers) */
 function alsoCounters(): string {
+  const own = $weather.get()?.fx.also ?? [];
   const v = $hazards.get();
-  if (!v) return '';
-  return v.active.filter((a) => (a.kind === 'dose' || a.kind === 'firmware') && a.phase === 'telegraph')
-    .flatMap((a) => a.counters).map(counterButton).join('');
+  const hz = v ? v.active.filter((a) => (a.kind === 'dose' || a.kind === 'firmware') && a.phase === 'telegraph')
+    .flatMap((a) => a.counters).filter((c) => !(c.counter === 'dockFleet' && own.some((o) => o.counter === 'flareRecall'))) : [];
+  return [...own, ...hz].map(counterButton).join('');
 }
 
 export function mountWeatherPanel(root: HTMLElement, game: Game) {
@@ -268,12 +274,16 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
   const panelBody = (v: WeatherView) => `
     <section><div class="tt-name"><span>☉ SPACE WEATHER</span><span class="label">[O]</span></div>
       <div class="label mono wx-band"></div></section>
-    <section><span class="label">Now</span><div class="mono wx-now"></div></section>
-    <section><span class="label">Exposure</span><div class="mono wx-exp"></div></section>
+    <section><span class="label">Now</span><div class="mono wx-now"></div><div class="wx-btns wx-now-btns"></div></section>
+    <section><span class="label">Exposure</span><div class="mono wx-exp"></div>
+      <div class="mono wx-exp-l" data-l="crew"></div><div class="mono wx-exp-l" data-l="machines"></div>
+      <div class="mono wx-exp-l" data-l="research"></div><div class="mono wx-exp-l" data-l="buildings"></div>
+      <div class="mono wx-exp-l" data-l="comms"></div></section>
     <section class="wx-after"><span class="label">After the last flare</span>
       <div class="wx-line mono wx-wrecks"></div><div class="wx-btns">
         <button class="btn" data-wx="rebuild-all">Rebuild all</button><button class="btn" data-wx="clear-all">Clear all</button></div>
-      <div class="wx-line mono wx-repairs"></div><div class="wx-btns"><button class="btn" data-wx="repair-all">Repair all</button></div></section>
+      <div class="wx-line mono wx-repairs"></div><div class="wx-btns"><button class="btn" data-wx="repair-all">Repair all</button></div>
+      <div class="wx-line mono wx-scarred"></div><div class="wx-btns"><button class="btn" data-wx="replace-worst">Replace worst</button></div></section>
     <section><span class="label">Protocols — the arrays' choice by class</span>
       ${(['C', 'M', 'X'] as FlareClass[]).map((c) => `<div class="wx-proto" data-cls="${c}"><span class="mono">${CLASS_GLYPH[c]} ${c}</span>
         ${choices.map(([k, t]) => `<button class="btn wx-pc" data-cls="${c}" data-k="${k}">${t}</button>`).join('')}</div>`).join('')}
@@ -286,9 +296,19 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     const now = v.phase === 'idle'
       ? `quiet${v.watch ? ' · BIG SPOT GROUP: an X-class flare is possible within ½ day' : ''}${v.last ? ` · the last: ${v.last.cls}, day ${Math.floor(v.last.at / 720) + 1} (stowed ${v.last.stowed}, ${v.last.destroyed} destroyed)` : ''}`
       : `${v.classText} flare · ${v.phase === 'telegraph' ? `protons in ${fmtClock(v.timer)}` : v.phase === 'tail' ? `proton-storm tail ${fmtClock(v.timer)}` : `active ${fmtClock(v.timer)}`}${v.drill ? ' · a drill' : ''}`;
-    setText(panel, '.wx-now', now);
+    setText(panel, '.wx-now', now + (v.fx.dark > 0 ? ` · ⌁ comms dark ${fmtClock(v.fx.dark)}` : '') +
+      (v.phase !== 'idle' && (v.fx.recalled || v.fx.checkpoint || v.fx.shut) ? ` · ${[v.fx.recalled ? 'machines recalled' : '', v.fx.checkpoint ? 'research checkpointed' : '',
+        v.fx.shut ? `${v.fx.shut} shut down` : ''].filter(Boolean).join(', ')}` : ''));
+    setHtml(panel, '.wx-now-btns', v.phase !== 'idle' ? alsoCounters() : '');
     setText(panel, '.wx-exp', `Arrays ${v.arrays.n} in ${v.arrays.fields} field${v.arrays.fields === 1 ? '' : 's'} · ${Math.round(v.arrays.kw)} kW` +
       (Object.keys(v.remember).length ? ` · ${Object.entries(v.remember).map(([c, t]) => `${c}: ${t}`).join(' · ')}` : ' · every class: ask'));
+    const EXP: Record<string, string> = { crew: 'Crew', machines: 'Machines', research: 'Research', buildings: 'Buildings', comms: 'Comms' };
+    for (const [k, lbl] of Object.entries(EXP)) setText(panel, `.wx-exp-l[data-l="${k}"]`, `${lbl} ${v.fx.exposure[k as keyof typeof v.fx.exposure]}`);
+    const sc = v.fx.scarred;
+    setText(panel, '.wx-scarred', sc.under ? `SCARRED ${sc.under} under 85% · ${sc.worst}${sc.any > sc.under ? ` · ${sc.any - sc.under} more scarred` : ''}`
+      : sc.any ? `SCARRED ${sc.any}, none under 85%` : 'SCARRED none');
+    const rw = panel.querySelector<HTMLButtonElement>('[data-wx="replace-worst"]');
+    if (rw) rw.disabled = !sc.any;
     const open = v.wrecks.filter((w) => !w.job);
     setText(panel, '.wx-wrecks', open.length ? `WRECKS ${open.length} (${[...new Set(open.map((w) => `F${w.field}`))].join(', ')})` +
       `${v.wrecks.length > open.length ? ` · ${v.wrecks.length - open.length} being rebuilt or cleared` : ''}` : v.wrecks.length ? `WRECKS ${v.wrecks.length} being rebuilt or cleared` : 'WRECKS none');
@@ -304,7 +324,10 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     if (ar) ar.checked = game.state.weather?.autoRepair ?? true;
     const log = v.log.length ? v.log.map((l) => `<div>${CLASS_GLYPH[l.cls]} ${l.cls}${l.drill ? ' drill' : ''} · day ${Math.floor(l.at / 720) + 1} · ${esc(l.choice)}` +
       ` (${l.decidedBy}) · stowed ${l.stowed}, ran ${l.running}${l.destroyed ? ` · ${l.destroyed} destroyed` : ''}` +
-      `${l.damaged ? ` · ${l.damaged} damaged (${l.repairParts}⚙)` : ''}${l.scarred ? ` · ${l.scarred} scarred −${(l.scar * 100).toFixed(1)}%` : ''}${l.night ? ' · night' : ''}</div>`).join('')
+      `${l.damaged ? ` · ${l.damaged} damaged (${l.repairParts}⚙)` : ''}${l.scarred ? ` · ${l.scarred} scarred −${(l.scar * 100).toFixed(1)}%` : ''}${l.night ? ' · night' : ''}` +
+      `${l.rebooted || l.latched || l.lost ? ` · machines ${[l.rebooted ? `${l.rebooted} rebooted` : '', l.latched ? `${l.latched} latched` : '', l.lost ? `${l.lost} lost` : ''].filter(Boolean).join(', ')}` : ''}` +
+      `${l.researchLost ? ` · −${l.researchLost}≡ ${esc(l.researchTech ?? '')}` : ''}${l.sick ? ` · ${l.sick} sick` : ''}` +
+      `${l.scarredB ? ` · ${l.scarredB} structures scarred −${((l.scarB ?? 0) * 100).toFixed(2)}%` : ''}${l.scarredM ? ` · ${l.scarredM} machines −${((l.scarM ?? 0) * 100).toFixed(2)}%` : ''}</div>`).join('')
       : '<div class="goal-hint">No flare yet. The first comes on day 3, a C-class drill.</div>';
     setHtml(panel, '.wx-log', log);
   };
@@ -317,8 +340,10 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
       if (a === 'rebuild-all') game.actions.push({ kind: 'wreck', how: 'rebuild' });
       if (a === 'clear-all') game.actions.push({ kind: 'wreck', how: 'clear' });
       if (a === 'repair-all') game.actions.push({ kind: 'repairArrays' });
+      if (a === 'replace-worst') game.actions.push({ kind: 'counter', counter: 'flareReplaceWorst' });
       return;
     }
+    if (counterClick(game, t)) return;
     const pc = t.closest<HTMLElement>('.wx-pc');
     if (pc) {
       const k = pc.dataset.k!;
@@ -353,10 +378,26 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
 
 // ─────────────────────────── the inspector (§10.7) ───────────────────────────
 
+const capOfSel = (game: Game, sel: BuildingState) => capabilityView(game.state, game.mods, SITES[game.state.siteId], sel);
+
+/** A structure's capability line (§4.13): FLARE SHIELD σ, CAPABILITY, its rad scars, Replace and its payback. */
+function capHtml(game: Game, sel: BuildingState): { html: string; sig: string } {
+  const c = capOfSel(game, sel);
+  if (!c) return { html: '', sig: '' };
+  const offer = (c.cap < 0.9995 || c.burned) && !c.replacing;
+  const verb = c.burned ? 'Re-print' : 'Replace';
+  return {
+    sig: `c${offer}|${c.burned}|${c.replacing}`,
+    html: `<section class="wx-insp"><span class="label mono" id="wx-cap-line"></span>
+      ${offer ? `<div class="prio"><button class="btn" data-wxi="replace" title="New: capability 100%, wear 0 — ${fmtClock(c.secs)} offline while a rover welds; its pad, roads, door and settings stay">${verb} ${esc(c.cost)}</button></div>` : ''}</section>`,
+  };
+}
+
 /** A Solar Array's lines: its field, capability, stowed damage and [Repair], the
- *  override; a wreck's Rebuild and Clear. `sig` changes when the shape does. */
+ *  override; a wreck's Rebuild and Clear. Any structure with an output: its
+ *  capability and Replace. `sig` changes when the shape does. */
 export function weatherInspector(game: Game, sel: BuildingState): { html: string; sig: string } {
-  if (sel.type !== 'solar') return { html: '', sig: '' };
+  if (sel.type !== 'solar') return capHtml(game, sel);
   const a = game.arrayView(sel.id);
   if (!a) return { html: '', sig: '' };
   if (a.wreck) {
@@ -368,18 +409,30 @@ export function weatherInspector(game: Game, sel: BuildingState): { html: string
     };
   }
   const ov = a.override;
+  const c = capOfSel(game, sel);
+  const replace = !!c && c.cap < 0.9995 && !c.replacing;
   return {
-    sig: `a${a.field}|${ov}|${a.fieldDamaged > 0}|${a.queued}`,
+    sig: `a${a.field}|${ov}|${a.fieldDamaged > 0}|${a.queued}|${replace}`,
     html: `<section class="wx-insp"><span class="label mono" id="wx-insp-line"></span>
       ${a.fieldDamaged > 0 && !a.queued ? `<div class="prio"><button class="btn" data-wxi="repair">Repair ${a.repairParts}⚙</button></div>` : ''}
+      ${replace ? `<div class="prio"><button class="btn" data-wxi="replace" title="Its rad scars never heal: a new array, capability 100%">Replace ${esc(c!.cost)}</button></div>` : ''}
       <div class="prio wx-ov"><span class="label">Flare</span>${(['follow', 'stow', 'run'] as const).map((m) =>
         `<button class="btn${ov === m ? ' active' : ''}" data-wxi="ov-${m}">${m === 'follow' ? 'Follow the choice' : m === 'stow' ? 'Always stow' : 'Always run'}</button>`).join('')}</div></section>`,
   };
 }
 
-/** The live text of the array's line. */
+/** The live text of the array's line, or a structure's capability line. */
 export function refreshWeatherInspector(game: Game, root: ParentNode, sel: BuildingState) {
-  if (sel.type !== 'solar') return;
+  if (sel.type !== 'solar') {
+    const c = capOfSel(game, sel);
+    if (!c) return;
+    const pay = Number.isFinite(c.payback) ? ` · pays back in ${fmtClock(c.payback)}` : '';
+    setText(root, '#wx-cap-line', `FLARE SHIELD σ ${c.sigma.toFixed(c.sigma % 1 ? 2 : 0)}${c.sigma >= 1 ? ' (the tube)' : ''} · ` +
+      (c.burned ? 'BURNED OUT — its digger is lost' : `CAPABILITY ${Math.round(c.cap * 100)}%${c.cap < SPACE_WEATHER_ALERT ? ' ▼' : ''}` +
+        `${c.scars ? ` · rad scars from ${c.scars} flare${c.scars === 1 ? '' : 's'}` : ' · no rad scars'}`) +
+      `${c.replacing ? ' · being replaced' : c.cap < 0.9995 && !c.burned ? `${pay} (${fmtClock(c.secs)} offline)` : ''}${c.last ? ` · last flare: ${c.last}` : ''}`);
+    return;
+  }
   const a = game.arrayView(sel.id);
   if (!a || a.wreck) return;
   setText(root, '#wx-insp-line', `FIELD F${a.field} · ${a.arrays} array${a.arrays === 1 ? '' : 's'} · ${Math.round(a.kw)} kW · CAPABILITY ${Math.round(a.cap * 100)}%` +
@@ -392,6 +445,7 @@ export function weatherInspectorClick(game: Game, btn: HTMLElement, sel: Buildin
   if (!k) return false;
   if (k === 'rebuild' || k === 'clear') game.actions.push({ kind: 'wreck', how: k, id: sel.id });
   else if (k === 'repair') game.actions.push({ kind: 'repairArrays', id: sel.id });
+  else if (k === 'replace') game.actions.push({ kind: 'counter', counter: 'flareReplace', id: sel.id });
   else if (k.startsWith('ov-')) game.actions.push({ kind: 'fieldOverride', id: sel.id, mode: k.slice(3) as 'follow' | 'stow' | 'run' });
   return true;
 }

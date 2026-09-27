@@ -380,14 +380,14 @@ both numbers printed on it — pillar 1 applied to governance.
 | # | System | Status | Design |
 |---|---|---|---|
 | 1 | **Lunar-night power crunch** | SHIPPED | The signature. Solar dies for 240 s (14 in-fiction days); stockpile stored energy (Timberborn drought model), spend on priorities: habitats → food → industry → labs (`priority` 0–3 brownout order). Shedding only priority 2–3 loads is a LOAD SHED (morale −3); a dark priority 0–1 load is a BROWNOUT (morale −15), and it sheds priority 2–3 whole. The fleet rides a short one on its packs and stops in a long one (On-board power). |
-| 2 | **Space weather: classed flares** ([16](16-space-weather.md)) | SHIPPED (F1, F2a, F3) | C, M and X on a seeded solar cycle: quiet at landing, a maximum at day 10–12. The first is a C drill at day 2.4; M from Era 2, X from Era 4, the first X a drill in its permanent parts. Telegraphed 60 · 60 · 120 s; active 30 · 45 · 60 s; an X adds a 120 s proton-storm tail. One choice per flare in its pop-up: keep all running, stow all, or a share. Running arrays are destroyed (M 15%, X 50%) or scarred; stowed ones take repairable damage (M −5%, X −20%) that a rover repairs. Forecasting (F3) shows the next flare's window and class range from a Solar Observatory, its class for sure from the L1 Sentinel, and the cycle and the next three with Solar-Cycle Forecasting; each tier warns longer. Below. |
+| 2 | **Space weather: classed flares** ([16](16-space-weather.md)) | SHIPPED (F1, F2a, F2b, F3) | C, M and X on a seeded solar cycle: quiet at landing, a maximum at day 10–12. The first is a C drill at day 2.4; M from Era 2, X from Era 4, the first X a drill in its permanent parts. Telegraphed 60 · 60 · 120 s; active 30 · 45 · 60 s; an X adds a 120 s proton-storm tail. One choice per flare in its pop-up: keep all running, stow all, or a share. Running arrays are destroyed (M 15%, X 50%) or scarred; stowed ones take repairable damage (M −5%, X −20%) that a rover repairs. Forecasting (F3) shows the next flare's window and class range from a Solar Observatory, its class for sure from the L1 Sentinel, and the cycle and the next three with Solar-Cycle Forecasting; each tier warns longer. Everything left unprepared pays by class (F2b): rad scars cut the capability of exposed structures and machines for good (Replace or Re-print clears them); machines reboot, latch up or burn out; crew indoors sicken at an X; labs, Chip Fabs and compute lose output; comms black out. Below. |
 | 3 | **Micrometeorite strikes** | CUT | Rare, unannounced single-building breach: building offline + parts cost + small crew-injury risk (Medical Bay demand). Punishes complacency between telegraphed events. Cut for slice pacing; needs Medical Bay to land fairly. |
 | 4 | **Dust abrasion** | SHIPPED | Persistent, not episodic: solar output −8%/lunar day (cap −50%), recovering 20%/day while parts upkeep is paid; excavators carry the highest wear. Dust Mitigation tech ×0.4. **There are no dust storms — the Moon is airless; that is a Mars trope.** |
 | 5 | **Earth-supply dependence** | CUT (softened) | The credits arc above. Slice ships the generous-stockpile substitute. |
 | 6 | **Morale + Unrest dual soft meters** | PARTIAL | Morale shipped. Unrest returns for ⌂ Colony only as CABIN FEVER (system 7): a 0–100 meter whose crisis strikes a station and, twice in 3 days, sends 2 crew home. |
 | 7 | **Destiny hazards** ([14 §3](14-destiny-tracks.md)) | SHIPPED | A side with 2+ picks faces its own hazards, tier by its picks (2–3 minor · 4–5 moderate · 6–8 major); windows every 1.6 / 1.3 / 1.0 lunar days by era, ×clamp(30 / structures, 0.75, 1.25). ⌂ Colony's can kill crew; ◉ Automation's destroy machines, data and stock for good. Every one is telegraphed (90–150 s), names its target and carries its counters on its alert; a death or a loss needs a warning ignored and a second clock run out; the first of each kind is a drill. Table below. |
 
-**Space weather** (`core/spaceWeather.ts`, `core/forecast.ts`, docs/16; F1, F2a and F3 shipped):
+**Space weather** (`core/spaceWeather.ts`, `core/forecast.ts`, `core/flareEffects.ts`, docs/16; F1, F2a, F2b and F3 shipped):
 
 | What | Rule |
 |---|---|
@@ -404,15 +404,24 @@ both numbers printed on it — pillar 1 applied to governance.
 | Forecasting (F3) | the tier: T1 Heliophysics Forecasting and a built Solar Observatory · T2 the L1 Sentinel on station (launched at the Lander for 15▣ 30⚙ 80○ 20≈, or 400 stored by a Mass Driver; a lunar day's cruise) · T3 Solar-Cycle Forecasting. Each starts the telegraph earlier: +30 s at T1, +60 s at T2 and T3; the flash and the protons keep the schedule's time |
 | The window | every 60 s, the next flash inside max(Wmin, f · (t − now)): T1 f 0.6 and 60 s, T2 f 0.2 and 30 s; the class range the telegraph will show (T1) or the class (T2). At T1 the observatory must see the Sun: blind at night off the pole, in shade or without power, the window holds and widens 20% a game-minute. It never lies |
 | The observatory | +0.05≡/s while it sees the Sun (one for the base); a flare's heliophysics data ×2 |
+| Rad scars (F2b) | every structure with an output, rate or capacity (not the Lander, homes, halls, yards, masts, docks) and every machine: capability × (1 − rate × (1 − σ)² × a tenth if prepared), rate C 0.25 · M 1.5 · X 5 · tail 1%, the first X as an M; cumulative, down to 10%. Output, rate or capacity × capability, beside wear. The alert once under 85% |
+| Replace · Re-print | a structure: half its cost, 60% of its build offline while a rover welds, then new · a rover or drone: 5◆ 8⚙, 72 s at its dock · a hub unit: half its price, 60% of its print, a job in its hub's queue |
+| Machines (F2b) | each draws as the protons arrive (the tail as a C): in the open C 15% · M 40% reboot (20 · 40 s, an M's load lost), X 40% reboot 60 s · 45% latch up (bricked; re-flashed at its dock or bay, lost at 480 s) · 15% burn out (lost; the first X latches instead). Docked, it only reboots (odds ×0.5). Hubs recall their units on M and X; Recall machines docks the rest that can make it |
+| Crew, labs, fabs (F2b) | an X: a quarter of each home's crew sick ½ lunar day (× (1 − σ), never lethal) · labs × 0.7 · 0.5 · 0.2 (tail 0.72); the head tech −3% (M), −10% (X) unless Checkpointed · Chip Fabs' yield −20 · 50 · 100% (tail 35%), an X scraps 60 s of their chips · compute × 0.8 · 0.6 · 0.3 · Shut down exposed: off, a tenth of the scar, back 20 s after |
+| Blackout · wear (F2b) | M 45 s, X 240 s: shipments and the rotation hold, the downlink, Call home and new surveys wait, a survey's clock pauses, outpost streams buffer, Earth Teleoperation's speed goes · running structures' wear +3% (M), +8% (X) × (1 − σ); machines out +5%, +15% |
 
 | Step | Hook | Effect |
 |---|---|---|
-| 1 | `solarMult` · `beamMult` | an array × (1 − stow) × capability × (1 − stowed damage), a wreck 0 · the beam ×0.5 in a C, 0 in an M, an X and its tail |
+| 0 | `rebooting` (transit) | a rebooting rover holds where it stands: no driving, no work |
+| 1 | `solarMult` · `beamMult` · `capOf` | an array × (1 − stow) × capability × (1 − stowed damage), a wreck 0 · the beam ×0.5 in a C, 0 in an M, an X and its tail · a bank's capacity × its capability |
+| 2 | `flareOff` | a legacy pad's excavator offline: rebooting, latched up, burned out |
 | 2 | `duskLine` | the dusk forecast names a flare under way, or the watch; from T1, the next flare due and what a stow would take |
-| 2.5 | `siteParts` · `siteDone` | a repair pays its parts up front; a repair, a rebuild or a clear is no new building |
+| 2.5 | `siteParts` · `siteDone` · `teamCap` · `weldFlareMult` | a repair pays its parts up front; a repair, a rebuild, a clear or a Replace is no new building · weld and sinter × the team's capability, × 0.85 in a blackout with Earth Teleoperation |
 | 3 | `flareStorm` | no EVA while the protons are in |
+| 4 | `flareOutputMult` · `rebooting` | labs, Chip Fabs and compute by class while the protons are in · a rebooting hub unit holds |
 | 7 | `flareMoraleTarget` | the class's target (above) |
-| 8 | `weatherTick` | the cycle, the phases, the plan, the outcomes, repairs, the log; first `forecastTick` (`core/forecast.ts`): the tier and its lead, the sentinel's cruise, the observatory's look and data, the window |
+| 8 | `weatherTick` | the cycle, the phases, the plan, the outcomes, repairs, the log; first `forecastTick` (`core/forecast.ts`): the tier and its lead, the sentinel's cruise, the observatory's look and data, the window; last `effectsTick` (`core/flareEffects.ts`): the machines' draw, the scars' count, reboots, re-flashes, warm-ups, re-prints |
+| 8.5 · 8.7 · 9 | `commsDark` · `researchHeld` | the resupply and the rotation hold in the blackout; streams buffer, a survey's clock pauses · Checkpoint holds research transfers |
 
 **How hazards reach the economy** (`core/hazards.ts` hooks, `economy.ts`):
 
@@ -434,11 +443,11 @@ both numbers printed on it — pillar 1 applied to governance.
 | ⌂ LIFE-SUPPORT CASCADE | Shed loads | crew with no bed on suit air (180 / 120 / 90 s), then 1 death every 30 s |
 | ⌂ BLIGHT | Quarantine (the crop) | −40 / −60 / −80% on the farm; spreads every 180 / 120 s; famine |
 | ⌂ CONTAMINATION | Flush (30% of ≈) | farms and morale drop; sick bay after a day; poisoning after 3 / 2 / 1 days, 1 death a day |
-| ⌂ DOSE | Recall EVA · Medevac | off work ½–1½ days; at major 1 in 3 caught, or past 6 crew-doses, a lethal dose (3:00) |
+| ⌂ DOSE | Recall EVA · Medevac | by the flare's class (docs/16 §9.2): a C ¼ day off; an M the tier's ½–1½ days, never lethal (past 6 crew-doses, grounded); only a real X is lethal: ¼ caught at moderate, ⅓ at major, or past 6 crew-doses (3:00) |
 | ⌂ CABIN FEVER | Commons night 30✳ · Call home 60≡ | a crisis: morale −20, a strike; two in 3 days send 2 crew home (alive) |
 | ⌂ DUST | Clean 5⚙ | clogged filters: upkeep ×2, wear |
 | ◉ MALWARE | Air-gap · Reimage 40≡ · Patch 200≡ | ×0.5 output, ×1.3 draw, spreads; ransom 15% of data a day (moderate); burn-out, wrecked (major) |
-| ◉ FIRMWARE | Hold rollout · Dock fleet | 30 / 50 / 70% of rovers bricked; lost at the re-flash deadline (480 / 360 / 240 s); drones in flight fall |
+| ◉ FIRMWARE | Hold rollout · Dock fleet | 30 / 50 / 70% of rovers bricked; lost at the re-flash deadline (480 / 360 / 240 s); drones in flight fall. A flare's bit flips by class (docs/16 §9.3): the share ×0.5 · 1 · 1.25; a C reboots them 30 s; an M's missed deadline is re-flashed from Earth, no loss; drones fall only at an X |
 | ◉ ROGUE DRONES | Kill switch | the target stripped 1%/s and wrecked, no refund |
 | ◉ RUNAWAY RULE | Freeze rules | 4 / 8 junk sites; half their stock wasted |
 | ◉ HACKED OUTPOST | Rotate keys 5▣ | the stream stops; lost after a day (major) |

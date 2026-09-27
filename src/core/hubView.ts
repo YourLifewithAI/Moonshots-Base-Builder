@@ -14,6 +14,7 @@ import {
 } from './hubs';
 import { packLine } from './unitPower';
 import { fmtClock } from './daynight';
+import { unitFlareLine, unitFlareStatus } from './flareEffects';
 
 const G = RESOURCES.regolith.glyph;
 const n0 = (v: number) => Math.floor(v);
@@ -26,6 +27,9 @@ function unitLine(s: GameState, u: Hauler, bucket: number): string {
   const t = targetOf(s, u.target);
   const b = hubOf(s, u);
   const cargo = h.cargo.regolith ?? 0;
+  // a flare's reboot or latch-up holds it (docs/16 §4.5)
+  const fl = unitFlareStatus(s, u);
+  if (fl) return fl;
   if (h.src === 'flat') return 'NO POWER — waiting for the grid';
   switch (h.phase) {
     case 'park':
@@ -62,6 +66,7 @@ export function unitView(s: GameState, mods: Mods, site: SiteDef, u: Hauler): Un
     phase: u.haul.phase, cargo: u.haul.cargo.regolith ?? 0, bucket: spec.bucket, tripS,
     rate: t && trip ? spec.bucket / cycle : 0,
     pack: packLine(u.haul, 'digger', mods, !!s.power?.brownout), wear: u.wear, flat: u.haul.src === 'flat',
+    cap: u.cap ?? 1, flare: unitFlareLine(s, site, u), reprint: (u.cap ?? 1) < 0.9995 && !!b,
   };
 }
 
@@ -102,7 +107,7 @@ export function hubViews(s: GameState, mods: Mods, site: SiteDef): { hubs: Recor
       id: b.id, name: hubName(b), level: h.level, bays: cap, units: units.map((u) => u.id),
       hopper: h.hopper, hopperCap: hopperCap(b), q: h.q, feed, starved: h.starved,
       queue: h.queue.map((j, i) => ({
-        kind: j.kind, name: j.kind === 'bay' ? '+ Bay' : `+ ${unitName(type)}`, pct: j.total > 0 ? j.t / j.total : 0,
+        kind: j.kind, name: j.kind === 'bay' ? '+ Bay' : j.kind === 'reprint' ? `Re-print ${unitName(type).toLowerCase()} #${j.unit}` : `+ ${unitName(type)}`, pct: j.total > 0 ? j.t / j.total : 0,
         left: Math.max(0, j.total - j.t), paid: !!j.paid, waiting: i === 0 ? h.waiting ?? '' : '',
       })),
       unitName: unitName(type), unitCost: costText(jobCost(b, 'unit', site)), unitTime: jobTime(b, 'unit', site, mods),

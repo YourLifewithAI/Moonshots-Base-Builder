@@ -97,6 +97,71 @@ export const SPACE_WEATHER = {
   keys: { cycle: 0x5c1e, interval: 0x5f1a, cls: 0x5f1c, forecast: 0x5f1d, machine: 0x5f1e, cme: 0x5f1f, arrays: 0x5f20 },
 } as const;
 
+/** A class, or an X's proton-storm tail: the columns of docs/16 §4.2. */
+export type FlareKey = FlareClass | 'tail';
+
+/** The flare's own counters (docs/16 §4.5–4.7, §4.14), as alert and pop-up
+ *  buttons beside the hazards' (game.ts routes them to core/flareEffects.ts). */
+export type FlareCounterId = 'flareRecall' | 'flareCheckpoint' | 'flareShutDown' | 'flareReplace' | 'flareReprint' | 'flareReprintUnit'
+  | 'flareReplaceWorst';
+
+/** What a flare costs beyond the arrays (docs/16 §4): rad scars and capability,
+ *  machines in the open, crew indoors, labs, fabs and compute, the comms
+ *  blackout, wear, and the Replace and Re-print that clear scars.
+ *  core/flareEffects.ts runs it. Every effect scales by (1 − σ), the scars by
+ *  (1 − σ)² and a tenth when prepared. */
+export const FLARE_EFFECTS = {
+  /** rad scars (§4.13): capability × (1 − rate × (1 − σ)² × prep × hard), cumulative, never below capFloor */
+  scar: { C: 0.0025, M: 0.015, X: 0.05, tail: 0.01 } as Record<FlareKey, number>,
+  /** prepared (shut down or off, docked, parked): the scar × this */
+  prep: 0.1,
+  capFloor: 0.1,
+  /** the capability alert fires once, crossing this; the panel's SCARRED line counts what is under it */
+  alertAt: 0.85,
+  /** machines (§4.5): each draws once as the protons arrive (the tail: as a C). Odds × (1 − σ);
+   *  a latch-up or a burn-out needs the open — a docked machine only reboots */
+  machines: {
+    reboot: { C: 0.15, M: 0.4, X: 0.4, tail: 0.15 } as Record<FlareKey, number>,
+    latch: { C: 0, M: 0, X: 0.45, tail: 0 } as Record<FlareKey, number>,
+    burn: { C: 0, M: 0, X: 0.15, tail: 0 } as Record<FlareKey, number>,
+    rebootS: { C: 20, M: 40, X: 60, tail: 20 } as Record<FlareKey, number>,
+    /** Watchdogs and failover (the Lights-Out Charter): a reboot takes this long */
+    watchdogS: 10,
+    /** a latched machine is lost if not re-flashed by then */
+    deadlineS: 480,
+    /** excavators re-flash over the Lander's link, one per this */
+    reflashS: 30,
+    /** a dock's shield for the machine parked in it (a bermed dock is F4's) */
+    dockSigma: 0.5,
+  },
+  /** Rad-Hard Process: latch-ups, burn-outs, chip yield loss, compute errors and the scars of labs, compute and fabs × this */
+  radHard: 0.5,
+  /** crew indoors (§4.4): at an X, this share of each home × (1 − σ) is sick, off work this long; never lethal */
+  sick: { share: 0.25, days: 0.5 },
+  /** labs (§4.6): data × (1 − L × (1 − σ)) while the protons are in */
+  labs: { C: 0.3, M: 0.5, X: 0.8, tail: 0.28 } as Record<FlareKey, number>,
+  /** the head tech loses this share of its data cost as the protons arrive (never more than it has) */
+  headLoss: { C: 0, M: 0.03, X: 0.1 } as Record<FlareClass, number>,
+  /** Chip Fabs (§4.7): chips × (1 − loss × (1 − σ)); an X scraps the batch, this many seconds of its output */
+  chips: { C: 0.2, M: 0.5, X: 1, tail: 0.35 } as Record<FlareKey, number>,
+  batchS: 60,
+  /** Data Centers and Server Monoliths: data × this (its loss × (1 − σ)) */
+  compute: { C: 0.8, M: 0.6, X: 0.3, tail: 0.75 } as Record<FlareKey, number>,
+  /** the comms blackout (§4.8), from the protons: an M's active phase; an X's flash, tail and 60 s more */
+  blackout: { C: 0, M: 45, X: 240 } as Record<FlareClass, number>,
+  /** wear (§4.9) as the protons arrive: running structures, and machines in the open */
+  wear: { C: 0, M: 0.03, X: 0.08 } as Record<FlareClass, number>,
+  machineWear: { C: 0, M: 0.05, X: 0.15 } as Record<FlareClass, number>,
+  /** a shut-down structure (or a parked excavator) restarts this long after the flare: its warm-up */
+  warmS: 20,
+  /** Replace (§4.14): this share of the build cost and of the build time */
+  replace: { cost: 0.5, time: 0.6 },
+  /** Re-print a scarred rover or drone at its dock: half the dock's reprint, 72 s */
+  reprint: { metals: 5, parts: 8, s: 72 },
+  /** Earth Teleoperation's build speed (its buildSpeed effect) is lost in the blackout */
+  teleop: 0.85,
+};
+
 /** The legacy flare (docs/16 §12.3, `--flares=legacy`): today's machine for
  *  the probe's baseline — every flare 60 s warned and 45 s active, solar 0,
  *  −10 morale at once and a −10 target, +25≡ with a lab. */

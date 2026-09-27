@@ -46,6 +46,7 @@ import { HZ } from '../data/hazards';
 import {
   beamMult, duskLine, flareMoraleTarget, flareStorm, notePanel, siteDone, siteParts, solarMult, weatherTick,
 } from './spaceWeather';
+import { capOf, commsDark, flareOff, flareOutputMult, rebooting, teamCap, weldFlareMult } from './flareEffects';
 import {
   attachCounters, evaHeld, growthHeld, hazardBedsOff, hazardDrawMult, hazardDuskLine, hazardMorale, hazardOff,
   hazardOutputMult, hazardTick, hazardUpkeepMult, killCrew, sickCrew, starveCause,
@@ -286,7 +287,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
 
   // hazards (docs/14 §3): what a hazard holds offline this tick, and who is off work
   const hzOff = new Map<number, string>();
-  for (const b of s.buildings) { const o = hazardOff(s, b); if (o) hzOff.set(b.id, o); }
+  // (and a flare's hold on a legacy pad's excavator: rebooting, latched up, burned out — docs/16 §4.5)
+  for (const b of s.buildings) { const o = hazardOff(s, b) || flareOff(s, b); if (o) hzOff.set(b.id, o); }
   const hzIdle = (b: BuildingState) => { b.active = false; b.idleReason = hzOff.get(b.id)!.startsWith('ON STRIKE') ? 'strike' : 'hazard'; };
 
   // ── 0.5 · generator staffing — crewed generators take workers first,
@@ -321,7 +323,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const def = eff(b.type);
     // shut down is off, as for a Storage Yard's caps: no upkeep, no storage
     if (!b.enabled) continue;
-    if (def.storageKWh) capacity += def.storageKWh * (b.type === 'battery' ? mods.batteryCapMult : 1);
+    // a bank's capacity × its capability: rad scars (docs/16 §4.13; the Lander never scars)
+    if (def.storageKWh) capacity += def.storageKWh * (b.type === 'battery' ? mods.batteryCapMult : 1) * capOf(b);
     if (def.powerKW > 0) {
       if (crewedGen(b) && !staffed.has(b.id)) continue;
       // multipliers, wear, the agents' skim and a ridge's extra light
@@ -596,12 +599,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (at <= 1e-9) { b.idleReason = 'power'; continue; }
     if (!lit) b.onPack = true;
     const working = team.filter((_, i) => shares[i] > 1e-9);
+    // scarred rovers weld and sinter at their capability; the blackout takes Earth Teleoperation's speed (docs/16 §4.8, §4.13)
+    const fx = teamCap(working) * weldFlareMult(s);
     // its road first: the crew sinters the spur out to the door, cell by
     // cell from the network, stepping on to each cell it opens (the crew's
     // draw, no weld parts), then welds (core/roads.ts)
     if (road) {
       b.idleReason = 'road';
-      sinter(s, b.spur!, dt * at * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
+      sinter(s, b.spur!, dt * at * fx * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
       for (const r of working) r.task = 'sinter';
       if (spurLeft(s, b) === 0) b.spur = [];
       continue;
@@ -609,7 +614,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     s.resources.parts -= weld * at;
     b.idleReason = 'building';
     for (const r of working) r.task = 'weld';
-    b.construction = Math.max(0, (b.construction ?? 0) - dt * at * mods.weldRateMult * crewRate(crew));
+    b.construction = Math.max(0, (b.construction ?? 0) - dt * at * fx * mods.weldRateMult * crewRate(crew));
     if (b.construction === 0) {
       b.idleReason = '';
       delete b.onPack;
@@ -634,7 +639,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       });
       const at = shares.reduce((a, f) => a + f, 0) / team.length;
       if (at <= 1e-9) continue;
-      sinter(s, j.cells, dt * at * mods.weldRateMult * crewRate(team.length) / mods.roadCellMult);
+      sinter(s, j.cells, dt * at * teamCap(team) * weldFlareMult(s) * mods.weldRateMult * crewRate(team.length) / mods.roadCellMult);
       team.forEach((r, i) => { if (shares[i] > 1e-9) r.task = 'sinter'; });
     }
     settleJobs(s);
@@ -810,6 +815,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     for (const u of s.haulers) {
       const hb = hubOf(s, u);
       if (!hb) continue;
+      // a flare reboot holds it where it stands (docs/16 §4.5)
+      if (rebooting(s, u)) continue;
       const o = unitTick(s, mods, site, u, hb, dt * (haulerShare.get(u.id) ?? 1), day.isNight, caps);
       if (o.tipped > 0) { hauled.regolith = (hauled.regolith ?? 0) + o.tipped; st.produced.regolith += o.tipped; }
       for (const [rid, amt] of Object.entries(o.credited) as [ResourceId, number][]) {
@@ -874,7 +881,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       // outputs — a farm that lost its crop is regrowing and makes nothing yet;
       // a hazard's multiplier (infected, blighted, a fouled loop, the control plane)
       const regrowing = (type === 'hydroponics' || type === 'greenhouseRing') && (b.cropRegrowT ?? 0) > 0;
-      const hzMult = hazardOutputMult(s, b);
+      // (and a flare's by class: labs, Chip Fab yield, compute errors — docs/16 §4.6, §4.7)
+      const hzMult = hazardOutputMult(s, b) * flareOutputMult(s, mods, site, b);
       if (regrowing) b.cropRegrowT = Math.max(0, b.cropRegrowT! - dt);
       else {
         for (const [rid, rate] of Object.entries(r.outputs)) {
@@ -1140,7 +1148,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     s.resupply.medevac = false;
     alert(s, 'MEDEVAC LANDED — the dosed crew member reached Earth alive; the shipment slot is free', 'info', landerAction(s));
   } else if (s.resupply.pending) {
-    if (s.simTime >= s.resupply.arriveAt) {
+    // a comms blackout holds the landing until the link returns (docs/16 §4.8)
+    if (s.simTime >= s.resupply.arriveAt && commsDark(s)) {
+      condition(s, 'resupply-held', `${s.resupply.downlink ? 'DOWNLINK CARGO' : 'RESUPPLY'} HELD — it circles until the flare’s blackout lifts`, 'info', landerAction(s));
+    } else if (s.simTime >= s.resupply.arriveAt) {
       // one slot, two cargoes: a resupply, or what a data downlink bought
       const downlink = !!s.resupply.downlink;
       s.resupply.pending = false;
@@ -1335,6 +1346,8 @@ export function rotationShortfall(s: GameState, mods: Mods, smelterO2: number, c
 function crewRotationTick(s: GameState, mods: Mods, smelterO2: number) {
   const rot = s.crewRotation;
   if (!rot || s.simTime < rot.at) return;
+  // the flare's blackout holds the landing (docs/16 §4.8)
+  if (commsDark(s)) { condition(s, 'rotation-held', 'CREW ROTATION HELD — the lander waits out the flare’s blackout', 'info', { panel: 'crew' }); return; }
   if (s.crew > 0) { s.crewRotation = null; return; }
   // grief (docs/14 §3.10): nobody wants to come for a lunar day after a death
   if (growthHeld(s)) {

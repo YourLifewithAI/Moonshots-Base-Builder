@@ -23,6 +23,7 @@ import { resolveTech } from './research';
 import { borrowable } from './fleet';
 import { fmtClock } from './daynight';
 import { recordSpend } from './flowBook';
+import { commsDark, holdStream } from './flareEffects';
 
 export interface ActionResult { ok: boolean; reason: string }
 const OK: ActionResult = { ok: true, reason: '' };
@@ -234,6 +235,7 @@ export function surveyRefusal(s: GameState, mods: Mods, pid: ProspectId): string
   if (s.survey.prospects[pid]) return `ALREADY SURVEYED — ${p.name}`;
   const a = s.survey.active;
   if (a) return `SURVEY IN PROGRESS — ${PROSPECTS[a.id].short} ${fmtClock(secsLeft(s, a.endsAt))}`;
+  if (commsDark(s)) return 'SURVEY WAITS — the flare’s comms blackout: the hopper flies once the link returns';
   const c = surveyCost(s.siteId, pid);
   if (mods.surveyTier < c.tier) {
     return `OUT OF RANGE — ${p.short} is ${CLASS_LABEL[c.cls]}: needs T${c.tier} ${tierTech(c.tier, s)}`;
@@ -389,6 +391,8 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
 
   // surveys: the robot comes home with the data
   const a = s.survey.active;
+  // a comms blackout holds the hopper's hop: its clock pauses (docs/16 §4.8)
+  if (a && commsDark(s)) a.endsAt += dt;
   if (a && s.simTime >= a.endsAt) {
     const p = PROSPECTS[a.id];
     const data = surveyPayout(s, mods, a.id);
@@ -441,6 +445,13 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     if (short) {
       condition(s, `grounded:${o.id}`, `HOPPER GROUNDED — ${p.short} needs ${fuelText(o.cls, true)} ` +
         `(have ${Math.floor(spare(s, mods, short[0]))}${glyph(short[0])})`, 'warn', { panel: short[0] });
+      continue;
+    }
+    // a comms blackout buffers the stream: it lands when the link returns (docs/16 §4.8)
+    if (commsDark(s)) {
+      for (const [rid, rate] of Object.entries(res) as [ResourceId, number][]) holdStream(s, rid, rate * k * dt);
+      holdStream(s, 'data', data * k * dt);
+      for (const [rid, rate] of fuel) move(rid, -rate * dt);
       continue;
     }
     for (const [rid, rate] of Object.entries(res) as [ResourceId, number][]) {

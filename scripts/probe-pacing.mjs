@@ -51,7 +51,15 @@
  * Automated Power the Builder's flareStance decides. After a flare it rebuilds
  * a wreck when it can pay, else clears it. --flares=legacy plays today's flare
  * (every flare 45 s, solar 0, −10 morale) for the baseline. The summary counts
- * the flares by class, the arrays destroyed and the repair parts. */
+ * the flares by class, the arrays destroyed and the repair parts.
+ * --flarePolicy=reasonable (default) also presses the flare's counters (docs/16
+ * §12.3): Recall machines and Checkpoint research on M and X, Shut down exposed
+ * on X; and it replaces a structure, or re-prints a rover or unit, under 85%
+ * capability when it can pay and the payback is under 10 min. --flarePolicy=ignore
+ * answers nothing (the safe default runs, and its repairs), rebuilds nothing and
+ * replaces nothing. The summary adds machines rebooted, latched and lost, research
+ * lost, blackout seconds, the capability of every structure and machine at the
+ * end, the replacements and the flare losses. */
 import { writeFileSync } from 'node:fs';
 import { withGame } from './harness.mjs';
 
@@ -83,6 +91,8 @@ const REPLACE_STEP = opt('replace', 'on') !== 'off';
 const HAZARDS_ON = opt('hazards', 'on') !== 'off';
 /** --flares=legacy: today's flare for the baseline (docs/16 §12.3) */
 const FLARES = opt('flares', 'on') === 'legacy' ? 'legacy' : 'on';
+/** --flarePolicy=ignore: the bot answers no flare (docs/16 §12.3) */
+const FLARE_POLICY = opt('flarePolicy', 'reasonable') === 'ignore' ? 'ignore' : 'reasonable';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -806,10 +816,22 @@ async function installBot(cfg) {
 
   // ── space weather (docs/16 §12.3): the pop-up, then the wrecks ──
   const flareSeen = {};
+  const pressed = {};
   function decideFlares() {
-    if (cfg.flares === 'legacy') return;
+    if (cfg.flares === 'legacy' || cfg.flarePolicy === 'ignore') return;
     const w = G.getSpaceWeather();
     const p = w.popup;
+    // the counters (docs/16 §12.3): Recall and Checkpoint on M and X, Shut down exposed on X, once the class is firm
+    if (s.flare.phase === 'telegraph' && w.firmIn <= 0 && (s.flare.cls === 'M' || s.flare.cls === 'X')) {
+      const n = s.flare.n ?? 0;
+      for (const c of w.fx.also) {
+        const key = `${n}:${c.counter}`;
+        if (pressed[key] || (c.counter === 'flareShutDown' && s.flare.cls !== 'X')) continue;
+        pressed[key] = true;
+        G.flareCounter(c.counter);
+        act('flare', c.counter);
+      }
+    }
     // it reads the class once the X-ray peak firms it (20 s in), and answers before the arrays move
     if (p && !p.locked && w.firmIn <= 0 && p.decidedBy !== 'click' && !p.remembered && !p.builder) {
       const cls = p.rememberCls;
@@ -819,6 +841,14 @@ async function installBot(cfg) {
       act('flare', `${cls}:${choice.mode}`);
     }
     if (s.flare.phase !== 'idle') return;
+    // scars: the worst under 85%, when it can pay and it pays back within 10 min (one a decision)
+    if (w.fx.scarred.under > 0 && s.resources.metals > 60 && s.resources.parts > 30) {
+      const worst = G.flareScarred().find((x) => x.cap < 0.85);
+      if (worst && (worst.kind !== 'b' || G.flareCapability(worst.id)?.payback < 600)) {
+        G.flareCounter(worst.kind === 'b' ? 'flareReplace' : worst.kind === 'r' ? 'flareReprint' : 'flareReprintUnit', worst.id);
+        act('flare', `replace:${worst.name}`);
+      }
+    }
     const cost = Math.ceil((BUILDINGS.solar.buildCost.metals ?? 15) * bcm);
     for (const b of s.buildings) {
       if (!b.wreck || b.wreck.job) continue;
@@ -1177,8 +1207,18 @@ async function installBot(cfg) {
       surveyed: Object.keys(s2.survey.prospects), discoveries: s2.discoveries, insights: s2.insights,
       downlinks: s2.downlinks, resupply: s2.resupply,
       flares: (s2.flare.log ?? []).map((f) => ({ cls: f.cls, at: f.at, era: f.era, drill: f.drill, by: f.decidedBy, choice: f.choice,
-        stowed: f.stowed, running: f.running, destroyed: f.destroyed, damaged: f.damaged, parts: f.repairParts, solarLost: Math.round(f.solarLost) })),
+        stowed: f.stowed, running: f.running, destroyed: f.destroyed, damaged: f.damaged, parts: f.repairParts, solarLost: Math.round(f.solarLost),
+        rebooted: f.rebooted ?? 0, latched: f.latched ?? 0, lost: f.lost ?? 0, researchLost: f.researchLost ?? 0, blackoutS: f.blackoutS ?? 0,
+        sick: f.sick ?? 0, scarredB: f.scarredB ?? 0, scarB: f.scarB ?? 0 })),
       flareN: s2.flare.n ?? 0,
+      // capability at the end (docs/16 §12.3): every structure that carries one, every machine
+      capability: {
+        structures: s2.buildings.filter((b) => b.cap !== undefined || b.scars).map((b) => [b.type, Math.round((b.cap ?? 1) * 1000) / 1000]),
+        rovers: s2.rovers.map((r) => Math.round((r.cap ?? 1) * 1000) / 1000),
+        units: (s2.haulers ?? []).map((u) => Math.round((u.cap ?? 1) * 1000) / 1000),
+      },
+      replaced: s2.weather?.replaced ?? 0,
+      flareLosses: (s2.losses ?? []).filter((l) => l.hazard === 'flare').length,
       band: G.getDestiny().band, crewHome: s2.crewHome,
       alertsTail: s2.alerts.slice(-8).map((a) => a.text),
     };
@@ -1261,6 +1301,13 @@ function flareSummary(log) {
     n: log.cfg.flares === 'legacy' ? log.final.flareN : fs.length, byClass: by,
     destroyed: fs.reduce((n, f) => n + f.destroyed, 0), parts: fs.reduce((n, f) => n + f.parts, 0),
     seq: fs.map((f) => `${f.cls}${Math.round(f.at / 60)}`).join(' '),
+    policy: log.cfg.flarePolicy,
+    machines: { rebooted: fs.reduce((n, f) => n + (f.rebooted ?? 0), 0), latched: fs.reduce((n, f) => n + (f.latched ?? 0), 0), lost: fs.reduce((n, f) => n + (f.lost ?? 0), 0) },
+    researchLost: fs.reduce((n, f) => n + (f.researchLost ?? 0), 0), blackoutS: fs.reduce((n, f) => n + (f.blackoutS ?? 0), 0),
+    capMean: (() => { const c = (log.final.capability?.structures ?? []).map((x) => x[1]); return c.length ? Math.round((c.reduce((a, b) => a + b, 0) / c.length) * 1000) / 1000 : 1; })(),
+    capMin: Math.min(1, ...(log.final.capability?.structures ?? []).map((x) => x[1])),
+    under85: (log.final.capability?.structures ?? []).filter((x) => x[1] < 0.85).length,
+    replaced: log.final.replaced ?? 0, losses: log.final.flareLosses ?? 0,
   };
 }
 
@@ -1284,7 +1331,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
     const info = await page.evaluate(installBot, {
       ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY, destiny: DESTINY, picks: PICKS_ARG,
-      replaceStep: REPLACE_STEP, hazards: HAZARDS_ON, flares: FLARES,
+      replaceStep: REPLACE_STEP, hazards: HAZARDS_ON, flares: FLARES, flarePolicy: FLARE_POLICY,
     });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · destiny ${info.picks} · doctrines ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {
@@ -1309,10 +1356,11 @@ for (const { summary: r } of results) {
   console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(r.firstLight).padEnd(11)} | ${r.eraDur.padEnd(40)} | ${r.idleMax.split(' ')[0]}/${r.idleMaxAction.split(' ')[0]}/${r.idleMaxEvent.split(' ')[0]}`.padEnd(110) +
     ` | ${r.brownout.padEnd(5)} | ${r.worn.padEnd(4)} | ${r.goodsStallMin} · ${r.outcome}`);
 }
-console.log(`\nflares (${FLARES}) before FIRST LIGHT: run · count · C/M/X · destroyed · repair parts · sequence (class, game-min)`);
+console.log(`\nflares (${FLARES}, ${FLARE_POLICY}) before FIRST LIGHT: run · count · C/M/X · destroyed · repair parts · machines rebooted/latched/lost · −≡ · capability mean/min, <85% · replaced · sequence`);
 for (const { summary: r } of results) {
   const f = r.flares;
-  console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(f.n).padEnd(3)}| ${f.byClass.C}/${f.byClass.M}/${f.byClass.X} | ${String(f.destroyed).padEnd(3)}| ${String(f.parts).padEnd(4)}| ${f.seq}`);
+  console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(f.n).padEnd(3)}| ${f.byClass.C}/${f.byClass.M}/${f.byClass.X} | ${String(f.destroyed).padEnd(3)}| ${String(f.parts).padEnd(4)}| ` +
+    `${f.machines?.rebooted ?? 0}/${f.machines?.latched ?? 0}/${f.machines?.lost ?? 0} | ${f.researchLost ?? 0} | ${f.capMean ?? 1}/${f.capMin ?? 1}, ${f.under85 ?? 0} | ${f.replaced ?? 0} | ${f.seq}`);
 }
 // medians across seeds (FIRST LIGHT not reached counts as the run length, flagged ›)
 const med = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };

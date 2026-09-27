@@ -394,7 +394,7 @@ export interface HaulView {
 }
 /** a hub's queue job as the inspector shows it (docs/17 §4.7) */
 export interface HubJobView {
-  kind: 'unit' | 'bay';
+  kind: 'unit' | 'bay' | 'reprint';
   name: string;
   /** 0..1 printed; s left; paid yet; what it waits on ('' none) */
   pct: number;
@@ -444,6 +444,10 @@ export interface UnitView {
   rate: number;
   pack: string;
   wear: number;
+  /** its capability (rad scars, docs/16 §4.13) and its flare line: σ, capability, the last flare, Re-print */
+  cap: number;
+  flare: string;
+  reprint: boolean;
   flat: boolean;
 }
 /** a hub (docs/17 §4.7): its hopper, feed, units, queue and pits */
