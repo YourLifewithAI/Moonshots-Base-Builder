@@ -1535,22 +1535,27 @@ interface FlareState {                 // s.flare, extended
   lastX: number;                       // game-time of the last X (−1e9)
   cme?: { at: number; until: number }; // the front's arrival and the sail window's end
   blackoutUntil: number;
-  override?: 'stow' | 'gen';           // this flare's base-wide override
+  choice?: ArrayChoice;                // this flare's arrays: the click, or who decided for it
+  decidedBy?: 'click' | 'remembered' | 'builder' | 'default';
   log: FlareLogEntry[];                // the last 20 (the panel shows 8)
 }
 interface WeatherState {               // s.weather
   window?: { lo: number; hi: number; range: string; k: number };
   seenSunAt: number;                   // the observatory's last look (the night freeze)
   sentinel?: { launchedAt: number; onlineAt: number };
-  stance: 'stow' | 'gen' | 'class';
-  protocols: Record<'arrays' | 'machines' | 'research' | 'fabs' | 'domes', Record<'C' | 'M' | 'X' | 'tail', string>>;
+  remember: Partial<Record<'C' | 'M' | 'X', ArrayChoice>>;   // 'Use this choice for future …'
+  autoRepair: boolean;                 // the pop-up's 'Repair after' (true)
+  protocols: Record<'machines' | 'research' | 'shutDown' | 'domes', Record<'C' | 'M' | 'X' | 'tail', string>>;
   kits: { kind: 'bag' | 'water'; uses: number }[];
   domes: DomeState[];
 }
+type ArrayChoice = { mode: 'run' | 'stow' | 'portion' | 'feed'; p?: number; tail?: 'run' | 'stow' };
 interface DomeState { id: number; kind: 'bag' | 'water'; kit: number; target: DomeTarget; x: number; z: number;
   rover: number | null; state: 'moving' | 'raising' | 'up' | 'packing'; fill: number; upSince: number }
-// BuildingState: cells?: number (1) · stance?: 'base' | 'stow' | 'gen' | 'class' · stowT?: number (0..1) · radScar?: number (0)
-// GameState: weather, flareSchema: 1
+// BuildingState: cap?: number (capability, 1) · stowT?: number (0..1) · flareDmg?: number (a stowed array's
+//   repairable damage, 0) · wreck?: { at: number; n: number } · fieldOverride?: 'stow' · 'run'
+// RoverUnit and docs/17's Hauler: cap?: number (1)
+// GameState: weather, flareSchema: 1 · repair jobs ride the rover queue as { kind: 'repair', field }
 ```
 
 The cycle's tMax and aMax, the class odds and every window are derived from the seed,
@@ -1566,12 +1571,12 @@ In `Game.load`, after `migrateTechSchema` and docs/17's `hubSchema`.
 | 2 · the index | none | `n` from the save's time on the old cadence: `1 + floor(max(0, t − 1728) / 1500)`. |
 | 3 · seen | none | `seen.C` true if the first flare's time has passed; M and X false, so the first of each after the load gets its card. |
 | 4 · grace | — | No X within one lunar day of the load. The first X after it is the drill. |
-| 5 · arrays | no cells | `cells` 1.0 and stance `base`: nothing worn on load. |
-| 6 · compute | — | no scars |
-| 7 · the rest | — | no kits or domes; stance `stow`; the protocols at their defaults; the tier from techs (every new tech is new, so T0). |
+| 5 · arrays | — | `cap` 1.0, no stowed damage, no wrecks, no overrides: nothing worn on load. |
+| 6 · buildings and machines | — | `cap` 1.0 for every building, rover, drone and unit: nothing scarred on load. |
+| 7 · the rest | — | no kits or domes; no remembered choices, so the first flare of each class asks; `autoRepair` on; the protocols at their defaults; the tier from techs (every new tech is new, so T0). |
 | 8 · hazards | DOSE or bit flips live on a flare | kept, as for an M |
 | 9 · the site | `flareImmune` | the def's `tubeShelter` (a def field, nothing saved) |
-| 10 · the alert | — | `SPACE WEATHER — flares now come as C, M and X on a solar cycle · your arrays stow on warning · open ☉ [O]` |
+| 10 · the alert | — | `SPACE WEATHER — flares now come as C, M and X on a solar cycle · the warning asks what to do with your arrays · open ☉ [O]` |
 
 ## 15. Tests
 
@@ -1583,28 +1588,34 @@ and drives time with `advanceGameSeconds`, as the other specs do. Debug gains
 |---|---|
 | Schedule | The first telegraph at day 2.4 is a C drill. The first flare from Era 2 is an M. No X before Era 4, none within 2 days of another. The at-least-one and second-X rules fire. The same seed gives the same classes and times; seeds 42, 7 and 1234 match §3.5's sequences on forced era times. |
 | Phases | Telegraphs 60 · 60 · 120 s, +60 s on a drill. Active 30 · 45 · 60 s. An X's 120 s tail at 35%. CMEs after every X and one M in three, 288 s after the flash. The hazard scheduler treats the tail as active. |
-| Stow or risk | A stowed array makes 0 and ramps over 10 s. A generating one loses cells by class × its generating share, to the 0.80 floor. Stance by base, field, class and the one-flare override. Apply to field. Night self-stow. `flareStance`: the break-even and the brownout override. |
+| The pop-up | It opens at the telegraph, pauses for M and X, shows the class range and firms it 20 s in. One Confirm sets every array. Its previews (destroyed count, repairs, the bank) equal what the sim then does. Unanswered: the remembered choice, else the Builder's, else stow all but the critical feed, and it says which beforehand. `Use this choice for future …` makes the next flare of that class compact and unpaused. Changes hold until 10 s before the protons. |
+| The portion rule | 25 · 50 · 75% stow ⌈p × choosers⌉ in the documented order: fields with a stowed shield first, whole fields first, then the weakest producers; the keep set (the critical feed × 1.1, strongest first) is never stowed by a share; Shield Coil arrays and overridden fields are left out; `Stow all` warns when life support would go dark. |
+| Arrays | A stowed array makes 0 and ramps over 10 s. Running: an M destroys round(15% × exposure) of them, an X 50%, by the seeded weighted draw; the rest scar −2% / −5%; a C only scars. Stowed: −5% / −20% repairable, × the stow's σ; field berms and Rad-Hard Cells give 1% and 4%. Night self-stow. Late stows take the share they ran. |
+| Wrecks and repairs | A wreck makes nothing and costs no upkeep. Rebuild costs the full price and restores the same array at 100%; Clear refunds 25%. A repair job per field: 1⚙ per 10% (halves up; none under 5%), 6 s + 0.2 s per %, 4 kW, priority 1; queued by `Repair after`, Repair all, or Automated Power. |
+| `flareStance` | C: run all. M and X: stow all but the critical feed. The tail stays stowed unless the feed rises. It queues repairs and rebuilds wrecks within Budget Governor's floors. |
 | Crew | Indoor sickness only at X, by σ, never lethal, never feeding `doseLoad`. DOSE by class: M never lethal, past the limit grounded; lethal only at a real X. Storm shelters σ 1 indoors. |
 | Machines | Reboot, latch-up and burn-out by class, drawn by id, repeatable. A dock's σ; a bermed dock shelters. Fault-Tolerant Avionics and Rad-Hard. The re-flash queue and the 480 s deadline. Loss records name the flare. An RPU unit reboots in half the time. |
 | Research | Lab multipliers. The head tech loses 3% or 10% (capped at its spend). Checkpoint pauses transfers and loses nothing. Banked data untouched. |
-| Fabs and compute | Yield loss, the X batch scrap, soft errors. Scars of 4% to 12% on running σ < 0.5 buildings only. Shut down: no loss, a 20 s warm-up. The last Data Center under Fleet OS is never shut. |
+| Fabs and compute | Yield loss, the X batch scrap, soft errors. Shut down: no yield loss, a 20 s warm-up. The last Data Center under Fleet OS is never shut. |
+| Rad scars | By class (0.25 · 1.5 · 5 · tail 1%; arrays 0.5 · 2 · 5 · 1.5%) × (1 − σ)² × 0.1 if prepared × hardening, multiplied into capability, never under 10%, never on the Lander or on buildings without an output, rate or capacity. Cumulative across flares with no other cap. Output, rate or capacity × capability, on top of wear. Wear heals; capability does not. |
+| Replace and Re-print | Replace: 50% of the cost, 60% of the time, the site kept, capability and wear reset. A unit re-prints in its hub's queue for half its price and keeps its bay; a rover or drone at its dock for 5◆ 8⚙. Maintenance Automation replaces under its threshold, one at a time. The capability alert fires once at 85%. |
 | Comms | The blackout holds a resupply's landing and a hopper's hop, then releases them. Downlink and Call home refused while dark. Teleoperation's speed lost. Streams buffered, none lost. Laser Ranging halves it. |
 | Wear and morale | Spikes by class × (1 − σ). Morale by class, halved by storm shelters, none in the tube. |
 | Forecasts | For 200 draws the window holds the truth and narrows. T1's class range holds the true class. The observatory is blind at the mare's night and in shade, lit on the pole's ridge. T2 exact, day and night, after the sentinel's day of cruise. T3 shows three flares. The Particle Telescope narrows the window. |
-| Domes | A kit prints at a Parts Fabricator. A rover drives, raises and fills in 40 s or 35 s; σ scales with the fill; the rover shelters under it. Packing returns 18≈. Uses count down, one more a lunar day up. Refused on arrays, roads and pads. A pit dome parks that pit's units on the recall. |
+| Domes | A kit prints at a Parts Fabricator. A rover drives, raises and fills in 40 s or 35 s; σ scales with the fill; the rover shelters under it. Packing returns 18≈. Uses count down, one more a lunar day up. Accepted over stowed arrays (their stow σ); refused over running arrays, roads and pads. A pit dome parks that pit's units on the recall. |
 | Protocols and the Builder | The grid runs at the telegraph by class; the recall sends only machines that fit. `domeKits` keeps its uses. Shelter planning deploys at a window's opening. Half the free rovers at most. |
-| Shield Coil | 45 m, σ 1, 40 kW in a flare; a brownout drops it; arrays inside generate without loss. |
+| Shield Coil | 45 m, σ 1, 40 kW in a flare; a brownout drops it; arrays inside run with no damage and are never stowed by a share. |
 | Breakthroughs | Each host's survey adds its tech; the slots. Implantation's ×1.5 and ×2.5 on the top benches for their windows. The particle annex's ×3. Storm sails: ×1.5 swarm and ×⅔ ↑ inside the window only. |
 | Lava tube | Tube buildings σ 1; arrays, masts and machines exposed; the blackout comes. |
-| UI | The chip's states. The panel fits 1280×720 with two sections folded. Alerts carry at most four buttons. Touch: the chip in the top bar, the side sheet, 44 px controls, the Dome tool in the bottom bar. |
-| Migration | A save mid-flare finishes as an M; the index and seen flags; a day's X grace; cells 1.0. |
+| UI | The chip's states. The pop-up fits 1280×720 (640 × 300) and 667×375 touch (563 × 262, six 44 px options). The panel fits 1280×720 with two sections folded. Alerts carry at most four buttons. Touch: the chip in the top bar, the side sheet, 44 px controls, the Dome tool in the bottom bar. |
+| Migration | A save mid-flare finishes as an M; the index and seen flags; a day's X grace; capability 1.0 everywhere; no remembered choices. |
 | Determinism | Two runs of seed 42 with a forced X give the same state hash after 60 min. |
 
 **Updated specs:** `hazards.spec` (DOSE and bit flips by class; "past 6, lethal at any
 tier" becomes X only), `crew.spec` (flare morale), `smoke.spec` (the clock loses FLARE),
 the power specs that expect solar 0 in a flare (now: stowed by default), `research.spec`
 (the three insights), `techtree.spec` (the fit), `map.spec` (the new hosts and the lost
-anomaly bonus), `automation.spec` (`flareStance`, `domeKits`), `fleet.spec` (reboots),
+anomaly bonus), `automation.spec` (`flareStance`, `domeKits`, replacement), `fleet.spec` (reboots, capability, re-prints),
 `destiny.spec`, `look.spec` and `upgrades.spec` (the new recipes and parts), `touch.spec`,
 and `auditTechs` for the twelve.
 
