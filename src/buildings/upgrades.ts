@@ -233,14 +233,20 @@ const lander: Upgrade[] = [
       box(0.3, 0.16, 0.2, LAMP, 4.9, 4.15, -2.5),
     ],
   },
-  { // Heliophysics Forecasting (docs/16 §6): a sun sensor for the forecast link (+x)
+];
+
+/** The Solar Observatory (docs/16 §6.3). Its forecast link and the sentinel's
+ *  dish ride here, not on the Lander: the Lander's fully upgraded mesh is at
+ *  its 7,500-triangle budget. F6 points the dish at the Sun. */
+const solarObservatory: Upgrade[] = [
+  { // Heliophysics Forecasting: a sun sensor on the pad for the forecast link
     tech: 'heliophysicsForecasting',
-    parts: () => [cyl(0.3, 0.36, 0.12, TRIM, 5.4, 0.06, 0.6, 0, 0, 8), ...sensorMast(5.4, 0.12, 0.6, 2.2)],
+    parts: () => [cyl(0.3, 0.36, 0.12, TRIM, 0.4, 0.36, 2.7, 0, 0, 8), ...sensorMast(0.4, 0.42, 2.7, 1.8)],
   },
-  { // L1 Sentinel (docs/16 §6.4): its tracking dish on a pylon (+z; F6 points it at the Sun)
+  { // L1 Sentinel: the sentinel's link dish on a pylon at the pad's corner
     tech: 'l1Sentinel',
-    parts: () => [dishPylon(2.3, 5.3, 2.6), box(0.2, 0.1, 0.05, LAMP, 2.3, 2.2, 5.56)],
-    mounts: (m) => [...m, { part: 'dish', p: [2.3, 2.75, 5.3], s: 0.7 }],
+    parts: () => [dishPylon(-2.6, 1.6, 2.2), box(0.2, 0.1, 0.05, LAMP, -2.6, 1.8, 1.86)],
+    mounts: (m) => [...m, { part: 'dish', p: [-2.6, 2.35, 1.6], s: 0.7 }],
   },
 ];
 
@@ -1074,7 +1080,7 @@ const storageYard: Upgrade[] = [
 const LANE: Partial<Record<BuildingId, Upgrade[]>> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery, refinery, lab,
   roboticsBay, partsFab, reactor, recDome, chipFab, dataCenter, foilFactory, massDriver, relayMast,
-  propellantPlant, storageYard,
+  propellantPlant, storageYard, solarObservatory,
 };
 
 /** Every type's upgrades: the lane techs' parts, then the destiny's (the

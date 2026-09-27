@@ -493,7 +493,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'powerDelta', building: 'lander', kw: -1 },
     ],
     desc: 'Watch the active regions rise: a coronagraph and an X-ray monitor on the ground, Earth’s bulletins over the link.',
-    visual: 'Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and the Lander raises a sun sensor for the forecast link.',
+    visual: 'Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and a sun sensor on the pad for the forecast link.',
     tradeoff: 'An eye on the Sun sees nothing at night.',
   },
   benchRobots: {
@@ -1037,7 +1037,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'powerDelta', building: 'lander', kw: -1.5 },
     ],
     desc: 'A sun-watcher at the Earth–Sun L1 point, like SOHO, ACE and DSCOVR: it never loses the Sun to the lunar night.',
-    visual: 'The Lander adds a sentinel tracking dish that points at the Sun.',
+    visual: 'Solar Observatories add a dish on a pylon for the sentinel’s link.',
     tradeoff: 'A million and a half kilometres of link, every second of the day.',
   },
   autoSmelting: {

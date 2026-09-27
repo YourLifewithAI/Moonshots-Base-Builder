@@ -203,7 +203,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 
 | Building | Stock △ | Fully upgraded △ | Upgrades |
 |---|---|---|---|
-| Lander | 2,760 | 8,444 | 19 |
+| Lander | 2,760 | 7,480 | 17 |
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
@@ -219,7 +219,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Recreation Dome | 1,824 | 1,948 | 1 |
 | Research Lab | 1,680 | 3,376 | 7 |
 | Relay Mast | 1,616 | 2,220 | 4 |
-| Solar Observatory | 865 | 865 | 0 |
+| Solar Observatory | 865 | 1,829 | 2 |
 | Data Center | 1,604 | 3,256 | 11 |
 | Foil Factory | 1,416 | 2,446 | 6 |
 | Mass Driver | 1,052 | 1,812 | 5 |
@@ -246,8 +246,6 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
 | Power Beaming Return | 8 | A rectenna mesh unfolds beside the Lander. | 96 |
 | Build Orders | 2 | The Lander raises a planning mast: a pole with a work lamp beside its top deck. | 104 |
-| Heliophysics Forecasting | 2 | Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and the Lander raises a sun sensor for the forecast link. | 112 |
-| L1 Sentinel | 5 | The Lander adds a sentinel tracking dish that points at the Sun. | 112 + 740 ↻ |
 | Crewed Landing (human only) | 1 | The Lander flies a flag, and its crew cabin shows a lit window band. | 88 |
 | Robotic Mission (robotic only) | 1 | The Lander’s cabin windows are blanked, and a rover rides stowed in a cradle on its hull. | 100 |
 | Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 48 |
@@ -409,6 +407,13 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Self-Expanding Base | 7 | Relay Masts wear a beacon crown and a cable reel at the foot. | 276 |
 | Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 160 |
 | Lights-Out Charter | 6 | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. | 48 |
+
+#### Solar Observatory
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Heliophysics Forecasting | 2 | Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and a sun sensor on the pad for the forecast link. | 112 |
+| L1 Sentinel | 5 | Solar Observatories add a dish on a pylon for the sentinel’s link. | 112 + 740 ↻ |
 
 #### Data Center
 

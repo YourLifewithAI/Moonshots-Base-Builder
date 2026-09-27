@@ -1696,8 +1696,8 @@ and before LOG), `tests/forecast.spec.ts`. The Solar Observatory (`solarObservat
 off-road like a Relay Mast) and its recipe; three techs: **Heliophysics Forecasting** (E2 ◎,
 240≡), **L1 Sentinel** (E5 ◎, 580≡ + 15▣), **Solar-Cycle Forecasting** (E6 ▣, 1700≡ + 10▣),
 with a new `{ kind: 'forecast', tier }` effect (`mods.forecastTier`) and the `sentinel`
-action; their parts: a sun sensor and the sentinel's dish on the Lander, a
-helioseismology rack on the Data Center. Hooks in `spaceWeather.ts`: `drawClass` takes a
+action; their parts: a sun sensor and the sentinel's link dish on the Solar Observatory,
+a helioseismology rack on the Data Center. Hooks in `spaceWeather.ts`: `drawClass` takes a
 context (the look ahead), `startFlare` takes the flash's time, the idle phase starts the
 telegraph at the lead, `beginActive`'s heliophysics and CME, `duskLine`'s tail.
 
@@ -1727,6 +1727,7 @@ discovery lines (§13.3).
 | `weatherPlanner` | not in F3: the Builder's shelter planning on a forecast is F4's | its rows are domes and kits |
 | Choose now | the flare pop-up itself, opened ahead (`n` −1 − n); Confirm stores `s.weather.ahead`, which the telegraph applies as a click: the pop-up opens compact and does not pause. A remember box sets the class's remembered choice at once | one card, one set of previews; a click already outranks every shortcut but a field override |
 | The panel's NEXT bar | the timeline carries the window; the NEXT line is text | one picture of the window, not two |
+| The sentinel's dish | on the Solar Observatory, not the Lander (§13.1's visual) | the Lander's fully upgraded mesh is at its 7,500-triangle budget |
 | The look | the observatory is a stock dome, slit and coronagraph; nothing tracks the Sun yet, the slit does not close, and the sentinel's dish is an ordinary tracked dish | F6 |
 | The launch | no plume and no hopper flight | F6 |
 
