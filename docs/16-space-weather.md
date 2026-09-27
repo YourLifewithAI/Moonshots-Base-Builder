@@ -53,6 +53,11 @@ The player decided two things before this design:
   research progress and faster wear. Only an X-class hitting an unprotected base does
   permanent damage. Every flare is warned in advance.
 
+**Revision 2** takes in the player's answers to the open questions (§17): the flare
+pop-up is where arrays are stowed, all or a share; arrays kept running are destroyed in
+severe flares; stowed arrays take repairable damage; and rad scars, cumulative, fall on
+every exposed building and machine left unprepared, until replacing them pays.
+
 ## 1. Decisions
 
 | Topic | Decision | Why |
@@ -63,9 +68,12 @@ The player decided two things before this design:
 | **Counts** | 9 flares a mare run (8–10): 3 C, 4 M, 2 X. The pole's shorter run: 7. Today: 7.3 and 6.4. | Simulated on 40 seeds (§3.5). |
 | **Drills** | The first flare is a **C drill**. The first flare from Era 2 is an **M**. The first X is a drill in its permanent parts. | docs/14 §3.1 rule 8. |
 | **Warning** | Every flare is telegraphed. The telegraph is the flash: **60 s** for C and M, **120 s** for X. A big spot group warns half a day before an X. Research adds forecasts up to planning grade (§6). | "Every flare is warned in advance, like hazards." |
-| **Stow or risk** | Arrays keep producing unless stowed. Arrays left generating lose cells for good: **0.25% C, 1% M, 3% X (+1% in the tail)**, never below 80%. Stowed arrays make nothing and lose nothing. **Default: stow on warning.** | The player's decision (§5). The default does no harm that lasts. |
-| **What is permanent** | Only these: cells on arrays left generating, at any class (the chosen risk); and from an **X on an unprotected base**: machines in the open (15% burn out), rad scars on running compute (−4% each, to −12%), and lethal EVA doses (⌂ only). | "Only an X-class hitting an unprotected base does permanent damage." The cells are the exception the player chose. |
-| **What is not** | Crew sickness, machine reboots and lost loads, lost research progress, chip yield and data errors, the comms blackout, wear spikes, morale. All scale with class. | The costs the player listed. |
+| **Stow or risk** | **One decision in the flare pop-up** (§5): keep all running, stow all, or stow a share (25 · 50 · 75% · all but the critical feed, or a slider). The game does it for every array by a rule: stow first what is safest to stow and gives least; keep running the fewest strong arrays that carry life support. Shortcuts: a remembered choice per class, field overrides, the Builder's `flareStance`. **Unanswered:** the remembered choice, else the safe default, **stow all but the critical feed**. | The player's answer to Q1: choose once, and the game executes it. |
+| **Arrays kept running** | **Destroyed outright** in severe flares: **50% at X, 15% at M**, the rest scarred (−5%, −2%); a C only scars (−0.5%). Wrecks must be rebuilt at build cost. The player keeps full power. | "Half of them become non-recoverable and have to be rebuilt, but I kept electricity up." |
+| **Arrays stowed** | **Repairable damage only:** −5% at M, −20% at X with its tail, none at C. A rover repair job restores it (1–2⚙ and 7–10 s an array), queued from the pop-up or by the Builder. **Proper shielding** (field berms from Regolith Shielding, and Rad-Hard Cells) cuts it to 1% and 4%. | "Damage that needs the rovers to get out there and repair, but not irreversible." |
+| **What is permanent** | Only what was left unshielded and unprepared: arrays destroyed while running; **rad scars**, cumulative and uncapped, on exposed buildings, running arrays and machines caught out (C −0.25%, M −1.5%, X −5%, tail −1%; × (1 − σ)², a tenth if prepared); and from an X, machines burned out (15%, 45% more bricked) and lethal EVA doses (⌂ only). | The player's answers to Q2 and Q3: damage that adds up until replacing is the right call. |
+| **Replace** | Scarred buildings are **replaced** in place for 50% of their cost; scarred units and rovers **re-printed** at their hub or dock for 50%. Maintenance Automation does it under 75% capability. **No annealing tech.** | Scars never heal, so replacing must be cheap and clear. |
+| **What is not** | Stowed arrays' damage, crew sickness, machine reboots and lost loads, lost research progress, chip yield and data errors, the comms blackout, wear spikes, morale. All scale with class. | The costs the player listed. |
 | **Shielding** | One number per thing, **σ from 0 to 1**, the best of its sources. Every effect is × (1 − σ). | One rule, one inspector line. |
 | **Forecasting** | T0 the flash and Earth's bulletin · T1 **Heliophysics Forecasting** and the Solar Observatory (the next flare's window and class range; blind at night off the pole) · T2 **L1 Sentinel** (firm class, a tight window, day and night) · T3 **Solar-Cycle Forecasting** (the curve and the next three flares). | "Plan strategically for them." |
 | **Protection** | Permanent: Regolith Shielding (σ 0.5; docked machines sheltered), Water-Wall Shielding, Rad-Hard Process, Fault-Tolerant Avionics, Rad-Hard Cells, storm shelters, the Shield Coil. Temporary: **rover-deployed bag walls and water-wall domes** with reuse counts. **Flare Protocols** act by class. | The player's temporary domes, and the permanent ladder behind them (§7). |
@@ -73,7 +81,7 @@ The player decided two things before this design:
 | **He-3** | **Flavour.** A counter on the implantation card; no stockpile. | The game has no fusion to burn it in. |
 | **The lava tube** | **Partly immune.** The tube shelters pressurized and compute buildings (σ 1). Arrays, masts, launchers, pits and machines out working are on the surface. | Rock overburden protects what lives inside; the Sun's light has to be caught outside. |
 | **Research** | **Twelve techs:** eight in the lanes (E2–E6) and four breakthroughs (E3–E7), all at their era's median, charter-neutral (§13). Twelve existing techs change. | A ladder in every era from the first M to solar maximum. |
-| **Pacing** | A reasonable player with forecasting and protection: **−2% to +4%** to FIRST LIGHT against a legacy-flare run. Ignoring flares: **+4% to +10%**, and never a defeat from flares alone (§12). | The brief's two targets. |
+| **Pacing** | A reasonable player with forecasting and protection: **−2% to +4%** to FIRST LIGHT against a legacy-flare run. Ignoring flares: **+5% to +15%**, and never a defeat from flares alone (§12). | The brief's two targets, widened for cumulative scars. |
 
 ## 2. Measured today
 
@@ -130,7 +138,7 @@ A real flare arrives in three waves. The game keeps their order.
 
 | Wave | Real arrival | In the game |
 |---|---|---|
-| **The flash**: X-rays and EUV, at light speed | 8 minutes | The **telegraph** starts. The class is known at once: the class *is* the X-ray peak (C 10⁻⁶, M 10⁻⁵, X 10⁻⁴ W/m²). |
+| **The flash**: X-rays and EUV, at light speed | 8 minutes | The **telegraph** starts. The class *is* the X-ray peak (C 10⁻⁶, M 10⁻⁵, X 10⁻⁴ W/m²): a range while the flux rises (the true class and a neighbour), firm when it peaks 20 s in. With the L1 Sentinel it is firm at once. |
 | **The protons**: a solar energetic particle event | tens of minutes to hours | The **active** phase: the radiation storm that does the damage. After an X, a weaker **proton storm tail**. |
 | **The CME**: a cloud of plasma | 1–3 days | A **CME front** 0.4 lunar day later. The Moon has no magnetosphere to shake, so it does little harm. It opens the storm-sail window (§8.5). |
 
@@ -170,10 +178,10 @@ idle ──(nextAt)──▶ telegraph ──▶ active ──▶ tail (X only) 
 | Phase | What runs |
 |---|---|
 | idle | The forecast of the next flare, at the base's tier (§6). |
-| telegraph | The alert and its buttons, the protocols (§7.4), domes going up, arrays stowing in the last 10 s. |
+| telegraph | **The flare pop-up** (§5.2) and its choice, the protocols (§7.4), domes going up, arrays stowing in the last 10 s. |
 | active | Every consequence of §4 at full strength. |
-| tail | §4 at 35%: cells, machines (as a C), crew doses, labs. The comms blackout holds. Arrays stay as they are set. |
-| idle again | Arrays unstow (10 s). Domes pack. The log line is written. The next flare is scheduled. |
+| tail | §4 at 35%: arrays (scars, or repairable damage), machines (as a C), crew doses, labs. The comms blackout holds. Arrays stay as they are set, unless the tail row says to run them (§5.4). |
+| idle again | Arrays unstow (10 s). Repairs queue. Domes pack. The log line is written. The next flare is scheduled. |
 
 The hazard scheduler's gaps (`flareBlocks`, `src/core/hazards.ts:384`) treat the tail
 as part of the active phase.
@@ -580,9 +588,9 @@ A mare base with 24 arrays (240 kW) and an unshielded field, no Rad-Hard Cells:
 
 | Choice | C | M | X (with its tail) |
 |---|---|---|---|
-| **Keep all running** | full power · every array −0.5% for good | full power · **4 destroyed** (48◆ and 3.3 rover-min to rebuild) · 20 scarred −2% | full power for 3:10 · **12 destroyed** (144◆, 10 rover-min) · 12 scarred −6.5% |
+| **Keep all running** | full power · every array −0.5% for good | full power · **4 destroyed** (48◆ and 3.3 rover-min to rebuild) · 20 scarred −2% | full power for 3:00 · **12 destroyed** (144◆, 10 rover-min) · 12 scarred −6.5% |
 | **Stow all** | −240 kW for 0:40 · no damage | −240 kW for 0:55 (40% of the bank) · −5% on all 24, repaired for 24⚙ | −240 kW for 3:10 (1.4 banks: the bank runs dry) · −20% on all 24, repaired for 48⚙ |
-| **Stow 75%**, keeping 6 on the critical feed | −60 kW… | −180 kW · 1 destroyed · 18 repaired for 18⚙ | −180 kW · **3 destroyed** (36◆) · 3 scarred · 18 repaired for 36⚙ |
+| **Stow 75%**, keeping 6 on the critical feed | −180 kW for 0:40 · the 6 running −0.5% | −180 kW · 1 destroyed · 18 repaired for 18⚙ | −180 kW · **3 destroyed** (36◆) · 3 scarred · 18 repaired for 36⚙ |
 
 - **A C** costs little either way. Running scars 0.5%; stowing costs 40 s. They break even
   at about 19 lunar days of use, roughly a whole run.
@@ -723,7 +731,7 @@ A rule in the **power** family, unlocked by Automated Power (E4 ⚡; docs/13 §3
 
 | Tier | From | What you know | Telegraph C, M · X | The HUD chip |
 |---|---|---|---|---|
-| **T0 · the flash** | landing | The class at the flash. **Earth's bulletin:** the activity band (`QUIET` a < 0.35 · `ACTIVE` · `STORMY` a ≥ 0.7). **The spot-group watch:** half a lunar day before an X, `BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day`. | 60 · 120 s | `☉ ▮▯▯ QUIET` |
+| **T0 · the flash** | landing | The class as a range at the flash, firm 20 s in at its peak. **Earth's bulletin:** the activity band (`QUIET` a < 0.35 · `ACTIVE` · `STORMY` a ≥ 0.7). **The spot-group watch:** half a lunar day before an X, `BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day`. | 60 · 120 s | `☉ ▮▯▯ QUIET` |
 | **T1 · Heliophysics Forecasting** (E2 ◎) + a Solar Observatory that sees the Sun | the tech and the building | The next flare's **window** and its **class range** (two neighbouring classes). CME windows after an M or X. | 90 · 150 s | `☉ C–M · 0:40–1:30` |
 | **T2 · L1 Sentinel** (E5 ◎), launched and on station | the tech, then a launch | The next flare's **class, firm**, and a tight window, **day and night**. The CME's arrival to the second. | 120 · 180 s | `☉ M · 1:05 ±0:07` |
 | **T3 · Solar-Cycle Forecasting** (E6 ▣) | the tech, with the sentinel | **The cycle curve** (now, the maximum's day, the fall), and **the next three flares** on the timeline. The Builder plans on them (§7.5). | as T2 | `☉ M · 1:05 ±0:07 · max in 1.8 d` |
