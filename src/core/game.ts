@@ -43,6 +43,8 @@ import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { digAtHome, digRefusal, setDigSite } from './haul';
 import { accessCell, bumpRoads, dropSpur, joinCell, layApron, laySpur, migrateRoads } from './roads';
 import { zonesFrom } from './zones';
+import { bindTerrain, digSiteKey, onDig, pitsView, restoreTerrain, saveTerrain, syncPitZones } from './pits';
+import { encodeDelta, takeCarved } from '../terrain/pitCarve';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
@@ -56,7 +58,7 @@ import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { BuildingDarkness } from '../buildings/darkness';
 import {
-  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, untouchedSite, type PlaceableType,
+  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, gradeCost, untouchedSite, type PlaceableType,
 } from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
@@ -306,7 +308,9 @@ export class Game {
     // saves from the 34-tech tree: retired ids refunded, the queue sanitized
     migrateTechSchema(blob.state);
     this.bootWorld(blob.state);
-    // replay flattens onto the regenerated terrain, in order
+    // the pits' height deltas onto the regenerated surface, then the flattens
+    // replay over them, in order (base → deltas → flattens, docs/17 §11.1)
+    const carved = restoreTerrain(this.state, this.hf);
     for (const f of this.state.flattens) {
       this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
       this.onFlattened(f.x0, f.z0, f.x1, f.z1);
@@ -318,7 +322,12 @@ export class Game {
     for (const b of this.state.buildings) this.stampDeposit(b);
     migrateRoads(this.state, this.hf); // a save from before roads gets them now
     this.syncDeposits(false);
-    if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
+    // the pits' zones come back from the grid (the save leaves them out)
+    syncPitZones(this.state, this.hf, undefined, false);
+    if (this.state.flattens.length || carved) this.chunks.rebuildAround(0, 0, 255, 255);
+    this.chunks.clearQueue();
+    if (carved) { this.rocks.clearPits(0, 0, 255, 255); this.walk.boulders = this.rocks.colliders(); }
+    this.hf.carved.length = 0;
     this.instances.rebuild(this.state);
     this.homeCamera(false);
     this.walk.colliders = this.instances.colliders(this.state);
@@ -338,6 +347,7 @@ export class Game {
     this.mods = refreshDerived(state);
     if (this.worldGroup) this.scene.remove(this.worldGroup);
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
+    bindTerrain(state, this.hf); // the pits carve this ground (core/pits.ts, economy step 4.2)
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
     this.rocks = new Rocks(this.hf);
@@ -716,6 +726,30 @@ export class Game {
     else this.buildCam.home(x, y, z);
   }
 
+  private overlayOwed = false;
+  private overlayClock = 0;
+  /** The pits changed the ground (docs/17 §11.6): the chunks they touched join
+   *  the rebuild queue (one a frame, two a second, shadows every 2 s), rocks
+   *  on the cut go, and the deposit rings re-drape at most once a second.
+   *  Nothing is allocated on a frame without a carve. */
+  private syncTerrain(dt: number) {
+    if (this.hf.carved.length) {
+      takeCarved(this.hf, (gx0, gz0, gx1, gz1) => {
+        this.chunks.markDirty(gx0, gz0, gx1, gz1);
+        this.rocks.clearPits(gx0, gz0, gx1, gz1);
+      });
+      this.walk.boulders = this.rocks.colliders();
+      this.overlayOwed = true;
+    }
+    this.chunks.pump(dt);
+    this.overlayClock += dt;
+    if (this.overlayOwed && this.overlayClock >= 1) {
+      this.overlayOwed = false;
+      this.overlayClock = 0;
+      if (this.depositOverlay) this.rebuildDepositOverlay();
+    }
+  }
+
   /** Cells [x0..x1) × [z0..z1) were flattened: clear the rocks off them and
    *  keep the horizon's shared edge in step with the grid. */
   private onFlattened(x0: number, z0: number, x1: number, z1: number) {
@@ -885,7 +919,7 @@ export class Game {
         if (!this.mods.grading) break;
         const chk = checkGrade(s, this.hf, a.gx, a.gz);
         if (!chk.valid) { alert(s, `CANNOT GRADE — ${chk.reason}`, 'warn'); break; }
-        s.powerStored -= GRADE_COST_ENERGY;
+        s.powerStored -= gradeCost(this.hf, a.gx, a.gz);
         const h = this.hf.flatten(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
         this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
@@ -1577,6 +1611,7 @@ export class Game {
     } else {
       this.rocks.update(this.camera);
     }
+    this.syncTerrain(dt);
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
@@ -2115,8 +2150,11 @@ export class Game {
 
   private saveBlob(): SaveBlob {
     const held = this.savePausedAs;
+    // the height-delta grid, sparse (docs/17 §11.5); pit zones are rebuilt from it on load
+    saveTerrain(this.state, this.hf);
+    const base = held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held };
     return {
-      state: held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held },
+      state: base.zones?.some((z) => z.kind === 'pit') ? { ...base, zones: base.zones.filter((z) => z.kind !== 'pit') } : base,
       player: {
         mode: this.modes.mode,
         x: this.walk.pos.x, y: this.walk.pos.y, z: this.walk.pos.z,
@@ -2357,6 +2395,34 @@ export class Game {
   }
 
   // ─────────────────────────── debug hooks ───────────────────────────
+
+  /** Every pit and its derived numbers, the grid encoded, the rebuild queue (docs/17 §21). */
+  debugPits() {
+    const s = this.state;
+    const delta = encodeDelta(this.hf.delta);
+    let nonzero = 0, cut = 0, heap = 0;
+    for (let k = 0; k < this.hf.delta.length; k++) {
+      const d = this.hf.delta[k];
+      if (!d) continue;
+      nonzero++;
+      if (d < 0) cut -= d * 1.6; else heap += d * 1.6;
+    }
+    return {
+      pits: pitsView(s, this.hf), rev: s.terrain?.rev ?? 0, clock: s.terrain?.clock ?? 0,
+      delta, bytes: delta.length, nonzero, cutM3: cut, heapM3: heap, queue: this.chunks.queueInfo(),
+    };
+  }
+
+  /** One grid sample: height now, the generated surface, the delta (dm), locks. */
+  debugSample(ix: number, iz: number) {
+    const k = iz * 257 + ix;
+    return { h: this.hf.h[k], base: this.hf.base[k], delta: this.hf.delta[k], pad: this.hf.padMask[k], skirt: this.hf.skirt[k] };
+  }
+
+  /** The adapter as an excavator calls it: `tonnes` dug at world (x, z). */
+  debugPitDig(x: number, z: number, tonnes: number, q = 1) {
+    onDig(this.state, digSiteKey(x, z), tonnes, q);
+  }
 
   debugPlace(type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0): boolean {
     const chk = checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, rot,

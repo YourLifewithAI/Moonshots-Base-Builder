@@ -27,6 +27,7 @@ import { computeEra, destinyOf, eraTick, insightTick, producerHint, researchTick
 import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
+import { pitsStep } from './pits';
 import { settleJobs, sinter, spurLeft } from './roads';
 import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -670,6 +671,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
   }
   if (ilmeniteDug) st.ilmeniteDigS += dt;
+  // ── 4.2 · pits: what was dug deforms the ground (core/pits.ts, docs/17 §11) ──
+  pitsStep(s, dt);
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {
