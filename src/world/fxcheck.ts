@@ -51,6 +51,8 @@ export interface FxCheckMetrics {
 export interface HdrStats { nan: number; inf: number; neg: number; max: number }
 
 export interface FxCheckResult {
+  /** 1, 2, … in this session */
+  seq: number;
   at: string;
   level: number;
   verdict: 'pass' | 'fail' | 'unknown';
@@ -68,8 +70,10 @@ export interface FxCheckResult {
 export const VERDICT = {
   /** a plain tile this bright (display 0–255) counts as lit */
   litTile: 6,
-  /** a lit tile is lost when the chain draws it below this share of plain… */
-  lostRatio: 0.3,
+  /** a lit tile is lost when the chain draws it near-black: below this
+   *  share of plain and below lostAbs (AO at a grazing view can take 70%
+   *  off a dusk tile; a failed level takes all of it)… */
+  lostRatio: 0.3, lostAbs: 3,
   /** …and the level fails at this share of lit tiles lost */
   lostShare: 0.25,
   /** a tile gains when chain > gainRatio × plain + gainAbs… */
@@ -78,8 +82,9 @@ export const VERDICT = {
   gainPlainMax: 150, gainShare: 0.08,
   /** a plain tile with this luminance spread has detail… */
   detailSd: 8,
-  /** …flat when the chain's spread is under this share of it; fails at this share */
-  flatRatio: 0.25, flatShare: 0.35,
+  /** …flat when the chain's spread is near zero: under this share of it and
+   *  under flatAbs; fails at this share */
+  flatRatio: 0.25, flatAbs: 1.5, flatShare: 0.35,
   /** whole-frame mean ratio outside this band fails (plain mean ≥ 3) */
   meanLow: 0.35, meanHigh: 3,
   /** histogram L1 distance over this fails */
@@ -175,12 +180,12 @@ export function compareFrames(C: Float32Array, R: Float32Array, W: number, H: nu
       const sdc = Math.sqrt(Math.max(0, qc / n - mc * mc)), sdr = Math.sqrt(Math.max(0, qr / n - mr * mr));
       if (mr >= VERDICT.litTile) {
         lit++;
-        if (mc < VERDICT.lostRatio * mr) lost++;
+        if (mc < Math.min(VERDICT.lostRatio * mr, VERDICT.lostAbs)) lost++;
       }
       if (mr < VERDICT.gainPlainMax && mc > VERDICT.gainRatio * mr + VERDICT.gainAbs) gained++;
       if (sdr >= VERDICT.detailSd) {
         detailed++;
-        if (sdc < VERDICT.flatRatio * sdr) flat++;
+        if (sdc < Math.min(VERDICT.flatRatio * sdr, VERDICT.flatAbs)) flat++;
       }
     }
   }
@@ -219,6 +224,7 @@ export class FxSelfCheck {
   private hdr: THREE.WebGLRenderTarget | null = null;
   /** the last results, newest last (the render report) */
   readonly history: FxCheckResult[] = [];
+  private seq = 0;
 
   constructor(
     private renderer: THREE.WebGLRenderer,
@@ -356,7 +362,7 @@ export class FxSelfCheck {
     const { verdict, reasons } = judge(metrics, plain.mean, hdr);
     const round = (o: ImgStats) => ({ mean: +o.mean.toFixed(2), black: +o.black.toFixed(4), hist: o.hist.map((h) => +h.toFixed(4)) });
     const res: FxCheckResult = {
-      at: new Date().toISOString(), level, verdict, reasons, size: [W, H],
+      seq: ++this.seq, at: new Date().toISOString(), level, verdict, reasons, size: [W, H],
       ms: +(performance.now() - t0).toFixed(1),
       chain: round(chain), plain: round(plain), hdr,
       metrics: {
