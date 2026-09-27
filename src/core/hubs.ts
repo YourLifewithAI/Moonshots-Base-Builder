@@ -543,8 +543,16 @@ function chooseFor(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Buildi
   }
   const auto = unitsOf(s, b.id).filter((x) => !x.pinned).length;
   const list = choicesFor(s, mods, site, b, auto).filter((c) => c.inReach);
-  // the one it works now stays unless another is clearly better (no flip-flopping)
+  // the one it works now stays unless another is clearly better (no flip-flopping);
+  // a deposit's pit with ore left keeps its units until it is dug out (docs/17 §10:
+  // they extract it concentrically — moving them on early is Feed Planner's job)
   const cur = u.target ? list.find((c) => c.target.key === u.target && c.trip.connected) : undefined;
+  if (cur && !cur.target.plain && freeFace(s, cur.target, u) >= 0) {
+    const p = pitAt(s, cur.target);
+    if (p && !p.spent && p.state !== 'boxed') {
+      return { t: cur.target, face: u.face >= 0 && u.target === cur.target.key ? u.face : freeFace(s, cur.target, u) };
+    }
+  }
   let why = 'IDLE — no pit in reach with a free face';
   for (const c of list) {
     if (cur && c !== cur && c.score <= cur.score * 1.1 && freeFace(s, cur.target, u) >= 0) {

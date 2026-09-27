@@ -443,7 +443,7 @@ export function syncPitZones(s: GameState, hf: Heightfield, only?: ReadonlySet<n
   let occ: Set<number> | null = null;
   let roads: Set<number> | null = null;
   const next: ZoneState[] = [];
-  let changed = false;
+  let changed = false, moved = false;
   for (const p of s.pits ?? []) {
     // a reclaimed pit's zone closes (§12.2); its deposit, if any, stays mapped
     if (p.anchor < 0 || p.state === 'reclaimed') continue;
@@ -460,16 +460,19 @@ export function syncPitZones(s: GameState, hf: Heightfield, only?: ReadonlySet<n
     }
     const cells = pitCells(hf, p.anchor, p.box[0], p.box[1], p.box[2], p.box[3], 1)
       .filter((k) => !occ!.has(k) && !roads!.has(k));
+    const cx = Math.round(p.cx * 10) / 10, cz = Math.round(p.cz * 10) / 10, r = Math.round((p.R + CELL_M) * 10) / 10;
     const same = !!prev?.cells && prev.cells.length === cells.length && prev.cells.every((k, i) => k === cells[i]);
-    if (same) { next.push(prev!); continue; }
+    if (same && prev!.cx === cx && prev!.cz === cz && prev!.r === r) { next.push(prev!); continue; }
+    // its circle moved but not its cells: the zone's numbers follow, its cells (and gates) stand
+    if (same) { next.push({ ...prev!, cx, cz, r }); moved = true; continue; }
     changed = true;
-    next.push({ id, kind: 'pit', cx: Math.round(p.cx * 10) / 10, cz: Math.round(p.cz * 10) / 10, r: Math.round((p.R + CELL_M) * 10) / 10, cells });
+    next.push({ id, kind: 'pit', cx, cz, r, cells });
   }
   if (next.length !== old.size) changed = true;
-  if (!changed) return;
+  if (!changed && !moved) return;
   s.zones = [...keep, ...next];
   // (a load rebuilds the zones the save left out: the network it saved is unchanged)
-  if (bump) bumpRoads(s);
+  if (bump && changed) bumpRoads(s);
 }
 
 // ───────────────────────────── saving ─────────────────────────────
