@@ -18,6 +18,8 @@ import { mountMenu } from './menu';
 import { $phase } from './stores';
 import { mountVisor } from './visor';
 import { sfx } from '../audio/sfx';
+import { touchOn } from '../core/touch';
+import { mountTouchUi } from './touchUi';
 
 export function mountUI(game: Game) {
   const root = document.getElementById('ui-root')!;
@@ -47,6 +49,8 @@ export function mountUI(game: Game) {
   mountVictory(root, game);
   mountDefeat(root);
   mountSiteSelect(root, game);
+  // touch mode: last, so it can re-home what the desktop modules built
+  if (touchOn()) mountTouchUi(root, hudLayer, game);
 
   $phase.subscribe((p) => {
     hudLayer.style.display = p === 'playing' ? 'block' : 'none';

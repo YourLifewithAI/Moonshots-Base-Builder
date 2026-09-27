@@ -1,8 +1,10 @@
 # 17 · Extraction hubs: hubs that build their own robots, and strip mines that reshape the ground
 
-**Status:** Phase A design, revision 2, on `work/hubs` from main `97e1373`. No code
-yet. Revision 2 takes in the player's answers (§23) and redesigns extraction as
-**strip mining that deforms the terrain** (Part 2). Phase B starts after
+**Status:** Phase A design, revision 2, on `work/hubs` from main `97e1373`.
+**Phase 3 (heightfield editing and pits) has shipped** on `work/pits`, ahead of
+Phases 1–2: pits follow today's hauling for now (§22, "As shipped"). Revision 2
+takes in the player's answers (§23) and redesigns extraction as **strip mining that
+deforms the terrain** (Part 2). Phase B starts after
 **work/unitpower** (machine battery packs) merges, since it changes the same files.
 Check these borrowed names again at merge: `homeOf`, `chargeSpotOf` and Rover Power
 Packs (work/unitpower), docs/16 and its shelter rule (work/flares), and tap
@@ -15,10 +17,12 @@ placement (work/touch).
 surveys), `src/core/zones.ts` (extraction zones), `src/core/roads.ts` (spurs, A*,
 gates), `src/core/siting.ts` and `src/core/automation.ts` (the Builder),
 `src/ui/depositCard.ts`.
-**Code to come:** `src/data/hubs.ts` (hub, unit, pit and grade tables),
-`src/core/hubs.ts` (printing, bays, assignment), `src/core/pits.ts` (pit growth,
-grade, reserves, faces, surveys), `src/terrain/pitCarve.ts` (the height-delta grid),
-`src/ui/hubPanel.ts`, and changes to the files above.
+**Code shipped (Phase 3):** `src/core/pits.ts` (pits, the adapter, step 4.2, pit
+zones, the refusals) and `src/terrain/pitCarve.ts` (the height-delta grid, carving,
+heaps, masks, the codec). **Code to come:** `src/data/hubs.ts` (hub, unit, pit and
+grade tables), `src/core/hubs.ts` (printing, bays, assignment), grade, reserves,
+faces and surveys in `src/core/pits.ts`, `src/ui/hubPanel.ts`, and changes to the
+files above.
 
 If a number here disagrees with the code once it ships, the code wins.
 
@@ -653,6 +657,18 @@ down first, then outward.
   faster on the free sides: it is no longer round.
 - **Monotone.** A carved sample never rises again, except by Reclaim (§12.2).
 
+**Grow away, never toward** (the player's rule for Phase 3: "I assume that the
+pits will not extend towards existing buildings, but away").
+
+| Rule | How it is built (`src/core/pits.ts`, `src/terrain/pitCarve.ts`) |
+|---|---|
+| **Setback** | No pit digs within 12 m of a structure's walls: its pad, the two-sample skirt, and a 4 m margin (3 samples). No pit digs within 8 m of a road cell, door, bay or the Lander's apron (a sample either side, and a 4 m margin). Other pits and every heap keep a sample clear. |
+| **Growth direction** | Before each carve, 16 probes look 4–12 m past the rim. Each blocked side pushes the pit's centre the other way, by up to the rim's advance for that carve: a pit blocked on half its rim drifts about that far, so its blocked side stays put. The pit elongates away. The centre only drifts over the pit's own cut, so it stays one hole. |
+| **Walls** | Near a blocked sample, a wall's depth is capped at half its distance, so walls stay 1:2 against the setback. |
+| **Heaps** | A quarter turn from the gate (the pit grows away from its gate), just outside the pit's plan ring. Of the two sides, the one farther from structures and roads. |
+| **Buildings placed later** | The masks are rebuilt at every carve, so a new structure is respected from the next carve on. Placement already keeps it 4 m from a rim (§11.3). |
+| **Footings** | Pads and their skirts are never dug or buried. A flatten's skirt skips cut and heaped samples. So the slope and relief under every pad never change. |
+
 ### 8.2 Benches are the faces
 
 - **Faces = floor(free rim length / 30 m), clamped to 1–6.** The free rim is the part
@@ -932,6 +948,11 @@ So on load: **base → deltas → flattens**, and the result is exact.
 | within 4 m (one cell) of a rim | refused: the same words |
 | inside a deposit's **full-size pit ring** or a plain pit's three-lunar-day ring | a **warning**: `IN THE PIT'S WAY — the pit stops at this wall; ~20% of its ore stays in the ground` (the first click asks, the second builds) |
 | beside a heap | nothing new: the relief check decides |
+
+The other way round holds too (§8.1): a pit never digs within 12 m of a
+structure's walls, nor within 8 m of a road, door, bay or the apron. So a
+building placed 4 m from a rim stops that side of the pit, and the pit grows on
+its free side.
 
 **Site Grading** (the grade action, 40 stored energy a 16 m pass):
 
@@ -1640,7 +1661,7 @@ Each phase merges on its own and leaves the game playable.
 |---|---|---|---|
 | 1 | **Data and hub units** | `src/data/hubs.ts`; `waterPlant`; unit defs; the smelter from landing; `s.haulers`; the queue, printing, bays and Level I; the inspector's UNITS and ROBOTS; the palette drops the Excavator and Ice Harvester; the minimal migration | Units printed by hubs, hauling by today's rules into the old pool |
 | 2 | **Haul to hub** | hoppers; ▲ as their sum; the pile; per-hub grade and feed; trips hub → gate → face → hub; plain pits as staked points (no carving yet); reach; the auto choice; Assign, Open pit…, Send…, Recall; the haul road with the spur; power per unit | Hubs live on their own hauls |
-| 3 | **Heightfield editing and pits** | `src/terrain/pitCarve.ts`: the delta grid, carving, heaps, ramps, no-dig and no-build masks; `s.pits` and step 4.2; saving (base → deltas → flattens); the chunk rebuild queue and shadow throttle; placement, road A*, `roadReach`, zones and gates on the new terrain; Site Grading on pits and heaps; rocks | The ground deforms as units dig |
+| 3 | **Heightfield editing and pits** ✅ **shipped** (`work/pits`) | `src/terrain/pitCarve.ts`: the delta grid, carving, heaps, ramps, no-dig and no-build masks; `s.pits` and step 4.2; saving (base → deltas → flattens); the chunk rebuild queue and shadow throttle; placement, road A*, `roadReach`, zones and gates on the new terrain; Site Grading on pits and heaps; rocks | The ground deforms as units dig |
 | 4 | **Grade, reserves, faces, surveys and morale** | the grade tables and q; the ore halo and cutoff; exhaustion and boxed-in pits; bedrock benches; faces as benches; the survey job, precision and the card; strip-mine morale; Reclaim | Pits run out and you can see why |
 | 5 | **The preview and the highlight** | the ghost's HUB block, its plain-pit stake and ring warnings; lit rings, rims and labels; the Lunar Map; touch | Placement shows its strategy |
 | 6 | **The research reshuffle** | Pit Mapping and the six other new techs; §14.4's changes; techSchema 5; milestones; discovery; the 71 test references | The ladder is in |
@@ -1652,6 +1673,94 @@ which work/unitpower also changes; that is why Phase B waits for it. Design the 
 against `homeOf` and `chargeSpotOf` from Phase 1. Phase 3 touches
 `src/terrain/heightfield.ts` and `src/terrain/chunks.ts`, which no in-flight branch
 changes.
+
+### As shipped: Phase 3, ahead of Phases 1–2
+
+Phases 1–2 wait on work/unitpower, so Phase 3 shipped first. Its pits follow
+today's hauling.
+
+**The adapter** (`src/core/pits.ts`). It is thin and isolated, so Phase 2 can
+repoint it without rewriting pits.
+
+| Piece | What it does |
+|---|---|
+| `onDig(s, digSiteKey(x, z), tonnes, q)` | One line in the excavator's dig phase (`src/core/haul.ts`). It finds, or opens, the pit for where the digger stands, and adds what it dug. Every digger on one deposit shares that deposit's pit (`dep:<id>`). On plain ground each dig cell is its own pit (`dig:gx,gz`). |
+| `digInto(s, pit, tonnes, q)` | The growth itself. **Phase 2 calls this** for a hub unit's pit, and drops the key. |
+| `pitsStep(s, dt)` | Economy step 4.2: one line after production. It stakes, carves and dumps. |
+| `bindTerrain(s, hf)` | `Game.bootWorld` binds the heightfield, since the economy tick has none. |
+
+- **Volume.** ▲ is a tonne, and the hole is ▲ ÷ 1.5 m³ whatever the grade. The grade
+  sets the product per ▲ (§9.2), so a lean cut digs more hole per product, not per
+  tonne.
+- **q.** Today's grade of the load stands in for q: the feed factor its ground gives
+  (high-Ti basalt 1.3, anorthosite 1.4, KREEP 0.85, else 1). It is kept per pit as an
+  amount-weighted EMA, like the feed EMA (`HAUL.feedMemory`), for Phase 4.
+- **The heap** gets 70% of the mass back at 1.3 t/m³: 0.81 × the cut.
+- **An excavator digging its own pad** cannot carve under its own building. Its pit
+  opens beside the pad instead, at the nearest free ground to the deposit's heart
+  (§8.6):
+  - room to open to its floor (2L + 4 m clear);
+  - on the deposit if it can;
+  - on the side away from the Lander.
+- **Dig at…** ground gets its pit at the dig site, or at the nearest free ground if
+  the haul road ends there.
+- **Only excavators carve today.** The Ice Harvester is a static producer with no
+  haul, so ice pits wait for Phase 2's Ice Miners.
+- **Batches.** A pit carves at most every 5 game-s, once its rim would move 0.5 m or
+  150 m³ is owed; the first cut comes at 40 m³. The timing uses the pits' own tick
+  clock (`terrain.clock`), so live play and debug advances carve alike.
+- **One hole.** A pit only grows over ground joined to its own cut through
+  unblocked samples, so it never jumps a road or a structure's setback. Its heap
+  grows the same way.
+- **The shape.** Walls are 1:2 in 2 m benches (each sample ring a bench lower), with
+  a floor at L. The ramp is a straight 8 m band at 1:4 down the gate side, its sides
+  at 1:2, its top following the rim. Heaps are flat-topped, at most 6 m, sides at 35°.
+- **Grow away, never toward** is §8.1's table: the setback, the drift, heaps a
+  quarter turn from the gate, later buildings respected, footings unchanged.
+- **Zones.** A pit is a zone of kind `pit`: its cut and a cell round it, as explicit
+  cells. It never takes a road cell or a footprint. Pit zones come after the
+  deposits' zones, so a deposit keeps its cells and its gates. A grown zone bumps
+  `roadRev`.
+- **Roads.** `Heights.noRoad` walls off any cell with a cut or spoiled corner, for
+  A*, `roadReach` and the road tool. Plans and reach key on `terrain.rev`.
+- **Placement.** It refuses a footprint `ON A PIT — its benches go 5.0 m down; build 4
+  m back from the rim` and `ON SPOIL — …`. It also refuses one within 4 m of a rim:
+  `TOO CLOSE TO A PIT — nothing within 4 m of a rim; build 4 m back`.
+- **Site Grading.**
+  - It refuses a pit, and its skirt: `CANNOT GRADE — a pit (5.0 m deep): …`. This
+    check comes before the network check.
+  - It levels a heap, at 40 × (1 + relief ÷ 2 m).
+  - Reclaim's hook is `raiseCut` in `src/terrain/pitCarve.ts`, the one writer that
+    may raise a carved sample.
+- **Demolished pads.** A pad stays no-dig after demolition, since its flatten stays
+  in the history. That keeps the load order exact. Phase 8's migration `free` flag
+  lifts this.
+- **The look.** There is no shader change. The cut is brighter in the vertex colours,
+  which both Classic's Lambert and the `regolith-2` patch read. The tone is +20%
+  (fading in over the first 2 m), +8% on every other bench so the terraces read from
+  the isometric view, and +16% on heaps. Bench lips, bedrock and rubble are Phase 8.
+- **Rendering.**
+  - Carved boxes queue their chunks. The queue rebuilds at most one a frame and two
+    a second of frame time, and asks for shadows at most every 2 s.
+  - A debug advance, or a load, rebuilds each changed chunk once.
+  - Rocks on a cut or heaped cell are removed.
+  - The deposit rings re-drape at most once a second.
+- **Measured.**
+  - A carve costs 0.4 ms at p50 and 0.8 ms at p90, the first up to 5 ms (buffers).
+  - A chunk rebuild costs 1.2 ms.
+  - Five pits of about 8k m³ each, with their heaps, encode to 5.4 KB (1.1 KB a pit).
+  - One excavator's 150-minute pit (R 31 m, 10.1k m³ with an 8.2k m³ heap) encodes to
+    1.1 KB.
+- **The economy is unchanged.** Output is still today's model, and pits feed nothing
+  back. They only change what may be built and where roads can go. The probe agrees:
+
+  | Run (mare, robotic, reasonable, seed 42, 260 min) | FIRST LIGHT | Eras E1–E8 (min) |
+  |---|---|---|
+  | main `e5ae67d` | 191.2 | 23.8 / 26.8 / 27.7 / 26.3 / 29.3 / 20.7 / 15.8 / 19.3 |
+  | `work/pits` | 191.8 | 23.8 / 26.8 / 27.7 / 26.3 / 29.7 / 20.8 / 15.8 / 19.3 |
+
+  The run digs one pit on high-Ti basalt #0: 36.4k▲, 24.2k m³ cut (R 48 m, 5 m deep)
+  and a 19.5k m³ heap. Its grid is 2.5 KB.
 
 ## 23. The player's answers
 

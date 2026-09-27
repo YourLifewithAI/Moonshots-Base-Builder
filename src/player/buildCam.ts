@@ -2,7 +2,11 @@
  *  wheel zoom toward the cursor) plus keys: WASD/arrows pan at a rate scaled
  *  by camera distance, Q/E orbit. The orbit target rides the terrain, the
  *  camera never sinks below a clearance over the ground, and focus() glides
- *  to a point. Target clamped to keep the map in frame. */
+ *  to a point. Target clamped to keep the map in frame.
+ *
+ *  Touch (player/touch.ts) drives it through the CommandCam touch methods
+ *  (MapControls never sees a touch): one finger drags the ground, a pinch
+ *  dollies, a twist orbits with the fingers, ⟲ ⟳ orbit 90° eased. */
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { MAP_M } from '../data/balance';
@@ -40,6 +44,17 @@ export interface CommandCam {
   update(dt: number): void;
   /** metres from the camera down to the ground beneath it */
   readonly clearance: number;
+  // ── touch (player/touch.ts) ──
+  /** drag the ground by a screen delta (CSS px); `stopGlide`: take over from a glide */
+  panPx(dx: number, dy: number, stopGlide?: boolean): void;
+  /** a pinch: 'start' holds the zoom, 'move' scales it by the finger spread
+   *  (÷ its start), 'end' settles (the isometric view on its nearest level) */
+  pinch(phase: 'start' | 'move' | 'end', scale?: number): void;
+  /** a two-finger twist by `rad` (screen angle, clockwise +) since the last call */
+  twist(rad: number): void;
+  twistReset(): void;
+  /** ⟲ ⟳: one step round the target (−1 or +1) */
+  turnStep(dir: -1 | 1): void;
 }
 
 /** Keys a command camera consumes (build mode only; walk mode owns WASD). */
@@ -58,8 +73,11 @@ export class BuildCam implements CommandCam {
   private fwd = new THREE.Vector3();
   private right = new THREE.Vector3();
   private v = new THREE.Vector3();
+  /** touch: the pinch's starting distance, and a ⟲ ⟳ orbit in progress */
+  private pinch0: number | null = null;
+  private orbit: { left: number } | null = null;
 
-  constructor(private camera: THREE.PerspectiveCamera, dom: HTMLElement) {
+  constructor(private camera: THREE.PerspectiveCamera, private dom: HTMLElement) {
     this.controls = new MapControls(camera, dom);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.12;
@@ -111,6 +129,52 @@ export class BuildCam implements CommandCam {
     };
   }
 
+  // ── touch ──
+
+  panPx(dx: number, dy: number, stopGlide = false) {
+    if (!this.enabled) return;
+    if (stopGlide) this.glide = null;
+    const t = this.controls.target, cam = this.camera.position;
+    this.fwd.copy(t).sub(cam);
+    const dist = this.fwd.length();
+    const pitch = Math.max(0.2, Math.asin(Math.min(1, Math.max(-1, -this.fwd.y / Math.max(1e-6, dist)))));
+    this.fwd.setY(0);
+    if (this.fwd.lengthSq() < 1e-6) this.fwd.set(0, 0, -1);
+    this.fwd.normalize();
+    this.right.crossVectors(this.fwd, UP);
+    const h = this.dom.clientHeight || window.innerHeight;
+    const m = (2 * dist * Math.tan((this.camera.fov / 2) * (Math.PI / 180))) / h;
+    this.v.copy(t);
+    t.addScaledVector(this.right, -dx * m).addScaledVector(this.fwd, (dy * m) / Math.sin(pitch));
+    this.clampTarget();
+    cam.add(this.v.subVectors(t, this.v));
+  }
+
+  pinch(phase: 'start' | 'move' | 'end', scale = 1) {
+    const t = this.controls.target, cam = this.camera.position;
+    if (phase === 'start') { this.pinch0 = cam.distanceTo(t); this.glide = null; return; }
+    if (phase === 'end' || this.pinch0 === null || !this.enabled) { this.pinch0 = null; return; }
+    const d = Math.min(this.controls.maxDistance, Math.max(this.controls.minDistance, this.pinch0 / Math.max(0.05, scale)));
+    this.v.copy(cam).sub(t).setLength(d);
+    cam.copy(t).add(this.v);
+  }
+
+  twist(rad: number) {
+    if (!this.enabled) return;
+    const t = this.controls.target, cam = this.camera.position;
+    // the ground turns with the fingers: the camera orbits the other way
+    this.v.copy(cam).sub(t).applyAxisAngle(UP, rad);
+    cam.copy(t).add(this.v);
+  }
+
+  twistReset() { /* the free camera orbits continuously: nothing to reset */ }
+
+  /** −1 turns the ground clockwise on screen (the camera orbits the other
+   *  way), as Q does and as the isometric view's step does */
+  turnStep(dir: -1 | 1) {
+    this.orbit = { left: (this.orbit?.left ?? 0) - dir * (Math.PI / 2) };
+  }
+
   clampTarget() {
     const t = this.controls.target;
     const lim = MAP_M / 2 - 40;
@@ -151,6 +215,14 @@ export class BuildCam implements CommandCam {
     if (orbit) {
       this.v.copy(cam).sub(t).applyAxisAngle(UP, orbit * ORBIT_RATE * dt);
       cam.copy(t).add(this.v);
+    }
+    // ⟲ ⟳ (touch): a 90° orbit, eased out over about a third of a second
+    if (this.orbit) {
+      const step = Math.abs(this.orbit.left) < 0.002 ? this.orbit.left : this.orbit.left * (1 - Math.exp(-12 * dt));
+      this.v.copy(cam).sub(t).applyAxisAngle(UP, step);
+      cam.copy(t).add(this.v);
+      this.orbit.left -= step;
+      if (Math.abs(this.orbit.left) < 1e-4) this.orbit = null;
     }
 
     // ride the terrain: the target eases onto the ground and carries the camera

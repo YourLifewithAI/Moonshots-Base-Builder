@@ -25,6 +25,7 @@ import {
   accessCell, besideCells, cellAt, cellCentre, cellKey, doorCell, groundWay, hasRoads, jobOpen, layJob, nearestRoad, offRoadAt,
   planLink, roadMap, zoneStand, type Heights,
 } from './roads';
+import { digGrade, digSiteKey, onDig } from './pits';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -413,6 +414,8 @@ export function haulTick(
       for (const [rid, rate] of Object.entries(r.outputs) as [ResourceId, number][]) {
         h.cargo[rid] = (h.cargo[rid] ?? 0) + rate * GAIN * step;
       }
+      // the ground it cuts becomes a pit (core/pits.ts: today's adapter, docs/17 Phase 3)
+      onDig(s, digSiteKey(h.x, h.z), (r.outputs.regolith ?? 0) * GAIN * step, digGrade(h.kind));
       h.t += step;
       t -= step;
       out.dugS += step;

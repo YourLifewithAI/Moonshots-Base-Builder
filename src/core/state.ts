@@ -310,11 +310,48 @@ export interface RoverTrip {
   rate?: number;
 }
 
-/** An extraction zone (core/zones.ts): a revealed deposit's circle, world metres. */
+/** An extraction zone (core/zones.ts): a revealed deposit's circle, world
+ *  metres; or a pit's (kind 'pit', core/pits.ts): its cut and a cell round
+ *  it, as explicit cells (cell keys; the circle only bounds them). */
 export interface ZoneState {
   id: string;
-  kind: DepositKind;
+  kind: DepositKind | 'pit';
   cx: number; cz: number; r: number;
+  cells?: number[];
+}
+
+/** A strip-mine pit (core/pits.ts, docs/17 §4.6, §8): its growth parameters.
+ *  The shape it has been carved to lives in the height-delta grid (the
+ *  heightfield's `delta`, saved as `terrain.delta`); its loose layer is
+ *  derived from (seed, id) and its ground, never stored. */
+export interface PitState {
+  id: number;
+  /** today's adapter (Phase 3): what it serves — a deposit (`dep:<id>`, every digger on it) or a
+   *  plain-ground dig cell (`dig:gx,gz`) (core/pits.ts onDig) */
+  key: string;
+  /** the deposit under its dig (null: plain ground) */
+  deposit: string | null;
+  /** 'new': dug but not yet staked (no free ground found yet) · 'boxed': it cannot widen now */
+  state: 'new' | 'open' | 'boxed' | 'exhausted' | 'reclaiming' | 'reclaimed';
+  /** its centre now (drifts away from what blocks it), and where it opened, world m */
+  cx: number; cz: number; ox: number; oz: number;
+  /** the ramp's direction (unit, toward its diggers) and its top, m along from (ox, oz) */
+  ux: number; uz: number; A: number;
+  /** rim radius of the last carve, m (grows only) */
+  R: number;
+  /** ▲ dug into it; m³ dug (▲ ÷ PIT.tPerM3); m³ actually cut into the grid; m³ of spoil on its heap */
+  tonnes: number; dugM3: number; cutM3: number; heapM3: number;
+  /** the grade of what it cut, an amount-weighted EMA (today's feed factor stands in for q) */
+  q: number;
+  /** its deepest sample, m */
+  deep: number;
+  /** a sample of its cut and of its heap (grid index; −1 none yet) */
+  anchor: number;
+  heap: { x: number; z: number; Rh: number; anchor: number } | null;
+  /** sample bounds of its cut and heap so far [ix0, iz0, ix1, iz1] */
+  box: [number, number, number, number];
+  /** the terrain clock of its last carve attempt */
+  at: number;
 }
 
 /** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
@@ -726,6 +763,15 @@ export interface GameState {
   nextBuildingId: number;
   /** flatten history, replayed onto regenerated terrain on load */
   flattens: { x0: number; z0: number; x1: number; z1: number; h: number }[];
+  /** strip-mine pits (core/pits.ts, docs/17 §8), in id order */
+  pits: PitState[];
+  nextPitId: number;
+  /** the deformed ground (docs/17 §11): `rev` counts carves (terrain caches key on it),
+   *  `clock` the pits' own tick clock, `delta` the height-delta grid as saved
+   *  (terrain/pitCarve.ts encodeDelta; written when the game saves). terrainSchema 1:
+   *  pits exist (an older save gets none: nothing is carved on load) */
+  terrain: { rev: number; clock: number; delta: string };
+  terrainSchema: number;
 
   swarmPct: number;
   launches: number;
@@ -820,6 +866,10 @@ export function createInitialState(
     buildings: [],
     nextBuildingId: 1,
     flattens: [],
+    pits: [],
+    nextPitId: 1,
+    terrain: { rev: 0, clock: 0, delta: '' },
+    terrainSchema: 1,
     swarmPct: 0,
     launches: 0,
     nightsSurvived: 0,
@@ -959,6 +1009,13 @@ export function fillStateDefaults(s: GameState): GameState {
   // one on), rules added later join with their defaults
   legacy.auto = fillAuto(legacy.auto);
   legacy.flowBook ??= {};
+  // saves from before strip mines (docs/17 §19 step 2): no pits and an empty
+  // delta grid — nothing is carved on load; digging opens pits from now on
+  legacy.pits ??= [];
+  legacy.nextPitId ??= 1 + legacy.pits.reduce((m, p) => Math.max(m, p.id), 0);
+  const t = (legacy as Partial<GameState>).terrain;
+  legacy.terrain = { rev: t?.rev ?? 0, clock: t?.clock ?? 0, delta: t?.delta ?? '' };
+  legacy.terrainSchema ??= 1;
   // saves from before the destiny tracks (docs/14 §7): nothing forwarded, nobody sent home
   const dd = destinyDefaults();
   legacy.forwarded ??= dd.forwarded;

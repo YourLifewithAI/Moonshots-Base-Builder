@@ -7,7 +7,34 @@ until you're launching thin-film solar collectors toward the Sun.
 
 Elegant grayscale. Simple procedural 3D. You can walk around everything you build.
 
-## Play
+## Play in your browser
+
+**▶ [yourlifewithai.github.io/Moonshots-Base-Builder](https://yourlifewithai.github.io/Moonshots-Base-Builder/)**
+— nothing to install. It is rebuilt from `main` on every push.
+
+### On an iPhone
+
+1. Open the link above in **Safari**.
+2. Tap **Share** → **Add to Home Screen** → **Add**.
+3. Start it from the new icon: it plays full screen, **offline**, and keeps your base
+   between launches (it saves whenever you leave the app).
+
+Hold the phone sideways — the game plays in landscape. Touch controls come on by
+themselves on a phone (Menu → Touch controls: Auto · On · Off):
+
+| Touch | Action |
+|---|---|
+| Drag · pinch · twist | Pan · zoom (five steps) · turn the view 90° (or ⟲ ⟳) |
+| Tap · hold | Select · what is this? (a building's or a deposit's card) |
+| **Build** → tap a card | Its ghost appears mid-view: drag it, ⟳ rotate, ✓ place, ✕ cancel |
+| Hold a card · **Order** | The rovers choose the site |
+| **Road** | Drag out from a road · **Remove** toggles |
+| **Tree** | Tap a tech to see it, tap again to queue · hold to queue its whole path |
+| ❚❚ · 1× · ☰ | Pause · speed · menu |
+
+Walk mode (first person) needs a keyboard and mouse.
+
+## Play locally
 
 ```bash
 npm install

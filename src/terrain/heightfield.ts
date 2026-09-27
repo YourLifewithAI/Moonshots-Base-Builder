@@ -38,6 +38,17 @@ const GUARANTEED_CANDIDATES = 24;
 
 export class Heightfield {
   readonly h: Float32Array;
+  /** the generated surface, before any pad or pit: a carved sample's height is
+   *  exactly base + delta / 10 (terrain/pitCarve.ts) */
+  readonly base: Float32Array;
+  /** pits and heaps (terrain/pitCarve.ts): the height delta in decimetres,
+   *  0 almost everywhere. Saved sparse; on load base → deltas → flattens */
+  readonly delta = new Int16Array(N * N);
+  /** samples on a flatten's two-ring skirt: pits and heaps never touch them */
+  readonly skirt = new Uint8Array(N * N);
+  /** cell rects [gx0, gz0, gx1, gz1] the pits changed since the renderer last
+   *  took them (terrain/pitCarve.ts takeCarved) */
+  readonly carved: number[] = [];
   readonly craters: Crater[] = [];
   /** every local deposit, ice first (index 0 = the guaranteed starter patch) */
   readonly deposits: Deposit[] = [];
@@ -48,6 +59,7 @@ export class Heightfield {
     this.noise = createNoise2D(rng);
     this.h = new Float32Array(N * N);
     this.generate(rng);
+    this.base = this.h.slice();
   }
 
   /** `footprint` (m, the caller's sample spacing) fades out octaves whose
@@ -253,8 +265,8 @@ export class Heightfield {
   }
 
   /** samples locked by a flatten pad — skirts of later pads must not move them,
-   *  or neighbouring building pads get carved into visible seams */
-  private padMask = new Uint8Array(N * N);
+   *  or neighbouring building pads get carved into visible seams (pits never dig them) */
+  readonly padMask = new Uint8Array(N * N);
 
   /** Flatten a cell rect [gx0..gx1) x [gz0..gz1) to its mean corner height,
    *  with a mask-aware two-ring smoothed skirt. Returns pad height. */
@@ -281,12 +293,36 @@ export class Heightfield {
           );
           if (d !== ring) continue; // only this ring's cells
           if (ix < 0 || iz < 0 || ix >= N || iz >= N) continue;
-          if (this.padMask[iz * N + ix]) continue;
-          this.h[iz * N + ix] = this.h[iz * N + ix] * (1 - w) + pad * w;
+          const k = iz * N + ix;
+          if (this.padMask[k]) continue;
+          this.skirt[k] = 1;
+          // a pit's cut or a heap keeps its shape (terrain/pitCarve.ts): no pits, no change
+          if (this.delta[k] !== 0) continue;
+          this.h[k] = this.h[k] * (1 - w) + pad * w;
         }
       }
     }
     return pad;
+  }
+
+  /** A pit or heap sample's height from the delta grid (terrain/pitCarve.ts):
+   *  exact, so a load that applies the grid to `base` reproduces it. */
+  setDelta(k: number, dm: number) {
+    this.delta[k] = dm;
+    this.h[k] = this.base[k] + dm * 0.1;
+  }
+
+  /** Roads never cross a pit or a heap (core/roads.ts): a cell with a carved
+   *  corner, or one on spoil (graded spoil is a pad: roads may run on it). */
+  noRoad(gx: number, gz: number): boolean {
+    if (gx < 0 || gz < 0 || gx >= N - 1 || gz >= N - 1) return false;
+    const k = gz * N + gx;
+    return this.pitOrSpoil(k) || this.pitOrSpoil(k + 1) || this.pitOrSpoil(k + N) || this.pitOrSpoil(k + N + 1);
+  }
+
+  private pitOrSpoil(k: number): boolean {
+    const d = this.delta[k];
+    return d < 0 || (d > 0 && !this.padMask[k]);
   }
 
   /** max |height − mean| over a cell rect's corners (slope/roughness check). */

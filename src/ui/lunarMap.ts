@@ -5,6 +5,7 @@
  *  a change of projection cross-fades; both are instant under reduced motion.
  *  It renders $lunar and $deposits and dispatches the survey and outpost
  *  actions — every refusal is the sim's own alert. Nothing pauses. */
+import { touchOn } from '../core/touch';
 import './lunarMap.css';
 import {
   MAP_VIEWS, MARE_CAP_VERTICES, MARIA, NOVELTY, OUTPOST_CLASS, SITE_WEAKNESS, TIER_TECH, TIER_VIEW,
@@ -482,7 +483,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         <div class="mh-rule">Look, visit, settle.<span id="mh-atlas"></span></div>
       </div>
       <div id="map-views"></div>
-      <button class="btn" id="map-close" title="Close the map [M] · Esc">Close [M]</button>
+      <button class="btn" id="map-close" title="Close the map [M] · Esc">${touchOn() ? '✕ Close' : 'Close [M]'}</button>
     </div>
     <div id="map-main">
       <div id="map-layers"></div>

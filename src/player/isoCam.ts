@@ -16,7 +16,11 @@
  *     ground decals).
  *
  *  The camera never looks above the horizon (the top of the frame is 22°
- *  below it): the sky shows on foot and on the way down. */
+ *  below it): the sky shows on foot and on the way down.
+ *
+ *  Touch (player/touch.ts): one finger drags the ground (panPx), a pinch
+ *  zooms freely while the fingers are down and settles on the nearest of
+ *  the five levels when they lift, and a twist past ~40° turns one step. */
 import * as THREE from 'three';
 import { MAP_M } from '../data/balance';
 import { commandKey, type CommandCam } from './buildCam';
@@ -37,6 +41,7 @@ const FOLLOW_RATE = 5;      // 1/s: the target easing onto the ground
 const CLEARANCE = 4;        // m over the highest ground under the camera
 const WHEEL_STEP = 50;      // accumulated deltaY per zoom step (trackpads)
 const MARGIN = 40;          // m: the target stays this far inside the map
+const TWIST_STEP = 0.7;     // rad of two-finger twist that turns the view one step
 const PAN_KEYS: Record<string, [number, number]> = {
   KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
   KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0],
@@ -60,6 +65,9 @@ export class IsoCam implements CommandCam {
   private drag: { id: number; x: number; y: number } | null = null;
   private wheelAcc = 0;
   private wheelAt = 0;
+  /** a pinch in progress: the distance it started from (null = none) */
+  private pinch0: number | null = null;
+  private twistAcc = 0;
   private fwd = new THREE.Vector3();
   private right = new THREE.Vector3();
   private v = new THREE.Vector3();
@@ -81,7 +89,7 @@ export class IsoCam implements CommandCam {
 
   set enabled(v: boolean) {
     this.on = v;
-    if (!v) { this.drag = null; this.keys.clear(); }
+    if (!v) { this.drag = null; this.keys.clear(); this.pinch0 = null; }
   }
   get enabled(): boolean { return this.on; }
 
@@ -187,12 +195,53 @@ export class IsoCam implements CommandCam {
     if (!this.on || !d || d.id !== e.pointerId) return;
     const dx = e.clientX - d.x, dy = e.clientY - d.y;
     d.x = e.clientX; d.y = e.clientY;
-    // the ground under the pointer follows it
+    this.panPx(dx, dy);
+  }
+
+  /** Drag the ground by a screen delta (CSS px): the ground under the
+   *  pointer follows it. `stopGlide`: a touch drag takes over from an F/H glide. */
+  panPx(dx: number, dy: number, stopGlide = false) {
+    if (!this.on) return;
+    if (stopGlide) this.glide = null;
     const m = this.metresPerPx();
     this.axes();
     this.target.addScaledVector(this.right, -dx * m).addScaledVector(this.fwd, (dy * m) / Math.sin(ISO_PITCH_DEG * DEG));
     this.clampTarget();
   }
+
+  /** A pinch: 'start' holds the distance, 'move' scales it by the finger
+   *  spread (÷ its start), 'end' settles on the nearest zoom level. */
+  pinch(phase: 'start' | 'move' | 'end', scale = 1) {
+    if (!this.on) { this.pinch0 = null; return; }
+    if (phase === 'start') { this.pinch0 = this.dist; this.glide = null; return; }
+    if (this.pinch0 === null) return;
+    if (phase === 'move') {
+      const lo = ISO_LEVELS[0] * 0.85, hi = ISO_LEVELS[ISO_LEVELS.length - 1] * 1.15;
+      this.dist = Math.min(hi, Math.max(lo, this.pinch0 / Math.max(0.05, scale)));
+      return;
+    }
+    this.pinch0 = null;
+    let best = 0;
+    ISO_LEVELS.forEach((l, i) => { if (Math.abs(Math.log(l / this.dist)) < Math.abs(Math.log(ISO_LEVELS[best] / this.dist))) best = i; });
+    this.level = best;
+  }
+
+  /** A two-finger twist by `rad` (screen angle, clockwise +) since the last
+   *  call: past the threshold the view turns one step with the fingers. */
+  twist(rad: number) {
+    if (!this.on) return;
+    this.twistAcc += rad;
+    if (Math.abs(this.twistAcc) >= TWIST_STEP) {
+      this.rotate(this.twistAcc > 0 ? -1 : 1);
+      this.twistAcc = 0;
+    }
+  }
+
+  /** a twist gesture began or ended: its turn starts from nothing */
+  twistReset() { this.twistAcc = 0; }
+
+  /** ⟲ ⟳ buttons: one 90° step (−1 turns the ground clockwise on screen, as Q). */
+  turnStep(dir: -1 | 1) { this.rotate(dir); }
 
   update(dt: number) {
     const t = this.target;
@@ -219,9 +268,12 @@ export class IsoCam implements CommandCam {
       this.yaw = r.from + (r.to - r.from) * easeInOut(r.t);
       if (r.t >= 1) this.turn = null;
     }
-    const want = ISO_LEVELS[this.level];
-    this.dist = Math.exp(Math.log(want) + (Math.log(this.dist) - Math.log(want)) * Math.exp(-ZOOM_RATE * dt));
-    if (Math.abs(this.dist - want) < 0.01) this.dist = want;
+    // a pinch holds the distance where the fingers put it
+    if (this.pinch0 === null) {
+      const want = ISO_LEVELS[this.level];
+      this.dist = Math.exp(Math.log(want) + (Math.log(this.dist) - Math.log(want)) * Math.exp(-ZOOM_RATE * dt));
+      if (Math.abs(this.dist - want) < 0.01) this.dist = want;
+    }
     // ride the terrain
     t.y += (this.groundAt(t.x, t.z) - t.y) * (1 - Math.exp(-FOLLOW_RATE * dt));
     this.clampTarget();
@@ -260,6 +312,7 @@ export class IsoCam implements CommandCam {
     return {
       yawStep: this.step, yawDeg: yawDeg < 0 ? yawDeg + 360 : yawDeg, turning: this.turn !== null,
       level: this.level, levels: [...ISO_LEVELS], dist: this.dist, pitchDeg: ISO_PITCH_DEG, fov: ISO_FOV,
+      pinching: this.pinch0 !== null,
     };
   }
 }

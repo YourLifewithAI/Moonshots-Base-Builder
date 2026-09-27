@@ -55,9 +55,11 @@
 /* touch (docs/07 §13, docs/16 §10.3): the top of the screen, 563 × 262 on a
    667×375 screen, one row of six 44 px options, the slider under Fine… */
 html.touch #flare-popup {
-  top: calc(env(safe-area-inset-top, 0px) + 50px);
-  width: min(563px, calc(100vw - 2 * 52px - 8px)); max-height: 262px; padding: 6px 8px; gap: 4px;
+  top: var(--content-t, 52px);
+  width: min(563px, calc(100vw - var(--content-l, 60px) - var(--content-r, 60px))); max-height: 262px; padding: 6px 8px; gap: 4px;
 }
+html.touch #weather-chip { min-height: var(--tap, 44px); font-size: 11px; align-self: stretch; }
+html.touch #touch-sheet #weather-panel { width: auto; max-height: none; }
 html.touch #flare-popup .fp-t { font-size: 12px; }
 html.touch #flare-popup .fp-sub { font-size: 11px; white-space: nowrap; }
 html.touch #flare-popup .fp-seg { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }

@@ -14,6 +14,7 @@ import {
   $hazards, $hazardMarkers,
 } from './stores';
 import { counterButton, counterClick } from './hazardsPanel';
+import { touchOn } from '../core/touch';
 
 export function fmt(n: number): string {
   // always FLOOR: the HUD must never claim more than the engine will accept
@@ -275,7 +276,8 @@ export function mountHud(root: HTMLElement, game: Game) {
       // conditions keep their places; the newest event leads its severity
       .sort((a, b) => RANK[a.kind] - RANK[b.kind] || Number(!a.cond) - Number(!b.cond) ||
         (a.cond ? a.id - b.id : b.at - a.at || b.id - a.id));
-    const shown = list.slice(0, inspecting() ? inspRows : ALERTS.shown);
+    // a phone's short screen keeps two in view (the rest count in '+N more')
+    const shown = list.slice(0, inspecting() ? inspRows : touchOn() ? 2 : ALERTS.shown);
     const keep = new Set(shown.map((a) => a.id));
     for (const [id, e] of alertEls) {
       if (!keep.has(id)) { e.root.remove(); alertEls.delete(id); }
@@ -319,7 +321,7 @@ export function mountHud(root: HTMLElement, game: Game) {
     inspId = id;
     if (id !== null) {
       const standing = $alerts.get().filter((a) => !a.quiet).length;
-      const cap = window.matchMedia('(max-height: 700px)').matches ? 2 : ALERTS.shown;
+      const cap = touchOn() ? 2 : window.matchMedia('(max-height: 700px)').matches ? 2 : ALERTS.shown;
       inspRows = Math.max(1, Math.min(cap, standing));
       alerts.style.setProperty('--alert-rows', String(inspRows));
     }
