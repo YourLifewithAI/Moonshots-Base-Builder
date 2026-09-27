@@ -228,18 +228,23 @@ pair tests), in a fixed order, with no randomness.
 | Wide loads | an excavator (3.8 m wide) holds cells whole, and every cell its box overhangs on a corner |
 | Excavator gates | before an excavator enters a junction (or comes onto the road) it takes the whole run to the next junction, or to its way's end, at once; anyone in it, and it waits short of the junction |
 | Queues | a unit that cannot take the next cell stops 0.25 m short of it; short of a junction, if it is not in it yet |
-| Turning on the spot | a rover whose way sets off more than 1 rad from its heading turns on the spot first, and squares up along its road at its slot the same way; it holds its own half (a turn there stays clear of a rover in the other half) |
+| Turning on the spot | a rover whose way sets off more than 1 rad from its heading turns on the spot first, and squares up along its road at its slot the same way; it holds its own half (a turn there stays clear of a rover in the other half). A turn needs every road cell its body sweeps, but one standing still in such a cell does not stop it if its body is 0.1 m clear of the turn's circle (an excavator's turn at a corner reaches into the diagonal cells, where rovers may stand parked) |
 | Parking | bays, nose in, two a bay cell, each rover its own slot by its place in its dock's roster — so one leaving moves nobody; it backs out into the opening, and comes in by it |
 | Right of way | loaded excavator > empty excavator > rover; then the lower id |
 | Corners | a rover's corners where its way leaves the lane (a diagonal, a turn) claim the cells they reach, and an exact check keeps any two bodies 0.1 m apart under the cell holds |
-| Deadlock breaker | a wait cycle held 1 s: its lowest unit gives way — a rover over into the other half of its cell if the others' ways keep to this half, else back (reversing, if it lies behind) to the nearest free cell off their ways, through free cells only; an excavator back along its way until it is clear. A unit standing in another's way 3 s steps aside, **with every standing unit in the cells just ahead** (two parked in one bay cell otherwise take turns). Nothing for 8 s: the lowest is set down — a rover where the sim has it (else inside its dock), an excavator where the sim has it, if that ground is clear |
-| Detours | a unit held up 2 s by one that is not moving takes another road to its slot if the network has one, no more than 3 × the way it had left (+40 m); a rover that must turn first backs up to its cell's centre. The player's side roads work as a detour |
-| Catching up | an excavator's visual drives up to 1.6 × haul speed to close on the sim; held up more than 12 s of driving, it is set down where the sim has it, if that ground is clear. A rover's: §6a |
+| Deadlock breaker | a wait cycle held 1 s: its lowest unit gives way — a rover over into the other half of its cell if the others' ways keep to this half, else back (reversing, if it lies behind) to the nearest free cell off their ways, through free cells only, and out of a cell it shares in its own half; an excavator back along its way until it is clear. A unit standing in another's way 3 s steps aside, **with every standing unit in the cells just ahead** (two parked in one bay cell otherwise take turns). Nothing for 8 s: the lowest is set down — a rover where the sim has it (else inside its dock), an excavator where the sim has it, if that ground is clear |
+| Detours | a unit held up 2 s by one that is not moving takes another road to its slot if the network has one, no more than 3 × the way it had left (+40 m); a rover that must turn first backs up to its cell's centre. The player's side roads work as a detour. A unit giving way keeps to its refuge until its time there is up: no detour back to its slot |
+| Catching up | an excavator's visual drives up to 1.6 × haul speed to close on the sim; held up more than 12 s of driving, it is set down where the sim has it, if that ground is clear. A rover's: §6a. A unit set down holds the half of the cell it stands in, not its slot's |
 
 On the crowded base of `avoidance.spec` (8 rovers, 2 excavators, 5 sites,
-600 s at 10×): closest pair 0.10 m, 45–65 wait cycles broken, 20 detours,
-no last-resort rescue, 4–6 rovers set down, no overlap, nobody off the
-ground, everyone home at the end.
+600 s at 10×; one Robotics Bay's parking cell diagonal to an excavator's
+corner): closest pair 0.09–0.10 m (the box check's lower bound), 57–59
+wait cycles broken, no detour needed, no last-resort rescue, 6–7 rovers
+set down, no overlap, nobody off the ground, everyone home at the end, on
+eight runs in each style. (Without the turn and refuge rules above, the
+excavator's turn at that corner sent both parked rovers out of their bay on
+every pass, and one's refuge crossed the other's half, so neither got
+home.)
 
 ## 6a. Rovers in transit
 
@@ -284,7 +289,9 @@ way. The visual rover exposes `mode: 'weld' | 'sinter' | null` (what the sim
 has it doing at its stand), read by the work animations.
 
 **Tests** use `instantTravel(true)` where the drive is not the point: every
-trip ends as it starts.
+trip ends as it starts, and a new goal is reached in the tick that sets it
+(the timing from before transit). The smoke spec sets it for all its tests,
+as it opens roads as they are laid.
 
 ## 7. Research: the roadway ladder
 

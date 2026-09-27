@@ -465,14 +465,7 @@ export class Traffic {
    *  cells its body touches (a rover in the other half is no clash). */
   laneFree(a: Agent, x: number, z: number, fx: number, fz: number): boolean {
     if (a.wide) return this.boxFree(a, x, z, fx, fz);
-    const half = MAP_M / 2;
-    const [gx, gz] = cellOf(x, z);
-    const cx = (gx + 0.5) * CELL_M - half, cz = (gz + 0.5) * CELL_M - half;
-    // in a lane only if it is a lane's width off the centre line (two there pass a body apart)
-    const inLane = (o: number) => Math.abs(Math.abs(o) - LANE_M) < 0.2;
-    let mode: Mode = WHOLE;
-    if (Math.abs(fx) >= Math.abs(fz) && inLane(z - cz)) mode = laneMode(1, z > cz ? 1 : 0);
-    else if (Math.abs(fz) > Math.abs(fx) && inLane(x - cx)) mode = laneMode(0, x > cx ? 1 : 0);
+    const mode = standAt(x, z, fx, fz);
     const cov = this.boxScratch;
     cov.clear();
     this.box(a, x, z, fx, fz, cov);
@@ -564,8 +557,20 @@ export class Traffic {
       const cov = this.scratch;
       cov.clear();
       this.sweep(a, cov);
+      // (one standing still in a swept cell with its body clear of the turn's
+      // circle is no bar to it: the cells are coarse at a corner, this is exact)
+      const reach = Math.hypot(Math.max(a.front, a.back), a.hw) + BODY_GAP;
       let c: Agent | null = null;
-      for (const [k, m] of cov) { if (a.held.get(k) !== m) c = this.clash(a, k, m); if (c) break; }
+      for (const [k, m] of cov) {
+        if (a.held.get(k) === m) continue;
+        for (const o of this.occ.get(k) ?? []) {
+          if (o.a === a || compatible(o.mode, m)) continue;
+          if (o.a.v < 0.05 && !o.a.pivot && pointGap(o.a, a.x, a.z) >= reach) continue;
+          c = o.a;
+          break;
+        }
+        if (c) break;
+      }
       a.pivotOk = !c;
       if (c) { a.blocker = c; a.waited += h; a.v = 0; a.drv.moved(a, h); return; }
     }
@@ -766,6 +771,28 @@ export class Traffic {
       lastBreak: this.lastBreak,
     };
   }
+}
+
+/** How a rover standing at this pose holds its cell: the half it stands in,
+ *  if it is a lane's width off the centre line (two there pass a body apart),
+ *  else whole. */
+export function standAt(x: number, z: number, fx: number, fz: number): Mode {
+  const half = MAP_M / 2;
+  const [gx, gz] = cellOf(x, z);
+  const cx = (gx + 0.5) * CELL_M - half, cz = (gz + 0.5) * CELL_M - half;
+  const inLane = (o: number) => Math.abs(Math.abs(o) - LANE_M) < 0.2;
+  if (Math.abs(fx) >= Math.abs(fz) && inLane(z - cz)) return laneMode(1, z > cz ? 1 : 0);
+  if (Math.abs(fz) > Math.abs(fx) && inLane(x - cx)) return laneMode(0, x > cx ? 1 : 0);
+  return WHOLE;
+}
+
+/** How far a point lies from a unit's body (its oriented box), m; 0 inside. */
+export function pointGap(b: Pick<Agent, 'x' | 'z' | 'fx' | 'fz' | 'hw' | 'front' | 'back'>, x: number, z: number): number {
+  const dx = x - b.x, dz = z - b.z;
+  const along = dx * b.fx + dz * b.fz, lat = dx * b.fz - dz * b.fx;
+  const ea = along > b.front ? along - b.front : along < -b.back ? -b.back - along : 0;
+  const el = Math.abs(lat) > b.hw ? Math.abs(lat) - b.hw : 0;
+  return Math.hypot(ea, el);
 }
 
 /** Separation of two units' bodies (oriented boxes), m: the largest gap along

@@ -47,7 +47,7 @@ import {
 import { materials } from './materials';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
-import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, type Agent, type Driver } from './traffic';
+import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, standAt, type Agent, type Driver } from './traffic';
 
 const MAX_ROVERS = 64;
 /** a command view's listener height, as a share of the camera's distance */
@@ -185,7 +185,7 @@ const right = (d: Cell): [number, number] => [-d[1] * ROAD.lane, d[0] * ROAD.lan
 /** A rover's way along road cells: from where it stands, in the right-hand
  *  lane (the first cell left in the half it stands in when `keep` — another
  *  stands beside it — the last entered in the half of its slot), to the slot. */
-export function laneWay(cells: Cell[], from: [number, number], to: [number, number], keep = true): [number, number][] {
+export function laneWay(cells: Cell[], from: [number, number], to: [number, number], keep = true, late = false): [number, number][] {
   const pts: [number, number][] = [from];
   if (cells.length <= 1) { pts.push(to); return pts; }
   const n = cells.length;
@@ -200,7 +200,9 @@ export function laneWay(cells: Cell[], from: [number, number], to: [number, numb
       const side = Math.abs(lat) > 0.4 ? Math.sign(lat) * ROAD.lane : 0;
       if (d[0] !== 0) { ox = 0; oz = side || oz; } else { ox = side || ox; oz = 0; }
     }
-    if (i === n - 2) {
+    // (late: out of a shared first cell in its own half all the same, over to
+    // the slot's half inside the last cell)
+    if (i === n - 2 && !(late && i === 0 && keep && Math.abs(d[0] !== 0 ? from[1] - cz : from[0] - cx) > 0.4)) {
       // into the last cell in the half of its slot
       const [tx, tz] = cellCentre(cells[n - 1][0], cells[n - 1][1]);
       const lat = d[0] !== 0 ? to[1] - tz : to[0] - tx;
@@ -473,6 +475,8 @@ export class RoverFleet implements Driver {
     a.x = p.x; a.z = p.z; a.fx = fx; a.fz = fz; a.v = 0;
     r.inside = false; r.turning = false; r.yieldUntil = 0; r.revUntil = -Infinity;
     this.traffic.setWay(a, [[p.x, p.z]]);
+    // it holds the half it stands in (not its slot's: another may pass in the other)
+    a.standMode = standAt(p.x, p.z, fx, fz);
     this.traffic.place(a);
     // on from here: a new way to its slot
     r.key = ''; r.tripId = '';
@@ -755,8 +759,10 @@ export class RoverFleet implements Driver {
     const zones = zoneCells(s);
     const start = cellAt(r.x, r.z);
     const sk = cellKey(start[0], start[1]);
+    const shared = t.taken(a, start[0], start[1]);
     const refuge = (cells: Cell[], mode: number, x: number, z: number) => {
-      const pts = laneWay(cells, [r.x, r.z], [x, z]);
+      // out of a cell it shares in its own half (never across the one beside it)
+      const pts = laneWay(cells, [r.x, r.z], [x, z], true, shared);
       t.setWay(a, pts);
       // back there if it lies behind it (no turn on the spot in the others' way)
       const p = pointAt(a.pts, a.arcs, 0.02);
@@ -822,6 +828,8 @@ export class RoverFleet implements Driver {
     const s = this.state;
     const spot = r?.spot;
     if (!r || !s || !spot || r.inside || spot.inside) return false;
+    // giving way: it keeps to its refuge (a detour is a way to its slot)
+    if (this.clock < r.yieldUntil) return false;
     const map = roadMap(s);
     const start = cellAt(r.x, r.z);
     const goal: Cell = spot.via ?? [spot.gx, spot.gz];
