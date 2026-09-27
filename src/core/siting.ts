@@ -15,7 +15,8 @@
  *  shows. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, FEED, HAUL, MAP_CELLS, MAP_M, MAX_SLOPE_DELTA } from '../data/balance';
-import type { SiteDef } from '../data/sites';
+import { SITES, type SiteDef } from '../data/sites';
+import { HUB_DEFS } from '../data/hubs';
 import type { ResourceId } from '../data/resources';
 import { DEPOSIT_INFO, feedKindOf, type DepositKind } from '../data/deposits';
 import type { Deposit, Heightfield } from '../terrain/heightfield';
@@ -26,7 +27,7 @@ import { centerOf, footprintRect } from '../buildings/instances';
 import type { AutoRuleId } from '../data/automation';
 import type { BuildingState, GameState } from './state';
 import { effectiveDef, type Mods } from './mods';
-import { depositRevealed, networkNodes } from './exploration';
+import { depositRevealed, inNetwork, networkNodes } from './exploration';
 import { dropFor, tripFor } from './haul';
 import { digOutput, digSpotIn } from './fleetView';
 import { pathLength, plan, segmentHits, wallSpot, worldRect, type Rect } from './paths';
@@ -179,12 +180,16 @@ function anchorFor(s: GameState, mods: Mods, type: BuildingId, q: SiteQuery['int
     }
     case 'iceHarvester': case 'battery': case 'habitat': return { pts: [landerPt] };
     case 'solar': return base();
-    case 'smelter': case 'refinery': {
-      const digs = s.buildings.filter((b) => b.type === 'excavator' && b.haul);
-      if (!digs.length) return { pts: [landerPt] };
-      let x = 0, z = 0;
-      for (const b of digs) { x += b.haul!.digX; z += b.haul!.digZ; }
-      return { pts: [{ x: x / digs.length, z: z / digs.length, name: 'the excavators’ dig sites' }] };
+    case 'smelter': case 'refinery': case 'waterPlant': {
+      // a hub stands by the nearest mapped deposit it wants in the network (docs/17 §15:
+      // the base chooser; placement keeps it out of the ring), else by the Lander
+      const wants = HUB_DEFS[type]!.wants(SITES[s.siteId]);
+      const [lx, lz] = [landerPt.x, landerPt.z];
+      const zs = (s.zones ?? []).filter((z) => z.kind !== 'plain' && wants.includes(z.kind) && inNetwork(s, z.cx, z.cz))
+        .sort((p, q2) => Math.hypot(p.cx - lx, p.cz - lz) - Math.hypot(q2.cx - lx, q2.cz - lz) || (p.id < q2.id ? -1 : 1));
+      const z0 = zs[0];
+      if (!z0 || z0.kind === 'plain') return { pts: [landerPt] };
+      return { pts: [{ x: z0.cx, z: z0.cz, name: `${DEPOSIT_INFO[z0.kind].name} #${z0.id.split('-').pop()}` }] };
     }
     case 'partsFab': case 'chipFab': {
       const c = list(['smelter', 'refinery']);

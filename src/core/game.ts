@@ -2386,6 +2386,12 @@ export class Game {
           'info');
         continue;
       }
+      if (req.kind === 'unit') {
+        const b = s.buildings.find((x) => x.id === req.hub);
+        const why = queueJob(s, this.mods, site, b, 'unit', 'rule');
+        if (!why && b) logAuto(s, `a unit queued at ${BUILDINGS[b.type].name} #${b.id} · ${req.why}`, b.id);
+        continue;
+      }
       if (req.kind === 'dig' || req.kind === 'feed') {
         const b = s.buildings.find((x) => x.id === req.id);
         if (!b || b.type !== 'excavator') continue;

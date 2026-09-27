@@ -34,6 +34,7 @@ import { alert, boardingShortfall, condition, settlersWelcome, volleyTerms } fro
 import { flowBalance } from './flowBook';
 import { fmtClock, type DayInfo } from './daynight';
 import { siteTransit } from './transit';
+import { hubName, hubUnit, hubsOf, queueRefusal } from './hubs';
 
 // ─────────────────────────── requests ───────────────────────────
 
@@ -60,7 +61,9 @@ export type AutoRequest =
   /** a planned dig site, applied when an auto excavator stands */
   | { kind: 'dig'; id: number; x: number; z: number }
   /** Feed Planner: re-aim this excavator at the feed the furnaces want */
-  | { kind: 'feed'; id: number };
+  | { kind: 'feed'; id: number }
+  /** the excavation rules print a unit at a hub (docs/17 §15; the full hubUnit rule is Phase 7) */
+  | { kind: 'unit'; hub: number; rule: AutoRuleId; why: string };
 
 // ─────────────────────────── helpers ───────────────────────────
 
@@ -545,6 +548,40 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
   const forced = new Set<AutoRuleId>();
   const predictive = predictiveOn(s, mods);
 
+  /** An excavation rule (docs/17 §15, minimal until Phase 7's hubUnit): its
+   *  signal as before; it prints a unit at the hub most starved with a free
+   *  bay, never places one. */
+  const unitRule = (id: AutoRuleId, r: RuleState, d: RuleDef) => {
+    const frozen = Math.max(frozenAll ? a.frozenUntil : 0, r.frozenUntil ?? 0);
+    if (frozen > now) { setPhase(s, id, r, 'frozen', `frozen · resumes in ${fmtClock(frozen - now)}`, dt); return; }
+    if (now < r.nextAt) { setPhase(s, id, r, 'settling', `settling ${fmtClock(r.nextAt - now)} — letting the rates catch up`, dt); return; }
+    const sig = signalOf(s, mods, site, day, id, r);
+    r.dwell = sig.past ? r.dwell + dt : sig.rearmed ? 0 : Math.max(0, r.dwell - dt);
+    const dwellS = d.dwellS * mods.builderDwellMult * (predictive ? 0.5 : 1);
+    if (!(sig.past && r.dwell >= dwellS)) {
+      setPhase(s, id, r, sig.past ? 'watching' : 'ok', sig.past ? `watching · ${sig.text} for ${Math.floor(r.dwell)} s of ${Math.round(dwellS)}` : `ok · ${sig.text}`, dt);
+      return;
+    }
+    const type = id === 'iceHarvester' ? 'iceMiner' : 'excavator';
+    const n = s.haulers.filter((u) => u.type === type).length;
+    const cap = effCap(r, mods);
+    if (n >= cap) { setPhase(s, id, r, 'capped', `cap ${n}/${cap} units — raise the cap to let it print more`, dt); return; }
+    const hubs = hubsOf(s).filter((b) => b.enabled && hubUnit(b.type, site) === type && b.hub!.starved >= 0.1 && !queueRefusal(s, mods, b, 'unit'))
+      .sort((p, q) => q.hub!.starved - p.hub!.starved || p.id - q.id);
+    if (!hubs.length) {
+      setPhase(s, id, r, 'holding', `holding · every hub is fed, or its bays are full (${sig.text})`, dt);
+      return;
+    }
+    if (placed >= AUTO.maxPerTick) { setPhase(s, id, r, 'watching', `watching · ${sig.text}`, dt); return; }
+    const b = hubs[0];
+    out.push({ kind: 'unit', hub: b.id, rule: id, why: sig.text });
+    placed++;
+    r.nextAt = now + d.cooldownS;
+    r.dwell = 0;
+    r.built += 1;
+    setPhase(s, id, r, 'ok', `→ printing a unit at ${hubName(b)} (starved ${Math.round(b.hub!.starved * 100)}%)`, dt);
+  };
+
   const evaluate = (id: AutoRuleId) => {
     const d: RuleDef = RULES[id];
     const r = ruleState(s, id);
@@ -552,6 +589,8 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     if (!mods.autoFamilies.has(d.family)) { setPhase(s, id, r, 'locked', `locked — ${familyTech(d.family)}`, dt); r.dwell = 0; return; }
     if (!r.on) { setPhase(s, id, r, 'off', 'off', dt); r.dwell = 0; return; }
     if (id === 'iceHarvester' && !site.hasIce) { setPhase(s, id, r, 'locked', 'no polar ice at this site', dt); return; }
+    // the excavation rules print units at hubs now (docs/17 §15): hubs place nothing
+    if (id === 'excavator' || id === 'iceHarvester') { unitRule(id, r, d); return; }
     const type = ruleBuilding(s, mods, id);
     if (!type) { setPhase(s, id, r, 'locked', `nothing here makes ${RESOURCES[d.res!].name.toLowerCase()} yet`, dt); return; }
     if (!mods.unlocked.has(type)) { setPhase(s, id, r, 'locked', `locked — ${unlocker(type)}`, dt); return; }

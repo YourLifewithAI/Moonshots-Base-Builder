@@ -515,9 +515,10 @@ export function queueRefusal(s: GameState, mods: Mods, b: BuildingState | undefi
   if (h.queue.length >= HUB.queueMax) return `QUEUE FULL — ${HUB.queueMax} jobs`;
   if (kind === 'unit') {
     const cap = bayCap(b, mods);
-    const n = unitsOf(s, b.id).length + h.queue.filter((j) => j.kind === 'unit').length;
-    if (n >= cap) {
-      return `BAYS FULL ${Math.min(n, cap)}/${cap}${h.level < mods.hubLevel ? ' — + Bay' : ' — every bay has its unit'}`;
+    const have = unitsOf(s, b.id).length;
+    const queued = h.queue.filter((j) => j.kind === 'unit').length;
+    if (have + queued >= cap) {
+      return `BAYS FULL ${Math.min(have, cap)}/${cap}${queued ? ` (${queued} printing)` : ''}${h.level < mods.hubLevel ? ' — + Bay' : ' — every bay has its unit'}`;
     }
     return '';
   }
