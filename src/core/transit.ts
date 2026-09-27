@@ -23,7 +23,9 @@ import type { BuildingState, GameState, RoverTrip, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { DRONE, isDrone, roverDown, surveyRover, whereIs } from './fleet';
 import { groundSpots, type RoverSpot } from './spots';
-import { cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, roadDistances, spurLeft } from './roads';
+import {
+  cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, offAreaAt, offGround, roadDistances, spurLeft,
+} from './roads';
 import { centerOf } from '../buildings/instances';
 
 type Pt = [number, number];
@@ -269,8 +271,14 @@ export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
  *  zone to and from its gate (core/roads.ts groundWay). Null: no road there. */
 function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: number[] } | null {
   if (!g.cell || !hasRoads(s)) return { pts: [[x, z], [g.x, g.z]] };
-  // a slot on a road cell is reached by it; an off-road one (inside a zone) by a gate
-  const way = groundWay(s, [x, z], [g.x, g.z]);
+  // a slot on a road cell is reached by it; an off-road one (inside a zone,
+  // or a Relay Mast's stand) by a gate; a unit stopped out on open ground
+  // (its pack flat on a mast's way out) sets off again from the nearest road,
+  // and an off-road slot on open ground (a field structure's wall just outside
+  // its zone's rim) is reached from the nearest road
+  const from = offAreaAt(s, x, z) ?? offGround(s, x, z);
+  const to = g.off ? offAreaAt(s, g.x, g.z) ?? offGround(s, g.x, g.z) : null;
+  const way = groundWay(s, [x, z], [g.x, g.z], null, null, from, to);
   if (!way) return null;
   // drop points it already stands on
   const pts: Pt[] = [way.pts[0]];

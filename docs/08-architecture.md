@@ -380,7 +380,7 @@ drive is not the point) and `getZones()` (each
 extraction zone, its cells and gates). On-board power adds
 `forceGridDark(on)` (the grid at 0 — no supply, the bank out of reach: a
 forced brownout) and `setCharge(kind, id, kWh)` (a rover's or an
-excavator's pack).
+excavator's pack); `roadAccess()` gives a Relay Mast's off-road `stand`.
 `&hzpause` lets the pause-on settings pause a debug run;
 without it they never do.
 

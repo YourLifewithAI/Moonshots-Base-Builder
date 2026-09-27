@@ -32,7 +32,7 @@
 import * as THREE from 'three';
 import type { GameState, RoverUnit } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { cellAt, cellCentre, cellKey, doorCell, groundWay, isOpen, offRoadAt, roadMap, roadRoute } from '../core/roads';
+import { cellAt, cellCentre, cellKey, doorCell, groundWay, isOpen, offAreaAt, roadMap, roadRoute } from '../core/roads';
 import { zoneCells } from '../core/zones';
 import { DRONE, unitKind } from '../core/fleet';
 import { BUILDINGS } from '../data/buildings';
@@ -483,8 +483,8 @@ export class RoverFleet implements Driver {
     const [bx, bz] = tripPoint(t, this.frac + 0.2);
     const dx = bx - x, dz = bz - z, l = Math.hypot(dx, dz);
     if (l < 1e-6) return { x, z, yaw: r.yaw, there: false };
-    // off the road inside a zone: the sim's point as it is
-    if (offRoadAt(this.state!, x, z)) return { x, z, yaw: Math.atan2(dx, dz), there: false };
+    // off the road (inside a zone, out to a Relay Mast): the sim's point as it is
+    if (offAreaAt(this.state!, x, z)) return { x, z, yaw: Math.atan2(dx, dz), there: false };
     const ux = dx / l, uz = dz / l;
     // the lane: a lane's width to the right of the way on, along its axis
     const [lx, lz] = Math.abs(ux) >= Math.abs(uz) ? [0, Math.sign(ux) * ROAD.lane] : [-Math.sign(uz) * ROAD.lane, 0];
@@ -580,7 +580,7 @@ export class RoverFleet implements Driver {
       const d = dock ? doorCell(dock) : null;
       if (!r.inside && d) {
         // (off the road inside a zone: out by its gate first)
-        const gw = offRoadAt(s, r.x, r.z) ? groundWay(s, [r.x, r.z], cellCentre(d[0], d[1])) : null;
+        const gw = offAreaAt(s, r.x, r.z) ? groundWay(s, [r.x, r.z], cellCentre(d[0], d[1])) : null;
         const cells = gw ? null : roadRoute(s, cellAt(r.x, r.z), d);
         if (!gw && !cells) return;
         this.traffic.setWay(r.agent, gw ? gw.pts.map(([x, z]): [number, number] => [x, z]) : laneWay(cells!, [r.x, r.z], cellCentre(d[0], d[1])));
@@ -615,7 +615,7 @@ export class RoverFleet implements Driver {
     }
     // off the road inside an extraction zone, either end (core/zones.ts): straight
     // off-road to and from the zone's gate, the road between in the right-hand lane
-    if (spot.offroad || offRoadAt(s, r.x, r.z)) {
+    if (spot.offroad || offAreaAt(s, r.x, r.z)) {
       const pts = this.offWay(r, spot, s, from);
       if (!pts) return;
       this.traffic.setWay(r.agent, pts);

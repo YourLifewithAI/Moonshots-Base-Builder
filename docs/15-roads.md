@@ -1,8 +1,8 @@
 # 15 · Roads: the network the robots drive
 
 **Status:** shipped on `work/avoid`; rovers in transit, traffic yielding and
-extraction zones on `work/transit` (§5a, §6, §6a); the fleet on packs on
-`work/unitpower` (§6a).
+extraction zones on `work/transit` (§5a, §6, §6a); Relay Masts off-road and
+the fleet on packs on `work/unitpower` (§5b, §6a).
 **Code:** `src/core/roads.ts` (the network, spurs, routes, gates, ground
 ways), `src/data/roads.ts` (tuning, the apron, field and dock types, the
 rover's speed), `src/core/spots.ts` (where rovers stand), `src/core/transit.ts`
@@ -29,7 +29,8 @@ Chosen answers:
 |---|---|
 | Who lays roads? | **Auto spurs + a road tool.** Placing a building plans a road from the network to its door; rovers build it first. The tool draws extra links. |
 | Off-road driving? | **None.** Rovers and excavators move only on road cells (and an excavator on its own pad). |
-| Fields? | Solar arrays, battery banks and relay masts need **no** roads between them. |
+| Fields? | Solar arrays and battery banks need **no** roads between them. |
+| Relay masts? | **No road at all** (the player, later: "relay masts shouldn't need a road"). A rover drives out to one off-road (§5b). |
 | Speed? | A ladder of four road techs, each a speed multiplier with a side effect. |
 
 ## 2. The network
@@ -62,7 +63,8 @@ A door inside another footprint, off the map or too steep refuses the spot.
 | Most structures | front middle | a spur to the door |
 | Lander | front middle | the apron |
 | Robotics Bay, Drone Hive (docs/14) | front middle | a spur, plus parking bays beside the door |
-| **Field:** Solar Array, Battery Bank, Relay Mast | none | a road cell within 1 cell of the footprint, **or** an edge shared with a served field structure of the same type |
+| **Field:** Solar Array, Battery Bank | none | a road cell within 1 cell of the footprint, **or** an edge shared with a served field structure of the same type |
+| **Off-road:** Relay Mast (`OFFROAD_TYPES`) | none | no road: a rover drives out from the nearest road cell across open ground (§5b) |
 
 A field of arrays is served from its edge. Rovers build and service it from
 the nearest road cell; they never drive onto the field.
@@ -106,7 +108,8 @@ door (for a field type: to any cell within reach).
 | a field type no road reaches | `NO ROAD ROUTE — no road can reach its edge (walled in, or steps over 1.6 m); set it edge to edge with a served Solar Array (no road needed)` |
 
 A field type's way out names its own field when one is served, else `set it
-within a cell of a road`.
+within a cell of a road`. A Relay Mast is never refused for its road: it
+has none (its other rules — the network, slope, footprint — stand).
 
 ### Where a road can go (the Builder's reach)
 
@@ -218,6 +221,28 @@ the ring the [I] overlay draws. A cell is in a zone when its centre is.
   a structure, and they do no harm. A save from before roads gets its
   spurs laid to every door as before, zones aside.
 
+## 5b. Relay masts off-road
+
+A Relay Mast gets no road (`OFFROAD_TYPES` in `data/roads.ts`,
+`mastStand` in `core/roads.ts`): not from placement, the Builder, or a
+save's migration.
+
+| Rule | How |
+|---|---|
+| Its gate | the open road cell nearest it: never a bay, the closed apron or another structure's door. With no road yet, the Lander apron's stub end |
+| Its stand | the clear cell beside it that gate reaches straightest (a footprint, a bay or the closed apron is not clear). The pair is the shortest leg whose straight line crosses no footprint (else the shortest) |
+| The drive | the road to the gate, then off-road straight to the stand at `ROAD.offroad` (0.5) of road speed; the trip's time counts the off-road metres ×2 |
+| Construction | its rovers weld from the stand, side by side, as at a zone's door |
+| Refusals | never `NO ROAD ROUTE`: slope, footprint and the network still apply. Every cell round it taken: `NO ROOM BESIDE IT — its rover works it from a free cell beside it` |
+| The ghost | the off-road metres from the gate (`offM`) |
+| Upkeep, a replacement | the same off-road trip (a worn mast replaced by Maintenance is a new site) |
+| Inside a zone | with a gate, the zone's way on (§5a); without one, its own gate as above |
+| Old saves | their roads to masts stay; a mast site with an unfinished spur still has its rover sinter it first |
+
+The gate and stand are memoised on the network: a road opening nearer a
+mast moves its gate. A unit stopped on the way out (a flat pack) sets off
+again from the nearest road cell.
+
 ## 6. Traffic on the lanes
 
 Visual only: the sim never waits on traffic. The visuals follow the sim
@@ -269,6 +294,7 @@ way between.
 | Survey | the lent rover drives to the Lander and leaves by its door; it comes back there |
 | Hazards | a unit held or bricked goes home (a drone sets down where it is) |
 | Power | a unit drives on its trip's clock at the share of the tick its pack carries (docs/02, On-board power): 1 on the grid or a charged pack, 0 flat (it waits where it stands; a drone sets down), ¼ on an RPU's trickle alone. `trip.rate` carries the share to the visuals |
+| Off-road | inside a zone (§5a), or out to a Relay Mast (§5b): the leg's metres count ×2 |
 | Words | a site: `ROVER EN ROUTE — arrives in 0:24` (inspector, site tags, the Builder panel; `QUEUED — waiting for a free robot` with none assigned; `NO ROAD — …` when none reaches it). A rover: `EN ROUTE to Habitat Module #5 · 0:24`, `RETURNING to Lander #1 · 0:08`. The ghost: `ROVER 0:12 away — the nearest free one, by road` |
 
 **Typical trips** at the base cruise (4.5 m/s), road length L:

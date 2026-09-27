@@ -6,7 +6,8 @@
  *  techs carry it further (a whole night, then a 10-minute brownout) and
  *  Radioisotope Power Units keep it working slowly with the grid at 0. Old
  *  saves start every unit full; the inspector, the panels and the alerts
- *  say so. */
+ *  say so. And (docs/15 §5b) a Relay Mast gets no road: its rover drives
+ *  out to it off-road. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -408,4 +409,48 @@ test('the inspector, the site, the power and robots panels and one alert say whe
   await expect(page.locator('#res-panel')).toContainText(/out of charge now, waiting for the grid/);
   await page.locator('#resource-strip .chip[data-key="bots"]').click();
   await expect(page.locator('#res-panel')).toContainText(/\d+ units? waiting for charge/);
+});
+
+// ───────────────────────────── relay masts (docs/15 §5b) ─────────────────────────────
+
+test('a Relay Mast far from any road gets no road cells, and is built by a rover that drove out to it off-road', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('prospectingRovers');
+    const s0 = g.getState();
+    const roads0 = s0.roads.length;
+    // open ground ~50 m out, where the only road is the Lander's apron
+    const mast = near('relayMast', 50, -12)!;
+    const s1 = g.getState();
+    const acc = g.roadAccess().find((a: any) => a.id === mast);
+    let trip: any = null;
+    let t = 0;
+    for (; t < 200 && byId(mast).construction > 0; t++) {
+      g.advanceGameSeconds(1);
+      const u = crewOf(mast)[0];
+      if (u?.trip?.site === mast && u.trip.kind === 'weld' && !trip) trip = u.trip;
+    }
+    const s2 = g.getState();
+    return { roads0, roads1: s1.roads.length, roads2: s2.roads.length, jobs: s2.roadJobs.length, spur: byId(mast).spur, acc, trip, built: byId(mast).construction === 0, t };
+  });
+  // no road, before or after: no spur, no job, not one cell laid
+  expect(r.roads1).toBe(r.roads0);
+  expect(r.roads2).toBe(r.roads0);
+  expect(r.jobs).toBe(0);
+  expect(r.spur).toEqual([]);
+  expect(r.acc.door).toBeNull();
+  expect(r.acc.stand.offM).toBeGreaterThan(30);
+  // the rover drove there: the road to its gate (the apron), then off-road at half speed
+  expect(r.trip).not.toBeNull();
+  expect(r.trip.w?.length).toBeGreaterThan(0);
+  expect(r.trip.w[r.trip.w.length - 1]).toBe(2);
+  const legs = r.trip.pts.slice(1).map((p: number[], i: number) => Math.hypot(p[0] - r.trip.pts[i][0], p[1] - r.trip.pts[i][1]));
+  const off = legs.filter((_: number, i: number) => r.trip.w[i] === 2).reduce((a: number, l: number) => a + l, 0);
+  expect(off).toBeGreaterThan(30);
+  // its time counts the off-road metres double (ROAD.offroad 0.5)
+  expect(r.trip.len).toBeCloseTo(legs.reduce((a: number, l: number, i: number) => a + l * r.trip.w[i], 0), 5);
+  expect(r.trip.dur).toBeGreaterThan(r.trip.len / 4.5);
+  expect(r.built).toBe(true);
 });

@@ -16,7 +16,7 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, doorCell, gatesOf, openAll, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -303,10 +303,13 @@ function api(game: Game) {
       return s.buildings.filter((b) => b.type !== 'lander').map((b) => {
         const door = doorCell(b);
         const cell = accessCell(s, b);
+        const ms = mastStand(s, b);
         return {
           id: b.id, type: b.type, door, cell, served: served.has(b.id), spur: [...(b.spur ?? [])],
           doorOpen: !!door && (map.get(door[1] * 256 + door[0])?.left ?? 1) <= 0,
           linked: !!(from && cell && roadRoute(s, from, cell)),
+          // a Relay Mast (docs/15 §5b): its gate, its stand and the off-road metres between
+          ...(ms ? { stand: { gate: ms.gate, x: ms.x, z: ms.z, offM: ms.offM } } : {}),
         };
       });
     },
