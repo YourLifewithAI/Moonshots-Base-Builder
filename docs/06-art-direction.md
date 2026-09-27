@@ -611,25 +611,35 @@ it flickers, a halo. It flickers 17 steps a second and stutters on 7% of them.
 Classic has no bloom: the core is a bright unlit colour and the pulse does the
 work. High detail's core is HDR (× 6): it blooms.
 
-**Weld or sinter: the hook.** `WorkAnim.modeOf` (a `WorkModeFn`) says how a
-unit at work works: `'weld'`, `'sinter'` or `null` (not working). Today's
-reading, `workModeOf`, is the sim's state as it stands:
+**Weld or sinter: the sim's word.** The sim says what each unit does at its
+stand (core/transit.ts, `RoverUnit.task`: set in the tick it welds or
+sinters, and only then). The visuals carry it on the unit:
 
-| State | Mode |
+| Where | Field | Set when |
+|---|---|---|
+| `rovers.ts` `Rover.mode` | `'weld' \| 'sinter' \| null` | it stands at its stand, stopped, following the sim, and the sim has it at work |
+| `DroneFlight` `Drone.mode` | the same | it hovers over its work, and the sim has it at work |
+
+- Both reach the animations through the hooks (`roverBody`, `droneAt`) and
+  win over `WorkAnim.modeOf`. They are also `getRenderInfo().life.rovers.modes`
+  and `.drones.modes`.
+- `modeOf` (`workModeOf`) is the fallback for a unit without a mode: its
+  site's `idleReason` (`'road'` sinter, `'building'` weld, else none), or an
+  open road job (sinter).
+- No task, no work: a site waiting on power, parts or its turn, a rover on its
+  way — arm folded, no spark.
+- A rover sinters only while it stands behind the frontier, then drives on to
+  the next cell. Its arm stays down through that hop (2.5 s), and the crawl
+  eases back while it drives.
+
+**Excavators** read the haul state (core/haul.ts):
+
+| Haul | Drawn |
 |---|---|
-| its site's `idleReason` is `'road'`: the crew sinters the spur | sinter |
-| its site's `idleReason` is `'building'` | weld |
-| its site waits: power, parts, its turn | none: arm folded, no spark |
-| a road job (`u.road`) still open | sinter |
-
-- A rover works while it stands on its slot (weld) or within 6 m of it
-  (sinter: it chases the frontier cell to cell).
-- The sim may sinter before the rover gets there. The day the sim knows where
-  a rover is and what it does (the transit work), the visual rover carries
-  `r.mode` (`'weld' | 'sinter' | null`). `roverBody` passes it through, and a
-  rover's own `mode` wins over `modeOf`. Nothing else changes.
-- `modeOf` stays the reading for drones, and for any rover without a `mode`.
-- Drones use the same hook: a site → weld, a road job → sinter.
+| `dig`, running, stopped | digging: the wheel turns, the boom dips, spoil |
+| `dig` with `full` (no room in the store: it waits at its dig spot) | still: no dig, no spoil |
+| `toDig`, `toDrop` (by road, or off-road inside a zone) | driving: the wheel still, the boom high |
+| `unload`, stopped at the unload cell | the dump |
 
 **Two meshes for all of it.**
 

@@ -28,11 +28,15 @@ async function start(page: Page, style = 'classic', extra = '') {
 
 const work = (page: Page) => page.evaluate(() => window.__game!.getWorkAnim());
 
-/** `n` live frames of `dt` wall-seconds each (unpaused) */
+/** `n` live frames of `dt` wall-seconds each, paused again after: the real
+ *  frames between steps draw but move nothing (under software GL a slow real
+ *  frame would run the sim ahead of the visuals) */
 const live = (page: Page, n: number, dt = 0.05) => page.evaluate(([n, dt]) => {
   const g = window.__game!;
   g.setPaused(false);
   for (let i = 0; i < n; i++) g.stepFrame(dt);
+  g.setPaused(true);
+  g.stepFrame(0);
 }, [n, dt] as const);
 
 /** The work readout before and after `n` live frames, in one go (no real
@@ -42,7 +46,10 @@ const span = (page: Page, n: number, dt = 0.05) => page.evaluate(([n, dt]) => {
   g.setPaused(false);
   const a = g.getWorkAnim();
   for (let i = 0; i < n; i++) g.stepFrame(dt);
-  return [a, g.getWorkAnim()];
+  const b = g.getWorkAnim();
+  g.setPaused(true);
+  g.stepFrame(0);
+  return [a, b];
 }, [n, dt] as const);
 
 /** seconds into its current dig (the sim's haul clock) */
@@ -188,30 +195,84 @@ test('a sintering rover points its arm down, the cells glow as they sinter and c
   expect(w2!.rovers.find((r: any) => r.spark).arm.down).toBeLessThan(0.01);
 });
 
-test('the hook: a rover the sim says sinters where it stands crawls toward the frontier, arm down; told otherwise, it eases back', async ({ page }) => {
-  test.setTimeout(120_000);
+test('the sim\'s word (Rover.mode): stopped behind the frontier it sinters and crawls toward it, arm down through each hop; it eases back as it drives on', async ({ page }) => {
+  test.setTimeout(180_000);
   await start(page);
-  await live(page, 10);
-  // (the transit work feeds the hook from the sim; here a test stands in for it)
-  const id = await page.evaluate(() => {
+  const placed = await page.evaluate(() => {
     const g = window.__game!;
-    const id = g.getState().rovers[1].id;
-    g.setWorkMode((_s: unknown, u: { id: number }) => (u.id === id ? 'sinter' : null));
-    return id;
+    for (const [x, z] of [[116, 136], [114, 130], [136, 136]]) if (g.placeBuilding('habitat', x, z)) return [x, z];
+    return null;
   });
-  const [, w] = await span(page, 60); // 3 s
-  const r = w.rovers.find((x: any) => x.id === id);
-  expect(r.mode).toBe('sinter');
-  expect(r.atWork).toBe(true);
-  expect(r.arm.down).toBe(1);
-  expect(r.crawl, 'it crawls 0.4 m/s, to 1.2 m').toBeCloseTo(1.2, 5);
-  expect(w.fx, 'the sinter head glows').toBeGreaterThan(0);
-  await page.evaluate(() => window.__game!.setWorkMode(null));
-  const [, w2] = await span(page, 40); // 2 s
-  const r2 = w2.rovers.find((x: any) => x.id === id);
-  expect(r2.mode).toBeNull();
-  expect(r2.crawl).toBe(0);
-  expect(r2.arm.down).toBe(0);
+  expect(placed).not.toBeNull();
+  // frame by frame: the rover's mode as the visuals hold it (getRenderInfo life.rovers.modes)
+  // against the work animation's, its crawl and its arm
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(false);
+    const out = { agree: 0, disagree: 0, crawlMax: 0, eased: false, heldDown: 0, frames: 0 };
+    let peak = 0;
+    for (let i = 0; i < 4000; i++) {
+      g.stepFrame(0.05);
+      const life = g.getRenderInfo().life;
+      const w = life.work;
+      for (let k = 0; k < life.rovers.ids.length; k++) {
+        const id = life.rovers.ids[k], said = life.rovers.modes[k];
+        const a = w.rovers.find((x: any) => x.id === id);
+        if (!a) continue;
+        if (said === 'sinter') {
+          if (a.mode === 'sinter') out.agree++; else out.disagree++;
+          out.crawlMax = Math.max(out.crawlMax, a.crawl);
+          peak = Math.max(peak, a.crawl);
+        } else if (a.mode === 'sinter' && a.arm.down > 0.9) {
+          // between cells: the sim has it driving on, the arm stays down
+          out.heldDown++;
+          if (peak > 0.3 && a.crawl < peak - 0.2) out.eased = true;
+        }
+      }
+      out.frames = i;
+      if (out.eased && out.heldDown > 5 && out.agree > 20) break;
+    }
+    g.setPaused(true);
+    return out;
+  });
+  expect(r.agree, 'the animation sinters when the sim says so').toBeGreaterThan(20);
+  expect(r.disagree).toBe(0);
+  expect(r.crawlMax, 'it crawls toward the frontier while it stands').toBeGreaterThan(0.3);
+  expect(r.heldDown, 'the arm stays down through the hop').toBeGreaterThan(5);
+  expect(r.eased, 'the crawl eases back as it drives on').toBe(true);
+});
+
+test('an excavator waiting with a full bucket (the store full) stands still: no dig, no spoil, no dump', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  const id = await page.evaluate(EXCAVATOR);
+  // the store kept full: its first bucket has nowhere to go, and it waits on its pad
+  const full = await page.evaluate((id) => {
+    const g = window.__game!;
+    for (let i = 0; i < 200; i++) {
+      g.grantPower(1000);
+      g.grantResources({ regolith: 5000 });
+      g.advanceGameSeconds(1);
+      const h = g.getState().buildings.find((x: any) => x.id === id).haul;
+      if (h.full) return h.phase;
+    }
+    return null;
+  }, id);
+  expect(full, 'a full bucket, no room').toBe('dig');
+  const [a, b] = await page.evaluate((id) => {
+    const g = window.__game!;
+    g.setPaused(false);
+    for (let i = 0; i < 40; i++) { if (i % 10 === 0) g.grantResources({ regolith: 5000 }); g.stepFrame(0.05); }
+    const a = g.getWorkAnim();
+    for (let i = 0; i < 40; i++) { if (i % 10 === 0) g.grantResources({ regolith: 5000 }); g.stepFrame(0.05); }
+    return [a, g.getWorkAnim()];
+  }, id);
+  const d0 = a.diggers.find((d: any) => d.id === id), d1 = b.diggers.find((d: any) => d.id === id);
+  expect(d1.full).toBe(true);
+  expect(d1.digging).toBe(false);
+  expect(d1.dumping).toBe(false);
+  expect(d1.wheel, 'the wheel holds while it waits').toBe(d0.wheel);
+  expect(b.clods).toBe(0);
 });
 
 test('drones print with a nozzle spark and a beam down to the site', async ({ page }) => {

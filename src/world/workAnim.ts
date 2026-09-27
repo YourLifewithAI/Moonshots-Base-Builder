@@ -22,9 +22,10 @@
  *  Hooks. rovers.ts and haulers.ts report each drawn unit (roverBody,
  *  droneAt, diggerAt) as they draw it, and ask a rover's work offset (the
  *  weld's shuffle, the sinter's crawl) back through roverOffset; life.ts
- *  brackets the frame with begin() and end(). How a unit works is
- *  `modeOf` (WorkModeFn): derived from the sim's state today; the sim's
- *  own word replaces it when it has one (docs/06 §7.1). */
+ *  brackets the frame with begin() and end(). How a unit works is the
+ *  sim's word on it, carried by the unit (Rover.mode, Drone.mode: core/
+ *  transit.ts RoverUnit.task); a unit without one falls back on `modeOf`
+ *  (WorkModeFn, derived from the sim's state; docs/06 §7.1). */
 import * as THREE from 'three';
 import type { BuildingState, GameState, RoadCell, RoverUnit } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
@@ -49,13 +50,13 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 /** How a unit at work is working: printing a structure, or sintering a road cell. */
 export type WorkMode = 'weld' | 'sinter';
 
-/** The one place the animations learn how a unit works (null: it is not
- *  working — no site or road job, or its site waits on power, parts or its
- *  turn). The transit work (the sim's rovers really travelling) can set
- *  `WorkAnim.modeOf` to its own reading of the sim's state. */
+/** How the animations read a unit's work when the unit carries no mode of
+ *  its own (null: not working — no site or road job, or its site waits on
+ *  power, parts or its turn). Rovers and drones carry the sim's word
+ *  (Rover.mode, Drone.mode), which wins. */
 export type WorkModeFn = (s: GameState, u: RoverUnit) => WorkMode | null;
 
-/** Today's reading, from the sim's state as it stands: a site's crew
+/** The fallback reading, from the sim's state as it stands: a site's crew
  *  sinters its spur first (`idleReason` 'road'), then welds ('building');
  *  a free unit on a road job sinters. */
 export const workModeOf: WorkModeFn = (s, u) => {
@@ -94,6 +95,8 @@ const UNFOLD_S = 1.2;
 /** the sinter crawl: m/s toward the frontier, and how far */
 const CRAWL_V = 0.4;
 const CRAWL_MAX = 1.2;
+/** s the sinter arm stays down after the sim last had it sintering (a hop to the next cell) */
+const SINTER_HOLD = 2.5;
 
 // the rover's print arm, rover space (its geometry is scaled 1.25): the
 // shoulder on the nose, and the folded pose rovers.ts once modelled
@@ -188,6 +191,8 @@ interface RoverAnim {
   frontRev: number;
   /** the job it was found for: a site id, or −1 − the road job's */
   frontJob: number;
+  /** the clock when the sim last had it sintering (the hold through a hop) */
+  sinterAt: number;
   seen: number;
 }
 
@@ -203,6 +208,8 @@ interface DiggerAnim {
   digging: boolean;
   dumping: boolean;
   driving: boolean;
+  /** a full bucket waiting at its dig spot for room in the store */
+  full: boolean;
   away: boolean;
   seen: number;
 }
@@ -215,7 +222,7 @@ export interface WorkRover {
 }
 
 interface RoverSlot { a: RoverAnim | null; B: THREE.Matrix4; r: WorkRover | null; there: boolean }
-interface DroneSlot { id: number; unit: RoverUnit | null; working: boolean; p: THREE.Vector3 }
+interface DroneSlot { id: number; unit: RoverUnit | null; working: boolean; p: THREE.Vector3; mode: WorkMode | null | undefined }
 
 /** The offset rovers.ts draws a working rover at (reused). */
 export interface WorkOffset { dx: number; dz: number; dyaw: number; bob: number }
@@ -326,7 +333,7 @@ export class WorkAnim {
     this.fx.visible = false;
     this.group.add(this.kit, this.fx);
     for (let i = 0; i < MAX_ROVERS; i++) this.rov.push({ a: null, B: new THREE.Matrix4(), r: null, there: false });
-    for (let i = 0; i < MAX_DRONES; i++) this.drn.push({ id: 0, unit: null, working: false, p: new THREE.Vector3() });
+    for (let i = 0; i < MAX_DRONES; i++) this.drn.push({ id: 0, unit: null, working: false, p: new THREE.Vector3(), mode: undefined });
     for (let i = 0; i < MAX_AWAY; i++) this.awayM.push(new THREE.Matrix4());
     for (let i = 0; i < 24; i++) this.cool.push({ x: 0, z: 0, y: 0, t0: 0, on: false });
     this.tint = this.tints();
@@ -397,11 +404,12 @@ export class WorkAnim {
     sl.B.copy(m);
   }
 
-  /** DroneFlight.draw, per drone: where it is drawn and whether it works. */
-  droneAt(id: number, unit: RoverUnit | null, working: boolean, x: number, y: number, z: number) {
+  /** DroneFlight.draw, per drone: where it is drawn, whether it works and
+   *  (the sim's word, Drone.mode) how; given, it wins over `modeOf`. */
+  droneAt(id: number, unit: RoverUnit | null, working: boolean, x: number, y: number, z: number, mode?: WorkMode | null) {
     if (this.nDrn >= MAX_DRONES) return;
     const d = this.drn[this.nDrn++];
-    d.id = id; d.unit = unit; d.working = working; d.p.set(x, y, z);
+    d.id = id; d.unit = unit; d.working = working; d.p.set(x, y, z); d.mode = mode;
   }
 
   /** haulers.ts, per excavator it draws away from its pad: its body and speed. */
@@ -450,13 +458,17 @@ export class WorkAnim {
     let a = this.rovers.get(r.id);
     if (!a) {
       a = { id: r.id, weld: 0, sinter: 0, crawl: 0, mode: null, atWork: false, spark: false, yaw: 0, reach: 0,
-        tip: new THREE.Vector3(), front: null, frontRev: -1, frontJob: 0, seen: 0 };
+        tip: new THREE.Vector3(), front: null, frontRev: -1, frontJob: 0, sinterAt: -1e9, seen: 0 };
       this.rovers.set(r.id, a);
     }
     a.seen = this.frame;
     const u = r.unit, spot = r.spot, dt = this.dt;
     const bricked = !!u && (u.brickedUntil ?? 0) > 0;
-    const mode = bricked ? null : r.mode !== undefined ? r.mode : u ? this.modeOf(s, u) : null;
+    const said = bricked ? null : r.mode !== undefined ? r.mode : u ? this.modeOf(s, u) : null;
+    // the sim says 'sinter' only while it stands behind the frontier: the arm
+    // stays down through the hop to the next cell (SINTER_HOLD s)
+    if (said === 'sinter') a.sinterAt = this.clock;
+    const mode = said ?? (!bricked && a.mode === 'sinter' && this.clock - a.sinterAt < SINTER_HOLD ? 'sinter' : null);
     const stopped = sl.there && r.v < 0.1;
     const near = !!spot && Math.hypot(r.x - spot.x, r.z - spot.z) < 6;
     a.mode = mode;
@@ -464,7 +476,7 @@ export class WorkAnim {
     a.weld = approach(a.weld, a.atWork && mode === 'weld' ? 1 : 0, dt / UNFOLD_S);
     a.sinter = approach(a.sinter, a.atWork && mode === 'sinter' ? 1 : 0, dt / UNFOLD_S);
     // the sinter crawl: creeps toward the frontier while it stands, eases back as it drives on
-    a.crawl = mode === 'sinter' && stopped && a.atWork ? Math.min(CRAWL_MAX, a.crawl + CRAWL_V * dt) : Math.max(0, a.crawl - 1.5 * dt);
+    a.crawl = said === 'sinter' && stopped && a.atWork ? Math.min(CRAWL_MAX, a.crawl + CRAWL_V * dt) : Math.max(0, a.crawl - 1.5 * dt);
     const B = sl.B;
     const e = B.elements;
     const t = this.clock + r.id * 1.7;
@@ -556,7 +568,8 @@ export class WorkAnim {
     }
     a.seen = this.frame;
     const u = sl.unit;
-    a.mode = sl.working && u && !((u.brickedUntil ?? 0) > 0) ? this.modeOf(s, u) : null;
+    const bricked = !u || (u.brickedUntil ?? 0) > 0;
+    a.mode = bricked || !sl.working ? null : sl.mode !== undefined ? sl.mode : this.modeOf(s, u);
     a.spark = false;
     if (!a.mode) return;
     const p = sl.p;
@@ -602,7 +615,7 @@ export class WorkAnim {
       }
       let a = this.diggers.get(b.id);
       if (!a) {
-        a = { id: b.id, phi: 0, theta: 0, dumpT: 0, digging: false, dumping: false, driving: false, away: false, seen: 0 };
+        a = { id: b.id, phi: 0, theta: 0, dumpT: 0, digging: false, dumping: false, driving: false, full: false, away: false, seen: 0 };
         this.diggers.set(b.id, a);
       }
       a.seen = this.frame;
@@ -617,8 +630,11 @@ export class WorkAnim {
       }
       a.away = away >= 0;
       const h = left > 0 ? undefined : b.haul;
-      a.digging = !!h && b.active && h.phase === 'dig' && v < 0.2;
-      a.dumping = !!h && h.phase === 'unload';
+      // a full bucket waiting for room in the store (h.full) digs nothing: it stands still
+      a.digging = !!h && b.active && h.phase === 'dig' && !h.full && v < 0.2;
+      // the dump at the unload cell, once it stands there
+      a.dumping = !!h && h.phase === 'unload' && v < 0.3;
+      a.full = !!h?.full;
       a.driving = !!h && (h.phase === 'toDig' || h.phase === 'toDrop') && (v > 0.05 || h.path.length > 0);
       a.dumpT = a.dumping ? a.dumpT + dt : 0;
       const spill = a.dumping && a.dumpT > 0.6 && a.dumpT < 2.7;
@@ -922,7 +938,7 @@ export class WorkAnim {
       })),
       drones: (drawn(this.droneAnims) as DroneAnim[]).map((a) => ({ id: a.id, mode: a.mode, spark: a.spark })),
       diggers: (drawn(this.diggers) as DiggerAnim[]).map((a) => ({
-        id: a.id, wheel: r2(a.phi), boom: r2(a.theta), digging: a.digging, dumping: a.dumping, driving: a.driving, away: a.away,
+        id: a.id, wheel: r2(a.phi), boom: r2(a.theta), digging: a.digging, dumping: a.dumping, driving: a.driving, full: a.full, away: a.away,
       })),
       kit: this.nKit, fx: this.nFx, clods: this.clods, cooling: this.cool.filter((k) => k.on).length, ms: r2(this.ms),
       particles: this.particles, visible: this.group.visible,

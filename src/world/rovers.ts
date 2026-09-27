@@ -1363,7 +1363,7 @@ export class DroneFlight {
       }
       this.e.set(pitch, d.yaw, roll);
       this.mesh.setMatrixAt(i, this.m.compose(this.p.set(x, y, z), this.q.setFromEuler(this.e), this.s.set(1, 1, 1)));
-      this.work?.droneAt(d.id, d.unit, d.working, x, y, z);
+      this.work?.droneAt(d.id, d.unit, d.working, x, y, z, d.mode);
       // the ground under it, pushed down-sun by its height
       const g = this.hf.sample(x, z);
       const h = Math.max(0, y - g);
