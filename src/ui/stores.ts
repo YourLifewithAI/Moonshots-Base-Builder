@@ -33,6 +33,8 @@ export const $resources = atom<Record<ResourceId, number>>({
  *  served = what the grid delivered (the bank makes up supply's shortfall) */
 export const $power = atom({
   supply: 0, demand: 0, served: 0, stored: 0, capacity: 0, brownout: false, shed: false,
+  /** the fleet's own draw (driving, road work, charging), of it charging, kW; units flat, waiting for the grid */
+  fleet: 0, charging: 0, flat: 0,
 });
 /** housing = beds the economy counts (enabled, complete, powered); beds = all completed;
  *  boardingHold = the life-support supply keeping the next settler away ('' = none);
@@ -253,6 +255,10 @@ export type Announcement =
   | { id: number; kind: 'hazard'; hazard: HazardId };
 export const $announce = atom<Announcement[]>([]);
 
+/** touch mode's info card (ui/touchUi.ts): a building type's tooltip, for
+ *  a long-press or a tap on a palette card; null = closed */
+export const $touchInfo = atom<{ type: BuildingId; locked: boolean } | null>(null);
+
 /** the in-game menu (Esc with nothing left to cancel) */
 export const $menuOpen = atom<boolean>(false);
 /** bumped by a click on a blocked spot: the placement hint flashes its reason */
@@ -275,6 +281,10 @@ export interface RoverView {
   state: string;
   /** on its way: game-seconds of its trip left (0: there, or parked) */
   tripS: number;
+  /** its pack (core/unitPower.ts): 'BATTERY 64% · charging', 'NO POWER — waiting for the grid (brownout)' */
+  pack: string;
+  /** out of charge, waiting for the grid */
+  flat: boolean;
 }
 /** a construction site's crew: rovers on it, pinned among them, and what they make of it */
 export interface SiteCrewView {
@@ -292,6 +302,8 @@ export interface SiteCrewView {
   /** nobody there yet: 'enroute' (arrives in `arrive` s), 'noroad' (no road reaches it); '' someone is */
   wait: '' | 'enroute' | 'noroad';
   arrive: number;
+  /** rovers here out of charge, waiting for the grid (core/unitPower.ts) */
+  flat: number;
 }
 /** a revealed deposit an excavator could dig, with the trip it would make */
 export interface DigOption {
@@ -321,6 +333,8 @@ export interface HaulView {
   homeRate: number;
   waiting: boolean;
   nearby: DigOption[];
+  /** its pack (core/unitPower.ts): 'BATTERY 64% · charging', 'NO POWER — waiting for the grid (brownout)' */
+  pack: string;
 }
 export interface FleetView {
   rovers: RoverView[];

@@ -638,7 +638,8 @@ export class WorkAnim {
       a.driving = !!h && (h.phase === 'toDig' || h.phase === 'toDrop') && (v > 0.05 || h.path.length > 0);
       a.dumpT = a.dumping ? a.dumpT + dt : 0;
       const spill = a.dumping && a.dumpT > 0.6 && a.dumpT < 2.7;
-      a.phi += (a.digging ? WHEEL_W : spill ? -2.4 : 0) * dt;
+      // on an RPU's trickle alone the wheel turns at the share it digs at (docs/02, On-board power)
+      a.phi += (a.digging ? WHEEL_W * (h?.pw ?? 1) : spill ? -2.4 : 0) * dt;
       const cyc = 0.5 - 0.5 * Math.cos((this.clock / 6.5) * 2 * PI + b.id);
       const want = a.digging ? -0.05 - 0.08 * cyc
         : a.dumping ? 0.3 * Math.sin(PI * clamp(a.dumpT / DUMP_S, 0, 1))

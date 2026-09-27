@@ -10,7 +10,7 @@ import type { Deposit } from '../terrain/heightfield';
 import type { DigOption, FleetView, HaulView, RoverView, SiteCrewView } from '../ui/stores';
 import type { BuildingState, GameState } from './state';
 import { effectiveRates, type Mods } from './mods';
-import { crewKW, crewRate, roversAt, siteEta, summonPick, surveyRover } from './fleet';
+import { crewKW, crewRate, isDrone, roversAt, siteEta, summonPick, surveyRover } from './fleet';
 import { arrived, siteTransit, tripLeft } from './transit';
 import { fmtClock } from './daynight';
 import { digsHome, haulSpec, tripFor } from './haul';
@@ -18,6 +18,7 @@ import { centerOf } from '../buildings/instances';
 import { inside, worldRect } from './paths';
 import { spurLeft, spurSeconds } from './roads';
 import { PROSPECTS } from '../data/lunarMap';
+import { packLine } from './unitPower';
 
 const G = RESOURCES.regolith.glyph;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -85,6 +86,7 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
     return j?.kind === 'haul' && by ? `LAYING A HAUL ROAD — out to ${label(by)}'s dig` : 'LAYING A ROAD — the one you drew';
   }
   if (!site) {
+    if (r.src === 'flat') return `OUT OF CHARGE — waiting for the grid${going ? ` on its way to ${home ? label(home) : 'its dock'}` : ''}`;
     if (going && t!.kind === 'dock') return `RETURNING to ${home ? label(home) : 'its dock'}${left}`;
     return `PARKED — at ${home ? label(home) : 'its dock'}, free for the next site`;
   }
@@ -92,6 +94,7 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
   if (t?.site === site.id && t.stuck) return `NO ROAD — it cannot reach ${label(site)} by road${pin}`;
   if (going && t!.site === site.id) return `EN ROUTE to ${label(site)}${left}${pin}`;
   if (!site.enabled) return `WAITING — ${label(site)} is paused${pin}`;
+  if (r.src === 'flat') return `OUT OF CHARGE — at ${label(site)}, waiting for the grid${pin}`;
   if (site.idleReason === 'power') return `HELD — ${label(site)} has no power${pin}`;
   if (site.idleReason === 'inputs') return `HELD — ${label(site)} is out of weld parts${pin}`;
   if (site.idleReason === 'road') return `LAYING ROAD — out to ${label(site)} (${spurLeft(s, site)} cells to go)${pin}`;
@@ -103,6 +106,7 @@ export function fleetView(
 ): FleetView {
   const away = surveyRover(s);
   const at = new Map(s.buildings.map((b) => [b.id, b]));
+  const brown = !!s.power?.brownout;
   const rovers: RoverView[] = (s.rovers ?? []).map((r) => {
     const siteB = r.site !== null ? at.get(r.site) : undefined;
     const home = at.get(r.home);
@@ -111,6 +115,7 @@ export function fleetView(
       site: r.site, siteName: siteB ? label(siteB) : '', pinned: r.pinned, survey: r.id === away,
       state: roverState(s, r, r.id === away),
       tripS: r.trip && !r.trip.stuck ? tripLeft(r.trip) : 0,
+      pack: packLine(r, isDrone(s, r) ? 'drone' : 'rover', mods, brown), flat: r.src === 'flat',
     };
   });
   const sites: Record<number, SiteCrewView> = {};
@@ -129,7 +134,7 @@ export function fleetView(
       n: crew.length, pinned: crew.filter((r) => r.pinned).length,
       eta: drive + siteEta(mods, b, n, roadS), etaPlus: drive + siteEta(mods, b, n + 1, roadS),
       kw: crewKW(mods, there), speed: crewRate(n), summon: summonPick(s, b.id).reason,
-      wait, arrive: tr.eta,
+      wait, arrive: tr.eta, flat: crew.filter((r) => r.src === 'flat').length,
     };
   }
   const hauls: Record<number, HaulView> = {};
@@ -150,8 +155,9 @@ export function fleetView(
     const waiting = b.idleReason === 'full';
     const phase = h?.phase ?? 'dig';
     const n = (v: number) => Math.floor(v);
+    const pack = h ? packLine(h, 'digger', mods, brown) : '';
     const line = !b.enabled ? 'SHUT DOWN'
-      : b.idleReason === 'power' ? `IDLE — no power · ${n(cargo)}/${n(bucket)}${G} aboard`
+      : b.idleReason === 'power' ? `${h?.src === 'flat' ? pack : 'IDLE — no power'} · ${n(cargo)}/${n(bucket)}${G} aboard`
       : waiting ? `WAITING TO UNLOAD — no room for ${n(cargo)}${G}; the regolith store is full (it waits ${home ? 'on its pad' : 'at its dig'}, off the road)`
       : phase === 'dig' ? `DIGGING ${groundName(b.deposit)} · ${n(cargo)}/${n(bucket)}${G}`
       : phase === 'toDrop' ? `HAULING ${n(cargo)}${G} to ${drop ? label(drop) : 'a consumer'}`
@@ -177,7 +183,7 @@ export function fleetView(
     hauls[b.id] = {
       phase, line, cargo, bucket: bucket || spec.bucket, home, digName,
       dropName: trip.drop ? label(trip.drop) : '—', routeM: trip.routeM,
-      rate: trip.rate, homeRate: homeTrip.rate, waiting, nearby,
+      rate: trip.rate, homeRate: homeTrip.rate, waiting, nearby, pack,
     };
   }
   return { rovers, sites, hauls };

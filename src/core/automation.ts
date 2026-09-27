@@ -134,6 +134,8 @@ export const predictiveOn = (s: GameState, mods: Mods) =>
 /** the power book as the rules read it */
 export function powerBook(s: GameState, mods: Mods) {
   const p = s.power;
+  // construction comes and goes; the fleet's own draw (driving, road work,
+  // charging its packs: docs/02, On-board power) is a load like any other
   const load = Math.max(0, p.demand - (p.construction ?? 0));
   const full = p.supplyFull ?? p.supply;
   const pending = pendingDraw(s);
@@ -429,7 +431,8 @@ const INPUT_OF: Partial<Record<BuildingId, { res: ResourceId; rule: AutoRuleId }
 /** 'holding' reasons: producers that are dark or short-handed (more would not help) */
 function capacityTrouble(s: GameState, type: BuildingId): string {
   const live = s.buildings.filter((b) => b.type === type && complete(b) && b.enabled);
-  const dark = live.filter((b) => b.idleReason === 'power').length;
+  // an excavator digging on its pack is dark on the grid too (docs/02, On-board power)
+  const dark = live.filter((b) => b.idleReason === 'power' || b.onPack).length;
   if (dark) return `${dark} of ${live.length} ${plural(type, live.length)} dark (power) — more would not help`;
   const crew = live.filter((b) => b.idleReason === 'crew').length;
   if (crew) return `${crew} of ${live.length} ${plural(type, live.length)} short of crew — more would not help`;

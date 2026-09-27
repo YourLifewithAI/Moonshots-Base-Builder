@@ -7,7 +7,7 @@ import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
 import type { GameStats } from './core/state';
 import { destinyOf, gateProgress, researchView } from './core/research';
-import { volleyTerms } from './core/economy';
+import { GRID, volleyTerms } from './core/economy';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
 import { upgradeKey } from './buildings/upgrades';
 import type { UpgradeInfo } from './buildings/instances';
@@ -16,7 +16,7 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, doorCell, gatesOf, openAll, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -101,6 +101,10 @@ function api(game: Game) {
       yaw: game.walkController.yaw,
     }),
     save: () => game.doSave(),
+    /** touch mode: the gesture recognizer, the pointer, the road tool's Remove toggle */
+    getTouch: () => clone(game.debugTouch()),
+    /** the pointer the ghost and picking read (CSS px) */
+    pointAt: (x: number, y: number) => game.pointAt(x, y),
     surveyIce: () => game.actions.push({ kind: 'surveyIce' }),
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
     gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),
@@ -169,6 +173,18 @@ function api(game: Game) {
       const r = game.state.rovers.find((x) => x.id === id);
       if (r) Object.assign(r, patch);
       game.publish();
+    },
+    /** on-board power (docs/02 · On-board power): the grid at 0 — no supply, the bank out of
+     *  reach — while on (a forced brownout for tests; off returns the grid) */
+    forceGridDark: (on = true) => { GRID.dark = on; game.publish(); },
+    /** a unit's pack (tests): a roster unit by id, or an excavator by building id; kWh (null: full) */
+    setCharge: (kind: 'rover' | 'digger', id: number, kwh: number | null) => {
+      const p = kind === 'rover' ? game.state.rovers.find((x) => x.id === id)
+        : game.state.buildings.find((b) => b.id === id)?.haul;
+      if (!p) return false;
+      if (kwh === null) delete p.charge; else p.charge = kwh;
+      game.publish();
+      return true;
     },
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
     // ── strip-mine pits (core/pits.ts, terrain/pitCarve.ts, docs/17 Phase 3) ──
@@ -304,10 +320,13 @@ function api(game: Game) {
       return s.buildings.filter((b) => b.type !== 'lander').map((b) => {
         const door = doorCell(b);
         const cell = accessCell(s, b);
+        const ms = mastStand(s, b);
         return {
           id: b.id, type: b.type, door, cell, served: served.has(b.id), spur: [...(b.spur ?? [])],
           doorOpen: !!door && (map.get(door[1] * 256 + door[0])?.left ?? 1) <= 0,
           linked: !!(from && cell && roadRoute(s, from, cell)),
+          // a Relay Mast (docs/15 §5b): its gate, its stand and the off-road metres between
+          ...(ms ? { stand: { gate: ms.gate, x: ms.x, z: ms.z, offM: ms.offM } } : {}),
         };
       });
     },

@@ -14,18 +14,21 @@ import {
   ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S,
   CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, FLARE, HELIOPHYSICS_DATA, NIGHT_S,
   LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
-  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, WEAR,
+  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, UNIT_POWER, WEAR,
   EVA, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
-import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState } from './state';
+import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState, type RoverUnit } from './state';
 import {
   canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
 import { computeEra, destinyOf, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
 import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
+import {
+  PackTick, atHome, atSiteStand, chargeKW, chargeOf, driveKW, packCap, packUnits, unitKey, unitPriority, type PackUnit,
+} from './unitPower';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import { pitsStep } from './pits';
 import { settleJobs, sinter, spurLeft } from './roads';
@@ -61,6 +64,10 @@ export interface EconEvents {
 
 type AlertKind = AlertMsg['kind'];
 const SEVERITY: Record<AlertKind, number> = { info: 0, warn: 1, crit: 2 };
+
+/** Tests: the grid at 0 while `dark` — no supply reaches a load and the bank
+ *  is out of reach (debug forceGridDark; a forced brownout). */
+export const GRID = { dark: false };
 
 /** A one-shot event. Repeating one still listed merges into it (×N). */
 export function alert(s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction) {
@@ -359,15 +366,24 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       s.resources[rid] + rate * dt > caps[rid]!);
   };
 
-  // ── 2 · demand + priority idling (construction sites draw too) ─────
-  interface Draw { b: BuildingState; draw: number; prio: number; isSite: boolean }
+  // ── 2 · demand + priority idling (construction sites and the fleet draw too) ─────
+  // Within a priority: running structures, then construction sites, then
+  // the fleet's own driving and road work, then its chargers (core/unitPower.ts)
+  interface Draw {
+    b: BuildingState | null; draw: number; prio: number;
+    /** 0 a structure · 1 a construction site · 2 a unit's driving and road work · 3 a unit's charger */
+    kind: 0 | 1 | 2 | 3;
+    u?: PackUnit;
+    /** a charger plugged in through a site's feed or an excavator's own: it charges only if that is lit */
+    via?: number;
+  }
   const wants: Draw[] = [];
   for (const b of s.buildings) {
     if (building(b)) {
       // an active construction site pulls welding power at its building's
       // idle priority: each rover there draws its own (one on its way, none)
       const n = siteTeam(b).length;
-      if (n > 0) wants.push({ b, draw: crewKW(mods, n) * dt, prio: b.priority, isSite: true });
+      if (n > 0) wants.push({ b, draw: crewKW(mods, n) * dt, prio: b.priority, kind: 1 });
       continue;
     }
     if (eff(b.type).powerKW >= 0) continue;
@@ -376,52 +392,93 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     // autonomous agents trade crew and morale for watts (1 + agentTax); night
     // and day draw multipliers and overclock ride the same number; an
     // infected node's phantom load rides it too (docs/14 §3.5)
-    wants.push({ b, draw: -rates(b).powerKW * dt * hazardDrawMult(s, b), prio: b.priority, isSite: false });
+    wants.push({ b, draw: -rates(b).powerKW * dt * hazardDrawMult(s, b), prio: b.priority, kind: 0 });
+  }
+  // the fleet (docs/02 · On-board power): each unit's driving and road work at its
+  // priority (its site's, else its dock's), and a charger wherever it is
+  // plugged in and not full — at its home, or through a site's feed
+  const units = packUnits(s);
+  const unitOf = new Map<RoverUnit, PackUnit>();
+  for (const u of units) if (u.kind !== 'digger') unitOf.set(u.unit, u);
+  const onJob = new Set<RoverUnit>();
+  for (const team of here.jobs.values()) for (const r of team) onJob.add(r);
+  const drives = (u: PackUnit) => u.kind !== 'digger' && !!u.unit.trip && !u.unit.trip.stuck && u.unit.trip.t < u.unit.trip.dur - 1e-9;
+  for (const u of units) {
+    const prio = unitPriority(s, u);
+    if (u.kind !== 'digger') {
+      const use = (drives(u) ? driveKW(u.kind, mods) : 0) + (onJob.has(u.unit) ? crewKW(mods, 1) : 0);
+      if (use > 0) wants.push({ b: null, draw: use * dt, prio, kind: 2, u });
+    }
+    if (u.kind === 'digger' && !u.b.enabled) continue;
+    const cap = packCap(u.kind, mods);
+    const room = cap - chargeOf(u.pack, cap);
+    if (room <= 1e-9) continue;
+    const via = atHome(s, u) ? (u.kind === 'digger' ? u.b.id : -1) : atSiteStand(u);
+    if (via === null) continue;
+    wants.push({ b: null, draw: (Math.min(chargeKW(u.kind), room / dt) / mods.chargeEff) * dt, prio, kind: 3, u, via });
   }
   // within a priority, running loads keep their power ahead of new construction
-  const drawOrder = (w: Draw) => (w.isSite ? queuePos(w.b) : w.b.id);
-  wants.sort((a, b) => a.prio - b.prio || Number(a.isSite) - Number(b.isSite) || drawOrder(a) - drawOrder(b));
-  let budget = supply * dt + s.powerStored;
+  const drawOrder = (w: Draw) => (w.kind === 1 ? queuePos(w.b!) : w.b ? w.b.id : 0);
+  wants.sort((a, b) => a.prio - b.prio || a.kind - b.kind || drawOrder(a) - drawOrder(b));
+  if (GRID.dark) supply = 0;
+  let budget = GRID.dark ? 0 : supply * dt + s.powerStored;
   let supplyLeft = supply * dt;
   let demand = 0; // requested — loads held dark still want their watts
   let drawn = 0;
+  let fleetKW = 0, chargingKW = 0;
   const powered = new Set<number>();
+  const darkIds = new Set<number>();
+  /** the units whose driving and road work the grid served, and whose chargers it fed */
+  const onGrid = new Set<string>();
+  const charged = new Set<string>();
+  // a brownout sheds priority 2–3 whole: once a priority 0–1 structure is
+  // dark, no lower load takes what is left (it would dig or weld through the
+  // brownout on the budget the critical load could not use); in a load shed
+  // the loads left fit what they can, as before
+  let critDark = false;
   const dark: Draw[] = [];
   for (const w of wants) {
-    if (!w.isSite) {
-      w.b.active = false;
-      w.b.idleReason = '';
-      if (!w.b.enabled) { w.b.idleReason = 'off'; continue; }
+    if (w.kind === 3 && w.via !== undefined && w.via >= 0 && darkIds.has(w.via)) continue; // its feed is dark
+    if (w.kind === 0) {
+      w.b!.active = false;
+      w.b!.idleReason = '';
+      if (!w.b!.enabled) { w.b!.idleReason = 'off'; continue; }
     }
     demand += w.draw / dt;
+    if (w.kind >= 2) { fleetKW += w.draw / dt; if (w.kind === 3) chargingKW += w.draw / dt; }
     // hysteresis: a browned-out building stays dark for a few seconds before
     // retrying, so marginal grids don't strobe the base on and off — but it
     // comes back in priority order once the grid carries it with margin: from
     // this tick's supply alone, or from the bank for the rest of its hold
-    const hold = w.b.brownoutHold ?? 0;
-    if (hold > 0) w.b.brownoutHold = hold - 1;
+    // (the fleet's small loads have no hold: their packs ride the flicker)
+    const hold = w.b?.brownoutHold ?? 0;
+    if (w.b && hold > 0) w.b.brownoutHold = hold - 1;
     const margin = w.draw * POWER_RELEASE_MARGIN;
-    const fits = hold > 0
-      ? supplyLeft >= margin || budget >= margin * hold
+    const fits = critDark && w.prio >= 2 ? false
+      : hold > 0 ? supplyLeft >= margin || budget >= margin * hold
       : w.draw <= budget;
     if (fits) {
-      w.b.brownoutHold = 0;
+      if (w.b) w.b.brownoutHold = 0;
       budget -= w.draw;
       supplyLeft = Math.max(0, supplyLeft - w.draw);
       drawn += w.draw;
-      powered.add(w.b.id);
+      if (w.u) (w.kind === 2 ? onGrid : charged).add(unitKey(w.u));
+      else powered.add(w.b!.id);
     } else {
-      if (hold === 0) w.b.brownoutHold = BROWNOUT_HOLD_S;
+      if (w.b && hold === 0 && !(critDark && w.prio >= 2)) w.b.brownoutHold = BROWNOUT_HOLD_S;
+      if (w.b) darkIds.add(w.b.id);
+      if (w.kind === 0 && w.prio <= 1) critDark = true;
       dark.push(w);
     }
   }
   // a dark priority 0–1 load is a brownout; idling only 2–3 is load shedding.
   // A paused construction site is never a brownout: nobody lives in it yet
+  // (and a unit's driving or charger held dark is the fleet's, never a brownout)
   let brownout = false;
   let shed = false;
   for (const w of dark) {
-    if (!w.isSite) w.b.idleReason = 'power';
-    if (w.prio <= 1 && !w.isSite) brownout = true;
+    if (w.kind === 0) w.b!.idleReason = 'power';
+    if (w.prio <= 1 && w.kind === 0) brownout = true;
     else shed = true;
   }
   if (brownout && !day.isNight && !s.power.brownout) st.dayBrownouts += 1;
@@ -430,7 +487,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // how long each load has been held dark at night — leaky, so a load the
   // brownout hold lets back on for one tick in nine still counts as dark;
   // a farm dark too long loses its crop
-  const darkNow = new Set(dark.filter((w) => !w.isSite).map((w) => w.b.id));
+  const darkNow = new Set(dark.filter((w) => w.kind === 0).map((w) => w.b!.id));
   for (const b of s.buildings) {
     if (building(b)) continue;
     const was = b.darkT ?? 0;
@@ -443,11 +500,15 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
   }
 
-  // ── 2.5 · construction progress: needs a rover there, grid power, AND
+  // ── 2.5 · construction progress: needs a rover there, power, AND
   // parts; n rovers build n^0.85 times as fast, on the same weld parts per
-  // build. A rover on its way does nothing yet ──
+  // build. A rover on its way does nothing yet. Power: the site's grid draw,
+  // else each rover's own pack (its RPU first) — the crew works at the share
+  // its packs carry, and a crew out of charge waits for the grid (docs/02 · On-board power) ──
+  const packs = new PackTick(mods, dt);
   for (const b of sites) {
     b.active = false;
+    delete b.onPack;
     if (!b.enabled) { b.idleReason = 'off'; continue; }
     if ((crews.get(b.id) ?? 0) === 0) { b.idleReason = 'queued'; continue; }
     const road = roadFirst(b);
@@ -459,53 +520,113 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       b.idleReason = w === 'enroute' ? 'enroute' : w === 'noroad' ? 'noroad' : road ? 'road' : 'building';
       continue;
     }
-    if (!powered.has(b.id)) { b.idleReason = 'power'; continue; }
+    // welding consumables first: nobody spends a pack on a weld with no parts
+    const weld = road ? 0 : crewParts(mods, crew) * dt;
+    if (!road) {
+      add(want, 'parts', weld);
+      if (s.resources.parts < weld) {
+        b.idleReason = 'inputs'; // welding consumables ran dry
+        condition(s, 'stalled', 'CONSTRUCTION STALLED — no parts for welding', 'warn', { panel: 'parts' });
+        continue;
+      }
+    }
+    // the grid's draw, or each rover's pack: the share of the crew at work
+    const lit = powered.has(b.id);
+    const shares = team.map((r) => {
+      const u = unitOf.get(r);
+      if (!u) return lit ? 1 : 0;
+      if (lit) { packs.grid(u); return 1; }
+      return packs.pay(u, crewKW(mods, 1) * dt);
+    });
+    const at = shares.reduce((a, f) => a + f, 0) / crew;
+    if (at <= 1e-9) { b.idleReason = 'power'; continue; }
+    if (!lit) b.onPack = true;
+    const working = team.filter((_, i) => shares[i] > 1e-9);
     // its road first: the crew sinters the spur out to the door, cell by
     // cell from the network, stepping on to each cell it opens (the crew's
     // draw, no weld parts), then welds (core/roads.ts)
     if (road) {
       b.idleReason = 'road';
-      sinter(s, b.spur!, dt * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
-      for (const r of team) r.task = 'sinter';
+      sinter(s, b.spur!, dt * at * mods.weldRateMult * crewRate(crew) / mods.roadCellMult);
+      for (const r of working) r.task = 'sinter';
       if (spurLeft(s, b) === 0) b.spur = [];
       continue;
     }
-    const weld = crewParts(mods, crew) * dt;
-    add(want, 'parts', weld);
-    if (s.resources.parts < weld) {
-      b.idleReason = 'inputs'; // welding consumables ran dry
-      condition(s, 'stalled', 'CONSTRUCTION STALLED — no parts for welding', 'warn', { panel: 'parts' });
-      continue;
-    }
-    s.resources.parts -= weld;
+    s.resources.parts -= weld * at;
     b.idleReason = 'building';
-    for (const r of team) r.task = 'weld';
-    b.construction = Math.max(0, (b.construction ?? 0) - dt * mods.weldRateMult * crewRate(crew));
+    for (const r of working) r.task = 'weld';
+    b.construction = Math.max(0, (b.construction ?? 0) - dt * at * mods.weldRateMult * crewRate(crew));
     if (b.construction === 0) {
       b.idleReason = '';
+      delete b.onPack;
       st.built += 1;
       alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info', { select: b.id });
     }
   }
   // ── 2.6 · free rovers sinter the roads drawn and the haul roads, oldest
-  // first, one rover a job, from the frontier it stands behind (their
-  // batteries: no grid draw) ──
+  // first, one rover a job, from the frontier it stands behind: the work is
+  // each rover's own load at its dock's priority, else its pack's ──
   if (s.roadJobs?.length) {
     for (const j of s.roadJobs) {
       const team = here.jobs.get(j.id) ?? [];
       if (!team.length) continue;
-      sinter(s, j.cells, dt * mods.weldRateMult * crewRate(team.length) / mods.roadCellMult);
-      for (const r of team) r.task = 'sinter';
+      const shares = team.map((r) => {
+        const u = unitOf.get(r);
+        if (!u) return 1;
+        if (onGrid.has(unitKey(u))) { packs.grid(u); return 1; }
+        return packs.pay(u, crewKW(mods, 1) * dt);
+      });
+      const at = shares.reduce((a, f) => a + f, 0) / team.length;
+      if (at <= 1e-9) continue;
+      sinter(s, j.cells, dt * at * mods.weldRateMult * crewRate(team.length) / mods.roadCellMult);
+      team.forEach((r, i) => { if (shares[i] > 1e-9) r.task = 'sinter'; });
     }
     settleJobs(s);
+  }
+  // ── 2.7 · the fleet's driving: on the grid, else the pack; an excavator
+  // whose grid draw is dark digs and drives on its own (its phase's draw) —
+  // step 4 runs its cycle at the share its pack carries ──
+  const diggerShare = new Map<number, number>();
+  for (const u of units) {
+    if (u.kind === 'digger') {
+      const b = u.b;
+      if (powered.has(b.id)) { packs.grid(u); continue; }
+      if (!darkNow.has(b.id)) continue; // shut down, standing by, or held by a hazard: it draws nothing
+      const h = u.pack;
+      const kw = h.phase === 'dig' && !h.full ? -rates(b).powerKW : driveKW('digger', mods);
+      const f = packs.pay(u, kw * dt);
+      if (f > 1e-9) { diggerShare.set(b.id, f); b.idleReason = ''; b.onPack = true; }
+      continue;
+    }
+    if (!drives(u)) continue;
+    if (onGrid.has(unitKey(u))) packs.grid(u);
+    else packs.pay(u, driveKW(u.kind, mods) * dt);
+  }
+  for (const b of s.buildings) if (b.type === 'excavator' && !diggerShare.has(b.id)) delete b.onPack;
+  packs.finish(units, charged);
+  // the share of its clock a unit drives on next tick (the visuals read it off the trip)
+  let flat = 0, stalled = 0;
+  for (const u of units) {
+    if (u.pack.src === 'flat') { flat++; if ((u.pack.flatT ?? 0) >= UNIT_POWER.alertS) stalled++; }
+    if (u.kind === 'digger') continue;
+    const t = u.unit.trip;
+    if (!t) continue;
+    if (u.pack.pw !== undefined) t.rate = u.pack.pw; else delete t.rate;
+  }
+  if (stalled) {
+    condition(s, 'flat', `OUT OF CHARGE — ${flat} unit${flat === 1 ? '' : 's'} waiting for the grid; ` +
+      'batteries, or bigger packs (Rover Power Packs), carry them through', 'warn', { panel: 'bots' });
   }
   // settle storage: net energy this tick
   const net = supply * dt - drawn;
   if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * mods.storageEff);
   else s.powerStored = Math.max(0, s.powerStored + net);
   let construction = 0;
-  for (const w of wants) if (w.isSite) construction += w.draw / dt;
-  s.power = { supply, demand, served: drawn / dt, capacity, brownout, shed, supplyFull, supplyNight, construction };
+  for (const w of wants) if (w.kind === 1) construction += w.draw / dt;
+  s.power = {
+    supply, demand, served: drawn / dt, capacity, brownout, shed, supplyFull, supplyNight, construction,
+    fleet: fleetKW, charging: chargingKW, flat,
+  };
   // the bank could not carry the night (the Builder's battery rule answers at dawn)
   if (day.isNight && (brownout || shed) && s.powerStored < Math.max(1, capacity * 0.05)) st.nightBankEmpty = true;
   if (brownout) {
@@ -522,7 +643,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const runway = short > 0 ? s.powerStored / short : Infinity;
     const lead = `NIGHTFALL IN ${Math.ceil(day.phaseLeft)} s`;
     // the hazards' lines: habitats or Data Centers the bank will not carry (docs/14 §3.4–3.5)
-    const upTo = (p: number) => wants.filter((w) => !w.isSite && w.prio <= p).reduce((n, w) => n + w.draw / dt, 0);
+    const upTo = (p: number) => wants.filter((w) => w.kind === 0 && w.prio <= p).reduce((n, w) => n + w.draw / dt, 0);
     const hzLine = runway < NIGHT_S ? hazardDuskLine(s, mods, nightSupply, runway, upTo) : null;
     if (hzLine) {
       condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored lasts ~${fmtClock(runway)} of the ` +
@@ -602,7 +723,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     byType.get(b.type)!.push(b);
   }
   const runs = (b: BuildingState) => b.enabled && !building(b) && staffed.has(b.id) && !hzOff.has(b.id) &&
-    (eff(b.type).powerKW >= 0 || powered.has(b.id));
+    (eff(b.type).powerKW >= 0 || powered.has(b.id) || diggerShare.has(b.id));
   // agent-run labs share one DSN link: the share counts every agent lab that
   // runs this tick (labs have no inputs, so each that is powered and staffed runs)
   const share = uplinkShare((byType.get('lab') ?? []).filter((b) => runs(b) && isAuto(b)).length);
@@ -636,7 +757,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         s.resources[rid as ResourceId] -= (rate ?? 0) * dt;
       }
       if (type === 'excavator') {
-        const h = haulTick(s, mods, b, r, dt, caps, day.isNight);
+        // on its pack in a brownout: its cycle runs at the share the pack carries
+        const h = haulTick(s, mods, b, r, dt * (diggerShare.get(b.id) ?? 1), caps, day.isNight);
         for (const [rid, amt] of Object.entries(h.credited) as [ResourceId, number][]) {
           hauled[rid] = (hauled[rid] ?? 0) + amt;
           st.produced[rid] += amt;

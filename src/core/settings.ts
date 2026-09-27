@@ -4,6 +4,8 @@
  *  missing or throw (private mode, quota): every access is guarded, and a
  *  failure only means the choice lasts this session. */
 
+import { isTouchChoice, type TouchChoice } from './touch';
+
 const KEY = 'mbb-settings';
 
 export interface Settings {
@@ -58,6 +60,7 @@ function read(): Settings {
       tips: raw.tips !== false,
       pauseHazards: raw.pauseHazards !== false,
       pauseLethal: raw.pauseLethal === true,
+      touch: isTouchChoice(raw.touch) ? raw.touch : undefined,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -97,4 +100,17 @@ export interface Settings {
 /** The stored render style (the menu's), or the default. */
 export function storedStyle(): RenderStyle {
   return loadSettings().style ?? DEFAULT_STYLE;
+}
+
+// ───────────────────────────── touch mode ─────────────────────────────
+
+export interface Settings {
+  /** touch controls (core/touch.ts): Auto, On or Off; absent = Auto. Read
+   *  once at boot — a change saves the game and reloads */
+  touch?: TouchChoice;
+}
+
+/** The stored touch choice (the menu's), or Auto. */
+export function storedTouch(): TouchChoice {
+  return loadSettings().touch ?? 'auto';
 }

@@ -4,6 +4,7 @@
  *  opens). An era explainer pauses the game until Continue; tech cards never
  *  do. One setting turns both off (Esc menu, or the card's own switch) for
  *  players who know the road. The queue is filled by game.publish(). */
+import { touchOn } from '../core/touch';
 import { BUILDINGS, CATEGORY_LABEL, type BuildingId } from '../data/buildings';
 import {
   ERA_BLURB, ERA_BLURB_8, ERA_GATES, ERA_NAMES, LANES, SIDE_GLYPH, SIDE_LABEL, TECHS, TECH_ORDER, TRACKS,
@@ -90,6 +91,13 @@ function nextStep(fx: TechEffect[], s: GameState): string {
         break;
       case 'haul':
         return 'Excavators drive faster and carry more: select one and Dig at… a rich deposit farther out — the long hauls gain most.';
+      // on-board power (core/unitPower.ts): what a unit does off the grid now
+      case 'unitPower':
+        if (f.rpu) return 'Every unit makes its own trickle now: through any brownout, rovers, drones and excavators keep working slowly.';
+        if ((f.packMult ?? 1) > 1) {
+          return 'Every unit carries a bigger pack: it works longer through a brownout before it stops. A unit\'s inspector shows its charge; they refill at their docks and pads.';
+        }
+        break;
       case 'road':
         if ((f.speedMult ?? 1) > 1 || (f.haulMult ?? 1) > 1 || (f.nightMult ?? 1) > 1) {
           return 'Every road carries its traffic faster now: link far structures with the road tool [N] — shortcuts pay more.';
@@ -232,7 +240,9 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> ${era >= 2
         ? `opens with this era’s destiny and ${CHARTER_TECHS - 1} more of its techs, or the destiny, ${CHARTER_DEED_TECHS - 1} more and: ${esc(next.deed)}`
         : `opens with ${CHARTER_TECHS} techs from this era, or ${CHARTER_DEED_TECHS} plus: ${esc(next.deed)}`}</p>` : '') +
-      (intro ? '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>' : '') +
+      (intro ? (touchOn()
+        ? '<p class="eb-line">Your objectives are in the top-left card. <b>Build</b> opens the palette · <b>Tree</b> research · <b>Map</b> the Lunar Map · drag to pan, pinch to zoom · <b>☰</b> menu.</p>'
+        : '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>') : '') +
       `<div class="eb-foot"><button class="btn primary" data-dsc="ok">${intro ? 'Begin' : 'Continue'} ▸</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these explainers and pop-ups</label></div></div>`;
   };

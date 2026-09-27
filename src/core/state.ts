@@ -56,6 +56,9 @@ export interface BuildingState {
   cropRegrowT?: number;
   /** seconds held dark (idleReason 'power') at night; runs back down while powered */
   darkT?: number;
+  /** its grid draw is held dark, but it works on its units' packs (a
+   *  construction site's rovers, an excavator; core/unitPower.ts) */
+  onPack?: boolean;
   /** solar: seconds continuously in terrain shade */
   shadedT?: number;
   /** generators: staffed at last tick's worker allocation */
@@ -209,9 +212,27 @@ export interface AutoState {
  *  lump spending between ticks. */
 export interface FlowEntry { made: number; want: number; spend: number; acc: number }
 
+/** A unit's on-board pack (core/unitPower.ts, docs/02 · On-board power): on a rover,
+ *  a drone, or an excavator's haul. The grid pays first; in a brownout the
+ *  pack does, and an empty one stops the unit until the grid serves it. */
+export interface PackState {
+  /** kWh aboard (absent: full — a new unit, or a save from before packs) */
+  charge?: number;
+  /** the share of the next tick it can act: 1 on the grid or a pack with
+   *  charge, 0 flat, between on Radioisotope Power Units alone (absent: 1) */
+  pw?: number;
+  /** how it ran last tick: on the grid, on its pack, on its RPU trickle,
+   *  or flat (out of charge, waiting for the grid); absent: idle, drawing nothing */
+  src?: 'grid' | 'pack' | 'rpu' | 'flat';
+  /** charging last tick (plugged in at its dock, pad or a site's feed) */
+  chg?: boolean;
+  /** game-seconds it has waited flat (the stall alert) */
+  flatT?: number;
+}
+
 /** One construction rover (core/fleet.ts). Auto rovers go one per active
  *  site in queue order; a pinned rover stays at its site until it completes. */
-export interface RoverUnit {
+export interface RoverUnit extends PackState {
   id: number;
   /** the dock it parks at: the Lander or a Robotics Bay (building id) */
   home: number;
@@ -267,6 +288,9 @@ export interface RoverTrip {
   local?: boolean;
   /** no road there: it waits where it is and asks again each tick */
   stuck?: boolean;
+  /** the share of the clock it drives on now (core/unitPower.ts): 0 flat,
+   *  between on an RPU's trickle; absent: 1 (the visuals read it too) */
+  rate?: number;
 }
 
 /** An extraction zone (core/zones.ts): a revealed deposit's circle, world
@@ -316,8 +340,9 @@ export interface PitState {
 /** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
  *  the nearest regolith consumer → unload (credited then) → back again. The
  *  home pad is where it was placed and stays occupied; the digger moving
- *  about blocks nothing. World metres throughout. */
-export interface HaulState {
+ *  about blocks nothing. World metres throughout. Its pack (PackState)
+ *  rides on the haul, not the pad: the digger carries it (core/unitPower.ts). */
+export interface HaulState extends PackState {
   /** where it digs (default: the centre of its own pad) */
   digX: number;
   digZ: number;
@@ -573,6 +598,10 @@ export interface GameState {
     brownout: boolean; shed: boolean;
     /** the same panels under a full sun; supply the night would leave; construction draw (kW) */
     supplyFull?: number; supplyNight?: number; construction?: number;
+    /** the fleet's own draw asked of the grid (kW): driving, road work and
+     *  charging packs; of it, charging; units flat, waiting for the grid
+     *  (core/unitPower.ts) */
+    fleet?: number; charging?: number; flat?: number;
   };
 
   crew: number;
@@ -590,7 +619,8 @@ export interface GameState {
   rovers: RoverUnit[];
   nextRoverId: number;
   /** 1: rovers travel in the sim (core/transit.ts); older saves settle each
-   *  rover at its work on load */
+   *  rover at its work on load. 2: units carry packs (core/unitPower.ts);
+   *  older saves start every unit fully charged */
   fleetSchema?: number;
   /** the extraction zones the player sees (core/zones.ts): the revealed
    *  deposits but the peaks of light, kept by the game from the heightfield.
@@ -724,7 +754,7 @@ export function createInitialState(
     rates: {},
     bots: { total: 2, busy: 0 },
     rovers: [],
-    fleetSchema: 1,
+    fleetSchema: 2,
     nextRoverId: 1,
     era: 1,
     // the landing is the Era 1 destiny pick (docs/14 §2.5)
@@ -851,6 +881,14 @@ export function fillStateDefaults(s: GameState): GameState {
   if ((legacy.fleetSchema ?? 0) < 1) {
     for (const r of legacy.rovers) { delete r.x; delete r.z; delete r.trip; r.place = true; }
     legacy.fleetSchema = 1;
+  }
+  // saves from before on-board packs (docs/02 · On-board power): every rover, drone and
+  // excavator starts fully charged (an absent charge reads as a full pack)
+  if ((legacy.fleetSchema ?? 0) < 2) {
+    const fresh = (p: PackState) => { delete p.charge; delete p.pw; delete p.src; delete p.chg; delete p.flatT; };
+    for (const r of legacy.rovers) { fresh(r); if (r.trip) delete r.trip.rate; }
+    for (const b of legacy.buildings ?? []) { if (b.haul) fresh(b.haul); delete b.onPack; }
+    legacy.fleetSchema = 2;
   }
   // saves from before the Builder: every rule off (a loaded save never switches
   // one on), rules added later join with their defaults

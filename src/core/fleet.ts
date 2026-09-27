@@ -92,7 +92,8 @@ export function siteEntry(s: GameState, b: BuildingState): [number, number] | nu
     const f = frontierOf(s, b.spur);
     if (f?.from) return f.from;
   }
-  // inside an extraction zone: its gate (the drive on is off-road)
+  // inside an extraction zone: its gate (the drive on is off-road); a Relay
+  // Mast: the road cell its off-road way leaves from (accessCell)
   const zs = zoneStand(s, b);
   if (zs?.gate) return zs.gate;
   return accessCell(s, b);

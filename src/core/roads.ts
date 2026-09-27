@@ -7,12 +7,14 @@
  *    rotated with it); its spur ends there.
  *  - Spurs: A* from the open network to the door on placement; the site's
  *    rovers sinter it before they weld.
- *  - Field types (arrays, batteries, masts) are served from the field's edge.
+ *  - Field types (arrays, batteries) are served from the field's edge.
+ *  - Off-road types (Relay Masts) get no road at all: a rover drives out
+ *    from the nearest road cell across open ground (mastStand).
  *  - Jobs: roads the player draws and haul roads to a dig, sintered by free rovers.
  *  - Routes: shortest open paths, cached on the network's revision. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
-import { APRON, DOCK_TYPES, FIELD_TYPES, ROAD } from '../data/roads';
+import { APRON, DOCK_TYPES, FIELD_TYPES, OFFROAD_TYPES, ROAD } from '../data/roads';
 import type { BuildingState, GameState, RoadCell, RoadJob, ZoneState } from './state';
 import { footprintRect } from '../buildings/instances';
 import { rimOf, zoneCells, zoneOfCell } from './zones';
@@ -89,9 +91,12 @@ export function frontDir(b: Placed): Cell {
   return [Math.round(x), Math.round(z)];
 }
 
-/** The cell a structure's road ends at (null: a field type, served from its edge). */
+/** No door: a field type (served from its edge) or an off-road type (a Relay Mast). */
+export const doorless = (t: BuildingId): boolean => FIELD_TYPES.has(t) || OFFROAD_TYPES.has(t);
+
+/** The cell a structure's road ends at (null: a field type, served from its edge, or an off-road type). */
 export function doorCell(b: Placed): Cell | null {
-  if (FIELD_TYPES.has(b.type)) return null;
+  if (doorless(b.type)) return null;
   const [w, d] = BUILDINGS[b.type].footprint;
   const r = footprintRect(b);
   const cx = (r.gx0 + r.gx1) / 2, cz = (r.gz0 + r.gz1) / 2;
@@ -423,6 +428,63 @@ export function offRoadAt(s: GameState, x: number, z: number): ZoneState | null 
   return c && isOpen(c) ? null : zone;
 }
 
+/** Ground a unit crosses off-road, and the road cells it joins the road by:
+ *  an extraction zone (its gates), or the way out to a Relay Mast (its one gate). */
+export interface OffArea { id: string; gates: Cell[] }
+const isArea = (e: ZoneState | OffArea): e is OffArea => 'gates' in e;
+const areaGates = (s: GameState, e: ZoneState | OffArea): Cell[] => (isArea(e) ? e.gates : gatesOf(s, e));
+
+/** Off the road here? Inside a zone with a gate (its gates), else on the way
+ *  out to a Relay Mast (within a few metres of the straight leg from its gate
+ *  to its stand), else inside a zone with no gate yet (no way out: gates []);
+ *  null on an open road cell, or on open ground no way crosses. */
+export function offAreaAt(s: GameState, x: number, z: number): OffArea | null {
+  const [gx, gz] = cellAt(x, z);
+  const c = roadMap(s).get(cellKey(gx, gz));
+  if (c && isOpen(c)) return null;
+  const zone = zoneOfCell(s, gx, gz);
+  const zoneArea = zone ? { id: zone.id, gates: gatesOf(s, zone) } : null;
+  if (zoneArea?.gates.length) return zoneArea;
+  for (const m of mastWays(s)) if (segDist(x, z, m.ax, m.az, m.bx, m.bz) <= MAST_LANE) return m.area;
+  return zoneArea;
+}
+
+/** Every Relay Mast's way out, gate to stand (memoised per network, on its revision and the buildings). */
+type MastWay = { ax: number; az: number; bx: number; bz: number; area: OffArea };
+const mastWayMemo = new WeakMap<RoadCell[], { key: string; ways: MastWay[] }>();
+function mastWays(s: GameState): MastWay[] {
+  if (!s.roads) return [];
+  const key = layoutKey(s);
+  const hit = mastWayMemo.get(s.roads);
+  if (hit && hit.key === key) return hit.ways;
+  const ways: MastWay[] = [];
+  for (const b of s.buildings) {
+    const ms = OFFROAD_TYPES.has(b.type) ? mastStand(s, b) : null;
+    if (!ms) continue;
+    const [ax, az] = cellCentre(ms.gate[0], ms.gate[1]);
+    ways.push({ ax, az, bx: ms.x, bz: ms.z, area: ms.area });
+  }
+  mastWayMemo.set(s.roads, { key, ways });
+  return ways;
+}
+
+/** Open ground off every road and zone: the way on from the nearest open road
+ *  cell (a unit stopped out there, and set off again: core/transit.ts). */
+export function offGround(s: GameState, x: number, z: number): OffArea | null {
+  const [gx, gz] = cellAt(x, z);
+  const c = roadMap(s).get(cellKey(gx, gz));
+  if (c && isOpen(c)) return null;
+  const n = nearestRoad(s, x, z);
+  return n ? { id: `off:${cellKey(n[0], n[1])}`, gates: [n] } : null;
+}
+
+/** m from (x, z) to the segment a–b */
+function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: number): number {
+  const dx = bx - ax, dz = bz - az, l2 = dx * dx + dz * dz;
+  const k = l2 > 1e-9 ? Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2)) : 0;
+  return Math.hypot(x - ax - dx * k, z - az - dz * k);
+}
+
 export interface GroundWay {
   /** the way, world metres: from a, by gates and road cell centres, to b */
   pts: [number, number][];
@@ -430,23 +492,24 @@ export interface GroundWay {
   w?: number[];
 }
 
-/** A ground unit's way from a to b (docs/15 §5a): off-road straight between
- *  a point inside a zone and a gate of it (or straight across the zone, both
- *  ends in it), the shortest open road between. An end on an open road cell
- *  is on the road; one off it inside a zone (or given its zone) is reached
+/** A ground unit's way from a to b (docs/15 §5a, §5b): off-road straight
+ *  between a point inside a zone and a gate of it (or straight across the
+ *  zone, both ends in it), or between a Relay Mast's stand and its gate; the
+ *  shortest open road between. An end on an open road cell is on the road;
+ *  one off it (in a zone, on a mast's way out, or given its area) is reached
  *  off-road from a gate. `aVia`, `bVia`: the road cell an end joins the road
  *  by, through its centre (a pad's door). Null: no way. */
 export function groundWay(
   s: GameState, a: [number, number], b: [number, number], aVia?: Cell | null, bVia?: Cell | null,
-  aZone?: ZoneState | null, bZone?: ZoneState | null,
+  aZone?: ZoneState | OffArea | null, bZone?: ZoneState | OffArea | null,
 ): GroundWay | null {
-  const za = aVia ? null : aZone ?? offRoadAt(s, a[0], a[1]);
-  const zb = bVia ? null : bZone ?? offRoadAt(s, b[0], b[1]);
+  const za = aVia ? null : aZone ?? offAreaAt(s, a[0], a[1]);
+  const zb = bVia ? null : bZone ?? offAreaAt(s, b[0], b[1]);
   const OFF = 1 / ROAD.offroad;
   if (za && zb && za.id === zb.id) return { pts: [a, b], w: [OFF] };
-  // the road ends: each end's cell, or a gate of its zone (the pair the quickest way)
-  const ends = (p: [number, number], zone: ZoneState | null, via: Cell | null | undefined): Cell[] =>
-    zone ? gatesOf(s, zone) : [via ?? cellAt(p[0], p[1])];
+  // the road ends: each end's cell, or a gate of its area (the pair the quickest way)
+  const ends = (p: [number, number], zone: ZoneState | OffArea | null, via: Cell | null | undefined): Cell[] =>
+    zone ? areaGates(s, zone) : [via ?? cellAt(p[0], p[1])];
   const as = ends(a, za, aVia), bs = ends(b, zb, bVia);
   if (!as.length || !bs.length) return null;
   let best: { ga: Cell; gb: Cell; t: number } | null = null;
@@ -510,6 +573,71 @@ export function zoneStand(s: GameState, b: Placed): { zone: ZoneState; gate: Cel
     [px, pz] = [cx + (ux / l) * 2, cz + (uz / l) * 2];
   }
   return { zone, gate, x: px, z: pz };
+}
+
+/** m either side of a mast's way out that still counts as on it (a slot's
+ *  lane beside the stand, a unit stopped short on the way) */
+const MAST_LANE = 4;
+
+/** Where an off-road type (a Relay Mast) is worked from (docs/15 §5b): the
+ *  open road cell nearest it (its gate — never a bay, the closed apron or
+ *  another structure's door; with no road yet, the Lander apron's stub end),
+ *  and the clear cell beside it that gate reaches straightest (its stand: a
+ *  rover drives there off-road, and works from it). The pair is the shortest
+ *  leg whose straight line crosses no footprint (else the shortest). Null:
+ *  not an off-road type, one inside a zone with a gate (the zone's way on,
+ *  zoneStand), or no road at all. Memoised on the network and the buildings. */
+export interface MastStand { gate: Cell; x: number; z: number; area: OffArea; offM: number }
+const mastMemo = new WeakMap<RoadCell[], { key: string; at: Map<string, MastStand | null> }>();
+
+export function mastStand(s: GameState, b: Placed): MastStand | null {
+  if (!OFFROAD_TYPES.has(b.type) || !s.roads) return null;
+  const key = layoutKey(s);
+  let m = mastMemo.get(s.roads);
+  if (!m || m.key !== key) { m = { key, at: new Map() }; mastMemo.set(s.roads, m); }
+  const at = `${b.gx},${b.gz},${b.rot}`;
+  if (m.at.has(at)) return m.at.get(at)!;
+  const out = findMastStand(s, b);
+  m.at.set(at, out);
+  return out;
+}
+
+function findMastStand(s: GameState, b: Placed): MastStand | null {
+  if (zoneStand(s, b)?.gate) return null;
+  const map = roadMap(s);
+  const blocked = occupied(s, b);
+  const sources = openSources(s, doorKeys(s, b));
+  if (!sources.length) return null;
+  const stands = ringCells(b, 1).filter(([x, z]) => {
+    const k = cellKey(x, z);
+    const c = map.get(k);
+    return inMap(x, z) && !blocked.has(k) && !c?.bay && !c?.closed;
+  });
+  if (!stands.length) return null;
+  const pairs: { g: number; st: Cell; d: number }[] = [];
+  for (const st of stands) {
+    const [sx, sz] = cellCentre(st[0], st[1]);
+    for (const g of sources) {
+      const [gx, gz] = cellCentre(...keyCell(g));
+      pairs.push({ g, st, d: Math.hypot(gx - sx, gz - sz) });
+    }
+  }
+  pairs.sort((p, q) => p.d - q.d || p.g - q.g || cellKey(...p.st) - cellKey(...q.st));
+  // the straight leg crosses no footprint (every 1 m checked, the mast's own left out)
+  const rects = s.buildings.filter((o) => !(o.type === b.type && o.gx === b.gx && o.gz === b.gz)).map(footprintRect);
+  const clear = (p: { g: number; st: Cell; d: number }) => {
+    const [ax, az] = cellCentre(...keyCell(p.g)), [bx, bz] = cellCentre(p.st[0], p.st[1]);
+    const n = Math.ceil(p.d);
+    for (let i = 1; i < n; i++) {
+      const [cx, cz] = cellAt(ax + ((bx - ax) * i) / n, az + ((bz - az) * i) / n);
+      if (rects.some((r) => cx >= r.gx0 && cx < r.gx1 && cz >= r.gz0 && cz < r.gz1)) return false;
+    }
+    return true;
+  };
+  const best = pairs.slice(0, 64).find(clear) ?? pairs[0];
+  const gate = keyCell(best.g);
+  const [x, z] = cellCentre(best.st[0], best.st[1]);
+  return { gate, x, z, area: { id: `mast:${b.gx},${b.gz}`, gates: [gate] }, offM: best.d };
 }
 
 /** The open network a new road may start from: not a bay, not the closed
@@ -622,6 +750,16 @@ function fieldFix(s: GameState, t: BuildingId): string {
 
 function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const map = roadMap(s);
+  // a Relay Mast needs no road: its rover drives out to it off-road and works
+  // it from a free cell beside it (mastStand)
+  if (OFFROAD_TYPES.has(b.type)) {
+    const blocked = occupied(s, b);
+    const room = ringCells(b, 1).some(([x, z]) => {
+      const c = map.get(cellKey(x, z));
+      return inMap(x, z) && !blocked.has(cellKey(x, z)) && !c?.bay && !c?.closed;
+    });
+    return { cells: [], fresh: [], bays: [], reason: room ? '' : 'NO ROOM BESIDE IT — its rover works it from a free cell beside it' };
+  }
   const blocked = occupied(s, b);
   const doors = doorKeys(s, b);
   // a new road runs through no one's door, and never inside an extraction zone (core/zones.ts)
@@ -746,7 +884,7 @@ export function roadReach(s: GameState, hf: Heights): Uint8Array {
  *  cell, or a door outside the reach. False: the spot needs no road, or one
  *  may reach it (planSpur decides). */
 export function spurHopeless(s: GameState, hf: Heights, b: Placed): boolean {
-  if (!hasRoads(s)) return false;
+  if (!hasRoads(s) || OFFROAD_TYPES.has(b.type)) return false;
   const reach = roadReach(s, hf);
   if (FIELD_TYPES.has(b.type)) {
     if (fieldReached(s, b)) return false;
@@ -1131,6 +1269,11 @@ export function serviceCell(s: GameState, b: Placed): Cell | null {
  *  a cell beside it, or (a field) its service cell. */
 export function accessCell(s: GameState, b: Placed): Cell | null {
   if (FIELD_TYPES.has(b.type)) return serviceCell(s, b);
+  if (OFFROAD_TYPES.has(b.type)) {
+    const r = footprintRect(b);
+    const [x, z] = cellCentre((r.gx0 + r.gx1) / 2 - 0.5, (r.gz0 + r.gz1) / 2 - 0.5);
+    return mastStand(s, b)?.gate ?? nearestRoad(s, x, z);
+  }
   const beside = besideCells(s, b)[0];
   if (beside) return beside;
   const r = footprintRect(b);
@@ -1188,4 +1331,4 @@ export function openAll(s: GameState) {
 }
 
 /** For the placement hint and tests: the type a door belongs to. */
-export const hasDoor = (t: BuildingId) => !FIELD_TYPES.has(t);
+export const hasDoor = (t: BuildingId) => !doorless(t);

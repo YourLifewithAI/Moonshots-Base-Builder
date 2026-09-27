@@ -373,7 +373,14 @@ SaveBlob = {
   `state.fleetSchema` (1) and per rover `x` / `z` and `trip` (goal, kind,
   route, weights off-road, length, cruise, elapsed and total seconds); an
   excavator's haul adds `full` and `w`. A save without `fleetSchema`
-  settles each rover where its work is, arrived, on load. `state.zones`
+  settles each rover where its work is, arrived, on load. On-board power
+  (docs/02) makes it `fleetSchema` 2: every rover and every excavator's
+  haul carries a pack (`PackState`: `charge` kWh — absent is full — `pw`,
+  the share of the next tick it can act, `src` grid / pack / rpu / flat,
+  `chg` charging, `flatT` seconds waited flat), a trip its `rate`, a
+  building `onPack` (its grid draw dark, its units' packs working), and
+  `s.power` its `fleet`, `charging` and `flat`. `fleetSchema` 1 → 2 clears
+  the pack fields: every unit starts fully charged. `state.zones`
   (docs/15 §5a) is rebuilt from the heightfield and the reveals on every
   load.
 - **Strip-mine pits** (docs/17 §11.5) add these fields:
@@ -422,10 +429,15 @@ losses, grief) · `forceHazard(kind, target?, {drill, tier})` ·
 the action queue). Transit adds `instantTravel(on)` (every trip ends as it
 starts, and a new goal is reached in the tick that sets it: tests where the
 drive is not the point) and `getZones()` (each
-extraction zone, its cells and gates). The pits add `getPits()` (every pit with
-its derived numbers, the grid encoded, the rebuild queue) · `pitDig(x, z,
-tonnes)` (the adapter, as an excavator calls it) · `terrainSample(ix, iz)` ·
-`terrainRelief(…)` · `terrainHash()` · `canGrade(gx, gz)`. `&hzpause` lets the pause-on settings pause a debug run;
+extraction zone, its cells and gates). On-board power adds
+`forceGridDark(on)` (the grid at 0 — no supply, the bank out of reach: a
+forced brownout) and `setCharge(kind, id, kWh)` (a rover's or an
+excavator's pack); `roadAccess()` gives a Relay Mast's off-road `stand`.
+The pits add `getPits()` (every pit with its derived numbers, the grid
+encoded, the rebuild queue) · `pitDig(x, z, tonnes)` (the adapter, as an
+excavator calls it) · `terrainSample(ix, iz)` · `terrainRelief(…)` ·
+`terrainHash()` · `canGrade(gx, gz)`.
+`&hzpause` lets the pause-on settings pause a debug run;
 without it they never do.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time

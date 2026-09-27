@@ -19,7 +19,7 @@ import { ghostGeometry } from './recipes';
 import { upgradeKey } from './upgrades';
 import { centerOf, footprintRect } from './instances';
 import { createGhost, setGhostBlocked } from './ghost';
-import { cellCentre, footprintCells, keyCell, planSpur, roadMap, zoneStand } from '../core/roads';
+import { cellCentre, footprintCells, keyCell, mastStand, planSpur, roadMap, zoneStand } from '../core/roads';
 import { CellPreview } from './cellPreview';
 import { gradeEnergy, gradePitRefusal, pitRefusal } from '../core/pits';
 import { ROAD } from '../data/roads';
@@ -358,7 +358,9 @@ export function checkPlacement(
   // inside an extraction zone (core/zones.ts): its road stops at the rim; the drive on is off-road
   const zs = zoneStand(state, probe);
   const end = zs ? (spur.cells.length ? keyCell(spur.cells[spur.cells.length - 1]) : zs.gate) : null;
-  const offM = zs && end ? Math.hypot(cellCentre(...end)[0] - zs.x, cellCentre(...end)[1] - zs.z) : undefined;
+  // a Relay Mast gets no road: the whole way from the nearest road cell is off-road (docs/15 §5b)
+  const ms = mastStand(state, probe);
+  const offM = ms ? ms.offM : zs && end ? Math.hypot(cellCentre(...end)[0] - zs.x, cellCentre(...end)[1] - zs.z) : undefined;
   return {
     valid: true, reason: '', warn: smelterWarning(state, site, type, unlocked),
     note: known ? DEPOSIT_INFO[known.kind].ghost : '', road, roadS, ...(offM !== undefined ? { offM } : {}),

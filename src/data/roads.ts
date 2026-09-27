@@ -35,7 +35,12 @@ export const HIVE_PADS: readonly (readonly [number, number])[] = [[-2.1, 1.3], [
 export const HIVE_DECK_Y = 1.64;
 
 /** Structures served from the edge of their field: no road between them. */
-export const FIELD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['solar', 'battery', 'relayMast']);
+export const FIELD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['solar', 'battery']);
+
+/** Structures reached off-road (docs/15 §5b): no door, no road, no spur. A
+ *  rover drives out from the nearest road cell across open ground, at
+ *  ROAD.offroad of road speed, and works from beside it. */
+export const OFFROAD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['relayMast']);
 
 /** Docks: rovers park in bays laid beside the door. A Drone Hive (docs/14
  *  §2.8) is one: its four rovers launch from it and park there. The other

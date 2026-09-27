@@ -123,7 +123,10 @@ test('power: dark loads count as demand; load shed vs brownout; power returns in
   const shed = await drainAndRun(3);
   const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
   expect(by(shed, 'habitat').idleReason).toBe('');
-  expect(by(shed, 'excavator').idleReason).toBe('power');
+  // the excavator's grid draw is held dark: it digs on its own pack for now (docs/02, On-board power)
+  expect(by(shed, 'excavator').idleReason).toBe('');
+  expect(by(shed, 'excavator').onPack).toBe(true);
+  expect(by(shed, 'excavator').haul.src).toBe('pack');
   expect(by(shed, 'lab').idleReason).toBe('power');
   // requested demand keeps counting the loads held dark
   expect(shed.power.demand).toBeGreaterThanOrEqual(15);
@@ -380,16 +383,20 @@ test('construction sites draw power at their own priority; a dark site is never 
   const first = await run(2);
   expect(by(first, 'habitat').construction).toBeGreaterThan(0);
   expect(by(first, 'habitat').idleReason).toBe('building');
-  expect(by(first, 'excavator').idleReason).toBe('power');
+  expect(by(first, 'habitat').onPack).toBeUndefined(); // on the grid
+  // the excavator's grid draw is dark (it digs on its pack for now: docs/02, On-board power)
+  expect(by(first, 'excavator').onPack).toBe(true);
   expect(first.power.shed).toBe(true);
   expect(first.power.brownout).toBe(false);
-  // the player's priority governs the site: at 3 it idles before the excavator
+  // the player's priority governs the site: at 3 its draw goes dark before the
+  // excavator's (its rover welds on its own pack meanwhile)
   const demoted = await run(2, [['habitat', 3]]);
-  expect(by(demoted, 'habitat').idleReason).toBe('power');
+  expect(by(demoted, 'habitat').onPack).toBe(true);
   expect(by(demoted, 'excavator').idleReason).toBe('');
+  expect(by(demoted, 'excavator').onPack).toBeUndefined();
   // a critical-priority site held dark is shed load, not a life-support brownout
   const critical = await run(2, [['habitat', 1], ['excavator', 0]]);
-  expect(by(critical, 'habitat').idleReason).toBe('power');
+  expect(by(critical, 'habitat').onPack).toBe(true);
   expect(critical.power.brownout).toBe(false);
   expect(critical.power.shed).toBe(true);
 });
