@@ -946,7 +946,7 @@ survey finds which is fixed by the host table, so it is deterministic.
   needs them least, reaches them last.
 - Ina, Malapert, Copernicus and Reiner Gamma lose `ANOMALY_BONUS_DATA`
   (`src/data/lunarMap.ts:161`) now that they host a breakthrough, as hosting anomalies do.
-- The slots: E3 ◎ gains slot 2, E5, E6 and E7 ◎ gain slot 1 (§13.4).
+- The slots: E3 ◎ gains slot 2, E5, E6 and E7 ◎ gain slot 1 (§13.6).
 
 ### 8.2 Solar-Wind Implantation (E3)
 
@@ -1399,9 +1399,9 @@ E4 456≡, E5 580≡, E6 1700≡, E7 1294≡. Every con is numeric and passes `a
 | `flareProtocols` · **Flare Protocols** | E3 · ▣ | 278≡ | — | `{ kind: 'protocols' }`: stow, recall, checkpoint, shut down and domes set by class (§7.4); arrays and fields take `By class` | +10% draw: Research Lab (checkpoint mirrors) | "The Lander raises a space-weather console mast whose lamp goes dark in a storm." | normal |
 | `deployableShelters` · **Deployable Shelters** | E3 · ⌂ | 278≡ + 10⚙ | Regolith Shielding | `{ kind: 'shelterKit', kit: 'bag' }`: bag-wall kits (σ 0.6, 4 uses) and the Dome action | +10% upkeep: Robotics Bay (bag fillers) | "Robotics Bays rack folded sandbag bales and a filler scoop on a side shelf." | normal |
 | `waterWallShielding` · **Water-Wall Shielding** | E4 · ⌂ | 456≡ + 10⚙ | Deployable Shelters; any of Cryo Ice Extraction, Solar-Wind Volatiles | `{ kind: 'flareShield', buildings: [Habitat, the pressurized halls, Lab, Data Center, Server Monolith, Chip Fab, the hubs], sigma: 0.85 }` · `{ kind: 'shelterKit', kit: 'water' }`: water-wall domes (σ 0.9, 6 uses) | +10% upkeep: Habitat Module, Research Lab (jacket pumps) | "Habitats and Labs wear a quilted water jacket, and dome kits become double-walled water domes." | normal |
-| `faultTolerantAvionics` · **Fault-Tolerant Avionics** | E4 · ◉ | 456≡ + 5▣ | Construction Robotics | `{ kind: 'machineHard', glitchMult: 0.5, rebootMult: 0.5, latch: 'reboot' }` · `{ kind: 'guard', guard: 'faultTolerant' }` (bit flips ×0.5) | +10% draw: Robotics Bay, Drone Hive (watchdog uplinks) | "Rovers and drones carry a shielded avionics box with a watchdog lamp." | normal |
+| `faultTolerantAvionics` · **Fault-Tolerant Avionics** | E4 · ◉ | 456≡ + 5▣ | Construction Robotics | `{ kind: 'machineHard', glitchMult: 0.5, rebootMult: 0.5, latch: 'reboot', scarMult: 0.5 }` · `{ kind: 'guard', guard: 'faultTolerant' }` (bit flips ×0.5) | +10% draw: Robotics Bay, Drone Hive (watchdog uplinks) | "Rovers and drones carry a shielded avionics box with a watchdog lamp." | normal |
 | `l1Sentinel` · **L1 Sentinel** | E5 · ◎ | 580≡ + 15▣ | Heliophysics Forecasting, Orbital Prospector | `{ kind: 'action', id: 'sentinel' }`: Launch sentinel · `{ kind: 'forecast', tier: 2 }` once on station | −1.5 kW: Lander (the L1 link) | "The Lander adds a sentinel tracking dish that points at the Sun." | normal |
-| `radHardCells` · **Rad-Hard Cells** | E5 · ⚡ | 580≡ + 20◇ | MPPT Inverters | `{ kind: 'pvFlare', mult: 0.4 }`: flare cell loss ×0.4 | −5% output: Solar Array (thick cover glass) | "Solar Arrays take a thick cover-glass sheen and steel edge rails." | normal |
+| `radHardCells` · **Rad-Hard Cells** | E5 · ⚡ | 580≡ + 20◇ | MPPT Inverters | `{ kind: 'arrayHard', mult: 0.4 }`: every array flare damage ×0.4: destroyed shares, scars and stowed damage | −5% output: Solar Array (thick cover glass) | "Solar Arrays take a thick cover-glass sheen and steel edge rails." | normal |
 | `solarCycleForecasting` · **Solar-Cycle Forecasting** | E6 · ▣ | 1700≡ + 10▣ | L1 Sentinel, Lunar Data Center | `{ kind: 'forecast', tier: 3 }`: the cycle and the next three flares · `{ kind: 'weatherPlanner' }`: the Builder plans on them | +10% draw: Data Center | "Data Centers add a helioseismology rack: a tall louvred cabinet with a slow-sweeping lamp." | normal |
 | `btSolarWind` · **Solar-Wind Implantation** | E3 · ◎ · slot 2 | 278≡ | — | `{ kind: 'implantation', m: 1.5, x: 2.5 }` (§8.2) | +10% draw: Water Management Plant | "Water Management Plants add a storm-cut hopper whose lamp glows after a flare." | breakthrough: Tranquillitatis soil, Haworth |
 | `btParticleTelescope` · **Particle Telescope** | E5 · ◎ · slot 1 | 580≡ | Heliophysics Forecasting | `{ kind: 'flareData', mult: 3 }` · `{ kind: 'forecastWindow', f: 0.4 }` (§8.3) | −3 kW: Solar Observatory | "Solar Observatories add a particle-telescope stack: a column of detector plates beside the dome." | breakthrough: Ina, Malapert, Copernicus |
@@ -1417,15 +1417,15 @@ E4 456≡, E5 580≡, E6 1700≡, E7 1294≡. Every con is numeric and passes `a
 
 | Tech | Era · lane | Change |
 |---|---|---|
-| Regolith Shielding | E2 ⌂ | + `{ kind: 'flareShield', buildings: 'bermed', sigma: 0.5 }`; a machine in a bermed dock is sheltered (σ 1). Its desc already says radiation. |
+| Regolith Shielding | E2 ⌂ | + `{ kind: 'flareShield', buildings: 'bermed', sigma: 0.5 }`; + `{ kind: 'stowShield', sigma: 0.5 }`: field berms for stowed arrays; a machine in a bermed dock is sheltered (σ 1). Its desc already says radiation; its visual gains `and a low berm along every array field`. |
 | Rad-Hard Process | E4 ▣ doctrine | `radHard` also halves latch-ups, burn-outs, chip yield loss, compute errors and rad scars. |
 | Drone Hives | E3 ◉ pick | `hiveReflash` also clears flare latch-ups. |
 | Settler Charter | E6 ⌂ pick | `stormShelters`: + the crew indoors σ 1 and flare morale ×0.5. |
 | Lights-Out Charter | E6 ◉ pick | `watchdogs`: + a flare reboot takes 10 s. |
-| Automated Power | E4 ⚡ | + the `flareStance` rule, with Flare Protocols (§5.4). |
+| Automated Power | E4 ⚡ | + the `flareStance` rule (§5.5): stows M and X but the critical feed, runs through C, queues repairs and rebuilds wrecks. |
 | Automated Fabrication | E6 ◉ | + the `domeKits` rule, with Deployable Shelters (§7.5). |
 | Predictive Scheduling | E6 ▣ | + shelter planning with a T1 forecast or better (§7.5); fills the bank before a forecast M or X (§5.5). |
-| Maintenance Automation | E7 ▣ | + replaces arrays under 85% cells, and compute scarred −8% or worse. |
+| Maintenance Automation | E7 ▣ | `maintenance` gains `capability: 0.75`: replaces any building or unit under 75% capability (50–95%), one at a time (§4.14). |
 | Laser Ranging | E7 ◎ | + `{ kind: 'commsHard', mult: 0.5 }`: the blackout ×0.5. |
 | Power Beaming Return | E8 | Its con reads `the beam halves in a C flare and drops to 0 in an M or X`. |
 | Earth Teleoperation | E1 ◉ | + a con line: `its build speed is lost in a comms blackout` (flag). |
@@ -1439,8 +1439,10 @@ E4 456≡, E5 580≡, E6 1700≡, E7 1294≡. Every con is numeric and passes `a
 | `{ kind: 'protocols' }` | `flareProtocols` | `FLARE PROTOCOLS: stow, recall, checkpoint, shut down and domes, set by class` | — |
 | `{ kind: 'shelterKit', kit }` | `domeKit` ('none' · 'bag' · 'water') | `NEW ACTION Dome: bag walls (σ 0.6, 4 uses)` · `water-wall domes (σ 0.9, 6 uses)` | `a kit costs 6⚙ (12⚙ 4◇); each use costs rover time` (use) |
 | `{ kind: 'flareShield', buildings \| 'bermed', sigma }` | `flareShield: Map<BuildingId, number>` | `FLARE SHIELD σ 0.85: Habitat Module, Research Lab, …` | — |
-| `{ kind: 'machineHard', glitchMult, rebootMult, latch }` | `machineHard` | `machine glitches ×0.5 and half as long; an X no longer bricks or burns them out` | — |
-| `{ kind: 'pvFlare', mult }` | `pvFlareMult` (1) | `flare cell loss ×0.4: Solar Array` | — |
+| `{ kind: 'machineHard', glitchMult, rebootMult, latch, scarMult }` | `machineHard` | `machine glitches ×0.5 and half as long; an X no longer bricks or burns them out; machine rad scars ×0.5` | — |
+| `{ kind: 'arrayHard', mult }` | `arrayHardMult` (1) | `arrays' flare damage ×0.4: fewer destroyed, lighter scars, lighter stowed damage` | — |
+| `{ kind: 'stowShield', sigma }` | `stowShield` (0) | `FIELD BERMS: stowed arrays σ 0.5` | — |
+| `maintenance` gains `capability` | `maintenanceCapability` (0: off) | `buildings and units under 75% capability are replaced` | `a replacement costs half a new one` (use) |
 | `{ kind: 'weatherPlanner' }` | `weatherPlanner` | `the Builder plans the next three flares` | `it plans only while a Data Center runs` (flag) |
 | `{ kind: 'flareData', mult }` | `flareDataMult` (1) | `flare data ×3 at a Solar Observatory` | — |
 | `{ kind: 'implantation', m, x }` | `implantation` | `after an M or X, pits' top benches carry ×1.5 / ×2.5 water for a lunar day` | — |
@@ -1450,7 +1452,7 @@ E4 456≡, E5 580≡, E6 1700≡, E7 1294≡. Every con is numeric and passes `a
 | `guard` gains `faultTolerant` | `guards` | `flare bit flips ×0.5` | — |
 
 `techRelevance`: `forecast`, `forecastWindow`, `protocols`, `shelterKit`, `flareShield`,
-`machineHard` and `commsHard` are always relevant. `pvFlare` wherever arrays can stand
+`machineHard`, `stowShield` and `commsHard` are always relevant. `arrayHard` wherever arrays can stand
 (every site). `implantation` wherever a Water Management Plant or smelter can stand.
 `stormSail` once a launch architecture is researchable. `flareData` once Heliophysics
 Forecasting is done.
@@ -1462,18 +1464,30 @@ Forecasting is done.
 | `unlock solarObservatory` · `forecast` | `Place a Solar Observatory in the sun: the ☉ chip shows the next flare.` · `The ☉ chip now reads the class for sure, day and night.` · `Open ☉ [O]: the cycle and the next three flares.` |
 | `protocols` | `Open ☉ [O] and set what the base does for each class.` |
 | `shelterKit` | `Print a kit at a Parts Fabricator, then Dome a building before the next flare.` |
-| `flareShield` · `machineHard` · `pvFlare` | `Your homes and labs are jacketed now.` · `Machines shrug off flares now.` · `Generating through a flare costs your cells less now.` |
+| `flareShield` · `machineHard` · `arrayHard` · `stowShield` | `Your homes and labs are jacketed now.` · `Machines shrug off flares now.` · `Arrays kept running through a flare lose far less now.` · `Stowed arrays fold behind field berms now.` |
 | `unlock shieldCoil` | `Place a Shield Coil over your arrays: they generate through every flare.` |
 | `stormSail` | `Launch in a CME's sail window: ☉ shows when.` |
 
-### 13.4 New buildings
+### 13.4 New actions (from landing, no tech)
+
+| Action | Where | Section |
+|---|---|---|
+| The flare pop-up's choice: keep all running · stow all · stow a portion; `Repair after`; `Use for future flares of this class` | the pop-up, the panel, the alert's [Change] | §5 |
+| Field override: follow · always stow · always run | an array's inspector | §5.4 |
+| **Rebuild** · **Clear** a wreck (and *all*) | the wreck, the post-flare alert, the panel | §4.3 |
+| **Repair** a field's stowed damage (and *all*) | the field, the alert, the panel | §4.3 |
+| **Replace** a scarred building | its inspector, the panel's SCARRED line | §4.14 |
+| **Re-print** a scarred unit, rover or drone | its inspector, its hub's or dock's queue | §4.14 |
+| **Shut down exposed** | the pop-up's ALSO row, the panel | §4.7 |
+
+### 13.5 New buildings
 
 | id | Name | From | Footprint | Cost | Power | Section |
 |---|---|---|---|---|---|---|
 | `solarObservatory` | Solar Observatory | Heliophysics Forecasting | 2×2 field | 25◆ 8⚙ | −2 kW | §6.3 |
 | `shieldCoil` | Shield Coil | Mini-Magnetosphere | 3×3 field | 80◆ 20▣ 30⚙ | −1 kW · −40 kW in a flare | §8.4 |
 
-### 13.5 Tree fit
+### 13.6 Tree fit
 
 - 129 techs today; 135 after docs/17; **147** with these twelve (plus work/unitpower's).
 - **Busiest rows after both docs** (robotic mare): E2 ◎ 2 · E3 ▣ 4, ⌂ 3, ◎ 2 · E4 ⌂ 3
