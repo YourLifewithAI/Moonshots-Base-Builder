@@ -97,7 +97,11 @@ src/
     materials.ts          material registry: lit or safe-mode twin, FX-level shader patches, classic materials
     floodlights.ts        flood uniform array (per-slot darkness) + night earthshine floor, shared by the patches
     post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
-                          classic = plain, no ladder; frame probe
+                          classic = plain, no ladder; frame probe; boots no better than the capability floor
+    fxguard.ts            FX 0's HDR sanitiser (in N8AO's hardened composite, else its own pass); debug breaks
+    fxcaps.ts             boot capability probe: extensions, precision, a half-float render/blend/filter test → floor
+    fxcheck.ts            FX self-check: the chain's frame vs the same scene drawn plain (06 §4)
+    renderReport.ts       render log (console mirror, GL errors) and the report's helpers (clipboard, GPU strings)
     life.ts               the motion layer, one call per frame; each part fails soft
     rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads, following the sim's
                           trips (core/transit.ts); and DroneFlight, the Drone Hive's units flying straight at
@@ -371,7 +375,14 @@ the action queue). Transit adds `instantTravel(on)` (every trip ends as it
 starts, and a new goal is reached in the tick that sets it: tests where the
 drive is not the point) and `getZones()` (each
 extraction zone, its cells and gates). `&hzpause` lets the pause-on settings pause a debug run;
-without it they never do.
+without it they never do. The render path adds `getRenderInfo()` ·
+`getRenderReport()` (the menu's report, as data) · `fxCheckNext()` /
+`getFxChecks()` / `getFxCheckImages()` (the FX self-check on the next frame,
+its results with a `seq`, its two images) · `setFxCheckAuto(on)` ·
+`debugBreakFx(level, 'player' | 'zero' | 'nan')` (a level draws wrong the way
+a faulty GPU would; `null` mends it) · `setFxSanitize(on)` /
+`setFxHardening(on)` · `holdBlackFrameCheck(on)` (only the self-check
+sees a break) · `probeNext()`.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time
 waits make tests slow and flaky. `?nolock` makes walk mode drivable, and
