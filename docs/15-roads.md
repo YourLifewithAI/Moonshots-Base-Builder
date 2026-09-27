@@ -209,7 +209,10 @@ the ring the [I] overlay draws. A cell is in a zone when its centre is.
 
 - A building on unmapped ground maps its deposit first, then plans its
   road, so the rule holds for a strike too. The ghost of such a spot shows
-  a road into the unmapped ground (unmapped ground says nothing).
+  a road into the unmapped ground (unmapped ground says nothing). If the zone
+  it maps would refuse the road the placement approved (a dock's parking
+  bays on the ring), that road is laid with the new zone set aside, as a
+  save's migration does: a site with no road would wait for its rover forever.
 - **Old saves keep their roads** inside zones: removing them could strand
   a structure, and they do no harm. A save from before roads gets its
   spurs laid to every door as before, zones aside.
