@@ -105,11 +105,14 @@ for (const style of ['classic', 'detailed']) {
     const { yaws, sparks, reach } = await page.evaluate((id) => {
       const g = window.__game!;
       const out = { yaws: [] as number[], sparks: [] as boolean[], reach: [] as number[] };
+      g.setPaused(false);
       for (let i = 0; i < 30; i++) {
         g.stepFrame(0.05); g.stepFrame(0.05);
         const r = g.getWorkAnim().rovers.find((x: any) => x.id === id);
         out.yaws.push(r.arm.yaw); out.sparks.push(r.spark); out.reach.push(r.arm.reach);
       }
+      g.setPaused(true);
+      g.stepFrame(0);
       return out;
     }, id);
     expect(Math.max(...yaws) - Math.min(...yaws), 'the arm sweeps').toBeGreaterThan(0.5);
@@ -189,8 +192,8 @@ test('a sintering rover points its arm down, the cells glow as they sinter and c
   // the cells it sintered cool behind it
   const w1 = await until(page, (w) => w.cooling > 0, 600, 4);
   expect(w1, 'sintered cells cool behind it').not.toBeNull();
-  // the spur done, it welds: arm up and out, spark on
-  const w2 = await until(page, (w) => w.rovers.some((r: any) => r.mode === 'weld' && r.spark), 1200);
+  // the spur done (a cell at a time, the rover stepping on to each), it welds: arm up and out, spark on
+  const w2 = await until(page, (w) => w.rovers.some((r: any) => r.mode === 'weld' && r.spark), 4000, 40);
   expect(w2).not.toBeNull();
   expect(w2!.rovers.find((r: any) => r.spark).arm.down).toBeLessThan(0.01);
 });
