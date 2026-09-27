@@ -233,6 +233,15 @@ const lander: Upgrade[] = [
       box(0.3, 0.16, 0.2, LAMP, 4.9, 4.15, -2.5),
     ],
   },
+  { // Heliophysics Forecasting (docs/16 §6): a sun sensor for the forecast link (+x)
+    tech: 'heliophysicsForecasting',
+    parts: () => [cyl(0.3, 0.36, 0.12, TRIM, 5.4, 0.06, 0.6, 0, 0, 8), ...sensorMast(5.4, 0.12, 0.6, 2.2)],
+  },
+  { // L1 Sentinel (docs/16 §6.4): its tracking dish on a pylon (+z; F6 points it at the Sun)
+    tech: 'l1Sentinel',
+    parts: () => [dishPylon(2.3, 5.3, 2.6), box(0.2, 0.1, 0.05, LAMP, 2.3, 2.2, 5.56)],
+    mounts: (m) => [...m, { part: 'dish', p: [2.3, 2.75, 5.3], s: 0.7 }],
+  },
 ];
 
 const solar: Upgrade[] = [
@@ -934,6 +943,16 @@ const dataCenter: Upgrade[] = [
       bar([-4.2, 7.0, -3.7], [-3.2, 7.0, -3.7], 0.04, TRIM),
       bar([-4.0, 8.0, -3.7], [-3.4, 8.0, -3.7], 0.04, TRIM),
       dome(0.12, BEACON, -3.7, 8.9, -3.7, 8),
+    ],
+  },
+  { // Solar-Cycle Forecasting (docs/16 §6.1): a helioseismology rack, a tall louvred cabinet with a sweeping lamp (+x)
+    tech: 'solarCycleForecasting',
+    parts: () => [
+      box(1.3, 0.14, 1.5, TRIM, 5.2, 0.07, 0.5),
+      box(1.0, 3.2, 1.2, BODY, 5.2, 1.74, 0.5),
+      [0, 1, 2, 3, 4, 5].map((i) => box(0.06, 0.1, 1.0, RADIATOR, 5.73, 0.7 + i * 0.4, 0.5)),
+      box(1.06, 0.12, 1.26, TRIM, 5.2, 3.4, 0.5),
+      box(0.12, 0.2, 0.6, LAMP, 5.73, 3.05, 0.5),
     ],
   },
 ];

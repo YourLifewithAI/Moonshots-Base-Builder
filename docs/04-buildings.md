@@ -202,7 +202,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 
 | Building | Stock △ | Fully upgraded △ | Upgrades |
 |---|---|---|---|
-| Lander | 2,760 | 7,480 | 17 |
+| Lander | 2,760 | 8,444 | 19 |
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
@@ -218,7 +218,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Recreation Dome | 1,824 | 1,948 | 1 |
 | Research Lab | 1,680 | 3,376 | 7 |
 | Relay Mast | 1,616 | 2,220 | 4 |
-| Data Center | 1,604 | 3,136 | 10 |
+| Solar Observatory | 865 | 865 | 0 |
+| Data Center | 1,604 | 3,256 | 11 |
 | Foil Factory | 1,416 | 2,446 | 6 |
 | Mass Driver | 1,052 | 1,812 | 5 |
 | Propellant Plant | 2,348 | 3,556 | 6 |
@@ -244,6 +245,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
 | Power Beaming Return | 8 | A rectenna mesh unfolds beside the Lander. | 96 |
 | Build Orders | 2 | The Lander raises a planning mast: a pole with a work lamp beside its top deck. | 104 |
+| Heliophysics Forecasting | 2 | Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and the Lander raises a sun sensor for the forecast link. | 112 |
+| L1 Sentinel | 5 | The Lander adds a sentinel tracking dish that points at the Sun. | 112 + 740 ↻ |
 | Crewed Landing (human only) | 1 | The Lander flies a flag, and its crew cabin shows a lit window band. | 88 |
 | Robotic Mission (robotic only) | 1 | The Lander’s cabin windows are blanked, and a rover rides stowed in a cradle on its hull. | 100 |
 | Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 48 |
@@ -418,6 +421,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Liquid Cooling | 7 | Data Centers run coolant manifolds to a pump skid; Server Monoliths, coolant risers down their fin stack. | 152 |
 | Rack Densification | 7 | Data Centers add a rack annex at the berm, and Server Monoliths one at the foot. | 36 |
 | Predictive Scheduling | 6 | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. | 136 |
+| Solar-Cycle Forecasting | 6 | Data Centers add a helioseismology rack: a tall louvred cabinet with a slow-sweeping lamp. | 120 |
 | Fleet OS | 5 | Server Monoliths can rise: black slabs with a cold lamp stripe; Data Centers raise a monolith annex in their berm. | 48 |
 | Selenic Mind | 8 | Server Monoliths and Data Centers crown themselves with radiator fins. | 156 |
 
