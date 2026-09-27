@@ -19,6 +19,7 @@
  *  if the frame comes out black; the game (not the menu) stores those. */
 import type { Game } from '../core/game';
 import { loadSettings, saveSettings } from '../core/settings';
+import { FLARE_PAUSE_LABEL } from '../data/spaceWeather';
 import { sfx } from '../audio/sfx';
 import { el } from './hud';
 import { $announce, $defeat, $menuOpen, $phase, $time } from './stores';
@@ -66,6 +67,7 @@ export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] =
   ['N', 'road tool: drag out from a road · Alt-drag removes'],
   ['B', 'Builder — orders and standing rules'],
   ['G', 'Hazards — risks, counters, the network'],
+  ['O', 'Space weather — flares and the arrays’ choice by class'],
   ['Ctrl-click a card', 'order one: the rovers choose the site (⇧ ×3)'],
   ['Enter while placing', 'let the rovers choose the site'],
   ['Click a rover', 'inspect it · Send to… then click a site'],
@@ -146,6 +148,10 @@ export function mountMenu(root: HTMLElement, game: Game) {
             <div class="menu-row">
               <span>Pause on every lethal warning</span>
               <button class="btn" data-act="pause-lethal" id="menu-pause-lethal" aria-pressed="false">Off</button>
+            </div>
+            <div class="menu-row">
+              <span>Pause on flare warnings</span>
+              <button class="btn" data-act="pause-flares" id="menu-pause-flares" title="M and X · All · Off">M and X</button>
             </div>
           </section>
         </div>
@@ -253,6 +259,9 @@ export function mountMenu(root: HTMLElement, game: Game) {
       btn.classList.toggle('active', on);
       btn.setAttribute('aria-pressed', String(on));
     }
+    const pf = $<HTMLButtonElement>('#menu-pause-flares');
+    pf.textContent = FLARE_PAUSE_LABEL[s.pauseFlares];
+    pf.classList.toggle('active', s.pauseFlares !== 'off');
   };
 
   const pickFx = (n: number) => {
@@ -352,6 +361,12 @@ export function mountMenu(root: HTMLElement, game: Game) {
       }
       case 'pause-hz': saveSettings({ pauseHazards: !loadSettings().pauseHazards }); renderAudio(); break;
       case 'pause-lethal': saveSettings({ pauseLethal: !loadSettings().pauseLethal }); renderAudio(); break;
+      case 'pause-flares': {
+        const next = { mx: 'all', all: 'off', off: 'mx' } as const;
+        saveSettings({ pauseFlares: next[loadSettings().pauseFlares] });
+        renderAudio();
+        break;
+      }
       case 'mute': {
         const muted = !loadSettings().muted;
         saveSettings({ muted });

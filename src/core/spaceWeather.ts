@@ -1166,6 +1166,8 @@ export interface WeatherView {
   /** the next flare's time (debug and tests only: the chip never shows it at T0) */
   nextAt: number;
   cme: { at: number; until: number } | null;
+  /** the power panel's flare line (§5.6), '' outside a flare */
+  powerLine: string;
 }
 
 const PREVIEW_CHOICES: [string, ArrayChoice][] = [
@@ -1248,7 +1250,7 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
     wrecks, repairs: { queued, parts, working },
     remember: Object.fromEntries(Object.entries(w.remember).map(([k, c]) => [k, choiceText(c!)])),
     arrays: { n: arrays.length, fields: fields.length, kw: kwNow },
-    nextAt: f.nextAt, cme: f.cme ?? null,
+    nextAt: f.nextAt, cme: f.cme ?? null, powerLine: powerLine(s, day),
   };
 }
 

@@ -15,8 +15,9 @@ import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
 import {
   $caps, $counts, $feed, $lander, $power, $rates, $research, $resourcePanel, $resources, $siteId, $tech,
-  $time, $vitals,
+  $time, $vitals, $weather,
 } from './stores';
+import { SPACE_WEATHER } from '../data/spaceWeather';
 import { FEED_KINDS, FEED_LABEL } from '../data/deposits';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { mountBuilderSection } from './builderPanel';
@@ -150,6 +151,7 @@ function panelHtml(key: string, mods: Mods): string | null {
         <span class="label">${dark >= 0.1 ? `${fmt(dark)} kW of loads dark` : drain > 0.01 ? 'the bank covers the shortfall' : 'generation covers demand'}
           · stored ${fmt(p.stored)} / ${fmt(p.capacity)}${drain > 0.01 ? ` · lasts ${fmtClock(p.stored / drain)}` : ''}
           · ${time.isNight ? `dawn in ${fmtClock(time.phaseLeft)}` : `dusk in ${fmtClock(time.phaseLeft)}`}</span></section>
+      ${$weather.get()?.powerLine ? `<section><span class="label mono" id="res-flare">☉ ${$weather.get()!.powerLine}</span></section>` : ''}
       <section><span class="label">Generation</span>${gen}
         <div class="goal-hint">Solar dies at night; batteries store the day (${Math.round((1 - mods.storageEff) * 100)}% round-trip loss); reactors don't care.</div></section>
       <section><span class="label">Draws</span>${draws}
@@ -180,7 +182,8 @@ function panelHtml(key: string, mods: Mods): string | null {
         ${row('Brownouts (priority 0–1 dark)', `−${-MORALE.blackout}`)}
         ${row('Load shedding (priority 2–3 idled)', `−${-MORALE.shed}`)}
         ${row('Overcrowding', `−${-MORALE.crowded}`)}
-        ${row('Solar flare, while it lasts', `−${-MORALE.flare}`)}
+        ${row('Solar flare C · M · X, at once', `−${SPACE_WEATHER.morale.C.hit} · −${SPACE_WEATHER.morale.M.hit} · −${SPACE_WEATHER.morale.X.hit}`)}
+        ${row('… and while it lasts', `−${SPACE_WEATHER.morale.C.target} · −${SPACE_WEATHER.morale.M.target} · −${SPACE_WEATHER.morale.X.target}`)}
         ${row('Earth shipment ordered', `−${RESUPPLY.moraleHit} once`)}
         ${row('Reactor next door', '−5')}
         <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;

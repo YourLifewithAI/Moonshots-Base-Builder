@@ -35,6 +35,7 @@
 #flare-popup .fp-shares { display: inline-flex; gap: 3px; }
 #flare-popup .fp-shares .btn { font-size: 10px; padding: 2px 6px; }
 #flare-popup .fp-row.on .fp-shares .btn:not(.active) { background: var(--ink-200); color: var(--ink-900); }
+#flare-popup .fp-row.on .fp-shares .btn.active { background: var(--ink-900); color: var(--paper); }
 #flare-popup .fp-slider { width: 120px; vertical-align: middle; }
 #flare-popup .fp-sv { font-size: 11px; min-width: 4ch; }
 #flare-popup .fp-boxes { display: flex; gap: 18px; font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }

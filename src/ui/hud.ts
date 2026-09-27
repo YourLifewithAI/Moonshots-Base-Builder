@@ -244,9 +244,8 @@ export function mountHud(root: HTMLElement, game: Game) {
   let clockHtml = '';
   const renderTime = () => {
     const t = $time.get();
-    const flare = t.flare === 'telegraph'
-      ? ` · <b>FLARE −${t.flareTimer}s</b>`
-      : t.flare === 'active' ? ' · <b>FLARE</b>' : '';
+    // a flare rides the ☉ chip now (docs/16 §10.1), not the clock
+    const flare = '';
     const html = `DAY ${t.dayIndex + 1} · <span class="${t.isNight ? 'night' : ''}">${t.isNight
       ? `☾ ${fmtClock(t.phaseLeft)} TO DAWN` : `☀ ${fmtClock(t.phaseLeft)} TO DUSK`}</span>${flare}`;
     if (html !== clockHtml) { clockHtml = html; clock.innerHTML = html; }
