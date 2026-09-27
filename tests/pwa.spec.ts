@@ -24,7 +24,8 @@ test.beforeAll(async () => {
   test.setTimeout(240_000);
   execFileSync('npx', ['vite', 'build', '--outDir', OUT, '--emptyOutDir', '--logLevel', 'warn'], { cwd: ROOT, stdio: 'pipe' });
   preview = spawn('npx', ['vite', 'preview', '--outDir', OUT, '--port', String(PORT), '--strictPort', '--host', '127.0.0.1'], {
-    cwd: ROOT, stdio: 'pipe',
+    // its own process group: npx starts vite as a child, and both must go at the end
+    cwd: ROOT, stdio: 'ignore', detached: true,
   });
   for (let i = 0; i < 100; i++) {
     try { if ((await fetch(ORIGIN)).ok) return; } catch { /* not up yet */ }
@@ -33,7 +34,10 @@ test.beforeAll(async () => {
   throw new Error('vite preview did not start');
 });
 
-test.afterAll(() => { preview?.kill(); });
+test.afterAll(() => {
+  if (!preview?.pid) return;
+  try { process.kill(-preview.pid); } catch { preview.kill(); }
+});
 
 /** width × height from a PNG's IHDR */
 function pngSize(buf: Buffer) {
