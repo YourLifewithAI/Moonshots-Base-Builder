@@ -38,6 +38,9 @@ src/
     siting.ts             the deterministic site chooser shared by orders and rules (+ Feed Planner aim)
     hazards.ts            destiny hazards (docs/14 §3): tiers, the scheduler, occupancy, the network graph,
                           each kind's flow, counters, deaths and losses; economy hooks; hazardView for the UI
+    spaceWeather.ts       space weather (docs/16), economy step 8: the solar cycle, flare classes and drills,
+                          the phases, the arrays' plan (the portion rule, the critical feed), previews,
+                          wrecks and repairs, the legacy flare, migration; weatherView for the UI
     flowBook.ts           per-resource made / want / spend averages (supply against demand)
     roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads;
                           zone gates and ground ways (road, then off-road inside a zone)
@@ -59,6 +62,8 @@ src/
     automation.ts         the Builder's rule table (RULES), families, AUTO constants, rule texts
     hazards.ts            the 13 hazards (HAZARDS), their counters (COUNTERS), every magnitude (HZ), guard,
                           exposure and risk texts; HAZARDS_LIVE true
+    spaceWeather.ts       the flare classes, the cycle, the array rows, repairs, wrecks, the draw seeds
+                          (SPACE_WEATHER); the legacy flare (LEGACY_FLARE)
     roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast; the pits' delta grid
@@ -138,6 +143,8 @@ src/
                           site select + tech tree + victory screens
     builderPanel.ts       the [B] Builder panel and the resource panels' BUILDER section
     hazardsPanel.ts       the [G] Hazards panel, the HUD hazard chip, counter buttons (alerts, inspector)
+    weatherPanel.ts       the ☉ chip, the flare pop-up (desktop and touch), the [O] panel, the arrays'
+                          inspector lines (weather.css)
     techTree.ts / techPage.ts / techGoals.ts / techDestiny.ts
                           the research tree: pages, lane board, goals, the destiny column and meter
 tests/smoke.spec.ts       6-test full-loop Playwright suite
@@ -189,7 +196,7 @@ in `game.ts`):
 |---|---|---|
 | 1 | Action drain | UI commands applied to state (place/demolish/research/speed/…) |
 | 1b | Rovers (`syncRoster`, `assignRovers`, `transitArrive`; economy step 0) | The roster follows the docks; auto rovers take sites in queue order, each the free one soonest there by road from where it is. Then every trip advances a second, and each site counts the units that have arrived: its welders at their stands, or the ones behind its road's frontier while the road is unfinished (docs/15 §6a). Only they draw power and build (step 2.5), and only a unit behind a road job's frontier sinters it (2.6) |
-| 2 | Power supply | Sum generators: solar × `sunFactor` × (1 − dust), wear > 0.3 halves output; + power-beaming return (4 kW × launches) once researched; battery capacity summed |
+| 2 | Power supply | Sum generators: solar × `sunFactor` × (1 − dust) × `solarMult` (a flare's stow, capability and stowed damage; a wreck 0), wear > 0.3 halves output; + power-beaming return (4 kW × launches, × the flare's class) once researched; battery capacity summed. It keeps the priority 0–1 demand and the solar share in `s.power.crit` / `.solar` for the critical feed |
 | 3 | Demand + priority idling | Consumers sorted by `(priority, id)` ascending draw from `supply·dt + stored`. Priority 0 (habitats, power) feeds first; 3 (labs) browns out first — Timberborn-style shortage triage. Net surplus charges storage at 85% round-trip efficiency; deficit drains it. Brownout raises an alert |
 | 4 | Worker allocation | Crew assigned in the same `(priority, id)` order; unstaffed buildings idle with reason `crew`. Then agents cover: once stations may run on agents, a short-handed one goes agent-run (`agentCover`) from the next tick, and every 30 s free workers take covered ones back (not a station set to Crewed by hand, `crewPinned`; off with `s.agentCover = false`) |
 | 5 | Production, tier order | `PROD_ORDER`: extraction → smelter/refinery/partsFab → life → foilFactory/massDriver → lab. **Same-tick chaining**: this tick's regolith can smelt this tick. Inputs checked/consumed, outputs scaled by tech mults × site ISRU × morale work-mult (0.5 + morale/100 × 0.7) × wear penalty; launch output × site launch mult; labs emit data at 0.3/s × workMult^1.5 |
@@ -197,7 +204,7 @@ in `game.ts`):
 | 6 | Life support & crew | O₂ 0.02 and food 0.008 per crew-second (× closed-loop mult). Shortage runs a 60 s grace timer, then loses 1 crew per 30 s with a −15 morale hit. Growth: morale > 60 + a free powered bed + fed + life support that carries crew+1 for a lunar day at the current flow → +1 crew per lunar day |
 | 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap. The tick's net flow per resource so far (deliveries and research goods excluded) feeds a 20 s average, `state.rates`, which the info panels show |
 | 8 | Morale | Target = site base + active-building deltas + fed/starving + crowding + brownout + flare penalties, clamped 0–100; state lerps toward it at 0.05/tick |
-| 9 | Flare state machine | idle → telegraph (60 s warning alert) → active (45 s, solar = 0, −10 morale unless the site is flare-immune) → idle, next event at 2.0 ± 0.8 days, **seeded jitter** (§7) |
+| 9 | Space weather (`weatherTick`, economy step 8) | docs/16. idle → telegraph (60 · 60 · 120 s by class, +60 s on a drill; the pop-up; the plan locks 10 s before the protons and the wings turn) → active (30 · 45 · 60 s: morale and data by class; the arrays' outcome at its end) → an X's 120 s tail → idle (repairs queue, the log line, the next in (2.3 − a)(1 ± 0.3) lunar days). The class is drawn at the telegraph from the seeded cycle and the era; an X is locked by the spot-group watch half a day ahead. Repairs, Rebuild and Clear become construction sites on the array (step 2.5 works them, `siteDone`). `s.weather.legacy`: the old machine, for the probe |
 | 9b | Hazards (`hazardTick`, economy step 8.3) | After the flare, before resupply. The scheduler opens a window per side in turn (credit by picks), picks the kind and the weakest target deterministically, and starts its warning. Each live hazard runs telegraph → active → resolved; its alert carries the counters, and a death or loss clock is a condition. Then the meters (airlock dust, cabin fever, dose), the fleet (bricked rovers re-flash at their own dock, deadlines, dock reprints) and runaway junk. Returns wrecked buildings, junk sites for `econStep`, and whether mods changed. Its hooks in the other steps are in 02 |
 | 10 | Research | Data drains into the queue head; on completion, era-3+ techs also gate on **manufactured goods** (Factorio rule: you cannot out-research your industry) — unaffordable techs stall with an alert. Completion recomputes era + mods |
 | 11 | Night tracking | Day→night edge detection; surviving a night increments the counter and fires the DAWN alert |
@@ -310,10 +317,11 @@ UI state that isn't economy output (`$placing` per frame during placement,
 - **Pits are deterministic.** They carve in id order, on their own tick clock, in
   integer decimetres. The loose layer and the stake's sub-metre jitter are seeded
   from `(seed, pit id)`.
-- **Flare timing is seeded**: the next-event jitter draws from
-  `mulberry32((seed ^ 0x5f1a) + dayIndex)`, so a given seed produces the same
-  storm schedule — which is what lets the Playwright suite assert against
-  events at `?seed=42`.
+- **Flares are seeded** (docs/16 §14.1): every draw is `mulberry32((seed ^ K) + index)`,
+  K fixed per use — the cycle `0x5c1e`, the interval `0x5f1a` (by the flare's
+  index; the legacy flare by `dayIndex`), the class `0x5f1c`, the range `0x5f1d`,
+  the CME `0x5f1f`, which arrays are destroyed `0x5f20`. A seed gives the same
+  classes and times on the same era times (`tests/flares.spec.ts`).
 - `Math.random` appears only in `main.ts` to pick a seed when none is given.
 
 ## 8. Walk collision (`player/walk.ts`)
@@ -369,7 +377,17 @@ SaveBlob = {
   `breached` / `decompressed` / `junk` / `slotsLost` and the offline
   timers, per rover `brickedUntil` / `heldUntil`, and `hacked` on outposts.
   `fillStateDefaults` gives an older save a quiet scheduler that starts a
-  lunar day after load, and empty lists. Rovers in transit (docs/15 §6a) add
+  lunar day after load, and empty lists. Space weather (docs/16) makes
+  `state.flare` classed (`n`, `cls`, `drill`, `range`, `seen`, `xCount`,
+  `lastX`, `noXUntil`, the watch, `cme`, the choice and its decider, the
+  locked `plan`, the exposure, the log) and adds `state.weather` (remembered
+  choices by class, `autoRepair`, the answered classes, `legacy`, the repair
+  jobs by field) and `flareSchema` 1; per Solar Array `stowT` / `stow`,
+  `cap`, `flareDmg`, `wreck`, `fieldOverride` and `fix`. `migrateFlareSchema`
+  (in `loadFrom`, after `migrateTechSchema`) runs docs/16 §14.3 steps 1–5:
+  a flare in flight ends as an M at 45 s, the index from the old cadence,
+  the first flare seen once its time has passed, no X for a lunar day, and
+  every array whole. Rovers in transit (docs/15 §6a) add
   `state.fleetSchema` (1) and per rover `x` / `z` and `trip` (goal, kind,
   route, weights off-road, length, cruise, elapsed and total seconds); an
   excavator's haul adds `full` and `w`. A save without `fleetSchema`
@@ -437,8 +455,16 @@ The pits add `getPits()` (every pit with its derived numbers, the grid
 encoded, the rebuild queue) · `pitDig(x, z, tonnes)` (the adapter, as an
 excavator calls it) · `terrainSample(ix, iz)` · `terrainRelief(…)` ·
 `terrainHash()` · `canGrade(gx, gz)`.
-`&hzpause` lets the pause-on settings pause a debug run;
-without it they never do.
+Space weather adds `forceFlare(cls, {drill})` · `getSpaceWeather(slider?)`
+(the chip, pop-up and panel view) · `flarePreview(choice)` ·
+`flareChoice(choice, {repair, remember})` · `flareRemember` ·
+`flareAutoRepair` · `fieldOverride(id, mode)` · `wreckAction(how, id?)` ·
+`repairArrays(id?)` (all through the action queue) · `setFlareMode('legacy' |
+'on')` (the probe's `--flares`) · `setWeatherStub({arrayHard})` (Rad-Hard
+Cells' stand-in until F4) · `weatherCycle(T)` · `classOdds` · `drawClass` ·
+`arrayInfo(id)` · `arrayFields()` · `forceEra(n)`.
+`&hzpause` lets the pause-on settings pause a debug run, and `&flarepause`
+the flare pop-up's; without them they never do.
 
 **Why it exists**: headless Chromium cannot grant pointer lock, and real-time
 waits make tests slow and flaky. `?nolock` makes walk mode drivable, and
