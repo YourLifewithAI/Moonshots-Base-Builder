@@ -287,6 +287,10 @@ export function checkPlacement(
   const def = BUILDINGS[type];
   const probe = { type, gx, gz, rot };
   const r = footprintRect(probe);
+  // hubs print their own units (docs/17 §4): an excavator or an ice miner is never placed
+  if (def.unit || def.retired) {
+    return { valid: false, reason: 'HUBS PRINT THEM — a Regolith Smelter comes with its excavator; print more from its inspector' };
+  }
   if (!unlocked.has(type)) return { valid: false, reason: 'Locked — research required' };
   if (r.gx0 < 1 || r.gz0 < 1 || r.gx1 > MAP_CELLS - 1 || r.gz1 > MAP_CELLS - 1) {
     return { valid: false, reason: 'Outside survey area' };

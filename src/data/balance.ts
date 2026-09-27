@@ -242,6 +242,9 @@ export const FEED = {
   kreepReactorUpkeep: 0.6,
   kreepOutputMult: 1.15,               // KREEP outpost: reactor output
   kreepChipMult: 1.1,                  // KREEP outpost: chipFab output (REE dopants)
+  /** the Water Management Plant off the ice (docs/17 §3.1): mature soil gives 0.08≈ per
+   *  2▲ (×soilWater of the ice recipe) at ×soilKW its draw; plain ground ×soilPlain of that */
+  soilWater: 0.2, soilKW: 1.5, soilPlain: 0.4,
 };
 /** location effects of the deposit under a building's footprint centre */
 export const DEPOSIT_FX = {

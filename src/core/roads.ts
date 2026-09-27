@@ -766,7 +766,8 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   if (inZone) {
     // a dock parks its rovers on the road: not inside a zone
     if (DOCK_TYPES.has(b.type)) {
-      return { cells: [], fresh: [], bays: [], reason: 'IN AN EXTRACTION ZONE — a dock parks its rovers on the road; set its front outside the deposit\'s ring' };
+      const who = BUILDINGS[b.type].bots ? 'a dock parks its rovers' : 'a hub parks its units';
+      return { cells: [], fresh: [], bays: [], reason: `IN AN EXTRACTION ZONE — ${who} on the road; set its front outside the deposit's ring` };
     }
     // its door needs no road, but a rover must stand there
     const d = doorCell(b);

@@ -27,9 +27,14 @@ import { computeEra, destinyOf, eraTick, insightTick, producerHint, researchTick
 import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import {
-  PackTick, atHome, atSiteStand, chargeKW, chargeOf, driveKW, packCap, packUnits, unitKey, unitPriority, type PackUnit,
+  PackTick, atHome, atSiteStand, chargeKW, chargeOf, driveKW, packCap, packUnits, powerKind, unitKey, unitPriority, type PackUnit,
 } from './unitPower';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
+import {
+  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, printTick, printing,
+  reconcileRegolith, targetOf, unitRates, unitTick, writeRegolith,
+} from './hubs';
+import { HUB, isHubType } from '../data/hubs';
 import { settleJobs, sinter, spurLeft } from './roads';
 import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -43,8 +48,8 @@ import {
 } from './hazards';
 
 const PROD_ORDER: BuildingId[] = [
-  'excavator', 'iceHarvester',            // extraction
-  'smelter', 'refinery', 'partsFab', 'chipFab', // industry (same-tick chaining)
+  'excavator', 'iceHarvester',            // extraction: legacy pads (docs/17 §19); hub units run after them (4.1)
+  'smelter', 'refinery', 'waterPlant', 'partsFab', 'chipFab', // hubs, then industry (same-tick chaining)
   'hydroponics', 'recDome',               // life
   'foilFactory', 'massDriver', 'propellantPlant', // export
   'lab', 'dataCenter',                    // science
@@ -238,7 +243,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const rates = (b: BuildingState): EffectiveRates => {
     let r = rateCache.get(b.id);
     if (!r) {
-      r = effectiveRates(b.type, mods, site, b, { ...rateOpts, agentRun: isAuto(b), feed: s.feed });
+      // a hub runs on its own feed (docs/17 §3.2); the rest read the base's
+      r = effectiveRates(b.type, mods, site, b, { ...rateOpts, agentRun: isAuto(b), feed: b.hub?.feed ?? s.feed });
       rateCache.set(b.id, r);
     }
     return r;
@@ -251,6 +257,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     st.nightBankEmpty = false;
   }
 
+  // hubs get their state and their first unit as they commission (docs/17 §4.2)
+  ensureHubs(s, mods, site);
   // ── 0 · construction rovers — the roster follows the docks; auto rovers
   // go one per site in queue order (placement order unless Build next), a
   // shut-down site keeps its place in line but frees its rover, pinned
@@ -352,6 +360,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       caps[rid as ResourceId] = (caps[rid as ResourceId] ?? 0) + (amt ?? 0);
     }
   }
+  // regolith lives in the hubs' hoppers (docs/17 §3.2); the structures' own
+  // regolith room holds the pile: resources.regolith is their sum
+  const pileCap = caps.regolith ?? 0;
+  for (const b of s.buildings) if (b.hub && b.enabled && !building(b)) caps.regolith = (caps.regolith ?? 0) + hopperCap(b);
   s.storageCaps = caps;
   // a producer with no room for a tick of any of its outputs stands by: it
   // would only burn inputs, power and crew to make product lost on the ground.
@@ -373,6 +385,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     /** 0 a structure · 1 a construction site · 2 a unit's driving and road work · 3 a unit's charger */
     kind: 0 | 1 | 2 | 3;
     u?: PackUnit;
+    /** a hub's print job (docs/17 §4.2): the hub's id */
+    print?: number;
     /** a charger plugged in through a site's feed or an excavator's own: it charges only if that is lit */
     via?: number;
   }
@@ -398,23 +412,44 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // plugged in and not full — at its home, or through a site's feed
   const units = packUnits(s);
   const unitOf = new Map<RoverUnit, PackUnit>();
-  for (const u of units) if (u.kind !== 'digger') unitOf.set(u.unit, u);
+  for (const u of units) if (u.kind === 'rover' || u.kind === 'drone') unitOf.set(u.unit, u);
   const onJob = new Set<RoverUnit>();
   for (const team of here.jobs.values()) for (const r of team) onJob.add(r);
-  const drives = (u: PackUnit) => u.kind !== 'digger' && !!u.unit.trip && !u.unit.trip.stuck && u.unit.trip.t < u.unit.trip.dur - 1e-9;
+  const drives = (u: PackUnit) => (u.kind === 'rover' || u.kind === 'drone') && !!u.unit.trip && !u.unit.trip.stuck && u.unit.trip.t < u.unit.trip.dur - 1e-9;
+  // a hub unit's use (docs/17 §4.5): digging its nameplate (a working face), driving its tracks
+  const haulerUse = (u: PackUnit): number => {
+    if (u.kind !== 'hauler') return 0;
+    const hb = hubOf(s, u.h);
+    const h = u.h.haul;
+    if (!hb?.enabled && h.phase !== 'toBay' && h.phase !== 'toDrop' && h.phase !== 'unload') return 0;
+    if (h.phase === 'dig' && !h.full) return -unitRates(s, mods, site, u.h, targetOf(s, u.h.target)?.kind, day.isNight).powerKW;
+    if ((h.phase === 'toDig' || h.phase === 'toDrop' || h.phase === 'toBay') && h.path.length > 0) return driveKW('digger', mods);
+    return 0;
+  };
   for (const u of units) {
     const prio = unitPriority(s, u);
-    if (u.kind !== 'digger') {
+    if (u.kind === 'rover' || u.kind === 'drone') {
       const use = (drives(u) ? driveKW(u.kind, mods) : 0) + (onJob.has(u.unit) ? crewKW(mods, 1) : 0);
       if (use > 0) wants.push({ b: null, draw: use * dt, prio, kind: 2, u });
     }
+    if (u.kind === 'hauler') {
+      const use = haulerUse(u);
+      if (use > 0) wants.push({ b: null, draw: use * dt, prio, kind: 2, u });
+      if (!hubOf(s, u.h)?.enabled) continue; // its hub shut down: its bays are dark
+    }
     if (u.kind === 'digger' && !u.b.enabled) continue;
-    const cap = packCap(u.kind, mods);
+    const pk = powerKind(u);
+    const cap = packCap(pk, mods);
     const room = cap - chargeOf(u.pack, cap);
     if (room <= 1e-9) continue;
-    const via = atHome(s, u) ? (u.kind === 'digger' ? u.b.id : -1) : atSiteStand(u);
+    const via = atHome(s, u) ? (u.kind === 'digger' ? u.b.id : u.kind === 'hauler' ? u.h.hub : -1) : atSiteStand(u);
     if (via === null) continue;
-    wants.push({ b: null, draw: (Math.min(chargeKW(u.kind), room / dt) / mods.chargeEff) * dt, prio, kind: 3, u, via });
+    wants.push({ b: null, draw: (Math.min(chargeKW(pk), room / dt) / mods.chargeEff) * dt, prio, kind: 3, u, via });
+  }
+  // a hub's print job draws a construction rover's kW at the hub's priority (docs/17 §4.2)
+  for (const b of s.buildings) {
+    if (!b.hub || building(b) || !printing(b)) continue;
+    wants.push({ b: null, draw: HUB.printKW * mods.constructionKWMult * dt, prio: b.priority, kind: 2, print: b.id });
   }
   // within a priority, running loads keep their power ahead of new construction
   const drawOrder = (w: Draw) => (w.kind === 1 ? queuePos(w.b!) : w.b ? w.b.id : 0);
@@ -430,6 +465,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   /** the units whose driving and road work the grid served, and whose chargers it fed */
   const onGrid = new Set<string>();
   const charged = new Set<string>();
+  /** hubs whose print job the grid served */
+  const printLit = new Set<number>();
   // a brownout sheds priority 2–3 whole: once a priority 0–1 structure is
   // dark, no lower load takes what is left (it would dig or weld through the
   // brownout on the budget the critical load could not use); in a load shed
@@ -444,7 +481,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       if (!w.b!.enabled) { w.b!.idleReason = 'off'; continue; }
     }
     demand += w.draw / dt;
-    if (w.kind >= 2) { fleetKW += w.draw / dt; if (w.kind === 3) chargingKW += w.draw / dt; }
+    if (w.kind >= 2 && w.print === undefined) { fleetKW += w.draw / dt; if (w.kind === 3) chargingKW += w.draw / dt; }
     // hysteresis: a browned-out building stays dark for a few seconds before
     // retrying, so marginal grids don't strobe the base on and off — but it
     // comes back in priority order once the grid carries it with margin: from
@@ -462,6 +499,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       supplyLeft = Math.max(0, supplyLeft - w.draw);
       drawn += w.draw;
       if (w.u) (w.kind === 2 ? onGrid : charged).add(unitKey(w.u));
+      else if (w.print !== undefined) printLit.add(w.print);
       else powered.add(w.b!.id);
     } else {
       if (w.b && hold === 0 && !(critDark && w.prio >= 2)) w.b.brownoutHold = BROWNOUT_HOLD_S;
@@ -586,7 +624,16 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // whose grid draw is dark digs and drives on its own (its phase's draw) —
   // step 4 runs its cycle at the share its pack carries ──
   const diggerShare = new Map<number, number>();
+  /** hub units: the share of their tick they work (their pack's, in a brownout) */
+  const haulerShare = new Map<number, number>();
   for (const u of units) {
+    if (u.kind === 'hauler') {
+      const use = haulerUse(u);
+      if (use <= 0) continue;
+      if (onGrid.has(unitKey(u))) { packs.grid(u); continue; }
+      haulerShare.set(u.h.id, packs.pay(u, use * dt));
+      continue;
+    }
     if (u.kind === 'digger') {
       const b = u.b;
       if (powered.has(b.id)) { packs.grid(u); continue; }
@@ -599,7 +646,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
     if (!drives(u)) continue;
     if (onGrid.has(unitKey(u))) packs.grid(u);
-    else packs.pay(u, driveKW(u.kind, mods) * dt);
+    else packs.pay(u, driveKW(powerKind(u), mods) * dt);
   }
   for (const b of s.buildings) if (b.type === 'excavator' && !diggerShare.has(b.id)) delete b.onPack;
   packs.finish(units, charged);
@@ -607,7 +654,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   let flat = 0, stalled = 0;
   for (const u of units) {
     if (u.pack.src === 'flat') { flat++; if ((u.pack.flatT ?? 0) >= UNIT_POWER.alertS) stalled++; }
-    if (u.kind === 'digger') continue;
+    if (u.kind === 'digger' || u.kind === 'hauler') continue;
     const t = u.unit.trip;
     if (!t) continue;
     if (u.pack.pw !== undefined) t.rate = u.pack.pw; else delete t.rate;
@@ -732,27 +779,60 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // the cycles' average delivery the smoothed net rates count instead
   const hauled: Partial<Record<ResourceId, number>> = {};
   const haulFlow: Partial<Record<ResourceId, number>> = {};
+  // ── 4.1 · hub units (docs/17 §4.5): after the legacy pads, every unit in id
+  // order digs, drives and tips into its own hub's hopper; hubs then draw from
+  // their own hoppers (the pile first). The prints pay and progress here ──
+  const unitsStep = () => {
+    reconcileRegolith(s); // grants, grading, research goods, a legacy pad's load: the pile
+    const gone = joinLegacy(s, mods, site);
+    if (gone.length) ev.wrecked = [...(ev.wrecked ?? []), ...gone];
+    for (const b of s.buildings) if (b.hub) b.hub.drew = 0;
+    for (const u of s.haulers) {
+      const hb = hubOf(s, u);
+      if (!hb) continue;
+      const o = unitTick(s, mods, site, u, hb, dt * (haulerShare.get(u.id) ?? 1), day.isNight, caps);
+      if (o.tipped > 0) { hauled.regolith = (hauled.regolith ?? 0) + o.tipped; st.produced.regolith += o.tipped; }
+      for (const [rid, amt] of Object.entries(o.credited) as [ResourceId, number][]) {
+        hauled[rid] = (hauled[rid] ?? 0) + amt;
+        st.produced[rid] += amt;
+      }
+      for (const [rid, f] of Object.entries(o.flow) as [ResourceId, number][]) {
+        haulFlow[rid] = (haulFlow[rid] ?? 0) + f;
+        add(made, rid, f * dt);
+      }
+      if (o.dugS > 0 && o.kind === 'ilmenite') ilmeniteDug = true;
+    }
+    printTick(s, mods, site, dt, printLit);
+    writeRegolith(s);
+  };
   for (const type of PROD_ORDER) {
+    if (type === 'smelter') unitsStep();
     const list = byType.get(type);
     if (!list) continue;
     for (const b of list) {
       if (!runs(b)) continue;
       // recipe, multipliers, agents, morale, wear, overclock, feed, site and deposit
       const r = effectiveRates(type, mods, site, b, {
-        ...rateOpts, agentRun: isAuto(b), feed: s.feed, uplinkShare: share,
+        ...rateOpts, agentRun: isAuto(b), feed: b.hub?.feed ?? s.feed, uplinkShare: share,
       });
       // what it asks for counts as demand, covered or not (the flow book)
       for (const [rid, rate] of Object.entries(r.inputs)) add(want, rid as ResourceId, (rate ?? 0) * dt);
-      // inputs
+      // inputs (a hub's regolith: the pile, then its own hopper)
+      const hub = isHubType(type) && b.hub ? b : null;
       let short: '' | 'inputs' | 'reserve' = '';
       for (const [rid, rate] of Object.entries(r.inputs)) {
         const need = (rate ?? 0) * dt;
-        const have = s.resources[rid as ResourceId];
+        const have = hub && rid === 'regolith' ? hubHave(s, hub) : s.resources[rid as ResourceId];
         if (have < need) { short = 'inputs'; break; }
         if (have - (reserve[rid as ResourceId] ?? 0) < need) short = 'reserve';
       }
+      if (hub) {
+        noteStarved(hub, short === 'inputs', dt);
+        hub.hub!.q = r.feedFactor;
+      }
       if (short) { b.idleReason = short; continue; }
       for (const [rid, rate] of Object.entries(r.inputs)) {
+        if (hub && rid === 'regolith') { hubDraw(s, hub, (rate ?? 0) * dt); continue; }
         s.resources[rid as ResourceId] -= (rate ?? 0) * dt;
       }
       if (type === 'excavator') {
@@ -792,6 +872,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
   }
   if (ilmeniteDug) st.ilmeniteDigS += dt;
+  // ▲ is the hoppers' sum and the pile (the pile over its room is lost on the ground);
+  // the base's feed is the hubs' feeds weighted by what each drew
+  s.pile = Math.min(s.pile ?? 0, pileCap);
+  writeRegolith(s);
+  const fed = meanFeed(s);
+  if (fed) s.feed = fed;
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {
@@ -942,6 +1028,20 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     }
     if (b.wear >= OVERCLOCK.tripWear) st.wornSeen = true;
     if (b.type === 'solar') st.maxDust = Math.max(st.maxDust, b.dust);
+  }
+  // hub units wear like buildings (docs/17 §4.1: 2⚙ a lunar day each)
+  for (const u of s.haulers) {
+    const hb = hubOf(s, u);
+    if (!hb?.enabled) continue;
+    const rate = (unitRates(s, mods, site, u, targetOf(s, u.target)?.kind).upkeepPartsPerDay / CYCLE_S) * dt;
+    add(want, 'parts', rate);
+    if (s.resources.parts >= rate) {
+      s.resources.parts -= rate;
+      u.wear = Math.max(0, u.wear - ((WEAR.healPerDay * mods.repairMult * (eva ? EVA.repairMult : 1)) / CYCLE_S) * dt);
+    } else {
+      partsShort = true;
+      u.wear = Math.min(1, u.wear + (WEAR.risePerDay / CYCLE_S) * dt);
+    }
   }
   if (s.simTime > 120 && s.resources.parts < 20) st.lowPartsSeen = true;
   if (partsShort) {

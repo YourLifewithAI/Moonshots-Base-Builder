@@ -6,24 +6,25 @@ export type DepositKind = 'ilmenite' | 'anorthosite' | 'glass' | 'kreep' | 'vola
 /** generation order; a kind's index seeds its stream (seed ^ (0xde90 + index)) */
 export const DEPOSIT_KINDS: DepositKind[] = ['ilmenite', 'anorthosite', 'glass', 'kreep', 'volatiles', 'ice', 'ridge'];
 
-/** What an excavator can put into the smelter/refinery feed ('plain' = no deposit). */
-export type FeedKind = 'ilmenite' | 'anorthosite' | 'glass' | 'kreep' | 'volatiles' | 'plain';
-export const FEED_KINDS: FeedKind[] = ['ilmenite', 'anorthosite', 'glass', 'kreep', 'volatiles', 'plain'];
+/** What a unit can put into a hub's feed ('plain' = no deposit; 'ice': icy
+ *  regolith from a cold trap, the water plant's feed). */
+export type FeedKind = 'ilmenite' | 'anorthosite' | 'glass' | 'kreep' | 'volatiles' | 'ice' | 'plain';
+export const FEED_KINDS: FeedKind[] = ['ilmenite', 'anorthosite', 'glass', 'kreep', 'volatiles', 'ice', 'plain'];
 /** share of last tick's dug regolith per kind; sums to 1 once anything was dug */
 export type FeedGrade = Record<FeedKind, number>;
 
 export function emptyFeed(): FeedGrade {
-  return { ilmenite: 0, anorthosite: 0, glass: 0, kreep: 0, volatiles: 0, plain: 0 };
+  return { ilmenite: 0, anorthosite: 0, glass: 0, kreep: 0, volatiles: 0, ice: 0, plain: 0 };
 }
 
-/** what an excavator standing on this deposit digs (ice and ridges are location-only) */
+/** what a unit standing on this deposit digs (a peak of light is plain ground) */
 export function feedKindOf(kind: DepositKind | undefined): FeedKind {
-  return kind === undefined || kind === 'ice' || kind === 'ridge' ? 'plain' : kind;
+  return kind === undefined || kind === 'ridge' ? 'plain' : kind;
 }
 
 /** short feed labels for the inspector line ('64% high-Ti · 8% highland') */
 export const FEED_LABEL: Record<FeedKind, string> = {
-  ilmenite: 'high-Ti', anorthosite: 'highland', glass: 'glass', kreep: 'KREEP', volatiles: 'mature soil', plain: 'plain',
+  ilmenite: 'high-Ti', anorthosite: 'highland', glass: 'glass', kreep: 'KREEP', volatiles: 'mature soil', ice: 'icy', plain: 'plain',
 };
 
 export interface DepositPlanEntry {

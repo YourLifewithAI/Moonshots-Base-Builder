@@ -40,6 +40,7 @@ const ICONS: Record<BuildingId, string> = {
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
   foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
+  waterPlant: '≋', iceMiner: '❄',
   // destiny buildings (docs/14 §2.8)
   greenhouseRing: '❁', gardenDome: '◓', droneHive: '⬢', serverMonolith: '▥',
 };

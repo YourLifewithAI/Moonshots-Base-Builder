@@ -206,6 +206,38 @@ function iceHarvester(): Parts {
   ];
 }
 
+/** The Water Management Plant (docs/17 §20): a melt hall with a radiator
+ *  pair, three banded water tanks and a sublimation chimney (the full look
+ *  and its upgrades come with Phase 8). */
+function waterPlant(): Parts {
+  const p: Parts = [
+    box(7, 4, 5.4, BODY, -1.2, 2, 0),
+    box(7.2, 0.4, 5.6, TRIM, -1.2, 4.2, 0),
+    rail(rect(3.45, 2.65, -1.2), 4.4, true),
+    door(-1.2, 2.72, 0, 2.2, 2.4),
+    windowStrip(3.0, 4, 0.6, -2.6, 3.0, 2.72, 0),
+    radiator(2.4, 1.8, -3.2, 0.6, -3.45, PI),
+    radiator(2.4, 1.8, 0.8, 0.6, -3.45, PI),
+    cyl(0.5, 0.7, 5.2, TRIM, -3.6, 6.6, -1.2, 0, 0, 16),
+    bands(0.6, -3.6, -1.2, [5.4, 6.8, 8.2]),
+    dome(0.14, BEACON, -3.6, 9.3, -1.2, 8),
+    cableTray([-4.8, 1.8], [-5.6, 1.8]),
+    junction(-5.8, 1.8, -PI / 2),
+  ];
+  for (const z of [-2.0, 0, 2.0]) {
+    p.push(
+      cyl(0.8, 0.8, 3.2, BODY, 3.9, 1.6, z, 0, 0, 16),
+      dome(0.8, TRIM, 3.9, 3.2, z, 12),
+      bands(0.8, 3.9, z, [0.8, 1.8, 2.8], TRIM, 0.12, 16),
+    );
+  }
+  p.push(pipe([2.3, 2.4, -2.0], [3.1, 2.4, -2.0], 0.1, TRIM), pipe([2.3, 2.4, 2.0], [3.1, 2.4, 2.0], 0.1, TRIM));
+  return p;
+}
+
+/** The Ice Miner: the excavator's tracked hull for now (its own rig and bin come with Phase 8). */
+const iceMiner = (): Parts => excavator();
+
 function hydroponics(): Parts {
   const p: Parts = [
     box(5.6, 0.5, 9.6, TRIM, 0, 0.25, 0),
@@ -779,6 +811,7 @@ const R: Record<BuildingId, () => Parts> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery,
   refinery, lab, storageYard, roboticsBay, partsFab, reactor, recDome, chipFab,
   dataCenter, foilFactory, massDriver, relayMast, propellantPlant,
+  waterPlant, iceMiner,
   greenhouseRing, gardenDome, droneHive, serverMonolith,
 };
 
