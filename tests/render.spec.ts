@@ -430,10 +430,13 @@ test('base life: rovers, dust, launch and resupply at FX 0; static dust at FX 3;
   expect(info.rovers.material).toBe('MeshStandardMaterial');
   const start = info.rovers.positions;
   await expect.poll(async () => (await life()).rovers.assigned, { timeout: 30_000 }).toBeGreaterThan(0);
-  await expect.poll(async () => (await life()).dust.emitters, { timeout: 60_000 }).toBeGreaterThan(0);
+  // emitters and visibility read from one frame: a rover can stop between two reads
+  await expect.poll(async () => {
+    const d = (await life()).dust;
+    return d.emitters > 0 ? d.visible : 'no emitters';
+  }, { timeout: 60_000 }).toBe(true);
   info = await life();
   expect(info.dust.mode).toBe('gpu');
-  expect(info.dust.visible).toBe(true);
   expect((await page.evaluate(() => window.__game.getRenderInfo())).patches.dust).toBe('dust-gpu');
   expect(info.rovers.positions, 'the rovers left their parking spots').not.toEqual(start);
 

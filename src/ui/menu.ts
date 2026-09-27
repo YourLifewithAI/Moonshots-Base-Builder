@@ -16,7 +16,10 @@
  *  failed a render check on this GPU (in any session) asks for a second
  *  click. A raise — and turning safe mode off — is checked by the black-frame
  *  check on the next frames that can tell, kept once one passes, and undone
- *  if the frame comes out black; the game (not the menu) stores those. */
+ *  if the frame comes out black; the game (not the menu) stores those.
+ *
+ *  Copy render report: the GPU, the browser, the ladder's state and the
+ *  render checks' findings as JSON on the clipboard (and the console). */
 import type { Game } from '../core/game';
 import { loadSettings, saveSettings, storedTouch } from '../core/settings';
 import { FLARE_PAUSE_LABEL } from '../data/spaceWeather';
@@ -139,6 +142,11 @@ export function mountMenu(root: HTMLElement, game: Game) {
               <button class="btn" data-act="safe" id="menu-safe" aria-pressed="false">Off</button>
             </div>
             <div class="menu-note" id="menu-safe-note"></div>
+            <div class="menu-row" id="menu-report-row">
+              <span>Something looks wrong?</span>
+              <button class="btn" data-act="report" id="menu-report">Copy render report</button>
+            </div>
+            <div class="menu-note" id="menu-report-note">GPU, browser, FX level and the render checks' findings, as text for a bug report.</div>
           </section>
           <section>
             <span class="label">Touch controls</span>
@@ -400,6 +408,16 @@ export function mountMenu(root: HTMLElement, game: Game) {
         break;
       case 'restore': pickFx(loadSettings().fx ?? 0); break;
       case 'try': pickFx(Number(b.dataset.level)); break;
+      case 'report': {
+        // the render report (core/game.ts renderReport): clipboard + console
+        const out = $('#menu-report-note');
+        out.textContent = 'Copying…';
+        void game.copyRenderReport().then((ok) => {
+          out.textContent = ok ? 'Render report copied — paste it into your bug report. It is in the console (F12) too.'
+            : 'The browser blocked the clipboard: the report is in the console (F12), under [MOONSHOTS] Render report.';
+        });
+        break;
+      }
       case 'safe':
         // the game stores it: on at once, off once a lit frame has drawn
         if (game.safeModeOn) game.disableSafeMode();
