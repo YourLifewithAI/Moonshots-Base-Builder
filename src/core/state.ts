@@ -140,6 +140,88 @@ export interface BuildingState {
   burned?: { at: number; n: number; cls: FlareClass };
   /** what the last flare did to it, for the inspector ('rebooted 0:40', 'latched up', …) */
   lastFlare?: string;
+  // ── extraction hubs (docs/17, core/hubs.ts) ──
+  /** a hub's own state: its hopper, feed, queue and choices (smelters, refineries, water plants) */
+  hub?: HubState;
+  /** an old save's excavator or ice harvester with no hub to join yet (docs/17 §19):
+   *  it works as it did, and joins the first hub that completes */
+  legacy?: boolean;
+}
+
+/** A hub's job (docs/17 §4.2): a unit or a bay, paid when it reaches the
+ *  head of the queue, printed at the hub (no rover), refunded if cancelled. */
+export interface HubJob {
+  kind: 'unit' | 'bay';
+  /** what it cost once paid (null: not yet at the head, or waiting on stock) */
+  paid: Partial<Record<ResourceId, number>> | null;
+  /** game-s printed, of the print's length */
+  t: number;
+  total: number;
+  /** who asked for it (the Builder's rule, an order, or the player) */
+  by?: 'player' | 'rule' | 'order';
+}
+
+/** A hub's state (docs/17 §4.6), on its building. */
+export interface HubState {
+  /** Level I: 2 bays; II and III are bought per hub once research allows them */
+  level: 1 | 2 | 3;
+  /** regolith (▲) waiting at the furnace: its own units fill it */
+  hopper: number;
+  /** its feed factor, an EMA of the loads delivered (the grade q of Phase 4 stands in) */
+  q: number;
+  /** the kind shares of its loads, an EMA by amount (its own feed grade) */
+  feed: FeedGrade;
+  queue: HubJob[];
+  /** Assign: the dig target its auto units prefer ('dep:<id>' or 'plain:<id>') */
+  prefer?: string;
+  /** its staked plain pit (s.plainPits id) */
+  plainPit?: number;
+  /** share of recent ticks it stood idle for want of regolith, an EMA over HUB.starvedS */
+  starved: number;
+  /** its first unit has rolled out (a hub commissions with one) */
+  seeded?: boolean;
+  /** why the head of its queue waits ('' none): 'needs 16◆ (have 9)' */
+  waiting?: string;
+  /** regolith drawn last tick (the base's feed mean weighs hubs by it) */
+  drew?: number;
+  /** haul roads asked for, by target key: the road job (0: none needed), when, and a refusal */
+  roads?: Record<string, { job: number; at: number; why?: string }>;
+}
+
+/** A plain pit (docs/17 §8.6): a staked point on open ground a hub's units
+ *  dig at plain grade (no carving until pits deform the ground). Its zone
+ *  (kind 'plain') lets units drive off-road there. */
+export interface PlainPit {
+  id: number;
+  x: number;
+  z: number;
+  /** the hub it was staked for (null: none now) */
+  hub: number | null;
+}
+
+/** A hub's robot (docs/17 §4.6): printed, docked, charged and dispatched by
+ *  its hub. It digs where its hub's choice (or the player) sends it and tips
+ *  into its own hub's hopper. Its pack rides on its haul (core/unitPower.ts). */
+export interface Hauler {
+  id: number;
+  type: 'excavator' | 'iceMiner';
+  /** its hub's building id (unitPower's homeOf) */
+  hub: number;
+  /** its bay at the hub (unitPower's chargeSpotOf) */
+  bay: number;
+  /** where it digs: 'dep:<depositId>' or 'plain:<plainPitId>' (null: none — parked) */
+  target: string | null;
+  /** the face it holds there (-1: none) */
+  face: number;
+  /** Send…: pinned to its target until you press Auto */
+  pinned?: boolean;
+  /** why it stands in its bay: new, recalled, no pit in reach, charging, its hub shut down */
+  parked?: 'new' | 'recalled' | 'noPit' | 'charge' | 'off';
+  /** today's cycle with new ends: drop is its hub */
+  haul: HaulState;
+  wear: number;
+  /** printed by the Builder */
+  auto?: { by: 'rule' | 'order'; at: number };
 }
 
 /** One 4 m road cell (core/roads.ts, docs/15-roads.md). */
@@ -345,7 +427,8 @@ export interface RoverTrip {
  *  it, as explicit cells (cell keys; the circle only bounds them). */
 export interface ZoneState {
   id: string;
-  kind: DepositKind | 'pit';
+  /** a deposit's kind; 'plain': a staked plain pit (docs/17 §8.6); 'pit': a carved pit's (core/pits.ts) */
+  kind: DepositKind | 'plain' | 'pit';
   cx: number; cz: number; r: number;
   cells?: number[];
 }
@@ -393,7 +476,8 @@ export interface HaulState extends PackState {
   /** where it digs (default: the centre of its own pad) */
   digX: number;
   digZ: number;
-  phase: 'toDig' | 'dig' | 'toDrop' | 'unload';
+  /** a hub unit also drives home to its bay (toBay) and stands there (park) */
+  phase: 'toDig' | 'dig' | 'toDrop' | 'unload' | 'toBay' | 'park';
   /** where the digger is now, and the waypoints left on this leg */
   x: number;
   z: number;
@@ -419,6 +503,8 @@ export interface HaulState extends PackState {
   /** a full bucket and no room in the store: it waits at its dig spot (its pad, or its haul
    *  road's end), off the carriageway, until there is (docs/15 §5) */
   full?: boolean;
+  /** a hub unit sent to a pit with every face working: it waits at the gate */
+  wait?: 'gate';
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
@@ -817,6 +903,19 @@ export interface GameState {
   nextBuildingId: number;
   /** flatten history, replayed onto regenerated terrain on load */
   flattens: { x0: number; z0: number; x1: number; z1: number; h: number }[];
+  /** extraction hubs (docs/17, core/hubs.ts): every hub's units, in id order */
+  haulers: Hauler[];
+  nextHaulerId: number;
+  /** staked plain pits (docs/17 §8.6) */
+  plainPits: PlainPit[];
+  nextPlainPitId: number;
+  /** loose regolith outside the hoppers (an old save's stock, grants, legacy pads'
+   *  loads): smelters and refineries draw it first. resources.regolith = pile + Σ hoppers */
+  pile: number;
+  /** 1: hubs own their units (an older save migrates on load, docs/17 §19) */
+  hubSchema?: number;
+  /** ▲ dug at each target ('dep:<id>', 'plain:<id>'): the reserves of Phase 4 read it */
+  dug?: Record<string, number>;
   /** strip-mine pits (core/pits.ts, docs/17 §8), in id order */
   pits: PitState[];
   nextPitId: number;
@@ -920,6 +1019,12 @@ export function createInitialState(
     buildings: [],
     nextBuildingId: 1,
     flattens: [],
+    haulers: [],
+    nextHaulerId: 1,
+    plainPits: [],
+    nextPlainPitId: 1,
+    pile: 0,
+    hubSchema: 1,
     pits: [],
     nextPitId: 1,
     terrain: { rev: 0, clock: 0, delta: '' },
@@ -1063,6 +1168,13 @@ export function fillStateDefaults(s: GameState): GameState {
   // one on), rules added later join with their defaults
   legacy.auto = fillAuto(legacy.auto);
   legacy.flowBook ??= {};
+  // saves from before extraction hubs (docs/17 §19): no units yet — Game.loadFrom
+  // migrates the excavators (hubSchema stays unset until it has)
+  legacy.haulers ??= [];
+  legacy.nextHaulerId ??= 1 + legacy.haulers.reduce((m, u) => Math.max(m, u.id), 0);
+  legacy.plainPits ??= [];
+  legacy.nextPlainPitId ??= 1 + legacy.plainPits.reduce((m, p) => Math.max(m, p.id), 0);
+  legacy.pile ??= 0;
   // saves from before strip mines (docs/17 §19 step 2): no pits and an empty
   // delta grid — nothing is carved on load; digging opens pits from now on
   legacy.pits ??= [];

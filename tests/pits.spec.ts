@@ -1,8 +1,9 @@
 /** Strip-mine pits (docs/17 Phase 3, §8, §11, §21): the height-delta grid,
  *  carving, heaps, ramps, the no-dig and no-build masks, step 4.2, saving,
  *  the chunk rebuild queue, and every terrain reader on the new ground.
- *  Pits follow today's hauling: an excavator's dig carves a pit at its dig
- *  site (core/pits.ts onDig), and the debug `pitDig` calls the same adapter.
+ *  Hub units dig them (docs/17 Phases 1–2): a unit's dig grows its target's
+ *  pit (core/hubs.ts dug → core/pits.ts digInto), a deposit's shared by every
+ *  unit on it; the debug `pitDig` digs at a point (core/pits.ts onDig).
  *  The player's rule: pits grow away from buildings, never toward them. */
 import { test, expect, type Page } from '@playwright/test';
 
@@ -45,7 +46,7 @@ window.P = {
     }
     return null;
   },
-  /** game-minutes of play: power topped up, the stock emptied (an excavator never waits full) */
+  /** game-minutes of play: power topped up, the stock emptied (a unit never waits at a full hopper) */
   run(minutes) {
     for (let i = 0; i < minutes; i++) {
       g().grantPower(5000);
@@ -58,13 +59,19 @@ window.P = {
   dig(x, z, tonnes, steps = 20) {
     for (let i = 0; i < steps; i++) { g().pitDig(x, z, tonnes / steps); g().advanceGameSeconds(12); }
   },
-  /** an excavator on the guaranteed high-Ti basalt (it digs its own pad) */
+  /** a Regolith Smelter by the guaranteed high-Ti basalt, built: its excavator
+   *  digs the deposit's pit (the hub's id). It stands its walls 12 m off the
+   *  ring toward the Lander, as the Builder does: the pits' setback. */
   excavator() {
     const z = g().getZones().find((z) => z.kind === 'ilmenite');
-    const id = P.place('excavator', z.cx, z.cz, 6);
+    const l = Math.hypot(z.cx, z.cz) || 1;
+    const out = z.r + 22;
+    const id = P.place('smelter', z.cx - (z.cx / l) * out, z.cz - (z.cz / l) * out, 8);
     g().finishConstruction();
     return id;
   },
+  /** the hub's units */
+  units(hub) { return g().getState().haulers.filter((u) => u.hub === hub); },
   /** the delta grid (dm) and heights over a sample box */
   grid(x0, z0, x1, z1) {
     const d = [], h = [];
@@ -141,15 +148,21 @@ test('a dig carves a pit of the volume dug: 1:2 walls in 2 m benches, a ramp, an
     const id = P.excavator();
     P.run(60);
     const s = g.getState();
-    const b = s.buildings.find((x: any) => x.id === id);
+    const bucket = P.units(id).reduce((n: number, u: any) => n + (u.haul.cargo.regolith ?? 0), 0);
     const all = g.getPits();
     const p = all.pits[0];
+    const z = g.getZones().find((z: any) => z.kind === 'ilmenite');
     const grid = P.grid(p.box[0] - 1, p.box[1] - 1, p.box[2] + 1, p.box[3] + 1);
-    return { p, n: all.pits.length, cutGrid: all.cutM3, heapGrid: all.heapM3, produced: s.stats.produced.regolith, bucket: b.haul.cargo.regolith ?? 0, grid };
+    return {
+      p, n: all.pits.length, cutGrid: all.cutM3, heapGrid: all.heapM3, produced: s.stats.produced.regolith, bucket, grid,
+      depR: z.r, units: P.units(id).map((u: any) => u.target),
+    };
   });
   expect(r.n).toBe(1);
   const p = r.p;
-  // the adapter: every tonne the excavator dug went into its pit (credited, or in its bucket now)
+  // hub units: every tonne its excavator dug went into the deposit's pit (tipped, or in its bucket now)
+  expect(r.units).toEqual([p.key]);
+  expect(p.key).toMatch(/^dep:ilmenite-/);
   expect(p.tonnes).toBeGreaterThan(3000);
   expect(Math.abs(p.tonnes - (r.produced + r.bucket)) / p.tonnes).toBeLessThan(0.002);
   // the volume: ▲ ÷ 1.5 t/m³, cut in batches (never more than was dug; the rest carries over)
@@ -161,9 +174,9 @@ test('a dig carves a pit of the volume dug: 1:2 walls in 2 m benches, a ramp, an
   expect(r.heapGrid).toBeCloseTo(p.heapM3, 3);
   expect(p.heapM3 / p.cutM3).toBeGreaterThan(HEAP * 0.97);
   expect(p.heapM3 / p.cutM3).toBeLessThan(HEAP * 1.001);
-  // it opened beside the pad it digs (not under it), and dug down to its floor
+  // it opened on its deposit, by its heart (no pad stands there now), and dug down to its floor
   expect(p.state).toBe('open');
-  expect(p.rimFromKey).toBeGreaterThan(8);
+  expect(p.rimFromKey).toBeLessThan(r.depR * 0.5);
   expect(p.deep).toBeCloseTo(p.L, 5);
   const { d, w } = r.grid;
   const at = (x: number, z: number) => d[z * w + x];
@@ -203,10 +216,10 @@ test('a pit never digs within its setback: 12 m of a structure, 8 m of a road, d
     const z = g.getZones().find((z: any) => z.kind === 'ilmenite');
     // structures round the deposit before the digging starts
     for (const [dx, dz] of [[34, 0], [-34, 0], [0, 36], [0, -36]]) P.place('solar', z.cx + dx, z.cz + dz, 4);
-    // two excavators on the one deposit, digging their own pads
-    P.excavator();
-    P.place('excavator', z.cx + 10, z.cz + 2, 6);
-    g.finishConstruction();
+    // two excavators on the one deposit: its smelter's first and a second it prints
+    const hub = P.excavator();
+    g.queueUnit(hub);
+    for (let i = 0; i < 8; i++) { g.grantPower(5000); g.advanceGameSeconds(10); }
     const before = P.footings();
     P.run(90);
     const carved = P.carved();
@@ -215,7 +228,7 @@ test('a pit never digs within its setback: 12 m of a structure, 8 m of a road, d
     return {
       carved: carved.length, bad: P.intrusions(carved, pr, rr), moved, pads: P.pads().length, pits: g.getPits().pits,
       cutPieces: P.pieces(carved, -1), heapPieces: P.pieces(carved, 1),
-      diggers: g.getState().buildings.filter((b: any) => b.type === 'excavator').length,
+      diggers: g.getState().haulers.filter((u: any) => u.type === 'excavator' && u.target === `dep:${z.id}`).length,
     };
   }, [PAD_RINGS, ROAD_RINGS]);
   expect(r.pads).toBeGreaterThanOrEqual(4);

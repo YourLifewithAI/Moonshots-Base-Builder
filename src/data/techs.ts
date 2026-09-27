@@ -122,7 +122,7 @@ export type TechEffect = EffectFilter & (
   | { kind: 'housing'; building: BuildingId; delta: number }   // beds per building of that type
   | { kind: 'morale'; building: BuildingId; delta: number }    // morale while that building runs
   /** excavator haul cycle: drive speed, and bucket size (its dig time grows with it) */
-  | { kind: 'haul'; speedMult?: number; bucketMult?: number }
+  | { kind: 'haul'; speedMult?: number; bucketMult?: number; offroadMult?: number }
   /** the roadway (docs/15-roads.md): travel on roads (all, excavators alone,
    *  at night), road dust, and the sintering a cell takes */
   | { kind: 'road'; speedMult?: number; haulMult?: number; nightMult?: number; dustMult?: number; cellMult?: number }
@@ -217,13 +217,18 @@ const M: SiteId = 'mare', P: SiteId = 'southpole', L: SiteId = 'lavatube';
 
 export const TECHS: Record<TechId, TechDef> = {
   // ─── ERA 1 · FIRST LANDING ───
+  // the smelter is known from landing (docs/17 §14.1): this slot is Pit Mapping's
+  // now; its id is renamed (with an alias and techSchema 5) in the research reshuffle
   regolithProcessing: {
-    id: 'regolithProcessing', era: 1, lane: 'materials', name: 'Regolith Smelting', short: 'Regolith Smelting',
+    id: 'regolithProcessing', era: 1, lane: 'materials', name: 'Pit Mapping', short: 'Pit Mapping',
     costData: 30, requires: [],
-    effects: [{ kind: 'unlock', building: 'smelter' }],
-    desc: 'FeTiO₃ + H₂ → Fe + TiO₂ + H₂O: iron, oxygen and a trickle of water from ilmenite.',
-    visual: 'Regolith Smelters can rise: a furnace hall with twin stacks.',
-    tradeoff: 'Only the ilmenite reacts — dig where the basalt is dark.',
+    effects: [
+      { kind: 'haul', offroadMult: 1.3 },
+      { kind: 'powerMult', buildings: ['excavator', 'iceMiner'], mult: 1.1 },
+    ],
+    desc: 'Stereo cameras map every bench and haul lane: hub units drive the rough ground in pits and deposits faster.',
+    visual: 'Excavators and Ice Miners mount a stereo camera boom over the cab.',
+    tradeoff: 'The cameras and their computers ride on the unit’s pack.',
   },
   teleoperation: {
     id: 'teleoperation', era: 1, lane: 'robotics', name: 'Earth Teleoperation', short: 'Teleoperation',
@@ -260,15 +265,18 @@ export const TECHS: Record<TechId, TechDef> = {
   iceExtraction: {
     id: 'iceExtraction', era: 1, lane: 'habitat', name: 'Cryo Ice Extraction', short: 'Ice Extraction',
     costData: 130, requires: [], sites: [P],
-    effects: [{ kind: 'unlock', building: 'iceHarvester' }],
+    effects: [{ kind: 'unlock', building: 'waterPlant' }],
     desc: 'Mine water ice from permanently shadowed cold traps at 40 K. It is hopper propellant from day one.',
-    visual: 'Ice Harvesters can rise: a drill derrick over the cold trap.',
-    tradeoff: 'The ice is in the dark, and so is the harvester.',
+    visual: 'Water Management Plants can rise: a melt hall whose Ice Miners crawl out to the cold trap.',
+    tradeoff: 'The ice is in the dark, and so are the miners.',
   },
   regolithVolatiles: {
     id: 'regolithVolatiles', era: 1, lane: 'habitat', name: 'Solar-Wind Volatiles', short: 'Volatile Mining',
     costData: 100, requires: [], sites: [M, L],
-    effects: [{ kind: 'recipe', building: 'excavator', outputs: { regolith: 1.5, water: 0.02 }, powerKW: -9 }],
+    effects: [
+      { kind: 'recipe', building: 'excavator', outputs: { regolith: 1.5, water: 0.02 }, powerKW: -9 },
+      { kind: 'unlock', building: 'waterPlant' },
+    ],
     desc: 'Heat mature soil to ~700 °C and the implanted solar wind comes out: H₂, H₂O, ³He.',
     visual: 'Excavators carry a heated volatiles retort with a cold-trap tank.',
     tradeoff: 'Four billion years of wind, a teaspoon a minute.',
@@ -2185,6 +2193,10 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       if (fx.bucketMult !== undefined) {
         const text = `${pctDelta(fx.bucketMult)} excavator bucket (${num(HAUL.bucket * fx.bucketMult)}▲ a load)`;
         out.push(fx.bucketMult >= 1 ? pro(text, mag(fx.bucketMult), 'mult') : con(text, mag(fx.bucketMult), 'mult'));
+      }
+      if (fx.offroadMult !== undefined) {
+        const text = `${pctDelta(fx.offroadMult)} speed off-road, in pits and deposits: Regolith Excavator, Ice Miner`;
+        out.push(fx.offroadMult >= 1 ? pro(text, mag(fx.offroadMult), 'mult') : con(text, mag(fx.offroadMult), 'mult'));
       }
       return out;
     }

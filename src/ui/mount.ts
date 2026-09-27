@@ -7,6 +7,7 @@ import { mountInfoPanel } from './infoPanel';
 import { mountLunarMap } from './lunarMap';
 import { mountPalette } from './palette';
 import { mountFleetPanel } from './fleetPanel';
+import { mountUnitPanel } from './hubPanel';
 import { mountBuilderPanel } from './builderPanel';
 import { mountHazardsPanel } from './hazardsPanel';
 import { mountWeatherPanel } from './weatherPanel';
@@ -40,6 +41,7 @@ export function mountUI(game: Game) {
   mountBuilderPanel(hudLayer, game);
   mountPalette(hudLayer, game);
   mountFleetPanel(hudLayer, game);
+  mountUnitPanel(hudLayer, game);
   mountDepositCard(hudLayer, game);
   mountDiscovery(hudLayer, game);
   mountTechTree(hudLayer, game);

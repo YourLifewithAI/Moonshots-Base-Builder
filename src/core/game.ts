@@ -41,8 +41,14 @@ import {
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { accessCell, bumpRoads, dropSpur, joinCell, layApron, laySpur, migrateRoads, planSpur } from './roads';
+import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, layApron, laySpur, migrateRoads, planLink, planSpur } from './roads';
 import { zonesFrom } from './zones';
+import {
+  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, facePoint, hopperRoom, migrateHubs, newHubState, openPit,
+  hubGhostLine, plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
+} from './hubs';
+import { UNIT_VID, isHubType } from '../data/hubs';
+import { ROAD } from '../data/roads';
 import { bindTerrain, digSiteKey, onDig, pitsView, restoreTerrain, saveTerrain, syncPitZones } from './pits';
 import { encodeDelta, takeCarved } from '../terrain/pitCarve';
 import { roadAction } from './roadActions';
@@ -54,7 +60,7 @@ import {
 } from './spaceWeather';
 import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
 import { HAZARDS, HAZARD_NAME, type HazardId, type Tier } from '../data/hazards';
-import { FleetTarget } from '../player/fleetTarget';
+import { FleetTarget, type Mode as FleetMode } from '../player/fleetTarget';
 import { RoadTool } from '../player/roadTool';
 import { Heightfield, type Deposit } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
@@ -73,7 +79,11 @@ import { ClassicLighting } from '../world/classicLighting';
 import { installClassic } from '../world/classic';
 import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBuilding';
 import { Sky } from '../world/sky';
-import { PostFX } from '../world/post';
+import { FX_PLAIN, PostFX } from '../world/post';
+import { FxSelfCheck, type FxCheckResult } from '../world/fxcheck';
+import { REPORT_EXTENSIONS, diagnosticTargets } from '../world/fxcaps';
+import { applyFxBreak, fxBreak, sanitizeUniform, setFxBreak, setHardening, type FxBreak } from '../world/fxguard';
+import { copyText, gpuStrings, installRenderLog, logRender, pollGlErrors, renderLog } from '../world/renderReport';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
 import { materials, PATCH_MARKER } from '../world/materials';
@@ -92,7 +102,7 @@ import {
   $iceOverlay, $lookAt, $lander, $lostMission, $lunar, $menuOpen, $milestones, $mode, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
-  $fleet, $fleetTarget, $roverSel,
+  $fleet, $fleetTarget, $roverSel, $unitSel,
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather,
 } from '../ui/stores';
 
@@ -209,6 +219,7 @@ export class Game {
     this.classic = opts.style === 'classic';
     setActiveStyle(opts.style);
     materials.setClassic(this.classic);
+    installRenderLog();
     this.renderer = createRenderer(canvas, this.classic);
     this.watchRenderTargets();
     if (this.classic) installClassic();
@@ -220,9 +231,15 @@ export class Game {
       lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe, classic: this.classic,
     });
     this.post.onIssue = (msg) => {
+      logRender('alert', msg);
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
     };
-    this.scene.onBeforeRender = () => { this.sceneRenders++; };
+    // the capability floor held the boot below the stored/chosen level: the
+    // menu says why (the level itself never failed, so it is not remembered)
+    if (this.post.capHeld !== null && this.post.caps) this.fxReason = this.post.caps.floorReason;
+    if (!this.classic) this.fxCheck = new FxSelfCheck(this.renderer, this.scene, this.camera, this.post.caps?.halfFloat.ok ?? false);
+    // the self-check's own two renders are not the frame's
+    this.scene.onBeforeRender = () => { if (!this.inFxCheck) this.sceneRenders++; };
     // scene shader patches ride the same ladder as the post chain (safe mode
     // draws unlit twins, so the ladder level stays theirs to return to)
     if (opts.fx !== undefined) materials.clearFault();
@@ -236,13 +253,17 @@ export class Game {
       }
       materials.setFxLevel(level);
       if (!this.classic) this.rocks?.setFxLevel(level);
+      logRender('fx', `FX ${level} (${cause}${reason ? `: ${reason}` : ''})`);
       // a raise is checked on the next frames that can tell; a new rung soon
       this.reprobe(this.post.onTrial ? 2 : 40);
+      // …and the self-check compares the new level's frame with the plain path
+      this.scheduleFxCheck();
     };
     // a program that fails to compile is reported here (replacing three's
     // console dump); the response waits until the frame has finished
     this.renderer.debug.onShaderError = (gl, program, vs, fs) => {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
+      // (the console mirror files this in the render log too)
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
       const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
@@ -338,6 +359,8 @@ export class Game {
     for (const b of this.state.buildings) this.stampDeposit(b);
     migrateRoads(this.state, this.hf); // a save from before roads gets them now
     this.syncDeposits(false);
+    // a save from before extraction hubs (docs/17 §19): excavators join their hubs
+    migrateHubs(this.state, this.mods, SITES[this.state.siteId]);
     // the pits' zones come back from the grid (the save leaves them out)
     syncPitZones(this.state, this.hf, undefined, false);
     if (this.state.flattens.length || carved) this.chunks.rebuildAround(0, 0, 255, 255);
@@ -360,10 +383,13 @@ export class Game {
 
   private bootWorld(state: GameState) {
     this.state = state;
+    $unitSel.set(null);
     this.alertClock.clear();
     this.mods = refreshDerived(state);
     if (this.worldGroup) this.scene.remove(this.worldGroup);
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
+    // the sim plans hub units' haul roads and stakes plain pits on it (core/hubs.ts)
+    bindHeights(state, this.hf);
     bindTerrain(state, this.hf); // the pits carve this ground (core/pits.ts, economy step 4.2)
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
@@ -446,6 +472,7 @@ export class Game {
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
     this.nextProbe = 40;
+    this.scheduleFxCheck(30);
     if (this.safeMode) {
       this.safeMode = false; // fresh world = fresh materials; re-apply
       this.enableSafeMode(this.safeAuto, false);
@@ -569,6 +596,7 @@ export class Game {
           else if (this.placement.active) this.cancelPlacement();
           else if ($selection.get()) $selection.set(null);
           else if ($roverSel.get() !== null) $roverSel.set(null);
+          else if ($unitSel.get() !== null) $unitSel.set(null);
           else if ($depositSel.get()) $depositSel.set(null);
           else if ($announce.get()[0]?.kind === 'tech') $announce.set($announce.get().slice(1));
           else if ($resourcePanel.get()) $resourcePanel.set(null);
@@ -577,8 +605,9 @@ export class Game {
         case 'KeyF': {
           const sel = $selection.get();
           const rover = $roverSel.get();
-          if (this.modes.mode !== 'build' || (!sel && rover === null)) break;
-          const at = sel ? this.life.haulers.pose(sel.id) : this.life.rovers.pose(rover!);
+          const unit = $unitSel.get();
+          if (this.modes.mode !== 'build' || (!sel && rover === null && unit === null)) break;
+          const at = sel ? this.life.haulers.pose(sel.id) : unit !== null ? this.life.haulers.pose(UNIT_VID + unit) : this.life.rovers.pose(rover!);
           const [x, z] = at ? [at.x, at.z] : sel ? centerOf(sel) : [0, 0];
           this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
           break;
@@ -652,24 +681,27 @@ export class Game {
     this.raycaster.setFromCamera(this.mouse, this.camera);
     const hit = this.pickWorld();
     if (hit?.rover !== undefined) { this.selectRover(hit.rover); return; }
+    if (hit?.unit !== undefined) { this.selectUnit(hit.unit); return; }
     const b = hit?.building !== undefined ? this.state.buildings.find((x) => x.id === hit.building) ?? null : null;
     $roverSel.set(null);
+    $unitSel.set(null);
     $selection.set(b ? { ...b } : null);
   }
 
   /** Under the ray: a rover (by instance, or within a few pixels on screen —
    *  they are small), a digger away from its pad, or a structure. */
-  private pickWorld(): { rover?: number; building?: number } | null {
+  private pickWorld(): { rover?: number; building?: number; unit?: number } | null {
     const rover = this.life.rovers.pick(this.raycaster);
     const digger = this.life.haulers.pick(this.raycaster);
     const id = this.instances.pick(this.raycaster);
     const hits = this.raycaster.intersectObjects(this.instances.group.children, false);
     const bd = id !== null
       ? hits.find((h) => h.instanceId !== undefined && h.object.userData.buildingType)?.distance ?? 0 : Infinity;
-    type Hit = { d: number; v: { rover?: number; building?: number } };
+    type Hit = { d: number; v: { rover?: number; building?: number; unit?: number } };
     const cands: Hit[] = [];
     if (rover) cands.push({ d: rover.d - 0.5, v: { rover: rover.id } });
-    if (digger) cands.push({ d: digger.d, v: { building: digger.id } });
+    // a hub unit is drawn under its own key (UNIT_VID + id); a legacy pad's under its building's
+    if (digger) cands.push({ d: digger.d, v: digger.id >= UNIT_VID ? { unit: digger.id - UNIT_VID } : { building: digger.id } });
     if (id !== null) cands.push({ d: bd, v: { building: id } });
     const best = cands.sort((x, y) => x.d - y.d)[0];
     if (best?.v.rover !== undefined) return best.v;
@@ -689,12 +721,19 @@ export class Game {
   /** open the rover inspector (null closes it); a building selection closes */
   selectRover(id: number | null) {
     if (id !== null && !this.state.rovers.some((r) => r.id === id)) id = null;
-    if (id !== null) $selection.set(null);
+    if (id !== null) { $selection.set(null); $unitSel.set(null); }
     $roverSel.set(id);
   }
 
+  /** open a hub unit's inspector (null closes it); a building or rover selection closes */
+  selectUnit(id: number | null) {
+    if (id !== null && !this.state.haulers.some((u) => u.id === id)) id = null;
+    if (id !== null) { $selection.set(null); $roverSel.set(null); }
+    $unitSel.set(id);
+  }
+
   /** Send to… (a rover) or Dig at… (an excavator): the next click picks the target. */
-  beginFleetTarget(mode: { kind: 'send'; rover: number } | { kind: 'dig'; id: number }) {
+  beginFleetTarget(mode: FleetMode) {
     if (this.modes.mode !== 'build') return;
     this.cancelPlacement();
     this.roadTool.cancel();
@@ -935,7 +974,7 @@ export class Game {
   /** open the inspector on a building (null closes it) */
   select(id: number | null) {
     const b = id === null ? undefined : this.state.buildings.find((x) => x.id === id);
-    if (b) $roverSel.set(null);
+    if (b) { $roverSel.set(null); $unitSel.set(null); }
     $selection.set(b ? { ...b } : null);
   }
 
@@ -1112,7 +1151,13 @@ export class Game {
         s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
         this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         this.onFlattened(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
-        s.resources.regolith += GRADE_REGOLITH_YIELD; // dozed spoil, recovered
+        // dozed spoil, recovered: into the nearest smelter's or refinery's hopper with room, else the pile
+        const [gcx, gcz] = [(a.gx + GRADE_CELLS / 2) * 4 - 512, (a.gz + GRADE_CELLS / 2) * 4 - 512];
+        const hub = s.buildings.filter((b) => (b.type === 'smelter' || b.type === 'refinery') && b.hub && (b.construction ?? 0) <= 0 &&
+          hopperRoom(b) >= GRADE_REGOLITH_YIELD)
+          .sort((p, q) => Math.hypot(centerOf(p)[0] - gcx, centerOf(p)[1] - gcz) - Math.hypot(centerOf(q)[0] - gcx, centerOf(q)[1] - gcz))[0];
+        if (hub) hub.hub!.hopper += GRADE_REGOLITH_YIELD;
+        s.resources.regolith += GRADE_REGOLITH_YIELD;
         break;
       }
       case 'orderResupply': {
@@ -1172,6 +1217,36 @@ export class Game {
         break;
       }
       case 'digAt': this.digAt(a.id, a.x, a.z); break;
+      // extraction hubs (core/hubs.ts, docs/17 §4)
+      case 'queueUnit': case 'queueBay': {
+        const b = s.buildings.find((x) => x.id === a.hub);
+        const why = queueJob(s, this.mods, SITES[s.siteId], b, a.kind === 'queueBay' ? 'bay' : 'unit');
+        if (why) alert(s, `CANNOT PRINT — ${why}`, 'warn');
+        break;
+      }
+      case 'cancelJob': {
+        const why = cancelJob(s, s.buildings.find((x) => x.id === a.hub), a.index);
+        if (why) alert(s, why, 'warn');
+        break;
+      }
+      case 'assignPit': {
+        const why = assignPit(s, this.mods, s.buildings.find((x) => x.id === a.hub), a.key);
+        if (why) alert(s, `CANNOT ASSIGN — ${why}`, 'warn');
+        break;
+      }
+      case 'openPit': {
+        const why = openPit(s, this.mods, s.buildings.find((x) => x.id === a.hub), a.x, a.z);
+        if (why) alert(s, `CANNOT OPEN A PIT THERE — ${why}`, 'warn');
+        break;
+      }
+      case 'sendUnit': {
+        const why = sendUnit(s, this.mods, a.unit, a.key);
+        if (why) alert(s, `CANNOT SEND — ${why}`, 'warn');
+        break;
+      }
+      case 'recallUnit': { const why = recallUnit(s, this.mods, a.unit); if (why) alert(s, why, 'warn'); break; }
+      case 'dispatchUnit': { const why = dispatchUnit(s, a.unit); if (why) alert(s, why, 'warn'); break; }
+      case 'autoUnit': { const why = autoUnit(s, a.unit); if (why) alert(s, why, 'warn'); break; }
       case 'digHome': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (!b || b.type !== 'excavator') break;
@@ -1242,6 +1317,7 @@ export class Game {
         bumpRoads(s);
       } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
     }
+    if (isHubType(type) && !free) this.hubPlaced(b);
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
     // deadlock early-warning: metals gone before your first smelter exists
@@ -1256,6 +1332,26 @@ export class Game {
       }
     }
     return b;
+  }
+
+  /** A hub placed (docs/17 §5.3): with no wanted deposit in reach it stakes
+   *  its plain pit; the road to where its first unit will dig joins its spur,
+   *  so its rovers sinter both before they weld. */
+  private hubPlaced(b: BuildingState) {
+    const s = this.state;
+    const site = SITES[s.siteId];
+    b.hub = newHubState();
+    if (!choicesFor(s, this.mods, site, b, 1).some((c) => c.inReach && !c.target.plain)) stakeHubPit(s, this.mods, site, b);
+    const best = choicesFor(s, this.mods, site, b, 1).find((c) => c.inReach);
+    if (!best || best.trip.connected || !hasRoads(s)) return;
+    const [fx, fz] = facePoint(s, best.target, 0);
+    const plan = planLink(s, this.hf, null, cellAt(fx, fz));
+    (b.hub.roads ??= {})[best.target.key] = { job: 0, at: s.simTime, ...(plan.reason ? { why: `NO HAUL ROAD — ${plan.reason}` } : {}) };
+    if (plan.reason || !plan.cells.length) return;
+    const open = this.debugOpenRoads;
+    for (const k of plan.fresh) { const [gx, gz] = keyCell(k); s.roads!.push({ gx, gz, left: open ? 0 : ROAD.cellS }); }
+    if (!open) b.spur = [...(b.spur ?? []), ...plan.cells.filter((k) => !(b.spur ?? []).includes(k))];
+    bumpRoads(s);
   }
 
   /** b.deposit: the deposit under the footprint centre (placement and load);
@@ -1324,8 +1420,13 @@ export class Game {
    *  auto roads stop at their rims from now on. */
   private syncZones(revealed = this.hf.deposits.filter((d) => depositRevealed(this.state, d, this.mods.surveyTier))) {
     const s = this.state;
-    const next = zonesFrom(s.zones, revealed);
-    if (next !== s.zones) { s.zones = next; bumpRoads(s); }
+    const prev = s.zones ?? [];
+    // the deposits' zones, then the staked plain pits' (docs/17 §8.6), then the carved pits'
+    const deps = zonesFrom(prev.filter((z) => z.kind !== 'plain'), revealed);
+    const next = [...deps.filter((z) => z.kind !== 'pit'), ...plainZones(s), ...deps.filter((z) => z.kind === 'pit')];
+    if (s.zones && prev.length === next.length && prev.every((z, i) => z.id === next[i].id)) return;
+    s.zones = next;
+    bumpRoads(s);
   }
 
   /** Settlers take agent-run stations in the order the economy staffs them,
@@ -1458,6 +1559,16 @@ export class Game {
   /** black-frame probe verdicts so far (tests, probes) */
   private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
+  /** the FX self-check (world/fxcheck.ts): High detail only; due at boot and
+   *  after every level change, on a frame at FX 0–2 */
+  private fxCheck: FxSelfCheck | null = null;
+  private fxCheckDue = false;
+  private fxCheckAt = 0;
+  private fxCheckTries = 0;
+  /** debug: automatic checks off (an explicit fxCheckNext still runs one) */
+  private fxCheckAuto = true;
+  private fxCheckForced = false;
+  private inFxCheck = false;
   private shaderFault: 'patch' | 'classic' | 'other' | null = null;
   /** the last drawn frame's totals over every pass (shadow map included) */
   private frameStats = { calls: 0, triangles: 0, points: 0, lines: 0 };
@@ -1470,7 +1581,7 @@ export class Game {
     const r = this.renderer;
     const set = r.setRenderTarget.bind(r);
     r.setRenderTarget = (target, ...rest) => {
-      if (target) this.targetTypes.add((target.texture as THREE.Texture).type);
+      if (target && !diagnosticTargets.has(target)) this.targetTypes.add((target.texture as THREE.Texture).type);
       set(target, ...rest);
     };
   }
@@ -1542,7 +1653,57 @@ export class Game {
     // driver failures. Only a frame drawn just now can be read back.
     if (!this.playing) return;
     this.playFrames++;
+    if (drawn && this.fxCheckDue && this.playFrames >= this.fxCheckAt) this.runFxCheck();
     if (drawn && this.playFrames >= this.nextProbe) this.probeFrame();
+  }
+
+  /** The self-check is due `frames` from now (the level has settled by then:
+   *  its programs compiled, its first frames drawn). */
+  private scheduleFxCheck(frames = 20) {
+    if (this.classic) return;
+    this.fxCheckDue = true;
+    this.fxCheckTries = 0;
+    this.fxCheckAt = this.playFrames + frames;
+  }
+
+  /** Compare the frame just drawn with the plain path (world/fxcheck.ts). A
+   *  gross deviation fails the level like a black frame does: a raise on
+   *  trial goes back, anything else steps one rung down — and the next
+   *  level is checked the same way. Inconclusive views are retried. */
+  private runFxCheck() {
+    this.fxCheckDue = false;
+    const forced = this.fxCheckForced;
+    this.fxCheckForced = false;
+    const level = this.post.fxLevel;
+    if (!this.fxCheck || this.safeMode || level >= FX_PLAIN || !this.post.chainBuilt) return;
+    if (!this.fxCheckAuto && !forced) return;
+    let res: FxCheckResult | null = null;
+    try {
+      res = this.fxCheck.run(level, (on) => { this.inFxCheck = on; applyFxBreak(level, on); });
+    } catch (e) {
+      console.warn('[MOONSHOTS] FX self-check could not run.', e);
+    } finally {
+      this.inFxCheck = false;
+      applyFxBreak(level);
+    }
+    pollGlErrors(this.renderer.getContext(), 'FX self-check');
+    if (!res) return;
+    const m = res.metrics;
+    const summary = `lost ${m.lost}, gained ${m.gained}, flat ${m.flat}, mean ×${m.meanRatio}, hist ${m.hist}`
+      + `${res.hdr ? `, NaN ${res.hdr.nan}, max ${res.hdr.max}` : ''}, ${res.ms} ms`;
+    if (res.verdict === 'unknown') {
+      if (++this.fxCheckTries < 20) { this.fxCheckDue = true; this.fxCheckAt = this.playFrames + 120; }
+      return;
+    }
+    this.fxCheckTries = 0;
+    if (res.verdict === 'pass') {
+      console.log(`[MOONSHOTS] FX self-check: level ${level} passed (${summary})`);
+      logRender('fx', `self-check passed at FX ${level}: ${summary}`);
+      return;
+    }
+    const why = res.reasons.join('; ');
+    console.warn(`[MOONSHOTS] FX self-check: level ${level} failed (${why}; ${summary})`);
+    this.renderFailed(`FX self-check: ${why}`);
   }
 
   /** Black-screen sentinel: some drivers fail shaders silently instead of
@@ -1693,6 +1854,7 @@ export class Game {
     this.post.setSafe(false);
     this.lighting.requestShadowUpdate();
     this.reprobe(2);
+    this.scheduleFxCheck();
   }
 
   get safeModeOn(): boolean { return this.safeMode; }
@@ -1719,6 +1881,108 @@ export class Game {
       safe: this.safeMode, safeAuto: this.safeAuto, floor: this.opts.lowfx ? 2 : 0,
     };
   }
+
+  /** The render report (menu → Copy render report): what this GPU and
+   *  browser are, what the ladder did and why, the self-check's numbers and
+   *  the render log. Plain data, JSON-ready. */
+  renderReport() {
+    const gl = this.renderer.getContext();
+    pollGlErrors(gl, 'report');
+    const caps = this.post.caps;
+    const supported = new Set(gl.getSupportedExtensions() ?? []);
+    const s = loadSettings();
+    const attrs = gl.getContextAttributes();
+    return {
+      report: 'Moonshots Base Builder render report',
+      generated: new Date().toISOString(),
+      page: location.pathname + location.search,
+      userAgent: navigator.userAgent,
+      devicePixelRatio: window.devicePixelRatio,
+      gpu: gpuStrings(this.renderer),
+      webgl: {
+        webgl2: caps?.webgl2 ?? (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext),
+        extensions: caps?.extensions ?? Object.fromEntries(REPORT_EXTENSIONS.map((e) => [e, supported.has(e)])),
+        supportedCount: supported.size,
+        precision: caps?.precision ?? null,
+        maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE) as number,
+        maxSamples: this.renderer.capabilities.maxSamples,
+        context: { antialias: attrs?.antialias ?? null, alpha: attrs?.alpha ?? null, powerPreference: attrs?.powerPreference ?? null },
+        drawingBuffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
+        pixelRatio: this.renderer.getPixelRatio(),
+      },
+      style: this.opts.style,
+      fx: {
+        level: this.post.fxLevel,
+        ladder: this.post.ladderLevel,
+        stored: this.post.storedLevel,
+        choice: s.fx,
+        failed: [...this.fxFailed].sort(),
+        reason: this.fxReason,
+        onTrial: this.post.onTrial,
+        chainBuilt: this.post.chainBuilt,
+        sanitizer: this.post.sanitizer,
+        lowfx: this.opts.lowfx,
+        capFloor: caps?.floor ?? null,
+        capFloorReason: caps?.floorReason ?? '',
+        capHeld: this.post.capHeld,
+        halfFloatProbe: caps?.halfFloat ?? null,
+        debugBreak: fxBreak(),
+      },
+      safe: { on: this.safeMode, auto: this.safeAuto, stored: s.safe, storedAuto: s.safeAuto },
+      patches: materials.variants(),
+      patchFault: materials.patchesFaulted,
+      selfCheck: this.fxCheck ? this.fxCheck.history.map((r) => ({ ...r })) : [],
+      probes: { ...this.probes },
+      framesDrawn: this.framesDrawn,
+      log: renderLog(),
+    };
+  }
+
+  /** Copy the report to the clipboard and print it; false when the browser
+   *  refused the clipboard (it is in the console either way). */
+  async copyRenderReport(): Promise<boolean> {
+    const text = JSON.stringify(this.renderReport(), null, 2);
+    console.log(`[MOONSHOTS] Render report\n${text}`);
+    return copyText(text);
+  }
+
+  /** Run the FX self-check on the next drawn frame (tests, probes). */
+  debugFxCheckNext() {
+    this.fxCheckForced = true;
+    this.fxCheckDue = true;
+    this.fxCheckTries = 0;
+    this.fxCheckAt = this.playFrames + 1;
+  }
+
+  /** The self-check's results so far, newest last. */
+  debugFxChecks(): FxCheckResult[] {
+    return this.fxCheck ? this.fxCheck.history.map((r) => JSON.parse(JSON.stringify(r))) : [];
+  }
+
+  /** The last self-check's two images (display luminance, bottom row first). */
+  debugFxCheckImages() {
+    const im = this.fxCheck?.lastImages;
+    return im ? { W: im.W, H: im.H, chain: [...im.chain].map((v) => Math.round(v)), plain: [...im.plain].map((v) => Math.round(v)) } : null;
+  }
+
+  /** Hold the black-frame sentinel off (a test of what only the self-check sees). */
+  debugHoldProbe(on: boolean) {
+    this.probeHeld = on;
+    this.nextProbe = on ? Number.POSITIVE_INFINITY : this.playFrames + 40;
+  }
+
+  /** Automatic self-checks on or off (an explicit debugFxCheckNext still runs). */
+  debugSetFxCheckAuto(on: boolean) { this.fxCheckAuto = on; }
+
+  /** Make FX `level` draw wrong the way a faulty GPU would (null: mend it). */
+  debugBreakFx(level: number | null, mode: FxBreak = 'player') { setFxBreak(level, mode); }
+
+  /** The HDR sanitiser on or off (a test that shows what it stops). */
+  debugSetSanitize(on: boolean) { sanitizeUniform.value = on; }
+
+  /** The whole hardening (N8AO composite + sanitiser) on or off: off draws
+   *  what the stock chain drew (a test that the look did not change). */
+  debugSetHardening(on: boolean) { setHardening(on); }
 
   /** check `frames` from now (unless a probe is holding the check off) */
   private reprobe(frames = 40) {
@@ -1755,6 +2019,7 @@ export class Game {
           $placing.set({
             type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
             road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
+            hub: p.valid && p.type !== 'grade' && isHubType(p.type) ? hubGhostLine(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : undefined,
           });
         }
       } else {
@@ -2270,6 +2535,8 @@ export class Game {
     $fleet.set(fleetView(s, this.mods, site, this.hf.deposits, (d) => depositRevealed(s, d, tier)));
     const rv = $roverSel.get();
     if (rv !== null && !s.rovers.some((r) => r.id === rv)) $roverSel.set(null);
+    const us = $unitSel.get();
+    if (us !== null && !s.haulers.some((u) => u.id === us)) $unitSel.set(null);
     const sel = $selection.get();
     if (sel) {
       const live = s.buildings.find((b) => b.id === sel.id);
@@ -2603,6 +2870,12 @@ export class Game {
           'info');
         continue;
       }
+      if (req.kind === 'unit') {
+        const b = s.buildings.find((x) => x.id === req.hub);
+        const why = queueJob(s, this.mods, site, b, 'unit', 'rule');
+        if (!why && b) logAuto(s, `a unit queued at ${BUILDINGS[b.type].name} #${b.id} · ${req.why}`, b.id);
+        continue;
+      }
       if (req.kind === 'dig' || req.kind === 'feed') {
         const b = s.buildings.find((x) => x.id === req.id);
         if (!b || b.type !== 'excavator') continue;
@@ -2715,7 +2988,7 @@ export class Game {
     return `${a.toString(16)}:${b.toString(16)}`;
   }
 
-  /** The adapter as an excavator calls it: `tonnes` dug at world (x, z). */
+  /** `tonnes` dug at world (x, z), into that ground's pit (the tests' shortcut: hub units dig their target's pit, core/hubs.ts `dug`). */
   debugPitDig(x: number, z: number, tonnes: number, q = 1) {
     onDig(this.state, digSiteKey(x, z), tonnes, q);
   }
@@ -2963,8 +3236,8 @@ export class Game {
     return fleetView(this.state, this.mods, SITES[this.state.siteId], this.hf.deposits, (d) => depositRevealed(this.state, d, tier));
   }
   /** Where a rover or an excavator is drawn, on screen (CSS px) and in the world. */
-  debugPoseOnScreen(kind: 'rover' | 'digger', id: number) {
-    const p = kind === 'rover' ? this.life.rovers.pose(id) : this.life.haulers.pose(id);
+  debugPoseOnScreen(kind: 'rover' | 'digger' | 'unit', id: number) {
+    const p = kind === 'rover' ? this.life.rovers.pose(id) : this.life.haulers.pose(kind === 'unit' ? UNIT_VID + id : id);
     if (!p) return null;
     return { ...this.screenOf(p.x, p.y + (kind === 'rover' ? 0.8 : 1.5), p.z), wx: p.x, wz: p.z };
   }

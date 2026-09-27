@@ -39,8 +39,8 @@ const GUIDE: Record<DepositKind, Guide> = {
       { sign: 'pro', text: `Smelters: up to ${spct(FEED.smelter.ilmenite * m.feedBonus.ilmenite)} output, with all your digging here` },
       { sign: 'con', text: `Silicon Refineries: up to ${spct(FEED.refinery.ilmenite)} from the same feed` },
     ],
-    use: 'excavator',
-    todo: 'Put a Regolith Excavator on it to feed your smelters.',
+    use: 'smelter',
+    todo: 'Build a Regolith Smelter by it: its excavators dig it and feed that smelter.',
   },
   anorthosite: {
     about: 'Bright highland crust: calcium-aluminium silicate, rich in silicon and poor in iron.',
@@ -48,8 +48,8 @@ const GUIDE: Record<DepositKind, Guide> = {
       { sign: 'pro', text: `Silicon Refineries: up to ${spct(FEED.refinery.anorthosite * m.feedBonus.anorthosite)} output, with all your digging here` },
       { sign: 'con', text: `Smelters: up to ${spct(FEED.smelter.anorthosite)} from the same feed` },
     ],
-    use: 'excavator',
-    todo: 'Dig here to feed silicon refining; keep your smelters’ excavators on basalt or plain ground.',
+    use: 'refinery',
+    todo: 'Build a Silicon Refinery by it: its excavators dig it; keep your smelters’ on basalt or plain ground.',
   },
   glass: {
     about: 'Pyroclastic beads from ancient fire fountains: iron- and oxygen-rich volcanic glass.',
@@ -57,8 +57,8 @@ const GUIDE: Record<DepositKind, Guide> = {
       { sign: 'pro', text: `Smelters: up to ${spct(FEED.smelterO2Glass * m.feedBonus.glass)} oxygen, with all your digging here` },
       { sign: 'con', text: `An excavator here wears faster: upkeep ×${DEPOSIT_FX.glassExcavatorUpkeep}` },
     ],
-    use: 'excavator',
-    todo: 'Dig here when oxygen is the bottleneck.',
+    use: 'smelter',
+    todo: 'Send a smelter’s excavator here (Send… in its inspector) when oxygen is the bottleneck.',
   },
   kreep: {
     about: 'KREEP: potassium, rare-earth elements and phosphorus, with the thorium that fuels reactors.',
@@ -67,27 +67,27 @@ const GUIDE: Record<DepositKind, Guide> = {
       { sign: 'con', text: `Smelters: up to ${spct(FEED.smelter.kreep)} from the same feed` },
       { sign: 'con', text: 'No habitats on KREEP soil: radiation' },
     ],
-    use: 'excavator',
-    todo: 'Give it one excavator once a Thorium Reactor runs; build habitats elsewhere.',
+    use: 'smelter',
+    todo: 'Send one smelter’s excavator here once a Thorium Reactor runs; build habitats elsewhere.',
   },
   volatiles: {
     about: 'Old, sun-weathered soil that has soaked up solar-wind hydrogen for billions of years.',
     lines: () => [
-      { sign: 'pro', text: `With Solar-Wind Volatiles, an excavator here makes ×${DEPOSIT_FX.volatilesWater} water` },
+      { sign: 'pro', text: `With Solar-Wind Volatiles, an excavator here makes ×${DEPOSIT_FX.volatilesWater} water, and a Water Management Plant bakes it` },
       { sign: 'con', text: `That excavator digs ×${DEPOSIT_FX.volatilesRegolith} regolith` },
     ],
-    use: 'excavator',
+    use: 'waterPlant',
     needs: 'regolithVolatiles',
-    todo: 'Put an excavator here for water.',
+    todo: 'Build a Water Management Plant by it: its excavators bring the soil for its water.',
   },
   ice: {
     about: 'Water ice in a permanently shadowed cold trap, some 40 K above absolute zero.',
     lines: () => [
-      { sign: 'pro', text: `The only ground an Ice Harvester can work: ${BUILDINGS.iceHarvester.outputs.water ?? 0}≈ water/s each` },
-      { sign: 'con', text: `Harvesters draw ${-BUILDINGS.iceHarvester.powerKW} kW, night and day` },
+      { sign: 'pro', text: `The only ground an Ice Miner can work: a Water Management Plant makes up to ${BUILDINGS.waterPlant.outputs.water ?? 0}≈ water/s from it` },
+      { sign: 'con', text: `Each Ice Miner draws ${-BUILDINGS.iceMiner.powerKW} kW while it digs, in the dark` },
     ],
-    use: 'iceHarvester',
-    todo: 'Place Ice Harvesters on it.',
+    use: 'waterPlant',
+    todo: 'Build a Water Management Plant by it: its Ice Miners dig the cold trap.',
   },
   ridge: {
     about: 'A crest above the rim’s shadow, in near-continuous sunlight.',
@@ -151,7 +151,7 @@ export function depositCardHtml(d: DepositView, game: Game, where: 'world' | 'ma
   body += `<div class="dc-fx">${g.lines(m).map((l) =>
     `<div class="${l.sign === 'pro' ? 'pro' : 'con'}">${esc(l.text)}</div>`).join('')}</div>`;
   // the live feed share, for the grounds that are dug
-  if (g.use === 'excavator') {
+  if (g.use !== 'solar') {
     const share = ($feed.get() as unknown as Record<string, number>)[d.kind] ?? 0;
     body += `<div class="dc-now mono">Your digging now: ${pct(share)} on ${esc(info.name)}</div>`;
   }
@@ -164,7 +164,8 @@ export function depositCardHtml(d: DepositView, game: Game, where: 'world' | 'ma
   } else {
     body += `<div class="dc-todo">${esc(g.todo)}</div>`;
     if (m.unlocked.has(g.use)) {
-      buttons.push(`<button class="btn primary" data-dact="place" data-building="${g.use}">Place ${esc(BUILDINGS[g.use].name)} here</button>`);
+      // a hub stands by its deposit, never on it (docs/17 §3.1)
+      buttons.push(`<button class="btn primary" data-dact="place" data-building="${g.use}">Place ${esc(BUILDINGS[g.use].name)} ${g.use === 'solar' ? 'here' : 'by it'}</button>`);
     }
   }
   return shell(d, body, buttons, where);

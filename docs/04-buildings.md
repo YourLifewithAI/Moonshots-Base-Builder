@@ -47,12 +47,14 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |
 |---|---|---|---|---|---|
-| Regolith Excavator (1) | S | no crew (teleoperated from the start), −6 kW → a 105-regolith bucket per haul (≈1.5/s dug 15 m from its consumer) | A mobile digger: its pad is home; *Dig at…* sends it to any revealed deposit or mapped ground, and it hauls each bucket to the nearest smelter or refinery (the Lander if none), credited on unload — far ground delivers less but sets a richer feed. Highest dust wear on the base (halved by Dust Mitigation) | Feeds every industry on the Moon | Thrown dust abrades everything — the highest parts wear on the base |
-| Ice Harvester (1) | S | 1 crew, −8 kW → 0.4 water/s | Ice sites only (`requiresIce`) | Water from permanently shadowed ice — the pole's great gift | Useless anywhere without polar ice deposits |
+| Regolith Excavator (1) · hub unit | S | no crew, −6 kW → a 105-regolith bucket per trip | **Not placed:** a smelter or refinery (or a water plant off the ice) prints it, 20◆ 5⚙ in 60 s, one a bay. It digs a deposit in reach (90 s one way) or its hub's plain pit, and tips into its own hub's hopper. Highest dust wear on the base (halved by Dust Mitigation) | Feeds every industry on the Moon | Thrown dust abrades everything — the highest parts wear on the base |
+| Ice Miner (1) · hub unit | S | no crew, −6 kW → a 105-regolith bucket of ice-rich soil per trip | **Not placed:** a Water Management Plant on the ice prints it, 25◆ 5⚙ in 70 s. It digs cold-trap ice only | The pole's water, dug where it lies | Slower on the ground than an excavator |
+| Ice Harvester (1) · retired | S | 1 crew, −8 kW → 0.4 water/s | No longer placed: the Water Management Plant replaces it. An old save's harvesters keep working | — | — |
+| **Water Management Plant** (1) | S | 1 crew, −6 kW, 2 regolith/s → 0.4 water/s on cold-trap ice | A hub: its Ice Miners dig the ice. Off the ice it prints excavators and gets 0.08 water/s from soil at −9 kW. Unlocked by Ice Extraction or Solar-Wind Volatiles | Water where the ice is | Near-useless off the ice |
 | HRI Ilmenite Reduction Plant (1) | M | regolith (ilmenite-rich) → iron/titanium + **oxygen** | The oxygen-rich half of the merged Smelter; strongest on mare sites | Breathes for the base as a side effect of making metal | Feeble on ilmenite-poor highland and KREEP regolith |
 | MRE Electrolyzer (2) | M | any regolith + heavy power → metals + oxygen trickle | The site-agnostic half of the merged Smelter | Eats any dirt on the Moon — no geology required | Power cost per ton is brutal; the night hits it first |
-| **Regolith Smelter** (1) | S | 2 crew, −12 kW, 2 regolith/s → 0.5 metals + 0.25 oxygen + 0.05 water/s | The slice's **only oxygen source**, and the only water on iceless sites — industry keeps you alive | Ilmenite gives threefold: metals, oxygen, and a trickle of water | A furnace on the grid: the night hits it first |
-| Silicon Refinery (2) | S | 2 crew, −14 kW, 2 regolith/s → 0.4 silicon/s | Feeds solar, foils — the whole endgame | Silicon for panels and foils — the whole endgame flows through here | The hungriest machine of the mid-game grid |
+| **Regolith Smelter** (1) | S | 2 crew, −12 kW, 2 regolith/s → 0.5 metals + 0.25 oxygen + 0.05 water/s | A hub from landing, with its first excavator (60◆ 15⚙). The slice's **only oxygen source**, and the only water on iceless sites — industry keeps you alive | Ilmenite gives threefold: metals, oxygen, and a trickle of water | A furnace on the grid: the night hits it first |
+| Silicon Refinery (2) | S | 2 crew, −14 kW, 2 regolith/s → 0.4 silicon/s | A hub, with its first excavator (70◆ 20⚙). Feeds solar, foils — the whole endgame | Silicon for panels and foils — the whole endgame flows through here | The hungriest machine of the mid-game grid |
 | Rare-Earth Extractor (3) | C | crew, power, regolith → rare earths + thorium | KREEP-terrane sites only (05); feeds Electronics + reactor fuel | Unlocks the one supply chain no other site can run | Worthless geology everywhere but Procellarum — a site bet, not a building |
 
 ## Life & society
@@ -204,10 +206,9 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
-| Regolith Excavator | 1,060 | 2,428 | 11 |
-| Ice Harvester | 1,288 | 1,680 | 3 |
 | Regolith Smelter | 1,204 | 2,492 | 9 |
 | Silicon Refinery | 2,348 | 3,272 | 6 |
+| Water Management Plant | 1,868 | 1,868 | 0 |
 | Storage Yard | 956 | 1,016 | 1 |
 | Robotics Bay | 1,336 | 3,074 | 12 |
 | Parts Fabricator | 1,048 | 1,644 | 6 |
@@ -225,6 +226,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Greenhouse Ring | 1,764 | 1,860 | 2 |
 | Garden Dome | 2,156 | 2,252 | 1 |
 | Server Monolith | 516 | 768 | 4 |
+| Regolith Excavator | 1,060 | 2,428 | 11 |
+| Ice Miner | 784 | 784 | 0 |
 
 #### Lander
 
@@ -276,30 +279,6 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 |---|---|---|---|
 | Brayton Converters | 4 | Thorium Reactors add a Brayton turbine skid. | 108 |
 | High-Burnup Fuel | 6 | Thorium Reactors raise a fuel-handling crane over the dome. | 184 |
-
-#### Regolith Excavator
-
-| Tech | Era | What changes | △ |
-|---|---|---|---|
-| Grizzly Screens | 1 | Excavators carry a slotted grizzly screen over the back deck. | 144 |
-| Solar-Wind Volatiles (ILMENITE PLAINS, MARIUS HILLS TUBE) | 1 | Excavators carry a heated volatiles retort with a cold-trap tank. | 256 |
-| Ilmenite Beneficiation (ILMENITE PLAINS, MARIUS HILLS TUBE) | 2 | Excavators carry a magnetic separator drum. | 92 |
-| Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
-| Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
-| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
-| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 144 + 96 ↻ |
-| Feed Planner | 5 | Excavators carry an assay drill beside the bucket. | 72 |
-| Rover Power Packs | 2 | Rovers, drones and excavators bolt a pair of battery pods to their flanks. | 96 |
-| Regenerative Fuel-Cell Packs | 4 | Rovers, drones and excavators carry paired hydrogen and oxygen tanks behind their battery pods. | 136 |
-| Radioisotope Power Units | 5 | Rovers, drones and excavators grow a finned radioisotope unit on the tail. | 144 |
-
-#### Ice Harvester
-
-| Tech | Era | What changes | △ |
-|---|---|---|---|
-| Sublimation Tents (SHACKLETON RIM) | 2 | Ice Harvesters pitch a foil sublimation tent over the dig. | 156 |
-| Heated Augers (SHACKLETON RIM) | 4 | Ice Harvesters sink a second, heated auger. | 156 |
-| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
 
 #### Regolith Smelter
 
@@ -501,4 +480,20 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Cryo Radiators | 5 | Data Centers unfold a second tier of cryo radiator fins; Server Monoliths grow fins down both flanks. | 72 |
 | Rack Densification | 7 | Data Centers add a rack annex at the berm, and Server Monoliths one at the foot. | 36 |
 | Selenic Mind | 8 | Server Monoliths and Data Centers crown themselves with radiator fins. | 100 |
+
+#### Regolith Excavator
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Grizzly Screens | 1 | Excavators carry a slotted grizzly screen over the back deck. | 144 |
+| Solar-Wind Volatiles (ILMENITE PLAINS, MARIUS HILLS TUBE) | 1 | Excavators carry a heated volatiles retort with a cold-trap tank. | 256 |
+| Ilmenite Beneficiation (ILMENITE PLAINS, MARIUS HILLS TUBE) | 2 | Excavators carry a magnetic separator drum. | 92 |
+| Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
+| Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
+| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
+| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 144 + 96 ↻ |
+| Feed Planner | 5 | Excavators carry an assay drill beside the bucket. | 72 |
+| Rover Power Packs | 2 | Rovers, drones and excavators bolt a pair of battery pods to their flanks. | 96 |
+| Regenerative Fuel-Cell Packs | 4 | Rovers, drones and excavators carry paired hydrogen and oxygen tanks behind their battery pods. | 136 |
+| Radioisotope Power Units | 5 | Rovers, drones and excavators grow a finned radioisotope unit on the tail. | 144 |
 <!-- END GENERATED -->

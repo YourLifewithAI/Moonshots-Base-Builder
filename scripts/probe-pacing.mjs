@@ -296,7 +296,7 @@ async function installBot(cfg) {
   let s = now();
   const done = (t) => s.techsDone.includes(t);
   const UNLOCK = {
-    smelter: 'regolithProcessing', relayMast: 'prospectingRovers', iceHarvester: 'iceExtraction',
+    relayMast: 'prospectingRovers', waterPlant: cfg.site === 'southpole' ? 'iceExtraction' : 'regolithVolatiles',
     battery: 'batteryStorage', refinery: 'siliconRefining', partsFab: 'partsFabrication',
     roboticsBay: 'constructionRobotics', reactor: 'thoriumPower', chipFab: 'waferFab', dataCenter: 'lunarDataCenter',
     recDome: 'crewWellness', foilFactory: 'foilManufacturing', massDriver: 'massDriver', propellantPlant: 'propellantDepot',
@@ -329,7 +329,6 @@ async function installBot(cfg) {
   const drawOf = (t, auto) => {
     let kw = BUILDINGS[t].powerKW;
     if (t === 'smelter' && done('moltenElectrolysis')) kw = -22;
-    if (t === 'excavator' && done('regolithVolatiles')) kw = -9;
     if (kw >= 0) return 0;
     const tax = auto && BUILDINGS[t].crew > 0 ? 1 + BAL.AGENT_TAX * (done('radHardProcess') ? 0.6 : 1) : 1;
     return -kw * tax;
@@ -383,7 +382,7 @@ async function installBot(cfg) {
   };
   const rotsOf = (t) => (BUILDINGS[t].footprint[0] === BUILDINGS[t].footprint[1] ? [0] : [0, 1]);
   const largeType = (t) => t === 'massDriver' || BUILDINGS[t].footprint[0] * BUILDINGS[t].footprint[1] >= 9;
-  // keep the good ground for what digs it: ilmenite and ice stay free for excavators and harvesters
+  // keep the good ground for what digs it: ilmenite and ice stay free for the hubs' units
   const reservedKinds = new Set(cfg.site === 'southpole' ? ['ice'] : ['ilmenite']);
   const ringStart = {};
   function* ring(r) {
@@ -405,7 +404,7 @@ async function installBot(cfg) {
           const [cx, cz] = centreOf(t, gx, gz, rot);
           const dep = G.depositAt(cx, cz)?.kind ?? null;
           if (want && dep !== want) continue;
-          if (!want && dep && reservedKinds.has(dep) && t !== 'excavator' && t !== 'iceHarvester') continue;
+          if (!want && dep && reservedKinds.has(dep)) continue;
           const chk = G.canPlace(t, gx, gz, rot);
           if (chk.valid) { ringStart[key] = Math.max(0, r - 1); return { gx, gz, rot }; }
           if (!roughSeen && /Too rough for a large pad/.test(chk.reason) && !graded.has(`${gx},${gz}`)) roughSeen = { gx, gz, rot };
@@ -415,6 +414,57 @@ async function installBot(cfg) {
     return null;
   }
   const revealed = (kind) => G.getDeposits().filter((d) => d.kind === kind && d.revealed && d.inNetwork);
+
+  // ── extraction hubs (docs/17): a hub goes just outside the ring of the deposit it
+  // wants, door toward it; the next one of its kind by a deposit with faces to spare ──
+  const HUB_WANTS = { smelter: ['ilmenite'], refinery: ['anorthosite'], waterPlant: cfg.site === 'southpole' ? ['ice'] : ['volatiles'] };
+  const facesOf = (d) => Math.max(1, Math.min(6, Math.floor((2 * Math.PI * 1.45 * d.r) / 30)));
+  const doorOf = (t, gx, gz, rot) => {
+    const [w, dd] = BUILDINGS[t].footprint;
+    const a = -rot * Math.PI / 2, c = Math.cos(a), sn = Math.sin(a);
+    const lx = Math.floor((w - 1) / 2) + 0.5 - w / 2, lz = dd / 2 + 0.5;
+    const [fw, fd] = rot % 2 === 0 ? [w, dd] : [dd, w];
+    const cx = gx + fw / 2, cz = gz + fd / 2;
+    return [(Math.round(cx + lx * c + lz * sn - 0.5) + 0.5) * 4 - 512, (Math.round(cz - lx * sn + lz * c - 0.5) + 0.5) * 4 - 512];
+  };
+  /** the deposit a new hub of type t should stand by: faces to spare for its two units, nearest the Lander */
+  function hubDeposit(t) {
+    const kinds = HUB_WANTS[t] ?? [];
+    const deps = G.getDeposits().filter((d) => kinds.includes(d.kind) && d.revealed && d.inNetwork);
+    if (!deps.length) return null;
+    const [lx, lz] = [LANDER.gx * 4 - 512, LANDER.gz * 4 - 512];
+    const claim = (d) => {
+      // units working it, plus two for each hub of the kind already standing by it
+      const near = s.buildings.filter((b) => b.type === t && Math.hypot(centreOf(b.type, b.gx, b.gz, b.rot)[0] - d.x, centreOf(b.type, b.gx, b.gz, b.rot)[1] - d.z) < d.r + 40).length;
+      return Math.max(near * 2, s.haulers.filter((u) => u.target === `dep:${d.id}`).length);
+    };
+    const ok = deps.filter((d) => claim(d) + 2 <= facesOf(d));
+    const pool = ok.length ? ok : [];
+    pool.sort((a, b) => Math.hypot(a.x - lx, a.z - lz) - Math.hypot(b.x - lx, b.z - lz));
+    return pool[0] ?? null;
+  }
+  /** a valid spot for hub t just outside deposit d's ring, its door toward it */
+  function hubSpot(t, d) {
+    const cgx = Math.floor((d.x + 512) / 4), cgz = Math.floor((d.z + 512) / 4);
+    const R0 = Math.ceil(d.r / 4);
+    let best = null;
+    for (let rr = R0; rr <= R0 + 14 && !best; rr++) {
+      const found = [];
+      for (let i = -rr; i <= rr; i++) for (const [gx, gz] of [[cgx + i, cgz - rr], [cgx + i, cgz + rr], [cgx - rr, cgz + i], [cgx + rr, cgz + i]]) {
+        for (const rot of [0, 1, 2, 3]) {
+          const [cx, cz] = centreOf(t, gx, gz, rot);
+          if (Math.hypot(cx - d.x, cz - d.z) < d.r + 6) continue;
+          const chk = G.canPlace(t, gx, gz, rot);
+          if (!chk.valid || chk.warn) continue;
+          const [dx, dz] = doorOf(t, gx, gz, rot);
+          found.push({ gx, gz, rot, score: Math.hypot(dx - d.x, dz - d.z) });
+        }
+      }
+      found.sort((a, b) => a.score - b.score || a.gx - b.gx || a.gz - b.gz || a.rot - b.rot);
+      best = found[0] ?? null;
+    }
+    return best;
+  }
 
   /** the goods queued research is about to need (attentive), or is waiting on (both) */
   function reserved() {
@@ -458,7 +508,10 @@ async function installBot(cfg) {
       if (critical || urgent) for (const [r, a] of Object.entries(cost(t))) hold[r] = (hold[r] ?? 0) + a;
       return false;
     }
-    let spot = findSpot(t, want);
+    // a hub by the deposit it wants (docs/17 §5), else anywhere (its plain pit then)
+    const dep = HUB_WANTS[t] ? hubDeposit(t) : null;
+    let spot = dep ? hubSpot(t, dep) : null;
+    if (!spot) spot = findSpot(t, HUB_WANTS[t] ? null : want);
     if (!spot && want) return false; // the caller retries on any ground
     // 'Too rough for a large pad — grade it (Site Grading)': the refusal names the tech
     if (!spot && largeType(t) && roughSeen && !done('siteGrading') && !order.slice(0, 1).includes('siteGrading') &&
@@ -850,7 +903,7 @@ async function installBot(cfg) {
     // a crewed base builds what keeps it alive whatever the roster says (the
     // economy staffs by priority and idles the lab), and once Construction
     // Robotics allows it, agents take the stations hands cannot reach
-    const essential = (t) => ['smelter', 'excavator', 'hydroponics', 'iceHarvester', 'partsFab'].includes(t) && nAll(t) < 1;
+    const essential = (t) => ['smelter', 'hydroponics', 'waterPlant', 'partsFab'].includes(t) && nAll(t) < 1;
     const crewOk = (t) => robotic || essential(t) || seatsOf(t) <= freeHands || done('constructionRobotics');
     const first = (t, why, o = {}) => unlocked(t) && nAll(t) < 1 && crewOk(t) && build(t, why, { critical: true, bypass: true, ...o });
 
@@ -863,15 +916,13 @@ async function installBot(cfg) {
     }
     // the opener: power, a dig, a lab (milestones 1–3)
     if (nAll('solar') < 2) { build('solar', 'opener'); return; }
-    const ilm = cfg.site !== 'southpole' && revealed('ilmenite').length ? 'ilmenite' : null;
-    if (nAll('excavator') < 1) build('excavator', 'opener', { want: ilm, critical: true }) || build('excavator', 'opener', { critical: true });
-    if (nAll('lab') < 1 && crewOk('lab')) build('lab', 'opener', { critical: true });
-    // each milestone's first building is worth saving up for
+    // the smelter comes with its excavator (docs/17): it is the dig
     first('smelter', 'first metal', { urgent: true });
+    if (nAll('lab') < 1 && crewOk('lab')) build('lab', 'opener', { critical: true });
     if (!robotic && nAll('hydroponics') < 1 && s.simTime > 400 && crewOk('hydroponics')) build('hydroponics', 'food', { critical: true });
     first('partsFab', 'parts loop', { urgent: true });
-    if (cfg.site === 'southpole' && unlocked('iceHarvester') && nAll('iceHarvester') < 1 && crewOk('iceHarvester')) {
-      build('iceHarvester', 'water', { want: 'ice', critical: true });
+    if (cfg.site === 'southpole' && unlocked('waterPlant') && nAll('waterPlant') < 1 && crewOk('waterPlant')) {
+      build('waterPlant', 'water', { critical: true });
     }
     first('refinery', 'silicon');
     first('chipFab', 'chips');
@@ -885,14 +936,9 @@ async function installBot(cfg) {
     first('foilFactory', 'foils');
     first('massDriver', 'launch');
     first('propellantPlant', 'launch');
-    // regolith for every processor — a starving smelter comes before anything else
-    const procIn = nAll('smelter') * 2 * (done('ilmeniteBeneficiation') ? 0.8 : 1) + nAll('refinery') * 2;
-    const excavTarget = Math.ceil(procIn / (1.5 * isru) - 0.15) + (res.regolith < 40 && (s.rates.regolith ?? 0) < 0 ? 1 : 0);
-    if (!famOn('excavation') && nAll('excavator') < excavTarget && res.regolith < 150 && crewOk('excavator')) {
-      const kind = cfg.site === 'southpole' && done('moltenElectrolysis') && nAll('refinery') > 0 ? 'anorthosite' : ilm;
-      const o = { critical: res.regolith < 20, bypass: res.regolith < 20 };
-      build('excavator', 'feed', { want: kind, ...o }) || build('excavator', 'feed', o);
-    }
+    // regolith for every processor: each hub prints its own units when its
+    // inspector's hint offers one — starved, a free face, a free bay (docs/17 §4.7)
+    printUnits();
     // science: the era's lab count, or the pacing model's clock (docs/11 §7:
     // robotic 3 labs at 14 min … 8 at 66, crewed later; pole ×1.15, lava ×1.12),
     // whichever is more — with long eras a player with spare metal adds labs
@@ -972,8 +1018,20 @@ async function installBot(cfg) {
     if (!famOn('smelting') && unlocked('refinery') && siTight && nAll('refinery') < 4 && nDone('refinery') === nAll('refinery') && crewOk('refinery')) {
       build('refinery', 'silicon short', { critical: true });
     }
-    if (cfg.site === 'southpole' && unlocked('propellantPlant') && nAll('iceHarvester') < 2 && crewOk('iceHarvester')) {
-      build('iceHarvester', 'propellant water', { want: 'ice' });
+    if (cfg.site === 'southpole' && unlocked('propellantPlant') && nAll('waterPlant') < 2 && crewOk('waterPlant')) {
+      build('waterPlant', 'propellant water');
+    }
+  }
+
+  /** a hub whose hint offers another unit gets one (one print a hub at a time) */
+  function printUnits() {
+    const v = G.getHubs();
+    for (const h of Object.values(v.hubs)) {
+      if (h.queue.length || h.canUnit || h.starved < 0.1) continue;
+      const pit = h.pits.find((p) => p.inReach && p.connected);
+      if (!pit || pit.used >= pit.faces) continue;
+      G.queueUnit(h.id);
+      act('print', `${h.unitName}@${h.id}`);
     }
   }
 
@@ -989,7 +1047,8 @@ async function installBot(cfg) {
     const flat = s.power.flat ?? 0;
     if (flat > 0) { A.flat += dt; A.flatUnitS += flat * dt; A.flatRun += dt; A.flatRunMax = Math.max(A.flatRunMax, A.flatRun); } else A.flatRun = 0;
     const flatAt = new Set(s.rovers.filter((r) => r.src === 'flat' && r.site !== null).map((r) => r.site));
-    if (s.buildings.some((b) => (b.idleReason === 'power' && flatAt.has(b.id)) || (b.type === 'excavator' && b.haul?.src === 'flat'))) A.chargeStall += dt;
+    if (s.buildings.some((b) => (b.idleReason === 'power' && flatAt.has(b.id)) || (b.type === 'excavator' && b.haul?.src === 'flat')) ||
+        (s.haulers ?? []).some((u) => u.haul.src === 'flat')) A.chargeStall += dt;
     if (s.resources.parts < 1) A.partsZero += dt;
     const live = s.buildings.filter((b) => b.type !== 'lander' && complete(b));
     if (live.length) A.worn += dt * live.filter((b) => b.wear >= 0.3).length / live.length;

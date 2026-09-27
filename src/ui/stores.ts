@@ -214,6 +214,8 @@ export const $placing = atom<{
   /** game-seconds the nearest free rover would take to get there (core/transit.ts);
    *  Infinity: every rover is busy; undefined: not asked */
   travelS?: number;
+  /** a hub's ghost: where its units would dig, and how far one way (core/hubs.ts hubGhostLine) */
+  hub?: string;
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
 export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);
@@ -321,7 +323,7 @@ export interface DigOption {
 }
 /** an excavator's haul cycle as the inspector shows it */
 export interface HaulView {
-  phase: 'toDig' | 'dig' | 'toDrop' | 'unload';
+  phase: 'toDig' | 'dig' | 'toDrop' | 'unload' | 'toBay' | 'park';
   /** 'DIGGING high-Ti basalt · 63/105▲', 'HAULING 105▲ to Regolith Smelter #4', … */
   line: string;
   cargo: number;
@@ -339,17 +341,105 @@ export interface HaulView {
   /** its pack (core/unitPower.ts): 'BATTERY 64% · charging', 'NO POWER — waiting for the grid (brownout)' */
   pack: string;
 }
+/** a hub's queue job as the inspector shows it (docs/17 §4.7) */
+export interface HubJobView {
+  kind: 'unit' | 'bay';
+  name: string;
+  /** 0..1 printed; s left; paid yet; what it waits on ('' none) */
+  pct: number;
+  left: number;
+  paid: boolean;
+  waiting: string;
+}
+/** a place a hub's units might dig, as its PITS IN REACH list shows it */
+export interface PitView {
+  key: string;
+  name: string;
+  glyph: string;
+  /** one way from the hub's door, s; a road reaches its gate */
+  tripS: number;
+  connected: boolean;
+  faces: number;
+  used: number;
+  /** the feed factor there, and the hub intake one more unit would bring */
+  q: number;
+  rate: number;
+  score: number;
+  inReach: boolean;
+  assigned: boolean;
+  plain: boolean;
+}
+/** a hub unit (docs/17 §4.6) as the ROBOTS list and its own inspector show it */
+export interface UnitView {
+  id: number;
+  /** 'E3' */
+  tag: string;
+  type: 'excavator' | 'iceMiner';
+  name: string;
+  hub: number;
+  hubName: string;
+  bay: number;
+  /** 'DIGGING high-Ti basalt #0 · 78/131▲', 'HAULING 131▲ to the hub', 'PARKED — recalled' */
+  line: string;
+  target: string | null;
+  targetName: string;
+  pinned: boolean;
+  parked: string;
+  phase: string;
+  cargo: number;
+  bucket: number;
+  /** one way to its target, s (0: none), and ▲/s it delivers there */
+  tripS: number;
+  rate: number;
+  pack: string;
+  wear: number;
+  flat: boolean;
+}
+/** a hub (docs/17 §4.7): its hopper, feed, units, queue and pits */
+export interface HubView {
+  id: number;
+  name: string;
+  level: number;
+  bays: number;
+  units: number[];
+  hopper: number;
+  hopperCap: number;
+  /** its feed factor (q), the kind mix, its starved share */
+  q: number;
+  feed: string;
+  starved: number;
+  queue: HubJobView[];
+  unitName: string;
+  unitCost: string;
+  unitTime: number;
+  /** why + Unit / + Bay would be refused ('' = it can) */
+  canUnit: string;
+  canBay: string;
+  bayCost: string;
+  pits: PitView[];
+  prefer: string | null;
+  plainPit: number | null;
+  /** 'A 2nd excavator would fill the hopper: +0.6▲/s' ('' none) */
+  hint: string;
+  /** the status line's tail: 'STARVED — …' ('' when fed) */
+  status: string;
+}
 export interface FleetView {
   rovers: RoverView[];
   sites: Record<number, SiteCrewView>;
   hauls: Record<number, HaulView>;
+  /** extraction hubs and their units (docs/17) */
+  hubs: Record<number, HubView>;
+  units: UnitView[];
 }
-export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {} });
+export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {}, hubs: {}, units: [] });
+/** the hub unit in its inspector (unit id); a building or rover selection clears it */
+export const $unitSel = atom<number | null>(null);
 /** the construction rover in the inspector (roster id); a building selection clears it */
 export const $roverSel = atom<number | null>(null);
 /** Send to… / Dig at…: the targeting mode, and what the cursor is over */
 export const $fleetTarget = atom<{
-  mode: 'send' | 'dig'; id: number; title: string; line: string; valid: boolean; reason: string;
+  mode: 'send' | 'dig' | 'sendUnit' | 'openPit'; id: number; title: string; line: string; valid: boolean; reason: string;
 } | null>(null);
 /** bumped by an invalid targeting click: the hint flashes its reason */
 export const $fleetFlash = atom<number>(0);
