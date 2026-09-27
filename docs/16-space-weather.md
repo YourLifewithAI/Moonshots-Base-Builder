@@ -366,8 +366,11 @@ Power rebuilds wrecks through its solar rule (§7.5).
 |---|---|---|---|
 | after an M (−5%) | 1⚙ | 7 s | 4 kW while it works |
 | after an X (−20% with the tail) | 2⚙ | 10 s | 4 kW |
+| after an X, with field berms (−10%) | 1⚙ | 8 s | 4 kW |
+| after an X, with berms and Rad-Hard Cells (−4%) | — | 7 s | 4 kW |
 
-(⌈damage ÷ 10%⌉ ⚙, and 6 s + 0.2 s per % of damage.)
+(1⚙ per 10% of damage, rounded, halves up, so light damage under 5% costs no parts;
+and 6 s + 0.2 s per % of damage.)
 
 - **The job is per field:** a rover drives out and works each damaged array in turn. It
   joins the rover queue at priority 1, behind priority-0 construction.
@@ -375,7 +378,7 @@ Power rebuilds wrecks through its solar rule (§7.5).
   **Repair all** in the post-flare alert and the panel, or a field's [Repair] in its
   inspector. Automated Power queues every repair itself, inside Budget Governor's floors.
 - **Example:** 24 unshielded arrays stowed through an X: 48⚙ and 240 rover-seconds (two
-  rovers, 2 minutes). With berms and Rad-Hard Cells: 24⚙ and 165 s.
+  rovers, 2 minutes). With berms and Rad-Hard Cells (4% each): no parts and 165 s.
 - Dust (`b.dust`) stays separate: dust cleans off with upkeep. Rad scars (the running
   rows) never do.
 
@@ -504,7 +507,7 @@ default stows the arrays (§5.3) and repairs them after:
 | | C | M | X (the second) |
 |---|---|---|---|
 | Solar | 40 s stowed (~10,000 kW·s) | 55 s (~14,000) | 190 s (~48,000: 1.5 banks) |
-| Arrays (field berms) | — | −2.5% on each, repaired: 30⚙, 3.3 rover-min | −10% on each, repaired: 30⚙, 4 rover-min |
+| Arrays (field berms) | — | −2.5% on each, repaired: no parts, 3.3 rover-min | −10% on each, repaired: 30⚙, 4 rover-min |
 | Machines | 1 reboot · scars −0.25% | 3 reboots, 3 loads lost · −1.5% | 3 reboots, 4 bricked, **1 lost** · −6% |
 | Buildings (berms, σ 0.5) | scars −0.06% | −0.4% | −1.5% |
 | Research | labs ×0.7 for 30 s | labs ×0.5 for 45 s; −14≡ | labs ×0.2 for 180 s; −58≡ |
@@ -600,7 +603,7 @@ A mare base with 24 arrays (240 kW) and an unshielded field, no Rad-Hard Cells:
   (§2), so its critical feed is large, and those arrays run. Rad-Hard Cells, a bigger bank
   and the Shield Coil are the pole's research.
 - **With proper shielding** (field berms and Rad-Hard Cells), stowing costs almost
-  nothing but the power: an X leaves 4% on each stowed array, repaired for 1⚙ each.
+  nothing but the power: an X leaves 4% on each stowed array, repaired in 7 s with no parts.
 
 ### 5.2 The pop-up
 
@@ -1366,7 +1369,7 @@ The instrumented copy that measured §2 is in the scratchpad (`flares/probe/`); 
 
 1. **Arrays kept running:** the destroyed shares (15%, 50%) and their scars
    (0.5 · 2 · 5 · 1.5%).
-2. **Stowed arrays:** the damage (5%, 20%) and the repair (⌈d ÷ 10%⌉⚙, 6 s + 0.2 s per %).
+2. **Stowed arrays:** the damage (5%, 20%) and the repair (1⚙ per 10%, halves up; 6 s + 0.2 s per %).
 3. **Rad scars:** the scale (0.25 · 1.5 · 5 · 1%), the (1 − σ)² curve and the ×0.1 for
    preparation.
 4. **Replace:** its discount (50% of cost, 60% of time).
