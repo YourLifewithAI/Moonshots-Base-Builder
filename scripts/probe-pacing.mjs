@@ -39,7 +39,11 @@
  * buttons, as a player reads them — the named (paid) counter when it can
  * afford it and there is time, else the free one that saves the people or
  * the machines — and keeps 20⚙ spare for seals once ⌂ is at moderate tier.
- * --hazards=off holds every hazard (a measurement against the old runs). */
+ * --hazards=off holds every hazard (a measurement against the old runs).
+ * On-board power (docs/02): the bot reads the OUT OF CHARGE alert — once its
+ * units have stood flat 2 min in all, Rover Power Packs go to the front of its
+ * list, and after 8 min Fuel-Cell Packs; the summary reports the flat time,
+ * its longest stretch, and the time a site or an excavator waited on charge. */
 import { writeFileSync } from 'node:fs';
 import { withGame } from './harness.mjs';
 
@@ -330,6 +334,9 @@ async function installBot(cfg) {
       t: 0, brownout: 0, brownoutNight: 0, shed: 0, night: 0, partsZero: 0, worn: 0, paused: 0, pausedBrownout: 0,
       queueEmpty: 0, goodsStall: 0, goodsBy: {}, siteIdle: {}, blockedBy: {}, bankMax: 0, deaths: 0,
       autoBy: {}, rulePhase: {}, rulePhaseBy: {},
+      // on-board power (docs/02 · On-board power): time with a unit out of charge, unit-seconds of it,
+      // the longest such stretch, and time a site or an excavator waited on charge
+      flat: 0, flatUnitS: 0, flatRun: 0, flatRunMax: 0, chargeStall: 0,
     },
     autoSeen: [], hzSeen: {}, hzNear: 0, hzDone: new Set(),
     firstLight: null, swarmProtocolAt: null, milestones: {},
@@ -569,6 +576,15 @@ async function installBot(cfg) {
       for (const t of ['regolithVolatiles', 'iceExtraction']) {
         if (R.cards[t] && R.cards[t].state !== 'hidden' && order.indexOf(t) > 1) { order = order.filter((x) => x !== t); order.unshift(t); }
       }
+    }
+    // OUT OF CHARGE (docs/02, On-board power): once the fleet has stood flat
+    // a couple of minutes in all, the bigger packs go to the front of the
+    // list; still stalling with them, the next tier (the RPUs wait)
+    const flatMin = log.acc.flat / 60;
+    for (const [t, after] of [['roverPowerPacks', 2], ['fuelCellPacks', 8]]) {
+      if (flatMin < after || done(t) || !R.cards[t] || R.cards[t].state === 'hidden') continue;
+      if (order.indexOf(t) > 0) { order = order.filter((x) => x !== t); order.unshift(t); act('packs', t); }
+      break;
     }
     let q = R.queue.length;
     let fill = P.queueFill;
@@ -931,6 +947,10 @@ async function installBot(cfg) {
     if (d.isNight) A.night += dt;
     if (s.power.brownout) { A.brownout += dt; if (d.isNight) A.brownoutNight += dt; }
     if (s.power.shed) A.shed += dt;
+    const flat = s.power.flat ?? 0;
+    if (flat > 0) { A.flat += dt; A.flatUnitS += flat * dt; A.flatRun += dt; A.flatRunMax = Math.max(A.flatRunMax, A.flatRun); } else A.flatRun = 0;
+    const flatAt = new Set(s.rovers.filter((r) => r.src === 'flat' && r.site !== null).map((r) => r.site));
+    if (s.buildings.some((b) => (b.idleReason === 'power' && flatAt.has(b.id)) || (b.type === 'excavator' && b.haul?.src === 'flat'))) A.chargeStall += dt;
     if (s.resources.parts < 1) A.partsZero += dt;
     const live = s.buildings.filter((b) => b.type !== 'lander' && complete(b));
     if (live.length) A.worn += dt * live.filter((b) => b.wear >= 0.3).length / live.length;
@@ -1021,6 +1041,7 @@ async function installBot(cfg) {
           t: Math.round(s.simTime), era: s.era, techs: s.techsDone.length, crew: s.crew,
           res: Object.fromEntries(Object.entries(s.resources).map(([k, v]) => [k, Math.round(v)])),
           supply: Math.round(s.power.supply), demand: Math.round(s.power.demand), stored: Math.round(s.powerStored),
+          fleet: Math.round(s.power.fleet ?? 0), charging: Math.round(s.power.charging ?? 0), flat: s.power.flat ?? 0,
           cap: Math.round(s.power.capacity), brown: s.power.brownout, rate: +s.researchRateAvg.toFixed(2),
           labs: R.labsActive, dcs: R.dcsActive, bots: s.bots?.total, bank: Math.round(s.data),
           queue: s.researchQueue.slice(), stalled: s.researchStalled.slice(), paused: s.researchPaused,
@@ -1092,6 +1113,7 @@ function summarize(log) {
     eras: eras.map((x) => (x == null ? null : +x.toFixed(1))),
     actGap: ag.len / 60, evtGap: eg.len / 60, brownPct: A.brownout / Math.max(1, A.t), wornPct: A.worn / Math.max(1, A.t),
     stallMin: A.goodsStall / 60,
+    flatMin: A.flat / 60, flatUnitMin: A.flatUnitS / 60, flatRunMaxMin: A.flatRunMax / 60, chargeStallMin: A.chargeStall / 60,
     firstLight: fmtMin(log.firstLight),
     swarmProtocol: fmtMin(log.swarmProtocolAt),
     eraOpen: Object.fromEntries(Object.entries(log.eraOpen).map(([e, t]) => [e, fmtMin(t)])),
@@ -1173,7 +1195,7 @@ for (const { summary: r } of results) {
 // medians across seeds (FIRST LIGHT not reached counts as the run length, flagged ›)
 const med = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };
 if (SEEDS.length > 1) {
-  console.log('\nmedian over seeds ' + SEEDS.join(',') + '\nrun                         | FIRST LIGHT      | eras E1…E8 (min)                          | idle max | act gap | brown | worn | stall');
+  console.log('\nmedian over seeds ' + SEEDS.join(',') + '\nrun                         | FIRST LIGHT      | eras E1…E8 (min)                          | idle max | act gap | brown | worn | stall | flat (any/max run/charge stall, min)');
   for (const run of RUNS) {
     const key = `${run.site}:${run.exp}:${run.policy}${AUTO_ON ? ':auto' : ''}`;
     const rs = results.map((x) => x.summary).filter((x) => x.run.startsWith(`${key}:`));
@@ -1182,7 +1204,9 @@ if (SEEDS.length > 1) {
     const eras = [0, 1, 2, 3, 4, 5, 6, 7].map((i) => med(rs.map((x) => x.eras[i])));
     console.log(`${key.padEnd(28)}| ${flTxt.padEnd(16)} | ${eras.map((x) => (x == null ? '—' : x.toFixed(1))).join(' / ').padEnd(41)} | ` +
       `${Math.max(...rs.map((x) => x.idleMin)).toFixed(1).padEnd(8)} | ${med(rs.map((x) => x.actGap)).toFixed(1).padEnd(7)} | ${(100 * med(rs.map((x) => x.brownPct))).toFixed(0).padEnd(4)}% | ` +
-      `${(100 * med(rs.map((x) => x.wornPct))).toFixed(0).padEnd(3)}% | ${med(rs.map((x) => x.stallMin)).toFixed(1)}`);
+      `${(100 * med(rs.map((x) => x.wornPct))).toFixed(0).padEnd(3)}% | ${med(rs.map((x) => x.stallMin)).toFixed(1).padEnd(5)} | ` +
+      `${med(rs.map((x) => x.flatMin)).toFixed(1)}/${Math.max(...rs.map((x) => x.flatRunMaxMin)).toFixed(1)}/${med(rs.map((x) => x.chargeStallMin)).toFixed(1)}` +
+      ` [max charge stall ${Math.max(...rs.map((x) => x.chargeStallMin)).toFixed(1)}]`);
   }
 }
 if (OUT) writeFileSync(OUT, JSON.stringify(results, null, 1));

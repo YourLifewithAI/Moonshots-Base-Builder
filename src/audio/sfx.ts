@@ -106,7 +106,8 @@ class Sfx {
         this.ctx = new C();
         this.build();
       }
-      if (this.ctx.state === 'suspended' && !document.hidden) void this.ctx.resume().catch(() => {});
+      // iOS leaves a context 'interrupted' after a call or the app switcher
+      if (this.stalled() && !document.hidden) void this.ctx.resume().catch(() => {});
     } catch (e) {
       this.fail(e, true);
     }
@@ -139,13 +140,19 @@ class Sfx {
     try { this.rovers.update(list); } catch (e) { this.fail(e); this.rovers = null; }
   }
 
+  /** suspended by us or the browser, or 'interrupted' (iOS, not in the spec's enum) */
+  private stalled(): boolean {
+    const st = this.ctx?.state as string | undefined;
+    return st === 'suspended' || st === 'interrupted';
+  }
+
   /** Pause the whole graph while the page is hidden. */
   setHidden(hidden: boolean) {
     const ctx = this.ctx;
     if (!ctx || this.dead) return;
     try {
       if (hidden && ctx.state === 'running') void ctx.suspend().catch(() => {});
-      else if (!hidden && ctx.state === 'suspended') void ctx.resume().catch(() => {});
+      else if (!hidden && this.stalled()) void ctx.resume().catch(() => {});
     } catch (e) { this.fail(e); }
   }
 
@@ -602,11 +609,15 @@ class Sfx {
 export const sfx = new Sfx();
 
 /** Unlock on the first gesture (and on any later one, should the browser
- *  suspend the context); pause with the page. */
+ *  suspend the context); pause with the page. iOS counts only the end of a
+ *  touch (touchend, pointerup, click) as the gesture that may start audio,
+ *  so those unlock too; a page back from the app switcher or the back-
+ *  forward cache resumes where it can, and the next tap where it cannot. */
 export function installAudio() {
   const go = () => sfx.unlock();
-  for (const ev of ['pointerdown', 'keydown', 'touchstart'] as const) {
+  for (const ev of ['pointerdown', 'keydown', 'touchstart', 'pointerup', 'touchend', 'click'] as const) {
     window.addEventListener(ev, go, { capture: true, passive: true });
   }
   document.addEventListener('visibilitychange', () => sfx.setHidden(document.hidden));
+  window.addEventListener('pageshow', () => sfx.setHidden(document.hidden));
 }

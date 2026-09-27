@@ -130,7 +130,8 @@ unload (4 s) → back to the dig
   full at its dig spot — its pad, or the end of its haul road — never on the
   road or at the consumer, where it would hold up the traffic (WAITING TO
   UNLOAD, no power). It sets off when there is room. Its power draw is as
-  before, while the cycle runs.
+  before, while the cycle runs; in a brownout it runs on its pack (On-board
+  power, below).
 
 ## The construction fleet — rovers as units
 
@@ -164,6 +165,71 @@ Every run can research capability on top of the doctrine fleet bonuses:
 **Rover Autonomy** (Era 4: +25% build rate per rover, construction draw ×1.3)
 and **Autonomous Haulage** (Era 5: haul speed ×1.3, bucket ×1.25; excavator
 draw +25%, upkeep +20%).
+
+## On-board power — the fleet's packs
+
+Every construction rover, drone and Regolith Excavator carries a pack
+(`core/unitPower.ts`, numbers from `UNIT_POWER` in `balance.ts`). Packs
+are in the grid's kWh (kW × game-seconds, as a Battery Bank's 3,000).
+
+| Unit | Pack | On one charge | Working | Driving | Charger | RPU |
+|---|---|---|---|---|---|---|
+| Rover | 480 kWh | 2 min of welding | 4 kW (the construction kW) | 1 kW | 3 kW | 1 kW |
+| Drone | 360 kWh | 1.5 min of welding | 4 kW | 2 kW (in the air) | 3 kW | 1 kW |
+| Excavator | 720 kWh | 2 min of digging | its nameplate (6 kW) | 3 kW (tracks, boom) | 6 kW | 1.5 kW |
+
+- **Grid first.** A unit's use is a grid load at its priority. A site's
+  rovers weld on the site's draw; an excavator digs on its own; driving
+  and road work are each unit's own load. Served, the pack is not touched.
+- **In a brownout** (its draw unserved at its priority) the pack pays: its
+  RPU first, if it has one, then the pack. The site reads `UNDER
+  CONSTRUCTION — 40% · on its rovers' packs`; the unit `ON BATTERY 64%`.
+- **Empty, it stops** where it stands: no weld, no spark, no dig, the
+  wheel still, no drive, lamps out, a drone set down. `NO POWER — waiting
+  for the grid (brownout)`. The grid reaches a waiting unit wherever it
+  stands, so it takes up its work again the tick after it is served; nobody
+  is stranded.
+- **Charging** at a charge point: a rover's bay at its dock, a drone's hive
+  pad, an excavator's pad or the consumer it tips at, or a site's feed
+  while that site is served. The charger is one more load at the unit's
+  priority (after the site's weld), so triage decides who charges.
+- **Priority.** A rover draws at its site's priority, else at its dock's
+  (road work, the drive home, charging parked). An excavator draws at its own.
+- **A brownout sheds priority 2–3 whole.** Once a priority 0–1 structure
+  is dark, no priority 2–3 load draws. (Before, a small priority-2 load — an
+  excavator — dug on the budget a dark priority-1 farm could not use.) In a
+  load shed (only 2–3 dark) the loads left still fit what they can.
+- **The night.** Mare's night is 240 s at 1×: twice the starting pack. A
+  night-long brownout stops the fleet; a flare's 45 s rides through.
+- **Home** is behind one function: `homeOf` / `chargeSpotOf` / `atHome`
+  in `core/unitPower.ts`. The pack rides on the unit (`RoverUnit`) or the
+  excavator's haul (`HaulState`), never on a pad, so the extraction hubs of
+  docs/17 repoint home without touching charging.
+
+**The books.** `s.power.fleet` is the fleet's own draw asked of the grid
+(driving, road work, charging), `charging` the chargers' part, `flat` the
+units waiting. The Builder's power book counts the fleet's draw as load
+(construction stays out: it comes and goes), so its solar rule builds for
+the drones in the air and the packs on charge. Units shed at night count
+toward the bank's dry night, so the battery rule answers them at dawn.
+
+**Where the player sees it.** The rover inspector's **Pack** row
+(`BATTERY 64% · charging`); the excavator's haul section; a site whose
+rover is flat, `ROVER OUT OF CHARGE — waiting for the grid (52%)`; the
+Power panel's **Fleet** row; the robots panel's count of units waiting for
+charge; and one condition, `OUT OF CHARGE — 3 units waiting for the grid`,
+after a unit has waited 5 s.
+
+**Research** (lanes ⚡ POWER and ◉ ROBOTICS):
+
+| Tech | Era · lane | Cost | Effect | Con |
+|---|---|---|---|---|
+| **Rover Power Packs** | E2 · ⚡ | 120 + 15◆ (needs Battery Banks) | packs ×3: 6 min of welding, past a whole night | driving draw +20% |
+| **Regenerative Fuel-Cell Packs** | E4 · ◉ | 240 + 20⚙ | packs ×3 again (×9): 18 min, a 10-minute brownout | charging draws ×1.43 (the packs return 70%) |
+| **Radioisotope Power Units** | E5 · ◉ | 400 + 30⚙ 5▣ | a constant 1 kW aboard every unit (1.5 an excavator): with the grid at 0 a rover welds at ¼ speed | upkeep +25%: Robotics Bay, Drone Hive, Excavator; −2 morale per running Robotics Bay (with crew) |
+
+Both expeditions: the grid physics are the same, and a crewed base's rovers
+are the same machines.
 
 ## The Builder — orders and standing rules
 
@@ -312,7 +378,7 @@ both numbers printed on it — pillar 1 applied to governance.
 
 | # | System | Status | Design |
 |---|---|---|---|
-| 1 | **Lunar-night power crunch** | SHIPPED | The signature. Solar dies for 240 s (14 in-fiction days); stockpile stored energy (Timberborn drought model), spend on priorities: habitats → food → industry → labs (`priority` 0–3 brownout order). Shedding only priority 2–3 loads is a LOAD SHED (morale −3); a dark priority 0–1 load is a BROWNOUT (morale −15). |
+| 1 | **Lunar-night power crunch** | SHIPPED | The signature. Solar dies for 240 s (14 in-fiction days); stockpile stored energy (Timberborn drought model), spend on priorities: habitats → food → industry → labs (`priority` 0–3 brownout order). Shedding only priority 2–3 loads is a LOAD SHED (morale −3); a dark priority 0–1 load is a BROWNOUT (morale −15), and it sheds priority 2–3 whole. The fleet rides a short one on its packs and stops in a long one (On-board power). |
 | 2 | **Solar flare radiation events** | SHIPPED | Telegraphed 60 s out, 45 s active; first at day 2.4, then every ~2.0 ± 0.8 days. Crew shelters (work stops), morale −10. Lava-tube site is immune. Full design adds Buried Habitats and the Regolith Shielding tech as mitigation elsewhere. |
 | 3 | **Micrometeorite strikes** | CUT | Rare, unannounced single-building breach: building offline + parts cost + small crew-injury risk (Medical Bay demand). Punishes complacency between telegraphed events. Cut for slice pacing; needs Medical Bay to land fairly. |
 | 4 | **Dust abrasion** | SHIPPED | Persistent, not episodic: solar output −8%/lunar day (cap −50%), recovering 20%/day while parts upkeep is paid; excavators carry the highest wear. Dust Mitigation tech ×0.4. **There are no dust storms — the Moon is airless; that is a Mars trope.** |

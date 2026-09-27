@@ -172,8 +172,9 @@ export class Haulers implements Driver {
       const pad = centerOf(b);
       const padYaw = -b.rot * PI / 2;
       const driving = (h.phase === 'toDig' || h.phase === 'toDrop') && h.path.length > 0 && b.active;
-      // the sim's pace on the segment it drives: off-road inside a zone slower (core/haul.ts)
-      const legV = speed / (h.w?.[0] ?? 1);
+      // the sim's pace on the segment it drives: off-road inside a zone slower (core/haul.ts),
+      // and on an RPU's trickle alone at its share (docs/02, On-board power)
+      const legV = (speed / (h.w?.[0] ?? 1)) * (h.pw ?? 1);
       // how much of the leg the sim has left, advanced by the tick fraction
       const rem = Math.max(0, pathLength(h.x, h.z, h.path) - (driving ? legV * clamp(frac, 0, 1) : 0));
       let v = this.all.get(b.id);

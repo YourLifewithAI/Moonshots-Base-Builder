@@ -247,7 +247,9 @@ test('a rule founds nothing, holds when more would not help, and the dwell reset
     G.finishConstruction();
     for (let i = 0; i < 90; i++) { G.grantPower(-G.getState().powerStored); G.advanceGameSeconds(1); }
     const holding = rule('excavator');
-    const darkNow = G.getState().buildings.find((b: any) => b.id === dig.id).idleReason;
+    // its grid draw dark: idle, or digging on its pack meanwhile (docs/02, On-board power)
+    const d = G.getState().buildings.find((b: any) => b.id === dig.id);
+    const darkNow = d.onPack ? 'power' : d.idleReason;
     // lights back on; the smelters off: supply over demand re-arms the rule
     for (const b of solars) G.setEnabled(b.id, true);
     for (const b of G.getState().buildings) if (b.type === 'smelter') G.setEnabled(b.id, false);
