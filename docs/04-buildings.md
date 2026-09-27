@@ -204,10 +204,9 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
-| Regolith Excavator | 1,060 | 2,428 | 11 |
-| Ice Harvester | 1,288 | 1,680 | 3 |
 | Regolith Smelter | 1,204 | 2,492 | 9 |
 | Silicon Refinery | 2,348 | 3,272 | 6 |
+| Water Management Plant | 1,868 | 1,868 | 0 |
 | Storage Yard | 956 | 1,016 | 1 |
 | Robotics Bay | 1,336 | 3,074 | 12 |
 | Parts Fabricator | 1,048 | 1,644 | 6 |
@@ -225,6 +224,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Greenhouse Ring | 1,764 | 1,860 | 2 |
 | Garden Dome | 2,156 | 2,252 | 1 |
 | Server Monolith | 516 | 768 | 4 |
+| Regolith Excavator | 1,060 | 2,428 | 11 |
+| Ice Miner | 784 | 784 | 0 |
 
 #### Lander
 
@@ -276,30 +277,6 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 |---|---|---|---|
 | Brayton Converters | 4 | Thorium Reactors add a Brayton turbine skid. | 108 |
 | High-Burnup Fuel | 6 | Thorium Reactors raise a fuel-handling crane over the dome. | 184 |
-
-#### Regolith Excavator
-
-| Tech | Era | What changes | △ |
-|---|---|---|---|
-| Grizzly Screens | 1 | Excavators carry a slotted grizzly screen over the back deck. | 144 |
-| Solar-Wind Volatiles (ILMENITE PLAINS, MARIUS HILLS TUBE) | 1 | Excavators carry a heated volatiles retort with a cold-trap tank. | 256 |
-| Ilmenite Beneficiation (ILMENITE PLAINS, MARIUS HILLS TUBE) | 2 | Excavators carry a magnetic separator drum. | 92 |
-| Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
-| Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
-| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
-| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 144 + 96 ↻ |
-| Feed Planner | 5 | Excavators carry an assay drill beside the bucket. | 72 |
-| Rover Power Packs | 2 | Rovers, drones and excavators bolt a pair of battery pods to their flanks. | 96 |
-| Regenerative Fuel-Cell Packs | 4 | Rovers, drones and excavators carry paired hydrogen and oxygen tanks behind their battery pods. | 136 |
-| Radioisotope Power Units | 5 | Rovers, drones and excavators grow a finned radioisotope unit on the tail. | 144 |
-
-#### Ice Harvester
-
-| Tech | Era | What changes | △ |
-|---|---|---|---|
-| Sublimation Tents (SHACKLETON RIM) | 2 | Ice Harvesters pitch a foil sublimation tent over the dig. | 156 |
-| Heated Augers (SHACKLETON RIM) | 4 | Ice Harvesters sink a second, heated auger. | 156 |
-| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
 
 #### Regolith Smelter
 
@@ -501,4 +478,20 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Cryo Radiators | 5 | Data Centers unfold a second tier of cryo radiator fins; Server Monoliths grow fins down both flanks. | 72 |
 | Rack Densification | 7 | Data Centers add a rack annex at the berm, and Server Monoliths one at the foot. | 36 |
 | Selenic Mind | 8 | Server Monoliths and Data Centers crown themselves with radiator fins. | 100 |
+
+#### Regolith Excavator
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Grizzly Screens | 1 | Excavators carry a slotted grizzly screen over the back deck. | 144 |
+| Solar-Wind Volatiles (ILMENITE PLAINS, MARIUS HILLS TUBE) | 1 | Excavators carry a heated volatiles retort with a cold-trap tank. | 256 |
+| Ilmenite Beneficiation (ILMENITE PLAINS, MARIUS HILLS TUBE) | 2 | Excavators carry a magnetic separator drum. | 92 |
+| Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
+| Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
+| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
+| Autonomous Haulage | 5 | Excavators widen their bucket lips and mount a haul-road lidar bar on the cab. | 144 + 96 ↻ |
+| Feed Planner | 5 | Excavators carry an assay drill beside the bucket. | 72 |
+| Rover Power Packs | 2 | Rovers, drones and excavators bolt a pair of battery pods to their flanks. | 96 |
+| Regenerative Fuel-Cell Packs | 4 | Rovers, drones and excavators carry paired hydrogen and oxygen tanks behind their battery pods. | 136 |
+| Radioisotope Power Units | 5 | Rovers, drones and excavators grow a finned radioisotope unit on the tail. | 144 |
 <!-- END GENERATED -->

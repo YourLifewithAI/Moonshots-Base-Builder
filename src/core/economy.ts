@@ -14,7 +14,7 @@ import {
   ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S,
   CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, FLARE, HELIOPHYSICS_DATA, NIGHT_S,
   LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
-  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, UNIT_POWER, WEAR,
+  SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, UNIT_POWER, WEAR, HAUL,
   EVA, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
@@ -35,6 +35,7 @@ import {
   reconcileRegolith, targetOf, unitRates, unitTick, writeRegolith,
 } from './hubs';
 import { HUB, isHubType } from '../data/hubs';
+import { FEED_KINDS } from '../data/deposits';
 import { settleJobs, sinter, spurLeft } from './roads';
 import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -877,7 +878,13 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   s.pile = Math.min(s.pile ?? 0, pileCap);
   writeRegolith(s);
   const fed = meanFeed(s);
-  if (fed) s.feed = fed;
+  if (fed) {
+    // an EMA by amount, as a hub's own feed is (HAUL.feedMemory)
+    const drew = s.buildings.reduce((n, b) => n + (b.hub?.drew ?? 0), 0);
+    const k = drew / (drew + HAUL.feedMemory);
+    const was = FEED_KINDS.reduce((n, f) => n + s.feed[f], 0) > 1e-9;
+    for (const f of FEED_KINDS) s.feed[f] = was ? s.feed[f] * (1 - k) + fed[f] * k : fed[f];
+  }
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {

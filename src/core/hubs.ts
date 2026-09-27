@@ -197,8 +197,9 @@ function offWeights(w: number[] | undefined, mods: Mods): number[] | undefined {
 function legTo(s: GameState, mods: Mods, a: Pt, b: Pt, hub?: BuildingState): { pts: Pt[]; w?: number[] } | null {
   const way = groundWay(s, a, b, null, hub ? doorCell(hub) : null);
   if (!way) return null;
+  // way.w[i] is the segment into way.pts[i + 1]: it lines up with the points after the first
   let pts = way.pts.slice(1);
-  let w = offWeights(way.w?.slice(1), mods);
+  let w = offWeights(way.w?.slice(), mods);
   if (hub) pts = stopShort(pts, a, hub);
   if (pts.length && Math.hypot(pts[0][0] - a[0], pts[0][1] - a[1]) < 1e-6) { pts = pts.slice(1); w = w?.slice(1); }
   if (!pts.length) return { pts: [[a[0], a[1]]] };
@@ -805,6 +806,11 @@ function pickTarget(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Build
   if (u.pinned && u.target) {
     const t = targetOf(s, u.target);
     if (!t) { u.pinned = false; u.target = null; return chooseFor(s, mods, site, u, b); }
+    // no road to it yet: its haul road is asked for (free rovers lay it); it waits in its bay
+    if (!tripTo(s, mods, b, t).connected) {
+      const why = askRoad(s, b, t);
+      return { why: why || `WAITING FOR ITS HAUL ROAD — to ${t.name}` };
+    }
     const f = u.face >= 0 ? u.face : freeFace(s, t, u);
     if (f >= 0) return { t, face: f };
     return { why: `WAITING AT THE GATE — ${t.name} has ${t.faces}/${t.faces} faces working` };
@@ -995,6 +1001,9 @@ export function openPit(s: GameState, mods: Mods, b: BuildingState | undefined, 
   if (why) return why;
   const p = addPlainPit(s, x, z, b.id);
   b.hub.plainPit = p.id;
+  // its haul road, for free rovers to lay (docs/17 §5.3)
+  const t = targetOf(s, plainKey(p.id));
+  if (t) askRoad(s, b, t);
   return '';
 }
 
@@ -1016,6 +1025,14 @@ export function sendUnit(s: GameState, mods: Mods, id: number, key: string): str
   u.pinned = true;
   if (u.target !== key) { u.target = key; u.face = -1; }
   delete u.parked;
+  // no road reaches it yet: its haul road is asked for, and the unit waits in its bay
+  if (!tripTo(s, mods, b, t).connected) {
+    askRoad(s, b, t);
+    if (h.phase !== 'park' && h.phase !== 'toDrop' && h.phase !== 'unload') {
+      if ((h.cargo.regolith ?? 0) > 0) goTip(s, mods, u, b); else goBay(s, mods, u, b, undefined);
+    }
+    return '';
+  }
   // a bucket under way is tipped first; in its bay or on the way out, it goes now
   if (h.phase === 'park' || h.phase === 'toBay' || h.phase === 'toDig' || (h.phase === 'dig' && !(h.cargo.regolith ?? 0))) {
     const f = freeFace(s, t, u);
