@@ -18,10 +18,11 @@ import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
+import { choicesFor, hubGhostLine, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
 import type { ArrayChoice, FlareClass } from './data/spaceWeather';
-import { SITES } from './data/sites';
 import { WEATHER_STUB, activity, arrayView, classOdds, cycleOf, drawClass, fieldsOf, weatherView } from './core/spaceWeather';
 import { currentDay } from './core/economy';
 
@@ -213,9 +214,10 @@ function api(game: Game) {
     /** on-board power (docs/02 · On-board power): the grid at 0 — no supply, the bank out of
      *  reach — while on (a forced brownout for tests; off returns the grid) */
     forceGridDark: (on = true) => { GRID.dark = on; game.publish(); },
-    /** a unit's pack (tests): a roster unit by id, or an excavator by building id; kWh (null: full) */
-    setCharge: (kind: 'rover' | 'digger', id: number, kwh: number | null) => {
+    /** a unit's pack (tests): a roster unit by id, an excavator by building id, a hub unit by its id; kWh (null: full) */
+    setCharge: (kind: 'rover' | 'digger' | 'unit', id: number, kwh: number | null) => {
       const p = kind === 'rover' ? game.state.rovers.find((x) => x.id === id)
+        : kind === 'unit' ? game.state.haulers.find((u) => u.id === id)?.haul
         : game.state.buildings.find((b) => b.id === id)?.haul;
       if (!p) return false;
       if (kwh === null) delete p.charge; else p.charge = kwh;
@@ -268,8 +270,42 @@ function api(game: Game) {
     getFleetTarget: () => clone(game.debugFleetTarget()),
     /** the $fleet payload: rovers, site crews and ETAs, hauls and dig options */
     getFleet: () => clone(game.debugFleet()),
-    /** screen position of a drawn rover (roster id) or excavator (building id) */
-    poseOnScreen: (kind: 'rover' | 'digger', id: number) => game.debugPoseOnScreen(kind, id),
+    /** screen position of a drawn rover (roster id), legacy excavator (building id) or hub unit (its id) */
+    poseOnScreen: (kind: 'rover' | 'digger' | 'unit', id: number) => game.debugPoseOnScreen(kind, id),
+    // ── extraction hubs (core/hubs.ts, docs/17) ──
+    /** the hubs' and units' views ($fleet.hubs, $fleet.units) */
+    getHubs: () => { const f = clone(game.debugFleet()); return { hubs: f.hubs, units: f.units }; },
+    /** a hub's dig choices as its units rank them: key, trip (one way, s), rate, q, score, faces, reach */
+    hubChoices: (hub: number) => {
+      const s = game.state;
+      const b = s.buildings.find((x) => x.id === hub);
+      if (!b?.hub) return [];
+      const n = Math.max(1, unitsOf(s, hub).filter((u) => !u.pinned).length);
+      return choicesFor(s, game.mods, SITES[s.siteId], b, n).map((c) => ({
+        key: c.target.key, name: c.target.name, t: c.trip.t, roadM: c.trip.roadM, offM: c.trip.offM, connected: c.trip.connected,
+        rate: c.rate, q: c.q, score: c.score, faces: c.target.faces, free: c.free, inReach: c.inReach,
+      }));
+    },
+    queueUnit: (hub: number) => game.actions.push({ kind: 'queueUnit', hub }),
+    queueBay: (hub: number) => game.actions.push({ kind: 'queueBay', hub }),
+    cancelJob: (hub: number, index = 0) => game.actions.push({ kind: 'cancelJob', hub, index }),
+    assignPit: (hub: number, key: string | null) => game.actions.push({ kind: 'assignPit', hub, key }),
+    openPit: (hub: number, x: number, z: number) => game.actions.push({ kind: 'openPit', hub, x, z }),
+    /** a hub ghost's HUB line at (gx, gz, rot): where its units would dig, how far one way */
+    hubGhost: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
+      hubGhostLine(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot }),
+    /** why a plain pit may not be staked at world (x, z) ('' = it may) */
+    plainPitWhy: (x: number, z: number) => plainPitRefusal(game.state, game.mods, SITES[game.state.siteId], x, z),
+    sendUnit: (unit: number, key: string) => game.actions.push({ kind: 'sendUnit', unit, key }),
+    recallUnit: (unit: number) => game.actions.push({ kind: 'recallUnit', unit }),
+    dispatchUnit: (unit: number) => game.actions.push({ kind: 'dispatchUnit', unit }),
+    autoUnit: (unit: number) => game.actions.push({ kind: 'autoUnit', unit }),
+    /** open a hub unit's inspector (null closes it) */
+    selectUnit: (id: number | null) => game.selectUnit(id),
+    beginSendUnit: (unit: number) => game.beginFleetTarget({ kind: 'sendUnit', unit }),
+    beginOpenPit: (hub: number) => game.beginFleetTarget({ kind: 'openPit', hub }),
+    /** a unit's hub (tests) */
+    unitHub: (unit: number) => { const u = game.state.haulers.find((x) => x.id === unit); return u ? hubOf(game.state, u)?.id ?? null : null; },
     /** a structure's footprint in world metres ({ x0, z0, x1, z1 }), or null */
     footprintOf: (id: number) => {
       const b = game.state.buildings.find((x) => x.id === id);

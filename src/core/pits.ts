@@ -1,23 +1,23 @@
 /** Strip-mine pits (docs/17 §8, §11; Phase 3): every place that is dug becomes
  *  a pit, and the ground deforms as it grows.
  *
- *  - **Today's adapter.** Hub units (Phases 1–2) are not in yet, so the pits
- *    follow today's hauling: `onDig(s, digSiteKey(x, z), tonnes, q)` is one
- *    line in the excavator's dig phase (core/haul.ts). It finds, or opens, the
- *    pit for that dig site — its deposit's, shared by every digger on it, or
- *    on plain ground the dig cell's own — and adds the dug volume. Phase 2 repoints the call
- *    at hub units (`digInto(s, pit, tonnes, q)`, the same growth).
+ *  - **Who digs.** Hub units (docs/17 Phases 1–2): core/hubs.ts's `dug` is
+ *    the one place a dig happens, and calls `digInto(s, pitFor(s, key),
+ *    tonnes, q)` with its target's key — a deposit's (`dep:<id>`, shared by
+ *    every unit on it) or a staked plain pit's (`plain:<id>`). `onDig` with a
+ *    dig site's key is kept for the debug `pitDig` (the tests' shortcut).
+ *    Once a pit is cut its units drive in by its zone and down its ramp to
+ *    faces on its floor (core/hubs.ts `wayIn`, `facePoint`).
  *  - **The volume.** ▲ is a tonne; the hole is ▲ ÷ 1.5 m³ whatever the grade
  *    (§9.2: the grade sets how much product a tonne makes, so a lean cut digs
  *    more hole per product, not per tonne). Today's grade of the load (the
  *    feed factor its kind gives, the stand-in for q) is kept per pit as an
  *    amount-weighted EMA for Phase 4. The heap takes 70% of the mass back at
  *    1.3 t/m³: 0.81 × the pit's volume.
- *  - **Where.** A pit opens at the nearest free ground to where the digger
- *    works (§8.6). An excavator digging its own pad cannot carve under its
- *    own building, so its pit opens beside the pad: the nearest ground with
- *    room to open to its floor, on its deposit if it has one, away from the
- *    Lander.
+ *  - **Where.** A pit opens at the nearest free ground to its key's point
+ *    (§8.6): a deposit's heart, a plain pit's stake, a dig cell. The nearest
+ *    ground with room to open to its floor, on its deposit if it has one,
+ *    away from the Lander.
  *  - **Step 4.2** (economy): in batches — a pit carves at most every 5 game-s,
  *    once its rim would move 0.5 m or 150 m³ is owed — in id order, on the
  *    pits' own tick clock, in integer decimetres (terrain/pitCarve.ts). A pit
@@ -80,16 +80,27 @@ export function digGrade(kind: FeedKind): number {
 
 /** `tonnes` of regolith dug at a dig site: into its pit (opened when first dug).
  *  Every digger on one deposit shares that deposit's pit (`dep:<id>`); on plain
- *  ground each dig site is its own pit. */
+ *  ground each dig site is its own pit. (The debug `pitDig` calls it; hub units
+ *  dig their target's pit directly: `pitFor` and `digInto`, core/hubs.ts.) */
 export function onDig(s: GameState, siteKey: string, tonnes: number, q: number) {
   if (!(tonnes > 0)) return;
-  s.pits ??= [];
   const hf = terrains.get(s);
   if (hf) siteKey = pitKeyOf(hf, siteKey);
-  let p: PitState | undefined;
-  for (let i = s.pits.length - 1; i >= 0; i--) if (s.pits[i].key === siteKey) { p = s.pits[i]; break; }
-  if (!p) p = newPit(s, siteKey);
-  digInto(s, p, tonnes, q);
+  digInto(s, pitFor(s, siteKey), tonnes, q);
+}
+
+/** The pit a site key names, opened if it has none yet: a deposit's
+ *  (`dep:<id>`), a staked plain pit's (`plain:<id>`, docs/17 §8.6), a dig cell's. */
+export function pitFor(s: GameState, key: string): PitState {
+  s.pits ??= [];
+  for (let i = s.pits.length - 1; i >= 0; i--) if (s.pits[i].key === key) return s.pits[i];
+  return newPit(s, key);
+}
+
+/** The open pit a site key names (null: none dug there yet, or not staked). */
+export function pitOf(s: GameState, key: string): PitState | null {
+  for (const p of s.pits ?? []) if (p.key === key && p.state !== 'new' && p.anchor >= 0) return p;
+  return null;
 }
 
 /** The growth itself (Phase 2 calls this for a hub unit's pit). */
@@ -128,11 +139,16 @@ function pitKeyOf(hf: Heightfield, siteKey: string): string {
   return k;
 }
 
-/** The point a key names: a dig cell's centre, or a deposit's centre. */
-function keyPoint(hf: Heightfield | null | undefined, key: string): [number, number] {
+/** The point a key names: a dig cell's centre, a deposit's centre, or a
+ *  staked plain pit's point (the hubs' plain pits, docs/17 §8.6). */
+function keyPoint(hf: Heightfield | null | undefined, key: string, s?: Pick<GameState, 'plainPits'>): [number, number] {
   if (key.startsWith('dep:')) {
     const d = hf?.deposits.find((x) => x.id === key.slice(4));
     if (d) return [d.cx, d.cz];
+  }
+  if (key.startsWith('plain:')) {
+    const p = s?.plainPits?.find((x) => x.id === Number(key.slice(6)));
+    if (p) return [p.x, p.z];
   }
   const [gx, gz] = key.slice(4).split(',').map(Number);
   return cellCentre(gx, gz);
@@ -215,8 +231,8 @@ export function pitsStep(s: GameState, dt: number) {
 
 /** Open a pit: its ground (the dig's deposit), centre, ramp and heap. */
 function stake(s: GameState, hf: Heightfield, p: PitState, bl: Blockers): boolean {
-  const [x, z] = keyPoint(hf, p.key);
-  p.deposit = p.key.startsWith('dep:') ? p.key.slice(4) : hf.depositAt(x, z)?.id ?? null;
+  const [x, z] = keyPoint(hf, p.key, s);
+  p.deposit = p.key.startsWith('dep:') ? p.key.slice(4) : p.key.startsWith('plain:') ? null : hf.depositAt(x, z)?.id ?? null;
   const L = looseLayer(s, p);
   const planR = planRadius(hf, p, L);
   // other pits' and heaps' planned ground is taken
@@ -414,7 +430,7 @@ export function pitsView(s: GameState, hf: Heightfield | undefined) {
     ...p, box: [...p.box], heap: p.heap ? { ...p.heap } : null,
     L: looseLayer(s, p),
     heapRatio: p.cutM3 > 0 ? p.heapM3 / p.cutM3 : 0,
-    rimFromKey: (() => { const [x, z] = keyPoint(hf, p.key); return Math.hypot(x - p.ox, z - p.oz); })(),
+    rimFromKey: (() => { const [x, z] = keyPoint(hf, p.key, s); return Math.hypot(x - p.ox, z - p.oz); })(),
     samples: hf ? countOwn(hf, p) : 0,
   }));
 }

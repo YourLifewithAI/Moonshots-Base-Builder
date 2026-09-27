@@ -177,13 +177,15 @@ function renderUpgrades(T) {
   L();
   L('| Building | Stock △ | Fully upgraded △ | Upgrades |');
   L('|---|---|---|---|');
-  for (const id of ['lander', ...BUILD_ORDER]) {
+  // the palette's buildings, then the hubs' units (docs/17: printed, never placed)
+  const LOOK = ['lander', ...BUILD_ORDER, ...Object.keys(BUILDINGS).filter((id) => BUILDINGS[id].unit && budget[id])];
+  for (const id of LOOK) {
     const b = budget[id];
     const n = (UPGRADES[id] ?? []).length;
     L(`| ${BUILDINGS[id].name} | ${b.base.toLocaleString('en-US')} | ${b.full.toLocaleString('en-US')} | ${n} |`);
   }
   L();
-  for (const id of ['lander', ...BUILD_ORDER]) {
+  for (const id of LOOK) {
     const list = UPGRADES[id] ?? [];
     if (!list.length) continue;
     const b = budget[id];

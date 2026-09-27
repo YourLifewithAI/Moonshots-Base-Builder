@@ -227,8 +227,8 @@ export const AUTO = {
 
 /** Each rule's default trigger in words (tech cards, the discovery card, the panel's help). */
 export const RULE_TEXT: Record<AutoRuleId, string> = {
-  excavator: '+1 Regolith Excavator when regolith demand outruns supply by 6▲/min for 60 s',
-  iceHarvester: '+1 Ice Harvester when water demand outruns supply by 1.2≈/min for 60 s',
+  excavator: '+1 Regolith Excavator, printed at the most starved hub, when regolith demand outruns supply by 6▲/min for 60 s',
+  iceHarvester: '+1 Ice Miner, printed at a starved water plant, when water demand outruns supply by 1.2≈/min for 60 s',
   solar: '+1 Solar Array when the day’s grid margin, the bank’s recharge paid, is under 10% for 30 s',
   battery: '+1 Battery Bank at dawn after the bank ran dry',
   reactor: 'a Thorium Reactor when the night runs 25 kW short (cap 1: raise it to let the builder add one)',
