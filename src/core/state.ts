@@ -9,7 +9,7 @@ import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
 import { CYCLE_S, START } from '../data/balance';
 import { RULES, RULE_ORDER, FAMILY_PRIORITY, type AutoFamily, type AutoRuleId } from '../data/automation';
 import type { CounterId, HazardId, HazardSide, Tier } from '../data/hazards';
-import type { ArrayChoice, FlareClass, FlareDecider } from '../data/spaceWeather';
+import type { ArrayChoice, FlareClass, FlareCounterId, FlareDecider } from '../data/spaceWeather';
 
 export interface BuildingState {
   id: number;
@@ -113,7 +113,8 @@ export interface BuildingState {
   stowT?: number;
   /** this flare's plan wants it stowed */
   stow?: boolean;
-  /** capability 0.1..1 (1 absent): rad scars from flares it ran through, for good */
+  /** capability 0.1..1 (1 absent): rad scars from flares, for good (an array: those it ran through;
+   *  any structure with an output, rate or capacity: those it met unprepared, docs/16 §4.13) */
   cap?: number;
   /** repairable damage 0..0.9 from flares it was stowed through: output × (1 − it) until a rover repairs it */
   flareDmg?: number;
@@ -124,6 +125,21 @@ export interface BuildingState {
   fieldOverride?: 'stow' | 'run';
   /** a repair under way (a construction site of pct·0.2 + 6 s behind every build): its damage and parts */
   fix?: { pct: number; parts: number; paid?: boolean };
+  // ── space weather: scars and machines (docs/16 §4.5, §4.13, §4.14; core/flareEffects.ts) ──
+  /** flares that have scarred it (its capability is `cap`) */
+  scars?: number;
+  /** the capability alert has fired (once, crossing 85%) */
+  capWarned?: boolean;
+  /** a Replace under way: a construction site of 60% its build time (an excavator's Re-print) */
+  replace?: { at: number };
+  /** shut down for a flare (Shut down exposed; an excavator parked by Recall machines): on again at `warm` (0: the flare is on) */
+  flareShut?: { warm: number };
+  /** an excavator's digger: rebooting until then; latched up until re-flashed (lost at `until`); burned out */
+  rebootUntil?: number;
+  latch?: { until: number; real: boolean; n: number };
+  burned?: { at: number; n: number; cls: FlareClass };
+  /** what the last flare did to it, for the inspector ('rebooted 0:40', 'latched up', …) */
+  lastFlare?: string;
 }
 
 /** One 4 m road cell (core/roads.ts, docs/15-roads.md). */
@@ -273,6 +289,20 @@ export interface RoverUnit extends PackState {
   task?: 'weld' | 'sinter';
   /** a save from before transit: it settles where its work is, arrived */
   place?: boolean;
+  // ── space weather (docs/16 §4.5, §4.13, §4.14; core/flareEffects.ts) ──
+  /** capability 0.1..1 (absent: 1): rad scars from flares met in the open; weld and sinter × it */
+  cap?: number;
+  /** flares that have scarred it, and whether the capability alert has fired */
+  scars?: number;
+  capWarned?: boolean;
+  /** a flare reboot: it stops where it stands until then (no work, no driving) */
+  rebootUntil?: number;
+  /** its brick is a flare latch-up (brickedUntil is its deadline): real ones are lost there, a drill's re-flashed from Earth */
+  latch?: { real: boolean; n: number };
+  /** a Re-print at its dock under way: new (capability 100%) then */
+  reprintUntil?: number;
+  /** what the last flare did to it, for the inspector */
+  lastFlare?: string;
 }
 
 /** A rover's trip (core/transit.ts): planned once when its goal changes,
@@ -474,6 +504,15 @@ export interface FlareLogEntry {
   solarLost: number; data: number;
   /** it came with the sun down: the arrays self-stowed for the night */
   night?: boolean;
+  // ── F2b (docs/16 §4): machines, scars, crew, research, fabs, comms ──
+  /** machines rebooted, latched up (bricked) and lost (burned out, or a missed re-flash) */
+  rebooted?: number; latched?: number; lost?: number;
+  /** structures and machines scarred, and the mean scar (a share) */
+  scarredB?: number; scarB?: number; scarredM?: number; scarM?: number;
+  /** crew sick indoors, research lost (≡, and the tech), chips scrapped, blackout seconds */
+  sick?: number; researchLost?: number; researchTech?: string; chipsLost?: number; blackoutS?: number;
+  /** the counters pressed: Recall machines, Checkpoint research, Shut down exposed (how many) */
+  recalled?: boolean; checkpoint?: boolean; shut?: number;
 }
 
 export interface FlareState {
@@ -520,6 +559,15 @@ export interface FlareState {
   /** what this flare has done so far (the log line it will write) */
   tally?: FlareLogEntry;
   log?: FlareLogEntry[];
+  // ── F2b (core/flareEffects.ts) ──
+  /** this flare's counters: machines recalled, research checkpointed, the buildings it shut down */
+  recalled?: boolean;
+  checkpoint?: boolean;
+  shut?: number[];
+  /** the machines have drawn this phase (the flash's a second after the protons, after the bit flips; the tail's at its start) */
+  drawn?: boolean;
+  /** each structure's and machine's seconds this phase: exposed, prepared ('b12', 'r3') */
+  scarEx?: Record<string, [number, number]>;
 }
 
 /** Space weather beyond the flare in flight (docs/16 §14.2): the player's
@@ -537,6 +585,10 @@ export interface WeatherState {
   repairs: number[][];
   /** the observatory's last look at the Sun (F3) */
   seenSunAt: number;
+  /** outpost streams held by a comms blackout, delivered when the link returns (docs/16 §4.8) */
+  held?: Partial<Record<ResourceId | 'data', number>>;
+  /** structures replaced and machines re-printed for their scars (the probe's count) */
+  replaced?: number;
 }
 
 /** what clicking an alert does: open a resource info panel, or select a building */
@@ -565,7 +617,7 @@ export interface AlertMsg {
 }
 
 /** a counter button on an alert: the counter action it pushes */
-export interface AlertCounter { counter: CounterId | 'airGap'; id?: number; label: string }
+export interface AlertCounter { counter: CounterId | 'airGap' | FlareCounterId; id?: number; label: string }
 
 // ─────────────────────────── hazards (docs/14 §3) ───────────────────────────
 
@@ -611,7 +663,7 @@ export interface DeathRecord { at: number; cause: string; hazard: HazardId | nul
 /** a machine loss (docs/14 §3.10): Automation's counterpart to a death */
 export interface LossRecord {
   at: number; what: 'rover' | 'drone' | 'building' | 'data' | 'stock' | 'outpost';
-  name: string; cause: string; hazard: HazardId; warnedAt: number; amount?: number;
+  name: string; cause: string; hazard: HazardId | 'flare'; warnedAt: number; amount?: number;
 }
 export interface GriefRecord { until: number; amount: number }
 /** crew with no bed breathing suit air, from `from` */
@@ -670,6 +722,8 @@ export interface HazardState {
   liveSides: HazardSide[];
   /** debug: no hazard starts while set (tests that are not about hazards) */
   hold?: boolean;
+  /** DOSE past its limit at an M (docs/16 §9.2): the dosed are grounded, no EVA, until then */
+  groundedUntil?: number;
 }
 
 export interface GameState {
