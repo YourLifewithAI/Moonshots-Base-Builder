@@ -55,6 +55,9 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   time.id = 'touch-time';
   const clock = $('#time-controls .clock');
   if (clock) time.appendChild(clock);
+  // the ☉ space-weather chip rides the bar after the clock (docs/16 §10.8)
+  const wx = $('#weather-chip');
+  if (wx) time.appendChild(wx);
   const bPause = btn('t-pause', '❚❚', '', 'Pause');
   const bSpeed = btn('t-speed', '1×', '', 'Speed 1× · 3× · 10×');
   const bMenu = btn('t-menu', '☰', '', 'Menu — save, graphics, audio, controls');
@@ -257,7 +260,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   const info = el('div', 'panel');
   info.id = 'touch-info';
   info.style.display = 'none';
-  for (const id of ['#inspector', '#rover-inspector', '#deposit-card', '#res-panel', '#builder-panel', '#hazards-panel']) {
+  for (const id of ['#inspector', '#rover-inspector', '#deposit-card', '#res-panel', '#builder-panel', '#hazards-panel', '#weather-panel']) {
     const e = $(id);
     if (e) sheet.appendChild(e);
   }

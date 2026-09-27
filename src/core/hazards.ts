@@ -18,7 +18,8 @@
  *  hazardDrawMult, sickCrew, evaHeld, growthHeld, hazardMorale,
  *  hazardUpkeepMult, killCrew, hazardDuskLine) and hazardTick as step 8.3. */
 import { BUILDINGS, isCompute, type BuildingId } from '../data/buildings';
-import { CREW, CROP_LOSS, CYCLE_S, DAY_S, DUSK_WARN_S, FLARE } from '../data/balance';
+import { CREW, CROP_LOSS, CYCLE_S, DAY_S, DUSK_WARN_S } from '../data/balance';
+import { SPACE_WEATHER } from '../data/spaceWeather';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { TECHS, destinyCounts } from '../data/techs';
@@ -37,6 +38,7 @@ import { dropSpur } from './roads';
 import { isDrone as fleetIsDrone } from './fleet';
 import { buildCostAt, freezeRules, logAuto, postIncidentAudit, ruleBuilding, runawaySite, type AutoRequest } from './automation';
 import { centerOf } from '../buildings/instances';
+import { nextActiveAt, startFlare } from './spaceWeather';
 
 // ─────────────────────────── helpers ───────────────────────────
 
@@ -380,12 +382,12 @@ export function windowInterval(s: GameState, mods: Mods, n: number): number {
   return Math.max(0.25, HZ.intervalDays[era] * size / Math.max(0.05, mods.hazardRateMult) + jitter) * CYCLE_S;
 }
 
-/** a flare's active phase within 240 s of a hazard opening in `tg` s, or 90 s after one, holds a window */
+/** a flare's active phase (its tail too) within 240 s of a hazard opening in `tg` s, or 90 s after one, holds a window */
 function flareBlocks(s: GameState, tg: number): boolean {
   if (s.flare.phase !== 'idle') return true;
   if (s.simTime - s.hazards.flareEndAt < HZ.flareGapS) return true;
-  if (!s.flare.nextAt) return false;
-  const nextActive = s.flare.nextAt + FLARE.telegraphS;
+  const nextActive = nextActiveAt(s);
+  if (!nextActive) return false;
   return nextActive > s.simTime && Math.abs(nextActive - (s.simTime + tg)) < HZ.gapS;
 }
 
@@ -703,7 +705,7 @@ export function hazardTick(s: GameState, site: SiteDef, mods: Mods, day: DayInfo
   // the flare's own clock (the 90 s gap after an active phase; the flare kinds)
   const flarePrev = hz.flarePrev;
   hz.flarePrev = s.flare.phase;
-  if (flarePrev === 'active' && s.flare.phase === 'idle') hz.flareEndAt = now;
+  if ((flarePrev === 'active' || flarePrev === 'tail') && s.flare.phase === 'idle') hz.flareEndAt = now;
   // meters that run whatever the start: dose falls a crew-dose a lunar day, the loop ages
   hz.doseLoad = Math.max(0, hz.doseLoad - dt / CYCLE_S);
   if (s.crew > 0 && waterSource(s, mods) > 0) hz.loopAge += dt / CYCLE_S;
@@ -755,7 +757,7 @@ function earthContact(s: GameState, mods: Mods) {
 // ── the flare kinds (DOSE, bit flips) ──
 
 function onFlareTelegraph(s: GameState, mods: Mods, site: SiteDef) {
-  if (site.flareImmune) return;
+  if (site.tubeShelter) return;
   const active = s.simTime + s.flare.timer;
   if (sideTier(s, 'colony') !== null && s.evaCrew > 0 && !liveOn(s, 'colony', 'window') &&
       !s.hazards.live.some((h) => h.kind === 'dose')) {
@@ -1929,7 +1931,8 @@ export function applyCounter(s: GameState, mods: Mods, counter: CounterId, id?: 
     case 'dockFleet': {
       const h = liveFor(s, 'firmware', id) ?? hz.live.find((x) => x.kind === 'firmware' && x.flare);
       if (!h || !h.flare || h.phase !== 'telegraph') return no('NO FLARE TO DOCK FOR');
-      const until = (h.n.active ?? now) + FLARE.activeS;
+      const cls = s.flare.cls ?? 'M';
+      const until = (h.n.active ?? now) + SPACE_WEATHER.classes[cls].activeS + SPACE_WEATHER.classes[cls].tailS;
       for (const r of s.rovers) { r.heldUntil = Math.max(r.heldUntil ?? 0, until); r.site = null; r.pinned = false; delete r.road; }
       used(h);
       alert(s, `FLEET DOCKED — every rover home until the flare passes (${fmtClock(until - now)}); construction pauses`, 'info');
@@ -1989,9 +1992,11 @@ export function forceHazard(s: GameState, mods: Mods, site: SiteDef, kind: Hazar
   }
   if (kind === 'dose') {
     const drill = o.drill ?? !s.hazards.drilled.includes('dose');
-    if (s.flare.phase === 'idle') { s.flare.phase = 'telegraph'; s.flare.timer = FLARE.telegraphS; s.hazards.flarePrev = 'telegraph'; }
-    const h = startHazard(s, mods, site, 'dose', { at: s.simTime + FLARE.telegraphS - HZ.dose.walkInS, drill, tier: o.tier });
-    if (typeof h !== 'string') { h.n.eva = Math.max(1, s.evaCrew); h.n.active = s.simTime + FLARE.telegraphS; h.targetName = `${h.n.eva} crew on EVA`; }
+    // an M's flash, as the legacy flare's (docs/16: class scaling of DOSE is F2b)
+    if (s.flare.phase === 'idle') { startFlare(s, site, 'M', { drill: false }); s.hazards.flarePrev = 'telegraph'; }
+    const active = s.simTime + s.flare.timer;
+    const h = startHazard(s, mods, site, 'dose', { at: active - HZ.dose.walkInS, drill, tier: o.tier });
+    if (typeof h !== 'string') { h.n.eva = Math.max(1, s.evaCrew); h.n.active = active; h.targetName = `${h.n.eva} crew on EVA`; }
     return h;
   }
   if (kind === 'controlPlane') {

@@ -171,6 +171,8 @@ export type TechEffect = EffectFilter & (
   | { kind: 'guard'; guard: GuardId }
   /** what a pick puts at risk (docs/14 §2.7, read by core/hazards.ts) */
   | { kind: 'exposure'; hazard: HazardId; buildings?: BuildingId[] }
+  /** space weather (docs/16 §13.3): field berms — stowed arrays fold behind a low berm, σ */
+  | { kind: 'stowShield'; sigma: number }
 );
 export type TechEffectKind = TechEffect['kind'];
 
@@ -391,6 +393,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'upkeepMult', buildings: 'all', mult: 0.85 },
       { kind: 'repair', mult: 0.5 },
       { kind: 'guard', guard: 'micrometeoriteShield' }, // docs/14 §3.6
+      { kind: 'stowShield', sigma: 0.5 }, // docs/16 §4.1: field berms
     ],
     desc: 'Two metres of berm on every structure: thermal mass, radiation, micrometeorites.',
     visual: 'Regolith berms are bulldozed against every shielded wall.',
@@ -2073,7 +2076,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
     case 'powerBeam':
       return [
         pro(`+${BEAM_KW_PER_LAUNCH} kW per volley launched`, BEAM_KW_PER_LAUNCH, 'kW'),
-        con('the beam drops to 0 while a flare is active', 1, 'mult'),
+        con('the beam halves in a C flare and drops to 0 in an M or X', 1, 'mult'),
       ];
     case 'automation':
       return [
@@ -2333,6 +2336,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
         : con(`hazard windows ×${num(fx.mult)} as often`, mag(fx.mult), 'mult')];
     case 'guard':
       return HAZARDS_LIVE ? [pro(GUARD_TEXT[fx.guard], 1, 'flag')] : [];
+    case 'stowShield': return [pro(`FIELD BERMS: stowed arrays σ ${fx.sigma}`, fx.sigma, 'flag')];
     case 'exposure': {
       if (!HAZARDS_LIVE) return [];
       const t = EXPOSURE_TEXT[fx.hazard];

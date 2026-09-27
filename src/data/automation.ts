@@ -18,7 +18,7 @@ export type AutoFamily =
 
 export type AutoRuleId =
   | 'excavator' | 'iceHarvester'
-  | 'solar' | 'battery' | 'reactor'
+  | 'solar' | 'battery' | 'reactor' | 'flareStance'
   | 'smelter' | 'refinery' | 'storageYard'
   | 'partsFab' | 'chipFab' | 'roboticsBay'
   | 'oxygen' | 'food' | 'water' | 'habitat'
@@ -84,6 +84,12 @@ export const RULES: Record<AutoRuleId, RuleDef> = {
     id: 'reactor', family: 'power', building: 'reactor',
     objective: 'BASELOAD for the night', unit: 'kw', threshold: 25, range: [5, 100], step: 5,
     dwellS: 120, cooldownS: 600, settleS: 120, cap: 1, capRange: [0, 6], onByDefault: true,
+  }),
+  // docs/16 §5.5: decides the arrays for each flare (it builds nothing; T is the critical feed's margin)
+  flareStance: R({
+    id: 'flareStance', family: 'power', building: 'solar',
+    objective: 'STOW M and X but the critical feed; RUN through C', unit: 'share', threshold: 1.1, range: [1, 1.5], step: 0.1,
+    dwellS: 0, cooldownS: 0, settleS: 0, cap: 0, capRange: [0, 0], onByDefault: true,
   }),
   smelter: R({
     id: 'smelter', family: 'smelting', building: 'smelter', res: 'metals',
@@ -226,6 +232,7 @@ export const RULE_TEXT: Record<AutoRuleId, string> = {
   solar: '+1 Solar Array when the day’s grid margin, the bank’s recharge paid, is under 10% for 30 s',
   battery: '+1 Battery Bank at dawn after the bank ran dry',
   reactor: 'a Thorium Reactor when the night runs 25 kW short (cap 1: raise it to let the builder add one)',
+  flareStance: 'each flare: stow M and X but the critical feed (×1.1), run through C; queues repairs, rebuilds wrecks',
   smelter: '+1 Regolith Smelter when metals demand, builds included, outruns supply for 90 s',
   refinery: '+1 Silicon Refinery when silicon demand outruns supply for 90 s',
   storageYard: '+1 Storage Yard when a full store idles its producers and is too small for the research queued (60 s)',

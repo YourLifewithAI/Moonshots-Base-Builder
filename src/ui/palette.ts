@@ -28,6 +28,7 @@ import { autoTagLine } from '../core/automation';
 import { hazardStatus, isNetworkNode, occupancy, pressurizedTypes, sideTier } from '../core/hazards';
 import { HZ } from '../data/hazards';
 import { counterButton, counterClick } from './hazardsPanel';
+import { refreshWeatherInspector, weatherInspector, weatherInspectorClick } from './weatherPanel';
 import { touchOn } from '../core/touch';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -532,6 +533,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
   const refreshInspector = (sel: BuildingState) => {
     setText('insp-status', statusLine(sel));
     refreshHazards(sel);
+    refreshWeatherInspector(game, insp, sel);
     const cond = Math.round((1 - sel.wear) * 100);
     const worn = Math.round((1 - wearDerate(sel)) * 100);
     setText('insp-cond', `${cond}%`);
@@ -602,6 +604,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
         ? DEPOSIT_INFO[sel.deposit].ghost.replace(/^On /, 'Digs ') : DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
       ${fleetBodyHtml(sel)}
       ${hazardRows(sel).html}
+      ${weatherInspector(game, sel).html}
       ${sel.auto ? `<section class="insp-auto"><span class="label">${esc(autoTagLine(sel))}</span>
         ${sel.auto.survey ? '' : `<div ${NOTE}>Sites by distance only — Site Survey AI weighs deposits and haul lanes.</div>`}</section>` : ''}
       ${builderBody(sel)}
@@ -685,7 +688,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       [...game.mods.actions].sort().join(','), fleetSig(sel),
       sel.auto?.by ?? '', sel.auto?.rule ?? '', sel.feedPlanOff ?? false, game.mods.feedPlanner,
       $automation.get()?.rules.find((r) => r.id === sel.auto?.rule)?.on ?? '',
-      sel.idleReason === 'crew', sel.agentCover ?? false, vit.agentCover, hazardRows(sel).sig,
+      sel.idleReason === 'crew', sel.agentCover ?? false, vit.agentCover, hazardRows(sel).sig, weatherInspector(game, sel).sig,
     ].join('|');
     if (sig !== inspSig) {
       inspSig = sig;
@@ -700,6 +703,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const sel = $selection.get();
     if (!btn || !sel) return;
     if (counterClick(game, btn)) return; // a hazard counter (docs/14 §3.7)
+    if (weatherInspectorClick(game, btn, sel)) return; // a flare's array lines (docs/16 §10.7)
     if (fleetClick(game, btn, sel)) return;
     if (btn.classList.contains('prio-btn')) {
       game.actions.push({ kind: 'setPriority', id: sel.id, priority: Number(btn.dataset.p) as 0 | 1 | 2 | 3 });

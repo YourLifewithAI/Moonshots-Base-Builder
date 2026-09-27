@@ -1,7 +1,7 @@
 /** The 1 Hz economy tick — deterministic resolution order:
  *  generator staffing → power supply → stockpile caps → priority idling →
  *  worker allocation → production (tier order) → life support & crew →
- *  parts upkeep & wear → net rates → morale → flare events → Earth
+ *  parts upkeep & wear → net rates → morale → space weather (flares) → Earth
  *  shipments → exploration and the crew rotation → research → night
  *  tracking → charters → milestones → the Builder. Every building's numbers come from mods.effectiveRates, the
  *  same function the tooltips and previews read.
@@ -12,7 +12,7 @@ import { MILESTONES } from '../data/milestones';
 import { TECHS } from '../data/techs';
 import {
   ALERTS, BEAM_KW_PER_LAUNCH, BROWNOUT_HOLD_S,
-  CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, FLARE, HELIOPHYSICS_DATA, NIGHT_S,
+  CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, NIGHT_S,
   LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, UNIT_POWER, WEAR,
   EVA, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SWARM_PCT_PER_LAUNCH,
@@ -36,8 +36,10 @@ import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from 
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { updateFlowBook } from './flowBook';
 import { automationTick, type AutoRequest } from './automation';
-import { mulberry32 } from './rng';
 import { HZ } from '../data/hazards';
+import {
+  beamMult, duskLine, flareMoraleTarget, flareStorm, notePanel, siteDone, siteParts, solarMult, weatherTick,
+} from './spaceWeather';
 import {
   attachCounters, evaHeld, growthHeld, hazardBedsOff, hazardDrawMult, hazardDuskLine, hazardMorale, hazardOff,
   hazardOutputMult, hazardTick, hazardUpkeepMult, killCrew, sickCrew, starveCause,
@@ -197,7 +199,7 @@ export function queuePos(b: BuildingState): number {
 }
 
 export function currentDay(s: GameState, site: SiteDef): DayInfo {
-  return dayInfo(s.simTime, site, s.flare.phase === 'active');
+  return dayInfo(s.simTime, site);
 }
 
 /** Advance the economy by dt game-seconds (call at 1 Hz of game time). */
@@ -321,16 +323,19 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         if (sunUp) b.shadedT = shaded ? (b.shadedT ?? 0) + dt : 0;
         st.shadedMaxS = Math.max(st.shadedMaxS, b.shadedT ?? 0);
         const panel = out * (1 - b.dust) * (shaded ? 0.15 : 1);
-        solarFull += panel;
-        solarNow += panel * day.sunFactor;
-        supply += panel * day.sunFactor;
+        // a flare (docs/16 §4.3): stowed wings make nothing; scars and stowed damage derate; a wreck is dead
+        notePanel(s, b.id, panel);
+        const live = panel * solarMult(b);
+        solarFull += b.wreck ? 0 : panel * (b.cap ?? 1) * (1 - (b.flareDmg ?? 0));
+        solarNow += live * day.sunFactor;
+        supply += live * day.sunFactor;
         continue;
       }
       supply += out;
     }
   }
-  // the beam comes from the swarm, and a flare blinds it
-  if (mods.powerBeam && s.flare.phase !== 'active') supply += s.launches * BEAM_KW_PER_LAUNCH;
+  // the beam comes from the swarm, and a flare blinds it by class (docs/16 §4.2)
+  if (mods.powerBeam) supply += s.launches * BEAM_KW_PER_LAUNCH * beamMult(s);
   // the Builder's power book: the same panels under a full sun, and what a night would leave
   const supplyFull = supply - solarNow + solarFull * site.solarDayMult;
   const supplyNight = supply - solarNow + solarFull * site.nightSolarFraction * site.solarDayMult;
@@ -417,6 +422,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (via === null) continue;
     wants.push({ b: null, draw: (Math.min(chargeKW(u.kind), room / dt) / mods.chargeEff) * dt, prio, kind: 3, u, via });
   }
+  // the flare's critical feed reads what priority 0–1 structures ask (docs/16 §5.3)
+  let critKW = 0;
+  for (const w of wants) if (w.kind === 0 && w.prio <= 1 && w.b!.enabled) critKW += w.draw / dt;
   // within a priority, running loads keep their power ahead of new construction
   const drawOrder = (w: Draw) => (w.kind === 1 ? queuePos(w.b!) : w.b ? w.b.id : 0);
   wants.sort((a, b) => a.prio - b.prio || a.kind - b.kind || drawOrder(a) - drawOrder(b));
@@ -521,8 +529,15 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       continue;
     }
     // welding consumables first: nobody spends a pack on a weld with no parts
-    const weld = road ? 0 : crewParts(mods, crew) * dt;
-    if (!road) {
+    // (a flare's repair pays its own parts up front, and clearing a wreck welds nothing: docs/16 §4.3)
+    const flareJob = !!b.fix || b.wreck?.job === 'clear';
+    if (flareJob && siteParts(s, b) === 'short') {
+      b.idleReason = 'inputs';
+      condition(s, 'repair-parts', `REPAIRS WAITING — ${b.fix?.parts ?? 0}⚙ to repair Solar Array #${b.id}`, 'warn', { panel: 'parts' });
+      continue;
+    }
+    const weld = road || flareJob ? 0 : crewParts(mods, crew) * dt;
+    if (!road && !flareJob) {
       add(want, 'parts', weld);
       if (s.resources.parts < weld) {
         b.idleReason = 'inputs'; // welding consumables ran dry
@@ -559,6 +574,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     if (b.construction === 0) {
       b.idleReason = '';
       delete b.onPack;
+      // a repair, a rebuild or a cleared wreck (docs/16 §4.3) is no new building
+      if (siteDone(s, b)) continue;
       st.built += 1;
       alert(s, `CONSTRUCTION COMPLETE — ${BUILDINGS[b.type].name}`, 'info', { select: b.id });
     }
@@ -625,7 +642,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const w of wants) if (w.kind === 1) construction += w.draw / dt;
   s.power = {
     supply, demand, served: drawn / dt, capacity, brownout, shed, supplyFull, supplyNight, construction,
-    fleet: fleetKW, charging: chargingKW, flat,
+    fleet: fleetKW, charging: chargingKW, flat, crit: critKW, solar: solarNow,
   };
   // the bank could not carry the night (the Builder's battery rule answers at dawn)
   if (day.isNight && (brownout || shed) && s.powerStored < Math.max(1, capacity * 0.05)) st.nightBankEmpty = true;
@@ -642,21 +659,22 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const short = demand - nightSupply;
     const runway = short > 0 ? s.powerStored / short : Infinity;
     const lead = `NIGHTFALL IN ${Math.ceil(day.phaseLeft)} s`;
+    const wx = duskLine(s); // a flare under way, or the spot-group watch (docs/16 §5.6)
     // the hazards' lines: habitats or Data Centers the bank will not carry (docs/14 §3.4–3.5)
     const upTo = (p: number) => wants.filter((w) => w.kind === 0 && w.prio <= p).reduce((n, w) => n + w.draw / dt, 0);
     const hzLine = runway < NIGHT_S ? hazardDuskLine(s, mods, nightSupply, runway, upTo) : null;
     if (hzLine) {
       condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored lasts ~${fmtClock(runway)} of the ` +
-        `${fmtClock(NIGHT_S)} night at ${Math.ceil(short)} kW short${hzLine.text}`, 'warn', { panel: 'power' });
+        `${fmtClock(NIGHT_S)} night at ${Math.ceil(short)} kW short${hzLine.text}${wx}`, 'warn', { panel: 'power' });
       attachCounters(s, 'dusk', hzLine.counters);
     } else if (short <= 0) {
-      condition(s, 'dusk', `${lead} — night supply carries the base`, 'info', { panel: 'power' });
+      condition(s, 'dusk', `${lead} — night supply carries the base${wx}`, 'info', { panel: 'power' });
     } else if (runway >= NIGHT_S) {
-      condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored carries the night at ${Math.ceil(short)} kW short`,
+      condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored carries the night at ${Math.ceil(short)} kW short${wx}`,
         'info', { panel: 'power' });
     } else {
       condition(s, 'dusk', `${lead} — ${Math.floor(s.powerStored)} stored lasts ~${fmtClock(runway)} of the ` +
-        `${fmtClock(NIGHT_S)} night at ${Math.ceil(short)} kW short; lower priorities or shut down`, 'warn', { panel: 'power' });
+        `${fmtClock(NIGHT_S)} night at ${Math.ceil(short)} kW short; lower priorities or shut down${wx}`, 'warn', { panel: 'power' });
     }
   }
 
@@ -673,7 +691,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // EVA crews (Crew Rotation Charter): by day, a share of the free hands goes
   // outside — dust off the arrays, hands on the worn machines. Nobody walks
   // out into a flare (docs/14 §2.7)
-  const eva = mods.evaShare > 0 && s.crew > 0 && workers > 0 && !day.isNight && s.flare.phase !== 'active' && !evaHeld(s, mods)
+  const eva = mods.evaShare > 0 && s.crew > 0 && workers > 0 && !day.isNight && !flareStorm(s) && !evaHeld(s, mods)
     ? Math.ceil(workers * mods.evaShare) : 0;
   s.evaCrew = eva;
 
@@ -800,7 +818,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const b of s.buildings) {
     if (building(b) || hzOff.has(b.id)) continue;
     const def = eff(b.type);
-    if (def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = b.enabled;
+    if (def.powerKW >= 0 && Object.keys(def.outputs).length === 0 && def.crew === 0) b.active = b.enabled && !b.wreck;
     if (b.enabled && def.powerKW < 0 && powered.has(b.id) && Object.keys(def.outputs).length === 0
         && Object.keys(def.inputs).length === 0 && staffed.has(b.id)) b.active = true;
   }
@@ -916,7 +934,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const upkeepOrder = mods.maintenanceWear > 0
     ? [...s.buildings].sort((a, c) => a.priority - c.priority || a.id - c.id) : s.buildings;
   for (const b of upkeepOrder) {
-    if (!b.enabled || building(b)) continue;
+    if (!b.enabled || building(b) || b.wreck) continue; // a wreck costs no upkeep (docs/16 §4.3)
     const rate = (rates(b).upkeepPartsPerDay / CYCLE_S) * dt * hazardUpkeepMult(s, b);
     add(want, 'parts', rate);
     if (s.resources.parts >= rate) {
@@ -976,7 +994,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   target += s.crew > housing ? MORALE.crowded : MORALE.housed;
   if (s.power.brownout) target += MORALE.blackout;
   else if (s.power.shed) target += MORALE.shed;
-  if (s.flare.phase === 'active') target += MORALE.flare;
+  target += flareMoraleTarget(s, site, mods); // by class (docs/16 §4.10)
   // the destiny: a capstone's morale everywhere, and a launch day's lift
   target += mods.moraleBase;
   if (s.simTime < (s.launchDayUntil ?? 0)) target += mods.volleyMorale;
@@ -987,54 +1005,15 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   else s.morale += (target - s.morale) * MORALE.lerp * dt;
   if (s.crew > 0) st.minMorale = Math.min(st.minMorale, s.morale);
 
-  // ── 8 · solar flare state machine ──────────────────────────────────
-  if (s.flare.nextAt === 0) s.flare.nextAt = FLARE.firstAtDay * CYCLE_S;
-  switch (s.flare.phase) {
-    case 'idle':
-      if (s.simTime >= s.flare.nextAt) {
-        s.flare.phase = 'telegraph';
-        s.flare.timer = FLARE.telegraphS;
-      }
-      break;
-    case 'telegraph':
-      s.flare.timer -= dt;
-      if (s.flare.timer <= 0) {
-        s.flare.phase = 'active';
-        s.flare.timer = FLARE.activeS;
-        if (!site.flareImmune && s.crew > 0) s.morale = Math.max(0, s.morale - FLARE.moraleHit);
-        // a flare has a pro: an operating lab reads the particle storm
-        if (s.buildings.some((b) => b.type === 'lab' && b.active)) {
-          s.data += HELIOPHYSICS_DATA;
-          alert(s, `HELIOPHYSICS — the flare was also an experiment · +${HELIOPHYSICS_DATA}≡`, 'info');
-        }
-        if (!site.flareImmune && s.buildings.filter((b) => b.active && b.type !== 'lander').length >= 6) {
-          st.flaresWithSix += 1;
-        }
-      }
-      break;
-    case 'active':
-      s.flare.timer -= dt;
-      if (s.flare.timer <= 0) {
-        s.flare.phase = 'idle';
-        const jitter = mulberry32((s.seed ^ 0x5f1a) + day.dayIndex)();
-        s.flare.nextAt = s.simTime + (FLARE.periodDays + (jitter - 0.5) * 2 * FLARE.jitterDays) * CYCLE_S;
-      }
-      break;
-  }
-  if (s.flare.phase === 'telegraph') {
-    condition(s, 'flare', site.flareImmune
-      ? 'SOLAR FLARE INBOUND — lava tube shielding will hold'
-      : `SOLAR FLARE INBOUND — radiation storm in ${Math.ceil(s.flare.timer)} s`, site.flareImmune ? 'info' : 'crit');
-  } else if (s.flare.phase === 'active' && !site.flareImmune) {
-    condition(s, 'flare', `SOLAR FLARE — solar arrays dark, crew sheltering for ${Math.ceil(s.flare.timer)} s`, 'crit',
-      { panel: 'power' });
-  }
+  // ── 8 · space weather (core/spaceWeather.ts, docs/16): the cycle, the
+  // classes, the phases, the arrays' choice and what it costs them ──
+  const wx = weatherTick(s, site, mods, day, dt);
 
   // ── 8.3 · hazards (core/hazards.ts, docs/14 §3): the scheduler, the
   // flare and event kinds, the meters, each live hazard, the fleet's re-flash ──
   const hz = hazardTick(s, site, mods, day, dt);
   if (hz.modsChanged) ev.modsChanged = true;
-  if (hz.wrecked.length) ev.wrecked = hz.wrecked;
+  if (hz.wrecked.length || wx.removed.length) ev.wrecked = [...hz.wrecked, ...wx.removed];
 
   // ── 8.5 · emergency Earth resupply (the anti-softlock) ─────────────
   // no smelter anywhere and not enough metals to build one = stuck; no

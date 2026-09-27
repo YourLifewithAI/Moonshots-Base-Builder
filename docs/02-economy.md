@@ -200,7 +200,8 @@ are in the grid's kWh (kW × game-seconds, as a Battery Bank's 3,000).
   excavator — dug on the budget a dark priority-1 farm could not use.) In a
   load shed (only 2–3 dark) the loads left still fit what they can.
 - **The night.** Mare's night is 240 s at 1×: twice the starting pack. A
-  night-long brownout stops the fleet; a flare's 45 s rides through.
+  night-long brownout stops the fleet; an M flare's 55 s of stowed arrays
+  rides through, an X's 190 s with its tail may not (docs/16 §5.6).
 - **Home** is behind one function: `homeOf` / `chargeSpotOf` / `atHome`
   in `core/unitPower.ts`. The pack rides on the unit (`RoverUnit`) or the
   excavator's haul (`HaulState`), never on a pad, so the extraction hubs of
@@ -353,7 +354,7 @@ economy tick. The target sums:
 
 - Site baseline (`moraleBase`: Shackleton 62, Mare 58, Lava Tube 72)
 - Fed +8 / Starving −30 · Housed 0 / Crowded −20
-- Blackout −15 (unpowered life support) · Flare in progress −10 (plus a one-time −10 hit)
+- Blackout −15 (unpowered life support) · a flare by class: C −3 at once and a −5 target, M −8 / −10, X −12 / −15 (its tail −10); storm shelters halve it, the lava tube takes none (docs/16 §4.10)
 - Building contributions while active: Hydroponics +5, Recreation Dome +14, Reactor −5
 
 Morale is a **soft** fail state: it never kills directly. It multiplies all work
@@ -379,12 +380,36 @@ both numbers printed on it — pillar 1 applied to governance.
 | # | System | Status | Design |
 |---|---|---|---|
 | 1 | **Lunar-night power crunch** | SHIPPED | The signature. Solar dies for 240 s (14 in-fiction days); stockpile stored energy (Timberborn drought model), spend on priorities: habitats → food → industry → labs (`priority` 0–3 brownout order). Shedding only priority 2–3 loads is a LOAD SHED (morale −3); a dark priority 0–1 load is a BROWNOUT (morale −15), and it sheds priority 2–3 whole. The fleet rides a short one on its packs and stops in a long one (On-board power). |
-| 2 | **Solar flare radiation events** | SHIPPED | Telegraphed 60 s out, 45 s active; first at day 2.4, then every ~2.0 ± 0.8 days. Crew shelters (work stops), morale −10. Lava-tube site is immune. Full design adds Buried Habitats and the Regolith Shielding tech as mitigation elsewhere. |
+| 2 | **Space weather: classed flares** ([16](16-space-weather.md)) | SHIPPED (F1, F2a) | C, M and X on a seeded solar cycle: quiet at landing, a maximum at day 10–12. The first is a C drill at day 2.4; M from Era 2, X from Era 4, the first X a drill in its permanent parts. Telegraphed 60 · 60 · 120 s; active 30 · 45 · 60 s; an X adds a 120 s proton-storm tail. One choice per flare in its pop-up: keep all running, stow all, or a share. Running arrays are destroyed (M 15%, X 50%) or scarred; stowed ones take repairable damage (M −5%, X −20%) that a rover repairs. Below. |
 | 3 | **Micrometeorite strikes** | CUT | Rare, unannounced single-building breach: building offline + parts cost + small crew-injury risk (Medical Bay demand). Punishes complacency between telegraphed events. Cut for slice pacing; needs Medical Bay to land fairly. |
 | 4 | **Dust abrasion** | SHIPPED | Persistent, not episodic: solar output −8%/lunar day (cap −50%), recovering 20%/day while parts upkeep is paid; excavators carry the highest wear. Dust Mitigation tech ×0.4. **There are no dust storms — the Moon is airless; that is a Mars trope.** |
 | 5 | **Earth-supply dependence** | CUT (softened) | The credits arc above. Slice ships the generous-stockpile substitute. |
 | 6 | **Morale + Unrest dual soft meters** | PARTIAL | Morale shipped. Unrest returns for ⌂ Colony only as CABIN FEVER (system 7): a 0–100 meter whose crisis strikes a station and, twice in 3 days, sends 2 crew home. |
 | 7 | **Destiny hazards** ([14 §3](14-destiny-tracks.md)) | SHIPPED | A side with 2+ picks faces its own hazards, tier by its picks (2–3 minor · 4–5 moderate · 6–8 major); windows every 1.6 / 1.3 / 1.0 lunar days by era, ×clamp(30 / structures, 0.75, 1.25). ⌂ Colony's can kill crew; ◉ Automation's destroy machines, data and stock for good. Every one is telegraphed (90–150 s), names its target and carries its counters on its alert; a death or a loss needs a warning ignored and a second clock run out; the first of each kind is a drill. Table below. |
+
+**Space weather** (`core/spaceWeather.ts`, docs/16; F1 and F2a shipped):
+
+| What | Rule |
+|---|---|
+| The cycle | activity a from 0.1 at landing to ~0.9 at day 10–12, then falling; seeded per run |
+| The class | at each telegraph: X 0.25 a² from Era 4 (2 days apart), M 0.20 + 0.45 a from Era 2, else C · the first flare a C drill · the first from Era 2 an M · at least one X by the maximum, a second once Era 5 is open |
+| The next | (2.3 − a) × (1 ± 0.3) lunar days after one ends |
+| The watch | half a day before an X: `BIG SPOT GROUP` |
+| The arrays | one choice a flare, by the first that has one: a field's override, the pop-up's click, the class's remembered choice, the Builder's `flareStance`, the safe default (all but the critical feed). It locks 10 s before the protons; the wings turn in 10 s |
+| The critical feed | max(0, priority 0–1 demand − other supply − bank ÷ the flare's seconds) × 1.1, carried by the fewest strongest arrays |
+| Running | M destroys 15%, X 50% (the rounded expected count, a seeded draw by exposure); the rest scar −2% / −5% (C −0.5%, the tail −1.5%) for good |
+| Stowed | M −5%, X −15% and its tail −5%, repairable; field berms (Regolith Shielding) halve it |
+| Repairs | a rover works each damaged array of a field in turn: 1⚙ per 10% (none under 5%), 6 s + 0.2 s per %; queued after the flare while `Repair after` is on |
+| Wrecks | no output, no upkeep · Rebuild: the full cost, the build + 10 s · Clear: 15 s, +25% salvage |
+
+| Step | Hook | Effect |
+|---|---|---|
+| 1 | `solarMult` · `beamMult` | an array × (1 − stow) × capability × (1 − stowed damage), a wreck 0 · the beam ×0.5 in a C, 0 in an M, an X and its tail |
+| 2 | `duskLine` | the dusk forecast names a flare under way, or the watch |
+| 2.5 | `siteParts` · `siteDone` | a repair pays its parts up front; a repair, a rebuild or a clear is no new building |
+| 3 | `flareStorm` | no EVA while the protons are in |
+| 7 | `flareMoraleTarget` | the class's target (above) |
+| 8 | `weatherTick` | the cycle, the phases, the plan, the outcomes, repairs, the log |
 
 **How hazards reach the economy** (`core/hazards.ts` hooks, `economy.ts`):
 

@@ -1,0 +1,96 @@
+/* ── space weather (docs/16 §10): the ☉ chip, the flare pop-up, the panel [O].
+   Monochrome: open · half · solid squares for C · M · X, inversion for the
+   choice and for an X, a dashed border for the spot-group watch, hatch for
+   the tail. Nothing needs colour or hover. ── */
+#weather-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; letter-spacing: 0.04em; }
+#weather-chip.watch { border-style: dashed; border-color: var(--paper); }
+#weather-chip.telegraph { animation: wx-flash 0.8s var(--ease) infinite alternate; }
+#weather-chip.crit, #weather-chip.active { background: var(--paper); color: var(--ink-900); font-weight: 600; }
+#weather-chip.crit { animation: wx-flash 0.5s var(--ease) infinite alternate; }
+#weather-chip.tail { background: repeating-linear-gradient(45deg, rgba(var(--paper-rgb), 0.28) 0 3px, transparent 3px 7px), var(--ink-700); color: var(--paper); }
+@keyframes wx-flash { from { border-color: rgba(var(--paper-rgb), 0.25); } to { border-color: var(--paper); } }
+@media (prefers-reduced-motion: reduce) { #weather-chip.telegraph, #weather-chip.crit { animation: none; border-color: var(--paper); } }
+#hud-layer.mode-walk #weather-chip, #hud-layer.mode-walk #weather-panel { display: none; }
+
+/* the pop-up: 640 × 300 at 1280×720, top centre under the swarm meter, 12 px mono */
+#flare-popup {
+  position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+  width: min(640px, calc(100vw - 32px)); max-height: 300px; overflow: hidden;
+  padding: 8px 12px 9px; font-size: 12px; line-height: 16px; z-index: 30;
+  display: flex; flex-direction: column; gap: 4px;
+  border-color: rgba(var(--paper-rgb), 0.5);
+}
+#flare-popup.x { border: 2px solid var(--paper); }
+#flare-popup .fp-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+#flare-popup .fp-t { font-size: 12px; letter-spacing: 0.04em; color: var(--paper); font-weight: 700; }
+#flare-popup .fp-clock { font-size: 12px; white-space: nowrap; }
+#flare-popup .fp-sub { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#flare-popup .fp-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; padding: 3px 6px; cursor: pointer; border: 1px solid transparent; }
+#flare-popup .fp-row.on { background: var(--paper); color: var(--ink-900); }
+#flare-popup .fp-row.on .fp-pv { color: var(--ink-900); }
+#flare-popup .fp-dot { width: 1ch; }
+#flare-popup .fp-lab { font-weight: 600; min-width: 120px; }
+#flare-popup .fp-pv { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); flex: 1 1 280px; }
+#flare-popup .fp-pv2 { flex-basis: 100%; padding-left: calc(1ch + 128px); }
+#flare-popup .fp-shares { display: inline-flex; gap: 3px; }
+#flare-popup .fp-shares .btn { font-size: 10px; padding: 2px 6px; }
+#flare-popup .fp-row.on .fp-shares .btn:not(.active) { background: var(--ink-200); color: var(--ink-900); }
+#flare-popup .fp-row.on .fp-shares .btn.active { background: var(--ink-900); color: var(--paper); }
+#flare-popup .fp-slider { width: 120px; vertical-align: middle; }
+#flare-popup .fp-sv { font-size: 11px; min-width: 4ch; }
+#flare-popup .fp-boxes { display: flex; gap: 18px; font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#flare-popup .fp-boxes label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+#flare-popup .fp-also { display: flex; gap: 6px; align-items: center; min-height: 0; }
+#flare-popup .fp-also:empty { display: none; }
+#flare-popup .fp-also .btn { font-size: 10px; padding: 2px 8px; }
+#flare-popup .fp-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; border-top: var(--hair); padding-top: 6px; }
+#flare-popup .fp-def { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+#flare-popup b { font-weight: 800; }
+/* the compact form: one line and [Change] */
+#flare-popup.compact { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 12px; }
+#flare-popup.compact .fp-line { font-size: 11px; line-height: 15px; }
+#flare-popup.compact .fp-btns { display: flex; gap: 4px; flex: none; }
+#flare-popup.compact .btn { font-size: 10px; padding: 3px 8px; }
+
+/* touch (docs/07 §13, docs/16 §10.3): the top of the screen, 563 × 262 on a
+   667×375 screen, one row of six 44 px options, the slider under Fine… */
+html.touch #flare-popup {
+  top: var(--content-t, 52px);
+  width: min(563px, calc(100vw - var(--content-l, 60px) - var(--content-r, 60px))); max-height: 262px; padding: 6px 8px; gap: 4px;
+}
+html.touch #weather-chip { min-height: var(--tap, 44px); font-size: 11px; align-self: stretch; }
+html.touch #touch-sheet #weather-panel { width: auto; max-height: none; }
+html.touch #flare-popup .fp-t { font-size: 12px; }
+html.touch #flare-popup .fp-sub { font-size: 11px; white-space: nowrap; }
+html.touch #flare-popup .fp-seg { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+html.touch #flare-popup .btn { min-height: 44px; min-width: 44px; font-size: 11px; padding: 4px 6px; letter-spacing: 0.02em; }
+html.touch #flare-popup .fp-seg .btn { padding: 2px 3px; white-space: nowrap; overflow: hidden; }
+html.touch #flare-popup .fp-pv { font-size: 11px; line-height: 14px; min-height: 28px; max-height: 28px; overflow: hidden; }
+html.touch #flare-popup .fp-fine-row { display: flex; gap: 8px; align-items: center; min-height: 44px; }
+html.touch #flare-popup .fp-fine-row .fp-slider { flex: 1; height: 44px; }
+html.touch #flare-popup .fp-boxes { gap: 6px; }
+html.touch #flare-popup .fp-boxes .btn { flex: 1; }
+html.touch #flare-popup .fp-also { overflow-x: auto; flex-wrap: nowrap; }
+html.touch #flare-popup .fp-also .btn { flex: none; font-size: 11px; }
+html.touch #flare-popup .fp-foot { padding-top: 4px; }
+html.touch #flare-popup.compact .btn { min-height: 44px; font-size: 11px; }
+
+/* the panel [O] */
+#weather-panel {
+  width: 360px; max-height: 70vh;
+  flex: 0 1 auto; min-height: 120px; display: flex; flex-direction: column;
+  font-size: 12px; line-height: 17px;
+}
+#weather-panel .wx-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+#weather-panel section { padding: 8px 13px; border-top: var(--hair); }
+#weather-panel section:first-child { border-top: none; }
+#weather-panel .actions { flex: 0 0 auto; display: flex; justify-content: flex-end; }
+#weather-panel .mono { font-size: 11px; }
+#weather-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }
+#weather-panel .wx-btns { display: flex; gap: 4px; margin: 3px 0 6px; }
+#weather-panel .wx-btns .btn, #weather-panel .wx-pc { font-size: 10px; padding: 2px 7px; }
+#weather-panel .wx-proto { display: flex; gap: 3px; align-items: center; margin: 3px 0; flex-wrap: wrap; }
+#weather-panel .wx-proto .mono { min-width: 3.5ch; }
+#weather-panel .wx-log div { padding: 2px 0; border-bottom: 1px dotted rgba(var(--paper-rgb), 0.12); }
+.wx-insp .wx-ov { flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.wx-insp .wx-ov .label { margin-right: 4px; }

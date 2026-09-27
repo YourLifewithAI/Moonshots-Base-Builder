@@ -9,6 +9,7 @@ import type { OutpostKind, ProspectClass, ProspectId } from '../data/lunarMap';
 import { CYCLE_S, START } from '../data/balance';
 import { RULES, RULE_ORDER, FAMILY_PRIORITY, type AutoFamily, type AutoRuleId } from '../data/automation';
 import type { CounterId, HazardId, HazardSide, Tier } from '../data/hazards';
+import type { ArrayChoice, FlareClass, FlareDecider } from '../data/spaceWeather';
 
 export interface BuildingState {
   id: number;
@@ -107,6 +108,22 @@ export interface BuildingState {
   /** a dock's slots emptied by lost rovers, and the reprint under way */
   slotsLost?: number;
   reprintAt?: number;
+  // ── space weather (docs/16 §4.3, §5; core/spaceWeather.ts) — Solar Arrays ──
+  /** how far its wing has turned from sun-tracking to edge-on (0 running … 1 stowed; 10 s each way) */
+  stowT?: number;
+  /** this flare's plan wants it stowed */
+  stow?: boolean;
+  /** capability 0.1..1 (1 absent): rad scars from flares it ran through, for good */
+  cap?: number;
+  /** repairable damage 0..0.9 from flares it was stowed through: output × (1 − it) until a rover repairs it */
+  flareDmg?: number;
+  /** destroyed while running: no output, no upkeep, its pad held until Rebuild or Clear
+   *  (a job under way rides the rover queue as a construction site) */
+  wreck?: { at: number; n: number; cls: FlareClass; job?: 'rebuild' | 'clear'; cleared?: boolean };
+  /** its field's override of the flare choice (docs/16 §5.4; absent: follow the choice) */
+  fieldOverride?: 'stow' | 'run';
+  /** a repair under way (a construction site of pct·0.2 + 6 s behind every build): its damage and parts */
+  fix?: { pct: number; parts: number; paid?: boolean };
 }
 
 /** One 4 m road cell (core/roads.ts, docs/15-roads.md). */
@@ -437,10 +454,89 @@ export interface SurveyState {
   atlas: boolean;
 }
 
+/** A flare's phases (docs/16 §3.3): the flash (the telegraph), the protons
+ *  (active), after an X a proton-storm tail, then quiet. */
+export type FlarePhase = 'idle' | 'telegraph' | 'active' | 'tail';
+
+/** One flare, as the log and the panel read it (docs/16 §10.2). */
+export interface FlareLogEntry {
+  n: number; cls: FlareClass; drill: boolean;
+  /** its telegraph started then (game time), in this era */
+  at: number; era: number;
+  /** who decided its arrays, and what */
+  decidedBy: FlareDecider; choice: string;
+  stowed: number; running: number; destroyed: number;
+  /** the running arrays scarred, and by how much (the mean, a share) */
+  scarred: number; scar: number;
+  /** stowed arrays damaged (repairable), their repair parts and rover-seconds */
+  damaged: number; repairParts: number; repairS: number;
+  /** solar the stow cost (kW·s), heliophysics data gained */
+  solarLost: number; data: number;
+  /** it came with the sun down: the arrays self-stowed for the night */
+  night?: boolean;
+}
+
 export interface FlareState {
-  phase: 'idle' | 'telegraph' | 'active';
+  phase: FlarePhase;
   timer: number;             // game-seconds remaining in phase
   nextAt: number;            // game-time (s) of next telegraph start
+  // ── docs/16 (flareSchema 1) ──
+  /** this flare's index (telegraph to tail), or the next one's (idle) */
+  n?: number;
+  /** drawn when its telegraph starts (a spot-group watch locks an X half a day ahead) */
+  cls?: FlareClass;
+  drill?: boolean;
+  /** the class range shown until the X-ray peak (the true class and a neighbour) */
+  range?: [FlareClass, FlareClass];
+  /** when the telegraph started, the class firms, and the protons arrive (game time) */
+  startedAt?: number;
+  firmAt?: number;
+  activeAt?: number;
+  /** the activity at its telegraph (the interval to the next reads it) */
+  a?: number;
+  /** the first of each class has been met (its card); xReal: the drill X has passed */
+  seen?: { C: boolean; M: boolean; X: boolean; xReal: boolean };
+  /** X flares so far, and the game time of the last one */
+  xCount?: number;
+  lastX?: number;
+  /** no X before then (a loaded save's grace, migration step 4) */
+  noXUntil?: number;
+  /** the spot-group watch: flare watchN was looked at half a day ahead (its class then); an X is locked and watched */
+  watchN?: number;
+  watch?: boolean;
+  nextCls?: FlareClass;
+  /** the CME's front arrives then; the sail window closes then */
+  cme?: { at: number; until: number };
+  blackoutUntil?: number;
+  /** this flare's arrays: the choice and who made it (a click, the remembered one, the Builder, the safe default) */
+  choice?: ArrayChoice;
+  decidedBy?: FlareDecider;
+  /** the plan in force (locked 10 s before the protons): the arrays stowed, run, and kept for the critical feed */
+  plan?: { stow: number[]; run: number[]; keep: number[]; criticalKW: number; locked: boolean };
+  /** the pop-up paused the game then (the menu's Pause on flare warnings) */
+  pausedAt?: number;
+  /** each array's exposure this phase (id → seconds running, seconds stowed) */
+  exposure?: Record<string, [number, number]>;
+  /** what this flare has done so far (the log line it will write) */
+  tally?: FlareLogEntry;
+  log?: FlareLogEntry[];
+}
+
+/** Space weather beyond the flare in flight (docs/16 §14.2): the player's
+ *  standing choices and the repairs queued. */
+export interface WeatherState {
+  /** 'Use this choice for future M flares': the arrays' choice per class */
+  remember: Partial<Record<FlareClass, ArrayChoice>>;
+  /** the pop-up's 'Repair stowed arrays after the flare' (on) */
+  autoRepair: boolean;
+  /** the player has answered a flare of this class in the pop-up (a C opens small once one has been) */
+  answered: Partial<Record<FlareClass, boolean>>;
+  /** the probe's baseline: today's flare (docs/16 §12.3) */
+  legacy?: boolean;
+  /** repair jobs, one per field: the damaged arrays in turn (the head is worked) */
+  repairs: number[][];
+  /** the observatory's last look at the Sun (F3) */
+  seenSunAt: number;
 }
 
 /** what clicking an alert does: open a resource info panel, or select a building */
@@ -535,7 +631,7 @@ export interface HazardState {
   lastKind: Record<HazardSide, HazardId | null>;
   /** the last hazard's warning (the 240 s spacing) */
   lastStartAt: number;
-  flarePrev: 'idle' | 'telegraph' | 'active';
+  flarePrev: FlarePhase;
   flareEndAt: number;
   live: LiveHazard[];
   nextId: number;
@@ -602,6 +698,8 @@ export interface GameState {
      *  charging packs; of it, charging; units flat, waiting for the grid
      *  (core/unitPower.ts) */
     fleet?: number; charging?: number; flat?: number;
+    /** priority 0–1 structures' demand, and this tick's solar (kW): the flare's critical feed (docs/16 §5.3) */
+    crit?: number; solar?: number;
   };
 
   crew: number;
@@ -684,6 +782,9 @@ export interface GameState {
   growthT: number;           // crew growth accumulator
 
   flare: FlareState;
+  /** space weather (docs/16): remembered choices, repairs; flareSchema 1: classed flares on a cycle */
+  weather?: WeatherState;
+  flareSchema?: number;
   /** Earth shipments; arriveAt is game time, ordered counts the hand-placed
    *  orders (the automatic anti-softlock rescue is not counted); downlink =
    *  the one slot carries a data downlink's cargo, not a resupply */
@@ -775,7 +876,9 @@ export function createInitialState(
     wasNight: false,
     starveT: 0,
     growthT: 0,
-    flare: { phase: 'idle', timer: 0, nextAt: 0 },
+    flare: defaultFlare(),
+    weather: defaultWeather(),
+    flareSchema: 1,
     resupply: { pending: false, arriveAt: 0, shipments: 0, ordered: 0 },
     iceSurveyed: false,
     storageCaps: {},
@@ -790,6 +893,18 @@ export function createInitialState(
     victoryShown: false,
     defeatShown: false,
   };
+}
+
+/** A new run's flare state (docs/16): the first flare, index 0, is the C drill. */
+export function defaultFlare(): FlareState {
+  return {
+    phase: 'idle', timer: 0, nextAt: 0, n: 0, seen: { C: false, M: false, X: false, xReal: false },
+    xCount: 0, lastX: -1e9, noXUntil: 0, blackoutUntil: 0, log: [],
+  };
+}
+
+export function defaultWeather(): WeatherState {
+  return { remember: {}, autoRepair: true, answered: {}, repairs: [], seenSunAt: 0 };
 }
 
 export function emptyStats(): GameStats {

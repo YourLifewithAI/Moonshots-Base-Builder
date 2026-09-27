@@ -31,11 +31,13 @@ export interface Settings {
   /** hazards (docs/14 §3.8): pause when a new hazard is announced; pause on every lethal warning */
   pauseHazards: boolean;
   pauseLethal: boolean;
+  /** space weather (docs/16 §10.4): pause on flare warnings — M and X (default), all, or off */
+  pauseFlares: 'mx' | 'all' | 'off';
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   fx: null, safe: false, safeAuto: false, fxFailed: [], volume: 0.7, music: 0.7, effects: 1, muted: false, tips: true,
-  pauseHazards: true, pauseLethal: false,
+  pauseHazards: true, pauseLethal: false, pauseFlares: 'mx',
 };
 
 const isLevel = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 3;
@@ -60,6 +62,7 @@ function read(): Settings {
       tips: raw.tips !== false,
       pauseHazards: raw.pauseHazards !== false,
       pauseLethal: raw.pauseLethal === true,
+      pauseFlares: raw.pauseFlares === 'all' || raw.pauseFlares === 'off' ? raw.pauseFlares : 'mx',
       touch: isTouchChoice(raw.touch) ? raw.touch : undefined,
     };
   } catch {

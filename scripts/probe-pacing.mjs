@@ -43,7 +43,15 @@
  * On-board power (docs/02): the bot reads the OUT OF CHARGE alert — once its
  * units have stood flat 2 min in all, Rover Power Packs go to the front of its
  * list, and after 8 min Fuel-Cell Packs; the summary reports the flat time,
- * its longest stretch, and the time a site or an excavator waited on charge. */
+ * its longest stretch, and the time a site or an excavator waited on charge.
+ * Space weather (docs/16 §12.3): --flares=on (default) plays the classed flares
+ * — the bot answers the pop-up as a reasonable player: C keep all running, M
+ * and X all but the critical feed, Repair after on, and it ticks `Use this
+ * choice for future …` the first time it meets each class; with --auto=on and
+ * Automated Power the Builder's flareStance decides. After a flare it rebuilds
+ * a wreck when it can pay, else clears it. --flares=legacy plays today's flare
+ * (every flare 45 s, solar 0, −10 morale) for the baseline. The summary counts
+ * the flares by class, the arrays destroyed and the repair parts. */
 import { writeFileSync } from 'node:fs';
 import { withGame } from './harness.mjs';
 
@@ -73,6 +81,8 @@ const PICKS_ARG = opt('picks', '');
 const REPLACE_STEP = opt('replace', 'on') !== 'off';
 /** --hazards=off: every hazard held (the pre-D3 comparison) */
 const HAZARDS_ON = opt('hazards', 'on') !== 'off';
+/** --flares=legacy: today's flare for the baseline (docs/16 §12.3) */
+const FLARES = opt('flares', 'on') === 'legacy' ? 'legacy' : 'on';
 
 // ───────────────────────── the in-page player ─────────────────────────
 // Everything below runs inside the page: no outer references.
@@ -88,6 +98,7 @@ async function installBot(cfg) {
   G.setPaused(true);
   G.advanceGameSeconds(0);
   if (!cfg.hazards) G.holdHazards(true);
+  if (cfg.flares === 'legacy') G.setFlareMode('legacy');
   const site = SITES[cfg.site];
   const robotic = cfg.exp === 'robotic';
   const bcm = site.buildCostMult;
@@ -301,7 +312,8 @@ async function installBot(cfg) {
   const complete = (b) => (b.construction ?? 0) <= 0;
   const nDone = (t) => all(t).filter(complete).length;
   const nAll = (t) => all(t).length;
-  const sitesPending = () => s.buildings.filter((b) => !complete(b));
+  // a flare's array repair rides the rover queue but is no new build (docs/16 §4.3)
+  const sitesPending = () => s.buildings.filter((b) => !complete(b) && !b.fix);
   const cost = (t) => {
     const out = {};
     for (const [r, a] of Object.entries(BUILDINGS[t].buildCost)) out[r] = Math.ceil(a * bcm);
@@ -325,7 +337,9 @@ async function installBot(cfg) {
   const solarKW = () => 10 * site.solarDayMult * (done('peakLightMasts') ? 1.1 : 1) *
     (done('skylightHeliostats') ? 1.25 : 1) * (done('dustMitigation') ? 0.95 : 1);
   const reactorKW = () => 40 * (robotic && s.crew <= 0 ? 1 - BAL.AGENT_GEN_TAX : 1);
-  const day = () => dayInfo(s.simTime, site, s.flare.phase === 'active');
+  const day = () => dayInfo(s.simTime, site);
+  /** no flare, and every wing tracking the sun (docs/16: the power panel reads full sun then) */
+  const flareQuiet = () => s.flare.phase === 'idle' && !s.buildings.some((b) => (b.stowT ?? 0) > 0);
 
   // ── log ──
   const log = {
@@ -512,7 +526,7 @@ async function installBot(cfg) {
   let pw = null;
   function powerModel() {
     const d = day();
-    const full = !d.isNight && d.sunFactor >= site.solarDayMult * 0.999 && s.flare.phase !== 'active';
+    const full = !d.isNight && d.sunFactor >= site.solarDayMult * 0.999 && flareQuiet();
     const solarN = s.buildings.filter((b) => b.type === 'solar' && complete(b) && b.enabled).length;
     const reactorN = s.buildings.filter((b) => b.type === 'reactor' && complete(b) && b.enabled).length;
     if (full) pw = { supply: s.power.supply, demand: s.power.demand, solarN, reactorN };
@@ -737,6 +751,31 @@ async function installBot(cfg) {
     }
   }
 
+  // ── space weather (docs/16 §12.3): the pop-up, then the wrecks ──
+  const flareSeen = {};
+  function decideFlares() {
+    if (cfg.flares === 'legacy') return;
+    const w = G.getSpaceWeather();
+    const p = w.popup;
+    // it reads the class once the X-ray peak firms it (20 s in), and answers before the arrays move
+    if (p && !p.locked && w.firmIn <= 0 && p.decidedBy !== 'click' && !p.remembered && !p.builder) {
+      const cls = p.rememberCls;
+      const choice = cls === 'C' ? { mode: 'run' } : { mode: 'feed' };
+      G.flareChoice(choice, { repair: true, remember: !flareSeen[cls] });
+      flareSeen[cls] = true;
+      act('flare', `${cls}:${choice.mode}`);
+    }
+    if (s.flare.phase !== 'idle') return;
+    const cost = Math.ceil((BUILDINGS.solar.buildCost.metals ?? 15) * bcm);
+    for (const b of s.buildings) {
+      if (!b.wreck || b.wreck.job) continue;
+      const pay = s.resources.metals - cost >= 20;
+      G.wreckAction(pay ? 'rebuild' : 'clear', b.id);
+      act('wreck', pay ? 'rebuild' : 'clear');
+      s = now();
+    }
+  }
+
   // an idle rover goes to the longest build under way (the inspector's
   // Summon): the site keeps it until it is done
   function decideFleet() {
@@ -801,7 +840,7 @@ async function installBot(cfg) {
     const powerNeed = () => m.projSupply < m.projDemand * P.margin + m.recharge;
     // LOAD SHED or BROWNOUT by day: the grid is short now, not someday
     const dayBrown = (s.power.brownout || s.power.shed) && !d.isNight && d.sunFactor >= site.solarDayMult * 0.95 &&
-      s.flare.phase !== 'active' && sitesPending().filter((b) => b.type === 'solar').length < 2;
+      flareQuiet() && sitesPending().filter((b) => b.type === 'solar').length < 2;
     const res = s.resources;
     const caps = s.storageCaps ?? {};
     const isru = site.isruMult;
@@ -1021,6 +1060,7 @@ async function installBot(cfg) {
         R = G.getResearch();
         L = G.getLunar();
         decideHazards();
+        decideFlares();
         decideEmergency();
         decideResearch();
         decideCrew();
@@ -1077,6 +1117,9 @@ async function installBot(cfg) {
       resources: s2.resources, stats: s2.stats, outposts: s2.survey.outposts.map((o) => [o.id, o.live]),
       surveyed: Object.keys(s2.survey.prospects), discoveries: s2.discoveries, insights: s2.insights,
       downlinks: s2.downlinks, resupply: s2.resupply,
+      flares: (s2.flare.log ?? []).map((f) => ({ cls: f.cls, at: f.at, era: f.era, drill: f.drill, by: f.decidedBy, choice: f.choice,
+        stowed: f.stowed, running: f.running, destroyed: f.destroyed, damaged: f.damaged, parts: f.repairParts, solarLost: Math.round(f.solarLost) })),
+      flareN: s2.flare.n ?? 0,
       band: G.getDestiny().band, crewHome: s2.crewHome,
       alertsTail: s2.alerts.slice(-8).map((a) => a.text),
     };
@@ -1144,6 +1187,21 @@ function summarize(log) {
     rulePhaseByMin: Object.fromEntries(Object.entries(A.rulePhaseBy ?? {}).filter(([, v]) => v >= 60)
       .sort((a, b) => b[1] - a[1]).map(([k, v]) => [k, fmtMin(v)])),
     caps: log.actions.filter((a) => a[1] === 'cap').map((a) => a[2]),
+    // space weather (docs/16 §12.3): before FIRST LIGHT
+    flares: flareSummary(log),
+  };
+}
+
+/** the flares met before FIRST LIGHT: by class, arrays destroyed, repair parts, the sequence */
+function flareSummary(log) {
+  const end = log.firstLight ?? log.final.t;
+  const fs = (log.final.flares ?? []).filter((f) => f.at <= end);
+  const by = { C: 0, M: 0, X: 0 };
+  for (const f of fs) by[f.cls] = (by[f.cls] ?? 0) + 1;
+  return {
+    n: log.cfg.flares === 'legacy' ? log.final.flareN : fs.length, byClass: by,
+    destroyed: fs.reduce((n, f) => n + f.destroyed, 0), parts: fs.reduce((n, f) => n + f.parts, 0),
+    seq: fs.map((f) => `${f.cls}${Math.round(f.at / 60)}`).join(' '),
   };
 }
 
@@ -1167,7 +1225,7 @@ await withGame({ port: PORT, site: RUNS[0].site, exp: RUNS[0].exp, seed: SEEDS[0
     await page.waitForFunction(() => window.__game !== undefined, null, { timeout: 30_000 });
     const info = await page.evaluate(installBot, {
       ...run, seed, pick: PICK, fleet: FLEET_VERBS, auto: AUTO_ON, saversEarly: SAVERS_EARLY, destiny: DESTINY, picks: PICKS_ARG,
-      replaceStep: REPLACE_STEP, hazards: HAZARDS_ON,
+      replaceStep: REPLACE_STEP, hazards: HAZARDS_ON, flares: FLARES,
     });
     if (!QUIET) console.log(`\n=== ${run.site} ${run.exp} ${run.policy} seed ${seed} · destiny ${info.picks} · doctrines ${JSON.stringify(info.pick)}`);
     for (let m = 0; m < MINUTES; m += 10) {
@@ -1191,6 +1249,11 @@ console.log('\nrun                              | FIRST LIGHT | eras E1…E8 (mi
 for (const { summary: r } of results) {
   console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(r.firstLight).padEnd(11)} | ${r.eraDur.padEnd(40)} | ${r.idleMax.split(' ')[0]}/${r.idleMaxAction.split(' ')[0]}/${r.idleMaxEvent.split(' ')[0]}`.padEnd(110) +
     ` | ${r.brownout.padEnd(5)} | ${r.worn.padEnd(4)} | ${r.goodsStallMin} · ${r.outcome}`);
+}
+console.log(`\nflares (${FLARES}) before FIRST LIGHT: run · count · C/M/X · destroyed · repair parts · sequence (class, game-min)`);
+for (const { summary: r } of results) {
+  const f = r.flares;
+  console.log(`${`${r.run}#${r.seed}`.padEnd(33)}| ${String(f.n).padEnd(3)}| ${f.byClass.C}/${f.byClass.M}/${f.byClass.X} | ${String(f.destroyed).padEnd(3)}| ${String(f.parts).padEnd(4)}| ${f.seq}`);
 }
 // medians across seeds (FIRST LIGHT not reached counts as the run length, flagged ›)
 const med = (xs) => { const v = xs.filter((x) => x != null).sort((a, b) => a - b); return v.length ? v[Math.floor((v.length - 1) / 2)] : null; };

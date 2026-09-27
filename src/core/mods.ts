@@ -133,6 +133,11 @@ export interface Mods {
   hazardRateMult: number;
   guards: Set<GuardId>;
   exposure: Map<HazardId, Set<BuildingId>>;
+  // ── space weather (docs/16, core/spaceWeather.ts) ──
+  /** field berms: a stowed array's flare shield σ (0: none) */
+  stowShield: number;
+  /** every array flare damage × this (Rad-Hard Cells, docs/16 F4) */
+  arrayHardMult: number;
 }
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
@@ -182,6 +187,7 @@ export function computeMods(
     growthMult: 1, waived: new Set(), evaShare: 0, radiusDelta: fill(0),
     volleyCap: LAUNCH_CAP_PER_VOLLEY, volleyMorale: 0, volleyMinCrew: 0, autoLaunch: false, launchBurstMult: 1,
     moraleBase: 0, hazardRateMult: 1, guards: new Set(), exposure: new Map(),
+    stowShield: 0, arrayHardMult: 1,
   };
 
   // a Server Monolith counts as a Data Center wherever one is read (docs/14
@@ -302,6 +308,7 @@ export function computeMods(
         case 'autoLaunch': m.autoLaunch = true; m.launchBurstMult *= fx.burstMult ?? 1; break;
         case 'moraleBase': m.moraleBase += fx.delta; break;
         case 'hazardRate': m.hazardRateMult *= fx.mult; break;
+        case 'stowShield': m.stowShield = Math.max(m.stowShield, fx.sigma); break;
         case 'guard': m.guards.add(fx.guard); break;
         case 'exposure': {
           const set = m.exposure.get(fx.hazard) ?? new Set<BuildingId>();

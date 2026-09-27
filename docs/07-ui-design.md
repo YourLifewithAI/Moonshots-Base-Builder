@@ -74,7 +74,7 @@ Build mode lays five persistent regions over the canvas, 24 px from each edge:
 |---|---|---|
 | **Top-left** | `#resource-strip` | Chip row, mono digits: ⚡ supply`/`demand kW · ▮ stored`/`capacity · the nine stockpiles (▲◆◇≈○✳⚙▰↑) · ◈ crew`/`housing · ◐ morale · ≡ data. Foils/launch chips stay hidden until first production (progressive disclosure). Warn state = brighter value + stronger border — never a color |
 | **Top-center** | `#swarm-meter` | The game's spine: "Dyson Swarm · 0.0000%" with a 4 px progress bar, volley count, and — once Swarm Protocol is researched — the inverted **▲ Launch collectors** button with what a volley still lacks (`foils 6/10 ✗ · launch 3/3↑ ✓ · stored 400/400 ✓`) |
-| **Top-right** | `#time-controls` + `#alerts` | Mono clock (`DAY n · ☀ 62%` / `☾ NIGHT` / `FLARE −45s`), pause + 1×/3×/10× buttons (Space, 1/2/3), and the alert stack beneath: last 4, click to dismiss, `crit` alerts inverted |
+| **Top-right** | `#time-controls` + `#alerts` | Mono clock (`DAY n · ☀ 62%` / `☾ NIGHT`; a flare rides the ☉ chip), pause + 1×/3×/10× buttons (Space, 1/2/3), and the alert stack beneath: last 4, click to dismiss, `crit` alerts inverted |
 | **Bottom-left** | `#milestones` | "Objectives n/10" + the single next milestone (title + hint). **This panel is the entire tutorial** (§9) |
 | **Bottom-center** | `#palette` | Category tabs (Power / Extraction / Industry / Life / Science / Export) over building cards: glyph icon, name, cost in resource glyphs. Locked cards are dashed at 38% opacity — visible futures, not hidden menus |
 
@@ -169,6 +169,22 @@ State is shape and value, never hue.
 | Objectives | One `⚠` line under the next milestone: the most urgent lethal warning or clock (`⚠ Hab Module #12: breach in 1:30 — seal or evacuate`, `⚠ 3 crew members on suit air: 1:40 — power or a bed`) |
 | World | `.hz-mark` tags over targets, with who is aboard: `≋ 3` breach, `☍ 2` dark, `✲ BLIGHT`, `⚠ NET`, `✈ 40%` with a strip bar. A click selects |
 | Status line | the `hazard` idle reason names why (breached, decompressed, evacuated, stripped, reimaging, kill switch, air-gapped, loads shed, junk); `strike` is a cabin-fever strike |
+
+**Space weather** (`ui/weatherPanel.ts`, `ui/weather.css`; design in 16 §10).
+Everything comes from `$weather` (`core/spaceWeather.ts: weatherView`).
+Classes are shapes: C `□`, M `◧`, X `■`.
+
+| Where | What it shows |
+|---|---|
+| HUD chip `#weather-chip` | Beside the hazard chip. Quiet: the activity gauge, `☉ ▮▯▯`. A watch: `☉ X? ½d`, dashed. A telegraph: `☉ C–M 0:42`, flashing (an X inverted). Active: `☉ M ▮▮▮ 0:30`, inverted. The tail: `☉ X tail 1:40`, hatched. A click, or **[O]**, opens the panel. In touch mode it rides the top bar after the clock, 44 px tall |
+| The flare pop-up `#flare-popup` | Opens at the telegraph, top centre under the swarm meter, 640 × 300 px at most. The head (the class as a range until 20 s in, the protons' clock), the arrays (fields, kW, the bank, the critical feed), three options with their previews (Keep all running · Stow all · Stow a portion: 25 · 50 · 75% · All but the feed, a 5% slider), `Repair stowed arrays after the flare` (on), `Use this choice for future X flares`, the hazards riding the flare's counters, and **Confirm** (or Enter; ← → move the slider). The destroyed count is bold; the choice is inverted; ⚠ marks a choice that darkens life support |
+| Its compact form | One line and **[Change]**: after Confirm, with a remembered choice, with the Builder deciding (**[Accept]** too), and for a C once one was answered. It does not pause |
+| Pausing | The full pop-up pauses an M or an X (the menu's *Pause on flare warnings*: M and X · All · Off). Confirm resumes. A debug run pauses only with `&flarepause` |
+| Touch | 563 × 262 px under the top bar: one row of six 44 px options (Keep all · 25% · 50% · 75% · All but feed · Stow all), the preview, `✓ Repair after` · `Remember for X` · `Fine…` (the slider), the ALSO chips, Confirm |
+| **[O]** `#weather-panel` | In the left column (the side sheet on touch), 360 px: the bulletin, NOW, EXPOSURE, AFTER THE LAST FLARE (wrecks and repairs, with Rebuild all, Clear all and Repair all), PROTOCOLS (the arrays' remembered choice per class: ask · run all · all but the feed · stow all · 50%, and Repair after), the LOG |
+| Inspector | A Solar Array: `FIELD F3 · 12 arrays · 120 kW · CAPABILITY 97% · stowed damage −5%`, **Repair 12⚙**, and its field's override: Follow the choice · Always stow · Always run. A wreck: `✕ WRECK — destroyed in the X flare, day 11` with **Rebuild 12◆** and **Clear +3◆** |
+| Power panel | During a flare: `☉ FLARE M — 18 arrays stowed (−180 kW), 6 running on the critical feed · the bank covers 0:55 ✓` |
+| World | A stowing wing turns edge-on in 10 s; a wreck hangs dark, 30° off its hinge |
 
 The first announcement is the `HAZARDS ARE LIVE` banner. The first of each
 kind brings a `NEW HAZARD` card with the drill. A destiny card with a risk
@@ -450,7 +466,8 @@ inspector, the rover inspector, a resource panel or the Builder panel, the tree 
 resumes as it was. It holds Resume · Save now · New mission (confirmed; the
 save is erased) · Graphics · Audio (Master, Music and Effects volumes, Mute) ·
 Guidance (discovery pop-ups and era explainers; *Pause on new hazards*,
-on by default; *Pause on every lethal warning*, off) · the Controls list.
+on by default; *Pause on every lethal warning*, off; *Pause on flare warnings*,
+M and X · All · Off, default M and X) · the Controls list.
 
 Graphics opens with the **render style**, a two-way control: **Classic**
 (the default — flat colours, the fixed isometric view, no effects, made to

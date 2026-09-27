@@ -1,7 +1,7 @@
 # 16 · Space weather: classed flares, a solar cycle, stow or risk, forecasts and shields
 
-**Status:** Phase A design, revision 2 (the player's answers, §17), on `work/flares`, from
-main `97e1373` with `e5ae67d` (docs/17) merged. No code yet. Phase B starts after **work/unitpower** (machine batteries) merges,
+**Status:** Phase A design, revision 2 (the player's answers, §17). **F1 and F2a shipped**
+on `work/flarecore` (§16, As shipped); F2b–F7 to come. Phase B started after **work/unitpower** (machine batteries) merged,
 since both change economy steps 1 and 8, `src/core/fleet.ts` and `src/core/hazards.ts`.
 Check these borrowed names again at merge: machine packs, `homeOf` and Rover Power Packs
 (work/unitpower); hubs, units, bays, pits and benches (docs/17); tap placement and the side
@@ -1631,14 +1631,59 @@ lines wait for them.
 
 | # | Phase | Contents | Leaves the game |
 |---|---|---|---|
-| F1 | **The engine and classes** | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes (a range until the peak), CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
-| F2a | **The pop-up and the arrays** | the flare pop-up (1280×720 and touch), its previews, Confirm, the compact form and the pause setting; the portion rule and the critical feed; remembered choices, field overrides and the safe default; the stow motion; running arrays destroyed and scarred; wrecks, Rebuild and Clear; stowed damage and field repair jobs; field berms on Regolith Shielding; `flareStance`; the power panel and dusk lines; migration step 5 | The player decides once per flare, and arrays pay for it |
+| F1 ✓ | **The engine and classes** (shipped) | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes (a range until the peak), CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
+| F2a ✓ | **The pop-up and the arrays** (shipped) | the flare pop-up (1280×720 and touch), its previews, Confirm, the compact form and the pause setting; the portion rule and the critical feed; remembered choices, field overrides and the safe default; the stow motion; running arrays destroyed and scarred; wrecks, Rebuild and Clear; stowed damage and field repair jobs; field berms on Regolith Shielding; `flareStance`; the power panel and dusk lines; migration step 5 | The player decides once per flare, and arrays pay for it |
 | F2b | **Scars and the rest of §4** | capability on buildings and machines, rad scars by class × (1 − σ)² × preparation, the inspector and panel lines, the 85% alert; Replace and Re-print; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute and Shut down exposed; the blackout; wear; DOSE and bit flips by class (§9); migration step 6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, every cost has a button, and neglect adds up |
 | F3 | **Forecasting** | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block, timeline and `Arrays: choose now…`; the telegraph bonuses | Planning grade |
 | F4 | **Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; the guard changes; kits, domes (over stowed fields too), the SHELTER block and the Dome tool; Flare Protocols (every row remembered, the tail row, the grid); `domeKits` and shelter planning; Maintenance Automation's replacement threshold | Every shield and counter |
 | F5 | **Benefits** | the four breakthroughs, their hosts and slots; implantation; the particle annex; the Shield Coil; CME sail windows and storm sails; the three insights | Flares pay back |
 | F6 | **Look and audio** | the speckle and the frame; the sky's flash and aurora; the stow tween and field berms; wrecks, repair poses and capability markers; bag walls and domes; glitch markers; the observatory, coil and sentinel dish recipes; the cues and the Geiger bed; touch polish | Finished |
 | F7 | **The pacing pass** | the probe against §12 on both sites and all three destinies; the levers of §12.4 | Tuned |
+
+### 16.1 As shipped: F1 and F2a
+
+**Where.** `src/data/spaceWeather.ts` (`SPACE_WEATHER`, `LEGACY_FLARE`),
+`src/core/spaceWeather.ts` (`weatherTick`, economy step 8), `src/ui/weatherPanel.ts` and
+`weather.css`, `tests/flares.spec.ts`. Hooks in economy steps 1, 2, 2.5, 3, 6 and 7
+(docs/02), hazards' `flareBlocks` and the forced DOSE, the Builder's `flareStance`
+and power book, the trackers (the stow pose), placement's refunds, the touch bar and sheet.
+
+**As designed:** the cycle (§3.4), the classes and their odds, rules 1–6, the telegraphs,
+the active phases, the X's tail, CMEs (288 s after the flash; the sail window is stored,
+unused until F5), the range until the peak (§6.2's draw), the spot-group watch, Earth's
+bulletin on the chip, morale and heliophysics data by class, the beam by class, the
+tube's `tubeShelter`, the pop-up and its previews, the portion rule, the critical feed,
+the five deciders in §5.4's order, remembered choices, field overrides, the safe default,
+running arrays destroyed (the rounded expected count, a draw by exposure) and scarred,
+stowed damage, wrecks with Rebuild and Clear, field repair jobs, field berms (a
+`stowShield` effect on Regolith Shielding), `flareStance`, the power panel line, the
+legacy mode, migration steps 1–5 (and 7's defaults, 10's alert). Seeds 42, 7 and 1234 give
+§3.5's classes exactly on forced era times.
+
+**Where it differs:**
+
+| Topic | As shipped | Why |
+|---|---|---|
+| Repairs, Rebuild, Clear | Each is a construction site on the array itself (`b.fix`, `b.wreck.job`), so the rover queue, transit and the visuals are the fleet's own. A repair queues behind every build; a field's arrays are worked in turn, several fields at once. A repaired array keeps its wing. The 4 kW is the construction draw at the array's priority | No new job kind in the fleet |
+| Drills and times | The first X's telegraph is also 60 s longer. §3.5's sequences come a minute later after the C drill, and another after the first X. Flare 0, the C drill, may fall in Era 2: rule 2's M is the first flare after it | A drill warns longer, as hazard drills do |
+| The watch | The class is looked at half a day ahead, in the era then. An X is locked and watched; a draw that turns X only because an era opened in that half day is an M | Never an X without its watch (fairness rule 1) |
+| Range and the form | The head, the previews and the remember box read the range's worse class until the peak. The deciders, the compact form and the pause read the flare's own class; the plan locks after the peak anyway | A remembered M should answer an M shown as M–X; a C should open small |
+| Night | With the sun down, every array counts as stowed for the damage, whatever the choice ("night self-stow") | The arrays make nothing to risk |
+| The feed holds | With *all but the feed*, the feed is recomputed every 5 s through the protons and the tail; as the bank drains, stowed arrays come back to carry it, for every decider | Life support stays lit when the bank runs out |
+| Rad-Hard Cells | F4. `mods.arrayHardMult` (1) is the hook; a test stand-in (`setWeatherStub({ arrayHard: 0.4 })`) checks berms + cells: X 4%, M 1%, no parts | Its tech is F4's |
+| flareStance | C always runs (the rule's C setting is not exposed); its T is the feed margin (1.0–1.5). It rebuilds wrecks within the rule reserve and the Governor's floors | The rule table has one threshold |
+| A wreck demolished | refunds the 25% salvage, as Clear, at once | Demolish cannot pay more than Clear |
+| The panel | NOW, EXPOSURE (arrays), AFTER THE LAST FLARE (Rebuild all, Clear all, Repair all), PROTOCOLS (the arrays' remembered choice per class, Repair after), LOG | NEXT, the timeline (F3) and SHELTER (F4) wait |
+| ALSO | the counters of the hazards riding the flare (Recall EVA, Dock fleet) | Recall machines, Checkpoint, Shut down, Domes are F2b and F4 |
+| First of a class | an alert, not a discovery card; it does not pause | the pop-up already pauses |
+| DOSE, bit flips | as before (F2b scales them); a forced DOSE starts an M | F2b |
+| The look | the wing turns edge-on in 10 s (1 Hz steps); a wreck hangs dark, 30° off its hinge | F6 polishes |
+| The sky | a flare no longer darkens the scene (`dayInfo` lost its flare argument) | the Sun does not stop |
+
+**The probe** plays the flares as a reasonable player (`scripts/probe-pacing.mjs`: C keep
+all running, M and X all but the critical feed, Repair after on, each class remembered the
+first time; `--auto=on` hands it to `flareStance`), and reports the flares by class, the
+arrays destroyed and the repair parts. `--flares=legacy` plays the old flare.
 
 ## 17. The player's answers, and what is still open
 

@@ -27,13 +27,20 @@ export interface Placed {
   dust?: number;
 }
 
-interface Slot { id: number; pivot: THREE.Vector3; s: number }
+/** stow: a flare's wing turn (0 tracking … 1 edge-on, docs/16 §5.7); wreck: hangs broken */
+interface Slot { id: number; pivot: THREE.Vector3; s: number; stow: number; wreck: boolean; yaw: number }
+
+/** a stowed wing stands edge-on, cells to the ground; a wreck hangs 30° off its hinge */
+const STOW_TILT = Math.PI / 2;
+const WRECK_TILT = Math.PI / 2 + Math.PI / 6;
+const Z = new THREE.Vector3(0, 0, 1);
 
 export class Trackers {
   readonly group = new THREE.Group();
   readonly meshes: Record<PartId, THREE.InstancedMesh>;
   private slots: Record<PartId, Slot[]> = { wing: [], wingXL: [], dish: [] };
   private seated = '';
+  private posed = '';
   private sunSeen = new THREE.Vector3(0, -2, 0);
   private stowSeen = -1;
   private earthQ = new THREE.Quaternion();
@@ -68,6 +75,9 @@ export class Trackers {
     const moved = seated !== this.seated;
     this.seated = seated;
     for (const part of PARTS) this.slots[part] = [];
+    // a flare's stow and its wrecks (docs/16 §5.7): re-aim when either changes
+    const posed = placed.map(({ b }) => (b.type === 'solar' ? `${(b.stowT ?? 0).toFixed(2)}${b.wreck ? 'w' : ''}` : '')).join(',');
+    if (posed !== this.posed) { this.posed = posed; this.sunSeen.set(0, -2, 0); }
     for (const { b, x, y, z, dust, mounts } of placed) {
       rot.setFromAxisAngle(UP, -b.rot * Math.PI / 2);
       for (const mount of mounts) {
@@ -75,9 +85,9 @@ export class Trackers {
         if (list.length >= MAX[mount.part]) continue;
         const pivot = new THREE.Vector3(...mount.p).applyQuaternion(rot).add(new THREE.Vector3(x, y, z));
         const i = list.length;
-        list.push({ id: b.id, pivot, s: mount.s });
+        list.push({ id: b.id, pivot, s: mount.s, stow: b.stowT ?? 0, wreck: !!b.wreck, yaw: -b.rot * Math.PI / 2 });
         const st = this.meshes[mount.part].geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
-        const lit = b.enabled && b.idleReason !== 'power' ? 1 : 0;
+        const lit = b.enabled && b.idleReason !== 'power' && !b.wreck ? 1 : 0;
         st.setXYZW(i, lit, b.type === 'solar' ? dust ?? b.dust : 0, b.wear, CUT_NONE);
       }
     }
@@ -110,10 +120,21 @@ export class Trackers {
     const azim = Math.atan2(sunDir.z, sunDir.x);
     const tilt = (Math.PI / 2 - Math.max(elev, MIN_ELEV)) * stow;
     this.q.setFromAxisAngle(UP, Math.PI / 2 - azim).multiply(this.qt.setFromAxisAngle(X, tilt));
+    const q2 = new THREE.Quaternion();
+    const pose = (sl: Slot) => {
+      if (sl.wreck) {
+        // hangs broken off its hinge, still where the sun last left it
+        return q2.setFromAxisAngle(UP, sl.yaw).multiply(this.qt.setFromAxisAngle(X, WRECK_TILT))
+          .multiply(new THREE.Quaternion().setFromAxisAngle(Z, 0.35));
+      }
+      if (sl.stow <= 0) return this.q;
+      // a flare: the wing turns on its hinge from sun-tracking to edge-on
+      return q2.setFromAxisAngle(UP, Math.PI / 2 - azim).multiply(this.qt.setFromAxisAngle(X, tilt + (STOW_TILT - tilt) * sl.stow));
+    };
     for (const part of ['wing', 'wingXL'] as PartId[]) {
       const wings = this.meshes[part];
       if (!wings.count) continue;
-      this.slots[part].forEach((sl, i) => wings.setMatrixAt(i, this.m.compose(sl.pivot, this.q, this.one)));
+      this.slots[part].forEach((sl, i) => wings.setMatrixAt(i, this.m.compose(sl.pivot, pose(sl), this.one)));
       wings.instanceMatrix.needsUpdate = true;
       wings.computeBoundingSphere();
     }
