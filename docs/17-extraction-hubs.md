@@ -1704,6 +1704,8 @@ repoint it without rewriting pits.
   - on the side away from the Lander.
 - **Dig at…** ground gets its pit at the dig site, or at the nearest free ground if
   the haul road ends there.
+- **Only excavators carve today.** The Ice Harvester is a static producer with no
+  haul, so ice pits wait for Phase 2's Ice Miners.
 - **Batches.** A pit carves at most every 5 game-s, once its rim would move 0.5 m or
   150 m³ is owed; the first cut comes at 40 m³. The timing uses the pits' own tick
   clock (`terrain.clock`), so live play and debug advances carve alike.
