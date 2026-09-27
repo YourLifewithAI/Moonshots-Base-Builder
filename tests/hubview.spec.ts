@@ -286,7 +286,7 @@ test('a selected hub lights its pit (rim, ore band), and its full and boxed-in s
   await page.evaluate(() => window.__game!.holdFaces('dep:ilmenite-0', 0));
 });
 
-test('the pole\'s water plant with no ice in reach is a warning, asked once', async ({ page }) => {
+test('the pole\'s water plant with no ice in reach carries NO ICE IN REACH; by a cold trap it lights the ice', async ({ page }) => {
   await start(page, { site: 'southpole' });
   const a = await page.evaluate(() => {
     const g = window.__game!;
@@ -352,7 +352,6 @@ test.describe('touch', () => {
   test('the phone: the first tap on a hub\'s card lights its ground; the HUB block rides the placement bar', async ({ page }) => {
     await start(page);
     await expect(page.locator('#touch-top')).toBeVisible();
-    const cls = () => page.evaluate(() => ['#t-hazards', '#t-builder', '#t-build'].map((q) => `${q}:${document.querySelector(q)?.className}`).join(' '));
     // the camera over a valid spot by high-Ti basalt #0
     const spot = await page.evaluate(() => {
       const s = spotBy('smelter', 'ilmenite-0', 14, 60)!;
@@ -416,7 +415,6 @@ test.describe('touch', () => {
     await page.waitForTimeout(1200);
     expect((await page.evaluate(() => window.__game!.getHighlight())).light?.source).toBe('selected');
     await expect(page.locator('.deposit-mark.hl-lit').first()).toBeVisible();
-    console.log('marks', await page.locator('.deposit-mark').allInnerTexts(), await cls());
     await shot(page, 'touch-smelter-selected');
   });
 });
