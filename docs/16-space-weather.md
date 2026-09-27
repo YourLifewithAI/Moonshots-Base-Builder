@@ -345,7 +345,7 @@ machine a transit trip is carrying (docs/15 §6a). A machine at a dock takes the
 | Outcome | What happens | Undo |
 |---|---|---|
 | **Reboot** | It stops where it is: 20 s (C), 40 s (M), 60 s (X). At M and X **the job's work is lost**: a unit's bucket is dumped at its face, a survey restarts its core, a weld stops for the reboot, a drone lands for it and flies on. | none: it resumes |
-| **Latch-up** (X) | **Bricked** where it stands. Its dock re-flashes it over the radio, 1 per 30 s (a Hive 2), as FIRMWARE does (`src/core/hazards.ts:1546-1570`). **Lost if not re-flashed within 480 s.** | the re-flash queue; more docks |
+| **Latch-up** (X) | **Bricked.** It drops its job and limps home in safe mode, as FIRMWARE's bricked rovers do (docs/17 §16.5). Its dock re-flashes it in its cradle, 1 per 30 s (a Hive 2), `src/core/hazards.ts:1546-1570`. **Lost if not re-flashed within 480 s.** | the re-flash queue; more docks |
 | **Burn-out** (X) | **Lost at once.** Logged as a machine loss (`LossRecord`, cause the flare, docs/14 §3.10). The dock reprints it (10◆ 15⚙, 120 s); a hub reprints a unit at its price (docs/17 §4.2). | none |
 
 - **Fault-Tolerant Avionics** (§7.1): reboot odds and times ×0.5, and an X's latch-ups
@@ -355,7 +355,8 @@ machine a transit trip is carrying (docs/15 §6a). A machine at a dock takes the
 - **Machine batteries** (work/unitpower): a machine rebooting on its pack keeps its
   charge. A unit on a **Radioisotope Power Unit** reboots in half the time, since its
   computer never loses power, but its electronics glitch like any other: the RPU is
-  rad-tolerant, the avionics are not. A latched RPU unit cannot drive home either.
+  rad-tolerant, the avionics are not. A latched machine with a flat pack cannot limp
+  home: it waits where it stands, and its deadline still runs.
 - **The recall** (§7.4) is the counter: a machine home before the active phase is
   behind its dock's σ.
 
