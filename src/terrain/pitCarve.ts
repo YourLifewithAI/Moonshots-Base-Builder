@@ -74,7 +74,7 @@ let dist = new Float32Array(0);     // m to the nearest blocked sample
 let own = new Uint8Array(0);        // this pit's (or heap's) own samples
 let stack = new Int32Array(0);
 let cIdx = new Int32Array(0), cRho = new Float32Array(0), cCap = new Float32Array(0);
-let cAlong = new Float32Array(0), cCur = new Int16Array(0);
+let cAlong = new Float32Array(0), cPerp = new Float32Array(0), cCur = new Int16Array(0);
 let line = new Float64Array(0), lineOut = new Float64Array(0), lineZ = new Float64Array(0);
 let lineV = new Int32Array(0);
 
@@ -83,7 +83,7 @@ function ensure(n: number, side: number) {
     cap = n;
     blocked = new Uint8Array(n); dist = new Float32Array(n); own = new Uint8Array(n);
     stack = new Int32Array(n); cIdx = new Int32Array(n); cRho = new Float32Array(n);
-    cCap = new Float32Array(n); cAlong = new Float32Array(n); cCur = new Int16Array(n);
+    cCap = new Float32Array(n); cAlong = new Float32Array(n); cPerp = new Float32Array(n); cCur = new Int16Array(n);
   }
   if (side + 1 > line.length) {
     line = new Float64Array(side + 1); lineOut = new Float64Array(side + 1);
@@ -315,11 +315,11 @@ function gatherPit(hf: Heightfield, win: Win, p: PitShape, rHi: number) {
       cRho[nCand] = Math.sqrt(d2);
       cCap[nCand] = dist[l] / 2;
       cCur[nCand] = -cur;
-      // the ramp's band: 8 m wide along its line, within 4L below its top (tested per R)
+      // along and across the ramp's line (its band is tested per R: within 4L below its top)
       const ax = x - p.ox, az = z - p.oz;
       const along = ax * p.ux + az * p.uz;
-      const perp = Math.abs(-ax * p.uz + az * p.ux);
-      cAlong[nCand] = perp <= PIT.rampHalfW && along >= -Lr - 8 ? along : NaN;
+      cAlong[nCand] = along >= -Lr - 8 ? along : NaN;
+      cPerp[nCand] = Math.abs(-ax * p.uz + az * p.ux);
       nCand++;
     }
   }
@@ -330,7 +330,7 @@ function rampTop(p: PitShape, R: number): number {
   let A = p.A;
   for (let i = 0; i < nCand; i++) {
     const a = cAlong[i];
-    if (a !== a || a <= A) continue; // NaN: not in the band
+    if (a !== a || a <= A || cPerp[i] > PIT.rampHalfW) continue; // NaN: behind the ramp
     if (bench(Math.min((R - cRho[i]) / 2, cCap[i])) > 0) A = a;
   }
   return A;
@@ -342,7 +342,9 @@ function pitTarget(i: number, p: PitShape, Ldm: number, R: number, A: number): n
   if (t <= 0) return 0;
   const a = cAlong[i];
   if (a === a && a <= A && a >= A - p.L * PIT.rampRun) {
-    t = Math.min(t, Math.round(((A - a) / PIT.rampRun) * 10));
+    // the ramp's surface at 1:4 down its line, its sides falling away at 1:2
+    const side = Math.max(0, cPerp[i] - PIT.rampHalfW) / 2;
+    t = Math.min(t, Math.round(((A - a) / PIT.rampRun + side) * 10));
   }
   return t;
 }

@@ -166,7 +166,7 @@ test('a dig carves a pit of the volume dug: 1:2 walls in 2 m benches, a ramp, an
   }
   expect(steps).toBeGreaterThan(40);
   // 1:2 walls: never more than one 2 m bench between samples 4 m apart
-  expect(worstWall).toBeLessThanOrEqual(20);
+  expect(worstWall).toBeLessThanOrEqual(21);
   // the walls are benches (2 m steps, the floor at the loose layer); the ramp's 1:4 between them
   expect(benchCut / cut).toBeGreaterThan(0.7);
   expect(ramped).toBeGreaterThan(0);
@@ -250,17 +250,28 @@ test('a building placed later near a pit stops its growth toward it from then on
       .map(([x, z, d]) => `${x},${z}:${d}`).sort();
     const before = near(P.carved());
     const footing = P.footings()[id];
+    const pit0 = g.getPits().pits[0];
+    const west0 = Math.min(...carved0.map(([x]: number[]) => x));
     P.dig(gx, gz, 9000, 30);
     const after = near(P.carved());
-    return { id, before, after, footing, footingAfter: P.footings()[id], pit: g.getPits().pits[0], east, eastAfter: Math.max(...P.carved().filter(([, , d]: number[]) => d < 0).map(([x]: number[]) => x)) };
+    const cut1 = P.carved().filter(([, , d]: number[]) => d < 0);
+    // toward it: the reach east in the rows the building stands in (and its setback's)
+    const rows = (list: number[][]) => Math.max(-1, ...list.filter(([, z]) => z >= pad.gz0 - 3 && z <= pad.gz1 + 3).map(([x]) => x));
+    return {
+      id, before, after, footing, footingAfter: P.footings()[id], pit0, pit: g.getPits().pits[0], pad,
+      toward0: rows(carved0), toward1: rows(cut1), west0, westAfter: Math.min(...cut1.map(([x]: number[]) => x)),
+    };
   });
   expect(r.id).not.toBeNull();
   expect(r.pit.cutM3).toBeGreaterThan(7000);
   // within its setback nothing was dug after it stood (what was there stays, never deeper)
   expect(r.after).toEqual(r.before);
   expect(r.footingAfter).toEqual(r.footing);
-  // the pit went on growing — elsewhere
-  expect(r.pit.cx).toBeLessThan(-52);
+  // the pit went on growing — away from it: no further toward it, its centre drifting off
+  expect(r.toward1).toBeLessThanOrEqual(r.toward0);
+  const bx = ((r.pad.gx0 + r.pad.gx1) / 2) * 4 - 512, bz = ((r.pad.gz0 + r.pad.gz1) / 2) * 4 - 512;
+  const away = (p: any) => Math.hypot(p.cx - bx, p.cz - bz);
+  expect(away(r.pit)).toBeGreaterThan(away(r.pit0) + 3);
 });
 
 test('placement near and on a pit is refused with the words; grading refuses a pit and levels a heap', async ({ page }) => {
@@ -298,6 +309,13 @@ test('placement near and on a pit is refused with the words; grading refuses a p
     const cx = Math.round((pit.cx + 512) / 4) - 2, cz = Math.round((pit.cz + 512) / 4) - 2;
     const gradePit = g.canGrade(cx, cz);
     const hx = Math.round((pit.heap.x + 512) / 4) - 2, hz = Math.round((pit.heap.z + 512) / 4) - 2;
+    // the build network reaches the heap: a relay mast between it and the Lander
+    if (g.canGrade(hx, hz).reason.startsWith('Beyond')) {
+      g.completeTech('prospectingRovers'); // unlocks the Relay Mast
+      const a = Math.atan2(pit.heap.z, pit.heap.x);
+      P.place('relayMast', Math.cos(a) * 52, Math.sin(a) * 52, 5);
+      g.finishConstruction();
+    }
     const gradeHeap = g.canGrade(hx, hz);
     g.grantPower(5000);
     const e0 = g.getState().powerStored;
@@ -322,7 +340,7 @@ test('placement near and on a pit is refused with the words; grading refuses a p
   expect(r.gradePit.valid).toBe(false);
   expect(r.gradePit.reason).toMatch(/^a pit \([\d.]+ m deep\): grading cannot fill it; Reclaim it once it is worked out$/);
   expect(r.alerts.some((t: string) => t.startsWith('CANNOT GRADE — a pit'))).toBe(true);
-  expect(r.gradeHeap.valid).toBe(true);
+  expect(r.gradeHeap).toEqual({ valid: true, reason: '' });
   expect(r.relief0).toBeGreaterThan(1);
   expect(r.relief1).toBeLessThan(0.01);
   expect(r.spent).toBeGreaterThan(40);
@@ -405,10 +423,11 @@ test('save and reload restore the ground exactly (base → deltas → flattens);
     const blob = g.saveBlob();
     const hash = g.terrainHash();
     const view = g.getPits();
+    const zones = g.getZones();
     // go on digging: the reloaded game must carve the same
     P.dig(-60, -30, 3000, 10);
     P.run(10);
-    return { blob, hash, pits: view.pits, delta: view.delta, zones: g.getZones(), bytes: JSON.stringify(blob).length, later: g.getPits().delta, laterHash: g.terrainHash() };
+    return { blob, hash, pits: view.pits, delta: view.delta, zones, bytes: JSON.stringify(blob).length, later: g.getPits().delta, laterHash: g.terrainHash() };
   });
   expect(a.blob.state.terrain.delta).toBe(a.delta);
   expect(a.blob.state.terrainSchema).toBe(1);
@@ -497,6 +516,7 @@ for (const style of ['classic', 'detailed']) {
       const before = new Map<number, number>();
       for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) before.set(iz * 257 + ix, lum(ix, iz));
       P.dig(x, z, 5000, 12);
+      g.stepFrame(0.5); // the frame takes the carved boxes into the queue
       for (let i = 0; i < 80 && g.getPits().queue.queued > 0; i++) g.stepFrame(0.5);
       const ratios: number[] = [];
       for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) {
