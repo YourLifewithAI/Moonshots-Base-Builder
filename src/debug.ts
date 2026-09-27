@@ -129,6 +129,18 @@ function api(game: Game) {
     setFxLevel: (n: number) => (game as any).post.setLevel(n),
     degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
+    /** the render report (the menu's Copy render report), as data */
+    getRenderReport: () => clone(game.renderReport()),
+    /** run the FX self-check on the next drawn frame; getFxChecks() gains a result */
+    fxCheckNext: () => game.debugFxCheckNext(),
+    getFxChecks: () => game.debugFxChecks(),
+    /** automatic self-checks (boot, level changes) on or off */
+    setFxCheckAuto: (on: boolean) => game.debugSetFxCheckAuto(on),
+    /** make FX `level` draw wrong: 'player' (the report: black ground, flat grey hulls),
+     *  'zero' (black landscape), 'nan' (NaN in the hulls' light); null mends it */
+    debugBreakFx: (level: number | null, mode?: 'player' | 'zero' | 'nan') => game.debugBreakFx(level, mode),
+    /** the HDR sanitiser on or off */
+    setFxSanitize: (on: boolean) => game.debugSetSanitize(on),
     /** the work animations (docs/06 §7): per rover its mode, arm (unfold, yaw,
      *  reach, tip) and spark; per drone its spark; per excavator its wheel and
      *  boom angles; the kit and glow instance counts */

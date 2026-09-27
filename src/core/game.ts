@@ -66,7 +66,11 @@ import { ClassicLighting } from '../world/classicLighting';
 import { installClassic } from '../world/classic';
 import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBuilding';
 import { Sky } from '../world/sky';
-import { PostFX } from '../world/post';
+import { FX_PLAIN, PostFX } from '../world/post';
+import { FxSelfCheck, type FxCheckResult } from '../world/fxcheck';
+import { REPORT_EXTENSIONS, diagnosticTargets } from '../world/fxcaps';
+import { applyFxBreak, fxBreak, sanitizeUniform, setFxBreak, type FxBreak } from '../world/fxguard';
+import { copyText, gpuStrings, installRenderLog, logRender, pollGlErrors, renderLog } from '../world/renderReport';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
 import { materials, PATCH_MARKER } from '../world/materials';
@@ -194,6 +198,7 @@ export class Game {
     this.classic = opts.style === 'classic';
     setActiveStyle(opts.style);
     materials.setClassic(this.classic);
+    installRenderLog();
     this.renderer = createRenderer(canvas, this.classic);
     this.watchRenderTargets();
     if (this.classic) installClassic();
@@ -205,9 +210,15 @@ export class Game {
       lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe, classic: this.classic,
     });
     this.post.onIssue = (msg) => {
+      logRender('alert', msg);
       if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
     };
-    this.scene.onBeforeRender = () => { this.sceneRenders++; };
+    // the capability floor held the boot below the stored/chosen level: the
+    // menu says why (the level itself never failed, so it is not remembered)
+    if (this.post.capHeld !== null && this.post.caps) this.fxReason = this.post.caps.floorReason;
+    if (!this.classic) this.fxCheck = new FxSelfCheck(this.renderer, this.scene, this.camera, this.post.caps?.halfFloat.ok ?? false);
+    // the self-check's own two renders are not the frame's
+    this.scene.onBeforeRender = () => { if (!this.inFxCheck) this.sceneRenders++; };
     // scene shader patches ride the same ladder as the post chain (safe mode
     // draws unlit twins, so the ladder level stays theirs to return to)
     if (opts.fx !== undefined) materials.clearFault();
@@ -221,13 +232,17 @@ export class Game {
       }
       materials.setFxLevel(level);
       if (!this.classic) this.rocks?.setFxLevel(level);
+      logRender('fx', `FX ${level} (${cause}${reason ? `: ${reason}` : ''})`);
       // a raise is checked on the next frames that can tell; a new rung soon
       this.reprobe(this.post.onTrial ? 2 : 40);
+      // …and the self-check compares the new level's frame with the plain path
+      this.scheduleFxCheck();
     };
     // a program that fails to compile is reported here (replacing three's
     // console dump); the response waits until the frame has finished
     this.renderer.debug.onShaderError = (gl, program, vs, fs) => {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
+      // (the console mirror files this in the render log too)
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
       const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
@@ -419,6 +434,7 @@ export class Game {
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
     this.nextProbe = 40;
+    this.scheduleFxCheck(30);
     if (this.safeMode) {
       this.safeMode = false; // fresh world = fresh materials; re-apply
       this.enableSafeMode(this.safeAuto, false);
@@ -1224,6 +1240,16 @@ export class Game {
   /** black-frame probe verdicts so far (tests, probes) */
   private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
+  /** the FX self-check (world/fxcheck.ts): High detail only; due at boot and
+   *  after every level change, on a frame at FX 0–2 */
+  private fxCheck: FxSelfCheck | null = null;
+  private fxCheckDue = false;
+  private fxCheckAt = 0;
+  private fxCheckTries = 0;
+  /** debug: automatic checks off (an explicit fxCheckNext still runs one) */
+  private fxCheckAuto = true;
+  private fxCheckForced = false;
+  private inFxCheck = false;
   private shaderFault: 'patch' | 'classic' | 'other' | null = null;
   /** the last drawn frame's totals over every pass (shadow map included) */
   private frameStats = { calls: 0, triangles: 0, points: 0, lines: 0 };
@@ -1236,7 +1262,7 @@ export class Game {
     const r = this.renderer;
     const set = r.setRenderTarget.bind(r);
     r.setRenderTarget = (target, ...rest) => {
-      if (target) this.targetTypes.add((target.texture as THREE.Texture).type);
+      if (target && !diagnosticTargets.has(target)) this.targetTypes.add((target.texture as THREE.Texture).type);
       set(target, ...rest);
     };
   }
@@ -1283,7 +1309,57 @@ export class Game {
     // driver failures. Only a frame drawn just now can be read back.
     if (!this.playing) return;
     this.playFrames++;
+    if (drawn && this.fxCheckDue && this.playFrames >= this.fxCheckAt) this.runFxCheck();
     if (drawn && this.playFrames >= this.nextProbe) this.probeFrame();
+  }
+
+  /** The self-check is due `frames` from now (the level has settled by then:
+   *  its programs compiled, its first frames drawn). */
+  private scheduleFxCheck(frames = 20) {
+    if (this.classic) return;
+    this.fxCheckDue = true;
+    this.fxCheckTries = 0;
+    this.fxCheckAt = this.playFrames + frames;
+  }
+
+  /** Compare the frame just drawn with the plain path (world/fxcheck.ts). A
+   *  gross deviation fails the level like a black frame does: a raise on
+   *  trial goes back, anything else steps one rung down — and the next
+   *  level is checked the same way. Inconclusive views are retried. */
+  private runFxCheck() {
+    this.fxCheckDue = false;
+    const forced = this.fxCheckForced;
+    this.fxCheckForced = false;
+    const level = this.post.fxLevel;
+    if (!this.fxCheck || this.safeMode || level >= FX_PLAIN || !this.post.chainBuilt) return;
+    if (!this.fxCheckAuto && !forced) return;
+    let res: FxCheckResult | null = null;
+    try {
+      res = this.fxCheck.run(level, (on) => { this.inFxCheck = on; applyFxBreak(level, on); });
+    } catch (e) {
+      console.warn('[MOONSHOTS] FX self-check could not run.', e);
+    } finally {
+      this.inFxCheck = false;
+      applyFxBreak(level);
+    }
+    pollGlErrors(this.renderer.getContext(), 'FX self-check');
+    if (!res) return;
+    const m = res.metrics;
+    const summary = `lost ${m.lost}, gained ${m.gained}, flat ${m.flat}, mean ×${m.meanRatio}, hist ${m.hist}`
+      + `${res.hdr ? `, NaN ${res.hdr.nan}, max ${res.hdr.max}` : ''}, ${res.ms} ms`;
+    if (res.verdict === 'unknown') {
+      if (++this.fxCheckTries < 20) { this.fxCheckDue = true; this.fxCheckAt = this.playFrames + 120; }
+      return;
+    }
+    this.fxCheckTries = 0;
+    if (res.verdict === 'pass') {
+      console.log(`[MOONSHOTS] FX self-check: level ${level} passed (${summary})`);
+      logRender('fx', `self-check passed at FX ${level}: ${summary}`);
+      return;
+    }
+    const why = res.reasons.join('; ');
+    console.warn(`[MOONSHOTS] FX self-check: level ${level} failed (${why}; ${summary})`);
+    this.renderFailed(`FX self-check: ${why}`);
   }
 
   /** Black-screen sentinel: some drivers fail shaders silently instead of
@@ -1434,6 +1510,7 @@ export class Game {
     this.post.setSafe(false);
     this.lighting.requestShadowUpdate();
     this.reprobe(2);
+    this.scheduleFxCheck();
   }
 
   get safeModeOn(): boolean { return this.safeMode; }
@@ -1460,6 +1537,92 @@ export class Game {
       safe: this.safeMode, safeAuto: this.safeAuto, floor: this.opts.lowfx ? 2 : 0,
     };
   }
+
+  /** The render report (menu → Copy render report): what this GPU and
+   *  browser are, what the ladder did and why, the self-check's numbers and
+   *  the render log. Plain data, JSON-ready. */
+  renderReport() {
+    const gl = this.renderer.getContext();
+    pollGlErrors(gl, 'report');
+    const caps = this.post.caps;
+    const supported = new Set(gl.getSupportedExtensions() ?? []);
+    const s = loadSettings();
+    const attrs = gl.getContextAttributes();
+    return {
+      report: 'Moonshots Base Builder render report',
+      generated: new Date().toISOString(),
+      page: location.pathname + location.search,
+      userAgent: navigator.userAgent,
+      devicePixelRatio: window.devicePixelRatio,
+      gpu: gpuStrings(this.renderer),
+      webgl: {
+        webgl2: caps?.webgl2 ?? (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext),
+        extensions: caps?.extensions ?? Object.fromEntries(REPORT_EXTENSIONS.map((e) => [e, supported.has(e)])),
+        supportedCount: supported.size,
+        precision: caps?.precision ?? null,
+        maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE) as number,
+        maxSamples: this.renderer.capabilities.maxSamples,
+        context: { antialias: attrs?.antialias ?? null, alpha: attrs?.alpha ?? null, powerPreference: attrs?.powerPreference ?? null },
+        drawingBuffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
+        pixelRatio: this.renderer.getPixelRatio(),
+      },
+      style: this.opts.style,
+      fx: {
+        level: this.post.fxLevel,
+        ladder: this.post.ladderLevel,
+        stored: this.post.storedLevel,
+        choice: s.fx,
+        failed: [...this.fxFailed].sort(),
+        reason: this.fxReason,
+        onTrial: this.post.onTrial,
+        chainBuilt: this.post.chainBuilt,
+        sanitizer: this.post.sanitizer,
+        lowfx: this.opts.lowfx,
+        capFloor: caps?.floor ?? null,
+        capFloorReason: caps?.floorReason ?? '',
+        capHeld: this.post.capHeld,
+        halfFloatProbe: caps?.halfFloat ?? null,
+        debugBreak: fxBreak(),
+      },
+      safe: { on: this.safeMode, auto: this.safeAuto, stored: s.safe, storedAuto: s.safeAuto },
+      patches: materials.variants(),
+      patchFault: materials.patchesFaulted,
+      selfCheck: this.fxCheck ? this.fxCheck.history.map((r) => ({ ...r })) : [],
+      probes: { ...this.probes },
+      framesDrawn: this.framesDrawn,
+      log: renderLog(),
+    };
+  }
+
+  /** Copy the report to the clipboard and print it; false when the browser
+   *  refused the clipboard (it is in the console either way). */
+  async copyRenderReport(): Promise<boolean> {
+    const text = JSON.stringify(this.renderReport(), null, 2);
+    console.log(`[MOONSHOTS] Render report\n${text}`);
+    return copyText(text);
+  }
+
+  /** Run the FX self-check on the next drawn frame (tests, probes). */
+  debugFxCheckNext() {
+    this.fxCheckForced = true;
+    this.fxCheckDue = true;
+    this.fxCheckTries = 0;
+    this.fxCheckAt = this.playFrames + 1;
+  }
+
+  /** The self-check's results so far, newest last. */
+  debugFxChecks(): FxCheckResult[] {
+    return this.fxCheck ? this.fxCheck.history.map((r) => JSON.parse(JSON.stringify(r))) : [];
+  }
+
+  /** Automatic self-checks on or off (an explicit debugFxCheckNext still runs). */
+  debugSetFxCheckAuto(on: boolean) { this.fxCheckAuto = on; }
+
+  /** Make FX `level` draw wrong the way a faulty GPU would (null: mend it). */
+  debugBreakFx(level: number | null, mode: FxBreak = 'player') { setFxBreak(level, mode); }
+
+  /** The HDR sanitiser on or off (a test that shows what it stops). */
+  debugSetSanitize(on: boolean) { sanitizeUniform.value = on; }
 
   /** check `frames` from now (unless a probe is holding the check off) */
   private reprobe(frames = 40) {

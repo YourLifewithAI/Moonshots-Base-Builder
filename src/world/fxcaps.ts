@@ -20,7 +20,7 @@ import * as THREE from 'three';
 
 /** Render targets made for probes and checks (kept out of the chain's
  *  render-target census, game.ts watchRenderTargets). */
-export const diagnosticTargets = new WeakSet<THREE.WebGLRenderTarget>();
+export const diagnosticTargets = new WeakSet<object>();
 
 /** Extensions the report lists (the chain's, and the ones that explain it). */
 export const REPORT_EXTENSIONS = [
