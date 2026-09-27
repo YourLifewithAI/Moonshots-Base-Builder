@@ -7,9 +7,15 @@
  *    level 3 — plain forward rendering, AgX in the material shaders                (composer unsupported)
  *
  *  Scene shader patches follow the same ladder (see world/materials.ts). The
- *  black-frame sentinel in game.ts drives descent; a throwing composer
- *  descends too. The working level persists to localStorage so later launches
- *  boot straight into it — no black flash while re-discovering.
+ *  black-frame sentinel and the FX self-check (world/fxcheck.ts) in game.ts
+ *  drive descent; a throwing composer descends too. The working level
+ *  persists to localStorage so later launches boot straight into it — no
+ *  black flash while re-discovering. The boot level is never better than
+ *  the capability floor (world/fxcaps.ts): FX 0 needs half-float buffers
+ *  that render, blend and filter; FX 0–1 need float targets for the AO.
+ *
+ *  FX 0's HDR frame is sanitised before anything blurs it (world/fxguard.ts):
+ *  inside N8AO's composite, or as a pass of its own without N8AO.
  *
  *  A raise (menu, ?fx=, debug) is a trial: the level it left stays stored
  *  until a probe of the new one passes (confirm), and a failure goes straight
@@ -26,6 +32,8 @@ import {
   SMAAEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
+import { probeCaps, type FxCaps } from './fxcaps';
+import { applyFxBreak, hardenN8AO, sanitizePass } from './fxguard';
 
 const STORE_KEY = 'mbb-fx-level';
 export const FX_PLAIN = 3;
@@ -59,6 +67,8 @@ export interface PostOptions {
   fxOverride?: number;
   /** the player's own level (menu): never boot above it */
   fxChoice?: number;
+  /** skip the capability probe (tests of a GPU without it); default: probe */
+  caps?: FxCaps;
   /** safe render mode from the first frame: no composer at all */
   safe?: boolean;
   /** the classic render style: plain forward rendering, no ladder */
@@ -78,6 +88,12 @@ export class PostFX {
   private readonly classic: boolean;
   /** scene render errors already reported (each is reported once) */
   private sceneFaults = new Set<string>();
+  /** what this GPU can run (null in classic, which never asks) */
+  readonly caps: FxCaps | null = null;
+  /** the level the capability floor held the boot at, when it did */
+  readonly capHeld: number | null = null;
+  /** where FX 0's sanitiser sits in the chain built now */
+  sanitizer: 'n8ao' | 'pass' | 'none' = 'none';
   /** surfaced into the in-game alert stack so players see render issues without F12 */
   onIssue?: (msg: string) => void;
   /** every change of the ladder level; `failed` = the levels that just
@@ -98,7 +114,13 @@ export class PostFX {
       console.log('[MOONSHOTS] Classic render style — forward rendering to the canvas, no post chain');
       return;
     }
-    this.level = Math.min(FX_PLAIN, Math.max(this.saved, opts.lowFx ? 2 : 0, opts.fxChoice ?? 0));
+    this.caps = opts.caps ?? probeCaps(renderer);
+    const wanted = Math.min(FX_PLAIN, Math.max(this.saved, opts.lowFx ? 2 : 0, opts.fxChoice ?? 0));
+    this.level = Math.max(wanted, this.caps.floor);
+    if (this.level > wanted) {
+      this.capHeld = this.level;
+      console.warn(`[MOONSHOTS] FX ${wanted} unavailable on this GPU — ${this.caps.floorReason}; booting at FX ${this.level}.`);
+    }
     const o = opts.fxOverride;
     if (o !== undefined && Number.isFinite(o)) this.moveTo(Math.min(FX_PLAIN, Math.max(0, Math.round(o))));
     console.log(`[MOONSHOTS] FX level ${this.fxLevel} (0=full … 3=plain)${this.safe ? ' — safe mode' : ''}`);
@@ -141,6 +163,7 @@ export class PostFX {
     if (!this.composer) return;
     try { this.composer.dispose(); } catch { /* best effort */ }
     this.composer = null;
+    this.sanitizer = 'none';
     // the composer leaves autoClear disabled; plain rendering needs it back
     this.renderer.autoClear = true;
     this.renderer.setRenderTarget(null);
@@ -153,6 +176,7 @@ export class PostFX {
       const frameBufferType = this.level === 0 ? THREE.HalfFloatType : THREE.UnsignedByteType;
       const composer = new EffectComposer(this.renderer, { frameBufferType });
       composer.addPass(new RenderPass(this.scene, this.camera));
+      this.sanitizer = 'none';
       if (this.level < 2) {
         try {
           const ao = new N8AOPostPass(this.scene, this.camera, window.innerWidth, window.innerHeight);
@@ -168,9 +192,22 @@ export class PostFX {
           ao.configuration.halfRes = true;
           ao.configuration.depthAwareUpsampling = true;
           ao.setQualityMode('Medium');
+          if (hardenN8AO(ao)) this.sanitizer = 'n8ao';
+          else console.warn('[MOONSHOTS] N8AO composite not hardened (shader anchors moved) — sanitising in a pass of its own.');
           composer.addPass(ao);
         } catch (e) {
           console.warn('[MOONSHOTS] Ambient occlusion unavailable, continuing without it.', e);
+        }
+      }
+      if (this.level === 0 && this.sanitizer !== 'n8ao') {
+        // no N8AO to carry it: the sanitiser gets a pass of its own, right
+        // after the scene (before AO's absence matters, before bloom)
+        try {
+          const pass = sanitizePass();
+          composer.addPass(pass, 1);
+          this.sanitizer = 'pass';
+        } catch (e) {
+          console.warn('[MOONSHOTS] HDR sanitiser unavailable.', e);
         }
       }
       if (this.level === 0) {
@@ -281,6 +318,7 @@ export class PostFX {
 
   /** Draw a frame; false when nothing was drawn (the frame is not probed). */
   render(dt: number): boolean {
+    applyFxBreak(this.fxLevel);
     if (this.composer) {
       try {
         this.composer.render(dt);

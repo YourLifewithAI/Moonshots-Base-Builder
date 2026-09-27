@@ -19,6 +19,7 @@ import { inside, worldRect } from './paths';
 import { spurLeft, spurSeconds } from './roads';
 import { PROSPECTS } from '../data/lunarMap';
 import { packLine } from './unitPower';
+import { hubViews } from './hubView';
 
 const G = RESOURCES.regolith.glyph;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -186,5 +187,5 @@ export function fleetView(
       rate: trip.rate, homeRate: homeTrip.rate, waiting, nearby, pack,
     };
   }
-  return { rovers, sites, hauls };
+  return { rovers, sites, hauls, ...hubViews(s, mods, site) };
 }

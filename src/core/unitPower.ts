@@ -18,25 +18,33 @@
  *    served — a unit not full draws its charger's kW: one more load at its
  *    priority, so triage decides who charges in a shortage.
  *
- *  The pack rides on the unit (RoverUnit) or the excavator's haul
- *  (HaulState), never on a pad. The extraction hubs of docs/17 repoint
- *  `homeOf` and `chargeSpotOf`; nothing else here knows where home is.
+ *  The pack rides on the unit (RoverUnit) or the digger's haul
+ *  (HaulState), never on a pad. A hub's units (docs/17) call their hub home
+ *  and charge in its bays (`homeOf`, `chargeSpotOf`); nothing else here knows
+ *  where home is.
  *
  *  Pure and deterministic: roster order, building order; O(units) a tick. */
 import { UNIT_POWER } from '../data/balance';
-import type { BuildingState, GameState, HaulState, PackState, RoverUnit } from './state';
+import type { BuildingState, GameState, HaulState, Hauler, PackState, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { centerOf } from '../buildings/instances';
 import { isDrone, roverDown, surveyRover } from './fleet';
 import { arrived, dronePads, padPoint } from './transit';
+import { bayPoint, hubOf } from './hubs';
 
-/** The three kinds of unit that carry a pack. */
+/** The three kinds of pack. */
 export type PackKind = 'rover' | 'drone' | 'digger';
 
-/** A unit with a pack: a roster unit (a rover or a drone), or an excavator (its haul carries the pack). */
+/** A unit with a pack: a roster unit (a rover or a drone), a legacy
+ *  excavator pad (its haul carries the pack), or a hub's unit (docs/17: its
+ *  haul carries it too; a digger's pack). */
 export type PackUnit =
   | { kind: 'rover' | 'drone'; unit: RoverUnit; pack: PackState }
-  | { kind: 'digger'; b: BuildingState; pack: HaulState };
+  | { kind: 'digger'; b: BuildingState; pack: HaulState }
+  | { kind: 'hauler'; h: Hauler; pack: HaulState };
+
+/** The pack a unit carries: a hub unit's is a digger's. */
+export const powerKind = (u: PackUnit): PackKind => (u.kind === 'hauler' ? 'digger' : u.kind);
 
 type PackMods = Pick<Mods, 'packMult' | 'unitDriveMult' | 'chargeEff' | 'rpu'>;
 
@@ -69,22 +77,29 @@ export function packUnits(s: GameState): PackUnit[] {
     if (b.type !== 'excavator' || (b.construction ?? 0) > 0 || !b.haul) continue;
     out.push({ kind: 'digger', b, pack: b.haul });
   }
+  // hub units (docs/17), in id order: those whose hub stands
+  for (const h of s.haulers ?? []) if (hubOf(s, h)) out.push({ kind: 'hauler', h, pack: h.haul });
   return out;
 }
 
 /** Where a unit calls home: a rover's dock (the Lander, a Robotics Bay), a
- *  drone's Drone Hive, an excavator's own pad (the building itself). The one
- *  place the extraction hubs of docs/17 repoint. */
+ *  drone's Drone Hive, a legacy excavator's own pad (the building itself), a
+ *  hub unit's hub (docs/17 §4.3). */
 export function homeOf(s: Pick<GameState, 'buildings'>, u: PackUnit): BuildingState | null {
   if (u.kind === 'digger') return u.b;
+  if (u.kind === 'hauler') return s.buildings.find((b) => b.id === u.h.hub) ?? null;
   return s.buildings.find((b) => b.id === u.unit.home) ?? null;
 }
 
 /** Where a unit plugs in at home (world metres): the dock it parks at, its
- *  hive pad, its excavator pad's centre. Null: no home. */
+ *  hive pad, its excavator pad's centre, a hub unit's bay. Null: no home. */
 export function chargeSpotOf(s: GameState, u: PackUnit): { at: BuildingState; x: number; z: number } | null {
   const at = homeOf(s, u);
   if (!at) return null;
+  if (u.kind === 'hauler') {
+    const [x, z] = bayPoint(s, at, u.h.bay);
+    return { at, x, z };
+  }
   if (u.kind === 'drone') {
     const [x, z] = padPoint(at, dronePads(s).get(u.unit.id) ?? 0);
     return { at, x, z };
@@ -94,11 +109,13 @@ export function chargeSpotOf(s: GameState, u: PackUnit): { at: BuildingState; x:
 }
 
 /** Is it plugged in at home now? A rover or drone parked at its dock or
- *  pad; an excavator on its own pad, or tipping its bucket at a consumer. */
+ *  pad; an excavator on its own pad, or tipping its bucket at a consumer; a
+ *  hub unit in its bay, or tipping at its hub. */
 export function atHome(s: GameState, u: PackUnit): boolean {
-  if (u.kind === 'digger') {
+  if (u.kind === 'digger' || u.kind === 'hauler') {
     const h = u.pack;
     if (h.phase === 'unload') return true;
+    if (u.kind === 'hauler' && h.phase !== 'park') return false;
     const spot = chargeSpotOf(s, u);
     return !!spot && Math.hypot(h.x - spot.x, h.z - spot.z) < 0.5;
   }
@@ -114,9 +131,10 @@ export function atSiteStand(u: PackUnit): number | null {
   return t.kind === 'weld' || t.kind === 'front' ? r.site : null;
 }
 
-/** The priority it draws at: its site's, else its dock's; an excavator's own. */
+/** The priority it draws at: its site's, else its dock's; an excavator's own; a hub unit's hub's. */
 export function unitPriority(s: Pick<GameState, 'buildings'>, u: PackUnit): number {
   if (u.kind === 'digger') return u.b.priority;
+  if (u.kind === 'hauler') return homeOf(s, u)?.priority ?? 2;
   const r = u.unit;
   const site = r.site !== null ? s.buildings.find((b) => b.id === r.site) : undefined;
   if (site && (site.construction ?? 0) > 0) return site.priority;
@@ -124,7 +142,7 @@ export function unitPriority(s: Pick<GameState, 'buildings'>, u: PackUnit): numb
 }
 
 /** A unit's key in a tick's ledger. */
-export const unitKey = (u: PackUnit): string => (u.kind === 'digger' ? `b${u.b.id}` : `r${u.unit.id}`);
+export const unitKey = (u: PackUnit): string => (u.kind === 'digger' ? `b${u.b.id}` : u.kind === 'hauler' ? `h${u.h.id}` : `r${u.unit.id}`);
 
 // ───────────────────────────── one tick's ledger ─────────────────────────────
 
@@ -140,7 +158,7 @@ export class PackTick {
   private line(u: PackUnit): Line {
     let l = this.lines.get(u.pack);
     if (!l) {
-      l = { u, cap: packCap(u.kind, this.mods), rpu: rpuKW(u.kind, this.mods) * this.dt, share: 1, paid: false, used: false };
+      l = { u, cap: packCap(powerKind(u), this.mods), rpu: rpuKW(powerKind(u), this.mods) * this.dt, share: 1, paid: false, used: false };
       this.lines.set(u.pack, l);
     }
     return l;
@@ -183,7 +201,7 @@ export class PackTick {
       let c = chargeOf(p, l.cap);
       if (l.rpu > 1e-12) c = Math.min(l.cap, c + l.rpu);
       const plugged = charged.has(unitKey(u));
-      if (plugged) c = Math.min(l.cap, c + chargeKW(u.kind) * this.dt);
+      if (plugged) c = Math.min(l.cap, c + chargeKW(powerKind(u)) * this.dt);
       // a full pack is left absent (no noise in the save); anything less is written
       if (c >= l.cap - 1e-9) delete p.charge; else p.charge = c;
       if (plugged) p.chg = true; else delete p.chg;

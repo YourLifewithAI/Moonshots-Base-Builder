@@ -14,6 +14,7 @@
  *  fall back to the old discs + PointLights (buildings/instances.ts). */
 import * as THREE from 'three';
 import { PATCH_MARKER, hasAnchors, injectAll, type ShaderPatch } from './materials';
+import { fxBreakUniform } from './fxguard';
 
 export const FLOOD_MAX = 32;
 /** neutral warm white (≈ 5000 K): pools, windows and the print band */
@@ -156,12 +157,15 @@ export function floodSlotOf(i: number): { slot: number; k: number; live: boolean
 
 /** Uniforms + `vec3 floodIrradiance(worldPos, worldNormal)` for a fragment
  *  shader; `n` = compiled slot count (0 → no-op stub). Also declares the
- *  landscape's `uEarthFloor`. Each slot's pool scales with its darkness. */
+ *  landscape's `uEarthFloor` and the debug break (world/fxguard.ts, all
+ *  zero unless a test breaks a level). Each slot's pool scales with its
+ *  darkness; a slot's reach is floored at 1 m, so no 0/0 can reach the sum. */
 export function floodPars(n: number): string {
-  if (n <= 0) return 'uniform vec3 uEarthFloor;\nvec3 floodIrradiance( vec3 p, vec3 n ) { return vec3( 0.0 ); }';
+  if (n <= 0) return 'uniform vec3 uEarthFloor;\nuniform vec4 uMbbBreak;\nvec3 floodIrradiance( vec3 p, vec3 n ) { return vec3( 0.0 ); }';
   const c = FLOOD_COLOR;
   return /* glsl */`
 uniform vec3 uEarthFloor;
+uniform vec4 uMbbBreak;
 uniform vec4 uFlood[ ${n} ];
 uniform int uFloodCount;
 uniform float uFloodGain;
@@ -173,7 +177,7 @@ vec3 floodIrradiance( const in vec3 p, const in vec3 n ) {
 		float r = floor( f.w );
 		vec3 d = f.xyz - p;
 		float d2 = dot( d, d );
-		float x = d2 / ( r * r );
+		float x = d2 / max( r * r, 1.0 );
 		if ( x >= 1.0 ) continue;
 		float win = 1.0 - x * x;
 		sum += ( f.w - r ) * max( dot( n, d ), 0.0 ) * inversesqrt( max( d2, 1e-4 ) ) * win * win
@@ -190,6 +194,7 @@ export function bindFloodUniforms(uniforms: Record<string, THREE.IUniform>) {
   uniforms.uFloodCount = floodUniforms.uFloodCount;
   uniforms.uFloodGain = floodUniforms.uFloodGain;
   uniforms.uEarthFloor = floodUniforms.uEarthFloor;
+  uniforms.uMbbBreak = fxBreakUniform;
 }
 
 /** Landscape lighting of the base's own: floods plus the night earthshine
@@ -200,6 +205,9 @@ export const landscapeNight = (wp: string) => /* glsl */`
 		vec3 wn = ${WORLD_NORMAL};
 		reflectedLight.directDiffuse += floodIrradiance( ${wp}, wn ) * BRDF_Lambert( material.diffuseColor );
 		reflectedLight.indirectDiffuse += uEarthFloor * ( 0.6 + 0.4 * wn.y ) * BRDF_Lambert( material.diffuseColor );
+		reflectedLight.indirectDiffuse *= 1.0 - uMbbBreak.x;
+		reflectedLight.directDiffuse *= 1.0 - uMbbBreak.w;
+		reflectedLight.directSpecular *= 1.0 - uMbbBreak.w;
 	}
 `;
 

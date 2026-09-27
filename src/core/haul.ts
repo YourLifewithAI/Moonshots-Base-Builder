@@ -25,7 +25,6 @@ import {
   accessCell, besideCells, cellAt, cellCentre, cellKey, doorCell, groundWay, hasRoads, jobOpen, layJob, nearestRoad, offRoadAt,
   planLink, roadMap, zoneStand, type Heights,
 } from './roads';
-import { digGrade, digSiteKey, onDig } from './pits';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -132,7 +131,7 @@ export function standFor(s: GameState, b: BuildingState, drop: BuildingState): [
 
 /** Where a leg ends at a consumer: the stand's centre, pulled back along the
  *  way in so the bucket wheel stops short of the wall. */
-function stopShort(pts: [number, number][], from: [number, number], drop: BuildingState): [number, number][] {
+export function stopShort(pts: [number, number][], from: [number, number], drop: BuildingState): [number, number][] {
   if (!pts.length) return pts;
   const [ex, ez] = pts[pts.length - 1];
   const [px, pz] = pts.length > 1 ? pts[pts.length - 2] : from;
@@ -156,7 +155,7 @@ function stopShort(pts: [number, number][], from: [number, number], drop: Buildi
 
 /** A leg's waypoints (where it stands left out) and, off-road inside a
  *  zone, each segment's time per metre against road (core/roads.ts). */
-interface Leg { pts: [number, number][]; w?: number[] }
+export interface Leg { pts: [number, number][]; w?: number[] }
 
 /** The leg from where the haul stands to a goal: its own pad (by the door),
  *  a dig cell, or a consumer's stand — on the roads, and off-road inside an
@@ -193,7 +192,7 @@ function legPath(
 }
 
 /** a leg's time-equivalent length from (x, z): off-road metres count 1 / ROAD.offroad */
-function legLen(x: number, z: number, leg: Leg): number {
+export function legLen(x: number, z: number, leg: Leg): number {
   if (!leg.w) return pathLength(x, z, leg.pts);
   let l = 0, px = x, pz = z;
   leg.pts.forEach(([qx, qz], i) => { l += Math.hypot(qx - px, qz - pz) * (leg.w![i] ?? 1); px = qx; pz = qz; });
@@ -285,7 +284,7 @@ export function haulWaiting(s: GameState, b: BuildingState, caps: Partial<Record
 
 /** Drive along the path for up to `t` seconds (off-road segments inside a
  *  zone at ROAD.offroad of the speed); returns the time left over on arrival. */
-function drive(h: HaulState, speed: number, t: number): number {
+export function drive(h: HaulState, speed: number, t: number): number {
   while (h.path.length && t > 1e-9) {
     const [tx, tz] = h.path[0];
     const v = speed / (h.w?.[0] ?? 1);
@@ -414,8 +413,7 @@ export function haulTick(
       for (const [rid, rate] of Object.entries(r.outputs) as [ResourceId, number][]) {
         h.cargo[rid] = (h.cargo[rid] ?? 0) + rate * GAIN * step;
       }
-      // the ground it cuts becomes a pit (core/pits.ts: today's adapter, docs/17 Phase 3)
-      onDig(s, digSiteKey(h.x, h.z), (r.outputs.regolith ?? 0) * GAIN * step, digGrade(h.kind));
+      // (a legacy pad digs without carving, docs/17 §19: the hubs' units carve, core/hubs.ts dug)
       h.t += step;
       t -= step;
       out.dugS += step;

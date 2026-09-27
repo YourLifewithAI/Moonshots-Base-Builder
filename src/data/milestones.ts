@@ -73,18 +73,18 @@ export const MILESTONES: MilestoneDef[] = [
     progress: (s) => (s.buildings.some((b) => b.type === 'solar') ? built(s, 'solar') : ''),
   },
   {
+    // docs/17 §14.1: the smelter comes with its first excavator, which brings the regolith in
     id: 'dig-in', title: 'Dig In',
-    hint: 'Build a Regolith Excavator and bank 50 regolith.',
-    check: (s) => s.resources.regolith >= 50,
-    progress: (s) => `${built(s, 'excavator')} · ${stock(s, 'regolith', 50)}`,
+    hint: 'Raise a Regolith Smelter by the high-Ti basalt (the overlay [I] shows it): its excavator digs and brings in the first 50 regolith.',
+    check: (s) => (s.stats?.produced?.regolith ?? 0) >= 50 || s.resources.regolith >= 50,
+    progress: (s) => `${built(s, 'smelter')} · Regolith ${Math.floor(s.stats?.produced?.regolith ?? 0)}/50 delivered`,
   },
   {
     id: 'first-metal', title: 'First Metal',
-    hint: 'Build a Research Lab, research Regolith Smelting, then smelt 100 metals. The smelter’s oxygen byproduct keeps your crew breathing.',
-    hintRobotic: 'Build a Research Lab, research Regolith Smelting, then smelt 100 metals — the stock every later structure is built from.',
+    hint: 'Smelt 100 metals. Build a Research Lab too: research is how your hubs’ robots dig faster, haul more and go deeper. The smelter’s oxygen byproduct keeps your crew breathing.',
+    hintRobotic: 'Smelt 100 metals — the stock every later structure is built from. Build a Research Lab too: research is how your hubs’ robots dig faster, haul more and go deeper.',
     check: (s) => count(s, 'smelter') >= 1 && s.resources.metals >= 100,
-    progress: (s) => [built(s, 'lab'), researched(s, 'regolithProcessing'), built(s, 'smelter'),
-      stock(s, 'metals', 100)].join(' · '),
+    progress: (s) => [built(s, 'lab'), built(s, 'smelter'), stock(s, 'metals', 100)].join(' · '),
   },
   {
     id: 'grow-the-crew', title: 'Grow the Expedition',

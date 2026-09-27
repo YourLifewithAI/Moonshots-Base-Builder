@@ -1,8 +1,9 @@
 # 17 · Extraction hubs: hubs that build their own robots, and strip mines that reshape the ground
 
 **Status:** Phase A design, revision 2, on `work/hubs` from main `97e1373`.
-**Phase 3 (heightfield editing and pits) has shipped** on `work/pits`, ahead of
-Phases 1–2: pits follow today's hauling for now (§22, "As shipped"). Revision 2
+**Phases 1–3 have shipped.** Phase 3 (heightfield editing and pits) shipped first,
+on `work/pits`. Phases 1–2 (hub units, haul to hub) followed on `work/hubunits`, and
+hub units now dig the pits (§22, "As shipped"). Revision 2
 takes in the player's answers (§23) and redesigns extraction as **strip mining that
 deforms the terrain** (Part 2). Phase B starts after
 **work/unitpower** (machine battery packs) merges, since it changes the same files.
@@ -19,10 +20,11 @@ gates), `src/core/siting.ts` and `src/core/automation.ts` (the Builder),
 `src/ui/depositCard.ts`.
 **Code shipped (Phase 3):** `src/core/pits.ts` (pits, the adapter, step 4.2, pit
 zones, the refusals) and `src/terrain/pitCarve.ts` (the height-delta grid, carving,
-heaps, masks, the codec). **Code to come:** `src/data/hubs.ts` (hub, unit, pit and
-grade tables), `src/core/hubs.ts` (printing, bays, assignment), grade, reserves,
-faces and surveys in `src/core/pits.ts`, `src/ui/hubPanel.ts`, and changes to the
-files above.
+heaps, masks, the codec). **Code shipped (Phases 1–2):** `src/data/hubs.ts` (hub and
+unit tables), `src/core/hubs.ts` (units, printing, bays, the choice, trips, plain
+pits, the pile and hoppers, migration), `src/core/hubView.ts` and
+`src/ui/hubPanel.ts` (the inspectors). **Code to come:** grade, reserves, faces and
+surveys in `src/core/pits.ts`.
 
 If a number here disagrees with the code once it ships, the code wins.
 
@@ -1659,8 +1661,8 @@ Each phase merges on its own and leaves the game playable.
 
 | # | Phase | Contents | Leaves the game |
 |---|---|---|---|
-| 1 | **Data and hub units** | `src/data/hubs.ts`; `waterPlant`; unit defs; the smelter from landing; `s.haulers`; the queue, printing, bays and Level I; the inspector's UNITS and ROBOTS; the palette drops the Excavator and Ice Harvester; the minimal migration | Units printed by hubs, hauling by today's rules into the old pool |
-| 2 | **Haul to hub** | hoppers; ▲ as their sum; the pile; per-hub grade and feed; trips hub → gate → face → hub; plain pits as staked points (no carving yet); reach; the auto choice; Assign, Open pit…, Send…, Recall; the haul road with the spur; power per unit | Hubs live on their own hauls |
+| 1 | **Data and hub units** ✅ **shipped** (`work/hubunits`) | `src/data/hubs.ts`; `waterPlant`; unit defs; the smelter from landing; `s.haulers`; the queue, printing, bays and Level I; the inspector's UNITS and ROBOTS; the palette drops the Excavator and Ice Harvester; the minimal migration | Units printed by hubs, hauling by today's rules into the old pool |
+| 2 | **Haul to hub** ✅ **shipped** (`work/hubunits`) | hoppers; ▲ as their sum; the pile; per-hub grade and feed; trips hub → gate → face → hub; plain pits as staked points (no carving yet); reach; the auto choice; Assign, Open pit…, Send…, Recall; the haul road with the spur; power per unit | Hubs live on their own hauls |
 | 3 | **Heightfield editing and pits** ✅ **shipped** (`work/pits`) | `src/terrain/pitCarve.ts`: the delta grid, carving, heaps, ramps, no-dig and no-build masks; `s.pits` and step 4.2; saving (base → deltas → flattens); the chunk rebuild queue and shadow throttle; placement, road A*, `roadReach`, zones and gates on the new terrain; Site Grading on pits and heaps; rocks | The ground deforms as units dig |
 | 4 | **Grade, reserves, faces, surveys and morale** | the grade tables and q; the ore halo and cutoff; exhaustion and boxed-in pits; bedrock benches; faces as benches; the survey job, precision and the card; strip-mine morale; Reclaim | Pits run out and you can see why |
 | 5 | **The preview and the highlight** | the ghost's HUB block, its plain-pit stake and ring warnings; lit rings, rims and labels; the Lunar Map; touch | Placement shows its strategy |
@@ -1674,10 +1676,59 @@ against `homeOf` and `chargeSpotOf` from Phase 1. Phase 3 touches
 `src/terrain/heightfield.ts` and `src/terrain/chunks.ts`, which no in-flight branch
 changes.
 
+### As shipped: Phases 1–2 (`work/hubunits`)
+
+Hubs print, dock, charge and dispatch their own units. Each unit feeds its own hub's
+hopper, and digs the pits Phase 3 carves.
+
+| Piece | As shipped |
+|---|---|
+| Hubs | The Regolith Smelter (from landing, 60◆ 15⚙ with its first excavator), the Silicon Refinery (70◆ 20⚙) and the Water Management Plant (60◆ 15⚙). A hub commissions with one free unit. |
+| Units | `s.haulers`. Excavator: 20◆ 5⚙, 60 s, bucket 105▲, dig 60 s, tip 4 s, 5 m/s. Ice Miner: 25◆ 5⚙, 70 s, dig 75 s, tip 6 s, 4 m/s. Prices and times × the site's `buildCostMult`. |
+| Queue | 3 jobs. The head job pays when it starts, then prints at 4 kW (tagged `print`). A brownout pauses it. Cancel refunds what was paid. |
+| Bays | Level I: 2, the spur's bay cells beside the door. The door cell is the tipping stand. + Bay waits for `mods.hubLevel`, which no research raises yet (Phase 6). |
+| The choice | Send… pins a unit (reach × 2). Else Assign, while a face is free. Else the best `min(units × rate, hunger) × q` over the wanted mapped deposits and the hub's plain pit, within 90 s one way. A new pick must beat the current one by 10%. |
+| Faces | Reserved when a unit picks, and shared by every hub. A deposit has floor(2π × 1.45 × r / 30) faces (1–6), a plain pit 3. A unit with no face waits at the nearest gate. |
+| Trips | bay → road → gate → off-road → face → dig → back → tip. Once a pit is cut, the way in is the target zone's gates and the pit zone's, then down the ramp (top, then foot) to a face on the floor. Faces spread round the far side from the ramp, at 0.85 × (R − 2L). |
+| Unconnected | A target no road reaches is estimated at 1.3 × the straight line to its rim, plus the off-road leg. Its haul road is asked for once: free rovers lay it. |
+| ▲ | pile + Σ hoppers (315▲ each), written each tick. Grants, grading, research goods and legacy loads go to or come from the pile. Smelters and refineries draw the pile first. Water plants never do. |
+| Grade | Per hub: `q` is its feed factor, and `feed` is its tipped mix. The base's `s.feed` is an amount-weighted EMA of the hubs' feed. |
+| Plain pits | A hub with no wanted deposit in reach stakes one at placement: 20–60 m from its door, away from the base's centre. The zone has r 12 m, and keeps 12 m more from walls and 8 m more from road cells. Open pit… stakes one by hand. |
+| Pits | `dug` in `src/core/hubs.ts` is the one place a dig happens. It tallies `s.dug`, then calls `digInto(s, pitFor(s, key), tonnes, digGrade(kind))` with the target's key: `dep:<id>`, shared by every unit on that deposit, or `plain:<id>`. |
+| Power | Each unit is a pack (`PackUnit` kind `hauler`, the digger's). It draws at its hub's priority, and charges in its bay or while tipping. Below 30% after tipping, it goes home to charge. |
+| Water plant | On the ice: 2▲ → 0.4≈, its Ice Miners dig cold traps only. Off the ice: excavators, and 0.08≈ from soil at −9 kW. Ice Extraction and Solar-Wind Volatiles unlock it. |
+| The Builder | The excavation rules print a unit at the most-starved hub with a free bay. Siting stands a hub by the nearest mapped deposit it wants, and keeps its walls 12 m off the deposit rings. |
+| Milestones | Dig In: a smelter and 50▲ delivered. First Metal: a lab, a smelter and 100◆. |
+
+**Deviations from the design.**
+
+- **Regolith Smelting** keeps its id, slot, cost and prerequisites, but becomes
+  **Pit Mapping** in place: off-road ×1.3 and ×1.1 power for the units. The smelter's
+  unlock was moot once it came from landing. Phase 6 does the rest of the reshuffle.
+- **Faces** are a fixed count from the deposit's full ring, not benches (Phase 4).
+- **No heap dump time and no ramp time.** Units drive the ramp at off-road speed.
+- **No apron.** The bays and the tipping stand are road cells beside the door.
+- **The palette** drops the Excavator and the Ice Harvester. Placement refuses both
+  with `HUBS PRINT THEM — …`.
+- **Legacy pads.** An old save's excavators join the nearest hub, keeping their
+  deposit. Old ▲ fills the hoppers, then the pile. With no hub, a pad digs the old way
+  into the pile until a hub is built, and it does not carve. A migrated hub with no
+  joined unit gets its free one. Ice harvesters keep producing.
+- **Hub placement** is only refused inside a zone. The ghost shows one HUB line,
+  so travel time is a choice the player can read:
+  `HUB — its regolith excavators dig high-Ti basalt #0, ~22 s one way · ~0.95▲/s a
+  unit; it burns 2.0▲/s · feed ×1.30`. With nothing in reach, it says that it would
+  stake a plain pit. The full HUB block (the plain-pit stake, ring warnings) is
+  Phase 5.
+- **Pacing:** pending the final diagnostic pass. The player's rule is that pacing
+  does not matter so long as the game is fun. Hub and haul balance are not tuned to
+  era times. Travel time to the deposit is the placement choice.
+
 ### As shipped: Phase 3, ahead of Phases 1–2
 
-Phases 1–2 wait on work/unitpower, so Phase 3 shipped first. Its pits follow
-today's hauling.
+Phases 1–2 wait on work/unitpower, so Phase 3 shipped first. Its pits followed
+the hauling of the time. Phase 2 has since repointed the adapter: hub units call
+`digInto` from `dug` (above), and legacy pads no longer carve.
 
 **The adapter** (`src/core/pits.ts`). It is thin and isolated, so Phase 2 can
 repoint it without rewriting pits.

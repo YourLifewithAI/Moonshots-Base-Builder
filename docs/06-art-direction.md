@@ -352,6 +352,110 @@ is stored apart from the player's own choice and holds at the next launch
 until the player turns it off. A composer that throws is blamed only if a
 plain render of the same frame succeeds; a throwing scene skips the frame
 (reported once) and never stops the loop.
+**FX 0's own safety net** (`world/fxguard.ts`, `world/fxcaps.ts`,
+`world/fxcheck.ts`). The scene shaders are the same at FX 0 and FX 1. What
+FX 0 adds is half-float storage and bloom. Half-float keeps what 8-bit
+buffers clamp away on every store: NaN, ±Inf, negatives, values past 1.
+Real GPUs make NaN where SwiftShader often does not. One NaN pixel fed to
+bloom's mip chain spreads over hundreds; in our test a few NaN hulls turned
+the whole FX 0 frame black, while FX 1 lost only the hulls. So a fault can
+show at FX 0 alone, and the black-frame sentinel may not see it (the
+player's report: black ground outside the pools, flat grey hulls). Four
+parts answer it:
+
+| Part | What it does | Where |
+|---|---|---|
+| Sanitiser | NaN or Inf in any channel → opaque black; the rest clamped to 0 … 32 000 (bloom's +0.6× on top stays under the half-float ceiling of 65 504; AgX saturates near 16, so the clamp is invisible). The test reads the exponent bits, so no fast-math compiler can fold it away | inside N8AO's composite, which already reads the scene once per pixel; a pass of its own at FX 0 when N8AO is absent or its anchors moved |
+| N8AO hardening | the fog factor starts at 0 (N8AO reads it uninitialised when the scene has no fog — ours has none); a NaN AO value or upsample weight leaves the pixel unoccluded, not black | same patch, re-applied whenever N8AO rebuilds its composite |
+| Shader guards | the regolith normal never normalises a zero vector; `sqrt` and the flood falloff never see a negative or 0/0 | `terrainShader.ts`, `floodlights.ts` |
+| Capability floor | boots below FX 0 when this GPU cannot run it (below) | `fxcaps.ts`, at boot |
+
+With nothing wrong, the hardened chain draws exactly the stock chain's
+frame (`setFxHardening(false)` in tests).
+
+**The capability floor.** Extensions say what a driver claims. FX 0's needs
+are also tried once at boot: a 4×1 half-float target is drawn with values
+past 1 and a small one, blended on, sampled between two texels with linear
+filtering, and read back. Two tiny draws.
+
+| Level | Needs | Missing → boot at |
+|---|---|---|
+| FX 0 | `EXT_color_buffer_float` (or `_half_float`) and the half-float probe: render, blend, linear filter, read back | FX 1 |
+| FX 0–1 | `EXT_color_buffer_float`: N8AO's R32F depth and RGBA16F targets | FX 2 |
+| FX 2 | WebGL2 only | — |
+
+`OES_texture_float_linear` is not needed by any level: the only 32-bit
+float texture (N8AO's depth) is sampled nearest, and linear filtering of
+half-float is core WebGL2. The report lists it. A floor never marks a level
+failed or changes the stored level; the menu says why the level is lower.
+
+**The FX self-check** (`world/fxcheck.ts`). The sentinel knows only black.
+The self-check compares instead. It runs on the first frames of play, after
+every level change (so a failed rung's successor is checked too) and on
+leaving safe mode, at FX 0–2:
+
+1. **Chain** — the frame on the canvas, copied to a texture, mipmapped on
+   the GPU, one mip level read back (~80 px wide, box-filtered).
+2. **Plain** — the same scene, camera and shader programs drawn straight
+   into a small 8-bit sRGB target at 4× that size (no AO, no bloom, no
+   half-float), box-filtered, then tone-mapped on the CPU as the final pass
+   does: exposure 1.1, AgX, the grain's mean, the vignette. Same programs:
+   nothing compiles.
+3. **HDR** — the same again into a half-float target, read back as floats:
+   the scene buffer's own NaN, Inf and negative shares and its peak.
+
+Compared in 6×6-pixel tiles. A level fails on any of:
+
+| Test | Fails when |
+|---|---|
+| NaN / Inf | ≥ 0.5% of the scene buffer |
+| Black where plain is lit | ≥ 25% of the tiles plain lights (≥ 6/255) drawn near-black (< 3/255 and < 30% of plain) |
+| Bright where plain is dark | ≥ 8% of tiles drawn > 2 × plain + 30/255 (plain < 150/255) |
+| Flat where plain has detail | ≥ 35% of the tiles with spread ≥ 8 drawn with spread < 1.5 |
+| Mean luminance | outside × 0.35 … × 3 of plain |
+| Histogram | 8-bin L1 distance > 1.1 |
+
+Fewer than 4 lit and 4 detailed tiles is inconclusive, retried in 120
+frames. A failure is a failed level, as a black frame is: a raise on trial
+goes back, anything else steps one rung down, with the console line
+`[MOONSHOTS] FX self-check: level N failed (…)`. The thresholds leave wide
+margins on SwiftShader's correct FX 0–2:
+
+| | lost | flat | mean × | histogram |
+|---|---|---|---|---|
+| Correct, day / dusk / night, 4 views × FX 0–2 | 0 | ≤ 0.03 | 0.87 – 0.99 | ≤ 0.14 |
+| `player` break (black ground, grey hulls) | 0.46 – 0.78 | — | 0.38 – 0.67 | ≤ 1.65 |
+| `zero` break (black landscape) | 0.58 – 0.92 | ≤ 0.5 | 0.09 – 0.29 | ≤ 1.83 |
+| `nan` break (NaN hulls) | NaN 1–7% of the buffer | | | |
+
+Cost: two small scene renders and three small readbacks, once. The readback
+waits for the frame, so it drops about one frame on a real GPU (1–4 s on
+SwiftShader, which draws on the CPU).
+
+**The render report.** Menu → Graphics → *Copy render report* puts JSON on
+the clipboard and prints it to the console (`[MOONSHOTS] Render report`):
+
+- the GPU strings (the context's own, and the unmasked ones where the
+  browser gives them) and the user agent;
+- WebGL2, the chain's extensions (each true or false), shader float
+  precision, texture and sample limits, context attributes;
+- the level, the ladder, the stored level, the player's pick, failed
+  levels and why, the trial, the sanitiser's place, the capability floor
+  and the half-float probe's reading;
+- safe mode, the patch variants, a patch fault;
+- the last 8 self-check results, the black-frame verdicts;
+- the render log: a ring of 40 — three.js shader errors and warnings, GL
+  errors (polled at each check and at the report), level changes and
+  self-check results.
+
+`tests/fxcheck.spec.ts` holds all of this: the self-check passes FX 0 at
+boot, by day, at dusk and at night; the `player` and `zero` breaks (with the
+sentinel held off) step FX 0 → 1 → 2, logged, each rung checked; NaN stays
+on the hulls with the sanitiser and blackens the frame without it; the
+hardened chain draws the stock chain's frame; the floor boots at FX 1 when
+the half-float probe fails and at FX 2 without float targets; and the menu
+button's JSON carries every field above.
+
 Moving things (§7) add exactly one patch (`dust`); everything else reuses
 existing programs or stock unlit materials, and each part of the motion
 layer fails soft — an exception hides that part and the game carries on.

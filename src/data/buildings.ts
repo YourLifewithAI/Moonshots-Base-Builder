@@ -13,6 +13,8 @@ export type BuildingId =
   | 'relayMast' | 'propellantPlant'
   // space weather (docs/16 §6.3)
   | 'solarObservatory'
+  // extraction hubs and their units (docs/17): the water plant, and the Ice Miner it prints on the ice
+  | 'waterPlant' | 'iceMiner'
   // destiny buildings (docs/14 §2.8)
   | 'greenhouseRing' | 'gardenDome' | 'droneHive' | 'serverMonolith';
 
@@ -52,6 +54,11 @@ export interface BuildingDef {
   buildRadiusM?: number;
   /** launch output is not scaled by the site's launchMult (rockets steer) */
   ignoresLaunchMult?: boolean;
+  /** a hub's robot (docs/17 §4.1, core/hubs.ts): printed at its hub, never
+   *  placed; not in the palette, never on the Builder's placement list */
+  unit?: boolean;
+  /** retired from the palette: only old saves' legacy pads stand (docs/17 §3.3, §19) */
+  retired?: boolean;
 }
 
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
@@ -78,8 +85,8 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     footprint: [2, 2], height: 5, buildTime: 60,
     buildCost: { metals: 20, parts: 5 }, crew: 0, powerKW: -6,
     inputs: {}, outputs: { regolith: 1.5 }, upkeepParts: 2, priority: 2,
-    unlockedFromStart: true,
-    pro: 'Feeds every industry on the Moon.',
+    unit: true,
+    pro: 'Feeds every industry on the Moon: its hub prints it, docks it, charges it and sends it to dig.',
     con: 'Thrown dust abrades everything — the highest parts wear on the base.',
   },
   habitat: {
@@ -92,21 +99,22 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     con: 'Draws life support every second of the night, forever.',
   },
   smelter: {
-    id: 'smelter', name: 'Regolith Smelter', category: 'industry', era: 1,
-    footprint: [3, 2], height: 7, buildTime: 120,
-    buildCost: { metals: 40, parts: 10 }, crew: 2, powerKW: -12,
+    id: 'smelter', name: 'Regolith Smelter', category: 'extraction', era: 1,
+    footprint: [3, 2], height: 7, buildTime: 150,
+    buildCost: { metals: 60, parts: 15 }, crew: 2, powerKW: -12,
     inputs: { regolith: 2 }, outputs: { metals: 0.5, oxygen: 0.25, water: 0.05 }, upkeepParts: 2, priority: 2,
-    pro: 'Ilmenite gives threefold: metals, oxygen, and a trickle of water.',
-    con: 'A furnace on the grid: the night hits it first.',
+    unlockedFromStart: true,
+    pro: 'Ilmenite gives threefold: metals, oxygen, and a trickle of water. Comes with its first excavator.',
+    con: 'A furnace on the grid: the night hits it first — and it eats only what its own excavators bring.',
   },
   iceHarvester: {
     id: 'iceHarvester', name: 'Ice Harvester', category: 'extraction', era: 1,
     footprint: [2, 2], height: 5, buildTime: 70,
     buildCost: { metals: 25, parts: 5 }, crew: 1, powerKW: -8,
     inputs: {}, outputs: { water: 0.4 }, upkeepParts: 2, priority: 1,
-    requiresIce: true,
+    requiresIce: true, retired: true,
     pro: 'Water from permanently shadowed ice — the pole’s great gift.',
-    con: 'Useless anywhere without polar ice deposits.',
+    con: 'Retired: a Water Management Plant and its Ice Miners do this now.',
   },
   hydroponics: {
     id: 'hydroponics', name: 'Hydroponics Farm', category: 'life', era: 1,
@@ -127,11 +135,11 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     con: '15% of everything you store is lost to the round trip.',
   },
   refinery: {
-    id: 'refinery', name: 'Silicon Refinery', category: 'industry', era: 2,
-    footprint: [3, 2], height: 6, buildTime: 120,
-    buildCost: { metals: 50, parts: 15 }, crew: 2, powerKW: -14,
+    id: 'refinery', name: 'Silicon Refinery', category: 'extraction', era: 2,
+    footprint: [3, 2], height: 6, buildTime: 150,
+    buildCost: { metals: 70, parts: 20 }, crew: 2, powerKW: -14,
     inputs: { regolith: 2 }, outputs: { silicon: 0.4 }, upkeepParts: 2, priority: 2,
-    pro: 'Silicon for panels and foils — the whole endgame flows through here.',
+    pro: 'Silicon for panels and foils — the whole endgame flows through here. Comes with its first excavator.',
     con: 'The hungriest machine of the mid-game grid.',
   },
   lab: {
@@ -246,6 +254,27 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     con: 'Blind at night, and in the shade of a ridge.',
   },
 
+  // ─── extraction hubs and units (docs/17) ───
+  waterPlant: {
+    id: 'waterPlant', name: 'Water Management Plant', category: 'extraction', era: 1,
+    footprint: [3, 2], height: 6, buildTime: 140,
+    buildCost: { metals: 60, parts: 15 }, crew: 1, powerKW: -6,
+    // at the pole, icy regolith; elsewhere mature soil baked for its solar-wind water
+    // (0.08≈ per 2▲ and −9 kW: mods.effectiveRates reads the site)
+    inputs: { regolith: 2 }, outputs: { water: 0.4 }, upkeepParts: 2, priority: 1,
+    pro: 'Water for crews and rockets: melts the ice its own miners bring (or bakes mature soil). Comes with its first unit.',
+    con: 'Only as good as the ground its units reach: dry ground gives nothing.',
+  },
+  iceMiner: {
+    id: 'iceMiner', name: 'Ice Miner', category: 'extraction', era: 1,
+    footprint: [2, 2], height: 5, buildTime: 70,
+    buildCost: { metals: 25, parts: 5 }, crew: 0, powerKW: -6,
+    inputs: {}, outputs: { regolith: 1.4 }, upkeepParts: 2, priority: 1,
+    unit: true,
+    pro: 'A tracked crawler with a heated auger: it digs ice-cemented regolith out of the cold traps for its water plant.',
+    con: 'Slow in the frozen ground, and the traps are in the dark.',
+  },
+
   // ─── destiny buildings (docs/14 §2.8): each unlocked by a pick ───
   greenhouseRing: {
     id: 'greenhouseRing', name: 'Greenhouse Ring', category: 'life', era: 5,
@@ -293,8 +322,7 @@ export const isCompute = (type: BuildingId): boolean => type === 'dataCenter' ||
 
 export const BUILD_ORDER: BuildingId[] = [
   'solar', 'battery', 'reactor',
-  'excavator', 'iceHarvester',
-  'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
+  'smelter', 'refinery', 'waterPlant', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
   'habitat', 'hydroponics', 'recDome',
   'lab', 'relayMast', 'solarObservatory', 'dataCenter',
   'foilFactory', 'massDriver', 'propellantPlant',

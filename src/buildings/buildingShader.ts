@@ -163,8 +163,16 @@ const FRAG_EMISSIVE = /* glsl */`
 	}
 `;
 
+// the debug break (world/fxguard.ts): zero unless a test breaks a level
 const FRAG_FLOODS = /* glsl */`
 	reflectedLight.directDiffuse += floodIrradiance( vBldWorld, ${WORLD_NORMAL} ) * BRDF_Lambert( material.diffuseColor );
+	reflectedLight.directDiffuse += vec3( uMbbBreak.z );
+	if ( uMbbBreak.y > 0.0 ) {
+		reflectedLight.directDiffuse = vec3( uMbbBreak.y );
+		reflectedLight.indirectDiffuse = vec3( 0.0 );
+		reflectedLight.directSpecular = vec3( 0.0 );
+		reflectedLight.indirectSpecular = vec3( 0.0 );
+	}
 `;
 
 const vertEdits = (): [string, string][] => [

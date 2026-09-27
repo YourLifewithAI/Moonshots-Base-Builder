@@ -45,8 +45,9 @@ export const OFFROAD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['rela
 /** Docks: rovers park in bays laid beside the door. A Drone Hive (docs/14
  *  §2.8) is one: its four rovers launch from it and park there. The other
  *  destiny buildings (Greenhouse Ring, Garden Dome, Server Monolith) take a
- *  plain door at their front middle. */
-export const DOCK_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['lander', 'roboticsBay', 'droneHive']);
+ *  plain door at their front middle. The extraction hubs (docs/17 §3.1, §4.3)
+ *  are docks too: their units park and charge in the bays beside the door. */
+export const DOCK_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['lander', 'roboticsBay', 'droneHive', 'smelter', 'refinery', 'waterPlant']);
 
 /** The Lander's apron, in cells relative to its door cell (the door itself
  *  included; dx along the front, dz outward): a two-cell run out from the
