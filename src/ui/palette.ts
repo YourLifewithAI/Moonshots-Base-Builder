@@ -29,11 +29,12 @@ import { autoTagLine } from '../core/automation';
 import { hazardStatus, isNetworkNode, occupancy, pressurizedTypes, sideTier } from '../core/hazards';
 import { HZ } from '../data/hazards';
 import { counterButton, counterClick } from './hazardsPanel';
+import { touchOn } from '../core/touch';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 import {
   $automation, $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
-  $vitals, spawnFloater, $hazards,
+  $vitals, spawnFloater, $hazards, $touchInfo,
 } from './stores';
 
 const ICONS: Record<BuildingId, string> = {
@@ -145,11 +146,22 @@ export function tooltipHtml(type: BuildingId, locked: boolean, mods: Mods, cauti
     <section><div class="pro">${def.pro}</div><div class="con">${def.con}</div></section>
     ${unlock ? `<section><span class="label">⧗ Requires research — ${TECHS[unlock].name} · click to find it in the tree</span></section>` : ''}
     ${never ? `<section><span class="label">✕ ${never}</span></section>` : ''}
-    ${!locked && orderableHere(type) ? '<section><span class="label">Ctrl-click: the rovers choose the site (⇧ ×3) · Enter while placing</span></section>' : ''}`;
+    ${!locked && orderableHere(type) ? `<section><span class="label">${touchOn()
+      ? 'Long-press the card: the rovers choose the site · Order while placing'
+      : 'Ctrl-click: the rovers choose the site (⇧ ×3) · Enter while placing'}</span></section>` : ''}`;
+}
+
+/** Order `count` of `type` with its main output as the intent (Ctrl-click
+ *  a card; a long-press in touch mode): the rovers choose the site. */
+export function orderCard(game: Game, type: BuildingId, count: number, x: number, y: number) {
+  if (!orderableHere(type)) return;
+  const res = mainOutput(type);
+  game.actions.push({ kind: 'order', type, count, intent: res ? { res } : undefined });
+  spawnFloater(`ORDER ${BUILDINGS[type].name.toUpperCase()}${count > 1 ? ` ×${count}` : ''}`, x, y - 20);
 }
 
 /** Orders can place it (docs/13 §2.2): not the Lander, masts only with Self-Expanding Base. */
-function orderableHere(type: BuildingId): boolean {
+export function orderableHere(type: BuildingId): boolean {
   if (type === 'lander') return false;
   if (type === 'relayMast') return ($automation.get()?.families ?? []).includes('network');
   return true;
@@ -220,24 +232,28 @@ export function mountPalette(root: HTMLElement, game: Game) {
       const cost = Object.entries(buildCost(type, site))
         .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
       b.innerHTML = `<div class="icon">${ICONS[type]}</div><div class="nm">${def.name}</div><div class="cost mono">${cost}</div>`;
-      b.addEventListener('mouseenter', () => showTooltip(type, locked, b));
-      b.addEventListener('mouseleave', hideTooltip);
+      // touch: no hover — a locked card's first tap shows its card instead
+      if (!touchOn()) {
+        b.addEventListener('mouseenter', () => showTooltip(type, locked, b));
+        b.addEventListener('mouseleave', hideTooltip);
+      }
       b.dataset.type = type;
       b.addEventListener('click', (e) => {
         // a locked card answers with the research that opens it — or, where
         // no research ever will, says so and leaves the tree shut
         if (locked) {
+          // touch: the first tap shows what it is and why; a second acts
+          if (touchOn() && $touchInfo.get()?.type !== type) { $touchInfo.set({ type, locked: true }); return; }
           const never = notBuildableHere(type);
           if (never) { spawnFloater(never.toUpperCase(), e.clientX, e.clientY - 20); return; }
           hideTooltip();
+          $touchInfo.set(null);
           openTechTreeAt(unlockingTech(type));
           return;
         }
         // Ctrl/⌘-click: an order — the rovers choose the site (⇧: three)
         if ((e.ctrlKey || e.metaKey) && orderableHere(type)) {
-          const res = mainOutput(type);
-          game.actions.push({ kind: 'order', type, count: e.shiftKey ? 3 : 1, intent: res ? { res } : undefined });
-          spawnFloater(`ORDER ${BUILDINGS[type].name.toUpperCase()}${e.shiftKey ? ' ×3' : ''}`, e.clientX, e.clientY - 20);
+          orderCard(game, type, e.shiftKey ? 3 : 1, e.clientX, e.clientY);
           return;
         }
         game.beginPlacement(type);
@@ -303,8 +319,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     have >= amt ? `${amt}${glyph} (${fmt(have)}→${fmt(have - amt)})` : `${amt}${glyph} (have ${fmt(have)})`;
   const hintLine = (type: BuildingId | 'grade'): string => {
     if (type === 'grade') {
-      return ['GRADE SITE', costPart(GRADE_COST_ENERGY, '▮', $power.get().stored), 'each click grades deeper',
-        'right-click done'].join(' · ');
+      return ['GRADE SITE', costPart(GRADE_COST_ENERGY, '▮', $power.get().stored),
+        touchOn() ? 'each ✓ grades deeper' : 'each click grades deeper', touchOn() ? '✕ done' : 'right-click done'].join(' · ');
     }
     const res = $resources.get();
     const site = SITES[$siteId.get() ?? 'mare'];
@@ -316,7 +332,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const robotic = $vitals.get().expedition === 'robotic';
     const p = effectiveRates(type, game.mods, site, undefined, { agentRun: robotic && def.crew > 0, robotic }).powerKW;
     if (Math.abs(p) >= 0.05) parts.push(`${p > 0 ? '+' : '−'}${kw(Math.abs(p))} kW`);
-    parts.push('R rotate', '⇧ keep placing');
+    if (touchOn()) parts.push('drag to move · ✓ place');
+    else parts.push('R rotate', '⇧ keep placing');
     return parts.join(' · ');
   };
   let hintHtml = '';
@@ -325,7 +342,9 @@ export function mountPalette(root: HTMLElement, game: Game) {
     if (!p) { hint.style.display = 'none'; hintHtml = ''; return; }
     hint.style.display = '';
     const warn = p.warn
-      ? `<div class="caution">${p.warn}</div><div class="caution-act">${p.confirm ? 'Click again to build it anyway' : 'A click asks first; a second builds it anyway'}</div>`
+      ? `<div class="caution">${p.warn}</div><div class="caution-act">${touchOn()
+        ? (p.confirm ? 'Tap ✓ again to build it anyway' : '✓ asks first; a second ✓ builds it anyway')
+        : (p.confirm ? 'Click again to build it anyway' : 'A click asks first; a second builds it anyway')}</div>`
       : '';
     // the road it lays first: its cells and the sintering they take (docs/15-roads.md)
     const road = p.valid && p.type !== 'grade'
@@ -358,6 +377,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const line = t.mode === 'lay' && t.cells
       ? `ROAD ${t.cells} cell${t.cells === 1 ? '' : 's'} · ${Math.round(t.seconds)} rover-s to sinter · release to lay`
       : t.mode === 'remove' ? `REMOVE ${t.cells} road cell${t.cells === 1 ? '' : 's'} · release to remove`
+      : touchOn() ? (t.started ? 'ROAD · tap or release where it ends' : 'ROAD · drag out from a road cell · Remove toggles · ✕ done')
       : t.started ? 'ROAD · click or release where it ends' : 'ROAD · drag out from a road cell · Alt-drag removes · right-click done';
     roadHint.innerHTML = `<span class="label hint-line">${line}</span>${t.reason
       ? `<div class="${t.mode === 'remove' ? 'caution' : 'blocked'}">${t.reason}</div>` : ''}`;

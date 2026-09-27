@@ -7,6 +7,12 @@
  *  ?safe                          safe render mode (also a menu setting)
  *  ?style=classic|detailed        render style for this launch (the menu's
  *                                 setting otherwise; classic by default)
+ *  ?touch  (?touch=0)             touch mode on (off) for this launch (the
+ *                                 menu's setting otherwise: Auto = a coarse
+ *                                 pointer and no fine one; core/touch.ts)
+ *
+ *  A production build registers the service worker (pwa.ts): installable,
+ *  and playable offline.
  *
  *  A browser without WebGL2 (or with hardware acceleration off) cannot run
  *  the game at all: it gets a page saying so instead of a blank canvas. */
@@ -14,7 +20,9 @@ import { Game } from './core/game';
 import { mountUI } from './ui/mount';
 import { attachDebug } from './debug';
 import { SITES, type SiteId } from './data/sites';
-import { isRenderStyle, loadSettings, storedStyle } from './core/settings';
+import { isRenderStyle, loadSettings, storedStyle, storedTouch } from './core/settings';
+import { detectTouch, setTouchMode } from './core/touch';
+import { registerPwa } from './pwa';
 import { RESUME_KEY } from './core/style';
 import { installAudio, sfx } from './audio/sfx';
 
@@ -22,6 +30,9 @@ const params = new URLSearchParams(location.search);
 const canvas = document.getElementById('world') as HTMLCanvasElement;
 // the menu's choices apply before the first frame is drawn
 const settings = loadSettings();
+// touch mode is fixed for the session before anything mounts (a change reloads)
+const touch = detectTouch(params, storedTouch());
+setTouchMode(touch);
 sfx.setVolume(settings.volume);
 sfx.setMusicVolume(settings.music);
 sfx.setEffectsVolume(settings.effects);
@@ -79,6 +90,7 @@ try {
     fxChoice: settings.fx ?? 0,
     style: isRenderStyle(params.get('style')) ? params.get('style') as 'classic' | 'detailed' : storedStyle(),
     seed: Number(params.get('seed') ?? Math.floor(Math.random() * 1e9)),
+    touch,
   });
 } catch (e) {
   console.error('[MOONSHOTS] The renderer could not start.', e);
@@ -101,6 +113,7 @@ try {
 
 if (game) {
   mountUI(game);
+  registerPwa(game);
 
   if (params.has('debug')) attachDebug(game);
 

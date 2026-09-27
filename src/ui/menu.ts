@@ -18,7 +18,8 @@
  *  check on the next frames that can tell, kept once one passes, and undone
  *  if the frame comes out black; the game (not the menu) stores those. */
 import type { Game } from '../core/game';
-import { loadSettings, saveSettings } from '../core/settings';
+import { loadSettings, saveSettings, storedTouch } from '../core/settings';
+import { autoTouch, touchOn, type TouchChoice } from '../core/touch';
 import { sfx } from '../audio/sfx';
 import { el } from './hud';
 import { $announce, $defeat, $menuOpen, $phase, $time } from './stores';
@@ -76,6 +77,29 @@ export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] =
   ['Esc', 'this menu'],
 ];
 
+/** Touch mode's controls (docs/07 §13): what each key became. */
+export const TOUCH_CONTROLS: [string, string][] = [
+  ['Tap', 'select a building, rover or site · empty ground clears'],
+  ['Hold', 'what is it: a building’s card · a deposit’s card'],
+  ['Drag', 'pan the view (a drag never selects)'],
+  ['Pinch', 'zoom — it settles on the nearest of five steps'],
+  ['Twist · ⟲ ⟳', 'turn the view 90°'],
+  ['⌂ Home · ⊙ Focus', 'back to the Lander · to the selection'],
+  ['◌ Ore', 'deposit overlay'],
+  ['Build', 'the palette · tap a card: its ghost in the middle'],
+  ['Drag the ghost', 'move it · ⟳ rotate · ✓ place · ✕ cancel'],
+  ['Hold a card · Order', 'the rovers choose the site'],
+  ['Keep', 'keep placing after ✓'],
+  ['Road', 'drag out from a road · Remove toggles · ✕ done'],
+  ['Tree', 'tap a tech to see it, again to queue · hold: the whole path'],
+  ['Map · Builder · Hazards', 'the Lunar Map · orders and rules · risks and counters'],
+  ['❚❚ · 1×', 'pause · speed 1× → 3× → 10×'],
+  ['☰', 'this menu'],
+  ['Walk mode', 'not in touch mode (a keyboard and mouse walk the base)'],
+];
+
+const TOUCH_NAME: Record<TouchChoice, string> = { auto: 'Auto', on: 'On', off: 'Off' };
+
 export function mountMenu(root: HTMLElement, game: Game) {
   const veil = el('div', 'interactive');
   veil.id = 'menu';
@@ -115,6 +139,12 @@ export function mountMenu(root: HTMLElement, game: Game) {
             <div class="menu-note" id="menu-safe-note"></div>
           </section>
           <section>
+            <span class="label">Touch controls</span>
+            <div class="seg seg-3" id="menu-touch">${(['auto', 'on', 'off'] as const).map((c) =>
+              `<button class="btn" data-touch="${c}">${TOUCH_NAME[c]}</button>`).join('')}</div>
+            <div class="menu-note" id="menu-touch-note"></div>
+          </section>
+          <section>
             <span class="label">Audio</span>
             <div class="menu-row">
               <span class="menu-vol-k">Master</span>
@@ -152,7 +182,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
         <div class="menu-col">
           <section>
             <span class="label">Controls</span>
-            <div class="keys" id="menu-keys">${controlsFor(game.opts.style).map(([k, v]) =>
+            <div class="keys" id="menu-keys">${(touchOn() ? TOUCH_CONTROLS : controlsFor(game.opts.style)).map(([k, v]) =>
               `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
           </section>
         </div>
@@ -234,6 +264,20 @@ export function mountMenu(root: HTMLElement, game: Game) {
       : 'The last resort for a GPU that shows black: unlit materials, no shadows, no post effects.';
   };
 
+  /** a touch-mode switch is saving and reloading */
+  let touchSwitching = false;
+  const renderTouch = () => {
+    const choice = storedTouch();
+    veil.querySelectorAll<HTMLButtonElement>('[data-touch]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.touch === choice);
+      b.disabled = touchSwitching;
+    });
+    const now = touchOn() ? 'on' : 'off';
+    $('#menu-touch-note').textContent = touchSwitching ? 'Saving and reloading…'
+      : `${choice === 'auto' ? `Auto: on for a touch screen with no mouse — ${autoTouch() ? 'this one' : 'not this one'}. ` : ''}` +
+        `Touch controls are ${now}. Switching saves the game and reloads.`;
+  };
+
   const renderAudio = () => {
     const s = loadSettings();
     const pct = Math.round(s.volume * 100);
@@ -280,6 +324,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
       note.textContent = '';
       renderGfx();
       renderAudio();
+      renderTouch();
       veil.style.display = 'flex';
       poll = window.setInterval(renderGfx, 500); // the ladder can still step while paused
       $<HTMLButtonElement>('[data-act="resume"]').focus({ preventScroll: true });
@@ -313,6 +358,15 @@ export function mountMenu(root: HTMLElement, game: Game) {
       switching = true;
       renderGfx();
       void game.switchStyle(want);
+      return;
+    }
+    const tc = t.closest<HTMLButtonElement>('[data-touch]');
+    if (tc) {
+      if (touchSwitching) return;
+      const want = tc.dataset.touch as TouchChoice;
+      touchSwitching = game.touchSwitchReloads(want);
+      renderTouch();
+      void game.switchTouch(want);
       return;
     }
     const b = t.closest<HTMLButtonElement>('button[data-act]');

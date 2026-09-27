@@ -253,6 +253,42 @@ export const DEPOSIT_FX = {
   ridgeSolar: 1.2, ridgeSolarBuildTime: 1.3,
 };
 
+/** Strip-mine pits and their heaps (docs/17 §7–§8, §11; core/pits.ts,
+ *  terrain/pitCarve.ts). Distances in m, depths quantised to decimetres. */
+export const PIT = {
+  /** t per m³ of dug regolith in place; t per m³ of spoil stacked loose */
+  tPerM3: 1.5, heapTPerM3: 1.3,
+  /** share of the mass dug that comes back as tailings (the heap ≈ 0.81 × the pit) */
+  tailings: 0.7,
+  /** one bench: each 4 m sample ring of the wall sits this much lower (1:2 walls) */
+  bench: 2,
+  /** the ramp: 1 m down per `rampRun` m, `rampHalfW` either side of its line (8 m wide) */
+  rampRun: 4, rampHalfW: 4.5,
+  /** the loose layer a pit widens at (§8.5), m: mare ground and its deposits, highland ground */
+  looseMare: [4, 5] as const, looseHighland: [10, 15] as const,
+  looseIce: [3, 6] as const, looseVolatiles: [2, 2] as const,
+  /** heaps: flat-topped, at most this high, sides at the angle of repose (35°) */
+  heapMaxH: 6, heapSlope: Math.tan((35 * Math.PI) / 180),
+  /** grow away (§8.1): samples within this many of a structure's pad (its 2-sample skirt
+   *  and a 4 m margin), of a road cell (a sample either side and a 4 m margin), of another
+   *  pit or of any heap are never dug, and never dumped on */
+  padRings: 3, roadRings: 2, pitRings: 1, border: 3,
+  /** placement: nothing within this of a rim (§11.3) */
+  rimClearM: 4,
+  /** carving: in batches, at most every `everyS` game-seconds a pit, once its rim would move
+   *  `rimMoveM` or `batchM3` is owed; the first cut at `firstM3` */
+  everyS: 5, rimMoveM: 0.5, batchM3: 150, firstM3: 40,
+  /** the widening direction: rim probes, how far past the rim they look, and the most a
+   *  carve may drift the centre (a share of the rim's advance) */
+  probes: 16, probeM: 12,
+  /** a plain pit's staking plan: the volume it digs in about three lunar days (m³) */
+  planM3: 1800,
+  /** where the staking looks for free ground round the dig, m */
+  stakeMinM: 8, stakeMaxM: 72,
+  /** the cut's tone: brighter than the weathered ground round it (§20) */
+  cutBright: 0.2, heapBright: 0.16, benchBand: 0.08,
+};
+
 /** Exploration coverage tiers (index = tier) — reveal radius and outpost slots */
 export const SURVEY_TIERS = [
   { label: 'LANDING SITE', revealM: 120, slots: 0 },

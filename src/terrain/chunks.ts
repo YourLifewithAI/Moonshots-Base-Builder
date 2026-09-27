@@ -6,7 +6,14 @@
  *  Classic style: the same grid samples (so the surface is the one
  *  hf.sample describes), each triangle its own vertices with a face normal
  *  — faceted Lambert with no derivative shading — coloured by the classic
- *  ground (terrain/classicGround.ts: site tint, relief, craters, deposits). */
+ *  ground (terrain/classicGround.ts: site tint, relief, craters, deposits).
+ *
+ *  Pits (docs/17 §11.6): a carve marks its box; the chunks it overlaps join a
+ *  queue, rebuilt at most one a frame and two a second of frame time, and the
+ *  shadow map is asked again at most every 2 s. The cut and its heap are a
+ *  fresher, brighter regolith in both styles (terrain/pitCarve.ts cutTone),
+ *  multiplied into the vertex colours the regolith patch and classic's
+ *  Lambert both read — no shader change. */
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
@@ -16,6 +23,11 @@ import { regolithPatch } from './terrainShader';
 import type { Crater, Heightfield } from './heightfield';
 import { classicActive } from '../core/style';
 import { classicGround, facet } from './classicGround';
+import { cutTone } from './pitCarve';
+
+/** the pits' rebuild queue: seconds between rebuilds (two a second), and between shadow refreshes */
+const REBUILD_GAP_S = 0.5;
+const SHADOW_GAP_S = 2;
 
 materials.define('terrain', new THREE.MeshStandardMaterial({
   vertexColors: true,
@@ -47,6 +59,18 @@ export class TerrainChunks {
   private meshes: THREE.Mesh[] = [];
   /** fired after a flatten rebuilt chunk geometry (terrain casts shadows) */
   onShadowCastersChanged?: () => void;
+  /** chunks the pits changed, waiting to be rebuilt (in the order marked) */
+  private queued = new Uint8Array(CHUNKS * CHUNKS);
+  private queue: number[] = [];
+  /** frame time pumped so far, and when the queue last rebuilt and asked for shadows */
+  private clock = 0;
+  private lastRebuild = -Infinity;
+  private lastShadow = -Infinity;
+  private shadowOwed = false;
+  /** probes: queue rebuilds done, and shadow requests they made */
+  private rebuilds = 0;
+  private shadowAsks = 0;
+  private rebuildLog: number[] = [];
 
   constructor(private hf: Heightfield) {
     for (let cz = 0; cz < CHUNKS; cz++) {
@@ -87,6 +111,9 @@ export class TerrainChunks {
           const v = regolithAlbedo(albedo, this.hf.craters, x, z);
           col[p] = v; col[p + 1] = v; col[p + 2] = v * 1.005; // whisper of cool
         }
+        // a pit's cut and its heap: fresh, immature regolith (docs/17 §20)
+        const tone = cutTone(this.hf, gx, gz);
+        if (tone !== 1) { col[p] *= tone; col[p + 1] *= tone; col[p + 2] *= tone; }
         p += 3;
       }
     }
@@ -120,6 +147,79 @@ export class TerrainChunks {
       }
     }
     this.onShadowCastersChanged?.();
+  }
+
+  /** The pits changed cells [gx0..gx1] × [gz0..gz1]: queue the chunks they touch
+   *  (normals reach a sample past the change, so the same margin as a flatten). */
+  markDirty(gx0: number, gz0: number, gx1: number, gz1: number) {
+    const cx0 = Math.max(0, Math.floor((gx0 - 3) / CHUNK_CELLS));
+    const cz0 = Math.max(0, Math.floor((gz0 - 3) / CHUNK_CELLS));
+    const cx1 = Math.min(CHUNKS - 1, Math.floor((gx1 + 3) / CHUNK_CELLS));
+    const cz1 = Math.min(CHUNKS - 1, Math.floor((gz1 + 3) / CHUNK_CELLS));
+    for (let cz = cz0; cz <= cz1; cz++) {
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const i = cz * CHUNKS + cx;
+        if (this.queued[i]) continue;
+        this.queued[i] = 1;
+        this.queue.push(i);
+      }
+    }
+  }
+
+  /** Per frame: at most one queued chunk, and at most two a second of frame
+   *  time; the shadow map is asked again at most every 2 s. */
+  pump(dt: number) {
+    this.clock += dt;
+    if (this.queue.length && this.clock - this.lastRebuild >= REBUILD_GAP_S - 1e-9) {
+      const i = this.queue.shift()!;
+      this.queued[i] = 0;
+      const cx = i % CHUNKS, cz = (i - cx) / CHUNKS;
+      this.meshes[i].geometry.dispose();
+      this.meshes[i].geometry = this.buildGeometry(cx, cz);
+      this.lastRebuild = this.clock;
+      this.rebuilds++;
+      this.rebuildLog.push(this.clock);
+      if (this.rebuildLog.length > 64) this.rebuildLog.shift();
+      this.shadowOwed = true;
+    }
+    if (this.shadowOwed && this.clock - this.lastShadow >= SHADOW_GAP_S - 1e-9) {
+      this.shadowOwed = false;
+      this.lastShadow = this.clock;
+      this.shadowAsks++;
+      this.onShadowCastersChanged?.();
+    }
+  }
+
+  /** Sim time the visuals never showed (a debug advance): every queued chunk
+   *  rebuilt now, once each, and one shadow refresh. */
+  flushQueue() {
+    if (!this.queue.length) return;
+    for (const i of this.queue) {
+      this.queued[i] = 0;
+      const cx = i % CHUNKS, cz = (i - cx) / CHUNKS;
+      this.meshes[i].geometry.dispose();
+      this.meshes[i].geometry = this.buildGeometry(cx, cz);
+      this.rebuilds++;
+    }
+    this.queue.length = 0;
+    this.shadowOwed = false;
+    this.lastShadow = this.clock;
+    this.shadowAsks++;
+    this.onShadowCastersChanged?.();
+  }
+
+  /** A load: every chunk rebuilt at once, the queue cleared. */
+  clearQueue() {
+    for (const i of this.queue) this.queued[i] = 0;
+    this.queue.length = 0;
+  }
+
+  /** The pits' queue (tests, probes): chunks waiting, rebuilds done and when (frame clock), shadow asks. */
+  queueInfo() {
+    return {
+      queued: this.queue.length, rebuilds: this.rebuilds, shadowAsks: this.shadowAsks, clock: this.clock,
+      log: [...this.rebuildLog],
+    };
   }
 
   /** Material class of the terrain meshes (safe-mode checks, probes). */

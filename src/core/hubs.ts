@@ -14,8 +14,10 @@
  *    over the mapped wanted deposits in reach (90 s one way) and the hub's
  *    plain pit. Faces are reserved at assignment and shared by every hub.
  *  - **Plain pits** are staked points (§8.6), each an extraction zone of kind
- *    'plain'; nothing is carved yet. `dug` is the one place a dig happens:
- *    the strip-mine pits (Phase 3) hook there.
+ *    'plain'. `dug` is the one place a dig happens: it grows the target's
+ *    strip-mine pit (core/pits.ts, `digInto`), a deposit's shared by every
+ *    unit on it. Once cut, units drive in by the pit's ramp to faces on its
+ *    floor (`wayIn`, `facePoint`).
  *  - **Regolith.** Hoppers hold it; `resources.regolith` is pile + Σ hoppers,
  *    written every tick. Anything else that changes resources.regolith
  *    (grants, grading, research goods, a legacy pad's load) goes to or comes
@@ -25,16 +27,18 @@
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { HUB, HUB_DEFS, UNIT_DEFS, isHubType, type UnitType } from '../data/hubs';
 import { ROAD } from '../data/roads';
-import { CELL_M, MAP_CELLS, MAP_M, UNIT_POWER } from '../data/balance';
+import { CELL_M, MAP_CELLS, MAP_M, PIT, UNIT_POWER } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { DEPOSIT_INFO, FEED_KINDS, emptyFeed, feedKindOf, type DepositKind, type FeedGrade, type FeedKind } from '../data/deposits';
 import { SITES, type SiteDef } from '../data/sites';
-import type { BuildingState, GameState, HaulState, Hauler, HubJob, HubState, PlainPit, ZoneState } from './state';
+import type { BuildingState, GameState, HaulState, Hauler, HubJob, HubState, PitState, PlainPit, ZoneState } from './state';
 import { effectiveDef, effectiveRates, refineryFeed, smelterFeed, waterFeed, type EffectiveRates, type Mods } from './mods';
 import {
   bumpRoads, cellAt, cellCentre, cellKey, doorCell, frontDir, gatesOf, groundWay, hasRoads, isOpen, jobOpen, keyCell,
-  layJob, planLink, roadMap, type Heights,
+  layJob, planLink, roadMap, type Heights, type OffArea,
 } from './roads';
+import { digGrade, digInto, looseLayer, pitFor, pitOf } from './pits';
+import { zoneAt } from './zones';
 import { creditFeed, drive, legLen, stopShort } from './haul';
 import { centerOf, footprintRect } from '../buildings/instances';
 import { inside, worldRect } from './paths';
@@ -133,6 +137,9 @@ export interface Target {
 /** 'dep:ilmenite-0', 'plain:3' */
 export const depKey = (id: string) => `dep:${id}`;
 export const plainKey = (id: number) => `plain:${id}`;
+/** The target key a zone names: a deposit's, a plain pit's, or (a pit's zone) its pit's. */
+export const keyOfZone = (s: GameState, z: ZoneState): string | null =>
+  z.kind === 'pit' ? s.pits?.find((p) => `pit-${p.id}` === z.id)?.key ?? null : z.kind === 'plain' ? z.id : depKey(z.id);
 
 /** A target's zone, faces and place (null: gone, or not mapped). */
 export function targetOf(s: GameState, key: string | null | undefined): Target | null {
@@ -146,7 +153,7 @@ export function targetOf(s: GameState, key: string | null | undefined): Target |
   }
   if (!key.startsWith('dep:')) return null;
   const zone = s.zones?.find((z) => z.id === key.slice(4)) ?? null;
-  if (!zone || zone.kind === 'plain') return null;
+  if (!zone || zone.kind === 'plain' || zone.kind === 'pit') return null;
   const faces = Math.max(1, Math.min(HUB.facesMax, Math.floor((2 * Math.PI * HUB.faceRing * zone.r) / HUB.faceM)));
   const n = zone.id.split('-').pop();
   return {
@@ -154,8 +161,20 @@ export function targetOf(s: GameState, key: string | null | undefined): Target |
   };
 }
 
-/** Face `i`'s point (world m): evenly round the target from a seeded angle. */
+/** The pit a target is dug into, once cut (null: not yet). */
+export const pitAt = (s: GameState, t: Pick<Target, 'key'>): PitState | null => pitOf(s, t.key);
+
+/** Face `i`'s point (world m). Once its pit is cut: on the pit's floor by
+ *  the wall, spread round the far side from its ramp (1:2 walls: the floor
+ *  is R − 2L across). Before: evenly round the target from a seeded angle. */
 export function facePoint(s: GameState, t: Target, i: number): Pt {
+  const p = pitAt(s, t);
+  if (p) {
+    const rf = Math.max(0, p.R - PIT.bench * looseLayer(s, p)) * 0.85;
+    const back = Math.atan2(-p.uz, -p.ux);
+    const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * Math.PI * 1.2 : 0);
+    return [p.cx + Math.cos(a) * rf, p.cz + Math.sin(a) * rf];
+  }
   const a0 = mulberry32((s.seed ^ hashString(t.key)) >>> 0)() * Math.PI * 2;
   const a = a0 + (Math.max(0, i) * Math.PI * 2) / t.faces;
   const rr = t.plain ? HUB.plainFaceR : HUB.faceR * t.r;
@@ -192,14 +211,77 @@ function offWeights(w: number[] | undefined, mods: Mods): number[] | undefined {
   return w.map((x) => (x > 1 + 1e-9 ? x / mods.haulOffroadMult : x));
 }
 
+/** How a unit gets into a target (§6.1, §11.4): the area it leaves the road
+ *  by — the target's zone, with its pit's zone once there is one (their
+ *  gates) — and, once the pit is cut, its ramp: the top on the rim, then the
+ *  foot where it meets the floor. */
+export function wayIn(s: GameState, t: Target): { area: OffArea | null; via: Pt[] } {
+  const gates: [number, number][] = [];
+  const seen = new Set<number>();
+  const add = (z: ZoneState | null | undefined) => {
+    if (!z) return;
+    for (const g of gatesOf(s, z)) { const k = cellKey(g[0], g[1]); if (!seen.has(k)) { seen.add(k); gates.push(g); } }
+  };
+  add(t.zone);
+  const p = pitAt(s, t);
+  let via: Pt[] = [];
+  if (p) {
+    add(s.zones?.find((z) => z.id === `pit-${p.id}`));
+    const rf = Math.max(0, p.R - PIT.bench * looseLayer(s, p));
+    via = [[p.ox + p.ux * p.A, p.oz + p.uz * p.A], [p.cx + p.ux * rf, p.cz + p.uz * rf]];
+  }
+  return { area: gates.length ? { id: t.key, gates } : null, via };
+}
+
+/** The target a unit works (else the one whose zone it stands in), and
+ *  whether it is down in its pit (or at its face, before the first cut),
+ *  so it leaves up the ramp. Null: no target, and in no zone. */
+function standsIn(s: GameState, u: Hauler): { t: Target; face: boolean } | null {
+  const h = u.haul;
+  let t = u.target ? targetOf(s, u.target) : null;
+  if (!t) {
+    const z = zoneAt(s, h.x, h.z);
+    const key = z ? keyOfZone(s, z) : null;
+    t = key ? targetOf(s, key) : null;
+  }
+  if (!t) return null;
+  const p = pitAt(s, t);
+  const down = p ? Math.hypot(h.x - p.cx, h.z - p.cz) < Math.max(1, p.R - PIT.bench) : Math.hypot(h.x - h.digX, h.z - h.digZ) < 1;
+  return { t, face: down };
+}
+
 /** A leg from `a` to `b`: the ground way (road, then off-road inside a zone),
- *  its first point dropped. `bStand`: b is the hub's door (stop short of its wall). */
-function legTo(s: GameState, mods: Mods, a: Pt, b: Pt, hub?: BuildingState): { pts: Pt[]; w?: number[] } | null {
-  const way = groundWay(s, a, b, null, hub ? doorCell(hub) : null);
+ *  its first point dropped. `hub`: b is that hub's door (stop short of its
+ *  wall). `from`: a is inside that target (`fromFace`: at a face, so up its
+ *  ramp first); `to`: b is a face of that target (down its ramp last). */
+function legTo(
+  s: GameState, mods: Mods, a: Pt, b: Pt, hub?: BuildingState,
+  ends: { from?: Target | null; fromFace?: boolean; to?: Target | null } = {},
+): { pts: Pt[]; w?: number[] } | null {
+  const OFF = 1 / ROAD.offroad;
+  let head: Pt[] = [], tail: Pt[] = [];
+  let aArea: OffArea | null = null, bArea: OffArea | null = null;
+  let a0 = a, b0 = b;
+  if (ends.from) {
+    const wi = wayIn(s, ends.from);
+    aArea = wi.area;
+    if (ends.fromFace && wi.via.length) { head = [...wi.via].reverse(); a0 = head[head.length - 1]; }
+  }
+  if (ends.to) {
+    const wi = wayIn(s, ends.to);
+    bArea = wi.area;
+    if (wi.via.length) { tail = [...wi.via.slice(1), b]; b0 = wi.via[0]; }
+  }
+  // face to face in one pit: across its floor
+  if (ends.from && ends.to && ends.from.key === ends.to.key && ends.fromFace) { head = []; tail = [b]; a0 = a; b0 = a; }
+  const way = a0 === b0 ? { pts: [a0], w: [] as number[] } : groundWay(s, a0, b0, null, hub ? doorCell(hub) : null, aArea, bArea);
   if (!way) return null;
   // way.w[i] is the segment into way.pts[i + 1]: it lines up with the points after the first
-  let pts = way.pts.slice(1);
-  let w = offWeights(way.w?.slice(), mods);
+  const mid = way.pts.slice(1);
+  let pts: Pt[] = [...head, ...mid, ...tail];
+  let w = head.length || tail.length || way.w
+    ? offWeights([...head.map(() => OFF), ...(way.w?.slice() ?? mid.map(() => 1)), ...tail.map(() => OFF)], mods)
+    : undefined;
   if (hub) pts = stopShort(pts, a, hub);
   if (pts.length && Math.hypot(pts[0][0] - a[0], pts[0][1] - a[1]) < 1e-6) { pts = pts.slice(1); w = w?.slice(1); }
   if (!pts.length) return { pts: [[a[0], a[1]]] };
@@ -230,12 +312,17 @@ const tripMemo = new Map<string, TripEst>();
 export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, night = false): TripEst {
   const type = hubUnit(b.type, SITES[s.siteId]);
   const v = unitSpeed(mods, type, night);
-  const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0},${s.zones?.length ?? 0}|${b.id}|${t.key}|${v.toFixed(3)}|${mods.haulOffroadMult}`;
+  const pit = pitAt(s, t);
+  const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0},${s.zones?.length ?? 0}|${b.id}|${t.key}|${v.toFixed(3)}|${mods.haulOffroadMult}`
+    + (pit ? `|${Math.round(pit.R)},${Math.round(pit.A)}` : '');
   const hit = tripMemo.get(key);
   if (hit) return hit;
   const from = standPoint(b);
   const face = facePoint(s, t, 0);
-  const way = t.zone && gatesOf(s, t.zone).length ? groundWay(s, from, face, doorCell(b), null, null, t.zone) : null;
+  // in by the target's gates (its pit's too), then down the ramp to the face
+  const wi = wayIn(s, t);
+  const inner: Pt[] = wi.via.length ? [...wi.via, face] : [];
+  const way = wi.area ? groundWay(s, from, inner[0] ?? face, doorCell(b), null, null, wi.area) : null;
   let est: TripEst;
   const offW = 1 / (ROAD.offroad * mods.haulOffroadMult);
   if (way) {
@@ -245,6 +332,7 @@ export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, ni
       const l = Math.hypot(way.pts[i][0] - way.pts[i - 1][0], way.pts[i][1] - way.pts[i - 1][1]);
       if (w && (w[i - 1] ?? 1) > 1 + 1e-9) offM += l; else roadM += l;
     }
+    for (let i = 1; i < inner.length; i++) offM += Math.hypot(inner[i][0] - inner[i - 1][0], inner[i][1] - inner[i - 1][1]);
     est = { t: (roadM + offM * offW) / v, roadM, offM, connected: true };
   } else {
       const d = Math.hypot(t.cx - from[0], t.cz - from[1]);
@@ -316,6 +404,7 @@ export function choicesFor(s: GameState, mods: Mods, site: SiteDef, b: BuildingS
   const hunger = hubHunger(mods, site, b);
   const keys: string[] = [];
   for (const z of s.zones ?? []) {
+    if (z.kind === 'pit') continue;
     if (z.kind === 'plain') { if (z.id === plainKey(b.hub?.plainPit ?? -1)) keys.push(z.id); continue; }
     if (wants.has(z.kind)) keys.push(depKey(z.id));
   }
@@ -355,7 +444,7 @@ function askRoad(s: GameState, b: BuildingState, t: Target): string {
   if (a && a.job > 0) return '';
   if (a && s.simTime - a.at < 60) return a.why ?? '';
   if (!hf) return 'no heights';
-  const face = facePoint(s, t, 0);
+  const face = wayIn(s, t).via[0] ?? facePoint(s, t, 0);
   const plan = planLink(s, hf, null, cellAt(face[0], face[1]));
   if (plan.reason) { asks[t.key] = { job: 0, at: s.simTime, why: `NO HAUL ROAD — ${plan.reason}` }; return asks[t.key].why!; }
   const job = plan.cells.length ? layJob(s, plan, 'haul', b.id) : 0;
@@ -396,19 +485,26 @@ function chooseFor(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Buildi
 
 // ───────────────────────────── plain pits (§8.6) ─────────────────────────────
 
-/** Why a plain pit may not be staked at (x, z) ('' = it may). */
+/** The pits' setbacks (docs/17 §8.1; core/pits.ts): nothing is dug within
+ *  12 m of a structure's walls or 8 m of a road, door, bay or apron. */
+export const PIT_WALL_M = PIT.padRings * CELL_M;
+export const PIT_ROAD_M = PIT.roadRings * CELL_M;
+
+/** Why a plain pit may not be staked at (x, z) ('' = it may): its zone keeps
+ *  the pits' setbacks from every structure and road. */
 export function plainPitRefusal(s: GameState, mods: Mods, site: SiteDef, x: number, z: number): string {
   const half = MAP_M / 2 - CELL_M * 3 - HUB.plainR;
   if (Math.abs(x) > half || Math.abs(z) > half) return 'OUTSIDE THE SURVEY AREA';
   if (site.buildableRadiusM > 0 && Math.hypot(x, z) > site.buildableRadiusM - HUB.plainR) return 'BEYOND THE LAVA TUBE FOOTPRINT';
   if (!groundMapped(s, x, z, mods.surveyTier)) return 'UNMAPPED GROUND — map it first (Prospecting Rovers, a Relay Mast)';
-  const clear = HUB.plainR + HUB.plainClearM;
   for (const z0 of s.zones ?? []) {
     if (Math.hypot(z0.cx - x, z0.cz - z) < z0.r + HUB.plainR + 4) {
-      return z0.kind === 'plain' ? 'ANOTHER PIT — too close to a plain pit' : 'A DEPOSIT — Assign it instead';
+      return z0.kind === 'plain' || z0.kind === 'pit' ? 'ANOTHER PIT — too close to a pit' : 'A DEPOSIT — Assign it instead';
     }
   }
-  for (const b of s.buildings) if (inside(x, z, worldRect(b), clear)) return `TOO CLOSE — a pit needs ${HUB.plainClearM} m from structures and roads`;
+  const too = `TOO CLOSE — a pit keeps ${PIT_WALL_M} m from structures' walls and ${PIT_ROAD_M} m from roads`;
+  for (const b of s.buildings) if (inside(x, z, worldRect(b), HUB.plainR + PIT_WALL_M)) return too;
+  const clear = HUB.plainR + PIT_ROAD_M;
   const map = roadMap(s);
   const [gx, gz] = cellAt(x, z);
   const n = Math.ceil(clear / CELL_M);
@@ -416,7 +512,7 @@ export function plainPitRefusal(s: GameState, mods: Mods, site: SiteDef, x: numb
     for (let dx = -n; dx <= n; dx++) {
       if (!map.has(cellKey(gx + dx, gz + dz))) continue;
       const [cx, cz] = cellCentre(gx + dx, gz + dz);
-      if (Math.hypot(cx - x, cz - z) < clear) return `TOO CLOSE — a pit needs ${HUB.plainClearM} m from structures and roads`;
+      if (Math.hypot(cx - x, cz - z) < clear) return too;
     }
   }
   return '';
@@ -430,15 +526,18 @@ export function addPlainPit(s: GameState, x: number, z: number, hub: number | nu
   return p;
 }
 
-/** The plain pits' zones, after the deposits' (Game.syncZones keeps both). */
+/** The plain pits' zones: after the deposits', before the carved pits' (Game.syncZones keeps all three). */
 export function plainZones(s: GameState): ZoneState[] {
   return s.plainPits.map((p) => ({ id: plainKey(p.id), kind: 'plain' as const, cx: p.x, cz: p.z, r: HUB.plainR }));
 }
 
-/** s.zones with every plain pit's zone in it (a fresh array when it changes: the zone memos key on it). */
+/** s.zones with every plain pit's zone in it, in order: deposits, plain pits,
+ *  carved pits (a cell in two stays the first's). A fresh array when it
+ *  changes: the zone memos key on it. */
 export function syncPlainZones(s: GameState) {
-  const deps = (s.zones ?? []).filter((z) => z.kind !== 'plain');
-  const next = [...deps, ...plainZones(s)];
+  const all = s.zones ?? [];
+  const deps = all.filter((z) => z.kind !== 'plain' && z.kind !== 'pit');
+  const next = [...deps, ...plainZones(s), ...all.filter((z) => z.kind === 'pit')];
   const prev = s.zones ?? [];
   if (prev.length === next.length && prev.every((z, i) => z.id === next[i].id)) return;
   s.zones = next;
@@ -604,9 +703,28 @@ function release(u: Hauler) {
   if (!u.pinned) u.target = null;
 }
 
-/** Out to its face: the leg from where it stands. */
+/** Out to its face: the leg from where it stands (face −1: every face is
+ *  working, so to the target's gate nearest it, to wait there for one). */
 function goDig(s: GameState, mods: Mods, u: Hauler, t: Target, face: number) {
   const h = u.haul;
+  if (face < 0) {
+    u.target = t.key;
+    u.face = -1;
+    delete u.parked;
+    const gates = wayIn(s, t).area?.gates ?? [];
+    let gate: Pt | null = null, bd = Infinity;
+    for (const g of gates) {
+      const c = cellCentre(g[0], g[1]);
+      const d = Math.hypot(c[0] - h.x, c[1] - h.z);
+      if (d < bd - 1e-9) { bd = d; gate = c; }
+    }
+    h.wait = 'gate';
+    h.phase = 'toDig';
+    h.t = 0;
+    if (gate) [h.digX, h.digZ] = gate;
+    setLeg(h, gate ? unitLeg(s, mods, u, gate) : { pts: [[h.x, h.z]] });
+    return;
+  }
   u.target = t.key;
   u.face = face;
   delete u.parked;
@@ -616,19 +734,34 @@ function goDig(s: GameState, mods: Mods, u: Hauler, t: Target, face: number) {
   h.phase = 'toDig';
   h.t = 0;
   delete h.wait;
-  setLeg(h, legTo(s, mods, [h.x, h.z], [fx, fz]));
+  setLeg(h, unitLeg(s, mods, u, [fx, fz], undefined, t));
+}
+
+/** A unit's leg from where it stands: up out of its pit first when it stands
+ *  at its face; down into `to`'s pit when it goes to a face there. */
+function unitLeg(
+  s: GameState, mods: Mods, u: Hauler, b: Pt, hub?: BuildingState, to?: Target | null,
+  where: { t: Target; face: boolean } | null = standsIn(s, u),
+): { pts: Pt[]; w?: number[] } | null {
+  const h = u.haul;
+  const at = where;
+  let leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at?.face ? at.t : null, fromFace: !!at?.face, to });
+  // part way in (recalled, re-sent): out by its target's gates
+  if (!leg && at) leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at.t, to });
+  return leg;
 }
 
 /** Home to its bay, to stand there (`why`: the parked reason). */
 function goBay(s: GameState, mods: Mods, u: Hauler, b: BuildingState, why: Hauler['parked']) {
   const h = u.haul;
+  const from = standsIn(s, u);
   release(u);
   u.parked = why;
   const [bx, bz] = bayPoint(s, b, u.bay);
   if (Math.hypot(h.x - bx, h.z - bz) < 0.5) { h.phase = 'park'; h.path = []; delete h.w; h.route = [[h.x, h.z]]; return; }
   h.phase = 'toBay';
   h.t = 0;
-  setLeg(h, legTo(s, mods, [h.x, h.z], [bx, bz]));
+  setLeg(h, unitLeg(s, mods, u, [bx, bz], undefined, null, from));
 }
 
 /** To the tipping stand at its own hub. */
@@ -638,7 +771,7 @@ function goTip(s: GameState, mods: Mods, u: Hauler, b: BuildingState) {
   h.phase = 'toDrop';
   h.t = 0;
   h.drop = b.id;
-  setLeg(h, legTo(s, mods, [h.x, h.z], standPoint(b), b));
+  setLeg(h, unitLeg(s, mods, u, standPoint(b), b));
   const m = legLen(h.x, h.z, { pts: h.path, ...(h.w ? { w: h.w } : {}) });
   if (s.stats) s.stats.haulMaxM = Math.max(s.stats.haulMaxM ?? 0, m);
 }
@@ -647,14 +780,15 @@ function goTip(s: GameState, mods: Mods, u: Hauler, b: BuildingState) {
 export const hopperRoom = (b: BuildingState): number => Math.max(0, hopperCap(b) - (b.hub?.hopper ?? 0));
 
 /** The one place a dig happens: unit `u` cut `tonnes` of `kind` ground at its
- *  target. Strip-mine pits (docs/17 Phase 3, core/pits.ts) hook in here: the
- *  unit's site is `u.target` ('dep:<id>' or 'plain:<id>') and its face point
- *  `u.haul.digX/digZ`. Deposits' reserves (Phase 4) read the tally. */
+ *  target. Its pit grows (core/pits.ts): the target's key is the pit's
+ *  ('dep:<id>', shared by every unit on that deposit, or 'plain:<id>'), the
+ *  volume ▲ ÷ 1.5 m³, the load's grade kept on the pit (the stand-in for q).
+ *  Deposits' reserves (Phase 4) read the tally. */
 export function dug(s: GameState, u: Hauler, tonnes: number, kind: FeedKind) {
   if (!(tonnes > 0) || !u.target) return;
   const book = (s.dug ??= {});
   book[u.target] = (book[u.target] ?? 0) + tonnes;
-  void kind;
+  digInto(s, pitFor(s, u.target), tonnes, digGrade(kind));
 }
 
 export interface UnitTickOut {
@@ -709,9 +843,9 @@ export function unitTick(
     if (h.phase === 'toDig' || h.phase === 'toBay' || h.phase === 'toDrop') {
       if (h.noRoad) {
         // no road there (cut, or not open yet): it asks again
-        if (h.phase === 'toDig' && u.target) setLeg(h, legTo(s, mods, [h.x, h.z], [h.digX, h.digZ]));
-        else if (h.phase === 'toBay') setLeg(h, legTo(s, mods, [h.x, h.z], bayPoint(s, b, u.bay)));
-        else if (h.phase === 'toDrop') setLeg(h, legTo(s, mods, [h.x, h.z], standPoint(b), b));
+        if (h.phase === 'toDig' && u.target) setLeg(h, unitLeg(s, mods, u, [h.digX, h.digZ], undefined, h.wait ? null : targetOf(s, u.target)));
+        else if (h.phase === 'toBay') setLeg(h, unitLeg(s, mods, u, bayPoint(s, b, u.bay)));
+        else if (h.phase === 'toDrop') setLeg(h, unitLeg(s, mods, u, standPoint(b), b));
         if (h.noRoad) break;
       }
       t = drive(h, v, t);
@@ -811,9 +945,8 @@ function pickTarget(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Build
       const why = askRoad(s, b, t);
       return { why: why || `WAITING FOR ITS HAUL ROAD — to ${t.name}` };
     }
-    const f = u.face >= 0 ? u.face : freeFace(s, t, u);
-    if (f >= 0) return { t, face: f };
-    return { why: `WAITING AT THE GATE — ${t.name} has ${t.faces}/${t.faces} faces working` };
+    // every face working: it goes to wait at the gate (face −1)
+    return { t, face: u.face >= 0 ? u.face : freeFace(s, t, u) };
   }
   return chooseFor(s, mods, site, u, b);
 }
@@ -1035,15 +1168,8 @@ export function sendUnit(s: GameState, mods: Mods, id: number, key: string): str
   }
   // a bucket under way is tipped first; in its bay or on the way out, it goes now
   if (h.phase === 'park' || h.phase === 'toBay' || h.phase === 'toDig' || (h.phase === 'dig' && !(h.cargo.regolith ?? 0))) {
-    const f = freeFace(s, t, u);
-    if (f >= 0) goDig(s, mods, u, t, f);
-    else {
-      // every face working: it waits at the gate
-      const gate = t.zone ? gatesOf(s, t.zone)[0] : null;
-      h.wait = 'gate';
-      h.phase = 'toDig';
-      setLeg(h, gate ? legTo(s, mods, [h.x, h.z], cellCentre(gate[0], gate[1])) : { pts: [[h.x, h.z]] });
-    }
+    // every face working: it waits at the gate
+    goDig(s, mods, u, t, freeFace(s, t, u));
   } else if (h.phase === 'dig') goTip(s, mods, u, b);
   return '';
 }
@@ -1085,7 +1211,7 @@ export const holding = (u: Hauler) => u.parked === 'recalled';
 /** The zone a world point lies in (a deposit's), as a target key. */
 function depKeyAt(s: GameState, x: number, z: number): string | null {
   for (const zn of s.zones ?? []) {
-    if (zn.kind === 'plain') continue;
+    if (zn.kind === 'plain' || zn.kind === 'pit') continue;
     if (Math.hypot(x - zn.cx, z - zn.cz) <= zn.r) return depKey(zn.id);
   }
   return null;

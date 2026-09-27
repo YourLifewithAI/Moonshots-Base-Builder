@@ -18,7 +18,7 @@ import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
-import { choicesFor, hubOf, unitsOf } from './core/hubs';
+import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -103,6 +103,10 @@ function api(game: Game) {
       yaw: game.walkController.yaw,
     }),
     save: () => game.doSave(),
+    /** touch mode: the gesture recognizer, the pointer, the road tool's Remove toggle */
+    getTouch: () => clone(game.debugTouch()),
+    /** the pointer the ghost and picking read (CSS px) */
+    pointAt: (x: number, y: number) => game.pointAt(x, y),
     surveyIce: () => game.actions.push({ kind: 'surveyIce' }),
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
     gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),
@@ -186,6 +190,19 @@ function api(game: Game) {
       return true;
     },
     rocksIn: (x0: number, z0: number, x1: number, z1: number) => game.debugRocksIn(x0, z0, x1, z1),
+    // ── strip-mine pits (core/pits.ts, terrain/pitCarve.ts, docs/17 Phase 3) ──
+    /** every pit (derived numbers too), the delta grid encoded, the chunk rebuild queue */
+    getPits: () => clone(game.debugPits()),
+    /** one heightfield sample: { h, base, delta (dm), pad, skirt } */
+    terrainSample: (ix: number, iz: number) => game.debugSample(ix, iz),
+    /** the adapter as an excavator calls it: `tonnes` of regolith dug at world (x, z) */
+    pitDig: (x: number, z: number, tonnes: number, q = 1) => game.debugPitDig(x, z, tonnes, q),
+    /** Site Grading's check at a square's corner cell: { valid, reason } */
+    canGrade: (gx: number, gz: number) => clone(game.debugCheckGrade(gx, gz)),
+    /** relief (m) over a sample rect */
+    terrainRelief: (gx0: number, gz0: number, gx1: number, gz1: number) => game.debugRelief(gx0, gz0, gx1, gz1),
+    /** a hash of every height and delta sample */
+    terrainHash: () => game.debugTerrainHash(),
     recipeTriangles: () => recipeTriangles(),
     /** the upgrade budget: stock and fully upgraded triangles per type, and each part's */
     upgradeTriangles: () => upgradeTriangles(),
@@ -239,6 +256,8 @@ function api(game: Game) {
     cancelJob: (hub: number, index = 0) => game.actions.push({ kind: 'cancelJob', hub, index }),
     assignPit: (hub: number, key: string | null) => game.actions.push({ kind: 'assignPit', hub, key }),
     openPit: (hub: number, x: number, z: number) => game.actions.push({ kind: 'openPit', hub, x, z }),
+    /** why a plain pit may not be staked at world (x, z) ('' = it may) */
+    plainPitWhy: (x: number, z: number) => plainPitRefusal(game.state, game.mods, SITES[game.state.siteId], x, z),
     sendUnit: (unit: number, key: string) => game.actions.push({ kind: 'sendUnit', unit, key }),
     recallUnit: (unit: number) => game.actions.push({ kind: 'recallUnit', unit }),
     dispatchUnit: (unit: number) => game.actions.push({ kind: 'dispatchUnit', unit }),

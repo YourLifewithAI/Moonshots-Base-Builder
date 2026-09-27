@@ -68,9 +68,10 @@ export const HUB = {
   bay: { cost: { metals: 30, parts: 10 }, printS: 60 },
   /** a print job's draw, kW (a construction rover's) */
   printKW: 4,
-  /** a plain pit (§8.6, staked points until pits carve): its zone's radius, its faces,
-   *  where the stake goes from the hub's door, and what it keeps clear of */
-  plainR: 12, plainFaces: 3, plainMinM: 20, plainMaxM: 60, plainClearM: 8,
+  /** a plain pit (§8.6, a staked point its pit opens by): its zone's radius, its faces,
+   *  and where the stake goes from the hub's door (it keeps the pits' setbacks clear:
+   *  12 m from structures' walls, 8 m from roads, doors and bays, PIT.padRings/roadRings) */
+  plainR: 12, plainFaces: 3, plainMinM: 20, plainMaxM: 60,
   /** a deposit's faces until faces grow with the pit (Phase 4): its full-size ring's,
    *  floor(2π × faceRing × r / faceM), 1–facesMax */
   faceM: 30, faceRing: 1.45, facesMax: 6,

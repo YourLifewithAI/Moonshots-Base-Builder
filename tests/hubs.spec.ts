@@ -29,6 +29,7 @@ async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'robo
 
 declare function hubBy(type: string, depId: string | null, x?: number, z?: number): number | null;
 declare function byId(id: number): any;
+declare function openNear(hub: number, x: number, z: number): any;
 declare function units(hub?: number): any[];
 declare function hubOf(id: number): any;
 declare function power(n: number): void;
@@ -55,6 +56,20 @@ window.hubBy = (type, depId, x, z) => {
   return null;
 };
 window.byId = (id) => window.__game.getState().buildings.find((b) => b.id === id);
+/** Open pit… at the nearest point to (x, z) that keeps the pits' setbacks; the plain pit */
+window.openNear = (hub, x, z) => {
+  const g = window.__game;
+  for (let r = 0; r <= 60; r += 4) for (let k = 0; k < (r ? 16 : 1); k++) {
+    const a = (k / 16) * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+    if (g.plainPitWhy(px, pz)) continue;
+    const n = g.getState().plainPits.length;
+    g.openPit(hub, px, pz);
+    g.advanceGameSeconds(1);
+    const all = g.getState().plainPits;
+    if (all.length > n) return all[all.length - 1];
+  }
+  return null;
+};
 window.units = (hub) => window.__game.getState().haulers.filter((u) => hub === undefined || u.hub === hub);
 window.hubOf = (id) => window.__game.getHubs().hubs[id];
 /** n solar arrays, built: the grid carries the hubs by day */
@@ -273,6 +288,47 @@ test('trips go hub → gate → face → hub; one way matches the road plus the 
   expect(Math.abs(drive - a.c.t)).toBeLessThan(4);
 });
 
+test('a unit digs its target\'s pit (core/pits.ts); once it is cut, it drives in by the ramp to a face on the floor', async ({ page }) => {
+  test.setTimeout(240_000);
+  await start(page);
+  const a = await page.evaluate(() => {
+    const g = window.__game!;
+    const hub = hubBy('smelter', 'ilmenite-0')!;
+    power(6);
+    g.finishConstruction();
+    // half an hour of digging, the hopper kept from filling
+    for (let i = 0; i < 30; i++) {
+      g.grantPower(5000);
+      const reg = g.getState().resources.regolith;
+      if (reg > 0) g.grantResources({ regolith: -reg });
+      g.advanceGameSeconds(60);
+    }
+    // the next time it sets out: its way in, and the face it goes to
+    let route: number[][] | null = null, face: number[] | null = null;
+    for (let i = 0; i < 400 && !route; i++) {
+      g.advanceGameSeconds(1);
+      const h = units(hub)[0].haul;
+      if (h.phase === 'toDig' && !h.wait && h.route.length > 2) { route = h.route; face = [h.digX, h.digZ]; }
+    }
+    const p = g.getPits().pits.find((x: any) => x.key === 'dep:ilmenite-0');
+    const at = (x: number, z: number) => g.terrainSample(Math.round((x + 512) / 4), Math.round((z + 512) / 4)).delta;
+    const zone = g.getZones().find((z: any) => z.id === `pit-${p?.id}`);
+    return { p, route, face, faceDelta: face ? at(face[0], face[1]) : null, dug: g.getState().dug, pits: g.getPits().pits.length, zone: !!zone };
+  });
+  // every tonne it dug went into the deposit's pit: the one pit, a zone of its own
+  expect(a.pits).toBe(1);
+  expect(a.p.state).toBe('open');
+  expect(a.p.tonnes).toBeGreaterThan(1000);
+  expect(a.p.tonnes).toBeCloseTo(a.dug['dep:ilmenite-0'], 3);
+  expect(a.zone).toBe(true);
+  // its face is on the pit floor, and the way in passes the ramp's top and its foot
+  expect(a.faceDelta).toBeLessThan(0);
+  const top = [a.p.ox + a.p.ux * a.p.A, a.p.oz + a.p.uz * a.p.A];
+  const near = (q: number[]) => a.route!.some((pt) => Math.hypot(pt[0] - q[0], pt[1] - q[1]) < 0.5);
+  expect(near(top)).toBe(true);
+  expect(Math.hypot(a.route![a.route!.length - 1][0] - a.face![0], a.route![a.route!.length - 1][1] - a.face![1])).toBeLessThan(0.5);
+});
+
 test('each hub has its own hopper; ▲ is their sum and the pile; each hub has its own grade', async ({ page }) => {
   await start(page);
   const a = await page.evaluate(() => {
@@ -286,7 +342,7 @@ test('each hub has its own hopper; ▲ is their sum and the pile; each hub has i
     const s = g.getState();
     const pits = s.plainPits;
     let plain = pits.find((p: any) => p.hub === h2);
-    if (!plain) { g.openPit(h2, -70, -70); g.advanceGameSeconds(1); plain = g.getState().plainPits.find((p: any) => p.hub === h2); }
+    if (!plain) plain = openNear(h2, -70, -70);
     g.assignPit(h1, 'dep:ilmenite-0');
     g.assignPit(h2, `plain:${plain.id}`);
     for (const u of units(h2)) g.sendUnit(u.id, `plain:${plain.id}`);
@@ -365,9 +421,7 @@ test('Assign, Send… and Recall: the hub prefers a pit; a sent unit is pinned t
     g.advanceGameSeconds(70);
     const us = units(hub);
     // Open pit… a plain pit, and Assign it: the auto units go there
-    g.openPit(hub, -60, 10);
-    g.advanceGameSeconds(1);
-    const pit = g.getState().plainPits[g.getState().plainPits.length - 1];
+    const pit = openNear(hub, -60, 10);
     g.assignPit(hub, `plain:${pit.id}`);
     g.advanceGameSeconds(400);
     const assigned = units(hub).map((u: any) => u.target);
@@ -401,9 +455,7 @@ test('a unit sent to a pit with every face working waits at its gate', async ({ 
     g.finishConstruction();
     g.advanceGameSeconds(2);
     // stake a plain pit (3 faces), fill its faces with the hub's second unit and two sent from a second smelter
-    g.openPit(hub, -60, 10);
-    g.advanceGameSeconds(1);
-    const pit = g.getState().plainPits[g.getState().plainPits.length - 1];
+    const pit = openNear(hub, -60, 10);
     const key = `plain:${pit.id}`;
     const s = g.getState();
     // three faces: hold them by hand (a test's shortcut: three units pinned there)
@@ -432,11 +484,19 @@ test('with no wanted deposit in reach, the hub stakes a plain pit (a zone of its
     const g = window.__game!;
     const hub = hubBy('smelter', null, -30, -30)!;
     const staked = g.getState().plainPits.map((p: any) => ({ ...p }));
+    // the stake keeps the pits' setback: its zone 12 m off every structure's walls
+    const walls = g.getState().buildings.map((b: any) => {
+      const f = g.footprintOf(b.id);
+      return staked.length ? Math.hypot(Math.max(f.x0 - staked[0].x, 0, staked[0].x - f.x1), Math.max(f.z0 - staked[0].z, 0, staked[0].z - f.z1)) : 0;
+    });
     power(8);
     g.finishConstruction();
     g.advanceGameSeconds(240);
     const st = g.getState();
-    return { hub, staked, zones: g.getZones().filter((z: any) => z.kind === 'plain'), units: units(hub), hopper: st.buildings.find((b: any) => b.id === hub).hub, view: hubOf(hub) };
+    return {
+      hub, staked, walls, zones: g.getZones().filter((z: any) => z.kind === 'plain'), units: units(hub), hopper: st.buildings.find((b: any) => b.id === hub).hub, view: hubOf(hub),
+      pit: g.getPits().pits.find((p: any) => p.key === `plain:${staked[0]?.id}`),
+    };
   });
   expect(a.staked.length).toBe(1);
   expect(a.staked[0].hub).toBe(a.hub);
@@ -445,6 +505,11 @@ test('with no wanted deposit in reach, the hub stakes a plain pit (a zone of its
   expect(a.units[0].target).toBe(`plain:${a.staked[0].id}`);
   expect(a.hopper.feed.plain).toBeGreaterThan(0.95);
   expect(a.view.plainPit).toBe(a.staked[0].id);
+  // 12 m (its zone) + the 12 m setback from every wall; its dig opened the plain pit's own pit
+  expect(Math.min(...a.walls)).toBeGreaterThanOrEqual(24);
+  expect(a.pit).toBeTruthy();
+  expect(a.pit.tonnes).toBeGreaterThan(50);
+  expect(a.pit.deposit).toBeNull();
 });
 
 test('unit power at the hub: a digging unit is a load at its hub\'s priority; in a brownout it runs its pack down and stalls', async ({ page }) => {

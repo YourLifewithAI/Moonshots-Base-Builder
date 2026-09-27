@@ -19,7 +19,9 @@ import type { BuildingState, GameState, RoadCell, RoadJob, ZoneState } from './s
 import { footprintRect } from '../buildings/instances';
 import { rimOf, zoneCells, zoneOfCell } from './zones';
 
-export interface Heights { sample(x: number, z: number): number }
+/** The ground a road is planned over: heights, and (the heightfield) the
+ *  cells no road may take — a pit's cut or a heap (terrain/pitCarve.ts). */
+export interface Heights { sample(x: number, z: number): number; noRoad?(gx: number, gz: number): boolean }
 type Cell = [number, number];
 type Placed = Pick<BuildingState, 'type' | 'gx' | 'gz' | 'rot'>;
 
@@ -145,7 +147,7 @@ const touches = (a: Placed, b: Placed) => {
 /** Memo for the siting scans (the chooser asks once a candidate): per road
  *  list, on the network's revision and the buildings. */
 const fieldMemo = new WeakMap<RoadCell[], { key: string; served: Set<number> }>();
-const layoutKey = (s: GameState) => `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}`;
+const layoutKey = (s: GameState) => `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}|t${s.terrain?.rev ?? 0}`;
 
 /** Field structures a road serves: one within reach of any road cell, or one
  *  sharing an edge with a served structure of its own type. */
@@ -275,6 +277,8 @@ function search(
       if (done.has(nk) || blocked.has(nk)) continue;
       const road = map.get(nk);
       if (road?.bay || road?.closed) continue;
+      // roads never cross a pit or a heap (docs/17 §11.4): the road tool stops at the rim
+      if (!road && hf.noRoad?.(nx, nz)) continue;
       const step = Math.abs(hAt(nk) - hAt(k));
       if (step > ROAD.maxStep) continue;
       const c = cost.get(k)! + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step;
@@ -342,6 +346,8 @@ function sinkSearch(
       if (done.has(nk) || blocked.has(nk)) continue;
       const road = map.get(nk);
       if (road?.bay || road?.closed) continue;
+      // roads never cross a pit or a heap (docs/17 §11.4): the road tool stops at the rim
+      if (!road && hf.noRoad?.(nx, nz)) continue;
       const step = Math.abs(hAt(nk) - hAt(k));
       if (step > ROAD.maxStep) continue;
       const c = cost.get(k)! + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step;
@@ -724,7 +730,7 @@ const planMemo = new Map<string, SpurPlan>();
 export function planSpur(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const none: SpurPlan = { cells: [], fresh: [], bays: [], reason: '' };
   if (!hasRoads(s)) return none;
-  const key = `${b.type},${b.gx},${b.gz},${b.rot}|${s.roadRev ?? 0},${s.roads!.length}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}`;
+  const key = `${b.type},${b.gx},${b.gz},${b.rot}|${s.roadRev ?? 0},${s.roads!.length}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}|t${s.terrain?.rev ?? 0}`;
   const hit = planMemo.get(key);
   if (hit) return hit;
   const out = planFresh(s, hf, b);
@@ -863,6 +869,7 @@ export function roadReach(s: GameState, hf: Heights): Uint8Array {
         if (out[nk] || blocked.has(nk)) continue;
         const road = map.get(nk);
         if (road?.bay || road?.closed) continue;
+        if (!road && hf.noRoad?.(nx, nz)) continue;
         if (Math.abs(hAt(nk) - hAt(k)) > ROAD.maxStep) continue;
         out[nk] = 1;
         q.push(nk);

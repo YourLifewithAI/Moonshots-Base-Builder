@@ -400,6 +400,8 @@
 #menu .menu-actions > .btn { text-align: left; }
 #menu .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
 #menu .seg.seg-2 { grid-template-columns: repeat(2, 1fr); }
+#menu .seg.seg-3 { grid-template-columns: repeat(3, 1fr); }
+#menu .seg.seg-3 .btn { font-size: 11px; padding: 6px 4px; }
 #menu .seg.seg-2 .btn { font-size: 11px; padding: 6px 4px; }
 #menu .seg .btn { position: relative; padding: 5px 4px 6px; text-align: center; font-size: 10px; }
 #menu .seg .btn b { display: block; font-family: var(--font-mono); font-size: 14px; line-height: 18px; }
@@ -428,6 +430,14 @@
   #menu .menu-body { grid-template-columns: 1fr; }
   #menu .menu-col + .menu-col { border-left: none; border-top: var(--hair); }
 }
+
+/* a new version of the game is installed (pwa.ts): a chip offers the reload */
+#update-chip {
+  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 70;
+  pointer-events: auto; padding: 8px 16px; font-size: 12px;
+  background: var(--paper); color: var(--ink-900); border-color: transparent;
+}
+html.touch #update-chip { bottom: auto; top: var(--content-t); min-height: 44px; }
 
 /* ── discovery cards (a finished tech) and the era explainer ── */
 #discovery-card {

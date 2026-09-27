@@ -31,6 +31,8 @@ import {
 } from './techPage';
 import { destinyMeter, destinyPip, destinyPips, destinySlot, reachLine } from './techDestiny';
 import { gateTitle, goalsHtml, pageKind, updateGoals } from './techGoals';
+import { touchOn } from '../core/touch';
+import { onLongPress } from './longPress';
 
 // ─────────────────────────── text helpers ───────────────────────────
 
@@ -138,8 +140,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       <div id="tech-tabs" role="tablist" title="[ ] or PgUp PgDn change page · Home: the current era">${tabsHtml}</div>
       <div id="tech-alerts"></div>
       <div id="tech-rate" class="mono"></div>
-      <button class="btn" id="tech-map" style="display:none" title="Open the Lunar Map">[M] Map</button>
-      <button class="btn" id="tech-close">Close [T]</button>
+      <button class="btn" id="tech-map" style="display:none" title="Open the Lunar Map">${touchOn() ? '◎ Map' : '[M] Map'}</button>
+      <button class="btn" id="tech-close">${touchOn() ? '✕ Close' : 'Close [T]'}</button>
     </div>
     <div id="tech-page-head"></div>
     <div id="tech-main"><div id="tech-board"></div></div>
@@ -326,7 +328,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     // a new era while the tree is open: the page stays, the new tab pulses once
     if (seenEra && v.era > seenEra) pulseTab(clampEra(v.era));
     seenEra = v.era;
-    const L = computePageLayout(v, page, main.clientWidth || Infinity);
+    // touch: the board scrolls sideways, so a row keeps its full cards
+    const L = computePageLayout(v, page, touchOn() ? Infinity : main.clientWidth || Infinity);
     const slot = destinySlot(page, game, v);
     const sig = signature(v, L, slot?.sig ?? '');
     layout = L;
@@ -526,13 +529,14 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     return `${sIn}<div class="cb">${l1}</div><div class="l2">${l2}</div><div class="l3">${cap}${esc(tag(c.tid))}</div></div>${sOut}${prog}`;
   }
 
-  /** row height from the room the board has: 56 px, less on short screens */
+  /** row height from the room the board has: 56 px, less on short screens
+   *  (touch: always 56 — a 44 px card — and the board scrolls instead) */
   function fitRows() {
     const L = layout;
     if (!L) return;
     const rows = Math.max(1, L.rows.length);
     const h = main.clientHeight;
-    const next = h > 0 ? Math.max(36, Math.min(56, Math.floor(h / rows))) : 56;
+    const next = touchOn() ? 56 : h > 0 ? Math.max(36, Math.min(56, Math.floor(h / rows))) : 56;
     rowH = next;
     board.style.setProperty('--row-h', `${next}px`);
     board.classList.toggle('tight', next < 50);
@@ -740,7 +744,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       queueSig = sig;
       if (!v.queue.length) {
         queueEl.innerHTML = `<span class="q-head label">Queue 0/${v.queueMax}</span>
-          <span class="q-empty">empty — click an available tech · Shift-click queues its whole path</span>`;
+          <span class="q-empty">${touchOn() ? 'empty — tap a tech to see it, tap again to queue · hold to queue its whole path'
+            : 'empty — click an available tech · Shift-click queues its whole path'}</span>`;
       } else {
         queueEl.innerHTML = `<span class="q-head label">Queue ${v.queue.length}/${v.queueMax}</span>` + v.queue.map((q, i) => {
           const e = v.cards[q.tid].era;
@@ -859,7 +864,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const canPath = c.state === 'available' || c.state === 'requires' || c.state === 'requiresAny' || c.state === 'full';
     return `<div class="sh-btns">
       <button class="btn" data-act="queue" data-tech="${c.tid}" ${c.state === 'available' ? '' : 'disabled'}>Queue</button>
-      <button class="btn" data-act="path" data-tech="${c.tid}" ${canPath ? '' : 'disabled'}>Queue path ⇧</button>
+      <button class="btn" data-act="path" data-tech="${c.tid}" ${canPath ? '' : 'disabled'}>${touchOn() ? 'Queue path' : 'Queue path ⇧'}</button>
       <button class="btn" data-act="cancel" data-tech="${c.tid}" ${q ? '' : 'disabled'}>Cancel</button>
     </div>`;
   }
@@ -992,9 +997,11 @@ export function mountTechTree(root: HTMLElement, game: Game) {
           transfer cap <span class="mono">${v.cap.toFixed(1)}/s</span></div>
         <div class="sh-flavor"><i>${CHARTER_RULE}</i></div></div>
       <div class="sh-col"><div class="sh-h label">Controls</div>
-        <div class="sh-desc">Hover a tech for details · Click queues · Shift-click queues the whole path, across eras ·
+        <div class="sh-desc">${touchOn()
+          ? 'Tap a tech to see it here · tap it again to queue (or cancel a queued one) · hold it to queue the whole path, across eras · the tabs change era page · drag the board to see every lane'
+          : `Hover a tech for details · Click queues · Shift-click queues the whole path, across eras ·
           Click or right-click a queued tech to cancel · [ ] or PgUp/PgDn change era page · Home: the current era ·
-          Arrows move · Enter queues · Shift+Enter queues the path · Esc closes</div></div>`;
+          Arrows move · Enter queues · Shift+Enter queues the path · Esc closes`}</div></div>`;
   }
 
   function renderSheet() {
@@ -1076,9 +1083,22 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     if (j) { jumpTo(j.dataset.jump as TechId); return; }
     const card = (e.target as HTMLElement).closest<HTMLElement>('.tech-card');
     if (!card) { selected = null; refreshFocus(); return; }
+    // touch has no hover: the first tap shows a card in the sheet, a second acts
+    if (touchOn() && selected !== card.dataset.tech) {
+      selected = card.dataset.tech as TechId;
+      refreshFocus();
+      return;
+    }
     activate(card.dataset.tech as TechId, e.shiftKey);
     refreshFocus();
   });
+  // touch: a hold queues the whole path (Shift-click)
+  if (touchOn()) {
+    onLongPress(board, '.tech-card', (card) => {
+      activate(card.dataset.tech as TechId, true);
+      refreshFocus();
+    });
+  }
   board.addEventListener('contextmenu', (e) => {
     const card = (e.target as HTMLElement).closest<HTMLElement>('.tech-card');
     if (!card) return;
@@ -1086,8 +1106,10 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const c = view?.cards[card.dataset.tech as TechId];
     if (c && (c.state === 'queued' || c.state === 'stalled')) push({ kind: 'cancelResearch', tech: c.tid });
   });
-  // gaps between cards keep the last hover, so the sheet does not flicker in transit
+  // gaps between cards keep the last hover, so the sheet does not flicker in
+  // transit (touch: no hover — a tap's emulated mouseover must not stick)
   board.addEventListener('mouseover', (e) => {
+    if (touchOn()) return;
     const card = (e.target as HTMLElement).closest<HTMLElement>('.tech-card');
     const t = (card?.dataset.tech as TechId | undefined) ?? null;
     if (t && t !== hover) { hover = t; refreshFocus(); }

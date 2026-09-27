@@ -21,6 +21,7 @@ import { centerOf, footprintRect } from './instances';
 import { createGhost, setGhostBlocked } from './ghost';
 import { cellCentre, footprintCells, keyCell, mastStand, planSpur, roadMap, zoneStand } from '../core/roads';
 import { CellPreview } from './cellPreview';
+import { gradeEnergy, gradePitRefusal, pitRefusal } from '../core/pits';
 import { ROAD } from '../data/roads';
 
 export type PlaceableType = BuildingId | 'grade';
@@ -230,7 +231,14 @@ function gradeCenter(gx: number, gz: number): [number, number] {
   ];
 }
 
+/** Stored energy a grading pass at (gx, gz) costs: the base pass, more on a
+ *  heap (docs/17 §11.3: × (1 + its relief ÷ 2 m)). */
+export function gradeCost(hf: Heightfield, gx: number, gz: number): number {
+  return gradeEnergy(hf, gx, gz, GRADE_CELLS, GRADE_COST_ENERGY);
+}
+
 /** Grading validity: in bounds, inside the build network, no structure on top,
+ *  never over a pit (it levels heaps, but cannot fill a hole: docs/17 §11.3),
  *  and enough stored energy for the dozer pass. */
 export function checkGrade(
   state: GameState,
@@ -249,9 +257,13 @@ export function checkGrade(
       return { valid: false, reason: 'A structure is in the way' };
     }
   }
+  // a hole is refused wherever it is: grading cannot fill it (docs/17 §11.3)
+  const pit = gradePitRefusal(state, hf, gx, gz, GRADE_CELLS);
+  if (pit) return { valid: false, reason: pit };
   if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
-  if (state.powerStored < GRADE_COST_ENERGY) {
-    return { valid: false, reason: `Need ${GRADE_COST_ENERGY} stored energy — have ${Math.floor(state.powerStored)}` };
+  const cost = gradeCost(hf, gx, gz);
+  if (state.powerStored < cost) {
+    return { valid: false, reason: `Need ${cost} stored energy — have ${Math.floor(state.powerStored)}` };
   }
   return { valid: true, reason: '' };
 }
@@ -323,6 +335,9 @@ export function checkPlacement(
   if (roads.size && footprintCells(probe).some((k) => roads.has(k))) {
     return { valid: false, reason: 'On a road — pick open ground beside it' };
   }
+  // pits and heaps (docs/17 §11.3): never on one, nor within 4 m of a rim
+  const pit = pitRefusal(state, hf, r.gx0, r.gz0, r.gx1, r.gz1);
+  if (pit) return { valid: false, reason: pit };
   const relief = hf.maxDelta(r.gx0, r.gz0, r.gx1, r.gz1);
   const large = largePadRefusal(type, r.w * r.d, relief, site);
   if (large) return { valid: false, reason: large };

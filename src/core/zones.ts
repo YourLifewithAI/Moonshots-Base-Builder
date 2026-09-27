@@ -10,6 +10,9 @@
  *    in that zone only: from a gate to a dig, a site, and back.
  *  - A cell is inside a zone when its centre is (the same test for roads,
  *    units and the sim).
+ *  - A pit is a zone too (kind 'pit', core/pits.ts, docs/17 §11.4): its cut
+ *    and a cell round it, listed cell by cell. Pit zones come after the
+ *    deposits', so a cell in both stays the deposit's (and so do its gates).
  *
  *  Pure: the state in, cells out; memoised on the zone list. No roads import
  *  (core/roads.ts reads this). */
@@ -35,6 +38,10 @@ function index(s: Pick<GameState, 'zones'>) {
   if (m && m.n === list.length) return m;
   const cells = new Map<number, number>();
   list.forEach((z, i) => {
+    if (z.cells) {
+      for (const k of z.cells) if (!cells.has(k)) cells.set(k, i);
+      return;
+    }
     const [g0x, g0z] = cellOf(z.cx - z.r, z.cz - z.r);
     const [g1x, g1z] = cellOf(z.cx + z.r, z.cz + z.r);
     for (let gz = g0z; gz <= g1z; gz++) {
@@ -80,11 +87,14 @@ export function rimOf(s: Pick<GameState, 'zones'>, zone: ZoneState): ReadonlyMap
 }
 
 /** The zone list from the revealed deposits (Game.syncDeposits), in a
- *  stable order; the same array while nothing changed (the memo keys on it). */
+ *  stable order, the pits' zones kept after them (core/pits.ts owns those);
+ *  the same array while nothing changed (the memo keys on it). */
 export function zonesFrom(prev: ZoneState[] | undefined, revealed: readonly { id: string; kind: DepositKind; cx: number; cz: number; r: number }[]): ZoneState[] {
-  const next = revealed.filter((d) => ZONE_KINDS.has(d.kind))
+  const next: ZoneState[] = revealed.filter((d) => ZONE_KINDS.has(d.kind))
     .map(({ id, kind, cx, cz, r }) => ({ id, kind, cx, cz, r }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  if (prev && prev.length === next.length && prev.every((z, i) => z.id === next[i].id)) return prev;
-  return next;
+  const pits = (prev ?? []).filter((z) => z.kind === 'pit');
+  const deps = (prev ?? []).filter((z) => z.kind !== 'pit');
+  if (prev && deps.length === next.length && deps.every((z, i) => z.id === next[i].id)) return prev;
+  return [...next, ...pits];
 }

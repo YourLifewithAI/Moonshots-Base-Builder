@@ -49,6 +49,8 @@ import {
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
 import { ROAD } from '../data/roads';
+import { bindTerrain, digSiteKey, onDig, pitsView, restoreTerrain, saveTerrain, syncPitZones } from './pits';
+import { encodeDelta, takeCarved } from '../terrain/pitCarve';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
@@ -62,7 +64,7 @@ import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { BuildingDarkness } from '../buildings/darkness';
 import {
-  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, untouchedSite, type PlaceableType,
+  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, gradeCost, untouchedSite, type PlaceableType,
 } from '../buildings/placement';
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
@@ -80,8 +82,10 @@ import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buil
 import { ISO_FOV, IsoCam } from '../player/isoCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
+import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import { loadSettings, saveSettings, type RenderStyle } from './settings';
+import { autoTouch, type TouchChoice } from './touch';
 import { RESUME_KEY, setActiveStyle } from './style';
 import { sfx } from '../audio/sfx';
 import {
@@ -105,6 +109,8 @@ export interface GameOptions {
   seed: number;
   /** how the world is drawn this session (fixed at boot: a change reloads) */
   style: RenderStyle;
+  /** touch mode (core/touch.ts): gestures on the world, saves on every hide */
+  touch?: boolean;
 }
 
 /** What the menu shows about the render path. */
@@ -173,6 +179,10 @@ export class Game {
   private roadTool!: RoadTool;
   /** debug: a placement's road is laid open (tests that time builds, not roads) */
   debugOpenRoads = false;
+  /** touch mode's gesture recognizer (player/touch.ts); null on desktop */
+  private touchCtl: TouchControls | null = null;
+  /** touch: the road tool's Remove toggle (Alt-drag on desktop) */
+  roadRemove = false;
 
   private playing = false;
   private econAcc = 0;
@@ -255,6 +265,7 @@ export class Game {
     this.buildCam = this.classic ? new IsoCam(this.camera, canvas) : new BuildCam(this.camera, canvas);
     this.buildCam.enabled = false;
     this.bindInput();
+    if (opts.touch) this.bindTouch();
     window.addEventListener('resize', () => this.onResize());
     $depositOverlay.subscribe((v) => { if (this.depositOverlay) this.depositOverlay.visible = v; });
     // safe mode (the player's, or the render check's from an earlier launch)
@@ -312,7 +323,9 @@ export class Game {
     // saves from the 34-tech tree: retired ids refunded, the queue sanitized
     migrateTechSchema(blob.state);
     this.bootWorld(blob.state);
-    // replay flattens onto the regenerated terrain, in order
+    // the pits' height deltas onto the regenerated surface, then the flattens
+    // replay over them, in order (base → deltas → flattens, docs/17 §11.1)
+    const carved = restoreTerrain(this.state, this.hf);
     for (const f of this.state.flattens) {
       this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
       this.onFlattened(f.x0, f.z0, f.x1, f.z1);
@@ -326,11 +339,17 @@ export class Game {
     this.syncDeposits(false);
     // a save from before extraction hubs (docs/17 §19): excavators join their hubs
     migrateHubs(this.state, this.mods, SITES[this.state.siteId]);
-    if (this.state.flattens.length) this.chunks.rebuildAround(0, 0, 255, 255);
+    // the pits' zones come back from the grid (the save leaves them out)
+    syncPitZones(this.state, this.hf, undefined, false);
+    if (this.state.flattens.length || carved) this.chunks.rebuildAround(0, 0, 255, 255);
+    this.chunks.clearQueue();
+    if (carved) { this.rocks.clearPits(0, 0, 255, 255); this.walk.boulders = this.rocks.colliders(); }
+    this.hf.carved.length = 0;
     this.instances.rebuild(this.state);
     this.homeCamera(false);
     this.walk.colliders = this.instances.colliders(this.state);
-    if (blob.player.mode === 'walk') {
+    // touch mode has no walk mode: a desktop save made on foot loads in the command view
+    if (blob.player.mode === 'walk' && !this.opts.touch) {
       this.walk.pos.set(blob.player.x, blob.player.y, blob.player.z);
       this.walk.yaw = blob.player.yaw;
       this.walk.pitch = blob.player.pitch;
@@ -349,6 +368,7 @@ export class Game {
     this.hf = new Heightfield(SITES[state.siteId], state.seed);
     // the sim plans hub units' haul roads and stakes plain pits on it (core/hubs.ts)
     bindHeights(state, this.hf);
+    bindTerrain(state, this.hf); // the pits carve this ground (core/pits.ts, economy step 4.2)
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
     this.rocks = new Rocks(this.hf);
@@ -449,6 +469,8 @@ export class Game {
 
   private bindInput() {
     window.addEventListener('mousemove', (e) => {
+      // touch mode: a tap's compatibility mousemove must not drag the ghost to the button tapped
+      if (this.touchCtl?.compatMouse()) return;
       this.mousePx = { x: e.clientX, y: e.clientY };
       this.mouse.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
       if (document.pointerLockElement === this.canvas && this.modes?.mode === 'walk') {
@@ -493,6 +515,8 @@ export class Game {
       switch (e.code) {
         case 'Tab':
           e.preventDefault();
+          // touch mode has no walk mode, even with a keyboard attached (docs/07 §13.9)
+          if (this.opts.touch) break;
           this.cancelPlacement();
           this.modes.toggle();
           break;
@@ -586,7 +610,7 @@ export class Game {
       this.buildCam.clearKeys();
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.playing) void this.doSave();
+      if (document.hidden && this.playing) void this.doSave(!!this.opts.touch);
     });
     // a victory or defeat overlay takes the screen: back to the command view
     // with the pointer free and nothing half-placed underneath
@@ -724,6 +748,155 @@ export class Game {
     $placing.set(null);
   }
 
+  // ─────────────────────────── touch (docs/07 §13) ───────────────────────────
+
+  /** Gestures on the world, and a save on every way the page can go away
+   *  (iOS kills a background tab without warning). */
+  private bindTouch() {
+    const host: TouchHost = {
+      ready: () => this.playing && this.commandView && !overlayUp() && !$menuOpen.get(),
+      mode: () => (this.placement?.active ? 'place' : this.roadTool?.active ? 'road'
+        : this.fleetTarget?.active ? 'target' : 'select'),
+      tap: (x, y) => this.touchTap(x, y),
+      longPress: (x, y) => this.touchLongPress(x, y),
+      pan: (dx, dy) => this.buildCam.panPx(dx, dy, true),
+      pinch: (phase, scale) => this.buildCam.pinch(phase, scale),
+      twist: (rad) => this.buildCam.twist(rad),
+      twistReset: () => this.buildCam.twistReset(),
+      ghostDrag: (dx, dy) => this.pointAt(this.mousePx.x + dx, this.mousePx.y + dy),
+      roadDown: (x, y) => { this.pointAt(x, y); this.roadTool.update(); this.roadTool.down(this.roadRemove); },
+      roadMove: (x, y) => this.pointAt(x, y),
+      roadUp: (x, y) => { this.pointAt(x, y); this.roadTool.update(); this.roadTool.up(); },
+    };
+    this.touchCtl = new TouchControls(this.canvas, host);
+    window.addEventListener('pagehide', () => { if (this.playing) void this.doSave(true); });
+  }
+
+  /** The pointer the ghost, the road tool and picking read, at a screen
+   *  point (CSS px; clamped to the viewport). */
+  pointAt(x: number, y: number) {
+    const w = window.innerWidth, h = window.innerHeight;
+    x = Math.min(w - 1, Math.max(0, x));
+    y = Math.min(h - 1, Math.max(0, y));
+    this.mousePx = { x, y };
+    this.mouse.set((x / w) * 2 - 1, -(y / h) * 2 + 1);
+  }
+
+  /** Where the pointer (the ghost, while placing) stands, CSS px. */
+  get pointer() { return { ...this.mousePx }; }
+
+  /** A tap on the world: a click, except that while placing it only moves
+   *  the ghost there (✓ places). Empty ground clears every selection; with
+   *  the deposit overlay on, a revealed deposit there opens its card. */
+  private touchTap(x: number, y: number) {
+    this.pointAt(x, y);
+    if (this.roadTool.active) {
+      this.roadTool.update();
+      this.roadTool.down(this.roadRemove);
+      this.roadTool.up();
+      return;
+    }
+    if (this.placement.active) return;
+    if (this.fleetTarget.active) { this.fleetTarget.update(); this.fleetTarget.click(); return; }
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hit = this.pickWorld();
+    if (hit?.rover !== undefined) { this.selectRover(hit.rover); $depositSel.set(null); return; }
+    const b = hit?.building !== undefined ? this.state.buildings.find((x) => x.id === hit.building) ?? null : null;
+    $roverSel.set(null);
+    $selection.set(b ? { ...b } : null);
+    const dep = b || !$depositOverlay.get() ? null : this.depositUnder();
+    $depositSel.set(dep);
+  }
+
+  /** A long-press: what is this? A structure or a rover opens its inspector
+   *  (the UI adds its info card); ground opens the card of a revealed
+   *  deposit there. Returns what was found, for the UI. */
+  private touchLongPress(x: number, y: number) {
+    if (this.placement.active || this.roadTool.active || this.fleetTarget.active) return;
+    this.pointAt(x, y);
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hit = this.pickWorld();
+    let info: { kind: 'building' | 'rover' | 'deposit' | 'ground'; type?: BuildingId; id?: string | number; x: number; y: number };
+    if (hit?.rover !== undefined) {
+      this.selectRover(hit.rover);
+      info = { kind: 'rover', id: hit.rover, x, y };
+    } else if (hit?.building !== undefined) {
+      this.select(hit.building);
+      const b = this.state.buildings.find((o) => o.id === hit.building);
+      info = { kind: 'building', type: b?.type, id: hit.building, x, y };
+    } else {
+      const dep = this.depositUnder();
+      if (dep) {
+        $selection.set(null);
+        $roverSel.set(null);
+        $depositSel.set(dep);
+        info = { kind: 'deposit', id: dep, x, y };
+      } else {
+        info = { kind: 'ground', x, y };
+      }
+    }
+    window.dispatchEvent(new CustomEvent('moonshots:long-press', { detail: info }));
+  }
+
+  /** the revealed deposit under the pointer (its id), or null */
+  private depositUnder(): string | null {
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const { origin: o, direction: d } = this.raycaster.ray;
+    const g = this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 3000);
+    if (!g) return null;
+    const dep = this.hf.depositAt(g[0], g[2]);
+    return dep && depositRevealed(this.state, dep, this.mods.surveyTier) ? dep.id : null;
+  }
+
+  /** ✓ in the placement bar: place at the ghost, as a click would (a
+   *  blocked spot flashes its reason; a stranding one asks twice). */
+  confirmPlacement(keep = false) {
+    if (this.placement?.active && this.commandView) this.onWorldClick(keep);
+  }
+
+  /** R, or ⟳ in the placement bar. */
+  rotatePlacement() {
+    if (this.placement?.active) this.placement.rotate();
+  }
+
+  /** Enter while placing, or Order in the placement bar: the rovers choose
+   *  the site for this one. */
+  orderPlacing(): boolean {
+    const p = this.placement?.active ? this.placement.probe : null;
+    if (!p || p.type === 'grade') return false;
+    this.actions.push({ kind: 'order', type: p.type, count: 1 });
+    this.cancelPlacement();
+    return true;
+  }
+
+  /** ⟲ ⟳ (and Q/E's step in the isometric view): turn the command view. */
+  turnView(dir: -1 | 1) {
+    if (this.commandView) this.buildCam.turnStep(dir);
+  }
+
+  /** H: glide home to the Lander. F: glide to the selection. */
+  cameraHome() {
+    if (this.commandView) this.homeCamera(true);
+  }
+  focusSelection() {
+    const sel = $selection.get();
+    const rover = $roverSel.get();
+    if (!this.commandView || (!sel && rover === null)) return;
+    const at = sel ? this.life.haulers.pose(sel.id) : this.life.rovers.pose(rover!);
+    const [x, z] = at ? [at.x, at.z] : sel ? centerOf(sel) : [0, 0];
+    this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
+  }
+
+  /** The recognizer's state and the pointer (tests, probes). */
+  debugTouch() {
+    const p = this.placement?.active ? this.placement.probe : null;
+    return {
+      on: !!this.touchCtl, ...(this.touchCtl?.info() ?? {}), pointer: this.pointer,
+      roadRemove: this.roadRemove,
+      placing: p ? { type: p.type, gx: p.gx, gz: p.gz, rot: p.rot, valid: p.valid, reason: p.reason } : null,
+    };
+  }
+
   /** Frame the Lander from the home direction (a glide unless `glide` is false). */
   /** Glide the command camera over a ground point (a deposit card's buttons). */
   focusGround(x: number, z: number) {
@@ -737,6 +910,34 @@ export class Game {
     const y = this.hf.sample(x, z);
     if (glide) this.buildCam.focus(x, y, z, HOME_DIST, true);
     else this.buildCam.home(x, y, z);
+  }
+
+  private overlayOwed = false;
+  private overlayClock = 0;
+  /** The pits changed the ground (docs/17 §11.6): the chunks they touched join
+   *  the rebuild queue (one a frame, two a second, shadows every 2 s), rocks
+   *  on the cut go, and the deposit rings re-drape at most once a second.
+   *  Nothing is allocated on a frame without a carve. */
+  private syncTerrain(dt: number) {
+    this.takeTerrain();
+    this.chunks.pump(dt);
+    this.overlayClock += dt;
+    if (this.overlayOwed && this.overlayClock >= 1) {
+      this.overlayOwed = false;
+      this.overlayClock = 0;
+      if (this.depositOverlay) this.rebuildDepositOverlay();
+    }
+  }
+
+  /** The boxes the pits carved since the last look: their chunks queued, their rocks cleared. */
+  private takeTerrain() {
+    if (!this.hf.carved.length) return;
+    takeCarved(this.hf, (gx0, gz0, gx1, gz1) => {
+      this.chunks.markDirty(gx0, gz0, gx1, gz1);
+      this.rocks.clearPits(gx0, gz0, gx1, gz1);
+    });
+    this.walk.boulders = this.rocks.colliders();
+    this.overlayOwed = true;
   }
 
   /** Cells [x0..x1) × [z0..z1) were flattened: clear the rocks off them and
@@ -908,7 +1109,7 @@ export class Game {
         if (!this.mods.grading) break;
         const chk = checkGrade(s, this.hf, a.gx, a.gz);
         if (!chk.valid) { alert(s, `CANNOT GRADE — ${chk.reason}`, 'warn'); break; }
-        s.powerStored -= GRADE_COST_ENERGY;
+        s.powerStored -= gradeCost(this.hf, a.gx, a.gz);
         const h = this.hf.flatten(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
         s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
         this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
@@ -1183,9 +1384,9 @@ export class Game {
   private syncZones(revealed = this.hf.deposits.filter((d) => depositRevealed(this.state, d, this.mods.surveyTier))) {
     const s = this.state;
     const prev = s.zones ?? [];
-    // the deposits' zones, then the staked plain pits' (docs/17 §8.6)
+    // the deposits' zones, then the staked plain pits' (docs/17 §8.6), then the carved pits'
     const deps = zonesFrom(prev.filter((z) => z.kind !== 'plain'), revealed);
-    const next = [...deps, ...plainZones(s)];
+    const next = [...deps.filter((z) => z.kind !== 'pit'), ...plainZones(s), ...deps.filter((z) => z.kind === 'pit')];
     if (s.zones && prev.length === next.length && prev.every((z, i) => z.id === next[i].id)) return;
     s.zones = next;
     bumpRoads(s);
@@ -1355,8 +1556,33 @@ export class Game {
     location.assign(url.toString());
   }
 
+  /** Would this touch choice change the running mode (and so reload)? */
+  touchSwitchReloads(choice: TouchChoice): boolean {
+    const next = choice === 'auto' ? autoTouch() : choice === 'on';
+    return next !== !!this.opts.touch;
+  }
+
+  /** The player picked touch controls (the menu): stored; when that changes
+   *  the running mode, the game saves and the page reloads straight back
+   *  into it — the touch layout is built once, at boot. A ?touch flag in the
+   *  address is dropped, or it would override the choice. */
+  async switchTouch(choice: TouchChoice) {
+    saveSettings({ touch: choice });
+    if (!this.touchSwitchReloads(choice)) return;
+    if (this.playing && !missionLost(this.state)) {
+      await this.doSave();
+      try { sessionStorage.setItem(RESUME_KEY, '1'); } catch { /* the title screen, then */ }
+    }
+    this.playing = false;
+    const url = new URL(location.href);
+    for (const k of ['touch', 'site', 'exp']) url.searchParams.delete(k);
+    location.assign(url.toString());
+  }
+
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
+    // touch mode (a phone's battery): a hidden page neither draws nor steps
+    if (this.opts.touch && document.hidden) { this.lastT = t; return; }
     this.firstFrame ??= { fx: this.post.fxLevel, safe: this.safeMode };
     const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
@@ -1674,6 +1900,7 @@ export class Game {
     } else {
       this.rocks.update(this.camera);
     }
+    this.syncTerrain(dt);
     // the sun step grows with game speed; the wings turn first, so their
     // re-aim joins this frame's shadow render instead of forcing another
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
@@ -2215,8 +2442,11 @@ export class Game {
 
   private saveBlob(): SaveBlob {
     const held = this.savePausedAs;
+    // the height-delta grid, sparse (docs/17 §11.5); pit zones are rebuilt from it on load
+    saveTerrain(this.state, this.hf);
+    const base = held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held };
     return {
-      state: held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held },
+      state: base.zones?.some((z) => z.kind === 'pit') ? { ...base, zones: base.zones.filter((z) => z.kind !== 'pit') } : base,
       player: {
         mode: this.modes.mode,
         x: this.walk.pos.x, y: this.walk.pos.y, z: this.walk.pos.z,
@@ -2226,10 +2456,12 @@ export class Game {
     };
   }
 
-  async doSave() {
+  /** `sync` (touch mode, the page going away): a synchronous copy too, which
+   *  outlives a tab the OS kills before the database write lands. */
+  async doSave(sync = false) {
     // a lost base is written once, at the moment of loss, and never again
     if (!this.playing || missionLost(this.state)) return;
-    await saveGame(this.saveBlob());
+    await saveGame(this.saveBlob(), sync);
     $hasSave.set(true);
   }
 
@@ -2464,6 +2696,51 @@ export class Game {
 
   // ─────────────────────────── debug hooks ───────────────────────────
 
+  /** Every pit and its derived numbers, the grid encoded, the rebuild queue (docs/17 §21). */
+  debugPits() {
+    const s = this.state;
+    const delta = encodeDelta(this.hf.delta);
+    let nonzero = 0, cut = 0, heap = 0;
+    for (let k = 0; k < this.hf.delta.length; k++) {
+      const d = this.hf.delta[k];
+      if (!d) continue;
+      nonzero++;
+      if (d < 0) cut -= d * 1.6; else heap += d * 1.6;
+    }
+    return {
+      pits: pitsView(s, this.hf), rev: s.terrain?.rev ?? 0, clock: s.terrain?.clock ?? 0,
+      delta, bytes: delta.length, nonzero, cutM3: cut, heapM3: heap, queue: this.chunks.queueInfo(),
+    };
+  }
+
+  /** One grid sample: height now, the generated surface, the delta (dm), locks. */
+  debugSample(ix: number, iz: number) {
+    const k = iz * 257 + ix;
+    return { h: this.hf.h[k], base: this.hf.base[k], delta: this.hf.delta[k], pad: this.hf.padMask[k], skirt: this.hf.skirt[k] };
+  }
+
+  /** Site Grading's check at (gx, gz), as the ghost runs it. */
+  debugCheckGrade(gx: number, gz: number) { return checkGrade(this.state, this.hf, gx, gz); }
+
+  /** Relief (m) over a sample rect, as the placement check reads it. */
+  debugRelief(gx0: number, gz0: number, gx1: number, gz1: number) { return this.hf.maxDelta(gx0, gz0, gx1, gz1); }
+
+  /** A hash of every height and delta sample (save and reload must reproduce it bit for bit). */
+  debugTerrainHash(): string {
+    const bits = new Uint32Array(this.hf.h.buffer, this.hf.h.byteOffset, this.hf.h.length);
+    let a = 0x811c9dc5, b = 0x01000193;
+    for (let i = 0; i < bits.length; i++) {
+      a = Math.imul(a ^ bits[i], 0x01000193) >>> 0;
+      b = Math.imul(b ^ (this.hf.delta[i] & 0xffff), 0x85ebca6b) >>> 0;
+    }
+    return `${a.toString(16)}:${b.toString(16)}`;
+  }
+
+  /** `tonnes` dug at world (x, z), into that ground's pit (the tests' shortcut: hub units dig their target's pit, core/hubs.ts `dug`). */
+  debugPitDig(x: number, z: number, tonnes: number, q = 1) {
+    onDig(this.state, digSiteKey(x, z), tonnes, q);
+  }
+
   debugPlace(type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0): boolean {
     const chk = checkPlacement(this.state, SITES[this.state.siteId], this.hf, this.mods.unlocked, type, gx, gz, rot,
       this.mods.surveyTier);
@@ -2541,6 +2818,9 @@ export class Game {
       }
     }
     if (gameSeconds > 0 || acts.length) {
+      // the ground the pits cut while no frame showed it: every changed chunk, once
+      this.takeTerrain();
+      this.chunks.flushQueue();
       this.instances.rebuild(this.state);
       this.publish();
     }

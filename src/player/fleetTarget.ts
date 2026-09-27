@@ -21,7 +21,7 @@ import { inside, worldRect } from '../core/paths';
 import { centerOf } from '../buildings/instances';
 import { fmtClock } from '../core/daynight';
 import { $depositOverlay, $fleetFlash, $fleetTarget } from '../ui/stores';
-import { depKey, freeFace, hubOf, plainKey, plainPitRefusal, targetOf, tripTo, unitTag } from '../core/hubs';
+import { freeFace, keyOfZone, hubOf, plainKey, plainPitRefusal, targetOf, tripTo, unitTag } from '../core/hubs';
 import { HUB } from '../data/hubs';
 import { sfx } from '../audio/sfx';
 
@@ -132,7 +132,7 @@ export class FleetTarget {
     if (!u || !b) { this.cancel(); return; }
     const title = `SEND ${unitTag(u)} · click a mapped deposit or a plain pit · Esc cancels`;
     const zone = hit ? (s.zones ?? []).find((z) => Math.hypot(hit[0] - z.cx, hit[1] - z.cz) <= z.r) : undefined;
-    const t = zone ? targetOf(s, zone.kind === 'plain' ? zone.id : depKey(zone.id)) : null;
+    const t = zone ? targetOf(s, keyOfZone(s, zone)) : null;
     if (!t) {
       this.ring.visible = false;
       this.publish(title, '', false, 'Not a pit — click a mapped deposit (the overlay [I]) or a plain pit', null, id);

@@ -255,6 +255,10 @@ export type Announcement =
   | { id: number; kind: 'hazard'; hazard: HazardId };
 export const $announce = atom<Announcement[]>([]);
 
+/** touch mode's info card (ui/touchUi.ts): a building type's tooltip, for
+ *  a long-press or a tap on a palette card; null = closed */
+export const $touchInfo = atom<{ type: BuildingId; locked: boolean } | null>(null);
+
 /** the in-game menu (Esc with nothing left to cancel) */
 export const $menuOpen = atom<boolean>(false);
 /** bumped by a click on a blocked spot: the placement hint flashes its reason */

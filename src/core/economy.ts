@@ -36,6 +36,7 @@ import {
 } from './hubs';
 import { HUB, isHubType } from '../data/hubs';
 import { FEED_KINDS } from '../data/deposits';
+import { pitsStep } from './pits';
 import { settleJobs, sinter, spurLeft } from './roads';
 import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -885,6 +886,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const was = FEED_KINDS.reduce((n, f) => n + s.feed[f], 0) > 1e-9;
     for (const f of FEED_KINDS) s.feed[f] = was ? s.feed[f] * (1 - k) + fed[f] * k : fed[f];
   }
+  // ── 4.2 · pits: what was dug deforms the ground (core/pits.ts, docs/17 §11) ──
+  pitsStep(s, dt);
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {

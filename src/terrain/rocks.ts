@@ -21,7 +21,7 @@
  *    hundreds of metres off) and not at all once they would be specks. */
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
-import { CELL_M, MAP_M } from '../data/balance';
+import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
 import { mulberry32, type Rng } from '../core/rng';
 import { materials } from '../world/materials';
 import { floodPatch } from '../world/floodlights';
@@ -32,6 +32,8 @@ import { classicGround } from './classicGround';
 materials.define('rock', new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), floodPatch);
 
 const HALF = MAP_M / 2;
+/** heightfield samples per side */
+const MAP_CELLS_1 = MAP_CELLS + 1;
 const LARGE_D = 1.0;          // m: rocks this size and up cast shadows
 const SMALL_RANGE = 300;      // m from the camera
 const REFILL_M = 20;          // camera travel before the small set refills
@@ -234,6 +236,45 @@ export class Rocks {
       else this.refillAt.set(Infinity, 0, 0);
     }
     if (largeChanged) this.onShadowCastersChanged?.();
+  }
+
+  /** Pits and heaps changed cells [gx0..gx1] × [gz0..gz1] (docs/17 §11.2): a rock
+   *  on a cut or heaped cell goes (the excavators took it, or buried it); the
+   *  rest there settle onto the ground. Returns whether large rocks (shadow
+   *  casters) changed; the caller asks for shadows, throttled. */
+  clearPits(gx0: number, gz0: number, gx1: number, gz1: number): boolean {
+    const x0 = gx0 * CELL_M - HALF - CELL_M, x1 = (gx1 + 1) * CELL_M - HALF + CELL_M;
+    const z0 = gz0 * CELL_M - HALF - CELL_M, z1 = (gz1 + 1) * CELL_M - HALF + CELL_M;
+    const S = MAP_CELLS_1;
+    const touched = (x: number, z: number) => {
+      const fx = (x + HALF) / CELL_M, fz = (z + HALF) / CELL_M;
+      const ix = Math.floor(fx), iz = Math.floor(fz);
+      for (let dz = 0; dz <= 1; dz++) for (let dx = 0; dx <= 1; dx++) {
+        const a = Math.min(S - 1, Math.max(0, ix + dx)), b = Math.min(S - 1, Math.max(0, iz + dz));
+        if (this.hf.delta[b * S + a] !== 0) return true;
+      }
+      return false;
+    };
+    let largeChanged = false;
+    for (const set of [this.small, this.large]) {
+      let changed = false;
+      for (let i = 0; i < set.x.length; i++) {
+        if (set.removed[i]) continue;
+        const x = set.x[i], z = set.z[i];
+        if (x < x0 || x > x1 || z < z0 || z > z1) continue;
+        changed = true;
+        if (touched(x, z)) set.removed[i] = 1;
+        else {
+          const o = i * 16;
+          const sy = Math.hypot(set.matrices[o + 4], set.matrices[o + 5], set.matrices[o + 6]);
+          set.matrices[o + 13] = this.hf.sample(x, z) - sy * 0.3;
+        }
+      }
+      if (!changed) continue;
+      if (set === this.large) { largeChanged = true; this.fill(set, null); }
+      else this.refillAt.set(Infinity, 0, 0);
+    }
+    return largeChanged;
   }
 
   /** Boulders big enough to walk into, as upright cylinders (walk mode). */

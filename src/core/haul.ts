@@ -413,6 +413,7 @@ export function haulTick(
       for (const [rid, rate] of Object.entries(r.outputs) as [ResourceId, number][]) {
         h.cargo[rid] = (h.cargo[rid] ?? 0) + rate * GAIN * step;
       }
+      // (a legacy pad digs without carving, docs/17 §19: the hubs' units carve, core/hubs.ts dug)
       h.t += step;
       t -= step;
       out.dugS += step;
