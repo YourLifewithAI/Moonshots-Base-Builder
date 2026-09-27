@@ -444,7 +444,9 @@ export function groundWay(
   const as = ends(a, za, aVia), bs = ends(b, zb, bVia);
   if (!as.length || !bs.length) return null;
   let best: { ga: Cell; gb: Cell; t: number } | null = null;
-  for (const gb of bs) {
+  // one end cell each (neither in a zone, or a zone with one gate): no search for the pair
+  if (as.length === 1 && bs.length === 1) best = { ga: as[0], gb: bs[0], t: 0 };
+  else for (const gb of bs) {
     const dist = roadDistances(s, gb);
     const tb = zb ? Math.hypot(...sub(cellCentre(...gb), b)) * OFF : 0;
     for (const ga of as) {
