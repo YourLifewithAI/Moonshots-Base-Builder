@@ -178,6 +178,12 @@ function api(game: Game) {
     terrainSample: (ix: number, iz: number) => game.debugSample(ix, iz),
     /** the adapter as an excavator calls it: `tonnes` of regolith dug at world (x, z) */
     pitDig: (x: number, z: number, tonnes: number, q = 1) => game.debugPitDig(x, z, tonnes, q),
+    /** Site Grading's check at a square's corner cell: { valid, reason } */
+    canGrade: (gx: number, gz: number) => clone(game.debugCheckGrade(gx, gz)),
+    /** relief (m) over a sample rect */
+    terrainRelief: (gx0: number, gz0: number, gx1: number, gz1: number) => game.debugRelief(gx0, gz0, gx1, gz1),
+    /** a hash of every height and delta sample */
+    terrainHash: () => game.debugTerrainHash(),
     recipeTriangles: () => recipeTriangles(),
     /** the upgrade budget: stock and fully upgraded triangles per type, and each part's */
     upgradeTriangles: () => upgradeTriangles(),

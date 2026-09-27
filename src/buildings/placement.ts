@@ -257,9 +257,10 @@ export function checkGrade(
       return { valid: false, reason: 'A structure is in the way' };
     }
   }
-  if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
+  // a hole is refused wherever it is: grading cannot fill it (docs/17 §11.3)
   const pit = gradePitRefusal(state, hf, gx, gz, GRADE_CELLS);
   if (pit) return { valid: false, reason: pit };
+  if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
   const cost = gradeCost(hf, gx, gz);
   if (state.powerStored < cost) {
     return { valid: false, reason: `Need ${cost} stored energy — have ${Math.floor(state.powerStored)}` };

@@ -2419,6 +2419,23 @@ export class Game {
     return { h: this.hf.h[k], base: this.hf.base[k], delta: this.hf.delta[k], pad: this.hf.padMask[k], skirt: this.hf.skirt[k] };
   }
 
+  /** Site Grading's check at (gx, gz), as the ghost runs it. */
+  debugCheckGrade(gx: number, gz: number) { return checkGrade(this.state, this.hf, gx, gz); }
+
+  /** Relief (m) over a sample rect, as the placement check reads it. */
+  debugRelief(gx0: number, gz0: number, gx1: number, gz1: number) { return this.hf.maxDelta(gx0, gz0, gx1, gz1); }
+
+  /** A hash of every height and delta sample (save and reload must reproduce it bit for bit). */
+  debugTerrainHash(): string {
+    const bits = new Uint32Array(this.hf.h.buffer, this.hf.h.byteOffset, this.hf.h.length);
+    let a = 0x811c9dc5, b = 0x01000193;
+    for (let i = 0; i < bits.length; i++) {
+      a = Math.imul(a ^ bits[i], 0x01000193) >>> 0;
+      b = Math.imul(b ^ (this.hf.delta[i] & 0xffff), 0x85ebca6b) >>> 0;
+    }
+    return `${a.toString(16)}:${b.toString(16)}`;
+  }
+
   /** The adapter as an excavator calls it: `tonnes` dug at world (x, z). */
   debugPitDig(x: number, z: number, tonnes: number, q = 1) {
     onDig(this.state, digSiteKey(x, z), tonnes, q);

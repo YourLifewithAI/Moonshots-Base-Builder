@@ -653,6 +653,18 @@ down first, then outward.
   faster on the free sides: it is no longer round.
 - **Monotone.** A carved sample never rises again, except by Reclaim (§12.2).
 
+**Grow away, never toward** (the player's rule for Phase 3: "I assume that the
+pits will not extend towards existing buildings, but away").
+
+| Rule | How it is built (`src/core/pits.ts`, `src/terrain/pitCarve.ts`) |
+|---|---|
+| **Setback** | No pit digs within 12 m of a structure's walls: its pad, the two-sample skirt, and a 4 m margin (3 samples). No pit digs within 8 m of a road cell, door, bay or the Lander's apron (a sample either side, and a 4 m margin). Other pits and every heap keep a sample clear. |
+| **Growth direction** | Before each carve, 16 probes look 4–12 m past the rim. Each blocked side pushes the pit's centre the other way, by up to the rim's advance for that carve: a pit blocked on half its rim drifts about that far, so its blocked side stays put. The pit elongates away. The centre only drifts over the pit's own cut, so it stays one hole. |
+| **Walls** | Near a blocked sample, a wall's depth is capped at half its distance, so walls stay 1:2 against the setback. |
+| **Heaps** | A quarter turn from the gate (the pit grows away from its gate), just outside the pit's plan ring. Of the two sides, the one farther from structures and roads. |
+| **Buildings placed later** | The masks are rebuilt at every carve, so a new structure is respected from the next carve on. Placement already keeps it 4 m from a rim (§11.3). |
+| **Footings** | Pads and their skirts are never dug or buried. A flatten's skirt skips cut and heaped samples. So the slope and relief under every pad never change. |
+
 ### 8.2 Benches are the faces
 
 - **Faces = floor(free rim length / 30 m), clamped to 1–6.** The free rim is the part
@@ -932,6 +944,11 @@ So on load: **base → deltas → flattens**, and the result is exact.
 | within 4 m (one cell) of a rim | refused: the same words |
 | inside a deposit's **full-size pit ring** or a plain pit's three-lunar-day ring | a **warning**: `IN THE PIT'S WAY — the pit stops at this wall; ~20% of its ore stays in the ground` (the first click asks, the second builds) |
 | beside a heap | nothing new: the relief check decides |
+
+The other way round holds too (§8.1): a pit never digs within 12 m of a
+structure's walls, nor within 8 m of a road, door, bay or the apron. So a
+building placed 4 m from a rim stops that side of the pit, and the pit grows on
+its free side.
 
 **Site Grading** (the grade action, 40 stored energy a 16 m pass):
 
