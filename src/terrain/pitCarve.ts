@@ -561,13 +561,14 @@ export function stakePit(
   return fall && fall.clear >= 2 * CELL_M ? fall : null;
 }
 
-/** Where a pit's heap goes (§8.4): beside it, just outside its plan ring, a
- *  quarter turn from its gate by preference, but first on the side away from
- *  structures and roads (the greatest clearance from them). */
+/** Where a pit's heap goes (§8.4): beside it, a quarter turn from its gate
+ *  (the pit grows away from its gate, so the heap never lies in its way),
+ *  just outside its plan ring, on whichever side lies farther from
+ *  structures and roads. */
 export function stakeHeap(
   hf: Heightfield, bl: Blockers, pit: { x: number; z: number; gateX: number; gateZ: number }, planR: number, heapR: number,
 ): { x: number; z: number } {
-  const D0 = planR + heapR + 2 * CELL_M;
+  const D0 = planR + heapR + 3 * CELL_M;
   const win = windowAt(pit.x, pit.z, D0 + 16 + heapR + 3 * CELL_M);
   ensure(win.w * win.h, Math.max(win.w, win.h));
   own.fill(0, 0, win.w * win.h);
@@ -596,20 +597,22 @@ export function stakeHeap(
     return m;
   };
   const gate = Math.atan2(pit.gateZ, pit.gateX);
+  const OFFS = [0, -1, 1, -2, 2];          // steps of 22.5° off the quarter turn
   let best: { x: number; z: number } | null = null, bestS = -Infinity;
   for (const D of [D0, D0 + 8, D0 + 16]) {
-    for (let a = 0; a < 16; a++) {
-      const th = (2 * Math.PI * a) / 16;
-      const x = pit.x + Math.cos(th) * D, z = pit.z + Math.sin(th) * D;
-      const lx = nearest(x) - win.x0, lz = nearest(z) - win.z0;
-      if (lx < 0 || lz < 0 || lx >= win.w || lz >= win.h) continue;
-      const clear = dist[lz * win.w + lx];
-      if (clear < CELL_M) continue;
-      const quarter = Math.abs(Math.cos(th - gate)); // 0 a quarter turn from the gate
-      const score = Math.min(awayOf(x, z), 80) + Math.min(clear, heapR) * 1.5 - 6 * quarter - (D - D0) * 0.25;
-      if (score > bestS + 1e-9) { bestS = score; best = { x, z }; }
+    for (const side of [1, -1]) {
+      for (const o of OFFS) {
+        const th = gate + side * (Math.PI / 2) + (o * Math.PI) / 8;
+        const x = pit.x + Math.cos(th) * D, z = pit.z + Math.sin(th) * D;
+        const lx = nearest(x) - win.x0, lz = nearest(z) - win.z0;
+        if (lx < 0 || lz < 0 || lx >= win.w || lz >= win.h) continue;
+        const clear = dist[lz * win.w + lx];
+        if (clear < CELL_M) continue;
+        const score = Math.min(awayOf(x, z), 80) + Math.min(clear, heapR) * 1.5 - 5 * Math.abs(o) - (D - D0) * 0.25;
+        if (score > bestS + 1e-9) { bestS = score; best = { x, z }; }
+      }
     }
-    if (best && bestS > 0) break;
+    if (best) break;
   }
   return best ?? { x: pit.x + Math.cos(gate + Math.PI / 2) * D0, z: pit.z + Math.sin(gate + Math.PI / 2) * D0 };
 }

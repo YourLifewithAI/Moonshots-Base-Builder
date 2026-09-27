@@ -254,7 +254,7 @@ export const PIT = {
   /** where the staking looks for free ground round the dig, m */
   stakeMinM: 8, stakeMaxM: 72,
   /** the cut's tone: brighter than the weathered ground round it (§20) */
-  cutBright: 0.2, heapBright: 0.16, benchBand: 0.06,
+  cutBright: 0.2, heapBright: 0.16, benchBand: 0.08,
 };
 
 /** Exploration coverage tiers (index = tier) — reveal radius and outpost slots */
