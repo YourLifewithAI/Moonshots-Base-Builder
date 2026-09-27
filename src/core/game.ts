@@ -1920,6 +1920,7 @@ export class Game {
       supply: s.power.supply, demand: s.power.demand, served: s.power.served ?? s.power.demand,
       stored: s.powerStored, capacity: s.power.capacity,
       brownout: s.power.brownout, shed: s.power.shed ?? false,
+      fleet: s.power.fleet ?? 0, charging: s.power.charging ?? 0, flat: s.power.flat ?? 0,
     });
     const site = SITES[s.siteId];
     let beds = 0;

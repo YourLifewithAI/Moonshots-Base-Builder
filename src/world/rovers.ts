@@ -80,8 +80,33 @@ export function roadSpeedFor(techsDone: readonly TechId[], night: boolean, haule
   return m;
 }
 
-function roverGeometry(): THREE.BufferGeometry {
+/** The on-board power techs done (docs/02 · On-board power), as a key: each adds its part
+ *  to every rover and drone (the excavator's are in buildings/upgrades.ts). */
+const PACK_TECHS: readonly TechId[] = ['roverPowerPacks', 'fuelCellPacks', 'radioisotopeUnits'];
+export const packKey = (techsDone: readonly TechId[]): string => PACK_TECHS.filter((t) => techsDone.includes(t)).join(',');
+
+/** A rover's pack parts, rover space (before SCALE): battery pods on the flanks
+ *  between the wheels, hydrogen and oxygen tanks across the rear deck, a finned
+ *  radioisotope unit on the tail. */
+function roverPackParts(key: string): THREE.BufferGeometry[] {
+  const has = (t: TechId) => key.split(',').includes(t);
+  const out: THREE.BufferGeometry[] = [];
+  if (has('roverPowerPacks')) {
+    for (const x of [-0.56, 0.56]) out.push(box(0.12, 0.2, 0.42, PLATE, x, 0.64, 0), box(0.13, 0.04, 0.44, BODY, x, 0.76, 0));
+  }
+  if (has('fuelCellPacks')) {
+    out.push(cyl(0.08, 0.08, 0.5, BODY, -0.15, 0.95, -0.6, 0, PI / 2, 10), cyl(0.065, 0.065, 0.5, PLATE, -0.15, 0.94, -0.42, 0, PI / 2, 10));
+  }
+  if (has('radioisotopeUnits')) {
+    out.push(cyl(0.09, 0.09, 0.3, TRIM, 0, 0.72, -0.88, PI / 2, 0, 10));
+    out.push(box(0.34, 0.02, 0.26, PLATE, 0, 0.72, -0.88), box(0.02, 0.34, 0.26, PLATE, 0, 0.72, -0.88));
+  }
+  return out;
+}
+
+function roverGeometry(key = ''): THREE.BufferGeometry {
   const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
+    ...roverPackParts(key),
     box(1.0, 0.4, 1.5, BODY, 0, 0.64, 0),
     box(0.92, 0.05, 1.1, GLASS, 0, 0.865, -0.1),
     box(1.08, 0.08, 1.56, TRIM, 0, 0.46, 0),
@@ -301,6 +326,8 @@ export class RoverFleet implements Driver {
   }
 
   private ring: THREE.Mesh;
+  /** the pack parts drawn (packKey of the techs done) */
+  private packKey = '';
   /** the rover the inspector shows (its ring is drawn), by roster id */
   selected: number | null = null;
 
@@ -327,6 +354,14 @@ export class RoverFleet implements Driver {
     this.clock += dt;
     this.frozen = dt <= 0;
     this.state = state;
+    // the on-board power techs grow their parts on every rover (the instance state carries over)
+    const pk = packKey(state.techsDone);
+    if (pk !== this.packKey) {
+      const old = this.mesh.geometry;
+      this.mesh.geometry = withInstanceState(roverGeometry(pk), MAX_ROVERS, old);
+      old.dispose();
+      this.packKey = pk;
+    }
     this.speed = SPEED * roadSpeedFor(state.techsDone, night);
     this.frac = Math.max(0, Math.min(1, frac));
     const sig = spotSignature(state);
@@ -901,11 +936,13 @@ export class RoverFleet implements Driver {
   draw(_dt: number, sunDir: THREE.Vector3, sunLight: number) {
     const n = this.drawn.length;
     this.mesh.count = n;
-    // a bricked rover (docs/14 §3.5) sits dark: no lamps, no beacon
+    // a bricked rover (docs/14 §3.5), or one out of charge (docs/02 · On-board power),
+    // sits dark: no lamps, no beacon
     const st = this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
     let dirty = false;
     for (let i = 0; i < n; i++) {
-      const lit = (this.drawn[i].unit?.brickedUntil ?? 0) > 0 ? 0 : 1;
+      const u = this.drawn[i].unit;
+      const lit = (u?.brickedUntil ?? 0) > 0 || u?.src === 'flat' ? 0 : 1;
       if (this.litSeen[i] !== lit) { this.litSeen[i] = lit; st.setX(i, lit); dirty = true; }
     }
     if (dirty) st.needsUpdate = true;
@@ -1100,10 +1137,26 @@ export function syncGround(t: Traffic, s: GameState) {
 const MAX_DRONES = 48;
 const DRONE_SCALE = 1.3;
 
+/** A drone's pack parts (before DRONE_SCALE): a battery pod slung between the
+ *  skids, tanks along both sides of the deck, a finned unit under the nose. */
+function dronePackParts(key: string): THREE.BufferGeometry[] {
+  const has = (t: TechId) => key.split(',').includes(t);
+  const out: THREE.BufferGeometry[] = [];
+  if (has('roverPowerPacks')) out.push(box(0.3, 0.08, 0.36, PLATE, 0, 0.27, 0));
+  if (has('fuelCellPacks')) {
+    for (const x of [-0.25, 0.25]) out.push(cyl(0.05, 0.05, 0.4, BODY, x, 0.56, 0, PI / 2, 0, 8));
+  }
+  if (has('radioisotopeUnits')) {
+    out.push(cyl(0.06, 0.06, 0.18, TRIM, 0, 0.26, 0.27, PI / 2, 0, 8), box(0.22, 0.015, 0.16, PLATE, 0, 0.26, 0.27));
+  }
+  return out;
+}
+
 /** A quadcopter from the kit (about 200 △): a body, four arms and rotor
  *  discs, skids, a nose lamp and a beacon. */
-function droneGeometry(): THREE.BufferGeometry {
+function droneGeometry(key = ''): THREE.BufferGeometry {
   const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
+    ...dronePackParts(key),
     box(0.66, 0.2, 0.66, BODY, 0, 0.42, 0),
     box(0.4, 0.05, 0.4, GLASS, 0, 0.545, 0),
     box(0.2, 0.08, 0.05, LAMP, 0, 0.42, 0.34),
@@ -1179,6 +1232,8 @@ export class DroneFlight {
   private s = new THREE.Vector3(1, 1, 1);
   /** launches so far (the audio's data chirp) */
   launches = 0;
+  /** the pack parts drawn (packKey of the techs done) */
+  private packKey = '';
   /** the work animations (RoverFleet.setWork): a printing drone's spark and beam */
   work: WorkAnim | null = null;
 
@@ -1212,6 +1267,13 @@ export class DroneFlight {
    *  set each down where the sim has it. */
   sync(dt: number, s: GameState, units: readonly RoverUnit[], fresh: boolean, frac = 0, jumped = false, pace = 1) {
     this.clock += dt;
+    const pk = packKey(s.techsDone);
+    if (pk !== this.packKey) {
+      const old = this.mesh.geometry;
+      this.mesh.geometry = withInstanceState(droneGeometry(pk), MAX_DRONES, old);
+      old.dispose();
+      this.packKey = pk;
+    }
     const pads = dronePads(s);
     if (fresh || units.length !== this.list.length) {
       const next: Drone[] = [];
@@ -1244,7 +1306,8 @@ export class DroneFlight {
       const u = d.unit, t = u.trip;
       // a hazard holds it (Land drones, the control plane down) or bricks it:
       // it sets down where it is and waits; freed, it takes up its work again
-      const down = (u.brickedUntil ?? 0) > 0 || (u.heldUntil ?? 0) > s.simTime;
+      // out of charge (docs/02 · On-board power) it sets down too, until the grid serves it
+      const down = (u.brickedUntil ?? 0) > 0 || (u.heldUntil ?? 0) > s.simTime || u.src === 'flat';
       if (down) { d.gx = d.x; d.gz = d.z; d.gy = this.hf.sample(d.x, d.z); d.site = null; d.job = false; d.goal = 'down'; }
       else if (d.down || (t && t.goal !== d.goal) || (!t && d.goal === '')) { d.site = u.site; this.aim(d, s, u); d.goal = t?.goal ?? '-'; }
       d.down = down;
@@ -1265,11 +1328,12 @@ export class DroneFlight {
       this.fly(d, dt, pace);
       d.mode = d.working && !d.chase ? u.task ?? null : null;
     }
-    // a bricked drone is dark
+    // a bricked drone is dark, and so is one out of charge
     const st = this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute;
     let dirty = false;
     for (let i = 0; i < this.list.length; i++) {
-      const lit = (this.list[i].unit.brickedUntil ?? 0) > 0 ? 0 : 1;
+      const u = this.list[i].unit;
+      const lit = (u.brickedUntil ?? 0) > 0 || u.src === 'flat' ? 0 : 1;
       if (st.getX(i) !== lit) { st.setX(i, lit); dirty = true; }
     }
     if (dirty) st.needsUpdate = true;

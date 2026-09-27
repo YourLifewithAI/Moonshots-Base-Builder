@@ -153,7 +153,9 @@ function panelHtml(key: string, mods: Mods): string | null {
       <section><span class="label">Generation</span>${gen}
         <div class="goal-hint">Solar dies at night; batteries store the day (${Math.round((1 - mods.storageEff) * 100)}% round-trip loss); reactors don't care.</div></section>
       <section><span class="label">Draws</span>${draws}
-        <div class="goal-hint">Construction sites pull ${siteKW} kW per working rover while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT.</div></section>`;
+        ${row('Fleet: driving, road work, charging', `−${kw(p.fleet)} kW${p.charging >= 0.05 ? ` (${kw(p.charging)} charging)` : ''}`)}
+        <div class="goal-hint">Construction sites pull ${siteKW} kW per working rover while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT, and it sheds priority 2–3 whole.</div>
+        <div class="goal-hint">Rovers, drones and excavators carry packs: they work from the grid while it serves them, from the pack when it cannot, and recharge at their docks and pads${p.flat ? ` — ${p.flat} unit${p.flat === 1 ? ' is' : 's are'} out of charge now, waiting for the grid` : ''}.</div></section>`;
   }
   if (key === 'bots') {
     return `
@@ -162,6 +164,7 @@ function panelHtml(key: string, mods: Mods): string | null {
         ${buildingLine('lander', 0, '+').replace('+0/min', `+${BUILDINGS.lander.bots ?? 0} rovers`)}
         ${buildingLine('roboticsBay', 0, '+').replace('+0/min', `+${(BUILDINGS.roboticsBay.bots ?? 0) + mods.botPerBay} rovers`)}
         ${v.surveying ? `<div class="goal-hint">${v.surveying} more rover${v.surveying === 1 ? ' is' : 's are'} out on a survey — back when it ends.</div>` : ''}
+        ${$power.get().flat ? `<div class="goal-hint">${$power.get().flat} unit${$power.get().flat === 1 ? '' : 's'} waiting for charge — out of charge in a brownout; ${TECHS.roverPowerPacks.name} and battery banks carry them through.</div>` : ''}
         <div class="goal-hint">Rovers take the construction queue one site each; each working rover draws ${siteKW} kW. More rovers = more parallel construction.</div>
         <div class="goal-hint">To speed one build, select a rover and Send it there, or select the site and Summon one: rovers on one site build ×n^${FLEET.rateExp} (2 → ×${(2 ** FLEET.rateExp).toFixed(2)}), each drawing its own ${siteKW} kW, on the same weld parts.</div></section>`;
   }

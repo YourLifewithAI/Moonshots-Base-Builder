@@ -19,7 +19,7 @@ import {
   AGENT_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, DOWNLINK, FEED,
   GRADE_COST_ENERGY, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
   MAX_SLOPE_LARGE, OVERCLOCK, SURVEY_TIERS,
-  CREW_ROTATION, EVA, PURE_AT,
+  CREW_ROTATION, EVA, PURE_AT, UNIT_POWER,
 } from './balance';
 
 export type Era = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
@@ -36,7 +36,7 @@ export type TechId =
   | 'batteryStorage' | 'thermalWadis' | 'peakLightMasts' | 'skylightHeliostats' | 'siliconRefining'
   | 'partsFabrication' | 'constructionRobotics' | 'regolithShielding' | 'moltenElectrolysis' | 'ilmeniteBeneficiation'
   | 'mpptInverters' | 'heatRecoveryJackets' | 'sublimationTents' | 'neutronSpectrometry' | 'benchRobots'
-  | 'buildOrders'
+  | 'buildOrders' | 'roverPowerPacks'
   // era 3 — robotic fabrication
   | 'thoriumPower' | 'regenFuelCells' | 'swarmRobotics' | 'heavyConstructors' | 'dustMitigation' | 'btLavaTubeCaverns'
   | 'stackedCells' | 'slagRecycling' | 'refluxColumns' | 'cryoSampleStore' | 'bunkRacks'
@@ -45,12 +45,12 @@ export type TechId =
   // era 4 — chip fabrication
   | 'waferFab' | 'acceleratorDesign' | 'radHardProcess' | 'cleanroomRobotics' | 'orbitalProspector' | 'btVolcanicGlass'
   | 'braytonConverters' | 'pressureTanks' | 'mliBlankets' | 'waferPolishing' | 'oreSorting' | 'heatedAugers' | 'growLights'
-  | 'roverAutonomy'
+  | 'roverAutonomy' | 'fuelCellPacks'
   | 'autoPower' | 'budgetGovernor' | 'autoLifeSupport'
   // era 5 — lunar compute
   | 'lunarDataCenter' | 'dynamicClocking' | 'cryoRadiators' | 'crewWellness'
   | 'wingExtensions' | 'deployableRadiators' | 'oxygenLiquefaction' | 'immersionLitho' | 'toolChangers'
-  | 'nutrientRecirculation' | 'gravimetry' | 'autonomousHaulage'
+  | 'nutrientRecirculation' | 'gravimetry' | 'autonomousHaulage' | 'radioisotopeUnits'
   | 'autoSmelting' | 'feedPlanner'
   | 'guidanceBeacons'
   // era 6 — human habitation
@@ -126,6 +126,10 @@ export type TechEffect = EffectFilter & (
   /** the roadway (docs/15-roads.md): travel on roads (all, excavators alone,
    *  at night), road dust, and the sintering a cell takes */
   | { kind: 'road'; speedMult?: number; haulMult?: number; nightMult?: number; dustMult?: number; cellMult?: number }
+  /** on-board power (core/unitPower.ts, docs/02 · On-board power): every rover's, drone's
+   *  and excavator's pack ×packMult, their driving draw ×driveMult, the
+   *  charger's efficiency ×chargeEff; `rpu`: a Radioisotope Power Unit aboard each */
+  | { kind: 'unitPower'; packMult?: number; driveMult?: number; chargeEff?: number; rpu?: true }
   // ── the Builder (docs/13, core/automation.ts) ──
   /** held orders and the order book */
   | { kind: 'orders'; book: number; maxCount: number }
@@ -487,6 +491,16 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'A list is a promise the stockpile has to keep.',
   },
 
+  // on-board power (docs/02 · On-board power, core/unitPower.ts): the fleet's own packs
+  roverPowerPacks: {
+    id: 'roverPowerPacks', era: 2, lane: 'power', name: 'Rover Power Packs', short: 'Rover Power Packs',
+    costData: 120, costGoods: { metals: 15 }, requires: ['batteryStorage'],
+    effects: [{ kind: 'unitPower', packMult: 3, driveMult: 1.2 }],
+    desc: 'Battery Bank cells, ruggedised for the fleet: every rover, drone and excavator carries three times the charge, enough to work through a lunar night off the grid.',
+    visual: 'Rovers, drones and excavators bolt a pair of battery pods to their flanks.',
+    tradeoff: 'A heavier rover rolls harder.',
+  },
+
   // ─── ERA 3 · ROBOTIC FABRICATION ───
   thoriumPower: {
     id: 'thoriumPower', era: 3, lane: 'power', name: 'Thorium Reactor', short: 'Thorium Reactor',
@@ -701,6 +715,14 @@ export const TECHS: Record<TechId, TechDef> = {
     visual: 'Robotics Bays raise a navigation mast: a radar dome and the lidar heads the rovers plan their paths by.',
     tradeoff: 'A rover that thinks for itself runs its compute hot.',
   },
+  fuelCellPacks: {
+    id: 'fuelCellPacks', era: 4, lane: 'robotics', name: 'Regenerative Fuel-Cell Packs', short: 'Fuel-Cell Packs',
+    costData: 240, costGoods: { parts: 20 }, requires: ['roverPowerPacks'],
+    effects: [{ kind: 'unitPower', packMult: 3, chargeEff: 0.7 }],
+    desc: 'Each unit splits water while it charges and recombines it while it works: three times the charge again, in tanks instead of cells.',
+    visual: 'Rovers, drones and excavators carry paired hydrogen and oxygen tanks behind their battery pods.',
+    tradeoff: 'Electrolysis is a lossy way to fill a tank.',
+  },
   orbitalProspector: {
     id: 'orbitalProspector', era: 4, lane: 'exploration', name: 'Orbital Prospector', short: 'Orbital Prospector',
     costData: 240, costGoods: { chips: 5 }, requires: ['prospectingRovers', 'waferFab'],
@@ -877,6 +899,18 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Excavators grade their own haul roads and carry bigger buckets: the far deposits come within reach.',
     visual: 'Excavators widen their bucket lips and mount a haul-road lidar bar on the cab.',
     tradeoff: 'Heavier loads, hungrier motors.',
+  },
+  radioisotopeUnits: {
+    id: 'radioisotopeUnits', era: 5, lane: 'robotics', name: 'Radioisotope Power Units', short: 'Radioisotope Units',
+    costData: 400, costGoods: { parts: 30, chips: 5 }, requires: ['fuelCellPacks'],
+    effects: [
+      { kind: 'unitPower', rpu: true },
+      { kind: 'upkeepMult', buildings: ['roboticsBay', 'droneHive', 'excavator'], mult: 1.25 },
+      { kind: 'morale', building: 'roboticsBay', delta: -2, crew: true },
+    ],
+    desc: 'A plutonium-238 heat source and thermocouples on every unit, as on Curiosity: a trickle of power that no brownout and no night can take away.',
+    visual: 'Rovers, drones and excavators grow a finned radioisotope unit on the tail.',
+    tradeoff: 'A hot source on every machine, and a crew that knows it.',
   },
   crewWellness: {
     id: 'crewWellness', era: 5, lane: 'habitat', name: 'Crew Wellness Program', short: 'Crew Wellness',
@@ -2167,6 +2201,28 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
           : con(`${pctDelta(fx.dustMult)} road dust`, mag(fx.dustMult), 'mult'));
       }
       line(fx.cellMult, 'road sintering time a cell', (m) => m <= 1);
+      return out;
+    }
+    case 'unitPower': {
+      // on-board power (core/unitPower.ts): what one charge carries, the RPU's trickle, and their costs
+      const out: EffectLine[] = [];
+      if (fx.packMult !== undefined) {
+        const text = `unit packs ×${num(fx.packMult)}: rovers, drones and excavators work ×${num(fx.packMult)} as long off the grid`;
+        out.push(fx.packMult >= 1 ? pro(text, mag(fx.packMult), 'mult') : con(text, mag(fx.packMult), 'mult'));
+      }
+      if (fx.rpu) {
+        const k = UNIT_POWER.rpuKW;
+        out.push(pro(`a Radioisotope Power Unit aboard every unit (${num(k.rover)} kW a rover or drone, ${num(k.digger)} kW an excavator): ` +
+          `with the grid at 0 it works at that share of its draw`, k.rover, 'kW'));
+      }
+      if (fx.driveMult !== undefined) {
+        const text = `${pctDelta(fx.driveMult)} unit driving draw (${num(UNIT_POWER.driveKW.rover * fx.driveMult)} kW a rover)`;
+        out.push(fx.driveMult <= 1 ? pro(text, mag(fx.driveMult), 'mult') : con(text, mag(fx.driveMult), 'mult'));
+      }
+      if (fx.chargeEff !== undefined) {
+        const text = `charging draws ×${num(Math.round((1 / fx.chargeEff) * 100) / 100)} (the packs return ${Math.round(fx.chargeEff * 100)}%)`;
+        out.push(fx.chargeEff >= 1 ? pro(text, mag(fx.chargeEff), 'mult') : con(text, mag(1 / fx.chargeEff), 'mult'));
+      }
       return out;
     }
     case 'housing': {

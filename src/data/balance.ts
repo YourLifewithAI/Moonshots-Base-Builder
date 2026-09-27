@@ -26,6 +26,35 @@ export const PLAYER_RADIUS = 0.5;
 export const CONSTRUCTION_KW = 4;      // grid draw per working construction rover
 export const CONSTRUCTION_PARTS_PER_S = 0.04; // welding consumables per site, one rover's pace
 
+/** On-board power (core/unitPower.ts, docs/02 · On-board power): every construction
+ *  rover, drone and excavator carries a pack, in the grid's own kWh (kW ×
+ *  game-seconds, as a Battery Bank's 3,000). Grid first: while the grid
+ *  serves a unit's draw at its priority the pack is not touched, and it
+ *  charges wherever it plugs in (its dock, pad or bay, or a site's feed);
+ *  in a brownout the pack pays, and an empty pack stops the unit where it
+ *  stands until the grid serves it again.
+ *
+ *  - pack: a rover welds 2 min on it (480 = 120 s × 4 kW), a drone ~1.5 min,
+ *    an excavator digs 2 min (720 = 120 s × 6 kW). A mare night is 240 s:
+ *    a night-long brownout stops the fleet, a flare's 45 s rides through.
+ *    Rover Power Packs ×3 (a whole night), Fuel-Cell Packs ×3 again.
+ *  - drive: rolling on the road (the Apollo LRV drew about 1 kW), a drone
+ *    in the air, an excavator's tracks between its dig and its drop.
+ *    Working draws are the construction kW (weld, sinter) and the
+ *    excavator's own nameplate (dig).
+ *  - charge: what a charger feeds a pack, grid kW (a flat rover pack fills in
+ *    160 s); Fuel-Cell Packs' electrolysers take 1 / chargeEff of it.
+ *  - rpu: Radioisotope Power Units' constant output per unit, kW: a rover
+ *    welds at a quarter speed on it with the grid at 0. */
+export const UNIT_POWER = {
+  pack: { rover: 480, drone: 360, digger: 720 },
+  driveKW: { rover: 1, drone: 2, digger: 3 },
+  chargeKW: { rover: 3, drone: 3, digger: 6 },
+  rpuKW: { rover: 1, drone: 1, digger: 1.5 },
+  /** the stall alert goes up once a unit has waited on the grid this long (game-s) */
+  alertS: 5,
+};
+
 /** construction rovers (core/fleet.ts): n rovers at one site build n^rateExp
  *  times as fast as one (2 → ×1.80, 3 → ×2.54, 4 → ×3.25), each drawing its
  *  own CONSTRUCTION_KW; a build's weld parts stay the same, drawn faster */

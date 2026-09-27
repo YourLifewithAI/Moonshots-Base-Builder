@@ -1,7 +1,8 @@
 # 15 · Roads: the network the robots drive
 
 **Status:** shipped on `work/avoid`; rovers in transit, traffic yielding and
-extraction zones on `work/transit` (§5a, §6, §6a).
+extraction zones on `work/transit` (§5a, §6, §6a); the fleet on packs on
+`work/unitpower` (§6a).
 **Code:** `src/core/roads.ts` (the network, spurs, routes, gates, ground
 ways), `src/data/roads.ts` (tuning, the apron, field and dock types, the
 rover's speed), `src/core/spots.ts` (where rovers stand), `src/core/transit.ts`
@@ -267,6 +268,7 @@ way between.
 | Who goes | an auto site, and Summon, take the unit soonest there by road from where it is now (a drone by the straight line), not the lowest id |
 | Survey | the lent rover drives to the Lander and leaves by its door; it comes back there |
 | Hazards | a unit held or bricked goes home (a drone sets down where it is) |
+| Power | a unit drives on its trip's clock at the share of the tick its pack carries (docs/02, On-board power): 1 on the grid or a charged pack, 0 flat (it waits where it stands; a drone sets down), ¼ on an RPU's trickle alone. `trip.rate` carries the share to the visuals |
 | Words | a site: `ROVER EN ROUTE — arrives in 0:24` (inspector, site tags, the Builder panel; `QUEUED — waiting for a free robot` with none assigned; `NO ROAD — …` when none reaches it). A rover: `EN ROUTE to Habitat Module #5 · 0:24`, `RETURNING to Lander #1 · 0:08`. The ghost: `ROVER 0:12 away — the nearest free one, by road` |
 
 **Typical trips** at the base cruise (4.5 m/s), road length L:
@@ -321,6 +323,9 @@ whose E7 has room, so no lane grows.
   off-road weights, length, cruise, elapsed and total). A save without it
   settles each rover where its work is, arrived, so nothing waits on a drive
   after the load. A rover new to the fleet rolls out of its dock's door.
+- `s.fleetSchema = 2`: packs (docs/02, On-board power) on every rover and
+  excavator haul: `charge`, `pw`, `src`, `chg`, `flatT`, and `trip.rate`.
+  A save from before starts every unit fully charged.
 - An excavator's haul keeps `full` (waiting at its dig) and `w` (off-road
   weights).
 - `s.zones` is rebuilt from the heightfield and the reveals on every load.
