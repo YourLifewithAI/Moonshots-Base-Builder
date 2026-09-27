@@ -17,7 +17,7 @@ import {
 import type { BuildingState, GameState, OutpostState } from './state';
 import { AUTO, type AutoFamily } from '../data/automation';
 
-export type ActionId = 'overclock' | 'downlink';
+export type ActionId = 'overclock' | 'downlink' | 'sentinel';
 export type SurveyTier = 0 | 1 | 2 | 3 | 4;
 
 export interface Mods {
@@ -157,6 +157,8 @@ export interface Mods {
   stowShield: number;
   /** every array flare damage × this (Rad-Hard Cells, docs/16 F4) */
   arrayHardMult: number;
+  /** the forecast tier research allows (docs/16 §6; core/forecast.ts adds the hardware: the observatory, the sentinel) */
+  forecastTier: 0 | 1 | 2 | 3;
 }
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
@@ -208,7 +210,7 @@ export function computeMods(
     growthMult: 1, waived: new Set(), evaShare: 0, radiusDelta: fill(0),
     volleyCap: LAUNCH_CAP_PER_VOLLEY, volleyMorale: 0, volleyMinCrew: 0, autoLaunch: false, launchBurstMult: 1,
     moraleBase: 0, hazardRateMult: 1, guards: new Set(), exposure: new Map(),
-    stowShield: 0, arrayHardMult: 1,
+    stowShield: 0, arrayHardMult: 1, forecastTier: 0,
   };
 
   // a Server Monolith counts as a Data Center wherever one is read (docs/14
@@ -339,6 +341,7 @@ export function computeMods(
         case 'moraleBase': m.moraleBase += fx.delta; break;
         case 'hazardRate': m.hazardRateMult *= fx.mult; break;
         case 'stowShield': m.stowShield = Math.max(m.stowShield, fx.sigma); break;
+        case 'forecast': if (fx.tier > m.forecastTier) m.forecastTier = fx.tier; break;
         case 'guard': m.guards.add(fx.guard); break;
         case 'exposure': {
           const set = m.exposure.get(fx.hazard) ?? new Set<BuildingId>();

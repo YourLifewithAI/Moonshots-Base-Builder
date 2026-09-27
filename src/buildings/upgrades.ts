@@ -235,6 +235,21 @@ const lander: Upgrade[] = [
   },
 ];
 
+/** The Solar Observatory (docs/16 §6.3). Its forecast link and the sentinel's
+ *  dish ride here, not on the Lander: the Lander's fully upgraded mesh is at
+ *  its 7,500-triangle budget. F6 points the dish at the Sun. */
+const solarObservatory: Upgrade[] = [
+  { // Heliophysics Forecasting: a sun sensor on the pad for the forecast link
+    tech: 'heliophysicsForecasting',
+    parts: () => [cyl(0.3, 0.36, 0.12, TRIM, 0.4, 0.36, 2.7, 0, 0, 8), ...sensorMast(0.4, 0.42, 2.7, 1.8)],
+  },
+  { // L1 Sentinel: the sentinel's link dish on a pylon at the pad's corner
+    tech: 'l1Sentinel',
+    parts: () => [dishPylon(-2.6, 1.6, 2.2), box(0.2, 0.1, 0.05, LAMP, -2.6, 1.8, 1.86)],
+    mounts: (m) => [...m, { part: 'dish', p: [-2.6, 2.35, 1.6], s: 0.7 }],
+  },
+];
+
 const solar: Upgrade[] = [
   { // white reflector apron under the wing, on four feet
     tech: 'bifacialCells',
@@ -936,6 +951,16 @@ const dataCenter: Upgrade[] = [
       dome(0.12, BEACON, -3.7, 8.9, -3.7, 8),
     ],
   },
+  { // Solar-Cycle Forecasting (docs/16 §6.1): a helioseismology rack, a tall louvred cabinet with a sweeping lamp (+x)
+    tech: 'solarCycleForecasting',
+    parts: () => [
+      box(1.3, 0.14, 1.5, TRIM, 5.2, 0.07, 0.5),
+      box(1.0, 3.2, 1.2, BODY, 5.2, 1.74, 0.5),
+      [0, 1, 2, 3, 4, 5].map((i) => box(0.06, 0.1, 1.0, RADIATOR, 5.73, 0.7 + i * 0.4, 0.5)),
+      box(1.06, 0.12, 1.26, TRIM, 5.2, 3.4, 0.5),
+      box(0.12, 0.2, 0.6, LAMP, 5.73, 3.05, 0.5),
+    ],
+  },
 ];
 
 const foilFactory: Upgrade[] = [
@@ -1055,7 +1080,7 @@ const storageYard: Upgrade[] = [
 const LANE: Partial<Record<BuildingId, Upgrade[]>> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery, refinery, lab,
   roboticsBay, partsFab, reactor, recDome, chipFab, dataCenter, foilFactory, massDriver, relayMast,
-  propellantPlant, storageYard,
+  propellantPlant, storageYard, solarObservatory,
 };
 
 /** Every type's upgrades: the lane techs' parts, then the destiny's (the

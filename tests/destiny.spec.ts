@@ -95,7 +95,7 @@ test('data: a pick pair per era, 16 track techs and 3 capstones, each honest and
       blurb8: Object.keys(T.ERA_BLURB_8),
     };
   });
-  expect(r.n).toBe(132); // main's 110 (with the 4 road tiers), the 19 destiny techs, and docs/02's 3 on-board power techs
+  expect(r.n).toBe(135); // main's 110 (with the 4 road tiers), the 19 destiny techs, docs/02's 3 on-board power techs, and docs/16's 3 forecasting techs
   expect(r.track).toBe(16);
   expect(r.caps).toBe(3);
   for (const [e, c, a] of r.pairs) {

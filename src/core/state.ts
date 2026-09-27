@@ -615,6 +615,8 @@ export interface FlareState {
   range?: [FlareClass, FlareClass];
   /** when the telegraph started, the class firms, and the protons arrive (game time) */
   startedAt?: number;
+  /** the flash itself (game time): the schedule's time, whatever a forecast's lead started the telegraph at (docs/16 §6.1) */
+  flashAt?: number;
   firmAt?: number;
   activeAt?: number;
   /** the activity at its telegraph (the interval to the next reads it) */
@@ -662,6 +664,17 @@ export interface WeatherState {
   repairs: number[][];
   /** the observatory's last look at the Sun (F3) */
   seenSunAt: number;
+  // ── forecasting (docs/16 §6, core/forecast.ts; F3) ──
+  /** the base's forecast tier and the telegraph lead it gives, as of the last tick */
+  tier?: 0 | 1 | 2 | 3;
+  lead?: number;
+  /** the next flare's forecast: its flash's window (game time), the class range, the update index;
+   *  `blind`: the observatory lost the Sun, the window holds from seenSunAt */
+  window?: { n: number; lo: number; hi: number; range: [FlareClass, FlareClass]; k: number; at: number; era: number; tier: number };
+  /** the L1 Sentinel: launched then, on station then (by the hopper or the Mass Driver) */
+  sentinel?: { launchedAt: number; onlineAt: number; by: 'hopper' | 'driver'; online?: boolean };
+  /** 'Arrays: choose now…': the arrays' choice for flare n, made ahead from a forecast; it waits for the telegraph */
+  ahead?: { n: number; choice: ArrayChoice; repair: boolean };
 }
 
 /** what clicking an alert does: open a resource info panel, or select a building */

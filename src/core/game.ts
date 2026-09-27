@@ -59,6 +59,7 @@ import {
   setRemembered, shownClass, startFlare, weatherView, type ChoicePreview,
 } from './spaceWeather';
 import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
+import { aheadClass, launchSentinel, setAhead, withForecast } from './forecast';
 import { HAZARDS, HAZARD_NAME, type HazardId, type Tier } from '../data/hazards';
 import { FleetTarget, type Mode as FleetMode } from '../player/fleetTarget';
 import { RoadTool } from '../player/roadTool';
@@ -210,6 +211,8 @@ export class Game {
   private markerSig = '';
   /** Lunar Map screen bookkeeping (the view shown, the tier last seen) */
   private lunarUi: LunarUi = { open: false, view: 'site', seenTier: 0 };
+  /** the Space Weather panel's 'Arrays: choose now…' card is open (docs/16 §10.2): its previews are built only then */
+  private forecastUi: { ahead: boolean } = { ahead: false };
   /** what the last Builder place action did: the building, or why it refused */
   private lastPlace: BuildingState | string | null = null;
 
@@ -1076,6 +1079,13 @@ export class Game {
         break;
       }
       // space weather (docs/16 §5): every refusal says why
+      // forecasting (core/forecast.ts, docs/16 §6)
+      case 'flareAhead': case 'launchSentinel': {
+        const r = a.kind === 'flareAhead' ? setAhead(s, this.mods, a.choice, { repair: a.repair, remember: a.remember })
+          : launchSentinel(s, this.mods);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
       case 'flareChoice': case 'flareRemember': case 'flareAutoRepair': case 'fieldOverride': case 'wreck': case 'repairArrays': {
         const site = SITES[s.siteId];
         const r = a.kind === 'flareChoice' ? confirmChoice(s, a.choice, { repair: a.repair, remember: a.remember })
@@ -2302,7 +2312,7 @@ export class Game {
   private updateShading() {
     // masts stand above the terrain's shadows: nothing to march
     if (this.mods.solarShadeImmune) {
-      for (const b of this.state.buildings) if (b.type === 'solar') b.shaded = false;
+      for (const b of this.state.buildings) if (b.type === 'solar' || b.type === 'solarObservatory') b.shaded = false;
       return;
     }
     const d = currentDay(this.state, SITES[this.state.siteId]);
@@ -2311,7 +2321,8 @@ export class Game {
     const dirY = Math.sin(d.sunElev);
     const dirZ = Math.sin(d.sunAzim) * Math.cos(d.sunElev);
     for (const b of this.state.buildings) {
-      if (b.type !== 'solar' || (b.construction ?? 0) > 0) continue;
+      // a Solar Observatory's shade blinds its forecast too (docs/16 §6.2)
+      if ((b.type !== 'solar' && b.type !== 'solarObservatory') || (b.construction ?? 0) > 0) continue;
       const [cx, cz] = centerOf(b);
       const y = this.hf.sample(cx, cz);
       b.shaded = this.hf.raycast(cx, y + 3.2, cz, dirX, dirY, dirZ, 400) !== null;
@@ -2520,7 +2531,10 @@ export class Game {
     });
     $destiny.set(destinyOf(s));
     $hazards.set(hazardView(s, this.mods));
-    $weather.set(weatherView(s, this.mods, site, day));
+    const wv = withForecast(weatherView(s, this.mods, site, day), s, this.mods, site, day, this.forecastUi);
+    // the ahead card closes once there is nothing to choose ahead for (a telegraph opened, the forecast went)
+    if (this.forecastUi.ahead && !wv.forecast?.popup) this.forecastUi.ahead = false;
+    $weather.set(wv);
     $lossStory.set(lossStory(s));
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $feed.set({ ...s.feed });
@@ -2584,10 +2598,20 @@ export class Game {
   /** The pop-up's preview of a choice (the slider's positions): pure, from the live state. */
   flarePreview(choice: ArrayChoice): ChoicePreview | null {
     const s = this.state;
-    const cls = shownClass(s);
+    // ahead of a flare ('Arrays: choose now…'): the forecast's worse class
+    const cls = shownClass(s) ?? (this.forecastUi.ahead && s.flare.phase === 'idle' ? aheadClass(s) : null);
     if (!s || !cls) return null;
     const site = SITES[s.siteId];
     return previewChoice(s, this.mods, site, currentDay(s, site), choice, cls);
+  }
+
+  get forecastAheadOpen() { return this.forecastUi.ahead; }
+
+  /** The Space Weather panel's 'Arrays: choose now…' card opens or closes (docs/16 §10.2). */
+  setForecastAhead(open: boolean) {
+    if (this.forecastUi.ahead === open) return;
+    this.forecastUi.ahead = open;
+    this.publish();
   }
 
   /** A Solar Array's inspector line (docs/16 §10.7): its field, capability, damage, override, wreck. */

@@ -14,6 +14,7 @@ import { DEPOSIT_INFO, siteHasDeposit, type DepositKind, type FeedKind } from '.
 import { EXPOSURE_TEXT, GUARD_TEXT, HAZARDS_LIVE, HAZARD_NAME, type GuardId, type HazardId } from './hazards';
 import { AUTO, FAMILY_LABEL, RULES, RULE_TEXT, rulesOf, type AutoFamily } from './automation';
 import type { ProspectId } from './lunarMap';
+import { FORECAST } from './forecast';
 import type { GameState } from '../core/state';
 import {
   AGENT_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, DOWNLINK, FEED,
@@ -37,6 +38,7 @@ export type TechId =
   | 'partsFabrication' | 'constructionRobotics' | 'regolithShielding' | 'moltenElectrolysis' | 'ilmeniteBeneficiation'
   | 'mpptInverters' | 'heatRecoveryJackets' | 'sublimationTents' | 'neutronSpectrometry' | 'benchRobots'
   | 'buildOrders' | 'roverPowerPacks'
+  | 'heliophysicsForecasting'
   // era 3 — robotic fabrication
   | 'thoriumPower' | 'regenFuelCells' | 'swarmRobotics' | 'heavyConstructors' | 'dustMitigation' | 'btLavaTubeCaverns'
   | 'stackedCells' | 'slagRecycling' | 'refluxColumns' | 'cryoSampleStore' | 'bunkRacks'
@@ -53,6 +55,7 @@ export type TechId =
   | 'nutrientRecirculation' | 'gravimetry' | 'autonomousHaulage' | 'radioisotopeUnits'
   | 'autoSmelting' | 'feedPlanner'
   | 'guidanceBeacons'
+  | 'l1Sentinel'
   // era 6 — human habitation
   | 'humanCohabitation' | 'closedLoopLS' | 'safetyProtocols' | 'conditionOptimization' | 'scienceCrews'
   | 'farSideRelay' | 'btColdTrapChemistry'
@@ -60,6 +63,7 @@ export type TechId =
   | 'launchSiteSurvey'
   | 'autoFabrication' | 'predictiveScheduling'
   | 'guidewayRails'
+  | 'solarCycleForecasting'
   // era 7 — swarm industry
   | 'foilManufacturing' | 'massDriver' | 'propellantDepot' | 'selfReplication' | 'deepSounding'
   | 'superconductingBus' | 'rollToRoll' | 'foilAnnealing' | 'liquidCooling' | 'rackDensification' | 'lowGCourt'
@@ -114,7 +118,7 @@ export type TechEffect = EffectFilter & (
   | { kind: 'repair'; mult: number }
   | { kind: 'shadeImmune' }
   | { kind: 'buildTime'; buildings: BuildingId[]; mult: number }
-  | { kind: 'action'; id: 'overclock' | 'downlink' }
+  | { kind: 'action'; id: 'overclock' | 'downlink' | 'sentinel' }
   | { kind: 'survey'; tier?: 1 | 2 | 3 | 4; dataMult?: number; minCrew?: number;
       /** the deposit survey (docs/17 §13): its precision (±share), its rover-seconds ×, and
        *  the deposit kinds Relay Masts survey free in their radius */
@@ -180,6 +184,8 @@ export type TechEffect = EffectFilter & (
   | { kind: 'exposure'; hazard: HazardId; buildings?: BuildingId[] }
   /** space weather (docs/16 §13.3): field berms — stowed arrays fold behind a low berm, σ */
   | { kind: 'stowShield'; sigma: number }
+  /** flare forecasting (docs/16 §6, core/forecast.ts): the tier this tech makes possible */
+  | { kind: 'forecast'; tier: 1 | 2 | 3 }
 );
 export type TechEffectKind = TechEffect['kind'];
 
@@ -487,6 +493,18 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Epithermal neutrons count the hydrogen a metre down, from the masts as well as the rovers.',
     visual: 'Relay Masts hang a neutron-spectrometer boom.',
     tradeoff: 'Every mast becomes an instrument, and instruments draw.',
+  },
+  heliophysicsForecasting: {
+    id: 'heliophysicsForecasting', era: 2, lane: 'exploration', name: 'Heliophysics Forecasting', short: 'Heliophysics',
+    costData: 120, requires: ['prospectingRovers'],
+    effects: [
+      { kind: 'unlock', building: 'solarObservatory' },
+      { kind: 'forecast', tier: 1 },
+      { kind: 'powerDelta', building: 'lander', kw: -1 },
+    ],
+    desc: 'Watch the active regions rise: a coronagraph and an X-ray monitor on the ground, Earth’s bulletins over the link.',
+    visual: 'Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and a sun sensor on the pad for the forecast link.',
+    tradeoff: 'An eye on the Sun sees nothing at night.',
   },
   benchRobots: {
     id: 'benchRobots', era: 2, lane: 'compute', name: 'Bench Robots', short: 'Bench Robots',
@@ -1021,6 +1039,18 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'The quietest instrument needs the steadiest power.',
   },
 
+  l1Sentinel: {
+    id: 'l1Sentinel', era: 5, lane: 'exploration', name: 'L1 Sentinel', short: 'L1 Sentinel',
+    costData: 400, costGoods: { chips: 15 }, requires: ['heliophysicsForecasting', 'orbitalProspector'],
+    effects: [
+      { kind: 'action', id: 'sentinel' },
+      { kind: 'forecast', tier: 2 },
+      { kind: 'powerDelta', building: 'lander', kw: -1.5 },
+    ],
+    desc: 'A sun-watcher at the Earth–Sun L1 point, like SOHO, ACE and DSCOVR: it never loses the Sun to the lunar night.',
+    visual: 'Solar Observatories add a dish on a pylon for the sentinel’s link.',
+    tradeoff: 'A million and a half kilometres of link, every second of the day.',
+  },
   autoSmelting: {
     id: 'autoSmelting', era: 5, lane: 'robotics', name: 'Automated Smelting & Refining', short: 'Auto Smelting',
     costData: 400, costGoods: { parts: 20 }, requires: ['autoExcavation', 'siliconRefining'],
@@ -1239,6 +1269,17 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'The Data Center runs the base forward: tonight’s deficit, the sites still welding, the next hour of demand.',
     visual: 'Each Data Center adds a scheduling antenna: a tall whip mast beside its dish.',
     tradeoff: 'Forecasting the night costs some of it.',
+  },
+  solarCycleForecasting: {
+    id: 'solarCycleForecasting', era: 6, lane: 'compute', name: 'Solar-Cycle Forecasting', short: 'Solar-Cycle Fcst',
+    costData: 1000, costGoods: { chips: 10 }, requires: ['l1Sentinel', 'lunarDataCenter'],
+    effects: [
+      { kind: 'forecast', tier: 3 },
+      { kind: 'powerMult', buildings: ['dataCenter'], mult: 1.1 },
+    ],
+    desc: 'Helioseismology on the sentinel’s feed: the far side’s spots before they rotate into view, and the cycle’s curve.',
+    visual: 'Data Centers add a helioseismology rack: a tall louvred cabinet with a slow-sweeping lamp.',
+    tradeoff: 'Modelling the Sun takes racks from modelling the base.',
   },
   guidewayRails: {
     id: 'guidewayRails', era: 6, lane: 'materials', name: 'Guideway Rails', short: 'Guideway Rails',
@@ -2153,6 +2194,13 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
     }
     case 'action':
+      if (fx.id === 'sentinel') {
+        const F = FORECAST.sentinel;
+        return [
+          pro(`NEW ACTION Launch sentinel (the Lander): on station at L1 a lunar day later`, 1, 'flag'),
+          con(`${goodsText(F.cost)} and ${goodsText(F.propellant)} of hopper propellant to launch (a Mass Driver throws it for ${F.driverEnergy} stored)`, 1, 'use'),
+        ];
+      }
       return fx.id === 'overclock'
         ? [
           pro(`NEW ACTION overclock: output ×${OVERCLOCK.mult} per building`, OVERCLOCK.mult - 1, 'mult'),
@@ -2377,6 +2425,13 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
     case 'guard':
       return HAZARDS_LIVE ? [pro(GUARD_TEXT[fx.guard], 1, 'flag')] : [];
     case 'stowShield': return [pro(`FIELD BERMS: stowed arrays σ ${fx.sigma}`, fx.sigma, 'flag')];
+    case 'forecast': {
+      const lead = FORECAST.leadS[fx.tier];
+      const text = fx.tier === 1 ? `FORECAST T1: the next flare's window and class range while a Solar Observatory sees the Sun · telegraphs +${lead} s`
+        : fx.tier === 2 ? `FORECAST T2: the next flare's class for sure and a tight window, day and night, once the sentinel is on station · telegraphs +${lead} s`
+        : `FORECAST T3: the solar cycle's curve and the next ${FORECAST.aheadN} flares on the timeline`;
+      return [pro(text, fx.tier, 'count')];
+    }
     case 'exposure': {
       if (!HAZARDS_LIVE) return [];
       const t = EXPOSURE_TEXT[fx.hazard];

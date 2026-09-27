@@ -69,16 +69,23 @@ function nextStep(fx: TechEffect[], s: GameState): string {
       case 'autoLaunch':
         return `Nothing to press: the rail fires when ${LAUNCH_COST_FOILS}${RESOURCES.foils.glyph}, the launch capacity and the charge are ready.`;
       case 'unlock': {
+        if (f.building === 'solarObservatory') return 'Place a Solar Observatory in the sun: the ☉ chip shows the next flare’s window and likely class.';
         const b = BUILDINGS[f.building as BuildingId];
         return `Build it: ${CATEGORY_LABEL[b.category]} tab → ${b.name}.`;
       }
       case 'action':
+        if (f.id === 'sentinel') return 'Select the Lander and Launch sentinel: a lunar day later the ☉ chip reads the class for sure, day and night.';
         return f.id === 'overclock'
           ? 'Select a production building and switch on Overclock ×1.5 in its panel.'
           : 'Select the Lander and press Downlink to trade banked data for a cargo drop.';
       case 'survey':
         if (f.tier) return 'The Lunar Map [M] reaches further: new prospects are waiting to be surveyed.';
         break;
+      // flare forecasting (docs/16 §13.3)
+      case 'forecast':
+        return f.tier >= 3 ? 'Open ☉ [O]: the cycle and the next three flares.'
+          : f.tier === 2 ? 'The ☉ chip now reads the class for sure, day and night, once the sentinel is on station.'
+          : 'Place a Solar Observatory in the sun: the ☉ chip shows the next flare.';
       case 'launchAction': return 'Launch collectors from the swarm meter at the top of the screen.';
       case 'automation': return 'Stations can run on agents now: toggle Crewed / Autonomous in their panels.';
       case 'grading': return 'Grade Site is in the Extraction tab: flatten rough ground for large buildings.';
