@@ -69,6 +69,8 @@ export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId
 
 /** a site no robot has welded on yet: demolishing it cancels the order */
 export function untouchedSite(b: BuildingState): boolean {
+  // a flare's repair, rebuild or clear (docs/16 §4.3) is no new site: nothing to cancel back
+  if (b.fix || b.wreck) return false;
   return b.buildTotal > 0 && (b.construction ?? 0) >= b.buildTotal;
 }
 
@@ -76,9 +78,11 @@ export function untouchedSite(b: BuildingState): boolean {
  *  for an untouched site */
 export function demolishRefund(b: BuildingState, site: SiteDef): Partial<Record<string, number>> {
   const full = untouchedSite(b);
+  // a flare's wreck is salvage: a quarter, as Clear pays (docs/16 §4.3)
+  const share = b.wreck ? 0.25 : 0.5;
   const out: Partial<Record<string, number>> = {};
   for (const [rid, amt] of Object.entries(buildCost(b.type, site))) {
-    out[rid] = full ? amt : Math.floor((amt ?? 0) * 0.5);
+    out[rid] = full ? amt : Math.floor((amt ?? 0) * share);
   }
   return out;
 }

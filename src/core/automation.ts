@@ -34,6 +34,7 @@ import { alert, boardingShortfall, condition, settlersWelcome, volleyTerms } fro
 import { flowBalance } from './flowBook';
 import { fmtClock, type DayInfo } from './daynight';
 import { siteTransit } from './transit';
+import { flareQuiet } from './spaceWeather';
 
 // ─────────────────────────── requests ───────────────────────────
 
@@ -280,9 +281,9 @@ const shortText = (r: ResourceId, bal: number) => (bal < 0
 
 const pct = (f: number) => `${Math.round(f * 100)}%`;
 
-/** The day is readable: full sun, no flare. */
+/** The day is readable: full sun, no flare, no wing stowed (docs/16 §5.6). */
 const fullSun = (s: GameState, site: SiteDef, day: DayInfo) =>
-  !day.isNight && day.sunFactor >= site.solarDayMult * 0.95 && s.flare.phase !== 'active';
+  !day.isNight && day.sunFactor >= site.solarDayMult * 0.95 && flareQuiet(s);
 
 function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: AutoRuleId, r: RuleState): Signal {
   const d = RULES[id];
@@ -411,7 +412,7 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       const held = mods.launchArmed && s.resources.launch >= v.launch && s.resources.foils < v.foils;
       return { past: held, rearmed: !held, text: held ? `a volley waits on foils (${Math.floor(s.resources.foils)}/${v.foils}▰)` : 'foils keep up' };
     }
-    case 'replace':
+    case 'replace': case 'flareStance':
       return { past: false, rearmed: true, text: '' };
   }
 }
@@ -549,6 +550,7 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const d: RuleDef = RULES[id];
     const r = ruleState(s, id);
     if (id === 'replace') return; // maintenance runs below
+    if (id === 'flareStance') return; // it decides flares, not builds (core/spaceWeather.ts)
     if (!mods.autoFamilies.has(d.family)) { setPhase(s, id, r, 'locked', `locked — ${familyTech(d.family)}`, dt); r.dwell = 0; return; }
     if (!r.on) { setPhase(s, id, r, 'off', 'off', dt); r.dwell = 0; return; }
     if (id === 'iceHarvester' && !site.hasIce) { setPhase(s, id, r, 'locked', 'no polar ice at this site', dt); return; }

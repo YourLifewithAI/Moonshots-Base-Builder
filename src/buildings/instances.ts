@@ -317,7 +317,8 @@ export class BuildingInstances {
     const placed: Placed[] = [];
     for (const b of state.buildings) {
       const mounts = mountsFor(b.type, upgradeKey(b.type, state.techsDone));
-      if ((b.construction ?? 0) > 0 || !mounts.length) continue;
+      // a flare's repair (docs/16 §4.3) keeps its wing: the rover works on a standing array
+      if (((b.construction ?? 0) > 0 && !b.fix) || !mounts.length) continue;
       const [x, z] = centerOf(b);
       placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b), mounts });
     }
@@ -397,7 +398,7 @@ export class BuildingInstances {
     const sites: ScaffoldSite[] = [];
     let sig = '';
     for (const b of state.buildings) {
-      if ((b.construction ?? 0) <= 0) continue;
+      if ((b.construction ?? 0) <= 0 || b.fix) continue;
       const r = footprintRect(b);
       sites.push({
         x0: r.gx0 * CELL_M - MAP_M / 2, x1: r.gx1 * CELL_M - MAP_M / 2,
@@ -443,7 +444,7 @@ export class BuildingInstances {
       const [cx, cz] = centerOf(b);
       const y = this.hf.sample(cx, cz);
       rot.setFromAxisAngle(up, -b.rot * Math.PI / 2);
-      const remaining = b.construction ?? 0;
+      const remaining = b.fix ? 0 : b.construction ?? 0;
       const total = b.buildTotal ?? 0;
       const progress = remaining > 0 && total > 0 ? 1 - remaining / total : 1;
       // patched: printed bottom-up at full size; stock: rises squashed from the pad
@@ -454,9 +455,9 @@ export class BuildingInstances {
       mesh.setMatrixAt(i, mat);
       const fx = this.fxOf?.(b.id);
       const dark = !!fx?.includes('dark');
-      const powered = progress >= 1 && b.enabled && b.idleReason !== 'power' && !dark;
+      const powered = progress >= 1 && b.enabled && b.idleReason !== 'power' && !dark && !b.wreck;
       const color = progress < 1 && !reveal ? BuildingInstances.DIM
-        : b.idleReason === 'power' || dark ? BuildingInstances.DARK
+        : b.idleReason === 'power' || dark || b.wreck ? BuildingInstances.DARK
         : fx?.includes('blight') ? BuildingInstances.BLIGHT
         : fx?.includes('dust') ? BuildingInstances.DUSTY
         : BuildingInstances.FULL;

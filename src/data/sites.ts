@@ -17,7 +17,9 @@ export interface SiteDef {
   isruMult: number;        // extraction/refining output multiplier
   buildCostMult: number;
   launchMult: number;      // mass-driver efficiency (equatorial advantage)
-  flareImmune: boolean;    // lava tube shielding
+  /** the lava tube (docs/16 §3.6): pressurized and compute buildings live under rock (σ 1);
+   *  arrays, masts and machines out working are on the surface */
+  tubeShelter: boolean;
   upkeepMult: number;      // thermal stability discount
   moraleBase: number;      // baseline morale target
   /** buildable-footprint constraint (lava tube): radius in meters from map center, or 0 = whole map */
@@ -51,7 +53,7 @@ export const SITES: Record<SiteId, SiteDef> = {
     isruMult: 1.0,
     buildCostMult: 1.25,
     launchMult: 0.6,
-    flareImmune: false,
+    tubeShelter: false,
     upkeepMult: 1.0,
     moraleBase: 62,
     buildableRadiusM: 0,
@@ -75,7 +77,7 @@ export const SITES: Record<SiteId, SiteDef> = {
     isruMult: 1.25,
     buildCostMult: 0.8,
     launchMult: 1.5,
-    flareImmune: false,
+    tubeShelter: false,
     upkeepMult: 1.0,
     moraleBase: 58,
     buildableRadiusM: 0,
@@ -99,7 +101,7 @@ export const SITES: Record<SiteId, SiteDef> = {
     isruMult: 1.0,
     buildCostMult: 1.1,
     launchMult: 1.0,
-    flareImmune: true,
+    tubeShelter: true,
     upkeepMult: 0.85,
     moraleBase: 72,
     buildableRadiusM: 220,
@@ -108,7 +110,7 @@ export const SITES: Record<SiteId, SiteDef> = {
     earth: { elevDeg: 33, azimDeg: 15, librationDeg: 1.5 },
     home: { lat: 14.1, lon: -56.8 },          // the skylight at 14.09°N 303.23°E
     ratings: { solar: 2, ice: 0, isru: 3, launch: 3, safety: 5, terrain: 3 },
-    pros: ['Immune to solar flares; thermal stability cuts upkeep 15%', 'Sheltered crew: highest baseline morale on the Moon'],
+    pros: ['Sheltered from flares: crew, labs and compute live in the tube; thermal stability cuts upkeep 15%', 'Sheltered crew: highest baseline morale on the Moon'],
     cons: ['Only 70% solar throughput reaches the grid', 'Constrained buildable footprint around the skylight'],
     difficulty: 'SAFE HARBOR · ENERGY POOR',
   },

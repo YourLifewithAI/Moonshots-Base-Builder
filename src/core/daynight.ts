@@ -27,7 +27,9 @@ function smoothstep(a: number, b: number, x: number): number {
 }
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
-export function dayInfo(simTime: number, site: SiteDef, flareActive: boolean): DayInfo {
+/** The sun at a game time. A flare no longer darkens it (docs/16 §14.1): the
+ *  arrays stow or run, each by its own share (economy step 1). */
+export function dayInfo(simTime: number, site: SiteDef): DayInfo {
   const dayIndex = Math.floor(simTime / CYCLE_S);
   const tIn = simTime - dayIndex * CYCLE_S;
   const tCycle = tIn / CYCLE_S;
@@ -40,8 +42,7 @@ export function dayInfo(simTime: number, site: SiteDef, flareActive: boolean): D
   } else {
     raw = 0;
   }
-  let sunFactor = Math.max(raw, site.nightSolarFraction) * site.solarDayMult;
-  if (flareActive && !site.flareImmune) sunFactor = 0;
+  const sunFactor = Math.max(raw, site.nightSolarFraction) * site.solarDayMult;
 
   // visual sun: a sine arc through the day, blending into the night elevation
   // at both edges so the terminator crossing reads as a sunset, not a cut

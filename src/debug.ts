@@ -20,6 +20,10 @@ import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, 
 import { zoneCells } from './core/zones';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
+import type { ArrayChoice, FlareClass } from './data/spaceWeather';
+import { SITES } from './data/sites';
+import { WEATHER_STUB, activity, arrayView, classOdds, cycleOf, drawClass, fieldsOf, weatherView } from './core/spaceWeather';
+import { currentDay } from './core/economy';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -170,6 +174,36 @@ function api(game: Game) {
       if (r) Object.assign(r, patch);
       game.publish();
     },
+    // ── space weather (docs/16) ──
+    /** a flare's telegraph now: its class, and whether it is a drill (default: the first of the class, or flare 0) */
+    forceFlare: (cls: FlareClass, o: { drill?: boolean } = {}) => game.debugForceFlare(cls, o),
+    /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
+    getSpaceWeather: (slider?: number) => {
+      const s = game.state;
+      const site = SITES[s.siteId];
+      return clone(weatherView(s, game.mods, site, currentDay(s, site), slider));
+    },
+    /** the pop-up's preview of one choice (the slider's), or null outside a telegraph */
+    flarePreview: (choice: ArrayChoice) => clone(game.flarePreview(choice)),
+    /** the pop-up's Confirm: the choice for every array, Repair after, Use this choice for future flares */
+    flareChoice: (choice: ArrayChoice, o: { repair?: boolean; remember?: boolean } = {}) =>
+      game.actions.push({ kind: 'flareChoice', choice, ...o }),
+    flareRemember: (cls: FlareClass, choice: ArrayChoice | null) => game.actions.push({ kind: 'flareRemember', cls, choice }),
+    flareAutoRepair: (on: boolean) => game.actions.push({ kind: 'flareAutoRepair', on }),
+    fieldOverride: (id: number, mode: 'follow' | 'stow' | 'run') => game.actions.push({ kind: 'fieldOverride', id, mode }),
+    wreckAction: (how: 'rebuild' | 'clear', id?: number) => game.actions.push({ kind: 'wreck', how, ...(id !== undefined ? { id } : {}) }),
+    repairArrays: (id?: number) => game.actions.push({ kind: 'repairArrays', ...(id !== undefined ? { id } : {}) }),
+    /** the probe's baseline: 'legacy' plays today's flare (docs/16 §12.3); 'on' the classed flares */
+    setFlareMode: (mode: 'legacy' | 'on') => { (game.state.weather ??= { remember: {}, autoRepair: true, answered: {}, repairs: [], seenSunAt: 0 }).legacy = mode === 'legacy'; game.publish(); },
+    /** stand-ins for protection the later phases bring: Rad-Hard Cells' ×0.4 on array damage (F4) */
+    setWeatherStub: (patch: Partial<typeof WEATHER_STUB>) => { Object.assign(WEATHER_STUB, patch); },
+    /** the cycle and the class draw, as the schedule reads them */
+    weatherCycle: (T: number) => ({ a: activity(game.state.seed, T), ...cycleOf(game.state.seed) }),
+    classOdds: (a: number, era: number) => classOdds(a, era),
+    drawClass: (n: number, at: number, era: number) => drawClass(game.state, n, at, era),
+    /** a Solar Array's inspector line data (field, capability, damage, override, wreck) */
+    arrayInfo: (id: number) => { const s = game.state; const site = SITES[s.siteId]; return clone(arrayView(s, site, currentDay(s, site), id)); },
+    arrayFields: () => clone(fieldsOf(game.state).fields),
     /** on-board power (docs/02 · On-board power): the grid at 0 — no supply, the bank out of
      *  reach — while on (a forced brownout for tests; off returns the grid) */
     forceGridDark: (on = true) => { GRID.dark = on; game.publish(); },

@@ -6,6 +6,7 @@ import type { ProspectId } from '../data/lunarMap';
 import type { ResourceId } from '../data/resources';
 import type { AutoFamily, AutoRuleId } from '../data/automation';
 import type { CounterId } from '../data/hazards';
+import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
 
 export type Action =
   | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3;
@@ -56,7 +57,15 @@ export type Action =
   // hazards (core/hazards.ts, docs/14 §3.7): a counter (id: the hazard, or
   // the building for Clean, Reimage and Repair), and a node's air gap
   | { kind: 'counter'; counter: CounterId; id?: number }
-  | { kind: 'airGap'; id: number; on: boolean };
+  | { kind: 'airGap'; id: number; on: boolean }
+  // space weather (core/spaceWeather.ts, docs/16 §5): the pop-up's Confirm and
+  // its boxes, a class's remembered choice, a field's override, wrecks, repairs
+  | { kind: 'flareChoice'; choice: ArrayChoice; repair?: boolean; remember?: boolean }
+  | { kind: 'flareRemember'; cls: FlareClass; choice: ArrayChoice | null }
+  | { kind: 'flareAutoRepair'; on: boolean }
+  | { kind: 'fieldOverride'; id: number; mode: 'follow' | 'stow' | 'run' }
+  | { kind: 'wreck'; how: 'rebuild' | 'clear'; id?: number }   // no id: every wreck
+  | { kind: 'repairArrays'; id?: number };                     // no id: every damaged field
 
 export class ActionQueue {
   private q: Action[] = [];

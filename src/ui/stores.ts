@@ -10,6 +10,7 @@ import type { AlertMsg, BuildingState } from '../core/state';
 import type { DestinyView, ResearchView } from '../core/research';
 import type { AutomationView } from '../core/automation';
 import type { HazardView } from '../core/hazards';
+import type { WeatherView } from '../core/spaceWeather';
 import type { HazardId, HazardSide } from '../data/hazards';
 import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
 import type { SurveyCost } from '../core/exploration';
@@ -67,6 +68,8 @@ export const $automation = atom<AutomationView | null>(null);
 export const $autoMarkers = atom<{ id: number; x: number; y: number; auto?: boolean; text?: string }[]>([]);
 /** the Hazards panel [G], the HUD hazard chip, the objectives line (core/hazards.ts hazardView) */
 export const $hazards = atom<HazardView | null>(null);
+/** space weather (docs/16): the ☉ chip, the flare pop-up, the panel [O] (core/spaceWeather.ts weatherView) */
+export const $weather = atom<WeatherView | null>(null);
 /** DOM markers over hazard targets (screen px): a hiss glyph with who is aboard, a blight glyph, ⚠ NET, a strip bar */
 export const $hazardMarkers = atom<{ id: number; x: number; y: number; glyph: string; text: string; frac?: number }[]>([]);
 /** on-screen condition bars over damaged buildings */
@@ -75,7 +78,7 @@ export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: numbe
 export const $time = atom({
   dayIndex: 0, tCycle: 0, isNight: false, sunFactor: 1, phaseLeft: 0,
   speed: 1, paused: false,
-  flare: 'idle' as 'idle' | 'telegraph' | 'active', flareTimer: 0,
+  flare: 'idle' as 'idle' | 'telegraph' | 'active' | 'tail', flareTimer: 0,
 });
 export const $tech = atom<{
   era: number;

@@ -46,6 +46,11 @@ import { zonesFrom } from './zones';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
+import {
+  allWrecks, clearWreck, confirmChoice, migrateFlareSchema, previewChoice, queueRepairs, rebuildWreck, setFieldOverride,
+  setRemembered, shownClass, startFlare, weatherView, type ChoicePreview,
+} from './spaceWeather';
+import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
 import { HAZARDS, HAZARD_NAME, type HazardId, type Tier } from '../data/hazards';
 import { FleetTarget } from '../player/fleetTarget';
 import { RoadTool } from '../player/roadTool';
@@ -84,7 +89,7 @@ import {
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
   $fleet, $fleetTarget, $roverSel,
-  $destiny, $hazards, $hazardMarkers, $lossStory,
+  $destiny, $hazards, $hazardMarkers, $lossStory, $weather,
 } from '../ui/stores';
 
 export interface GameOptions {
@@ -305,6 +310,8 @@ export class Game {
     }
     // saves from the 34-tech tree: retired ids refunded, the queue sanitized
     migrateTechSchema(blob.state);
+    // saves from before classed flares (docs/16 §14.3, flareSchema 0 → 1)
+    migrateFlareSchema(blob.state);
     this.bootWorld(blob.state);
     // replay flattens onto the regenerated terrain, in order
     for (const f of this.state.flattens) {
@@ -826,6 +833,20 @@ export class Game {
       case 'airGap': {
         const r = setAirGap(s, this.mods, a.id, a.on);
         if (!r.ok) alert(s, r.reason, 'warn');
+        break;
+      }
+      // space weather (docs/16 §5): every refusal says why
+      case 'flareChoice': case 'flareRemember': case 'flareAutoRepair': case 'fieldOverride': case 'wreck': case 'repairArrays': {
+        const site = SITES[s.siteId];
+        const r = a.kind === 'flareChoice' ? confirmChoice(s, a.choice, { repair: a.repair, remember: a.remember })
+          : a.kind === 'flareRemember' ? setRemembered(s, a.cls, a.choice)
+          : a.kind === 'flareAutoRepair' ? (((s.weather ??= { remember: {}, autoRepair: true, answered: {}, repairs: [], seenSunAt: 0 }).autoRepair = a.on), { ok: true, reason: '' })
+          : a.kind === 'fieldOverride' ? setFieldOverride(s, a.id, a.mode)
+          : a.kind === 'repairArrays' ? queueRepairs(s, a.id !== undefined ? [a.id] : undefined)
+          : a.id === undefined ? allWrecks(s, this.mods, site, a.how)
+          : a.how === 'rebuild' ? rebuildWreck(s, this.mods, site, a.id) : clearWreck(s, a.id);
+        if (!r.ok) alert(s, r.reason, 'warn');
+        else if (a.kind === 'wreck') this.instances.rebuild(s);
         break;
       }
       case 'setEnabled': {
@@ -1997,6 +2018,7 @@ export class Game {
     });
     $destiny.set(destinyOf(s));
     $hazards.set(hazardView(s, this.mods));
+    $weather.set(weatherView(s, this.mods, site, day));
     $lossStory.set(lossStory(s));
     $ice.set({ hasIce: SITES[s.siteId].hasIce, surveyed: s.iceSurveyed ?? false });
     $feed.set({ ...s.feed });
@@ -2029,6 +2051,49 @@ export class Game {
     this.playCues(day.isNight);
     this.queueAnnouncements();
     this.hazardPauses();
+    this.flarePauses();
+  }
+
+  /** the flare pop-up last seen (the pause-on setting fires once a flare) */
+  private flareSeen = -1;
+  /** Pause on flare warnings (docs/16 §5.2, §10.4): the full pop-up pauses M
+   *  and X by default (all · off in the menu); never once a choice is
+   *  remembered or the Builder decides. Test runs (?debug) pause only when
+   *  they ask (&flarepause), as for hazards. */
+  private flarePauses() {
+    const s = this.state;
+    const p = $weather.get()?.popup;
+    if (!p) return;
+    if (this.flareSeen === p.n) return;
+    this.flareSeen = p.n;
+    const q = new URLSearchParams(location.search);
+    if (q.has('debug') && !q.has('flarepause')) return;
+    const set = loadSettings().pauseFlares;
+    const cls = shownClass(s);
+    const want = p.full && cls !== null && (set === 'all' || (set === 'mx' && cls !== 'C'));
+    if (want && !s.paused) {
+      this.actions.push({ kind: 'setPaused', paused: true });
+      s.flare.pausedAt = s.simTime;
+    }
+  }
+
+  /** The pop-up's preview of a choice (the slider's positions): pure, from the live state. */
+  flarePreview(choice: ArrayChoice): ChoicePreview | null {
+    const s = this.state;
+    const cls = shownClass(s);
+    if (!s || !cls) return null;
+    const site = SITES[s.siteId];
+    return previewChoice(s, this.mods, site, currentDay(s, site), choice, cls);
+  }
+
+  /** debug.forceFlare: a flare's telegraph now (the first of a class is still its drill unless opts say). */
+  debugForceFlare(cls: FlareClass, o: { drill?: boolean } = {}) {
+    const s = this.state;
+    if (s.flare.phase !== 'idle') return false;
+    migrateFlareSchema(s);
+    startFlare(s, SITES[s.siteId], cls, o);
+    this.publish();
+    return true;
   }
 
   /** hazards the session has seen (the pause-on settings, docs/14 §3.8) */
