@@ -255,30 +255,42 @@ export class DepositHighlight {
     }
   }
 
-  /** The ore still in the ground: slanted ticks from the pit's rim to the full-size ring. */
+  /** The ore still in the ground: the full-size disc hatched one way, less the pit already cut. */
   private band(out: number[], e: LitEntry) {
     const p = e.pit!;
-    const n = Math.max(16, Math.round((2 * Math.PI * e.fullR) / 3));
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2;
-      const ax = p.cx + Math.cos(a) * p.R, az = p.cz + Math.sin(a) * p.R;
-      const b = a + 0.9 * (3 / e.fullR);
-      const bx = e.cx + Math.cos(b) * e.fullR, bz = e.cz + Math.sin(b) * e.fullR;
-      if (Math.hypot(bx - e.cx, bz - e.cz) - Math.hypot(ax - e.cx, az - e.cz) < 1) continue;
-      this.drape(out, ax, az, bx, bz);
-    }
+    this.hatch(out, e.cx, e.cz, e.fullR, [1], { x: p.cx, z: p.cz, R: p.R });
   }
 
   /** Cross-hatch a disc: two sets of diagonal lines 3 m apart. */
   private crossHatch(out: number[], cx: number, cz: number, r: number) {
-    for (const dir of [1, -1]) {
-      for (let o = -r; o <= r; o += 3) {
-        // the line x − dir·z = o·√2 (rotated 45°), clipped to the disc
+    this.hatch(out, cx, cz, r, [1, -1], null);
+  }
+
+  /** Diagonal lines 3 m apart across a disc (each direction in `dirs`),
+   *  clipped to it, with a hole (the pit) left out. */
+  private hatch(out: number[], cx: number, cz: number, r: number, dirs: number[], hole: { x: number; z: number; R: number } | null) {
+    for (const dir of dirs) {
+      const ux = Math.SQRT1_2, uz = dir * Math.SQRT1_2;
+      const nx = -uz, nz = ux;
+      for (let o = -r + 1.5; o <= r; o += 3) {
         const h = Math.sqrt(Math.max(0, r * r - o * o));
         if (h < 0.5) continue;
-        const ux = Math.SQRT1_2, uz = dir * Math.SQRT1_2;
-        const nx = -uz, nz = ux;
-        this.drape(out, cx + nx * o - ux * h, cz + nz * o - uz * h, cx + nx * o + ux * h, cz + nz * o + uz * h);
+        const ox = cx + nx * o, oz = cz + nz * o;
+        let spans: [number, number][] = [[-h, h]];
+        if (hole && hole.R > 0) {
+          // t² + 2(w·u)t + |w|² − R² = 0, w from the pit's centre to the line's origin
+          const wx = ox - hole.x, wz = oz - hole.z;
+          const wu = wx * ux + wz * uz;
+          const disc = wu * wu - (wx * wx + wz * wz - hole.R * hole.R);
+          if (disc > 0) {
+            const t0 = -wu - Math.sqrt(disc), t1 = -wu + Math.sqrt(disc);
+            spans = [[-h, Math.min(h, t0)], [Math.max(-h, t1), h]];
+          }
+        }
+        for (const [a, b] of spans) {
+          if (b - a < 0.5) continue;
+          this.drape(out, ox + ux * a, oz + uz * a, ox + ux * b, oz + uz * b);
+        }
       }
     }
   }

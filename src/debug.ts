@@ -20,7 +20,7 @@ import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, 
 import { zoneCells } from './core/zones';
 import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
 import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
-import { $hubCard, $hubLight } from './ui/stores';
+import { $deposits, $hubCard, $hubLight } from './ui/stores';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -324,8 +324,33 @@ function api(game: Game) {
       hubLight(game.state, game.mods, SITES[game.state.siteId], typeof src === 'number' ? { kind: 'selected', id: src } : { kind: 'card', type: src })?.entries ?? null,
     /** the highlight up now: what is drawn, and its entries (docs/17 §6.1) */
     getHighlight: () => ({ ...game.debugHighlight(), view: $hubLight.get() }),
+    /** R: turn the ghost a quarter */
+    rotatePlacement: () => game.rotatePlacement(),
     /** glide the build camera to look at world (x, z) */
     focusGround: (x: number, z: number) => game.focusGround(x, z),
+    /** $deposits as the UI has it: the lit ones, with their lit state (docs/17 §6.1) */
+    litDeposits: () => clone($deposits.get().filter((d) => d.lit)),
+    /** view tests only: stand-in units hold faces at `key` till `n` are held in all (0 takes them away; never advance with them) */
+    holdFaces: (key: string, n: number) => {
+      const s = game.state;
+      s.haulers = s.haulers.filter((u) => u.id < 90000);
+      const proto = s.haulers[0];
+      if (!proto || n <= 0) return 0;
+      const held = new Set(s.haulers.filter((u) => u.target === key && u.face >= 0).map((u) => u.face));
+      let k = 0;
+      for (let f = 0; held.size + k < n && f < 12; f++) {
+        if (held.has(f)) continue;
+        s.haulers.push({ ...clone(proto), id: 90000 + f, hub: -1, target: key, face: f });
+        k++;
+      }
+      return k;
+    },
+    /** view tests only: set the pit at `key`'s state ('boxed', 'exhausted', 'open') */
+    setPitState: (key: string, state: 'open' | 'boxed' | 'exhausted') => {
+      const p = game.state.pits?.find((x) => x.key === key);
+      if (p) p.state = state;
+      return !!p;
+    },
     /** a hub's palette card hovered (null: none) */
     setHubCard: (type: BuildingId | null) => $hubCard.set(type),
     /** the ring warning a structure at (gx, gz, rot) would carry ('' none) */
