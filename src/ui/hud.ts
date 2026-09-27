@@ -533,6 +533,14 @@ export function mountHud(root: HTMLElement, game: Game) {
       }
       d.classList.toggle('sel', $depositSel.get() === m.id);
       d.classList.toggle('lead', m.lead);
+      // lit for a hub (docs/17 §6.1): 'lit far', 'lit full best', 'dim open', …
+      const lit = m.lit ?? '';
+      if (d.dataset.lit !== lit) {
+        d.dataset.lit = lit;
+        for (const c of [...d.classList]) if (c.startsWith('hl-')) d.classList.remove(c);
+        for (const w of lit.split(' ').filter(Boolean)) d.classList.add(`hl-${w}`);
+      }
+      d.classList.toggle('pitmark', !!m.pit);
       d.style.left = `${m.x}px`;
       d.style.top = `${m.y}px`;
       const [g, t] = d.children as unknown as HTMLElement[];
@@ -545,6 +553,8 @@ export function mountHud(root: HTMLElement, game: Game) {
     const m = (e.target as HTMLElement).closest<HTMLElement>('.deposit-mark[data-dep]');
     if (!m) return;
     e.stopPropagation();
+    // a plain pit or the ghost's stake: no deposit card
+    if (m.classList.contains('pitmark')) return;
     const id = m.dataset.dep!;
     $depositSel.set($depositSel.get() === id ? null : id);
   });

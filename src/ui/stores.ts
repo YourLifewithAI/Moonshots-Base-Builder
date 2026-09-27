@@ -172,12 +172,60 @@ export interface DepositView {
   label: string;
   /** the kind's glyph when revealed, '?' when not */
   glyph: string;
+  /** lit for the hub being placed or selected (docs/17 §6.1; core/hubPreview.ts); absent: not lit */
+  lit?: DepositLit;
+}
+/** How a deposit lights for a hub (docs/17 §6.1): its state, one way from the
+ *  hub's door, its faces, the pit already cut and the full-size pit ring.
+ *  Phase 4's ore (left, ± precision) and grade come only when present. */
+export interface DepositLit {
+  /** 'lit': the hub wants it · 'dim': shown dimmer (a smelter's glass, KREEP) */
+  tier: 'lit' | 'dim';
+  state: 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'plain' | 'stake';
+  /** one way, game-s (null: no hub position — its palette card); approx: no road yet (≈) */
+  eta: number | null;
+  approx: boolean;
+  faces: number;
+  used: number;
+  /** the pit's rim now and its centre (null: not dug), and the full-size ring, m */
+  pitR: number | null;
+  pitX?: number;
+  pitZ?: number;
+  fullR: number;
+  /** where its units would go */
+  best: boolean;
+  /** the label's words (the glyph apart): '0:15 · 1/3 · pit 18 m' */
+  label: string;
+  /** Phase 4: ore left (▲) and the estimate's ± share, the cut's grade */
+  ore?: { left: number; precision?: number };
+  grade?: number;
 }
 export const $deposits = atom<DepositView[]>([]);
+/** The resource highlight (docs/17 §6; core/hubPreview.ts's HubLight, less
+ *  its geometry): the hub type and its source, and the lit plain pits and
+ *  the ghost's stake, which are no deposits (the map and the labels). */
+export interface HubLightView {
+  type: BuildingId;
+  source: 'ghost' | 'selected' | 'card';
+  hubId: number | null;
+  reachS: number;
+  mre: boolean;
+  /** plain pits and the stake: id, centre, ring, full-size ring, state, label */
+  extra: { id: string; x: number; z: number; r: number; fullR: number; state: 'plain' | 'stake'; label: string; pitR: number | null }[];
+}
+export const $hubLight = atom<HubLightView | null>(null);
+/** a hub's palette card under the pointer (desktop hover): its deposits light up */
+export const $hubCard = atom<BuildingId | null>(null);
 /** the deposit whose card is open (a label in the overlay, or the map's SITE view) */
 export const $depositSel = atom<string | null>(null);
 /** the deposit overlay's DOM labels, projected through the live camera (build mode) */
-export const $depositMarkers = atom<{ id: string; x: number; y: number; glyph: string; label: string; lead: boolean }[]>([]);
+export const $depositMarkers = atom<{
+  id: string; x: number; y: number; glyph: string; label: string; lead: boolean;
+  /** lit for a hub (docs/17 §6.1): 'lit' | 'dim' and its state ('lit far', 'lit full', …); '' not lit */
+  lit?: string;
+  /** not a deposit: a plain pit or the ghost's stake (no card) */
+  pit?: boolean;
+}[]>([]);
 /** last tick's excavator feed shares (smelter/refinery inspector, regolith panel) */
 export const $feed = atom<FeedGrade>(emptyFeed());
 
@@ -214,8 +262,11 @@ export const $placing = atom<{
   /** game-seconds the nearest free rover would take to get there (core/transit.ts);
    *  Infinity: every rover is busy; undefined: not asked */
   travelS?: number;
-  /** a hub's ghost: where its units would dig, and how far one way (core/hubs.ts hubGhostLine) */
+  /** a hub's ghost: where its units would dig, and how far one way (core/hubPreview.ts hubGhostLine) */
   hub?: string;
+  /** the rest of its HUB block (docs/17 §5.2): the route, the units that fill it, the
+   *  full-size pit against its walls, the next choice, the plain-pit stake */
+  hubBlock?: string[];
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
 export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);

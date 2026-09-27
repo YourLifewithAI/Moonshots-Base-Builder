@@ -18,7 +18,9 @@ import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
-import { choicesFor, hubGhostLine, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
+import { $hubCard, $hubLight } from './ui/stores';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -312,6 +314,21 @@ function api(game: Game) {
     /** a hub ghost's HUB line at (gx, gz, rot): where its units would dig, how far one way */
     hubGhost: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
       hubGhostLine(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot }),
+    /** a hub ghost's whole HUB block at (gx, gz, rot): headline, lines, warning, stake, lit entries (docs/17 §5.2) */
+    hubBlock: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => {
+      const b = ghostBlock(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot });
+      return { headline: b.headline, lines: [...b.lines], warn: b.warn, stake: b.stake, entries: b.light?.entries ?? [] };
+    },
+    /** the highlight a selected hub (its id) or a hub card (its type) would light */
+    hubLightOf: (src: number | BuildingId) =>
+      hubLight(game.state, game.mods, SITES[game.state.siteId], typeof src === 'number' ? { kind: 'selected', id: src } : { kind: 'card', type: src })?.entries ?? null,
+    /** the highlight up now: what is drawn, and its entries (docs/17 §6.1) */
+    getHighlight: () => ({ ...game.debugHighlight(), view: $hubLight.get() }),
+    /** a hub's palette card hovered (null: none) */
+    setHubCard: (type: BuildingId | null) => $hubCard.set(type),
+    /** the ring warning a structure at (gx, gz, rot) would carry ('' none) */
+    pitWayWhy: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
+      pitWayWarning(game.state, SITES[game.state.siteId], { type, gx, gz, rot }),
     /** why a plain pit may not be staked at world (x, z) ('' = it may) */
     plainPitWhy: (x: number, z: number) => plainPitRefusal(game.state, game.mods, SITES[game.state.siteId], x, z),
     sendUnit: (unit: number, key: string) => game.actions.push({ kind: 'sendUnit', unit, key }),
