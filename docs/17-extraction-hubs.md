@@ -1684,7 +1684,7 @@ repoint it without rewriting pits.
 
 | Piece | What it does |
 |---|---|
-| `onDig(s, digSiteKey(x, z), tonnes, q)` | One line in the excavator's dig phase (`src/core/haul.ts`). It finds, or opens, the pit for the cell the digger stands on, and adds what it dug. |
+| `onDig(s, digSiteKey(x, z), tonnes, q)` | One line in the excavator's dig phase (`src/core/haul.ts`). It finds, or opens, the pit for where the digger stands, and adds what it dug. Every digger on one deposit shares that deposit's pit (`dep:<id>`). On plain ground each dig cell is its own pit (`dig:gx,gz`). |
 | `digInto(s, pit, tonnes, q)` | The growth itself. **Phase 2 calls this** for a hub unit's pit, and drops the key. |
 | `pitsStep(s, dt)` | Economy step 4.2: one line after production. It stakes, carves and dumps. |
 | `bindTerrain(s, hf)` | `Game.bootWorld` binds the heightfield, since the economy tick has none. |
@@ -1697,18 +1697,19 @@ repoint it without rewriting pits.
   amount-weighted EMA, like the feed EMA (`HAUL.feedMemory`), for Phase 4.
 - **The heap** gets 70% of the mass back at 1.3 t/m³: 0.81 × the cut.
 - **An excavator digging its own pad** cannot carve under its own building. Its pit
-  opens beside the pad instead, at the nearest free ground (§8.6):
+  opens beside the pad instead, at the nearest free ground to the deposit's heart
+  (§8.6):
   - room to open to its floor (2L + 4 m clear);
-  - on the pad's deposit if it has one;
+  - on the deposit if it can;
   - on the side away from the Lander.
-
-  In the probe's opening (seed 42, the guaranteed high-Ti basalt), that ground lies
-  about 30 m from the pad.
 - **Dig at…** ground gets its pit at the dig site, or at the nearest free ground if
   the haul road ends there.
 - **Batches.** A pit carves at most every 5 game-s, once its rim would move 0.5 m or
   150 m³ is owed; the first cut comes at 40 m³. The timing uses the pits' own tick
   clock (`terrain.clock`), so live play and debug advances carve alike.
+- **One hole.** A pit only grows over ground joined to its own cut through
+  unblocked samples, so it never jumps a road or a structure's setback. Its heap
+  grows the same way.
 - **The shape.** Walls are 1:2 in 2 m benches (each sample ring a bench lower), with
   a floor at L. The ramp is a straight 8 m band at 1:4 down the gate side, its sides
   at 1:2, its top following the rim. Heaps are flat-topped, at most 6 m, sides at 35°.
@@ -1746,10 +1747,18 @@ repoint it without rewriting pits.
   - A carve costs 0.4 ms at p50 and 0.8 ms at p90, the first up to 5 ms (buffers).
   - A chunk rebuild costs 1.2 ms.
   - Five pits of about 8k m³ each, with their heaps, encode to 5.4 KB (1.1 KB a pit).
-  - One excavator's 150-minute pit (R 31 m, 10.2k m³ with an 8.2k m³ heap) encodes to
-    1.2 KB.
+  - One excavator's 150-minute pit (R 31 m, 10.1k m³ with an 8.2k m³ heap) encodes to
+    1.1 KB.
 - **The economy is unchanged.** Output is still today's model, and pits feed nothing
-  back. They only change what may be built and where roads can go.
+  back. They only change what may be built and where roads can go. The probe agrees:
+
+  | Run (mare, robotic, reasonable, seed 42, 260 min) | FIRST LIGHT | Eras E1–E8 (min) |
+  |---|---|---|
+  | main `e5ae67d` | 191.2 | 23.8 / 26.8 / 27.7 / 26.3 / 29.3 / 20.7 / 15.8 / 19.3 |
+  | `work/pits` | 191.8 | 23.8 / 26.8 / 27.7 / 26.3 / 29.7 / 20.8 / 15.8 / 19.3 |
+
+  The run digs one pit on high-Ti basalt #0: 36.4k▲, 24.2k m³ cut (R 48 m, 5 m deep)
+  and a 19.5k m³ heap. Its grid is 2.5 KB.
 
 ## 23. The player's answers
 
