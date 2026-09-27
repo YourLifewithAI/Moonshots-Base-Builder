@@ -374,7 +374,8 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       };
     }
     case 'roboticsBay': {
-      const backlog = s.buildings.filter((b) => isSite(b) && b.enabled && b.idleReason === 'queued').length;
+      // a flare's array repairs (docs/16 §4.3) queue behind every build: not a backlog of builds
+      const backlog = s.buildings.filter((b) => isSite(b) && b.enabled && b.idleReason === 'queued' && !b.fix).length;
       return { past: backlog >= T, rearmed: backlog <= (d.rearm ?? 0), text: `${backlog} site${backlog === 1 ? '' : 's'} waiting for a rover` };
     }
     case 'oxygen': case 'food': case 'water': {

@@ -1680,26 +1680,10 @@ legacy mode, migration steps 1–5 (and 7's defaults, 10's alert). Seeds 42, 7 a
 | The look | the wing turns edge-on in 10 s (1 Hz steps); a wreck hangs dark, 30° off its hinge | F6 polishes |
 | The sky | a flare no longer darkens the scene (`dayInfo` lost its flare argument) | the Sun does not stop |
 
-**Pacing** (`scripts/probe-pacing.mjs --flares=legacy|on`, reasonable, `--auto=on`, seeds 42,
-7, 1234, 280 min; FIRST LIGHT medians, min; measured on the branch before main's pits
-merged):
-
-| Run | Legacy | New | Δ | Target (§12.1) |
-|---|---|---|---|---|
-| mare robotic · ⌂ Colony | 220.3 | 228.9 | +3.9% | −2% to +4% ✓ |
-| mare robotic · ◉ Automation | 207.9 | 214.3 | +3.1% | ✓ |
-| mare robotic · Concord | 220.6 | 227.6 | +3.2% | ✓ |
-| pole crewed · ⌂ Colony | 169.6 | 183.3 | +8.1% | over |
-| pole crewed · ◉ Automation | 185.6 | 199.6 | +7.5% | over |
-| pole crewed · Concord | 181.5 | 198.3 | +9.2% | over |
-
-- Flares before FIRST LIGHT: mare 9–10 (legacy 7–8), pole 7–9 (legacy 5–7).
-- No deaths or machine losses from flares. Arrays destroyed: mare 0, pole 0–5 (its feed
-  runs through an X). Repair parts a run: mare 85–110⚙, pole 32–65⚙.
-- The pole pays for its stowed X's: 190 s of arrays folded drains its bank, the battery
-  rule builds more banks, and metals run short (Concord seed 7: +16.5%). §12.1 assumes the
-  whole system: Rad-Hard Cells, a bigger bank and the Shield Coil are the pole's answer
-  (F4, F5), and F7 tunes the levers of §12.4.
+**Pacing:** pending the final diagnostic pass. The probe is ready for it:
+`scripts/probe-pacing.mjs --flares=legacy|on` (reasonable, `--auto=on`, seeds 42, 7 and
+1234, 280 min, each destiny, mare robotic and pole crewed) reports FIRST LIGHT against the
+legacy run, and per run the flares by class, the arrays destroyed and the repair parts.
 
 ## 17. The player's answers, and what is still open
 
