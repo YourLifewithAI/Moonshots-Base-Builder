@@ -79,6 +79,19 @@
 .mb .bld, #map-inset .bld { fill: rgba(var(--paper-rgb), 0.75); }
 .mb .bld.wip, #map-inset .bld.wip { fill: none; stroke: rgba(var(--paper-rgb), 0.7); stroke-dasharray: 2 2; }
 .mb .bld.lander, #map-inset .bld.lander { fill: var(--paper); }
+/* a hub's highlight (docs/17 §6.1): weight, dash, fill and hatch carry the state */
+.mb .dep.lit, #map-inset .dep.lit { stroke: var(--paper); stroke-width: 2.8; stroke-opacity: 1; }
+.mb .dep.lit.best, #map-inset .dep.lit.best { stroke-width: 3.6; }
+.mb .dep.lit.st-far, #map-inset .dep.lit.st-far { stroke-width: 1.4; stroke-opacity: 0.55; }
+.mb .dep.lit.st-exhausted, .mb .dep.lit.st-boxed { stroke-width: 1.4; stroke-opacity: 0.7; }
+.mb .dep.faded, #map-inset .dep.faded { stroke-opacity: 0.3; }
+.mb .dep-fill, #map-inset .dep-fill { fill: rgba(var(--paper-rgb), 0.09); stroke: none; }
+.mb .dep-spent, #map-inset .dep-spent { stroke: none; opacity: 0.8; }
+.mb .dep-full, #map-inset .dep-full { fill: none; stroke: rgba(var(--paper-rgb), 0.5); stroke-width: 1; stroke-dasharray: 3 3; }
+.mb .pit-rim, #map-inset .pit-rim { fill: none; stroke: var(--paper); stroke-width: 1.6; }
+.mb .ore-band, #map-inset .ore-band { fill: none; opacity: 0.8; vector-effect: none; }
+.mb .plainpit, #map-inset .plainpit { fill: rgba(var(--paper-rgb), 0.06); stroke: var(--paper); stroke-width: 1.6; }
+.mb .plainpit.st-stake, #map-inset .plainpit.st-stake { stroke-dasharray: 5 3; }
 #map-inset .rim, #map-inset .reveal-next { display: none; }
 #map-inset svg * { vector-effect: non-scaling-stroke; }
 #map-inset .hl { vector-effect: none; }
@@ -93,6 +106,10 @@
 .mk .lbl.ring-l { font-size: 9px; letter-spacing: 0.06em; fill: rgba(var(--paper-rgb), 0.7); }
 .mk .lbl.mare-l { font-size: 9px; font-style: italic; letter-spacing: 0.14em; fill: rgba(var(--paper-rgb), 0.36); stroke: none; }
 .mk .lbl.home-l { font-weight: 600; fill: var(--paper); letter-spacing: 0.06em; }
+.mk .dep-t.lit .lbl { fill: var(--paper); font-family: var(--font-mono); letter-spacing: 0; }
+.mk .dep-t.lit.best .lbl { font-weight: 600; }
+.mk .dep-t.lit.st-far .lbl, .mk .dep-t.lit.dimk .lbl { fill: rgba(var(--paper-rgb), 0.6); }
+.mk .dep-t.faded { opacity: 0.35; }
 .mk .lead { stroke: rgba(var(--paper-rgb), 0.45); stroke-width: 1; }
 .pm { cursor: pointer; }
 .pm .hit { fill: transparent; }

@@ -11,7 +11,7 @@ import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
   $milestones, $mode, $phase,
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
-  $hazards, $hazardMarkers,
+  $hazards, $hazardMarkers, $placing,
 } from './stores';
 import { counterButton, counterClick } from './hazardsPanel';
 import { touchOn } from '../core/touch';
@@ -515,7 +515,11 @@ export function mountHud(root: HTMLElement, game: Game) {
   // ── deposit overlay labels: glyphs at the rings' centres, '?' at leads;
   // one element per deposit, moved in place ──
   const depLayer = el('div', '');
+  depLayer.id = 'deposit-marks';
   root.appendChild(depLayer);
+  // while placing, the labels are to be read, not pressed: a click or a tap
+  // on one reaches the ground under it (the ghost goes there)
+  $placing.subscribe((p) => depLayer.classList.toggle('placing', !!p));
   const depEls = new Map<string, HTMLElement>();
   $depositMarkers.subscribe((ms) => {
     const live = new Set<string>();

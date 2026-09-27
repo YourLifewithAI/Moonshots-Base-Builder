@@ -285,6 +285,15 @@ html.touch :is(.deposit-mark, .auto-mark, .site-mark, .hz-mark)::after {
 }
 html.touch .auto-mark, html.touch .site-mark { font-size: 11px; }
 html.touch .deposit-mark .t, html.touch .hz-mark .t { font-size: 11px; }
+/* a hub's highlight (docs/17 §6.1): no hit area while placing (a tap moves the ghost),
+   and the lit chips keep to 11 px on the phone */
+html.touch #deposit-marks.placing .deposit-mark::after { display: none; }
+html.touch .deposit-mark.hl-lit { padding: 1px 4px; }
+html.touch .deposit-mark.hl-lit .g { font-size: 13px; }
+/* the Ore button while a hub's ground is lit: the rings show whatever it says */
+html.touch #t-deposits.lit:not(.active) { box-shadow: inset 0 -3px 0 rgba(var(--paper-rgb), 0.85); }
+/* the ghost's HUB block in the placement bar: its lines scroll with the hint */
+html.touch #place-hint .hub-block .hb-line { font-size: 11px; line-height: 14px; }
 
 /* ── the discovery card and the era explainer ── */
 html.touch #discovery-card {

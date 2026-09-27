@@ -306,6 +306,7 @@
 .deposit-mark.hl-stake { border-style: dashed; }
 .deposit-mark.hl-dim .t { color: rgba(var(--paper-rgb), var(--op-secondary)); font-style: italic; }
 .deposit-mark.pitmark { cursor: default; }
+#deposit-marks.placing .deposit-mark { pointer-events: none; }
 
 /* ── floaters ── */
 @keyframes float-up {

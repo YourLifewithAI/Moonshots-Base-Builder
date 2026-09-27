@@ -324,6 +324,8 @@ function api(game: Game) {
       hubLight(game.state, game.mods, SITES[game.state.siteId], typeof src === 'number' ? { kind: 'selected', id: src } : { kind: 'card', type: src })?.entries ?? null,
     /** the highlight up now: what is drawn, and its entries (docs/17 §6.1) */
     getHighlight: () => ({ ...game.debugHighlight(), view: $hubLight.get() }),
+    /** glide the build camera to look at world (x, z) */
+    focusGround: (x: number, z: number) => game.focusGround(x, z),
     /** a hub's palette card hovered (null: none) */
     setHubCard: (type: BuildingId | null) => $hubCard.set(type),
     /** the ring warning a structure at (gx, gz, rot) would carry ('' none) */

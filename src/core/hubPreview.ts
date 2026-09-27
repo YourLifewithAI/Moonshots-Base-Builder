@@ -232,7 +232,7 @@ const kFmt = (n: number) => (n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000
 const pm = (p?: number) => (p ? ` (±${Math.round(p * 100)}%)` : '');
 export const etaText = (e: Pick<LitEntry, 'eta' | 'approx'>) => (e.eta === null ? '' : `${e.approx ? '≈' : ''}${fmtClock(e.eta)}`);
 
-/** A lit marker's words (§6.1), the glyph apart: `0:15 · 1/3 · pit 18 m`. */
+/** A lit marker's words (§6.1), the glyph apart: `0:15 · 1/3 faces · pit 18 m`. */
 function labelOf(e: LitEntry, reachS: number): string {
   if (e.tier === 'dim') return e.note;
   const eta = etaText(e);
@@ -246,7 +246,7 @@ function labelOf(e: LitEntry, reachS: number): string {
     case 'plain': return [e.name.replace('plain pit ', ''), `q ${e.q.toFixed(2)}`, faces, eta].filter(Boolean).join(' · ');
     case 'stake': return ['plain pit here', `q ${e.q.toFixed(2)}`, eta].filter(Boolean).join(' · ');
     default:
-      return [eta, faces, ore, e.pit ? `pit ${Math.round(e.pit.R)} m` : ''].filter(Boolean).join(' · ');
+      return [eta, `${faces} faces`, ore, e.pit ? `pit ${Math.round(e.pit.R)} m` : ''].filter(Boolean).join(' · ');
   }
 }
 
