@@ -407,6 +407,11 @@ export interface PitView {
   key: string;
   name: string;
   glyph: string;
+  /** Phase 4 (docs/17 §4.7): the pit now and at full size, the ore the survey read and its
+   *  life ('pit 18 m of 28 · ore 8.4k▲ left (±30%) · ~5.8 lunar days'), '' for a plain pit */
+  ore?: string;
+  /** a deposit no survey has read yet (its row offers Survey) */
+  unsurveyed?: boolean;
   /** one way from the hub's door, s; a road reaches its gate */
   tripS: number;
   connected: boolean;

@@ -10,6 +10,8 @@ import {
 import { SITES } from '../data/sites';
 import { effectiveDef, effectiveRates, type EffectiveRates, type Mods } from '../core/mods';
 import type { Game } from '../core/game';
+import { stripMorale, type StripTerm } from '../core/pits';
+import { STRIP } from '../data/ore';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
@@ -101,7 +103,7 @@ const NOTES_UNCREWED: Partial<Record<string, string>> = {
 };
 
 /** the panel's content for `key`, or null when there is none */
-function panelHtml(key: string, mods: Mods): string | null {
+function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
   const v = $vitals.get();
   const t = $tech.get();
   const lsMult = mods.inputMult.habitat;
@@ -186,6 +188,8 @@ function panelHtml(key: string, mods: Mods): string | null {
         ${row('… and while it lasts', `−${SPACE_WEATHER.morale.C.target} · −${SPACE_WEATHER.morale.M.target} · −${SPACE_WEATHER.morale.X.target}`)}
         ${row('Earth shipment ordered', `−${RESUPPLY.moraleHit} once`)}
         ${row('Reactor next door', '−5')}
+        ${row('Strip mines near homes (pits and heaps)', strip && strip.term < -0.05 ? `${strip.term.toFixed(1).replace('-', '−')}` : `up to −${-STRIP.cap}`)}
+        ${strip?.worst ? `<div class="goal-hint">Strip mines ${strip.term.toFixed(1).replace('-', '−')} · worst: ${strip.worst.name}, ${strip.worst.dist} m from ${strip.worst.home}. A plain pit or a dug-out one costs −1 per 1,000 m² of scar within ${STRIP.nearM} m of a home (fading to ${STRIP.farM} m), a working deposit's −0.4, reclaimed ground a fifth.</div>` : ''}
         <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;
   }
   if (key === 'data') {
@@ -283,7 +287,7 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
   let lastHtml = '';
   const render = () => {
     const key = $resourcePanel.get();
-    const html = key ? panelHtml(key, game.mods) : null;
+    const html = key ? panelHtml(key, game.mods, key === 'morale' ? stripMorale(game.state) : undefined) : null;
     if (html === null) { panel.style.display = 'none'; lastHtml = ''; return; }
     panel.style.display = ''; // the stylesheet's flex column; walk mode hides it
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }

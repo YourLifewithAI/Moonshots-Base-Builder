@@ -478,7 +478,9 @@ function chooseFor(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Buildi
     const t = targetOf(s, p.key);
     if (!t) continue;
     const f = freeFace(s, t, u);
-    if (f >= 0 && tripTo(s, mods, b, t).connected) return { t, face: f };
+    if (f < 0) continue;
+    if (tripTo(s, mods, b, t).connected) return { t, face: f };
+    askRoad(s, b, t);
   }
   // Assign: the hub's preferred pit, while a face is free there
   if (hub.prefer) {

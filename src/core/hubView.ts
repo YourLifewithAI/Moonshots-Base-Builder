@@ -13,6 +13,8 @@ import {
   tripTo, unitName, unitRates, unitSpec, unitTag, unitWhy, unitsOf,
 } from './hubs';
 import { packLine } from './unitPower';
+import { pitOf, reservesOf } from './pits';
+import { CYCLE_S } from '../data/balance';
 import { fmtClock } from './daynight';
 
 const G = RESOURCES.regolith.glyph;
@@ -65,6 +67,30 @@ export function unitView(s: GameState, mods: Mods, site: SiteDef, u: Hauler): Un
   };
 }
 
+const kf = (t: number) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${Math.round(t)}`);
+
+/** A pit row's Phase 4 words (docs/17 §4.7): the pit now and at full size, the
+ *  survey's ore left and the life at the dig; its state when it is done. */
+function oreLine(s: GameState, mods: Mods, key: string): { ore: string; unsurveyed: boolean } {
+  if (!key.startsWith('dep:')) {
+    const p = pitOf(s, key);
+    return { ore: p ? `pit ${Math.round(p.R)} m · ${p.deep.toFixed(1)} m deep${p.state === 'boxed' ? ' · BOXED IN' : ''}` : 'not dug', unsurveyed: false };
+  }
+  const r = reservesOf(s, mods, key.slice(4));
+  if (!r || !r.process) return { ore: '', unsurveyed: false };
+  const parts: string[] = [];
+  parts.push(r.pitR > 0 ? `pit ${Math.round(r.pitR)} m${r.surveyed ? ` of ${Math.round(r.fullR)}` : ''}` : 'not dug');
+  if (r.state === 'boxed') parts.push('BOXED IN');
+  if (r.spent && !r.bedrock) parts.push('EXHAUSTED — plain grade now');
+  else if (r.bedrock) parts.push('bedrock benches');
+  if (r.surveyed && r.est) {
+    const left = r.spent && !r.bedrock ? 0 : Math.max(0, r.est.ore - r.dug);
+    parts.push(`ore ${kf(left)}▲ left (±${Math.round((r.precision ?? 0) * 100)}%) · ${r.facesFull} faces at full size`);
+    if (left > 0 && r.rate > 0.05) parts.push(`~${(left / r.rate / CYCLE_S).toFixed(1)} lunar days`);
+  } else parts.push('unsurveyed');
+  return { ore: parts.join(' · '), unsurveyed: !r.surveyed };
+}
+
 export function hubViews(s: GameState, mods: Mods, site: SiteDef): { hubs: Record<number, HubView>; units: UnitView[] } {
   const hubs: Record<number, HubView> = {};
   for (const b of hubsOf(s)) {
@@ -74,6 +100,7 @@ export function hubViews(s: GameState, mods: Mods, site: SiteDef): { hubs: Recor
     const cap = bayCap(b, mods);
     const n = Math.max(1, units.filter((u) => !u.pinned).length);
     const pits: PitView[] = choicesFor(s, mods, site, b, n).slice(0, 6).map((c) => ({
+      ...oreLine(s, mods, c.target.key),
       key: c.target.key, name: c.target.name, glyph: c.target.kind ? DEPOSIT_INFO[c.target.kind].glyph : '▭',
       tripS: c.trip.t, connected: c.trip.connected, faces: c.target.faces, used: c.target.faces - c.free, q: c.q,
       rate: c.rate, score: c.score, inReach: c.inReach, assigned: h.prefer === c.target.key, plain: c.target.plain,

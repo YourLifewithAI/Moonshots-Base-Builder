@@ -31,6 +31,7 @@ import {
   faceCapacity, reclaimRefusal, reservesOf, stripMorale, surveyLine, surveyRefusal, targetGrade, terrainOf,
 } from './core/pits';
 import { gradeAtPoint } from './core/ore';
+import { effectiveRates } from './core/mods';
 import type { Process } from './data/ore';
 import { predictFlares, trueClass, withForecast } from './core/forecast';
 
@@ -292,6 +293,15 @@ function api(game: Game) {
     reclaimWhy: (pit: number) => reclaimRefusal(game.state, game.state.pits.find((p) => p.id === pit)),
     /** the strip-mine morale term and its worst pit */
     stripMorale: () => clone(stripMorale(game.state)),
+    /** a hub's recipe now: its q, the feed factor its output reads, and outputs at its q and at q 1 */
+    hubOutput: (hub: number) => {
+      const b = game.state.buildings.find((x) => x.id === hub);
+      if (!b?.hub) return null;
+      const site = SITES[game.state.siteId];
+      const r = effectiveRates(b.type, game.mods, site, b, { feed: b.hub.feed, agentRun: true });
+      const ref = effectiveRates(b.type, game.mods, site, b, { feed: b.hub.feed, agentRun: true, q: 1 });
+      return { q: b.hub.q, feedFactor: r.feedFactor, outputs: r.outputs, ref: ref.outputs };
+    },
     /** Site Grading's check at a square's corner cell: { valid, reason } */
     canGrade: (gx: number, gz: number) => clone(game.debugCheckGrade(gx, gz)),
     /** relief (m) over a sample rect */
