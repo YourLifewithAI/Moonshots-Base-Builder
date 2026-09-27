@@ -1680,10 +1680,10 @@ legacy mode, migration steps 1–5 (and 7's defaults, 10's alert). Seeds 42, 7 a
 | The look | the wing turns edge-on in 10 s (1 Hz steps); a wreck hangs dark, 30° off its hinge | F6 polishes |
 | The sky | a flare no longer darkens the scene (`dayInfo` lost its flare argument) | the Sun does not stop |
 
-**Pacing:** pending the final diagnostic pass. The probe is ready for it:
-`scripts/probe-pacing.mjs --flares=legacy|on` (reasonable, `--auto=on`, seeds 42, 7 and
-1234, 280 min, each destiny, mare robotic and pole crewed) reports FIRST LIGHT against the
-legacy run, and per run the flares by class, the arrays destroyed and the repair parts.
+**The probe** plays the flares as a reasonable player (`scripts/probe-pacing.mjs`: C keep
+all running, M and X all but the critical feed, Repair after on, each class remembered the
+first time; `--auto=on` hands it to `flareStance`), and reports the flares by class, the
+arrays destroyed and the repair parts. `--flares=legacy` plays the old flare.
 
 ## 17. The player's answers, and what is still open
 
