@@ -72,7 +72,8 @@ The player decided two things before this design:
 | **Benefits** | Four breakthroughs found by surveys: **Solar-Wind Implantation, Particle Telescope, Mini-Magnetosphere** (the Shield Coil) and **Storm Sails** (§8). | "Exploration-discovered research that lets you benefit." |
 | **He-3** | **Flavour.** A counter on the implantation card; no stockpile. | The game has no fusion to burn it in. |
 | **The lava tube** | **Partly immune.** The tube shelters pressurized and compute buildings (σ 1). Arrays, masts, launchers, pits and machines out working are on the surface. | Rock overburden protects what lives inside; the Sun's light has to be caught outside. |
-| **Pacing** | A reasonable player with forecasting and protection: **≤ +3%** to FIRST LIGHT against a legacy-flare run. Ignoring flares: **+4% to +10%**, and never a defeat from flares alone (§12). | The brief's two targets. |
+| **Research** | **Twelve techs:** eight in the lanes (E2–E6) and four breakthroughs (E3–E7), all at their era's median, charter-neutral (§13). Nine existing techs change. | A ladder in every era from the first M to solar maximum. |
+| **Pacing** | A reasonable player with forecasting and protection: **−2% to +4%** to FIRST LIGHT against a legacy-flare run. Ignoring flares: **+4% to +10%**, and never a defeat from flares alone (§12). | The brief's two targets. |
 
 ## 2. Measured today
 
@@ -756,7 +757,7 @@ Domes                  —          —            deploy        (held)
 
 ## 8. Benefits from exploration
 
-### 8.1 Four breakthroughs, four hosts each way
+### 8.1 Four breakthroughs and their hosts
 
 Breakthroughs work as docs/11 S5 says: surveying any host adds the tech to
 `s.discoveries`, it waits for its era, and it has a fixed Exploration-lane slot. Which
