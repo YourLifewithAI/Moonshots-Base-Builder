@@ -73,6 +73,13 @@ export interface Mods {
   /** excavator haul cycle (core/haul.ts): drive speed and bucket size */
   haulSpeedMult: number;
   haulBucketMult: number;
+  /** hub units off the road (docs/17 §5.1): off-road speed × this */
+  haulOffroadMult: number;
+  /** extraction hubs (docs/17 §4.2, core/hubs.ts): the highest level a hub may buy,
+   *  bays every hub gets free, and the print time's multiplier */
+  hubLevel: 1 | 2 | 3;
+  hubBays: number;
+  hubPrintTime: number;
   /** the roadway tier (core/roads.ts, docs/15-roads.md): travel speed on
    *  roads (all, excavators alone, at night), road dust, sintering time a cell */
   roadSpeedMult: number;
@@ -178,7 +185,7 @@ export function computeMods(
     feedBonus: Object.fromEntries(FEED_KINDS.map((k) => [k, 1])) as Record<FeedKind, number>,
     housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
-    haulSpeedMult: 1, haulBucketMult: 1,
+    haulSpeedMult: 1, haulBucketMult: 1, haulOffroadMult: 1, hubLevel: 1, hubBays: 0, hubPrintTime: 1,
     roadSpeedMult: 1, roadHaulMult: 1, roadNightMult: 1, roadDustMult: 1, roadCellMult: 1,
     packMult: 1, unitDriveMult: 1, chargeEff: 1, rpu: false,
     orderBook: 0, orderMax: AUTO.orderMax, autoFamilies: new Set(), siteSurvey: false, governor: false,
@@ -263,6 +270,7 @@ export function computeMods(
         case 'haul':
           m.haulSpeedMult *= fx.speedMult ?? 1;
           m.haulBucketMult *= fx.bucketMult ?? 1;
+          m.haulOffroadMult *= fx.offroadMult ?? 1;
           break;
         case 'road':
           m.roadSpeedMult *= fx.speedMult ?? 1;
@@ -321,6 +329,11 @@ export function computeMods(
     }
   }
   m.outpostSlots = SURVEY_TIERS[m.surveyTier].slots;
+  // the Ice Miner inherits what research does to the retired Ice Harvester
+  // until the reshuffle re-points those techs (docs/17 §14.4, Phase 6)
+  m.outputMult.iceMiner *= m.outputMult.iceHarvester;
+  m.powerMult.iceMiner *= m.powerMult.iceHarvester;
+  m.upkeepMult.iceMiner *= m.upkeepMult.iceHarvester;
 
   for (const o of outposts) {
     if (!o.live) continue;
@@ -400,6 +413,16 @@ export function refineryFeed(mods: Mods, g: FeedGrade): number {
   return Math.max(FEED.floor, 1 + c.anorthosite * mods.feedBonus.anorthosite * g.anorthosite + c.ilmenite * g.ilmenite);
 }
 
+/** The water plant's feed factor (docs/17 §3.1, §9.1): on the ice, only icy
+ *  regolith gives water; off it, mature soil does, other ground at FEED.soilPlain.
+ *  Nothing delivered yet reads nameplate. */
+export function waterFeed(site: Pick<SiteDef, 'hasIce'>, g: FeedGrade): number {
+  const total = FEED_KINDS.reduce((a, k) => a + g[k], 0);
+  if (total <= 1e-9) return 1;
+  if (site.hasIce) return g.ice / total;
+  return (g.volatiles + FEED.soilPlain * (total - g.volatiles - g.ice)) / total;
+}
+
 /** KREEP feed or a KREEP outpost cuts reactor upkeep; they do not stack. */
 export function reactorUpkeepFactor(mods: Mods, g: FeedGrade): number {
   return mods.kreepOutpost || g.kreep >= FEED.kreepReactorShare ? FEED.kreepReactorUpkeep : 1;
@@ -469,7 +492,9 @@ export function effectiveRates(
   } else if (def.powerKW < 0) {
     const tax = agentRun && def.crew > 0 ? 1 + mods.agentTax : 1;
     const dn = opts.isNight === undefined ? 1 : opts.isNight ? mods.nightDrawMult : mods.dayDrawMult;
-    powerKW = def.powerKW * mods.powerMult[type] * tax * oc * dn;
+    // a water plant off the ice bakes mature soil: a hotter retort
+    const soil = type === 'waterPlant' && !site.hasIce ? FEED.soilKW : 1;
+    powerKW = def.powerKW * mods.powerMult[type] * tax * oc * dn * soil;
   }
 
   const inputs: Partial<Record<ResourceId, number>> = {};
@@ -486,12 +511,15 @@ export function effectiveRates(
     o2Factor = f.o2;
   } else if (type === 'refinery') {
     feedFactor = refineryFeed(mods, g);
+  } else if (type === 'waterPlant') {
+    feedFactor = waterFeed(site, g);
   }
   const outputs: Partial<Record<ResourceId, number>> = {};
   for (const [r, v] of Object.entries(def.outputs)) {
     let amt = (v ?? 0) * outMult * feedFactor;
     if (r === 'oxygen') amt *= o2Factor;
     if (r === 'launch' && !def.ignoresLaunchMult) amt *= site.launchMult;
+    if (type === 'waterPlant' && r === 'water' && !site.hasIce) amt *= FEED.soilWater;
     if (type === 'excavator' && deposit === 'volatiles' && (def.outputs.water ?? 0) > 0) {
       if (r === 'water') amt *= DEPOSIT_FX.volatilesWater;
       if (r === 'regolith') amt *= DEPOSIT_FX.volatilesRegolith;

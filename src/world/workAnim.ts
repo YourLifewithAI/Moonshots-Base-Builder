@@ -33,6 +33,7 @@ import type { RoverSpot } from '../core/spots';
 import { cellCentre, frontierOf, isOpen } from '../core/roads';
 import { ROAD } from '../data/roads';
 import { BUILDINGS } from '../data/buildings';
+import { UNIT_VID } from '../data/hubs';
 import { CELL_M, GRAVITY, MAP_M } from '../data/balance';
 import { BODY, PLATE, TRIM, box, merge, withInstanceState, type Finish } from '../buildings/meshKit';
 import { CUT_NONE } from '../buildings/buildingShader';
@@ -605,6 +606,39 @@ export class WorkAnim {
     }
     const reveal = materials.patched('building') || materials.classicCustom('building');
     const dt = this.dt;
+    // hub units (docs/17): drawn by the haulers under UNIT_VID + id, their rig on the body reported there
+    for (const u of s.haulers ?? []) {
+      const id = UNIT_VID + u.id;
+      let away = -1;
+      for (let i = 0; i < this.nAway; i++) if (this.awayIds[i] === id) { away = i; break; }
+      if (away < 0) continue;
+      let a = this.diggers.get(id);
+      if (!a) {
+        a = { id, phi: 0, theta: 0, dumpT: 0, digging: false, dumping: false, driving: false, full: false, away: true, seen: 0 };
+        this.diggers.set(id, a);
+      }
+      a.seen = this.frame;
+      this.mB.copy(this.awayM[away]);
+      const v = this.awayV[away];
+      const h = u.haul;
+      const flat = h.src === 'flat';
+      a.away = true;
+      a.digging = !flat && h.phase === 'dig' && !h.full && v < 0.2;
+      a.dumping = h.phase === 'unload' && v < 0.3;
+      a.full = !!h.full;
+      a.driving = (h.phase === 'toDig' || h.phase === 'toDrop' || h.phase === 'toBay') && (v > 0.05 || h.path.length > 0);
+      a.dumpT = a.dumping ? a.dumpT + dt : 0;
+      const spill = a.dumping && a.dumpT > 0.6 && a.dumpT < 2.7;
+      a.phi += (a.digging ? WHEEL_W * (h.pw ?? 1) : spill ? -2.4 : 0) * dt;
+      const cyc = 0.5 - 0.5 * Math.cos((this.clock / 6.5) * 2 * PI + id);
+      const want = a.digging ? -0.05 - 0.08 * cyc
+        : a.dumping ? 0.3 * Math.sin(PI * clamp(a.dumpT / DUMP_S, 0, 1))
+        : a.driving ? 0.09 : 0;
+      a.theta = approach(a.theta, want, BOOM_RATE * dt);
+      const hub = byId(s, u.hub);
+      this.rig(a, { wear: u.wear }, flat || !hub?.enabled);
+      if (this.particles && (a.digging || spill)) this.spoil(a, id, a.digging);
+    }
     for (const b of s.buildings) {
       if (b.type !== 'excavator') continue;
       const left = b.construction ?? 0;
@@ -652,7 +686,7 @@ export class WorkAnim {
   }
 
   /** the boom, stay and wheel of one excavator, on the body `mB` */
-  private rig(a: DiggerAnim, b: BuildingState, dark: boolean) {
+  private rig(a: DiggerAnim, b: Pick<BuildingState, 'wear'>, dark: boolean) {
     const { pivot, stayTop, stayFoot, stayT } = DIGGER_RIG;
     const wear = b.wear ?? 0;
     // boom frame = B · T(pivot) · Rz(θ) · T(−pivot); wheel frame = boom · T(hub) · Rz(φ)
