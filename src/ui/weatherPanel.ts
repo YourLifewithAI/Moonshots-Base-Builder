@@ -138,7 +138,7 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     if (!full) {
       // the compact form: one line, and [Change]
       const cur = p.options.find((o) => o.key === p.choiceKey) ?? previewFor(p, p.choiceKey);
-      const who = p.decidedBy === 'click' ? '' : p.remembered ? `your ${cls} choice: ` : p.builder ? 'the Builder: ' : 'unanswered — the safe default: ';
+      const who = p.decidedBy === 'click' ? '' : p.remembered ? `${p.defaultLine.replace(/:.*/, '')}: ` : p.builder ? 'the Builder: ' : 'unanswered — the safe default: ';
       const res = cur ? (p.decidedBy === 'click' || p.locked
         ? ` · STOWED ${cur.stowN}${cur.stowsText ? ` (${cur.stowsText})` : ''} · RUNNING ${cur.runN}${cur.runN ? `, ${Math.round(cur.runKW)} kW` : ''}` +
           (cur.darkAt === null ? ' · the bank covers the rest ✓' : ` · ⚠ ${cur.darkName} dark at ${fmtClock(cur.darkAt)}`)

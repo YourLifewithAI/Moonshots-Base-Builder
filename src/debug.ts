@@ -204,6 +204,8 @@ function api(game: Game) {
     /** a Solar Array's inspector line data (field, capability, damage, override, wreck) */
     arrayInfo: (id: number) => { const s = game.state; const site = SITES[s.siteId]; return clone(arrayView(s, site, currentDay(s, site), id)); },
     arrayFields: () => clone(fieldsOf(game.state).fields),
+    /** raise the era now (tests of the era floors: no techs, no charters; the era never goes down) */
+    forceEra: (n: number) => { game.state.era = Math.max(game.state.era, Math.min(8, n)); game.publish(); },
     /** on-board power (docs/02 · On-board power): the grid at 0 — no supply, the bank out of
      *  reach — while on (a forced brownout for tests; off returns the grid) */
     forceGridDark: (on = true) => { GRID.dark = on; game.publish(); },

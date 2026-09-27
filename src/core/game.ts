@@ -2069,7 +2069,7 @@ export class Game {
     const q = new URLSearchParams(location.search);
     if (q.has('debug') && !q.has('flarepause')) return;
     const set = loadSettings().pauseFlares;
-    const cls = shownClass(s);
+    const cls = s.flare.cls ?? shownClass(s);
     const want = p.full && cls !== null && (set === 'all' || (set === 'mx' && cls !== 'C'));
     if (want && !s.paused) {
       this.actions.push({ kind: 'setPaused', paused: true });

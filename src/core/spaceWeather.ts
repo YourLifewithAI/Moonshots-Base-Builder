@@ -477,11 +477,13 @@ export function builderDecides(s: GameState, mods: Mods): boolean {
   return mods.autoFamilies.has('power') && !!s.auto?.rules?.flareStance?.on;
 }
 
-/** Who decides this flare's arrays now, and what (a click stands). */
+/** Who decides this flare's arrays now, and what (a click stands). The
+ *  shortcuts read the flare's own class: the plan locks after the X-ray peak,
+ *  so a range never decides; only the previews show its worse class. */
 export function resolveChoice(s: GameState, mods: Mods): { choice: ArrayChoice; by: FlareDecider } {
   const f = s.flare;
   if (f.decidedBy === 'click' && f.choice) return { choice: f.choice, by: 'click' };
-  const cls = shownClass(s) ?? f.cls ?? 'C';
+  const cls = f.cls ?? 'C';
   const mem = s.weather?.remember?.[cls];
   if (mem) return { choice: mem, by: 'remembered' };
   if (builderDecides(s, mods)) return { choice: stanceChoice(cls), by: 'builder' };
@@ -1216,18 +1218,20 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
     const bankS = load - other > 0.01 ? s.powerStored / (load - other) : Infinity;
     const remembered = by === 'remembered';
     const builder = by === 'builder';
-    const answeredClass = !!w.answered[cls];
-    const full = by === 'click' ? false : !(remembered || builder || (cls === 'C' && answeredClass));
+    // the form follows the flare's own class (a C opens small once one was answered); the previews its range
+    const own = f.cls ?? cls;
+    const answeredClass = !!w.answered[own];
+    const full = by === 'click' ? false : !(remembered || builder || (own === 'C' && answeredClass));
     const critN = options.find((o) => o.key === 'feed')?.runN ?? 0;
     popup = {
-      n: f.n ?? 0, full, pauses: full && cls !== 'C', locked: !!f.plan?.locked, decidedBy: by, choice, choiceKey: choiceKey(choice),
+      n: f.n ?? 0, full, pauses: full && own !== 'C', locked: !!f.plan?.locked, decidedBy: by, choice, choiceKey: choiceKey(choice),
       remembered, builder, answeredClass,
       pausedBy: s.paused && f.pausedAt !== undefined && f.pausedAt >= (f.startedAt ?? 0),
       arrays: arrays.length, fields: fields.filter((x) => x.ids.some((id) => arrays.some((b) => b.id === id))).length, kw: kwNow,
       bankS, criticalKW: feed ? planFor({ s, mods, day, margin: feedMargin(s, mods), left: flareSeconds(cls) }, { mode: 'feed' }).criticalKW : 0,
       criticalN: critN, options, autoRepair: w.autoRepair, rememberCls: cls,
       headline: `☉ FLARE INBOUND — class ${classText}${ranged ? ` (a range: firm in ${fmtClock((f.firmAt ?? 0) - s.simTime)})` : ''}${f.drill ? ' · DRILL' : ''}`,
-      defaultLine: remembered ? `your ${cls} choice: ${choiceText(choice)}` : builder ? `the Builder: ${choiceText(choice)}` : 'the safe default (stow all but the critical feed)',
+      defaultLine: remembered ? `your ${own} choice: ${choiceText(choice)}` : builder ? `the Builder: ${choiceText(choice)}` : 'the safe default (stow all but the critical feed)',
     };
   }
   const wrecks = s.buildings.filter((b) => b.wreck).map((b) => ({
