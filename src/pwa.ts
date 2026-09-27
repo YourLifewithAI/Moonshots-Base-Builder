@@ -35,8 +35,14 @@ export function registerPwa(game: Game) {
   };
   if (document.readyState === 'complete') register();
   else window.addEventListener('load', register, { once: true });
+  // the new version took over: back into the saved base (the address's
+  // site shortcut would start a new one instead)
   sw.addEventListener('controllerchange', () => {
-    if (waiting && !reloading) { reloading = true; location.reload(); }
+    if (!waiting || reloading) return;
+    reloading = true;
+    const url = new URL(location.href);
+    for (const k of ['site', 'exp']) url.searchParams.delete(k);
+    location.assign(url.toString());
   });
 }
 

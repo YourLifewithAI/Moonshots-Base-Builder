@@ -12,7 +12,7 @@
  *  Every URL is relative: the site is served from a subpath (GitHub Pages). */
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { ICONS, moonPng } from './icons.mjs';
 
 export const THEME = '#0e0f11';
@@ -83,7 +83,7 @@ export function pwa() {
   return {
     name: 'moonshots-pwa',
     configResolved(config) {
-      outDir = join(config.root, config.build.outDir);
+      outDir = resolve(config.root, config.build.outDir);
     },
     transformIndexHtml() {
       return [
@@ -105,7 +105,7 @@ export function pwa() {
       for (const f of files()) this.emitFile({ type: 'asset', fileName: f.fileName, source: f.source() });
     },
     // after every file is written: the worker names the cache for all of them
-    writeBundle(_options, bundle) {
+    writeBundle(options, bundle) {
       const names = Object.keys(bundle).filter((n) => !n.endsWith('.map') && n !== 'sw.js').sort();
       const h = createHash('sha256');
       for (const n of names) {
@@ -114,7 +114,7 @@ export function pwa() {
         h.update(item.type === 'chunk' ? item.code : item.source);
       }
       const cache = `mbb-${h.digest('hex').slice(0, 12)}`;
-      writeFileSync(join(outDir, 'sw.js'), serviceWorker(cache, ['./', ...names.map((n) => `./${n}`)]));
+      writeFileSync(join(options.dir ?? outDir, 'sw.js'), serviceWorker(cache, ['./', ...names.map((n) => `./${n}`)]));
     },
   };
 }

@@ -114,6 +114,14 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   };
   setPal(true);
   rBuild.addEventListener('click', () => {
+    // placing, drawing a road or picking a target: Build ends it, the palette returns
+    if ($placing.get() || $roadTool.get() || $fleetTarget.get()) {
+      game.cancelPlacement();
+      game.cancelRoadTool();
+      game.cancelFleetTarget();
+      setPal(true);
+      return;
+    }
     if (!palOpen) closeSheets();
     setPal(!palOpen);
   });

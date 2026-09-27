@@ -526,6 +526,150 @@ most of their energy above 150 Hz, where laptop speakers work; the sub
 layers are for headphones. `getAudio().output` meters the result for the
 tests: RMS, peak, and the share of energy below 150 Hz.
 
+
+## 13. Touch mode: the phone held sideways (`core/touch.ts`, `ui/touchUi.ts`, `ui/touch.css`, `player/touch.ts`)
+
+The game plays on an iPhone in **landscape**. The layout is built for
+667×375 (SE), 844×390 (14/15) and 932×430 (Pro Max). Portrait shows
+"Rotate your phone to landscape" and pauses the game.
+
+### 13.1 When it is on
+
+| Source | Rule |
+|---|---|
+| `?touch` · `?touch=0` | on · off, for this launch |
+| Menu → Touch controls | **Auto** (default) · On · Off. A change saves the game and reloads |
+| Auto | on when `(pointer: coarse)` matches and no `(any-pointer: fine)` exists |
+
+Touch mode is fixed at boot, like the render style. Off, nothing of it
+exists: no `html.touch` class, no touch DOM, no gesture listeners. The
+desktop game is unchanged.
+
+### 13.2 The page
+
+- Viewport: `width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no`.
+- The notch and the home indicator are `env(safe-area-inset-*)`: every edge pads by them.
+- Height is `100dvh` (fallback: `innerHeight` in `--vh`), so Safari's toolbars never cut the HUD.
+- `touch-action: none` on the canvas; `manipulation` on the rest (no double-tap zoom).
+- No text selection, no long-press callout, no tap flash, no context menu. `gesturestart` is cancelled.
+- The page never scrolls. Long panels scroll inside themselves.
+
+### 13.3 The layout
+
+| Region | Where | Holds |
+|---|---|---|
+| Top bar (44 px) | full width | the swarm (once it has begun) and the resource chips, scrolling sideways · the clock · ❚❚ · speed (1× → 3× → 10×) · ☰ |
+| Left rail (52 px) | left edge | Build (the palette) · Tree · Map · Builder · Hazards · Road |
+| Right rail (52 px) | right edge | ⟲ · ⟳ · ◌ Ore (deposit overlay) · ⌂ Home · ⊙ Focus |
+| Objectives | top left of the world | the next goal, two lines; tap for the roadmap |
+| Alerts | top right of the world | two in view, then "+N more" |
+| Palette sheet | bottom | cards in a scrolling strip over the category tabs |
+| Bottom bar | bottom, in the palette's place | placing · the road tool · a rover's target |
+| Side sheet | right, beside the rail | the inspector, the rover inspector, a deposit card, a resource panel, the Builder, the Hazards panel, an info card |
+
+- One side sheet at a time: the one just opened closes the rest.
+- The sheet scrolls as one; its head stays in view. ▸ folds it to a tab.
+- With a sheet open, the alerts move left of it and the objectives step aside. The palette narrows.
+- A discovery card has the top of the screen to itself until it is dismissed.
+- Every control is 44 px or more. No text is under 11 px.
+
+### 13.4 Gestures on the world
+
+| Gesture | Command view | Placing | Road tool |
+|---|---|---|---|
+| Tap | select (buildings, rovers, sites); empty ground clears; with the overlay on, a deposit's card | the ghost goes there | start or end a road |
+| One-finger drag | pan | drag the ghost | draw the road |
+| Hold (0.5 s) | info: a building's card, a deposit's card | — | — |
+| Pinch | zoom; it settles on the nearest of the five steps | the same | the same |
+| Twist | past ~40° the view turns 90° with the fingers | the same | the same |
+| Two-finger drag | pan | the same | the same |
+
+- A drag never selects: past 10 px a touch is a drag for good.
+- A second finger never joins a ghost or road drag that is running.
+- A mouse keeps its desktop handlers, so `?touch` on a laptop still clicks.
+- High detail: pinch dollies, twist orbits freely, ⟲ ⟳ orbit 90°.
+
+### 13.5 Every key's touch path
+
+| Key | Touch |
+|---|---|
+| T · M · B · G · N | the left rail: Tree · Map · Builder · Hazards · Road |
+| Esc | ☰ (menu); each sheet and bar has its own ✕ |
+| Space · 1 2 3 | ❚❚ · the speed button |
+| Q · E | twist, or ⟲ ⟳ |
+| H · F · I | ⌂ Home · ⊙ Focus · ◌ Ore |
+| Click a card | tap: its ghost appears mid-view |
+| R · Shift-click | ⟳ Rotate · Keep (toggle) in the bar |
+| Click the world (placing) | ✓ Place in the bar (a tap only moves the ghost) |
+| Enter · Ctrl-click a card | Order in the bar · hold the card |
+| Alt-drag (roads) | Remove (toggle) in the road bar |
+| Hover (a locked card) | the first tap shows its card; the second opens the tree there |
+| Hover (a tech) | the first tap shows it in the sheet; the second queues (or cancels) |
+| Shift-click (a tech) | hold the card, or Queue path in the sheet |
+| Right-click | ✕ in the bar |
+
+### 13.6 The full screens
+
+| Screen | Touch layout |
+|---|---|
+| Research tree | tabs on top (they scroll); the page header strip and the lane board on the left, both scrolling; the detail sheet on the right with its buttons stuck on top and the queue below. Rows keep 56 px, so a card is 44 px |
+| Lunar Map | the views scroll in the header; the map left, its panel right; the tier ladder and outposts a scrolling strip; the thumbnail and inset shrink, the legend goes |
+| Menu | the panel scrolls; one column under 720 px; the Controls list is the touch one |
+| Landing | the site and expedition cards side by side, scrolling |
+| Era explainer · discovery card · victory · defeat | scaled type, scrolling inside when short |
+
+### 13.7 Installable and offline (`scripts/pwa.mjs`, `scripts/icons.mjs`, `src/pwa.ts`)
+
+- `manifest.webmanifest`: full screen, landscape, `#0e0f11` theme and background, `start_url` and `scope` `./`.
+- The icons (192, 512, a maskable 512, the 180 apple-touch-icon) are drawn at build time: the favicon's moon, supersampled, written as PNG with Node's zlib. No binary is in the repo.
+- `apple-mobile-web-app-capable`, `mobile-web-app-capable`, a `black-translucent` status bar.
+- `sw.js` is written after the bundle. It precaches every built file under `mbb-<hash of the build>`, serves them cache-first (a page load is the cached shell, whatever its query), and deletes older `mbb-` caches when it activates.
+- A new deploy installs behind the running version. "Update ready — tap to reload" saves the game, lets the new worker take over and reloads straight back into the base.
+- Production only: the dev server (and every test on it) never registers a worker. `?nosw` skips it too.
+- Every URL is relative: the site is served from a subpath (GitHub Pages).
+
+### 13.8 Audio, battery and saves
+
+| Concern | What the game does |
+|---|---|
+| iOS audio unlock | the context starts on the first gesture; `touchend`, `pointerup` and `click` count too (iOS's user activation) |
+| iOS audio in the background | suspended when the page hides, resumed when it shows (and on `pageshow`); an `interrupted` context resumes on the next tap |
+| Pixel ratio | min(devicePixelRatio, 1.5) in Classic, 2 in High detail |
+| A hidden page | draws nothing and steps nothing |
+| Saves | on every `visibilitychange` to hidden and on `pagehide`: the database save, and a synchronous `localStorage` copy that outlives a tab iOS kills; the newer of the two loads |
+| Relaunch | the title screen offers Continue base |
+
+Frame time in Chromium's mobile emulation (844×390, dpr 3, Classic, a
+mid-game base; software GL on the test machine, so a ceiling, not a phone's
+number): __PERF__.
+
+### 13.9 Hidden or deferred in touch mode
+
+- **Walk mode** (Tab, first person) is hidden: a virtual stick is not cheap and good enough. A desktop save made on foot loads in the command view.
+- The era chip and the map chip: the Tree and Map rail buttons carry their state (research progress, the map's pulse).
+- Hover tooltips: tap-to-show (§13.5).
+- The research header's alert echo and the transfer-rate chip (on screens under 900 px).
+- The Lunar Map's legend and thumbnail captions.
+
+### 13.10 Tests
+
+`tests/touch.spec.ts` runs Chromium's mobile emulation (hasTouch, isMobile,
+dpr 3) with real touch points through CDP. `tests/pwa.spec.ts` builds for
+production and serves it with `vite preview`.
+
+| Test | Checks |
+|---|---|
+| detection | Auto and `?touch` on; the desktop off, with no touch DOM; the menu's Off reloads into the base |
+| portrait | the overlay, the pause, the resume |
+| gestures | pan; pinch steps the zoom; twist turns 90°; a tap selects; empty ground clears; a hold shows info; a drag never selects |
+| placement | ghost mid-view; the refusal shown; a drag moves the ghost, not the camera; ⟳; ✓ places; Order and a held card order |
+| road tool | a drag lays a road job; Remove toggles |
+| tree | the rail opens it; tabs by tap; tap shows, tap queues; hold queues the path |
+| fit × 3 sizes | HUD, palette, placement, sheets, every tree page, the map, the menu, the landing, the banners, victory and defeat: in view, apart, 44 px targets, 11 px text, no page scroll |
+| audio | the first tap unlocks it; hide suspends, show resumes |
+| saves | a hide saves at once (and the synchronous copy); `pagehide` too; the relaunch continues |
+| PWA | the manifest and icons load; the worker precaches the build; the game reloads and starts offline; an update shows the chip and reloads into the base; the dev server has no worker |
+
 ---
 
 *Related: [06-art-direction.md](06-art-direction.md) (the world under the
