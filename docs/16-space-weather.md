@@ -1,7 +1,32 @@
 # 16 · Space weather: classed flares, a solar cycle, stow or risk, forecasts and shields
 
-**Status:** Phase A design, WIP checkpoint, on `work/flares` (main `e5ae67d` merged).
-No code. Sections marked **(draft)** are not finished.
+**Status:** Phase A design on `work/flares`, from main `97e1373` with `e5ae67d` (docs/17)
+merged. No code yet. Phase B starts after **work/unitpower** (machine batteries) merges,
+since both change economy steps 1 and 8, `src/core/fleet.ts` and `src/core/hazards.ts`.
+Check these borrowed names again at merge: machine packs, `homeOf` and Rover Power Packs
+(work/unitpower); hubs, units, bays, pits and benches (docs/17); tap placement and the side
+sheet (work/touch).
+
+**Code today:** `src/core/economy.ts:865-905` (the flare state machine),
+`src/data/balance.ts:140-145` (`FLARE`), `src/core/daynight.ts:30-44` (`dayInfo`),
+`src/core/hazards.ts` (DOSE and bit flips, `flareBlocks`), `src/data/hazards.ts` (their
+data, `stormShelters`, `radHard`), `src/data/insights.ts:46` (the Regolith Shielding
+insight), `src/data/sites.ts` (`flareImmune`), `src/ui/hud.ts:247-251` (the clock).
+**Code to come:** `src/data/spaceWeather.ts` (classes, the cycle, consequences, σ, kits,
+tiers), `src/core/spaceWeather.ts` (`weatherTick`, forecasts, domes), `src/ui/weatherPanel.ts`
+(the chip and the panel), and changes to the files above.
+
+If a number here disagrees with the code once it ships, the code wins.
+
+**Glyphs:** ▲ regolith · ◆ metals · ◇ silicon · ≈ water · ○ O₂ · ⚙ parts · ▣ chips ·
+▰ foils · ↑ launch · ≡ data. **Lanes:** ⚡ power · ◆ materials · ◉ robots & fab ·
+▣ silicon & compute · ⌂ habitat · ◎ exploration. Tech costs are shown after
+`ERA_COST_SCALE`.
+
+**Words.** A **flare** is the whole event: the flash, the protons and, after an X, the
+tail. Its **class** is C, M or X. **σ** is a thing's shield, 0 to 1. A **field** is a
+cluster of Solar Arrays. **Machines** are rovers, drones and hub units. A **dome** is a
+deployed shelter of either kind; a **kit** is one packed away.
 
 ---
 
@@ -1203,16 +1228,147 @@ Forecasting is done.
 - 129 techs today; 135 after docs/17; **147** with these twelve (plus work/unitpower's).
 - **Busiest rows after both docs** (robotic mare): E2 ◎ 2 · E3 ▣ 4, ⌂ 3, ◎ 2 · E4 ⌂ 3
   (4 at the pole), ◉ 4, ◎ 3 · E5 ◎ 3, ⚡ 4 · E6 ▣ 4, ◎ 3 · E7 ◎ 3.
-- **No row passes 5**, unless work/unitpower's Fuel-Cell Packs lands in E4 ◉ or its RPU
-  in E5 ⚡, which makes 5 there: still the most a row holds. Every page keeps 7 lanes, so
+- **No row passes 5.** If work/unitpower's Fuel-Cell Packs lands in E4 ◉, or its RPU in
+  E5 ⚡, that row reaches 5: still the most a row holds. Every page keeps 7 lanes, so
   every page fits 1280×720 (`tests/techtree.spec.ts:142`).
-- Cards per page: E2 15, E3 17, E4 19, E5 17, E6 18, E7 15. Breakthrough slots show as
-  `✦ ? Breakthrough` until found.
+- Cards per page: E2 15, E3 17, E4 19, E5 18, E6 18, E7 15 (docs/17: 14, 14, 17, 15, 16, 14).
+  Breakthrough slots show as `✦ ? Breakthrough` until found.
 
-## 14. Save migration (draft)
+## 14. The sim, state and save migration
 
-## 15. Tests (draft)
+### 14.1 Where it runs
 
-## 16. Phases (draft)
+| Today | After |
+|---|---|
+| Economy step 8, the flare state machine (`src/core/economy.ts:865-905`) | **`weatherTick`** in a new `src/core/spaceWeather.ts`, still step 8, before hazards (8.3). It runs the cycle, the schedule, the phases, the forecasts, the consequences at the active start, the per-tick multipliers, domes and the log. |
+| `FLARE` in `src/data/balance.ts:140-145` | **`SPACE_WEATHER`** in a new `src/data/spaceWeather.ts`: the class table, the cycle, the consequence table, σ sources, kits, tiers. `FLARE` stays only for the legacy probe mode. |
+| `dayInfo(…, flareActive)` zeroes solar (`src/core/daynight.ts:44`) | `dayInfo` loses the flare argument. Economy step 1 reads each array's stow share and cells: `panel × sunFactor × (1 − stowed) × cells`. Callers: `economy.ts:192`, the probe (`scripts/probe-pacing.mjs:324`). |
+| The beam's blindness (`economy.ts:325`) | By class (§4.2). |
+| `MORALE.flare` and `FLARE.moraleHit` (`economy.ts:854`, `:879`) | §4.10's table, applied at the same two places. |
+| The HUD clock's `FLARE` (`src/ui/hud.ts:247-251`, `src/ui/stores.ts:76`, `src/core/game.ts:1960`) | The chip's store: phase, class, timer, tier, window. |
+| DOSE and bit flips (`onFlareTelegraph`, `src/core/hazards.ts:757-778`) | The same hook, given the class (§9.2, §9.3). |
 
-## 17. Open questions for the player (draft)
+**Per-tick hooks,** read where the economy already asks for multipliers:
+`flareOutputMult(b)` (labs, fabs, compute), `flareStowed(b)` (arrays), `blackout(s)`
+(resupply, downlink, surveys, teleoperation), `machineHeld(r)` (reboots). Each returns 1
+or false outside a flare, so a quiet tick costs nothing.
+
+**Determinism.** Every draw is `mulberry32((seed ^ K) + index)` with a fixed K per use:
+the cycle `0x5c1e`, the interval `0x5f1a` (today's), the class `0x5f1c`, the forecast
+`0x5f1d`, each machine `0x5f1e`, the CME `0x5f1f`. Crew and machine picks run in building
+and unit id order. Two runs of the same seed and inputs give the same state.
+
+### 14.2 State
+
+```ts
+interface FlareState {                 // s.flare, extended
+  phase: 'idle' | 'telegraph' | 'active' | 'tail';
+  timer: number; nextAt: number;       // as today
+  n: number;                           // this or the next flare's index
+  cls: 'C' | 'M' | 'X';                // drawn when its telegraph starts
+  drill: boolean;
+  seen: { C: boolean; M: boolean; X: boolean; xReal: boolean };
+  lastX: number;                       // game-time of the last X (−1e9)
+  cme?: { at: number; until: number }; // the front's arrival and the sail window's end
+  blackoutUntil: number;
+  override?: 'stow' | 'gen';           // this flare's base-wide override
+  log: FlareLogEntry[];                // the last 20 (the panel shows 8)
+}
+interface WeatherState {               // s.weather
+  window?: { lo: number; hi: number; range: string; k: number };
+  seenSunAt: number;                   // the observatory's last look (the night freeze)
+  sentinel?: { launchedAt: number; onlineAt: number };
+  stance: 'stow' | 'gen' | 'class';
+  protocols: Record<'arrays' | 'machines' | 'research' | 'fabs' | 'domes', Record<'C' | 'M' | 'X' | 'tail', string>>;
+  kits: { kind: 'bag' | 'water'; uses: number }[];
+  domes: DomeState[];
+}
+interface DomeState { id: number; kind: 'bag' | 'water'; kit: number; target: DomeTarget; x: number; z: number;
+  rover: number | null; state: 'moving' | 'raising' | 'up' | 'packing'; fill: number; upSince: number }
+// BuildingState: cells?: number (1) · stance?: 'base' | 'stow' | 'gen' | 'class' · stowT?: number (0..1) · radScar?: number (0)
+// GameState: weather, flareSchema: 1
+```
+
+The cycle's tMax and aMax, the class odds and every window are derived from the seed,
+never stored.
+
+### 14.3 Save migration (`flareSchema` 0 → 1)
+
+In `Game.load`, after `migrateTechSchema` and docs/17's `hubSchema`.
+
+| Step | Old save | After |
+|---|---|---|
+| 1 · a flare in flight | `phase` telegraph or active | It finishes as an **M** at today's 45 s: the flare the player was warned of. |
+| 2 · the index | none | `n` from the save's time on the old cadence: `1 + floor(max(0, t − 1728) / 1500)`. |
+| 3 · seen | none | `seen.C` true if the first flare's time has passed; M and X false, so the first of each after the load gets its card. |
+| 4 · grace | — | No X within one lunar day of the load. The first X after it is the drill. |
+| 5 · arrays | no cells | `cells` 1.0 and stance `base`: nothing worn on load. |
+| 6 · compute | — | no scars |
+| 7 · the rest | — | no kits or domes; stance `stow`; the protocols at their defaults; the tier from techs (every new tech is new, so T0). |
+| 8 · hazards | DOSE or bit flips live on a flare | kept, as for an M |
+| 9 · the site | `flareImmune` | the def's `tubeShelter` (a def field, nothing saved) |
+| 10 · the alert | — | `SPACE WEATHER — flares now come as C, M and X on a solar cycle · your arrays stow on warning · open ☉ [O]` |
+
+## 15. Tests
+
+**New: `tests/flares.spec.ts`.** Every test uses `?debug&seed=42&nolock&lowfx`, pauses,
+and drives time with `advanceGameSeconds`, as the other specs do. Debug gains
+`forceFlare(cls, { drill })` and `getSpaceWeather()`.
+
+| Area | Checks |
+|---|---|
+| Schedule | The first telegraph at day 2.4 is a C drill. The first flare from Era 2 is an M. No X before Era 4, none within 2 days of another. The at-least-one and second-X rules fire. The same seed gives the same classes and times; seeds 42, 7 and 1234 match §3.5's sequences on forced era times. |
+| Phases | Telegraphs 60 · 60 · 120 s, +60 s on a drill. Active 30 · 45 · 60 s. An X's 120 s tail at 35%. CMEs after every X and one M in three, 288 s after the flash. The hazard scheduler treats the tail as active. |
+| Stow or risk | A stowed array makes 0 and ramps over 10 s. A generating one loses cells by class × its generating share, to the 0.80 floor. Stance by base, field, class and the one-flare override. Apply to field. Night self-stow. `flareStance`: the break-even and the brownout override. |
+| Crew | Indoor sickness only at X, by σ, never lethal, never feeding `doseLoad`. DOSE by class: M never lethal, past the limit grounded; lethal only at a real X. Storm shelters σ 1 indoors. |
+| Machines | Reboot, latch-up and burn-out by class, drawn by id, repeatable. A dock's σ; a bermed dock shelters. Fault-Tolerant Avionics and Rad-Hard. The re-flash queue and the 480 s deadline. Loss records name the flare. An RPU unit reboots in half the time. |
+| Research | Lab multipliers. The head tech loses 3% or 10% (capped at its spend). Checkpoint pauses transfers and loses nothing. Banked data untouched. |
+| Fabs and compute | Yield loss, the X batch scrap, soft errors. Scars of 4% to 12% on running σ < 0.5 buildings only. Shut down: no loss, a 20 s warm-up. The last Data Center under Fleet OS is never shut. |
+| Comms | The blackout holds a resupply's landing and a hopper's hop, then releases them. Downlink and Call home refused while dark. Teleoperation's speed lost. Streams buffered, none lost. Laser Ranging halves it. |
+| Wear and morale | Spikes by class × (1 − σ). Morale by class, halved by storm shelters, none in the tube. |
+| Forecasts | For 200 draws the window holds the truth and narrows. T1's class range holds the true class. The observatory is blind at the mare's night and in shade, lit on the pole's ridge. T2 exact, day and night, after the sentinel's day of cruise. T3 shows three flares. The Particle Telescope narrows the window. |
+| Domes | A kit prints at a Parts Fabricator. A rover drives, raises and fills in 40 s or 35 s; σ scales with the fill; the rover shelters under it. Packing returns 18≈. Uses count down, one more a lunar day up. Refused on arrays, roads and pads. A pit dome parks that pit's units on the recall. |
+| Protocols and the Builder | The grid runs at the telegraph by class; the recall sends only machines that fit. `domeKits` keeps its uses. Shelter planning deploys at a window's opening. Half the free rovers at most. |
+| Shield Coil | 45 m, σ 1, 40 kW in a flare; a brownout drops it; arrays inside generate without loss. |
+| Breakthroughs | Each host's survey adds its tech; the slots. Implantation's ×1.5 and ×2.5 on the top benches for their windows. The particle annex's ×3. Storm sails: ×1.5 swarm and ×⅔ ↑ inside the window only. |
+| Lava tube | Tube buildings σ 1; arrays, masts and machines exposed; the blackout comes. |
+| UI | The chip's states. The panel fits 1280×720 with two sections folded. Alerts carry at most four buttons. Touch: the chip in the top bar, the side sheet, 44 px controls, the Dome tool in the bottom bar. |
+| Migration | A save mid-flare finishes as an M; the index and seen flags; a day's X grace; cells 1.0. |
+| Determinism | Two runs of seed 42 with a forced X give the same state hash after 60 min. |
+
+**Updated specs:** `hazards.spec` (DOSE and bit flips by class; "past 6, lethal at any
+tier" becomes X only), `crew.spec` (flare morale), `smoke.spec` (the clock loses FLARE),
+the power specs that expect solar 0 in a flare (now: stowed by default), `research.spec`
+(the three insights), `techtree.spec` (the fit), `map.spec` (the new hosts and the lost
+anomaly bonus), `automation.spec` (`flareStance`, `domeKits`), `fleet.spec` (reboots),
+`destiny.spec`, `look.spec` and `upgrades.spec` (the new recipes and parts), `touch.spec`,
+and `auditTechs` for the twelve.
+
+## 16. Phases
+
+Each phase merges on its own and leaves the game playable. **Phase B starts after
+work/unitpower merges:** F1 and F2 change economy steps 1 and 8, `src/core/fleet.ts` and
+`src/core/hazards.ts`, which it also changes. If docs/17's hubs land first, F2's machines
+include hub units and F5's implantation reads pits; if not, those lines wait for them.
+
+| # | Phase | Contents | Leaves the game |
+|---|---|---|---|
+| F1 | **The engine and classes** | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes, CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
+| F2 | **Consequences and stow** | cells, stances (base, field, class, this flare) and the stow motion; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute, scars and Shut down; the blackout; wear; DOSE and bit flips by class (§9); `flareStance`; the power panel and dusk lines; migration steps 5–6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, and every cost has a button |
+| F3 | **Forecasting** | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block and timeline; the telegraph bonuses | Planning grade |
+| F4 | **Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; the guard changes; kits, domes, the SHELTER block and the Dome tool; Flare Protocols; `domeKits` and shelter planning; Maintenance Automation's replacements | Every shield and counter |
+| F5 | **Benefits** | the four breakthroughs, their hosts and slots; implantation; the particle annex; the Shield Coil; CME sail windows and storm sails; the three insights | Flares pay back |
+| F6 | **Look and audio** | the speckle and the frame; the sky's flash and aurora; the stow tween; bag walls and domes; glitch markers; the observatory, coil and sentinel dish recipes; the cues and the Geiger bed; touch polish | Finished |
+| F7 | **The pacing pass** | the probe against §12 on both sites and all three destinies; the levers of §12.4 | Tuned |
+
+## 17. Open questions for the player
+
+Only the choices this design could not settle alone. Each has the default it uses.
+
+| # | Question | Default (what the design uses) | The other way |
+|---|---|---|---|
+| 1 | **Should arrays stow by default, or keep generating?** | **Stow on warning.** An unanswered warning does no lasting harm, and a new player's flare feels like today's. The drill teaches "risk it". | Keep generating: truer to the Sun, and cells wear until the player learns to stow. |
+| 2 | **Should an unanswered real X destroy machines outright?** | **Yes: 15% of machines in the open burn out at once,** beyond the 45% that brick with a 480 s re-flash deadline. | Only the bricking: a machine is lost only when its re-flash deadline passes. |
+| 3 | **Should an X scar compute for good?** | **Yes: −4% a real X on running, unshielded Chip Fabs, Data Centers and Monoliths, to −12%.** Shut down or shield to avoid it. | Keep compute's X costs temporary; only cells, machines and lives are permanent. |
+| 4 | **Storm Sails: keep a stretch of physics?** | **Keep it:** an electric sail riding a CME. It is the one flare benefit that feeds the swarm. | Swap it for something plainer, such as a volley that ignores the blackout. |
+| 5 | **Should the solar cycle follow game time or eras?** | **Game time, with era floors** (M from Era 2, X from Era 4): a fast base meets the maximum with more built. | Eras: every run has the same shape, and the maximum always lands in Era 5–6. |
