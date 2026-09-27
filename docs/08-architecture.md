@@ -28,7 +28,9 @@ src/
     fleet.ts              the rover roster and assignments (who is soonest there by road); unitKind (a Drone Hive's units are drones)
     transit.ts            rovers in transit (docs/15 §6a): each unit's place and trip, planned on a new goal,
                           advanced by the clock; who has arrived where (economy step 0); ETAs
-    zones.ts              extraction zones (docs/15 §5a): the revealed deposits' cells and rims
+    zones.ts              extraction zones (docs/15 §5a): the revealed deposits' cells and rims; pit zones (explicit cells)
+    pits.ts               strip-mine pits (docs/17 §8, §11): s.pits, today's adapter (onDig, one line in haul.ts),
+                          economy step 4.2 (stake, carve, dump), pit zones, the placement and grading refusals
     research.ts           availability, cost, the queue, charters (the destiny pick gates eras 3–8),
                           destinyOf (the meter, the band, the reach), techSchema migration
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
@@ -59,8 +61,12 @@ src/
                           exposure and risk texts; HAZARDS_LIVE true
     roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
   terrain/
-    heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast
-    chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds (classic: faceted)
+    heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast; the pits' delta grid
+                          (base, delta, skirt mask, setDelta, noRoad)
+    pitCarve.ts           the height-delta grid's writers (docs/17 §11): masks, distance transform, carvePit and
+                          dumpHeap (volume-solved, monotone), stakes, pit cells, the cut's tone, the sparse codec
+    chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds (classic: faceted);
+                          the pits' rebuild queue (one a frame, two a second, shadows every 2 s)
     classicGround.ts      classic ground colour (site tint, relief, craters, deposits) + facet()
     terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
     horizon.ts            far horizon ring continuing the terrain to ~12 km, compressed curvature
@@ -191,6 +197,7 @@ in `game.ts`):
 | 3 | Demand + priority idling | Consumers sorted by `(priority, id)` ascending draw from `supply·dt + stored`. Priority 0 (habitats, power) feeds first; 3 (labs) browns out first — Timberborn-style shortage triage. Net surplus charges storage at 85% round-trip efficiency; deficit drains it. Brownout raises an alert |
 | 4 | Worker allocation | Crew assigned in the same `(priority, id)` order; unstaffed buildings idle with reason `crew`. Then agents cover: once stations may run on agents, a short-handed one goes agent-run (`agentCover`) from the next tick, and every 30 s free workers take covered ones back (not a station set to Crewed by hand, `crewPinned`; off with `s.agentCover = false`) |
 | 5 | Production, tier order | `PROD_ORDER`: extraction → smelter/refinery/partsFab → life → foilFactory/massDriver → lab. **Same-tick chaining**: this tick's regolith can smelt this tick. Inputs checked/consumed, outputs scaled by tech mults × site ISRU × morale work-mult (0.5 + morale/100 × 0.7) × wear penalty; launch output × site launch mult; labs emit data at 0.3/s × workMult^1.5 |
+| 5b | Pits (`pitsStep`, economy step 4.2) | Each excavator's dig adds its tonnes to the pit at its dig site (`onDig`, in `haulTick`). Then, in id order on the pits' own clock: a new pit stakes free ground; an open one carves once its rim would move 0.5 m or 150 m³ is owed (at most every 5 s); its heap takes 0.81× the cut. Pit zones follow; a grown one bumps `roadRev`. Nothing feeds back into production |
 | 6 | Life support & crew | O₂ 0.02 and food 0.008 per crew-second (× closed-loop mult). Shortage runs a 60 s grace timer, then loses 1 crew per 30 s with a −15 morale hit. Growth: morale > 60 + a free powered bed + fed + life support that carries crew+1 for a lunar day at the current flow → +1 crew per lunar day |
 | 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap. The tick's net flow per resource so far (deliveries and research goods excluded) feeds a 20 s average, `state.rates`, which the info panels show |
 | 8 | Morale | Target = site base + active-building deltas + fed/starving + crowding + brownout + flare penalties, clamped 0–100; state lerps toward it at 0.05/tick |
@@ -273,15 +280,40 @@ UI state that isn't economy output (`$placing` per frame during placement,
   There is exactly one definition of "the ground."
 - `raycast` and `flatten`/`maxDelta` live beside `sample` so all terrain
   queries stay analytic and allocation-free.
+- **Pits deform it** (docs/17 §11). The heightfield keeps:
+
+  | Field | Holds |
+  |---|---|
+  | `base` | The generated surface. |
+  | `delta` | An `Int16Array` of decimetres, 0 almost everywhere. |
+  | `skirt` | The samples on any flatten's two-ring skirt. |
+
+  - A carved or heaped sample is exactly `base + delta / 10`.
+  - A flatten's skirt skips cut and heaped samples. With no pits, this changes
+    nothing.
+  - `noRoad(gx, gz)` walls off the cells a road may not take.
+- **The chunk rebuild queue.** The frame takes the carved boxes (`takeCarved`), and
+  their chunks join a queue.
+  - The queue rebuilds at most one chunk a frame and two a second of frame time.
+  - It asks for shadows at most every 2 s.
+  - A debug advance or a load rebuilds each changed chunk at once.
+  - Rocks on cut or heaped cells go.
 
 ## 7. Determinism & seeding (`core/rng.ts`)
 
 - **mulberry32** everywhere randomness matters. World gen consumes
   `mulberry32(seed ^ 0x9e3779b9)`; terrain vertex-color noise and the
   starfield use their own fixed seeds.
-- **Terrain is never saved.** It regenerates from `(siteId, seed)`, then the
-  recorded flatten history replays in order — a save stores the *diff* the
-  player made to the Moon, not the Moon.
+- **Terrain is never saved.** It regenerates from `(siteId, seed)`. The save
+  stores the *diff* the player made to the Moon, not the Moon:
+  - the pits' sparse delta grid, applied first;
+  - then the flatten history, replayed in order.
+
+  So the load order is **base → deltas → flattens**. Pits never touch a pad or its
+  skirt, and a flatten's skirt skips cut samples, so the result is exact.
+- **Pits are deterministic.** They carve in id order, on their own tick clock, in
+  integer decimetres. The loose layer and the stake's sub-metre jitter are seeded
+  from `(seed, pit id)`.
 - **Flare timing is seeded**: the next-event jitter draws from
   `mulberry32((seed ^ 0x5f1a) + dayIndex)`, so a given seed produces the same
   storm schedule — which is what lets the Playwright suite assert against
@@ -354,9 +386,29 @@ SaveBlob = {
   `s.power` its `fleet`, `charging` and `flat`. `fleetSchema` 1 → 2 clears
   the pack fields: every unit starts fully charged. `state.zones`
   (docs/15 §5a) is rebuilt from the heightfield and the reveals on every
-  load. Restore = regenerate terrain from
-  `(siteId, seed)` → replay flattens → rebuild chunk meshes + instances +
-  colliders → restore player pose and mode.
+  load.
+- **Strip-mine pits** (docs/17 §11.5) add these fields:
+
+  | Field | Holds |
+  |---|---|
+  | `state.pits` | Each pit's growth parameters: key, deposit, state, centre and opening, ramp line and top, R, tonnes, dug, cut and heap m³, q, deepest, anchors, bounds, last carve. |
+  | `state.nextPitId` | The next pit's id. |
+  | `state.terrain` | `rev` (carves), `clock` (the pits' tick clock) and `delta`. |
+  | `state.terrainSchema` | 1. |
+
+  - `delta` is the grid as sorted (index gap, value) pairs: varint gaps, int16
+    values, base64. It is written by `saveBlob`, about 1.1 KB a pit with its heap.
+  - Pit zones are left out of the save and rebuilt from the grid on load.
+  - Nothing derived is stored: the loose layer comes from `(seed, pit id)`.
+  - A save without `terrainSchema` gets no pits and an empty grid. Nothing is
+    carved on load.
+- **Restore:**
+  1. Regenerate the terrain from `(siteId, seed)`.
+  2. Apply the delta grid.
+  3. Replay the flattens.
+  4. Rebuild the pit zones, the chunk meshes (once each), the rocks, the
+     instances and the colliders.
+  5. Restore the player's pose and mode.
 
 ## 10. Debug API (`debug.ts`) — the testability keystone
 
@@ -385,6 +437,10 @@ extraction zone, its cells and gates). On-board power adds
 `forceGridDark(on)` (the grid at 0 — no supply, the bank out of reach: a
 forced brownout) and `setCharge(kind, id, kWh)` (a rover's or an
 excavator's pack); `roadAccess()` gives a Relay Mast's off-road `stand`.
+The pits add `getPits()` (every pit with its derived numbers, the grid
+encoded, the rebuild queue) · `pitDig(x, z, tonnes)` (the adapter, as an
+excavator calls it) · `terrainSample(ix, iz)` · `terrainRelief(…)` ·
+`terrainHash()` · `canGrade(gx, gz)`.
 `&hzpause` lets the pause-on settings pause a debug run;
 without it they never do. The render path adds `getRenderInfo()` ·
 `getRenderReport()` (the menu's report, as data) · `fxCheckNext()` /
