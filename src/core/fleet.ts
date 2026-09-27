@@ -15,12 +15,18 @@
  *  hands it back down the queue. n rovers build crewRate(n) = n^0.85 times as
  *  fast as one; each draws its own construction kW, and the build's weld
  *  parts stay the same (drawn faster). A survey borrows one unpinned rover.
- *  s.bots stays derived, for the HUD, surveys and milestones. */
+ *  s.bots stays derived, for the HUD, surveys and milestones.
+ *
+ *  Rovers travel (core/transit.ts): an auto rover is chosen by who gets to
+ *  the site soonest by road from where it is now, and so is Summon's; a
+ *  site builds only with the rovers that have arrived. */
 import { BUILDINGS } from '../data/buildings';
-import { CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, FLEET } from '../data/balance';
+import { CELL_M, CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, FLEET } from '../data/balance';
+import { ROVER } from '../data/roads';
 import type { BuildingState, GameState, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { centerOf } from '../buildings/instances';
+import { accessCell, cellAt, cellKey, frontierOf, hasRoads, roadDistances, spurLeft, zoneStand } from './roads';
 
 export interface ActionResult { ok: boolean; reason: string }
 const OK: ActionResult = { ok: true, reason: '' };
@@ -70,18 +76,50 @@ export function dockSlots(s: GameState, mods: Pick<Mods, 'botPerBay'>): number[]
   return out;
 }
 
-/** Where the sim takes a rover to be: its site, else its dock. */
-function whereIs(s: GameState, r: RoverUnit): [number, number] {
+/** Where a rover is: where the sim has it (core/transit.ts), else (before
+ *  its first tick) its site, else its dock. */
+export function whereIs(s: GameState, r: RoverUnit): [number, number] {
+  if (r.x !== undefined && r.z !== undefined) return [r.x, r.z];
   const at = s.buildings.find((b) => b.id === (r.site ?? r.home));
   return at ? centerOf(at) : [0, 0];
 }
 
-function nearest(s: GameState, list: RoverUnit[], x: number, z: number): RoverUnit | null {
-  let best: RoverUnit | null = null, bd = Infinity;
+/** Where a unit comes onto a site: the cell behind its road's frontier while
+ *  the road is unfinished, else the cell it works it from (its door, a cell
+ *  beside it, a field's service cell). */
+export function siteEntry(s: GameState, b: BuildingState): [number, number] | null {
+  if (b.spur?.length && spurLeft(s, b) > 0) {
+    const f = frontierOf(s, b.spur);
+    if (f?.from) return f.from;
+  }
+  // inside an extraction zone: its gate (the drive on is off-road)
+  const zs = zoneStand(s, b);
+  if (zs?.gate) return zs.gate;
+  return accessCell(s, b);
+}
+
+/** Seconds of driving from where `r` is to a road cell (a drone: straight
+ *  to the point), at the base cruise (the roadway tiers speed every rover
+ *  alike): the road's length by the shortest open route. Infinity: no road. */
+export function reachS(s: GameState, r: RoverUnit, to: [number, number] | null, at: [number, number]): number {
+  const [x, z] = whereIs(s, r);
+  if (isDrone(s, r)) return Math.hypot(at[0] - x, at[1] - z) / DRONE.speed;
+  if (!to || !hasRoads(s)) return Math.hypot(at[0] - x, at[1] - z) / ROVER.speed;
+  const n = roadDistances(s, to).get(cellKey(...cellAt(x, z)));
+  return n === undefined ? Infinity : (n * CELL_M) / ROVER.speed;
+}
+
+/** The unit of `list` soonest at site `b`: by road from where each is now
+ *  (a drone straight), then the straight line, then roster order. */
+function nearest(s: GameState, list: RoverUnit[], b: BuildingState): RoverUnit | null {
+  const to = siteEntry(s, b);
+  const at = centerOf(b);
+  let best: RoverUnit | null = null, bt = Infinity, bd = Infinity;
   for (const r of list) {
+    const t = reachS(s, r, to, at);
     const [rx, rz] = whereIs(s, r);
-    const d = Math.hypot(rx - x, rz - z);
-    if (d < bd) { bd = d; best = r; }
+    const d = Math.hypot(rx - at[0], rz - at[1]);
+    if (!best || t < bt - 1e-9 || (Math.abs(t - bt) <= 1e-9 && d < bd)) { best = r; bt = t; bd = d; }
   }
   return best;
 }
@@ -169,8 +207,8 @@ export function assignRovers(s: GameState): Map<number, number> {
   const free = auto.filter((r) => r.site === null);
   for (const b of targets) {
     if (served.has(b.id)) continue;
-    const [cx, cz] = centerOf(b);
-    const r = nearest(s, free, cx, cz);
+    // the one soonest there, from where it is now (docs/15 §6)
+    const r = nearest(s, free, b);
     if (!r) break;
     free.splice(free.indexOf(r), 1);
     r.site = b.id;
@@ -244,9 +282,9 @@ export function summonPick(s: GameState, siteId: number): { rover: RoverUnit | n
         : 'NO ROVER TO SUMMON — the whole fleet is already here',
     };
   }
-  const [cx, cz] = centerOf(site);
+  // the free rover soonest there by road, from where it is now
   const idle = cand.filter((r) => r.site === null);
-  if (idle.length) return { rover: nearest(s, idle, cx, cz), from: null, reason: '' };
+  if (idle.length) return { rover: nearest(s, idle, site), from: null, reason: '' };
   // none free: take one from the site with the most rovers (ties: furthest back in the queue)
   const count = new Map<number, RoverUnit[]>();
   for (const r of cand) (count.get(r.site!) ?? count.set(r.site!, []).get(r.site!)!).push(r);
@@ -258,7 +296,7 @@ export function summonPick(s: GameState, siteId: number): { rover: RoverUnit | n
   }
   const list = count.get(donor)!;
   const unpinned = list.filter((r) => !r.pinned);
-  return { rover: nearest(s, unpinned.length ? unpinned : list, cx, cz), from: donor, reason: '' };
+  return { rover: nearest(s, unpinned.length ? unpinned : list, site), from: donor, reason: '' };
 }
 
 /** Summon: pin the nearest free rover here, or else one from the site with the most. */
@@ -324,14 +362,14 @@ export function hazardSlotsLost(b: Pick<BuildingState, 'slotsLost'>): number {
 // ─────────────── drones (docs/14 §4.3): the Drone Hive's units fly ───────────────
 // Additive: the roster, the assignments and every rule above are the same for
 // both kinds. A unit docked at a Drone Hive is a drone: it flies straight to
-// its work and back (world/rovers.ts), off the roads, and never enters the
-// ground traffic; every other unit is a ground rover and keeps to the roads
-// (docs/15). The sim has no travel time for either kind, so this is a
-// classification only — deterministic, and pacing-neutral.
+// its work and back at DRONE.speed (core/transit.ts times it; world/rovers.ts
+// draws it), off the roads, and never enters the ground traffic; every other
+// unit is a ground rover and keeps to the roads (docs/15). Both must arrive
+// before they work.
 
 export type UnitKind = 'rover' | 'drone';
 
-/** how a drone flies (the visuals): straight at `speed` m/s, cruising 6–10 m up */
+/** how a drone flies (the sim's trips and the visuals): straight at `speed` m/s, cruising 6–10 m up */
 export const DRONE = { speed: 6, accel: 3, climb: 2.5, cruiseMin: 6, cruiseMax: 10 };
 
 /** The kind of a roster unit: a drone if it is tagged one or docks at a

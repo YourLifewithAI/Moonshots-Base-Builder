@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
 import { TECHS, type TechId } from '../data/techs';
+import { HIVE_DECK_Y, HIVE_PADS } from '../data/roads';
 import {
   BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW,
   antenna, archWall, bands, bar, berm, box, cableTray, circle, cyl, dome, domeBand, door, junction,
@@ -755,9 +756,8 @@ function droneHive(): Parts {
   }
   return p;
 }
-/** where the Drone Hive's parked drones perch on its deck (building frame, the deck top at y 1.62) */
-export const HIVE_PADS: readonly (readonly [number, number])[] = [[-2.1, 1.3], [2.1, 1.3], [-2.1, 3.9], [2.1, 3.9]];
-export const HIVE_DECK_Y = 1.64;
+/** where the Drone Hive's parked drones perch on its deck (data/roads.ts: the sim parks them there too) */
+export { HIVE_PADS, HIVE_DECK_Y };
 
 /** Server Monolith (2×2 cells, 8 m): a 16 m windowless slab of black glass
  *  (near black in both styles; Classic's override), a vertical cold LAMP

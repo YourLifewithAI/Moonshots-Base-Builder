@@ -850,6 +850,58 @@ Never `ERA_COST_SCALE`: the tree's calibration belongs to the tree.
 - *Automation*: the agent-tax cuts and faster builds push it faster. Downtime from malware and bricked rovers pushes it back.
 - *Era 8*: the pick replaces the launch-cadence step, so it is neutral.
 
+**Results with rovers in transit: the baseline (`work/transit`, from main
+`d51e543`, hazards live).** Construction waits for its rover to drive
+there (docs/15 §6a), units yield on the lanes (§6), and auto roads stop at
+an extraction zone's rim (§5a). The same probe, bot and flags as the table
+below (`--auto=on`, reasonable, seeds 42, 7, 1234, 280 min), medians in
+game-minutes, brackets per seed. No lever moved: the drive is the game
+now, so it was measured, not compensated (4.5 m/s stays). **These are the
+numbers to compare against from here.**
+
+| Run | main `d51e543` | + travel | + traffic | + zones (as shipped) | Eras E1…E8 (as shipped) |
+|---|---|---|---|---|---|
+| mare robotic · ⌂ pure Colony | 213.3 [213, 212, 215] | 213.6 | 216.6 | **213.3** [211, 213, 222] | 23.8 / 26.6 / 33.8 / 24.1 / 28.9 / 23.0 / 27.8 / 23.7 |
+| mare robotic · ◉ pure Automation | 206.6 [207, 207, 202] | 204.6 | 204.9 | **200.3** [199, 200, 210] | 23.8 / 26.7 / 33.3 / 24.0 / 29.0 / 24.8 / 19.6 / 18.8 |
+| mare robotic · Concord | 215.9 [217, 214, 216] | 217.6 | 216.9 | **217.6** [214, 218, 222] | 23.8 / 26.6 / 33.3 / 24.0 / 30.3 / 25.3 / 28.8 / 24.6 |
+| south pole crewed · ⌂ pure Colony | 161.3 [161, 182, 161] | 164.9 | 169.3 | **162.9** [163, 175, 162] | 25.2 / 27.5 / 26.4 / 14.3 / 17.5 / 25.5 / 11.6 / 13.1 |
+| south pole crewed · ◉ pure Automation | 175.3 [174, 186, 175] | 186.6 | 182.6 | **172.9** [172, 186, 173] | 25.2 / 27.8 / 26.8 / 15.6 / 18.2 / 29.4 / 13.4 / 16.3 |
+| south pole crewed · Concord | 177.4 [170, 211, 177] | 176.4 | 183.7 | **177.9** [178, 217, 172] | 25.2 / 27.8 / 26.8 / 15.4 / 18.3 / 31.6 / 12.5 / 16.6 |
+
+- **Each step.** *Travel* (with a road's frontier stand kept for its own
+  crew, and a drone sintering the road under it) moves mare by −2.0 to
+  +1.7 min, the pole by −1.0 to +11.3. *Traffic* (a digger waits at its
+  dig, units yield, detour and step aside) moves mare −0.7 to +3.0, the
+  pole −4.0 to +7.3. *Zones* win most of it back: a haul road or a spur
+  into a deposit now stops at its rim, so fewer road cells wait for a
+  rover (mare −4.6 to +0.7, the pole −9.7 to −5.8).
+- **Where the time goes.** Era 5 is 4.4–5.8 min longer on mare (1.6–3.6
+  at the pole): its builds wait for the drive. Era 6 is 3.0–9.5 min
+  shorter on mare (2.1–4.0 at the pole). On mare a site now spends 16–27
+  site-minutes en route over a run, and 12–16 waiting for its road (main
+  5–7); the drive before a site's first rover arrives averages 12–24 s.
+  Research blocked on parts falls from 11–14 min to 4–6 on every mare run:
+  the builds draw their weld parts later.
+- **The spread** on robotic mare is 217.6 / 200.3 = **1.087** (main
+  1.045). Automation got faster; Colony and Concord held. It is not the
+  drive favouring a side: the drive costs each path by how much it builds.
+  A crewless base builds 82–90 structures to FIRST LIGHT (Colony 93–95,
+  Concord 89–91), and its sites spend 16–23 site-minutes en route (Colony
+  21–27, Concord 19–26). With research no longer waiting on parts,
+  Automation's research-volume lead (*Why Automation is faster*, below:
+  no crew techs to research) shows again; before roads it was 198.8
+  against 212.3–214.6, max/min 1.080. Its Era 6 on seeds 42 and 7 was
+  34.3–34.8 min on main, 23.7–28.9 now. All three stay inside 210 ± 25;
+  the spread is just over the target's 1.08. Not tuned: it is no bug and
+  no unfair asymmetry, and the drive is not to be compensated. On the
+  crewed pole max/min is 177.9 / 162.9 = 1.092 (main 1.100).
+- **Crewed pole, Concord seed 7 (217):** the goods stall of main's 211
+  (27.3 min, main 29.4: metals at 0 under three Parts Fabricators; the
+  manual build policy, below).
+- No hazard death and no machine loss on any of the 18 runs (the crewed
+  pole's pure Automation runs send 17–18 crew home at FIRST LIGHT, as on
+  main). The longest idle stretch is 6.3–6.7 min (main 5.0–8.0).
+
 **Results with hazards live (D3, `work/hazards` merged with main
 `46f58e9`, measured at `30eaa50`).** The same probe, bot and flags as the
 table below, with hazards on. *Off* is the same code with

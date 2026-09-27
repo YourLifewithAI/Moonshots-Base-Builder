@@ -33,6 +33,7 @@ import { producerOf, researchRates, techCost } from './research';
 import { alert, boardingShortfall, condition, settlersWelcome, volleyTerms } from './economy';
 import { flowBalance } from './flowBook';
 import { fmtClock, type DayInfo } from './daynight';
+import { siteTransit } from './transit';
 
 // ─────────────────────────── requests ───────────────────────────
 
@@ -555,7 +556,7 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     if (frozen > now) { setPhase(s, id, r, 'frozen', `frozen · resumes in ${fmtClock(frozen - now)}`, dt); return; }
     if (r.site !== null) {
       const b = s.buildings.find((x) => x.id === r.site);
-      setPhase(s, id, r, 'building', b ? siteLine(b) : '→ building', dt);
+      setPhase(s, id, r, 'building', b ? siteLine(s, b) : '→ building', dt);
       return;
     }
     if (now < r.nextAt) {
@@ -696,7 +697,7 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const pending = s.buildings.find((b) => isSite(b) && b.auto?.replaces !== undefined);
     if (!rep.on) setPhase(s, 'replace', rep, 'off', 'off', dt);
     else if (frozenAll || (rep.frozenUntil ?? 0) > now) setPhase(s, 'replace', rep, 'frozen', 'frozen', dt);
-    else if (pending) setPhase(s, 'replace', rep, 'building', siteLine(pending), dt);
+    else if (pending) setPhase(s, 'replace', rep, 'building', siteLine(s, pending), dt);
     else if (now < rep.nextAt) setPhase(s, 'replace', rep, 'settling', `settling ${fmtClock(rep.nextAt - now)}`, dt);
     else {
       const worn = s.buildings
@@ -737,9 +738,15 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
   return out;
 }
 
-/** '→ building Excavator #7 · 38%' or '→ Excavator #7 queued for a rover' */
-function siteLine(b: BuildingState): string {
+/** '→ building Excavator #7 · 38%', '→ Excavator #7 queued for a rover'
+ *  or '→ Excavator #7 · rover en route, 0:24' (core/transit.ts) */
+function siteLine(s: GameState, b: BuildingState): string {
   if (b.idleReason === 'queued') return `→ ${label(b)} queued for a rover`;
+  if (b.idleReason === 'enroute') {
+    const eta = siteTransit(s, b.id).eta;
+    return `→ ${label(b)} · rover en route${Number.isFinite(eta) ? `, ${fmtClock(Math.ceil(eta))}` : ''}`;
+  }
+  if (b.idleReason === 'noroad') return `→ ${label(b)} · no road reaches it`;
   const done = b.buildTotal ? Math.round((1 - (b.construction ?? 0) / b.buildTotal) * 100) : 0;
   return `→ building ${label(b)} · ${done}%`;
 }

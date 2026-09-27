@@ -211,6 +211,7 @@
 #hud-layer.mode-walk #res-panel,
 #hud-layer.mode-walk #builder-panel,
 #hud-layer.mode-walk .auto-mark,
+#hud-layer.mode-walk .site-mark,
 #hud-layer.mode-walk #resource-strip,
 #hud-layer.mode-walk #swarm-meter,
 #hud-layer.mode-walk #milestones,
@@ -504,12 +505,14 @@
 #res-builder .bp-open { margin-top: 6px; }
 #res-builder .bp-open .btn { font-size: 10px; padding: 2px 8px; }
 #res-builder .bp-status, #res-builder .bp-ctls { margin-left: 29px; }
-.auto-mark {
+.auto-mark, .site-mark {
   position: absolute; transform: translate(-50%, -100%);
   padding: 1px 5px; font-size: 9px; letter-spacing: 0.14em; font-weight: 700;
   color: var(--ink-050); background: rgba(14, 15, 17, 0.78);
-  border: 1px dashed rgba(245, 247, 249, 0.55); cursor: pointer;
+  border: 1px dashed rgba(245, 247, 249, 0.55); cursor: pointer; white-space: nowrap;
 }
+/* a site whose rover is on its way (not the Builder's): a solid hairline */
+.site-mark { border-style: solid; border-color: rgba(245, 247, 249, 0.35); font-weight: 600; }
 
 /* ── hazards (docs/14 §3.8): the chip, the [G] panel, counter buttons, markers.
    Monochrome: state is shape and value — ▮▯ gauges, ✓/—, filled or hollow

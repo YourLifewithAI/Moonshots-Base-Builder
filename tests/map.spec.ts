@@ -214,6 +214,7 @@ test('deposit gating: ice must be confirmed, KREEP takes no habitat, a strike ma
   await start(page, 'mare');
   const struck = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // each habitat stands in its 120 s (the drive is transit.spec's)
     g.grantResources({ metals: 300, parts: 100 });
     const target = g.getDeposits()
       .filter((d: any) => !d.revealed && fromLander(d.x, d.z) - d.r < 160)
@@ -244,6 +245,7 @@ test('relay mast: the network extends 45 m from a completed mast, masts chain, a
   await complete(page, ['prospectingRovers']);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // each mast stands in its 60 s (the drive is transit.spec's)
     g.grantResources({ metals: 200, parts: 60 });
     const dep = g.getDeposits().find((d: any) => d.kind === 'ilmenite' && fromLander(d.x, d.z) < 55);
     const k = fromLander(dep.x, dep.z);
@@ -263,7 +265,10 @@ test('relay mast: the network extends 45 m from a completed mast, masts chain, a
     const reason140 = reason(140);
     const m2 = near('relayMast', at(98)[0], at(98)[1], undefined, 1, 1);
     g.placeBuilding('relayMast', m2!.gx, m2!.gz);
-    powered(60);
+    // its spur skirts the ilmenite ring (auto roads stop at a zone's rim), so
+    // the rover sinters longer before it welds
+    const m2Stood = () => g.getState().buildings.some((b: any) => b.type === 'relayMast' && b.gx === m2!.gx && b.gz === m2!.gz && b.construction === 0);
+    for (let t = 0; t < 180 && !m2Stood(); t += 10) powered(10);
     const solar135 = near('solar', at(135)[0], at(135)[1], (x, z) => Math.abs(fromLander(x, z) - 135) <= 3);
     const mastXZ = centreOf(mast.gx, mast.gz, 1, 1);
     const within = g.getDeposits().filter((d: any) =>
@@ -616,6 +621,7 @@ test('launch doctrine: Rail to Orbit follows the choice, and a Propellant Plant 
   await page.locator('#milestones').click();
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // the plant stands in its 340 s (the drive is transit.spec's)
     g.grantResources({ metals: 200, parts: 60, silicon: 40, water: 300, oxygen: 200 });
     const c = near('propellantPlant', 14, -2, undefined, 3, 2);
     g.placeBuilding('propellantPlant', c!.gx, c!.gz);
@@ -659,6 +665,7 @@ test('propellant plant: rockets launch from the pole at full rate', async ({ pag
   await complete(page, ['propellantDepot']);
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.instantTravel(true); // the plant stands in its 340 s (the drive is transit.spec's)
     g.grantResources({ metals: 200, parts: 60, silicon: 40, water: 300, oxygen: 200 });
     const c = near('propellantPlant', 14, -2, undefined, 3, 2);
     g.placeBuilding('propellantPlant', c!.gx, c!.gz);

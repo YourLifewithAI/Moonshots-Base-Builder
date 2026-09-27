@@ -22,8 +22,8 @@ import { effectiveDef, type EffectiveRates, type Mods } from './mods';
 import { centerOf } from '../buildings/instances';
 import { PATH_HALF, UNIT, inside, pathLength, wallSpot, worldRect } from './paths';
 import {
-  accessCell, besideCells, cellAt, cellCentre, cellKey, doorCell, hasRoads, jobOpen, layJob, nearestRoad, planLink,
-  roadMap, roadRoute, routePoints, type Heights,
+  accessCell, besideCells, cellAt, cellCentre, cellKey, doorCell, groundWay, hasRoads, jobOpen, layJob, nearestRoad, offRoadAt,
+  planLink, roadMap, zoneStand, type Heights,
 } from './roads';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -153,30 +153,50 @@ function stopShort(pts: [number, number][], from: [number, number], drop: Buildi
   return out;
 }
 
-/** The points of a road leg from where the haul stands to a goal: its own
- *  pad (by the door), a dig cell, or a consumer's stand. Null: no road there. */
+/** A leg's waypoints (where it stands left out) and, off-road inside a
+ *  zone, each segment's time per metre against road (core/roads.ts). */
+interface Leg { pts: [number, number][]; w?: number[] }
+
+/** The leg from where the haul stands to a goal: its own pad (by the door),
+ *  a dig cell, or a consumer's stand — on the roads, and off-road inside an
+ *  extraction zone between its gate and a dig, a pad or a consumer there
+ *  (docs/15 §5a). Null: no road there. */
 function legPath(
   s: GameState, b: BuildingState, h: Pick<HaulState, 'x' | 'z'>, goal: 'home' | [number, number], drop?: BuildingState,
-): [number, number][] | null {
+): Leg | null {
   const [px, pz] = centerOf(b);
   if (!hasRoads(s)) {
     const [gx, gz] = goal === 'home' ? [px, pz] : cellCentre(goal[0], goal[1]);
-    return [[gx, gz]];
+    return { pts: [[gx, gz]] };
   }
   const door = doorCell(b)!;
+  // a pad inside a zone is left and come home to off-road, by the zone's gate
+  const padZone = zoneStand(s, b)?.zone ?? null;
   const onPad = Math.hypot(h.x - px, h.z - pz) < 0.5;
-  const from = onPad ? door : cellAt(h.x, h.z);
-  const to = goal === 'home' ? door : goal;
-  const cells = roadRoute(s, from, to);
-  if (!cells) return null;
-  let pts = routePoints(cells);
-  // already standing in the first cell (off its centre, as at a stand): straight on
-  if (!onPad && pts.length > 1) pts = pts.slice(1);
-  if (goal === 'home') pts.push([px, pz]);
+  const a: [number, number] = onPad ? [px, pz] : [h.x, h.z];
+  let e: [number, number], eVia: [number, number] | null = null, eZone = null;
+  if (goal === 'home') { e = [px, pz]; if (padZone) eZone = padZone; else eVia = door; }
+  else {
+    const zs = drop ? zoneStand(s, drop) : null;
+    if (zs) { e = [zs.x, zs.z]; eZone = zs.zone; }
+    else e = cellCentre(goal[0], goal[1]);
+  }
+  const way = groundWay(s, a, e, onPad && !padZone ? door : null, eVia, onPad ? padZone : null, eZone);
+  if (!way) return null;
+  let pts = way.pts.slice(1);
+  let w = way.w?.slice();
   if (drop) pts = stopShort(pts, [h.x, h.z], drop);
   // drop a first point it already stands on
-  if (pts.length && Math.hypot(pts[0][0] - h.x, pts[0][1] - h.z) < 1e-6) pts = pts.slice(1);
-  return pts.length ? pts : [[h.x, h.z]];
+  if (pts.length && Math.hypot(pts[0][0] - h.x, pts[0][1] - h.z) < 1e-6) { pts = pts.slice(1); w = w?.slice(1); }
+  return pts.length ? { pts, ...(w ? { w } : {}) } : { pts: [[h.x, h.z]] };
+}
+
+/** a leg's time-equivalent length from (x, z): off-road metres count 1 / ROAD.offroad */
+function legLen(x: number, z: number, leg: Leg): number {
+  if (!leg.w) return pathLength(x, z, leg.pts);
+  let l = 0, px = x, pz = z;
+  leg.pts.forEach(([qx, qz], i) => { l += Math.hypot(qx - px, qz - pz) * (leg.w![i] ?? 1); px = qx; pz = qz; });
+  return l;
 }
 
 export interface Trip {
@@ -214,12 +234,13 @@ function routeTo(s: GameState, b: BuildingState, x: number, z: number, drop: Bui
   const stand = hasRoads(s) ? standFor(s, b, drop) : null;
   if (!stand) return Math.hypot(...wallDelta(drop, x, z));
   let from: [number, number] = [x, z], extra = 0;
-  if (!home && !roadMap(s).has(cellKey(...cellAt(x, z)))) {
+  // open ground with no road yet (outside a zone: inside one it drives off-road to a gate)
+  if (!home && !roadMap(s).has(cellKey(...cellAt(x, z))) && !offRoadAt(s, x, z)) {
     const n = nearestRoad(s, x, z);
     if (n) { const c = cellCentre(n[0], n[1]); extra = Math.hypot(c[0] - x, c[1] - z); from = c; }
   }
   const path = legPath(s, b, { x: from[0], z: from[1] }, stand, drop);
-  return path ? extra + pathLength(from[0], from[1], path) : Math.hypot(...wallDelta(drop, x, z));
+  return path ? extra + legLen(from[0], from[1], path) : Math.hypot(...wallDelta(drop, x, z));
 }
 
 /** the straight way from (x, z) to where it would unload at `drop` */
@@ -244,21 +265,31 @@ export function creditFeed(feed: FeedGrade, kind: FeedKind, amt: number) {
 const roomFor = (s: GameState, caps: Partial<Record<ResourceId, number>>, rid: ResourceId) =>
   caps[rid] === undefined ? Infinity : Math.max(0, caps[rid]! - s.resources[rid]);
 
-/** Waiting to unload: the stockpile has no room for the load (economy step 2
- *  stands it by, like a producer whose output is full — no power drawn). A
- *  load bigger than the whole store tips once the store is empty. */
-export function haulWaiting(s: GameState, b: BuildingState, caps: Partial<Record<ResourceId, number>>): boolean {
-  const h = b.haul;
-  const reg = h?.phase === 'unload' ? h.cargo.regolith ?? 0 : 0;
+/** No room in the store for this load (a load bigger than the whole store tips once the store is empty). */
+function noRoom(s: GameState, h: HaulState, caps: Partial<Record<ResourceId, number>>): boolean {
+  const reg = h.cargo.regolith ?? 0;
   return reg > 0 && roomFor(s, caps, 'regolith') < Math.min(reg, caps.regolith ?? Infinity);
 }
 
-/** Drive along the path for up to `t` seconds; returns the time left over on arrival. */
+/** Waiting to unload: the stockpile has no room for the load. It waits at
+ *  its dig spot with the bucket full — its pad, or its haul road's end —
+ *  never on the carriageway or at a consumer's stand, where it would hold
+ *  up everyone behind it (docs/15 §5). Economy step 2 stands it by, like a
+ *  producer whose output is full: no power drawn. */
+export function haulWaiting(s: GameState, b: BuildingState, caps: Partial<Record<ResourceId, number>>): boolean {
+  const h = b.haul;
+  if (!h) return false;
+  return h.phase === 'dig' && h.full === true && noRoom(s, h, caps);
+}
+
+/** Drive along the path for up to `t` seconds (off-road segments inside a
+ *  zone at ROAD.offroad of the speed); returns the time left over on arrival. */
 function drive(h: HaulState, speed: number, t: number): number {
   while (h.path.length && t > 1e-9) {
     const [tx, tz] = h.path[0];
+    const v = speed / (h.w?.[0] ?? 1);
     const d = Math.hypot(tx - h.x, tz - h.z);
-    const step = speed * t;
+    const step = v * t;
     if (step < d) {
       h.x += ((tx - h.x) / d) * step;
       h.z += ((tz - h.z) / d) * step;
@@ -266,9 +297,11 @@ function drive(h: HaulState, speed: number, t: number): number {
     }
     h.x = tx;
     h.z = tz;
-    t -= d / speed;
+    t -= d / v;
     h.path.shift();
+    h.w?.shift();
   }
+  if (h.w && !h.path.length) delete h.w;
   return t;
 }
 
@@ -284,9 +317,10 @@ function digGoal(s: GameState, b: BuildingState, h: HaulState): 'home' | [number
 }
 
 /** A new leg from where it stands: the path, and the whole leg kept (the visuals follow it). */
-function setLeg(h: HaulState, path: [number, number][] | null) {
-  h.noRoad = !path;
-  h.path = path ?? [];
+function setLeg(h: HaulState, leg: Leg | null) {
+  h.noRoad = !leg;
+  h.path = leg?.pts ?? [];
+  if (leg?.w) h.w = [...leg.w]; else delete h.w;
   h.route = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
 }
 
@@ -298,14 +332,15 @@ function startDig(s: GameState, b: BuildingState, h: HaulState) {
 }
 
 function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
+  delete h.full;
   const drop = dropFor(s, mods, h.x, h.z);
   h.phase = 'toDrop';
   h.t = 0;
   h.drop = drop?.id ?? null;
-  if (!drop) { setLeg(h, []); return; }
+  if (!drop) { setLeg(h, { pts: [] }); return; }
   const stand = hasRoads(s) ? standFor(s, b, drop) : cellAt(...(() => { const p = wallSpot(worldRect(drop), h.x, h.z, HAUL.unloadOut); return [p.x, p.z] as [number, number]; })());
   setLeg(h, stand ? legPath(s, b, h, stand, drop) : null);
-  const m = pathLength(h.x, h.z, h.path);
+  const m = legLen(h.x, h.z, { pts: h.path, w: h.w });
   if (s.stats) s.stats.haulMaxM = Math.max(s.stats.haulMaxM ?? 0, m);
 }
 
@@ -336,7 +371,8 @@ export function haulTick(
       // no road to where it digs (cut, or not open yet): it waits and asks again
       if (h.noRoad) { startDig(s, b, h); if (h.noRoad) break; }
       t = drive(h, speed, t);
-      if (!h.path.length) { h.phase = 'dig'; h.t = 0; }
+      // back with a bucket it could not unload: it waits there, full
+      if (!h.path.length) { h.phase = 'dig'; h.t = h.full ? spec.digS : 0; }
       continue;
     }
     if (h.phase === 'toDrop') {
@@ -344,10 +380,21 @@ export function haulTick(
       const drop = s.buildings.find((x) => x.id === h.drop);
       if (!drop || !drop.enabled || h.noRoad) { startDrop(s, mods, b, h); if (h.noRoad) break; }
       t = drive(h, speed, t);
-      if (!h.path.length) { h.phase = 'unload'; h.t = 0; }
+      if (!h.path.length) {
+        // no room to tip it after all: back to wait at its dig spot, off the road
+        if (noRoom(s, h, caps)) { h.full = true; startDig(s, b, h); continue; }
+        h.phase = 'unload'; h.t = 0;
+      }
       continue;
     }
     if (h.phase === 'dig') {
+      // a full bucket waiting for room in the store: it sets off once there is
+      if (h.full) {
+        if (noRoom(s, h, caps)) break;
+        h.full = false;
+        startDrop(s, mods, b, h);
+        continue;
+      }
       if (h.t <= 0) {
         const over = digBlocked(s, b, h);
         if (over) {
@@ -369,16 +416,21 @@ export function haulTick(
       h.t += step;
       t -= step;
       out.dugS += step;
-      if (h.t >= spec.digS - 1e-9) startDrop(s, mods, b, h);
+      if (h.t >= spec.digS - 1e-9) {
+        // no room for it: it waits here, full, rather than at the consumer's stand
+        if (noRoom(s, h, caps)) { h.full = true; break; }
+        startDrop(s, mods, b, h);
+      }
       continue;
     }
-    // unload: tip the bucket, then back to the dig
+    // unload: tip the bucket, then back to the dig; the store full, back to
+    // its dig spot to wait there, off the road
+    if (noRoom(s, h, caps)) { h.full = true; startDig(s, b, h); continue; }
     const step = Math.min(t, spec.unloadS - h.t);
     h.t += step;
     t -= step;
     if (h.t < spec.unloadS - 1e-9) continue;
     const reg = h.cargo.regolith ?? 0;
-    if (haulWaiting(s, b, caps)) break; // waits for room (step 2 stands it by from the next tick)
     for (const [rid, amt] of Object.entries(h.cargo) as [ResourceId, number][]) {
       const add = Math.min(amt, roomFor(s, caps, rid));
       s.resources[rid] += add;

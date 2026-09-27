@@ -40,7 +40,8 @@ function built(s: GameState, type: BuildingId): string {
   const site = s.buildings.find((b) => b.type === type);
   if (!site) return `◻ ${name}`;
   const pct = Math.floor((1 - (site.construction ?? 0) / Math.max(1, site.buildTotal)) * 100);
-  return site.idleReason === 'queued' ? `◻ ${name} (queued)` : `◻ ${name} ${pct}%`;
+  return site.idleReason === 'queued' ? `◻ ${name} (queued)`
+    : site.idleReason === 'enroute' ? `◻ ${name} (rover en route)` : `◻ ${name} ${pct}%`;
 }
 
 /** ✓ researched · ◻ Name 40% while queued · ◻ Name */

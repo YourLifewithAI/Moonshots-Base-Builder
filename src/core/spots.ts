@@ -10,13 +10,19 @@
  *     door first, nose in; a dock out of bays keeps the rest inside (not drawn);
  *   - sintering a road: the open cell behind the frontier, facing it;
  *   - welding a site: its door cell, then back along its road, then any road
- *     cell beside it; a field structure from the road cell that serves it. */
+ *     cell beside it; a field structure from the road cell that serves it;
+ *   - lent to a survey: into the Lander by its door, and gone.
+ *
+ *  The sim drives every rover to its slot (core/transit.ts) and the visuals
+ *  follow it there, so both read the same slots: groundSpots(). */
 import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from './state';
 import {
-  besideCells, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, serviceCell,
+  besideCells, cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, serviceCell, zoneStand,
 } from './roads';
+import { centerOf } from '../buildings/instances';
 import { FIELD_TYPES, ROAD } from '../data/roads';
+import { unitKind } from './fleet';
 
 type Cell = [number, number];
 
@@ -38,6 +44,10 @@ export interface RoverSpot {
   inside?: boolean;
   /** the cell it must come in from (a bay's opening), so the way in keeps to its half */
   via?: [number, number];
+  /** lent to a survey: it leaves by the Lander's door (inside) */
+  survey?: boolean;
+  /** off the road inside an extraction zone (a site there): reached from a gate (core/zones.ts) */
+  offroad?: boolean;
 }
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -162,12 +172,58 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     return backAlong(cells, f.from).map((c) => ({ c, dir, face }));
   };
 
-  // sites: their crews at the frontier of their road, else at the door
+  // every road's frontier first: the cell behind it goes to that road's own
+  // crew, two to the cell (the sim sinters a cell only with a rover there,
+  // core/transit.ts), so no one standing for other work keeps a road unbuilt
   for (const b of s.buildings) {
     const team = crews.get(b.id);
-    if (!team) continue;
+    const st = team && b.spur?.length ? frontier(b.spur)?.[0] : undefined;
+    if (!team || !st) continue;
+    for (let i = 0; i < team.length && i < ROAD.bayCap; i++) if (!take(team[i], st, b.id)) break;
+  }
+  for (const j of s.roadJobs ?? []) {
+    const team = jobs.get(j.id);
+    const st = team ? frontier(j.cells)?.[0] : undefined;
+    if (!team || !st) continue;
+    for (let i = 0; i < team.length && i < ROAD.bayCap; i++) if (!take(team[i], st, null, j.id)) break;
+  }
+
+  /** a site inside an extraction zone: its crew off the road at its door
+   *  (a field's wall), two abreast facing it, reached from a gate */
+  const offRoad = (ids: number[], b: BuildingState, x: number, z: number): number[] => {
+    // side by side in the cell it works from, across the way it faces the site (as in a road's two halves)
+    const [bx, bz] = centerOf(b);
+    const [gx, gz] = cellAt(x, z);
+    const [cx, cz] = cellCentre(gx, gz);
+    const dir: Cell = Math.abs(bx - cx) >= Math.abs(bz - cz) ? [Math.sign(bx - cx) || 1, 0] : [0, Math.sign(bz - cz) || 1];
+    const axis = lateral(dir);
+    const left = [...ids];
+    for (const side of [0, 1] as const) {
+      if (!left.length || taken.has(slotKey(gx, gz, side))) continue;
+      taken.add(slotKey(gx, gz, side));
+      const [px, pz] = slotPoint(gx, gz, axis, side);
+      const id = left.shift()!;
+      out.set(id, {
+        gx, gz, side, axis, x: px, z: pz, face: Math.atan2(dir[0], dir[1]), shuffle: [Math.abs(dir[0]), Math.abs(dir[1])],
+        site: b.id, dock: dockOf.get(id)!.id, offroad: true,
+      });
+    }
+    return left;
+  };
+
+  // sites: their crews at the frontier of their road, else at the door
+  for (const b of s.buildings) {
+    const all = crews.get(b.id);
+    const team = all?.filter((id) => !out.has(id));
+    if (!team?.length) continue;
     const r = centreCell(b);
     let stands = b.spur?.length ? frontier(b.spur) : null;
+    // inside an extraction zone (core/zones.ts), its road done: off the road at its door
+    const zs = stands ? null : zoneStand(s, b);
+    if (zs?.gate) {
+      for (const id of offRoad(team, b, zs.x, zs.z)) push(parked, dockOf.get(id)!.id, id);
+      continue;
+    }
     if (!stands && FIELD_TYPES.has(b.type)) {
       const c = serviceCell(s, b);
       stands = c ? [c, ...neighbours(s, c)].map((x) => ({ c: x, dir: openingOf(s, x) ?? [0, 1], face: r })) : [];
@@ -181,8 +237,8 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
 
   // road jobs: at their frontier
   for (const j of s.roadJobs ?? []) {
-    const team = jobs.get(j.id);
-    if (!team) continue;
+    const team = jobs.get(j.id)?.filter((id) => !out.has(id));
+    if (!team?.length) continue;
     for (const id of along(team, frontier(j.cells) ?? [], null, j.id)) push(parked, dockOf.get(id)!.id, id);
   }
 
@@ -217,5 +273,23 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
       out.set(id, { gx: d[0], gz: d[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: dock.id, inside: true });
     }
   }
+  // the one lent to a survey leaves by the Lander: in at its door, and gone
+  const lent = away !== undefined ? (s.rovers ?? []).find((u) => u.id === away) : undefined;
+  const ld = lander ? doorCell(lander) : null;
+  if (lent && lander && ld) {
+    const [x, z] = cellCentre(...centreCell(lander));
+    out.set(lent.id, {
+      gx: ld[0], gz: ld[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: lander.id, inside: true, survey: true,
+    });
+  }
   return out;
+}
+
+/** Every ground rover's slot: the roster without the Drone Hive's units,
+ *  which fly (core/fleet.ts unitKind) and take no road slot. The sim
+ *  (core/transit.ts) and the visuals (world/rovers.ts) both read these. */
+export function groundSpots(s: GameState): Map<number, RoverSpot> {
+  const all = s.rovers ?? [];
+  const ground = all.filter((u) => unitKind(s, u) !== 'drone');
+  return roverSpots(ground.length === all.length ? s : { ...s, rovers: ground });
 }

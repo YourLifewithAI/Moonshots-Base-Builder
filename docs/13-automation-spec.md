@@ -134,7 +134,7 @@ The base chooser's naivety is deterministic and visible: an auto Smelter may sit
    - is **too rough**: relief over `MAX_SLOPE_DELTA` (2.5 m);
    - has **no road route**: no road could reach it. A field type not served already needs a reachable cell in its ring; any other type needs its door cell reachable. `roadReach` floods the cells a new road could reach from the open network, walked as the A* walks. It is memoised on the network and the buildings.
 3. **Score.** Lower is better; the terms are in the table below.
-4. **Validate** every pad left, in score order, with the real `checkPlacement`, which stays the one truth. The walk stops once six pass. Of those six, the pick is the one whose score plus 1.5 m per new road cell is least (docs/15 §3). The caller has already checked the cost against its budget. Placement's own hard rules still apply to both choosers: an Ice Harvester only on confirmed ice, never a Habitat on KREEP.
+4. **Validate** every pad left, in score order, with the real `checkPlacement`, which stays the one truth. The walk stops once six pass. Of those six, the pick is the one whose score plus 1.5 m per new road cell, plus 1 m per metre of off-road drive from its zone's gate for a pad inside an extraction zone (docs/15 §5a), is least (docs/15 §3). The caller has already checked the cost against its budget. Placement's own hard rules still apply to both choosers: an Ice Harvester only on confirmed ice, never a Habitat on KREEP.
 5. **Refuse**, if none passes, with a count of the open pads by reason (next table). An open pad is a candidate clear of footprints and door aprons.
 
 **Why there is no fixed window.** The walk used to stop after the first 200 pads by score. The raster did not know roads or relief, so near a crowded base those 200 could all be roads and rough ground. On the crewed pole (seed 1234, pure Automation) the solar rule sat in `nosite` for 38 min. 628 valid pads lay past the window (docs/14 §6). Now the cheap refusals never reach the walk. The walk's `checkPlacement` calls are cheap, since pads no road can reach are already struck and the A* only runs on the rest.
@@ -471,7 +471,7 @@ LOG   12:40 Excavator #7 · Excavation · on high-Ti basalt, 38 m from Smelter #
 |---|---|
 | ok | `ok · regolith supply 12▲/min over demand` |
 | watching | `watching · regolith 18▲/min short for 42 s of 60` |
-| building | `→ building Excavator #7 · 38%`, or `→ Excavator #7 queued for a rover` |
+| building | `→ building Excavator #7 · 38%`, `→ Excavator #7 queued for a rover`, `→ Excavator #7 · rover en route, 0:24` (docs/15 §6a), or `→ Excavator #7 · no road reaches it` |
 | settling | `settling 0:40 — letting the rates catch up` |
 | waiting | `waiting · needs 16◆ above the 40◆ reserve (have 44)`, or `waiting for power · Solar Array #31 first` |
 | holding | `holding · 2 of 5 Excavators dark (power) — more would not help` |

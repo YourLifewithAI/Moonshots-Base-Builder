@@ -13,9 +13,11 @@
  *   - moves are taken in right-of-way order: a loaded excavator, an empty
  *     one, then rovers; among equals the lower id first;
  *   - a wait cycle held 1 s: its lowest unit backs off to a free cell off the
- *     others' ways (its driver finds one); a unit stood in another's way 3 s
- *     steps aside the same way; nothing for 8 s: the lowest is set down on a
- *     free cell (the last resort, never an overlap).
+ *     others' ways (its driver finds one); a unit held up 2 s by one that is
+ *     not moving takes another road there if the network has one (a detour);
+ *     a unit stood in another's way 3 s steps aside the same way; nothing for
+ *     8 s: the lowest is set down on a free cell (the last resort, never an
+ *     overlap).
  *
  *  Cells are keyed on the grid (no O(n²)); ways are cut into cell spans once,
  *  when they change. Visual only: the sim never waits. */
@@ -86,6 +88,8 @@ export interface Agent {
   reserved?: Set<number>;
   /** the last arc each cell of its way is under (reserved cells go when passed) */
   lastArc?: Map<number, number>;
+  /** it has asked its driver for a detour on this way (once a way) */
+  detoured?: boolean;
   drv: Driver;
 }
 
@@ -96,6 +100,8 @@ export interface Driver {
   moved(a: Agent, dt: number): void;
   /** get out of these units' way (a refuge off their ways); false if it cannot */
   yieldTo(a: Agent, others: Agent[]): boolean;
+  /** a detour: the same slot by another road, round these grid cells; false if there is none */
+  reroute?(a: Agent, avoid: ReadonlySet<number>): boolean;
   /** the last resort: set it down somewhere free */
   rescue(a: Agent): void;
 }
@@ -188,7 +194,12 @@ export function cutSpans(pts: [number, number][], arcs: number[], wide: boolean,
 /** m a unit stops short of a cell it may not enter: room for a rover's
  *  corners as it turns (its diagonal is 0.21 m longer than its nose) */
 const GAP = 0.25;
+/** m two bodies keep apart at the least (the exact check under the cells) */
+const BODY_GAP = 0.1;
+/** m off a road's centre line a rover's lane runs (data/roads.ts ROAD.lane) */
+const LANE_M = 1;
 const BREAK_S = 1;       // a wait cycle this old is broken
+const DETOUR_S = 2;      // held up this long by a unit that is not moving: another road, if there is one
 const STEP_ASIDE_S = 3;  // a unit stood in another's way this long steps aside
 const RESCUE_S = 8;      // nothing worked this long: set down
 
@@ -204,6 +215,7 @@ export class Traffic {
   private worst = { gap: Infinity, a: '', b: '' };
   private rescues = 0;
   private breaks = 0;
+  private detours = 0;
   private lastBreak = '';
 
   /** The road cells (grid cells) units may drive; a signature skips unchanged frames. */
@@ -241,6 +253,7 @@ export class Traffic {
     a.spans = cutSpans(a.pts, a.arcs, a.wide, (k) => this.roads.has(k));
     a.s = 0;
     a.stop = Traffic.end(a);
+    a.detoured = false;
     this.markGates(a);
   }
 
@@ -397,6 +410,46 @@ export class Traffic {
     }
   }
 
+  private overScratch = new Map<number, Mode>();
+  /** A rover's corners where its way leaves the lane (a diagonal, a turn, a
+   *  set-down off the lane): road cells its body touches at a pose that are
+   *  off its way altogether. They are held whole. (A cell on its way is the
+   *  way's to claim, in the half the way takes through it.) */
+  private overhang(a: Agent, x: number, z: number, _u: number, out: Map<number, Mode>) {
+    if (a.wide) return;
+    const box = this.overScratch;
+    box.clear();
+    this.box(a, x, z, a.fx, a.fz, box);
+    for (const k of box.keys()) {
+      if (out.has(k) || a.lastArc?.has(k)) continue;
+      out.set(k, WHOLE);
+    }
+  }
+
+  private nearScratch = new Map<number, Mode>();
+  private probe = { x: 0, z: 0, fx: 0, fz: 1, hw: 0, front: 0, back: 0 };
+  /** Who a unit's body at arc u would come within BODY_GAP of (and closer
+   *  than it is now), among the units holding the cells round it; null: nobody. */
+  private bodyClash(a: Agent, u: number): Agent | null {
+    const p = pointAt(a.pts, a.arcs, u);
+    const q = this.probe;
+    q.x = p.x; q.z = p.z; q.fx = a.fx; q.fz = a.fz; q.hw = a.hw; q.front = a.front; q.back = a.back;
+    const near = this.nearScratch;
+    near.clear();
+    const r = Math.hypot(Math.max(a.front, a.back), a.hw) + BODY_GAP + 0.5;
+    this.disc(p.x, p.z, r, near);
+    this.disc(a.x, a.z, r, near);
+    for (const k of near.keys()) {
+      for (const o of this.occ.get(k) ?? []) {
+        if (o.a === a) continue;
+        const next = boxGap(q, o.a);
+        if (next >= BODY_GAP) continue;
+        if (next < boxGap(a, o.a) - 1e-4) return o.a;
+      }
+    }
+    return null;
+  }
+
   private boxScratch = new Map<number, Mode>();
   /** Would a unit's box at this pose touch only road cells free for it? */
   boxFree(a: Agent, x: number, z: number, fx: number, fz: number): boolean {
@@ -404,6 +457,19 @@ export class Traffic {
     cov.clear();
     this.box(a, x, z, fx, fz, cov);
     for (const k of cov.keys()) if (!a.held.has(k) && this.clash(a, k, WHOLE)) return false;
+    return true;
+  }
+
+  /** As boxFree, for a rover set down in a lane: standing a lane's width off
+   *  a cell's centre line, along its road, it needs only that half of the
+   *  cells its body touches (a rover in the other half is no clash). */
+  laneFree(a: Agent, x: number, z: number, fx: number, fz: number): boolean {
+    if (a.wide) return this.boxFree(a, x, z, fx, fz);
+    const mode = standAt(x, z, fx, fz);
+    const cov = this.boxScratch;
+    cov.clear();
+    this.box(a, x, z, fx, fz, cov);
+    for (const k of cov.keys()) if (this.clash(a, k, mode)) return false;
     return true;
   }
 
@@ -466,6 +532,7 @@ export class Traffic {
     const cov = this.scratch;
     this.covered(a, a.s - Traffic.behind(a), a.s + Traffic.ahead(a), cov);
     if (a.wide) this.box(a, a.x, a.z, a.fx, a.fz, cov);
+    else this.overhang(a, a.x, a.z, a.s, cov);
     this.keepReserved(a, cov);
     this.take(a, cov);
   }
@@ -490,8 +557,20 @@ export class Traffic {
       const cov = this.scratch;
       cov.clear();
       this.sweep(a, cov);
+      // (one standing still in a swept cell with its body clear of the turn's
+      // circle is no bar to it: the cells are coarse at a corner, this is exact)
+      const reach = Math.hypot(Math.max(a.front, a.back), a.hw) + BODY_GAP;
       let c: Agent | null = null;
-      for (const [k, m] of cov) { if (a.held.get(k) !== m) c = this.clash(a, k, m); if (c) break; }
+      for (const [k, m] of cov) {
+        if (a.held.get(k) === m) continue;
+        for (const o of this.occ.get(k) ?? []) {
+          if (o.a === a || compatible(o.mode, m)) continue;
+          if (o.a.v < 0.05 && !o.a.pivot && pointGap(o.a, a.x, a.z) >= reach) continue;
+          c = o.a;
+          break;
+        }
+        if (c) break;
+      }
       a.pivotOk = !c;
       if (c) { a.blocker = c; a.waited += h; a.v = 0; a.drv.moved(a, h); return; }
     }
@@ -510,6 +589,25 @@ export class Traffic {
         const c = this.clash(a, k, WHOLE);
         if (c) { ds = 0; limit = a.s; blocker = c; break; }
       }
+    }
+    // a rover's corners off its lane (a diagonal, a turn): the cells they reach must be free too
+    if (!this.solo && !a.wide && ds > 0) {
+      const p = pointAt(a.pts, a.arcs, a.s + ds);
+      const cov = this.scratch;
+      cov.clear();
+      this.overhang(a, p.x, p.z, a.s + ds, cov);
+      for (const k of cov.keys()) {
+        if (a.held.get(k) === WHOLE) continue;
+        const c = this.clash(a, k, WHOLE);
+        if (c) { ds = 0; limit = a.s; blocker = c; break; }
+      }
+    }
+    // the bodies themselves: a move that would bring its box within BODY_GAP
+    // of another's (and closer than now) waits — the cells above are coarse at
+    // a diagonal or a turn; this is exact (only the units on the cells near it)
+    if (!this.solo && ds > 0 && !blocker) {
+      const c = this.bodyClash(a, a.s + ds);
+      if (c) { ds = 0; limit = a.s; blocker = c; }
     }
     const look = (want * want) / (2 * a.decel) + 0.3;
     // a wide unit's next gate: the run to the next junction, taken whole, or it waits short of it
@@ -566,6 +664,7 @@ export class Traffic {
     this.covered(a, a.s - back, Math.min(a.s + front + brake, limit + front), cov);
     const p = pointAt(a.pts, a.arcs, a.s);
     if (a.wide) this.box(a, p.x, p.z, a.fx, a.fz, cov);
+    else this.overhang(a, p.x, p.z, a.s, cov);
     this.keepReserved(a, cov);
     this.take(a, cov);
     a.drv.moved(a, h);
@@ -592,9 +691,21 @@ export class Traffic {
       // stood in the way: a unit at the end of its way (parked, working) steps aside
       const w = a.blocker;
       const standing = !w.blocker && w.s >= Traffic.end(w) - 1e-6;
+      // held up by one that is not moving (standing, unloading, queued): another road there, if the network has one
+      if (a.waited > DETOUR_S && !a.detoured && w.v < 0.05 && a.drv.reroute) {
+        a.detoured = true;
+        if (a.drv.reroute(a, new Set(w.held.keys()))) { this.detours++; a.waited = 0; a.blocker = null; continue; }
+      }
       if (standing && a.waited > STEP_ASIDE_S && (w.cls < a.cls || (w.cls === a.cls && w.key > a.key))) {
-        if (w.drv.yieldTo(w, [a])) { this.breaks++; a.waited = 0; }
-        else if (a.waited > RESCUE_S) { this.rescue(w); a.waited = 0; }
+        // every unit standing in the cells just ahead of it steps aside together (two
+        // parked side by side in one bay cell would otherwise take turns, and it never gets by)
+        const ahead = this.claimOf(a, 12);
+        const also = this.agents.filter((o) => o !== w && o !== a && !o.blocker && o.s >= Traffic.end(o) - 1e-6
+          && (o.cls < a.cls || (o.cls === a.cls && o.key > a.key)) && [...o.held.keys()].some((k) => ahead.has(k)));
+        if (w.drv.yieldTo(w, [a])) {
+          for (const o of also) o.drv.yieldTo(o, [a, w]);
+          this.breaks++; a.waited = 0;
+        } else if (a.waited > RESCUE_S) { this.rescue(w); a.waited = 0; }
       }
     }
   }
@@ -608,7 +719,8 @@ export class Traffic {
     this.rescues++;
     this.releaseAll(a);
     a.drv.rescue(a);
-    this.settle(a);
+    // set down on the road: it holds its cells there; taken off it (inside a dock): it holds none
+    if (this.agents.includes(a)) this.settle(a);
   }
 
   // ── the overlap metric: oriented boxes ──
@@ -641,8 +753,9 @@ export class Traffic {
       solo: this.solo,
       /** the least separation of any two bodies since the last read, m (negative: overlapping) */
       closest: Number.isFinite(w.gap) ? { gap: Math.round(w.gap * 1000) / 1000, a: w.a, b: w.b } : null,
-      /** wait cycles broken, and units set down as the last resort */
+      /** wait cycles broken, detours taken round a unit that was not moving, and units set down as the last resort */
       breaks: this.breaks,
+      detours: this.detours,
       rescues: this.rescues,
       units: this.agents.map((a) => ({
         kind: a.kind, id: a.id, x: Math.round(a.x * 100) / 100, z: Math.round(a.z * 100) / 100,
@@ -658,6 +771,28 @@ export class Traffic {
       lastBreak: this.lastBreak,
     };
   }
+}
+
+/** How a rover standing at this pose holds its cell: the half it stands in,
+ *  if it is a lane's width off the centre line (two there pass a body apart),
+ *  else whole. */
+export function standAt(x: number, z: number, fx: number, fz: number): Mode {
+  const half = MAP_M / 2;
+  const [gx, gz] = cellOf(x, z);
+  const cx = (gx + 0.5) * CELL_M - half, cz = (gz + 0.5) * CELL_M - half;
+  const inLane = (o: number) => Math.abs(Math.abs(o) - LANE_M) < 0.2;
+  if (Math.abs(fx) >= Math.abs(fz) && inLane(z - cz)) return laneMode(1, z > cz ? 1 : 0);
+  if (Math.abs(fz) > Math.abs(fx) && inLane(x - cx)) return laneMode(0, x > cx ? 1 : 0);
+  return WHOLE;
+}
+
+/** How far a point lies from a unit's body (its oriented box), m; 0 inside. */
+export function pointGap(b: Pick<Agent, 'x' | 'z' | 'fx' | 'fz' | 'hw' | 'front' | 'back'>, x: number, z: number): number {
+  const dx = x - b.x, dz = z - b.z;
+  const along = dx * b.fx + dz * b.fz, lat = dx * b.fz - dz * b.fx;
+  const ea = along > b.front ? along - b.front : along < -b.back ? -b.back - along : 0;
+  const el = Math.abs(lat) > b.hw ? Math.abs(lat) - b.hw : 0;
+  return Math.hypot(ea, el);
 }
 
 /** Separation of two units' bodies (oriented boxes), m: the largest gap along
