@@ -181,7 +181,8 @@ test('with no wanted deposit in reach, the ghost stakes its plain pit — the on
   });
   const plain = sel.find((e: any) => e.state === 'plain');
   expect(plain).toBeTruthy();
-  expect(plain.label).toMatch(/^P\d+ · q \d\.\d\d · 0\/3/);
+  // a new pit has one face; more open as it widens (docs/17 §8.2)
+  expect(plain.label).toMatch(/^P\d+ · q \d\.\d\d · 0\/\d/);
   // MRE: a smelter's block says any ground serves it
   const mre = await page.evaluate(() => {
     const g = window.__game!;
@@ -278,7 +279,14 @@ test('a selected hub lights its pit (rim, ore band), and its full and boxed-in s
   });
   expect(ghost.entries.find((e: any) => e.id === 'ilmenite-0').state).toBe('full');
   if (ghost.entries.some((e: any) => e.id !== 'ilmenite-0' && e.inReach)) {
-    expect(ghost.lines.some((l: string) => /^high-Ti basalt #0 is full \((\d)\/\1 faces\) — its units would go to high-Ti basalt #\d, ≈?\d+:\d\d$/.test(l))).toBe(true);
+    // its units go elsewhere; the block names the full one when it would have been the pick
+    // (a dug pit's cut is leaner than an untouched deposit's centre, docs/17 §10.1)
+    const best = ghost.entries.find((e: any) => e.best);
+    expect(best?.id).not.toBe('ilmenite-0');
+    const f0 = ghost.entries.find((e: any) => e.id === 'ilmenite-0');
+    if (best && f0.score > best.score) {
+      expect(ghost.lines.some((l: string) => /^high-Ti basalt #0 is full \((\d)\/\1 faces\) — its units would go to high-Ti basalt #\d, ≈?\d+:\d\d$/.test(l))).toBe(true);
+    }
   }
   // drawn full (long dashes) while held
   await page.waitForTimeout(400);
@@ -328,7 +336,8 @@ test('a hub\'s palette card lights its ground on hover (no position: faces and p
   await frames(page, 4);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('moonshots:open-map')));
   await expect(page.locator('#map-screen .mb circle.dep.lit').first()).toBeAttached();
-  await expect(page.locator('#map-screen .mk .dep-t.lit .lbl').first()).toContainText(/high-Ti basalt · \d+:\d\d · \d\/\d faces/);
+  // its one unit holds the new pit's one face: FULL, or its faces (docs/17 §8.2)
+  await expect(page.locator('#map-screen .mk .dep-t.lit .lbl').first()).toContainText(/high-Ti basalt · (\d+:\d\d · \d\/\d faces|FULL (\d)\/\2 · \d+:\d\d)/);
   await expect(page.locator('#map-screen .mb circle.dep-full').first()).toBeAttached();
   await shot(page, 'map-site-selected-smelter');
 });
