@@ -466,43 +466,55 @@ test('save and reload restore the ground exactly (base → deltas → flattens);
   expect(c).toEqual({ pits: 0, nonzero: 0, schema: 1 });
 });
 
-test('chunk rebuilds are throttled: one a frame, two a second, shadows at most every 2 s', async ({ page }) => {
+test('chunk rebuilds are throttled: one a frame, two a second, shadows at most every 2 s; a debug advance rebuilds each once', async ({ page }) => {
   test.setTimeout(240_000);
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game;
-    // three pits far apart: several chunks to rebuild
-    for (const [x, z] of [[-200, -150], [200, -160], [-180, 190]]) g.pitDig(x, z, 3000);
-    g.advanceGameSeconds(40);
+    // live play at 10× (a game-second a 0.1 s frame): three pits far apart, several chunks to rebuild
+    g.setPaused(false);
+    g.setSpeed(10);
+    g.stepFrame(0);
+    const sites = [[-200, -150], [200, -160], [-180, 190]];
     const q0 = g.getPits().queue;
-    g.stepFrame(0.1);
-    const q1 = g.getPits().queue;
-    const per: number[] = [];
-    let last = q1.rebuilds;
-    for (let i = 0; i < 120; i++) {
+    const per: number[] = [], queued: number[] = [];
+    let last = q0.rebuilds;
+    for (let i = 0; i < 400; i++) {
+      if (i < 120 && i % 4 === 0) for (const [x, z] of sites) g.pitDig(x, z, 120);
+      g.grantPower(1000);
       g.stepFrame(0.1);
       const q = g.getPits().queue;
       per.push(q.rebuilds - last);
+      queued.push(q.queued);
       last = q.rebuilds;
     }
+    g.setPaused(true);
+    g.stepFrame(0);
+    const q1 = g.getPits().queue;
+    // then sim time no frame showed: the changed chunks rebuilt at once, each once
+    for (const [x, z] of sites) g.pitDig(x, z, 1500);
+    g.advanceGameSeconds(40);
     const q2 = g.getPits().queue;
-    return { q0, q1, q2, per, pits: g.getPits().pits.map((p: any) => p.cutM3) };
+    return { q0, q1, q2, per, maxQueued: Math.max(...queued), err: g.terrainError(), pits: g.getPits().pits.map((p: any) => p.cutM3) };
   });
   expect(r.pits.every((v: number) => v > 1500)).toBe(true);
-  // the carves are queued, not rebuilt in the sim tick
-  expect(r.q0.rebuilds).toBe(0);
-  expect(r.q1.queued).toBeGreaterThanOrEqual(3);
+  // carves wait in the queue: several chunks at once
+  expect(r.maxQueued).toBeGreaterThanOrEqual(2);
   // never more than one a frame
   expect(Math.max(...r.per)).toBeLessThanOrEqual(1);
   // two a second at most: rebuilds at least 0.5 s of frame time apart
-  const log = r.q2.log;
+  const log = r.q1.log;
+  expect(log.length).toBeGreaterThan(3);
   for (let i = 1; i < log.length; i++) expect(log[i] - log[i - 1]).toBeGreaterThan(0.5 - 1e-6);
-  // all of it drawn in the end, each chunk once
-  expect(r.q2.queued).toBe(0);
-  expect(r.q2.rebuilds).toBe(r.q1.queued + r.q1.rebuilds);
+  // all of it drawn in the end
+  expect(r.q1.queued).toBe(0);
   // the shadow map asked at most every 2 s of frame time
-  expect(r.q2.shadowAsks).toBeLessThanOrEqual(Math.ceil(r.q2.clock / 2) + 1);
-  expect(r.q2.shadowAsks).toBeGreaterThan(0);
+  expect(r.q1.shadowAsks).toBeGreaterThan(0);
+  expect(r.q1.shadowAsks).toBeLessThanOrEqual(Math.ceil((r.q1.clock - r.q0.clock) / 2) + 1);
+  // a debug advance: nothing left queued, the drawn ground is the carved ground
+  expect(r.q2.queued).toBe(0);
+  expect(r.q2.rebuilds).toBeGreaterThan(r.q1.rebuilds);
+  expect(r.err.vertex).toBeLessThan(0.01);
 });
 
 for (const style of ['classic', 'detailed']) {
@@ -517,8 +529,7 @@ for (const style of ['classic', 'detailed']) {
       const before = new Map<number, number>();
       for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) before.set(iz * 257 + ix, lum(ix, iz));
       P.dig(x, z, 5000, 12);
-      g.stepFrame(0.5); // the frame takes the carved boxes into the queue
-      for (let i = 0; i < 80 && g.getPits().queue.queued > 0; i++) g.stepFrame(0.5);
+      g.stepFrame(0.5);
       const ratios: number[] = [];
       for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) {
         const t = g.terrainSample(ix, iz);

@@ -733,14 +733,7 @@ export class Game {
    *  on the cut go, and the deposit rings re-drape at most once a second.
    *  Nothing is allocated on a frame without a carve. */
   private syncTerrain(dt: number) {
-    if (this.hf.carved.length) {
-      takeCarved(this.hf, (gx0, gz0, gx1, gz1) => {
-        this.chunks.markDirty(gx0, gz0, gx1, gz1);
-        this.rocks.clearPits(gx0, gz0, gx1, gz1);
-      });
-      this.walk.boulders = this.rocks.colliders();
-      this.overlayOwed = true;
-    }
+    this.takeTerrain();
     this.chunks.pump(dt);
     this.overlayClock += dt;
     if (this.overlayOwed && this.overlayClock >= 1) {
@@ -748,6 +741,17 @@ export class Game {
       this.overlayClock = 0;
       if (this.depositOverlay) this.rebuildDepositOverlay();
     }
+  }
+
+  /** The boxes the pits carved since the last look: their chunks queued, their rocks cleared. */
+  private takeTerrain() {
+    if (!this.hf.carved.length) return;
+    takeCarved(this.hf, (gx0, gz0, gx1, gz1) => {
+      this.chunks.markDirty(gx0, gz0, gx1, gz1);
+      this.rocks.clearPits(gx0, gz0, gx1, gz1);
+    });
+    this.walk.boulders = this.rocks.colliders();
+    this.overlayOwed = true;
   }
 
   /** Cells [x0..x1) × [z0..z1) were flattened: clear the rocks off them and
@@ -2518,6 +2522,9 @@ export class Game {
       }
     }
     if (gameSeconds > 0 || acts.length) {
+      // the ground the pits cut while no frame showed it: every changed chunk, once
+      this.takeTerrain();
+      this.chunks.flushQueue();
       this.instances.rebuild(this.state);
       this.publish();
     }

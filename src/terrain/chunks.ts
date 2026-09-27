@@ -190,6 +190,24 @@ export class TerrainChunks {
     }
   }
 
+  /** Sim time the visuals never showed (a debug advance): every queued chunk
+   *  rebuilt now, once each, and one shadow refresh. */
+  flushQueue() {
+    if (!this.queue.length) return;
+    for (const i of this.queue) {
+      this.queued[i] = 0;
+      const cx = i % CHUNKS, cz = (i - cx) / CHUNKS;
+      this.meshes[i].geometry.dispose();
+      this.meshes[i].geometry = this.buildGeometry(cx, cz);
+      this.rebuilds++;
+    }
+    this.queue.length = 0;
+    this.shadowOwed = false;
+    this.lastShadow = this.clock;
+    this.shadowAsks++;
+    this.onShadowCastersChanged?.();
+  }
+
   /** A load: every chunk rebuilt at once, the queue cleared. */
   clearQueue() {
     for (const i of this.queue) this.queued[i] = 0;
