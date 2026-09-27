@@ -489,7 +489,8 @@ export class RoverFleet implements Driver {
     const a = r.agent;
     const yielding = this.clock < r.yieldUntil;
     r.follow = !t || u.x === undefined ? 'free' : t.stuck || t.goal !== r.goal ? 'hold' : 'sim';
-    if (yielding) r.follow = 'free';
+    // its way does not lead to its slot (a refuge, no way there yet): on its own
+    if (yielding || r.key !== spotKey(spot)) r.follow = r.follow === 'hold' ? 'hold' : 'free';
     if (r.follow === 'sim' && t) {
       const p = arrived(t) ? 1 : progress(t, this.frac);
       const k = r.p0 >= 1 - 1e-6 ? 1 : clamp((p - r.p0) / (1 - r.p0), 0, 1);
@@ -519,7 +520,9 @@ export class RoverFleet implements Driver {
     else r.dueAt ??= now;
     const grace = yielding ? YIELD_S + LAG_S : !r.inside && a.v > 0.3 ? LAG_S : 1;
     const due = r.dueAt !== null && now - r.dueAt >= grace - 1e-6;
-    if ((lag > LAG_S || due) && this.setDown(r, spot)) {
+    // (parked at its dock in the sim, its drive back after giving way is its own: no work waits on it)
+    const trailing = lag > LAG_S && !(arrived(t) && (t.kind === 'dock' || t.kind === 'survey'));
+    if ((trailing || due) && this.setDown(r, spot)) {
       r.dueAt = null;
       this.downLog.push(`${r.id}:${due ? 'due' : `lag${lag.toFixed(1)}`}@${Math.round(now)}`);
       if (this.downLog.length > 24) this.downLog.shift();

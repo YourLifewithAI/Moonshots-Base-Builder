@@ -692,8 +692,15 @@ export class Traffic {
         if (a.drv.reroute(a, new Set(w.held.keys()))) { this.detours++; a.waited = 0; a.blocker = null; continue; }
       }
       if (standing && a.waited > STEP_ASIDE_S && (w.cls < a.cls || (w.cls === a.cls && w.key > a.key))) {
-        if (w.drv.yieldTo(w, [a])) { this.breaks++; a.waited = 0; }
-        else if (a.waited > RESCUE_S) { this.rescue(w); a.waited = 0; }
+        // every unit standing in the cells just ahead of it steps aside together (two
+        // parked side by side in one bay cell would otherwise take turns, and it never gets by)
+        const ahead = this.claimOf(a, 12);
+        const also = this.agents.filter((o) => o !== w && o !== a && !o.blocker && o.s >= Traffic.end(o) - 1e-6
+          && (o.cls < a.cls || (o.cls === a.cls && o.key > a.key)) && [...o.held.keys()].some((k) => ahead.has(k)));
+        if (w.drv.yieldTo(w, [a])) {
+          for (const o of also) o.drv.yieldTo(o, [a, w]);
+          this.breaks++; a.waited = 0;
+        } else if (a.waited > RESCUE_S) { this.rescue(w); a.waited = 0; }
       }
     }
   }
