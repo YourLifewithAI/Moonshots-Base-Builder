@@ -29,7 +29,8 @@ import { centerOf } from '../buildings/instances';
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
 
-/** Tests where timing is not the point: every trip ends as it starts. */
+/** Tests where timing is not the point: every trip ends as it starts, and
+ *  a new goal is reached in the tick that sets it (economy step 0). */
 export const TRANSIT = { instant: false };
 
 // ───────────────────────────── the move ─────────────────────────────

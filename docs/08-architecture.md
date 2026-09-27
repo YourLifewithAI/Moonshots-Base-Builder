@@ -368,7 +368,8 @@ losses, grief) · `forceHazard(kind, target?, {drill, tier})` ·
 `holdHazards(on)` (tests not about hazards, and the probe's
 `--hazards=off`) · `counter(counter, id?)` · `airGap(id, on)` (both through
 the action queue). Transit adds `instantTravel(on)` (every trip ends as it
-starts: tests where the drive is not the point) and `getZones()` (each
+starts, and a new goal is reached in the tick that sets it: tests where the
+drive is not the point) and `getZones()` (each
 extraction zone, its cells and gates). `&hzpause` lets the pause-on settings pause a debug run;
 without it they never do.
 

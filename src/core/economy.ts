@@ -28,7 +28,7 @@ import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import { settleJobs, sinter, spurLeft } from './roads';
-import { siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
+import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { updateFlowBook } from './flowBook';
 import { automationTick, type AutoRequest } from './automation';
@@ -253,6 +253,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const building = (b: BuildingState) => (b.construction ?? 0) > 0;
   syncRoster(s, mods);
   const crews = assignRovers(s);
+  // (debug instant travel: a new goal is reached in the tick that sets it, as before transit)
+  if (TRANSIT.instant) transitPlan(s, mods, false);
   const here: Arrivals = transitArrive(s, dt);
   /** a site's road is still to sinter: its crew works from the frontier */
   const roadFirst = (b: BuildingState) => !!b.spur?.length && spurLeft(s, b) > 0;

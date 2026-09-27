@@ -327,6 +327,7 @@ test('a future page is read-only: dashed cards, a click explains ERA LOCKED, the
 
 test('the goals column follows the sim: charter techs and the deed update in place', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
+  await g(page, 'instantTravel', true); // its rover there at once (the drive is transit.spec's)
   expect(await g(page, 'placeBuilding', 'lab', 135, 133)).toBe(true);
   await g(page, 'advanceGameSeconds', 80); // built at 72 s
   await openTree(page);
