@@ -11,6 +11,8 @@
  *   - sintering a road: the open cell behind the frontier, facing it;
  *   - welding a site: its door cell, then back along its road, then any road
  *     cell beside it; a field structure from the road cell that serves it;
+ *     a Relay Mast from its stand beside it, off the road (and inside an
+ *     extraction zone, off the road at its door);
  *   - lent to a survey: into the Lander by its door, and gone.
  *
  *  The sim drives every rover to its slot (core/transit.ts) and the visuals
@@ -18,7 +20,7 @@
 import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from './state';
 import {
-  besideCells, cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, roadMap, serviceCell, zoneStand,
+  besideCells, cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, mastStand, roadMap, serviceCell, zoneStand,
 } from './roads';
 import { centerOf } from '../buildings/instances';
 import { FIELD_TYPES, ROAD } from '../data/roads';
@@ -222,6 +224,12 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     const zs = stands ? null : zoneStand(s, b);
     if (zs?.gate) {
       for (const id of offRoad(team, b, zs.x, zs.z)) push(parked, dockOf.get(id)!.id, id);
+      continue;
+    }
+    // a Relay Mast (docs/15 §5b): off the road at its stand, driven out to from its gate
+    const ms = stands ? null : mastStand(s, b);
+    if (ms) {
+      for (const id of offRoad(team, b, ms.x, ms.z)) push(parked, dockOf.get(id)!.id, id);
       continue;
     }
     if (!stands && FIELD_TYPES.has(b.type)) {

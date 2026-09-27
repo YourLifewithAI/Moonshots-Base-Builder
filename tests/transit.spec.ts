@@ -492,7 +492,7 @@ test('a save made mid-trip loads with the rover where it was, and it arrives whe
     }
     return { u0, u1, left, ticks, saved: blob.state.rovers.find((x: any) => x.id === u0.id), schema: blob.state.fleetSchema };
   });
-  expect(r.schema).toBe(1);
+  expect(r.schema).toBe(2); // fleetSchema 2: packs (docs/02, On-board power)
   expect(r.saved.trip).toBeTruthy();
   expect(r.u1.x).toBeCloseTo(r.u0.x, 6);
   expect(r.u1.z).toBeCloseTo(r.u0.z, 6);
@@ -524,7 +524,7 @@ test('an old save without trips settles each rover at its work: nothing waits on
       rovers: s1.rovers, schema: s1.fleetSchema,
     };
   });
-  expect(r.schema).toBe(1);
+  expect(r.schema).toBe(2); // fleetSchema 2: packs (docs/02, On-board power)
   const crew = r.rovers.find((x: any) => x.site === r.b);
   expect(crew.trip.site).toBe(r.b);
   expect(crew.trip.t).toBeGreaterThanOrEqual(crew.trip.dur);

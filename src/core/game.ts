@@ -41,7 +41,7 @@ import {
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { accessCell, bumpRoads, dropSpur, joinCell, layApron, laySpur, migrateRoads } from './roads';
+import { accessCell, bumpRoads, dropSpur, joinCell, layApron, laySpur, migrateRoads, planSpur } from './roads';
 import { zonesFrom } from './zones';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
@@ -1004,10 +1004,22 @@ export class Game {
     this.stampDeposit(b);
     s.buildings.push(b);
     // building on unmapped ground maps it — first, so its road knows the zone it stands in
+    const zonesBefore = s.zones;
     if (dep && !free) { this.strike(b, dep); this.syncZones(); }
     // its road (core/roads.ts): the Lander lands with its apron, the rest get a spur
     // (one inside an extraction zone stops at the zone's rim, core/zones.ts)
-    if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
+    if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else {
+      // the zone its strike just mapped refuses the road the placement check
+      // approved (a dock's bays on its ring): lay that road, the new zone set
+      // aside, as a save's migration does — a site with no road waits forever
+      if (s.zones !== zonesBefore && planSpur(s, this.hf, b).reason) {
+        const mapped = s.zones;
+        s.zones = zonesBefore;
+        laySpur(s, this.hf, b, free || this.debugOpenRoads);
+        s.zones = mapped;
+        bumpRoads(s);
+      } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
+    }
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
     // deadlock early-warning: metals gone before your first smelter exists
@@ -1908,6 +1920,7 @@ export class Game {
       supply: s.power.supply, demand: s.power.demand, served: s.power.served ?? s.power.demand,
       stored: s.powerStored, capacity: s.power.capacity,
       brownout: s.power.brownout, shed: s.power.shed ?? false,
+      fleet: s.power.fleet ?? 0, charging: s.power.charging ?? 0, flat: s.power.flat ?? 0,
     });
     const site = SITES[s.siteId];
     let beds = 0;

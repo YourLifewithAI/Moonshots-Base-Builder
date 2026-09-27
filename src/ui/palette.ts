@@ -400,10 +400,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
         : sel.idleReason === 'enroute' ? enRoute(sel)
         : sel.idleReason === 'noroad' ? 'NO ROAD — no road reaches it; its rovers wait (draw one with N)'
         : sel.idleReason === 'road' ? `LAYING ITS ROAD — ${spurLeft(game.state, sel)} cell${spurLeft(game.state, sel) === 1 ? '' : 's'} to go`
-        : sel.idleReason === 'power' ? `CONSTRUCTION PAUSED — no power (${conPct}%)`
+        : sel.idleReason === 'power' ? ($fleet.get().sites[sel.id]?.flat
+          ? `ROVER OUT OF CHARGE — waiting for the grid (${conPct}%)` : `CONSTRUCTION PAUSED — no power (${conPct}%)`)
         : sel.idleReason === 'inputs' ? `CONSTRUCTION STALLED — no parts (${conPct}%)`
+        : sel.onPack ? `UNDER CONSTRUCTION — ${conPct}% · on its rovers' packs (the grid is short)`
         : `UNDER CONSTRUCTION — ${conPct}%`)
       : !sel.enabled ? 'SHUT DOWN'
+      : sel.idleReason === 'power' && sel.type === 'excavator' && $fleet.get().hauls[sel.id]?.pack.startsWith('NO POWER')
+        ? $fleet.get().hauls[sel.id].pack
       : sel.idleReason === 'power' ? 'IDLE — no power'
       : sel.idleReason === 'crew' ? `IDLE — no crew free (${vit.crew} aboard, stations want ${vit.seats})`
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'

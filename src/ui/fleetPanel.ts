@@ -18,9 +18,10 @@ const eta = (t: number) => (Number.isFinite(t) ? `${fmtClock(t)} left` : 'waits 
 const isSite = (b: BuildingState) => (b.construction ?? 0) > 0;
 const kw = (v: number) => String(Math.round(v * 10) / 10);
 
-/** 'Rovers 2 · ×1.80 · 8 kW · 0:52 left' */
+/** 'Rovers 2 · ×1.80 · 8 kW · 0:52 left' (· 1 out of charge) */
 function crewLine(c: SiteCrewView): string {
-  return `Rovers ${c.n}${c.pinned ? ` (${c.pinned} pinned)` : ''} · ×${c.speed.toFixed(2)} · ${kw(c.kw)} kW · ${eta(c.eta)}`;
+  return `Rovers ${c.n}${c.pinned ? ` (${c.pinned} pinned)` : ''} · ×${c.speed.toFixed(2)} · ${kw(c.kw)} kW · ${eta(c.eta)}` +
+    (c.flat ? ` · ${c.flat} out of charge` : '');
 }
 
 /** What makes the building inspector rebuild (buttons appear or change). */
@@ -49,6 +50,7 @@ export function fleetBodyHtml(sel: BuildingState): string {
   return `<section>
       <span class="label">Haul — ${h.home ? 'digs its own pad' : 'digs away from its pad'} <span class="mono" style="float:right" id="insp-haul-rate"></span></span>
       <div class="mono" style="margin-top:4px" id="insp-haul-line"></div>
+      <div class="mono" style="margin-top:2px" id="insp-haul-pack"></div>
       <div ${NOTE} id="insp-haul-route"></div>
     </section>
     <section><span class="label">Revealed deposits nearby</span>
@@ -100,6 +102,7 @@ export function refreshFleet(root: HTMLElement, sel: BuildingState) {
   const h = f.hauls[sel.id];
   if (h && sel.type === 'excavator') {
     setText(root, 'insp-haul-line', h.line);
+    setText(root, 'insp-haul-pack', h.pack);
     setText(root, 'insp-haul-rate', `≈${perMin(h.rate)}`);
     setText(root, 'insp-haul-route',
       `Digs ${h.digName} → ${h.dropName} · ${Math.round(h.routeM)} m haul · ${perMin(h.rate)} delivered` +
@@ -147,6 +150,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
             <span class="k">Site</span><span class="mono" id="rv-site"></span>
             <span class="k">Orders</span><span class="mono" id="rv-mode"></span>
             <span class="k">Work</span><span class="mono" id="rv-work"></span>
+            <span class="k">Pack</span><span class="mono" id="rv-pack"></span>
           </div></section>
           <section><div ${NOTE}>Auto rovers take the construction queue one site each, in order. Send one to a site to pin it there — it stays until the site is built. Rovers on one site build ×n^${FLEET.rateExp} (2 → ×${crewRate(2).toFixed(2)}, 3 → ×${crewRate(3).toFixed(2)}); each draws its own kW, and the weld parts stay the same.</div></section>
         </div>
@@ -164,6 +168,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
     setText(insp, 'rv-mode', r.survey ? 'lent to a survey' : r.pinned ? 'pinned — stays until the site is built' : 'auto — the next site in the queue');
     const mods = game.mods;
     setText(insp, 'rv-work', `×${Math.round(mods.weldRateMult * 100) / 100} build rate · ${kw(CONSTRUCTION_KW * mods.constructionKWMult)} kW while welding`);
+    setText(insp, 'rv-pack', r.survey ? '—' : r.pack);
   };
   $roverSel.subscribe(render);
   $fleet.subscribe(render);
