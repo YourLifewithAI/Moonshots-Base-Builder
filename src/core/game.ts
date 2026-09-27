@@ -77,6 +77,7 @@ import { ModeManager } from '../player/modes';
 import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import { loadSettings, saveSettings, type RenderStyle } from './settings';
+import { autoTouch, type TouchChoice } from './touch';
 import { RESUME_KEY, setActiveStyle } from './style';
 import { sfx } from '../audio/sfx';
 import {
@@ -330,7 +331,8 @@ export class Game {
     this.instances.rebuild(this.state);
     this.homeCamera(false);
     this.walk.colliders = this.instances.colliders(this.state);
-    if (blob.player.mode === 'walk') {
+    // touch mode has no walk mode: a desktop save made on foot loads in the command view
+    if (blob.player.mode === 'walk' && !this.opts.touch) {
       this.walk.pos.set(blob.player.x, blob.player.y, blob.player.z);
       this.walk.yaw = blob.player.yaw;
       this.walk.pitch = blob.player.pitch;
@@ -446,6 +448,8 @@ export class Game {
 
   private bindInput() {
     window.addEventListener('mousemove', (e) => {
+      // touch mode: a tap's compatibility mousemove must not drag the ghost to the button tapped
+      if (this.touchCtl?.compatMouse()) return;
       this.mousePx = { x: e.clientX, y: e.clientY };
       this.mouse.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
       if (document.pointerLockElement === this.canvas && this.modes?.mode === 'walk') {
@@ -850,9 +854,11 @@ export class Game {
 
   /** The recognizer's state and the pointer (tests, probes). */
   debugTouch() {
+    const p = this.placement?.active ? this.placement.probe : null;
     return {
       on: !!this.touchCtl, ...(this.touchCtl?.info() ?? {}), pointer: this.pointer,
       roadRemove: this.roadRemove,
+      placing: p ? { type: p.type, gx: p.gx, gz: p.gz, rot: p.rot, valid: p.valid, reason: p.reason } : null,
     };
   }
 
@@ -1410,6 +1416,29 @@ export class Game {
     this.playing = false; // nothing may write the save again before the reload
     const url = new URL(location.href);
     for (const k of ['style', 'site', 'exp', 'fx', 'safe']) url.searchParams.delete(k);
+    location.assign(url.toString());
+  }
+
+  /** Would this touch choice change the running mode (and so reload)? */
+  touchSwitchReloads(choice: TouchChoice): boolean {
+    const next = choice === 'auto' ? autoTouch() : choice === 'on';
+    return next !== !!this.opts.touch;
+  }
+
+  /** The player picked touch controls (the menu): stored; when that changes
+   *  the running mode, the game saves and the page reloads straight back
+   *  into it — the touch layout is built once, at boot. A ?touch flag in the
+   *  address is dropped, or it would override the choice. */
+  async switchTouch(choice: TouchChoice) {
+    saveSettings({ touch: choice });
+    if (!this.touchSwitchReloads(choice)) return;
+    if (this.playing && !missionLost(this.state)) {
+      await this.doSave();
+      try { sessionStorage.setItem(RESUME_KEY, '1'); } catch { /* the title screen, then */ }
+    }
+    this.playing = false;
+    const url = new URL(location.href);
+    for (const k of ['touch', 'site', 'exp']) url.searchParams.delete(k);
     location.assign(url.toString());
   }
 

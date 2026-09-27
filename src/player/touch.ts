@@ -56,20 +56,33 @@ type Gesture =
    *  nothing more until every finger is up */
   | { kind: 'spent' };
 
+/** ms after a touch during which mouse events are the browser's
+ *  compatibility copies of it (a tap on a button sends a mousemove there) */
+const COMPAT_MS = 800;
+
 export class TouchControls {
   private pts = new Map<number, Pt>();
   private g: Gesture = { kind: 'idle' };
+  private touchAt = -Infinity;
   /** what the recognizer did last (tests, probes) */
   readonly log: string[] = [];
 
   constructor(private canvas: HTMLCanvasElement, private host: TouchHost) {
     const opts = { capture: true, passive: false } as const;
+    // any touch, anywhere (a HUD button too), marks the mouse events after it as copies
+    const seen = (e: PointerEvent) => { if (e.pointerType !== 'mouse') this.touchAt = performance.now(); };
+    for (const ev of ['pointerdown', 'pointermove', 'pointerup'] as const) window.addEventListener(ev, seen, { capture: true, passive: true });
     window.addEventListener('pointerdown', (e) => this.onDown(e), opts);
     window.addEventListener('pointermove', (e) => this.onMove(e), opts);
     window.addEventListener('pointerup', (e) => this.onUp(e, false), opts);
     window.addEventListener('pointercancel', (e) => this.onUp(e, true), opts);
     // no long-press callout or context menu on the world
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /** Is a mouse event now the browser's copy of a touch (not a real mouse)? */
+  compatMouse(): boolean {
+    return performance.now() - this.touchAt < COMPAT_MS;
   }
 
   private note(s: string) {

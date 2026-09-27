@@ -94,7 +94,7 @@ html.touch #touch-res {
 }
 html.touch #touch-res::-webkit-scrollbar { display: none; }
 html.touch #resource-strip { flex: none; flex-wrap: nowrap; max-width: none; gap: 4px; }
-html.touch #resource-strip .chip { height: var(--top-h); align-items: center; padding: 0 9px; flex: none; }
+html.touch #resource-strip .chip { height: var(--top-h); min-width: var(--tap); justify-content: center; align-items: center; padding: 0 9px; flex: none; }
 html.touch #resource-strip .chip .glyph { font-size: 12px; }
 html.touch #resource-strip .chip .val { min-width: 0; }
 html.touch #resource-strip .chip .cap { min-width: 0; }
@@ -324,6 +324,9 @@ html.touch #menu { padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge
 html.touch #menu .menu-panel { max-height: 100%; overscroll-behavior: contain; touch-action: pan-y; }
 html.touch #menu .menu-head { padding: 6px 12px; align-items: center; min-height: var(--tap); }
 html.touch #menu section { padding: 10px 12px; }
+html.touch #menu .menu-actions { flex-direction: row; flex-wrap: wrap; }
+html.touch #menu .menu-actions > .btn { flex: 1 1 28%; text-align: center; }
+html.touch #menu .menu-actions > :not(.btn) { flex: 1 1 100%; }
 html.touch #menu .seg .btn { font-size: 11px; }
 html.touch #menu input[type=range] { height: var(--tap); }
 html.touch #menu .menu-row:has(#menu-music), html.touch #menu .menu-row:has(#menu-effects) { padding-right: 60px; }
@@ -345,3 +348,154 @@ html.touch #touch-rotate .tr-title { font-size: 17px; font-weight: 600; letter-s
 html.touch #touch-rotate .tr-sub { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 @keyframes tr-turn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(90deg); } }
 @media (prefers-reduced-motion: reduce) { html.touch #touch-rotate .tr-glyph { animation: none; } }
+
+/* ── the research tree: tabs on top; the page (its header strip over the
+   lane board, both scrolling) on the left; the detail sheet with the queue
+   as a column on the right. A tap shows a card in the sheet, a second tap
+   acts, a hold queues the whole path. ── */
+html.touch #tech-screen {
+  z-index: 45;
+  padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l);
+  display: grid !important;   /* the tree's toggle writes display: flex inline */
+  --tsheet-w: clamp(250px, 37vw, 340px);
+  grid-template-columns: minmax(0, 1fr) var(--tsheet-w);
+  grid-template-rows: var(--tap) auto minmax(0, 1fr);
+  grid-template-areas: "head head" "phead sheet" "main sheet";
+  gap: 6px;
+}
+html.touch #tech-screen[style*="display: none"] { display: none !important; }
+html.touch #tech-head { grid-area: head; height: var(--tap); gap: 6px; min-width: 0; }
+html.touch #tech-head .th-name { font-size: 12px; }
+html.touch #tech-tabs {
+  flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; gap: 4px;
+}
+html.touch #tech-tabs::-webkit-scrollbar { display: none; }
+html.touch .era-tab { height: var(--tap); min-width: var(--tap); padding: 0 8px; font-size: 12px; }
+html.touch .era-tab :is(.et-g, .et-left, .et-q) { font-size: 11px; }
+html.touch #tech-alerts { display: none; }
+html.touch #tech-rate { display: none; }
+@media (min-width: 900px) { html.touch #tech-rate { display: block; font-size: 11px; } }
+html.touch #tech-head .btn { font-size: 12px; padding: 0 12px; }
+/* the page header: its three columns side by side, scrolled sideways */
+html.touch #tech-page-head {
+  grid-area: phead; margin: 0; height: 104px;
+  display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x;
+}
+html.touch #tech-page-head::-webkit-scrollbar { display: none; }
+html.touch #tech-page-head > div { flex: none; min-width: 0; overflow: hidden; }
+html.touch #tech-page-head > .ph-era { width: 230px; }
+html.touch #tech-page-head > .ph-destiny { width: 340px; }
+html.touch #tech-page-head > .ph-goals { width: 250px; }
+html.touch #tech-page-head.no-destiny > .ph-era { width: 280px; }
+html.touch .ph-era :is(.ph-k, .ph-count, .ph-meter),
+html.touch .ph-destiny :is(.dz-head, .dz-q, .dz-why, .fx),
+html.touch .ph-goals :is(.gl-title, .gl-row, .gl-v, .gl-pips),
+html.touch .dz-card :is(.dz-st, .dz-fx, .dz-vis, .dz-l2),
+html.touch .dz-opt :is(.dz-st, .dz-l2, .dz-fx),
+html.touch .dz-exp .dz-tag { font-size: 11px; line-height: 13px; }
+html.touch .dz-card, html.touch .dz-opt { min-height: var(--tap); }
+/* the board: 56 px rows (a 44 px card), scrolled both ways */
+html.touch #tech-main {
+  grid-area: main; margin: 0; display: block; overflow: auto; overscroll-behavior: contain;
+  touch-action: pan-x pan-y; background: rgba(var(--paper-rgb), 0.015); border: var(--hair);
+}
+html.touch #tech-board .lane .lane-label { font-size: 11px; }
+html.touch .tech-card .l2, html.touch .tech-card .l3 { font-size: 11px; line-height: 13px; }
+html.touch .tech-card .l3 .l3k, html.touch .tech-card .l1 .mk, html.touch .tech-card .l1 .gl { font-size: 11px; }
+html.touch .tech-card .stub { width: 30px; font-size: 11px; }
+html.touch .tech-card:hover { background: var(--ink-800); }
+html.touch .tech-card.done:hover { background: var(--ink-600); }
+html.touch .doc-bracket span { font-size: 11px; line-height: 11px; }
+/* the sheet: the detail on top (it scrolls), the queue below it */
+html.touch #tech-sheet {
+  grid-area: sheet; margin: 0; min-height: 0; height: auto;
+  flex: none; display: flex; flex-direction: column;
+}
+html.touch #tech-sheet.collapsed { flex: none; min-height: 0; }
+html.touch #tech-sheet.collapsed #tech-sheet-body { display: flex; }
+html.touch #tech-sheet-toggle { display: none; }
+html.touch #tech-sheet-body {
+  order: 1; flex: 1 1 auto; min-height: 0;
+  display: block; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  padding: 6px 10px; font-size: 12px; line-height: 16px;
+}
+html.touch #tech-sheet-body:has(.sh-path) { display: flex; flex-direction: column; }
+html.touch #tech-sheet-body .sh-col { overflow: visible; margin-bottom: 8px; flex: none; }
+/* the card's buttons first, and they stay in view as the sheet scrolls */
+html.touch #tech-sheet-body .sh-path { display: contents; }
+html.touch #tech-sheet-body .sh-path > .sh-btns {
+  order: -1; position: sticky; top: -6px; z-index: 1; margin: -6px -10px 4px; padding: 6px 10px 4px;
+  background: var(--ink-800); border-bottom: var(--hair);
+}
+html.touch #tech-sheet-body .sh-id { order: 1; }
+html.touch #tech-sheet-body .sh-path > :not(.sh-btns) { order: 2; margin-top: 2px; }
+html.touch #tech-sheet-body .sh-fx { order: 3; margin-top: 8px; }
+html.touch #tech-sheet-body .sh-path > div { white-space: normal; }
+html.touch #tech-sheet-body .sh-btns { flex-wrap: nowrap; gap: 4px; }
+html.touch #tech-sheet-body .sh-btns .btn { flex: 1 1 auto; padding: 0 6px; letter-spacing: 0.02em; }
+html.touch #tech-sheet-body .btn { font-size: 11px; padding: 0 10px; }
+html.touch #tech-sheet-body :is(.sh-meta, .sh-h, .k, .yb, .or, .unl .pro, .unl .con, .badges) { font-size: 11px; line-height: 14px; }
+html.touch #tech-sheet-body .fx-grid { grid-template-columns: 1fr; }
+html.touch #tech-sheet .lnk { display: inline-block; padding: 4px 0; }
+html.touch #tech-sheet .lnk .lk-era { font-size: 11px; }
+html.touch #tech-sheet button.lnk { font-size: 11px; }
+html.touch .doc-cols { flex-direction: column; }
+html.touch .doc-side { overflow: visible; }
+html.touch .doc-side .ds-head { flex-wrap: wrap; }
+html.touch .doc-side .ds-fx { grid-template-columns: 1fr; }
+html.touch .doc-side :is(.ds-cost, .why) { font-size: 11px; }
+html.touch .doc-sheet .doc-head { white-space: normal; }
+html.touch #tech-strip {
+  order: 2; flex: 0 1 auto; height: auto; max-height: 45%; min-height: var(--tap);
+  border-bottom: none; border-top: var(--hair); padding: 4px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; overflow-y: auto;
+}
+html.touch #tech-queue { flex-direction: column; align-items: stretch; overflow: visible; gap: 4px; }
+html.touch #tech-queue .q-head { padding: 2px 4px 0; }
+html.touch #tech-queue .q-empty { white-space: normal; font-size: 11px; line-height: 15px; padding: 0 4px 4px; }
+html.touch .q-item { height: var(--tap); flex: none; font-size: 12px; }
+html.touch .q-item .q-nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+html.touch .q-item .q-era, html.touch .q-item .q-live { font-size: 11px; }
+html.touch .q-item .q-live { display: none; }
+html.touch .q-btn { height: var(--tap); min-width: var(--tap); font-size: 15px; }
+html.touch #tech-other-sites { font-size: 11px; padding: 0 4px; white-space: normal; }
+
+/* ── the Lunar Map: the views scroll in the header, the map left, the
+   panel right, the tier ladder and outposts a scrolling strip ── */
+html.touch #map-screen {
+  padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l);
+  grid-template-columns: minmax(0, 1fr) clamp(240px, 36vw, 340px);
+  grid-template-rows: var(--tap) minmax(0, 1fr) 56px;
+  gap: 6px;
+}
+html.touch #map-head { gap: 6px; min-width: 0; }
+html.touch #map-head .mh-title { flex: 0 1 auto; max-width: 28%; }
+html.touch #map-head .mh-rule { display: none; }
+html.touch #map-head .mh-name { font-size: 11px; line-height: 14px; white-space: normal;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+html.touch #map-views { flex: 1 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; touch-action: pan-x; }
+html.touch #map-views::-webkit-scrollbar { display: none; }
+html.touch #map-views .mv { flex: none; height: var(--tap); }
+html.touch #map-views .mv-s { font-size: 11px; line-height: 13px; }
+html.touch #map-close { flex: none; font-size: 12px; padding: 0 12px; }
+html.touch #map-thumb { width: 76px; top: 6px; right: 6px; }
+html.touch #map-thumb svg { width: 76px; height: 76px; }
+html.touch #map-thumb .cap, html.touch #map-inset .cap { display: none; }
+html.touch #map-inset { width: 84px; left: 6px; bottom: 6px; }
+html.touch #map-inset svg { width: 82px; height: 82px; }
+html.touch #map-legend { display: none; }
+html.touch .mk .lbl, html.touch .mk .lbl.ring-l, html.touch .mk .lbl.mare-l, html.touch .mk .scale text,
+html.touch .pm .g, html.touch .pm .bt { font-size: 11px; }
+html.touch #map-side { overscroll-behavior: contain; }
+html.touch #map-panel { padding: 8px 10px; touch-action: pan-y; overscroll-behavior: contain; }
+html.touch #map-alert .ma { min-height: var(--tap); display: flex; align-items: center; }
+html.touch #map-panel .btn { font-size: 11px; }
+html.touch .ns-row { min-height: var(--tap); }
+html.touch .ns-row .ns-go { padding: 0 10px; font-size: 11px; }
+html.touch :is(.ns-row .ns-bt, .ns-row .ns-s, .ns-row .ns-why, .ps-bt .ps-tree) { font-size: 11px; }
+html.touch #map-strip { overflow-x: auto; scrollbar-width: none; touch-action: pan-x; gap: 6px; }
+html.touch #map-strip::-webkit-scrollbar { display: none; }
+html.touch #map-ladder, html.touch #map-outposts { flex: none; }
+html.touch .tl, html.touch .tl .tl-3, html.touch .op { font-size: 11px; line-height: 15px; }
+html.touch .op { flex: none; width: 172px; }
+html.touch .op-none { flex: none; width: 260px; }
