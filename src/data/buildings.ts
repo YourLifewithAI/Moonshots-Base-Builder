@@ -11,6 +11,8 @@ export type BuildingId =
   | 'partsFab' | 'reactor' | 'recDome' | 'chipFab' | 'dataCenter'
   | 'foilFactory' | 'massDriver'
   | 'relayMast' | 'propellantPlant'
+  // space weather (docs/16 §6.3)
+  | 'solarObservatory'
   // destiny buildings (docs/14 §2.8)
   | 'greenhouseRing' | 'gardenDome' | 'droneHive' | 'serverMonolith';
 
@@ -234,6 +236,15 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'LOX/LH₂ rockets launch from any latitude — they steer where rails cannot.',
     con: 'Drinks the crew’s water.',
   },
+  // space weather (docs/16 §6.3): a field instrument, reached off-road like a Relay Mast
+  solarObservatory: {
+    id: 'solarObservatory', name: 'Solar Observatory', category: 'science', era: 2,
+    footprint: [2, 2], height: 6, buildTime: 60,
+    buildCost: { metals: 25, parts: 8 }, crew: 0, powerKW: -2,
+    inputs: {}, outputs: {}, upkeepParts: 1, priority: 1,
+    pro: 'Sees the next flare coming: a window and a likely class.',
+    con: 'Blind at night, and in the shade of a ridge.',
+  },
 
   // ─── destiny buildings (docs/14 §2.8): each unlocked by a pick ───
   greenhouseRing: {
@@ -285,7 +296,7 @@ export const BUILD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',
   'smelter', 'refinery', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
   'habitat', 'hydroponics', 'recDome',
-  'lab', 'relayMast', 'dataCenter',
+  'lab', 'relayMast', 'solarObservatory', 'dataCenter',
   'foilFactory', 'massDriver', 'propellantPlant',
   'droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith',
 ];

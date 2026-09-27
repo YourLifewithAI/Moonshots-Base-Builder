@@ -598,6 +598,39 @@ function relayMast(): Parts {
   ];
 }
 
+/** docs/16 §6.3, §11: a white dome with a slit on a pier, and beside it a
+ *  coronagraph tube on a fork mount aimed sunward. F6 tracks the Sun and
+ *  closes the slit at night; this is the readable stock silhouette. */
+function solarObservatory(): Parts {
+  const dx = -0.9, dz = -0.9;       // the dome's pier
+  const cx = 1.9, cz = 1.9;         // the coronagraph's mount
+  const r = 1.55, y0 = 2.95;        // the dome
+  const p: Parts = [
+    box(6.6, 0.3, 6.6, TRIM, 0, 0.15, 0),
+    cyl(1.05, 1.25, 2.5, BODY, dx, 1.55, dz, 0, 0, 16),
+    cyl(1.75, 1.75, 0.16, TRIM, dx, 2.86, dz, 0, 0, 20),
+    dome(r, BODY, dx, y0, dz, 20),
+    bands(r, dx, dz, [y0 + 0.05], TRIM, 0.12, 20),
+    // the observing slit, meridian to horizon, facing the coronagraph's side
+    [0, 1, 2].map((i) => domeBand(r + 0.02, (i * PI) / 7, ((i + 1) * PI) / 7, GLASS, dx, y0, dz, 3, PI / 4 - 0.16, 0.32)),
+    box(0.5, 0.9, 0.12, WINDOW, dx + 0.95, 1.2, dz + 0.95, PI / 4),
+    // the coronagraph: a pier, a fork, the tube pitched up toward the Sun, a counterweight
+    cyl(0.28, 0.34, 1.5, TRIM, cx, 1.05, cz, 0, 0, 10),
+    box(0.9, 0.16, 0.5, PLATE, cx, 1.86, cz),
+    bar([cx - 0.36, 1.9, cz], [cx - 0.36, 2.55, cz], 0.1, TRIM),
+    bar([cx + 0.36, 1.9, cz], [cx + 0.36, 2.55, cz], 0.1, TRIM),
+    cyl(0.2, 0.24, 2.3, PLATE, cx, 2.6, cz, -0.75, 0, 12),
+    cyl(0.27, 0.27, 0.12, TRIM, cx, 2.6 + Math.cos(0.75) * 1.12, cz - Math.sin(0.75) * 1.12, -0.75, 0, 12, true),
+    box(0.34, 0.34, 0.34, TRIM, cx, 2.6 - Math.cos(0.75) * 1.25, cz + Math.sin(0.75) * 1.25),
+    // the electronics cabinet and its lamp
+    box(0.9, 1.0, 0.6, BODY, 2.1, 0.8, -1.9),
+    box(0.22, 0.1, 0.04, LAMP, 2.1, 1.1, -1.58),
+    cableTray([1.6, -1.9], [-0.1, -1.9]),
+    junction(-2.6, 2.6, 0),
+  ];
+  return p;
+}
+
 function propellantPlant(): Parts {
   const p: Parts = [
     box(4.6, 2.4, 7.6, BODY, -3.2, 1.2, 0),
@@ -778,7 +811,7 @@ function serverMonolith(): Parts {
 const R: Record<BuildingId, () => Parts> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery,
   refinery, lab, storageYard, roboticsBay, partsFab, reactor, recDome, chipFab,
-  dataCenter, foilFactory, massDriver, relayMast, propellantPlant,
+  dataCenter, foilFactory, massDriver, relayMast, propellantPlant, solarObservatory,
   greenhouseRing, gardenDome, droneHive, serverMonolith,
 };
 
