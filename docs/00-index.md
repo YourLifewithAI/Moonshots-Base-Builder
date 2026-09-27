@@ -67,6 +67,7 @@ A quick key used throughout:
 | **[13-automation-spec.md](13-automation-spec.md)** | Construction automation spec | The Builder: build orders, standing rules per building family (signals, thresholds, hysteresis, caps, reserves), site choice, the 12-tech automation ladder, UI, tick order, determinism, save format, tests and pacing impact. |
 | **[14-destiny-tracks.md](14-destiny-tracks.md)** | Destiny tracks | One page per era, a Colony-or-Automation pick per era (the landing is the first), bands and capstones, each path's hazards, the look of each ending, pacing and the techSchema 4 migration. |
 | **[15-roads.md](15-roads.md)** | Roads | The road network the robots drive: doors and auto spurs, field structures without roads, the road tool, excavators on haul roads, lane traffic and its deadlock breaker, the roadway research ladder, the save migration. |
+| **[17-extraction-hubs.md](17-extraction-hubs.md)** | Extraction hubs | Phase A design: smelters, refineries and a new Water Management Plant that print, dock and dispatch their own excavators and ice miners; hub hoppers instead of a regolith pool; placement by haul time and grade; deposit highlighting; every extraction site a terraced strip mine that deforms the heightfield, with grade-driven yield, ore halos, benches as working faces, tailings heaps, bedrock, crewed morale and Reclaim; deposit surveys; the extraction research ladder; the Builder, pacing, save migration and phased plan. |
 
 ---
 
