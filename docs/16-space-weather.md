@@ -1624,26 +1624,51 @@ and `auditTechs` for the twelve.
 Each phase merges on its own and leaves the game playable. **Phase B starts after
 work/unitpower merges:** F1 and F2 change economy steps 1 and 8, `src/core/fleet.ts` and
 `src/core/hazards.ts`, which it also changes. If docs/17's hubs land first, F2's machines
-include hub units and F5's implantation reads pits; if not, those lines wait for them.
+include hub units and their re-prints, and F5's implantation reads pits; if not, those
+lines wait for them.
 
 | # | Phase | Contents | Leaves the game |
 |---|---|---|---|
-| F1 | **The engine and classes** | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes, CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
-| F2 | **Consequences and stow** | cells, stances (base, field, class, this flare) and the stow motion; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute, scars and Shut down; the blackout; wear; DOSE and bit flips by class (§9); `flareStance`; the power panel and dusk lines; migration steps 5–6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, and every cost has a button |
-| F3 | **Forecasting** | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block and timeline; the telegraph bonuses | Planning grade |
-| F4 | **Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; the guard changes; kits, domes, the SHELTER block and the Dome tool; Flare Protocols; `domeKits` and shelter planning; Maintenance Automation's replacements | Every shield and counter |
+| F1 | **The engine and classes** | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes (a range until the peak), CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
+| F2a | **The pop-up and the arrays** | the flare pop-up (1280×720 and touch), its previews, Confirm, the compact form and the pause setting; the portion rule and the critical feed; remembered choices, field overrides and the safe default; the stow motion; running arrays destroyed and scarred; wrecks, Rebuild and Clear; stowed damage and field repair jobs; field berms on Regolith Shielding; `flareStance`; the power panel and dusk lines; migration step 5 | The player decides once per flare, and arrays pay for it |
+| F2b | **Scars and the rest of §4** | capability on buildings and machines, rad scars by class × (1 − σ)² × preparation, the inspector and panel lines, the 85% alert; Replace and Re-print; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute and Shut down exposed; the blackout; wear; DOSE and bit flips by class (§9); migration step 6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, every cost has a button, and neglect adds up |
+| F3 | **Forecasting** | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block, timeline and `Arrays: choose now…`; the telegraph bonuses | Planning grade |
+| F4 | **Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; the guard changes; kits, domes (over stowed fields too), the SHELTER block and the Dome tool; Flare Protocols (every row remembered, the tail row, the grid); `domeKits` and shelter planning; Maintenance Automation's replacement threshold | Every shield and counter |
 | F5 | **Benefits** | the four breakthroughs, their hosts and slots; implantation; the particle annex; the Shield Coil; CME sail windows and storm sails; the three insights | Flares pay back |
-| F6 | **Look and audio** | the speckle and the frame; the sky's flash and aurora; the stow tween; bag walls and domes; glitch markers; the observatory, coil and sentinel dish recipes; the cues and the Geiger bed; touch polish | Finished |
+| F6 | **Look and audio** | the speckle and the frame; the sky's flash and aurora; the stow tween and field berms; wrecks, repair poses and capability markers; bag walls and domes; glitch markers; the observatory, coil and sentinel dish recipes; the cues and the Geiger bed; touch polish | Finished |
 | F7 | **The pacing pass** | the probe against §12 on both sites and all three destinies; the levers of §12.4 | Tuned |
 
-## 17. Open questions for the player
+## 17. The player's answers, and what is still open
 
-Only the choices this design could not settle alone. Each has the default it uses.
+### 17.1 Answered
+
+| # | Question | The player's answer | Where it went |
+|---|---|---|---|
+| 1 | Should arrays stow by default, or keep generating? | **Neither as a setting: decide in the warning pop-up**, for all the arrays or a portion, and let the game carry it out for every array. Arrays kept running through a severe flare are **destroyed** (about half at X); stowed arrays without proper shielding take **repairable** damage that rovers fix; with shielding, little or none. The remembered choice, field overrides and the Builder stay as shortcuts; unanswered, the remembered choice or a safe default. | §1, §4.2, §4.3, §5, §10.3, §12, §15 |
+| 2 | Should an unanswered real X destroy machines outright? | **Yes:** about 15% burn out, and about 45% brick with the 480 s re-flash deadline. | §4.5 |
+| 3 | Should an X scar compute for good? | **More than that:** cumulative damage and loss of capability on every exposed, unshielded building and machine (rovers, drones, excavators and hub units) when nothing was deployed or prepared, until some must be replaced. | §4.13, §4.14, §12 |
+| 4 | Storm Sails: keep a stretch of physics? | **Keep it.** | §8.5 |
+| 5 | Should the solar cycle follow game time or eras? | **Game time, with era floors**, as proposed. | §3.4 |
+
+**Decided in this revision, with the reason:**
+
+- **The exact shares.** Running arrays: 50% destroyed at X and 15% at M, the rest scarred
+  −5% and −2%; a C only scars them (−0.5%). Stowed: −20% at X with its tail, −5% at M,
+  none at C, all repairable.
+- **The scar scale.** C −0.25%, M −1.5%, X −5%, tail −1%; × (1 − σ)² and a tenth when
+  prepared; multiplicative, floored only at 10%.
+- **Repairs.** 1⚙ per 10% of damage (halves up; none under 5%) and 6 s + 0.2 s per %,
+  a rover job per field.
+- **Replace.** Half the cost, 60% of the time, the site kept. Units re-print at their hub
+  or dock for half.
+- **No annealing tech** (§4.14): Replace already clears scars, and a second verb would
+  make them soft.
+- **The safe default is stow all but the critical feed**, not stow all: stowing the
+  arrays life support needs could darken a habitat.
+
+### 17.2 Still open
 
 | # | Question | Default (what the design uses) | The other way |
 |---|---|---|---|
-| 1 | **Should arrays stow by default, or keep generating?** | **Stow on warning.** An unanswered warning does no lasting harm, and a new player's flare feels like today's. The drill teaches "risk it". | Keep generating: truer to the Sun, and cells wear until the player learns to stow. |
-| 2 | **Should an unanswered real X destroy machines outright?** | **Yes: 15% of machines in the open burn out at once,** beyond the 45% that brick with a 480 s re-flash deadline. | Only the bricking: a machine is lost only when its re-flash deadline passes. |
-| 3 | **Should an X scar compute for good?** | **Yes: −4% a real X on running, unshielded Chip Fabs, Data Centers and Monoliths, to −12%.** Shut down or shield to avoid it. | Keep compute's X costs temporary; only cells, machines and lives are permanent. |
-| 4 | **Storm Sails: keep a stretch of physics?** | **Keep it:** an electric sail riding a CME. It is the one flare benefit that feeds the swarm. | Swap it for something plainer, such as a volley that ignores the blackout. |
-| 5 | **Should the solar cycle follow game time or eras?** | **Game time, with era floors** (M from Era 2, X from Era 4): a fast base meets the maximum with more built. | Eras: every run has the same shape, and the maximum always lands in Era 5–6. |
+| 6 | **Should the flare pop-up pause the game?** | **Yes for M and X, no for C**, and never once a choice for the class is remembered (the menu can change it). With 9 flares a run, that is about six pauses before the first remembered choice. | Never pause: the pop-up waits on a running clock, and the unanswered rule decides. |
+| 7 | **Should stowed arrays repair themselves by default?** | **Yes:** `Repair after` is ticked, so the rovers go out after each flare without a click. | Unticked: repairs wait for a Repair all, and a busy player learns the cost of damage left standing. |
