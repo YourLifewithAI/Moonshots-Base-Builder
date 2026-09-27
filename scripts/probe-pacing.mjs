@@ -757,7 +757,8 @@ async function installBot(cfg) {
     if (cfg.flares === 'legacy') return;
     const w = G.getSpaceWeather();
     const p = w.popup;
-    if (p && !p.locked && p.decidedBy !== 'click' && !p.remembered && !p.builder) {
+    // it reads the class once the X-ray peak firms it (20 s in), and answers before the arrays move
+    if (p && !p.locked && w.firmIn <= 0 && p.decidedBy !== 'click' && !p.remembered && !p.builder) {
       const cls = p.rememberCls;
       const choice = cls === 'C' ? { mode: 'run' } : { mode: 'feed' };
       G.flareChoice(choice, { repair: true, remember: !flareSeen[cls] });
