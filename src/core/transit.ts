@@ -23,7 +23,9 @@ import type { BuildingState, GameState, RoverTrip, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { DRONE, isDrone, roverDown, surveyRover, whereIs } from './fleet';
 import { groundSpots, type RoverSpot } from './spots';
-import { cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, roadDistances, spurLeft } from './roads';
+import {
+  cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, offAreaAt, offGround, roadDistances, spurLeft,
+} from './roads';
 import { centerOf } from '../buildings/instances';
 
 type Pt = [number, number];
@@ -118,27 +120,32 @@ export const arrived = (t: RoverTrip | null | undefined): boolean => !!t && !t.s
 /** Seconds of the trip left (0: there; Infinity: no road there, or none). */
 export const tripLeft = (t: RoverTrip | null | undefined): number =>
   !t || t.stuck ? Infinity : Math.max(0, t.dur - t.t);
+/** The trip's clock `ahead` s from now: a unit on its pack's last charge, or
+ *  on its RPU alone, drives on a share of it (core/unitPower.ts). */
+const clockAt = (t: RoverTrip, ahead: number) => Math.min(t.dur, t.t + ahead * (t.rate ?? 1));
+
 /** Where the trip has it `ahead` s from now (the visuals' tick fraction). */
 export function tripPoint(t: RoverTrip, ahead = 0): Pt {
-  return pointOnW(t.pts, t.w, travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a));
+  return pointOnW(t.pts, t.w, travelled(clockAt(t, ahead), t.len, t.v, t.a));
 }
 
 /** The trip's real speed now (m/s): its cruise, slowed on an off-road segment. */
 export function tripSpeed(t: RoverTrip, ahead = 0): number {
-  if (!t.w) return t.v;
-  const u = actualAt(t.pts, t.w, travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a));
+  const k = t.rate ?? 1;
+  if (!t.w) return t.v * k;
+  const u = actualAt(t.pts, t.w, travelled(clockAt(t, ahead), t.len, t.v, t.a));
   let m = 0;
   for (let i = 1; i < t.pts.length; i++) {
     m += Math.hypot(t.pts[i][0] - t.pts[i - 1][0], t.pts[i][1] - t.pts[i - 1][1]);
-    if (u <= m + 1e-9) return t.v / (t.w[i - 1] ?? 1);
+    if (u <= m + 1e-9) return (t.v * k) / (t.w[i - 1] ?? 1);
   }
-  return t.v / (t.w[t.w.length - 1] ?? 1);
+  return (t.v * k) / (t.w[t.w.length - 1] ?? 1);
 }
 
 /** How far along its way (real metres, a share of the whole) the trip has it `ahead` s from now. */
 export function tripShare(t: RoverTrip, ahead = 0): number {
   if (t.len <= 1e-6) return 1;
-  const u = travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a);
+  const u = travelled(clockAt(t, ahead), t.len, t.v, t.a);
   if (!t.w) return u / t.len;
   const all = pathLen(t.pts);
   return all > 1e-6 ? actualAt(t.pts, t.w, u) / all : 1;
@@ -264,8 +271,14 @@ export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
  *  zone to and from its gate (core/roads.ts groundWay). Null: no road there. */
 function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: number[] } | null {
   if (!g.cell || !hasRoads(s)) return { pts: [[x, z], [g.x, g.z]] };
-  // a slot on a road cell is reached by it; an off-road one (inside a zone) by a gate
-  const way = groundWay(s, [x, z], [g.x, g.z]);
+  // a slot on a road cell is reached by it; an off-road one (inside a zone,
+  // or a Relay Mast's stand) by a gate; a unit stopped out on open ground
+  // (its pack flat on a mast's way out) sets off again from the nearest road,
+  // and an off-road slot on open ground (a field structure's wall just outside
+  // its zone's rim) is reached from the nearest road
+  const from = offAreaAt(s, x, z) ?? offGround(s, x, z);
+  const to = g.off ? offAreaAt(s, g.x, g.z) ?? offGround(s, g.x, g.z) : null;
+  const way = groundWay(s, [x, z], [g.x, g.z], null, null, from, to);
   if (!way) return null;
   // drop points it already stands on
   const pts: Pt[] = [way.pts[0]];
@@ -327,8 +340,10 @@ export function transitArrive(s: GameState, dt: number): Arrivals {
     delete r.task;
     const t = r.trip;
     if (!t || t.stuck) continue;
-    if (t.t < t.dur) {
-      t.t = Math.min(t.dur, t.t + dt);
+    // out of charge, it waits where it stands; on its RPU alone it creeps (core/unitPower.ts)
+    const pw = r.pw ?? 1;
+    if (t.t < t.dur && pw > 0) {
+      t.t = Math.min(t.dur, t.t + dt * pw);
       [r.x, r.z] = tripPoint(t);
     }
     if (!arrived(t) || r.id === away || roverDown(s, r)) continue;
@@ -378,6 +393,7 @@ export function transitPlan(s: GameState, mods: Pick<Mods, 'roadSpeedMult' | 'ro
     // a step to the next stand at the same work (the frontier's next cell) is no new journey
     const local = !!t && !t.stuck && arrived(t) && workOf(t) !== '' && workOf(t) === workOf(g);
     r.trip = planTrip(s, r, g, sv, sa, local);
+    if (r.pw !== undefined) r.trip.rate = r.pw; // a new trip on a flat pack waits as the last did
   }
 }
 

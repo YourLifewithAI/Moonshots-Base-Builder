@@ -377,6 +377,37 @@ const excavator: Upgrade[] = [
       cyl(0.1, 0.03, 0.3, TRIM, -2.1, 0.12, -0.8, 0, 0, 6),
     ],
   },
+  // on-board power (docs/02 · On-board power): the digger's pack grows with the fleet's
+  // (world/rovers.ts gives the rovers and drones theirs)
+  { // Rover Power Packs: two battery pods on each flank, over the tracks
+    tech: 'roverPowerPacks',
+    parts: () => {
+      const out: Parts = [];
+      for (const side of [-1, 1]) {
+        for (const x of [-0.6, 0.6]) {
+          out.push(box(1.0, 0.34, 0.16, PLATE, x, 1.2, side * 1.4), box(1.02, 0.05, 0.18, BODY, x, 1.39, side * 1.4));
+        }
+      }
+      return out;
+    },
+  },
+  { // Fuel-Cell Packs: hydrogen and oxygen tanks strapped across the front deck
+    tech: 'fuelCellPacks',
+    parts: () => [
+      cyl(0.2, 0.2, 1.0, BODY, 1.05, 1.82, -1.0, 0, PI / 2, 12),
+      cyl(0.15, 0.15, 1.0, PLATE, 1.05, 1.77, -0.55, 0, PI / 2, 12),
+      box(0.08, 0.12, 0.8, TRIM, 0.7, 1.66, -0.78), box(0.08, 0.12, 0.8, TRIM, 1.4, 1.66, -0.78),
+      pipe([0.55, 1.82, -1.0], [0.55, 1.77, -0.55], 0.04, TRIM),
+    ],
+  },
+  { // Radioisotope Power Units: a finned drum on the tail, under the radiator
+    tech: 'radioisotopeUnits',
+    parts: () => {
+      const out: Parts = [cyl(0.24, 0.24, 0.78, TRIM, -2.08, 1.1, 0.7, 0, 0, 12), cyl(0.27, 0.27, 0.06, PLATE, -2.08, 1.52, 0.7, 0, 0, 12)];
+      for (let k = 0; k < 4; k++) out.push(box(0.72, 0.7, 0.03, RADIATOR, -2.08, 1.1, 0.7, (k * PI) / 4));
+      return out;
+    },
+  },
 ];
 
 const habitat: Upgrade[] = [

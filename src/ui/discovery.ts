@@ -91,6 +91,13 @@ function nextStep(fx: TechEffect[], s: GameState): string {
         break;
       case 'haul':
         return 'Excavators drive faster and carry more: select one and Dig at… a rich deposit farther out — the long hauls gain most.';
+      // on-board power (core/unitPower.ts): what a unit does off the grid now
+      case 'unitPower':
+        if (f.rpu) return 'Every unit makes its own trickle now: through any brownout, rovers, drones and excavators keep working slowly.';
+        if ((f.packMult ?? 1) > 1) {
+          return 'Every unit carries a bigger pack: it works longer through a brownout before it stops. A unit\'s inspector shows its charge; they refill at their docks and pads.';
+        }
+        break;
       case 'road':
         if ((f.speedMult ?? 1) > 1 || (f.haulMult ?? 1) > 1 || (f.nightMult ?? 1) > 1) {
           return 'Every road carries its traffic faster now: link far structures with the road tool [N] — shortcuts pay more.';

@@ -80,6 +80,13 @@ export interface Mods {
   roadNightMult: number;
   roadDustMult: number;
   roadCellMult: number;
+  /** on-board power (core/unitPower.ts, docs/02 · On-board power): every unit's pack
+   *  ×packMult, its driving draw ×unitDriveMult, its charger's grid kW
+   *  ÷chargeEff; rpu: Radioisotope Power Units' trickle aboard every unit */
+  packMult: number;
+  unitDriveMult: number;
+  chargeEff: number;
+  rpu: boolean;
   // ── the Builder (docs/13, core/automation.ts) ──
   /** held orders the order book keeps (0 = one-shot orders only) */
   orderBook: number;
@@ -168,6 +175,7 @@ export function computeMods(
     kreepOutpost: false,
     haulSpeedMult: 1, haulBucketMult: 1,
     roadSpeedMult: 1, roadHaulMult: 1, roadNightMult: 1, roadDustMult: 1, roadCellMult: 1,
+    packMult: 1, unitDriveMult: 1, chargeEff: 1, rpu: false,
     orderBook: 0, orderMax: AUTO.orderMax, autoFamilies: new Set(), siteSurvey: false, governor: false,
     predictive: false, feedPlanner: false, maintenanceWear: 0, builderDwellMult: 1, builderCapMult: 1,
     builderAll: false,
@@ -256,6 +264,12 @@ export function computeMods(
           m.roadNightMult *= fx.nightMult ?? 1;
           m.roadDustMult *= fx.dustMult ?? 1;
           m.roadCellMult *= fx.cellMult ?? 1;
+          break;
+        case 'unitPower':
+          m.packMult *= fx.packMult ?? 1;
+          m.unitDriveMult *= fx.driveMult ?? 1;
+          m.chargeEff *= fx.chargeEff ?? 1;
+          if (fx.rpu) m.rpu = true;
           break;
         case 'housing': m.housingDelta[fx.building] += fx.delta; break;
         case 'orders': m.orderBook = Math.max(m.orderBook, fx.book); m.orderMax = Math.max(m.orderMax, fx.maxCount); break;
