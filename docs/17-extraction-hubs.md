@@ -1714,7 +1714,12 @@ hopper, and digs the pits Phase 3 carves.
   deposit. Old ▲ fills the hoppers, then the pile. With no hub, a pad digs the old way
   into the pile until a hub is built, and it does not carve. A migrated hub with no
   joined unit gets its free one. Ice harvesters keep producing.
-- **Hub placement** is only refused inside a zone. The ghost's HUB block is Phase 5.
+- **Hub placement** is only refused inside a zone. The ghost shows one HUB line,
+  so travel time is a choice the player can read:
+  `HUB — its regolith excavators dig high-Ti basalt #0, ~22 s one way · ~0.95▲/s a
+  unit; it burns 2.0▲/s · feed ×1.30`. With nothing in reach, it says that it would
+  stake a plain pit. The full HUB block (the plain-pit stake, ring warnings) is
+  Phase 5.
 - **Pacing:** pending the final diagnostic pass. The player's rule is that pacing
   does not matter so long as the game is fun. Hub and haul balance are not tuned to
   era times. Travel time to the deposit is the placement choice.

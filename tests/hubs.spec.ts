@@ -124,6 +124,54 @@ test('the smelter is known from landing and comes with its first unit; the palet
   await expect(page.locator('#palette .bld-btn[data-type="smelter"]')).not.toHaveClass(/locked/);
 });
 
+test('the ghost reads the choice: where a hub\'s units would dig and how far one way — nearer is more ▲ a unit', async ({ page }) => {
+  await start(page);
+  const a = await page.evaluate(() => {
+    const g = window.__game!;
+    const d = g.getDeposits().find((q: any) => q.id === 'ilmenite-0');
+    // valid smelter spots out from the deposit, every way: the nearest, and the farthest (30 m more at least)
+    const spots: { gx: number; gz: number; rot: number; m: number }[] = [];
+    for (let k = 0; k < 16; k++) {
+      const ux = Math.cos((k / 16) * Math.PI * 2), uz = Math.sin((k / 16) * Math.PI * 2);
+      for (let m = d.r + 6; m < d.r + 140; m += 8) {
+        const gx = Math.floor((d.x + ux * m + 512) / 4) - 1, gz = Math.floor((d.z + uz * m + 512) / 4) - 1;
+        for (const rot of [0, 1, 2, 3]) if (g.canPlace('smelter', gx, gz, rot).valid) { spots.push({ gx, gz, rot, m }); break; }
+      }
+    }
+    spots.sort((p, q) => p.m - q.m);
+    const near = spots[0], far = spots[spots.length - 1];
+    const zones = g.getZones().map((z: any) => z.kind);
+    return {
+      near, far, nearLine: g.hubGhost('smelter', near.gx, near.gz, near.rot), farLine: g.hubGhost('smelter', far.gx, far.gz, far.rot),
+      refinery: g.hubGhost('refinery', near.gx, near.gz, near.rot), anorthosite: zones.includes('anorthosite'),
+      lab: g.hubGhost('lab', near.gx, near.gz, 0), at: onScreen(),
+    };
+    // a valid spot the camera shows (it looks at the Lander), for the pointer
+    function onScreen() {
+      for (let r = 8; r <= 24; r++) for (let k = 0; k < 24; k++) {
+        const gx = 127 + Math.round(Math.cos((k / 24) * Math.PI * 2) * r), gz = 127 + Math.round(Math.sin((k / 24) * Math.PI * 2) * r);
+        if (!g.canPlace('smelter', gx, gz, 0).valid) continue;
+        const p = g.screenOf((gx + 1.5) * 4 - 512, (gz + 1) * 4 - 512);
+        if (p.visible && p.x > 300 && p.x < 1100 && p.y > 200 && p.y < 620) return p;
+      }
+      return null;
+    }
+  });
+  const parse = (t: string) => { const m = /~(\d+) s one way · ~([\d.]+)▲\/s a unit/.exec(t); return m ? { t: Number(m[1]), rate: Number(m[2]) } : null; };
+  expect(a.nearLine).toMatch(/^HUB — its regolith excavators dig high-Ti basalt #0, ~\d+ s one way · ~[\d.]+▲\/s a unit; it burns [\d.]+▲\/s · feed ×1\.\d\d$/);
+  expect(a.far.m).toBeGreaterThan(a.near.m + 30);
+  const n = parse(a.nearLine)!, f = parse(a.farLine)!;
+  expect(f.t).toBeGreaterThan(n.t);
+  expect(f.rate).toBeLessThan(n.rate);
+  if (!a.anorthosite) expect(a.refinery).toMatch(/^HUB — no highland anorthosite within 90 s one way: it stakes a plain pit by its door$/);
+  expect(a.lab).toBe('');
+  // the placement hint shows it under the ghost
+  await page.evaluate(() => window.__game!.beginPlacement('smelter'));
+  expect(a.at).not.toBeNull();
+  await page.mouse.move(a.at.x, a.at.y);
+  await expect(page.locator('#place-hub')).toContainText(/^HUB — /);
+});
+
 test('printing: + Excavator queues, pays at the head, prints in 48 s at 4 kW, pauses in a brownout; bays cap it; cancel refunds', async ({ page }) => {
   await start(page);
   const a = await page.evaluate(() => {

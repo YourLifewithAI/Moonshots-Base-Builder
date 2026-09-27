@@ -211,6 +211,8 @@ export const $placing = atom<{
   /** game-seconds the nearest free rover would take to get there (core/transit.ts);
    *  Infinity: every rover is busy; undefined: not asked */
   travelS?: number;
+  /** a hub's ghost: where its units would dig, and how far one way (core/hubs.ts hubGhostLine) */
+  hub?: string;
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
 export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);

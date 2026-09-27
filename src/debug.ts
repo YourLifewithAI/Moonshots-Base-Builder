@@ -18,7 +18,7 @@ import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
 import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
-import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { choicesFor, hubGhostLine, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -256,6 +256,9 @@ function api(game: Game) {
     cancelJob: (hub: number, index = 0) => game.actions.push({ kind: 'cancelJob', hub, index }),
     assignPit: (hub: number, key: string | null) => game.actions.push({ kind: 'assignPit', hub, key }),
     openPit: (hub: number, x: number, z: number) => game.actions.push({ kind: 'openPit', hub, x, z }),
+    /** a hub ghost's HUB line at (gx, gz, rot): where its units would dig, how far one way */
+    hubGhost: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
+      hubGhostLine(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot }),
     /** why a plain pit may not be staked at world (x, z) ('' = it may) */
     plainPitWhy: (x: number, z: number) => plainPitRefusal(game.state, game.mods, SITES[game.state.siteId], x, z),
     sendUnit: (unit: number, key: string) => game.actions.push({ kind: 'sendUnit', unit, key }),

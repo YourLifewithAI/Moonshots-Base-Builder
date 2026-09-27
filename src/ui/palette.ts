@@ -360,7 +360,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
         : 'NO FREE ROVER — it waits its turn in the queue'}</div>`
       : '';
     const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
-      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${road}${eta}${warn}`
+      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.hub ? `<div class="road-note" id="place-hub">${p.hub}</div>` : ''}${road}${eta}${warn}`
       : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
     if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
   };

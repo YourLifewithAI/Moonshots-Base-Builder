@@ -45,7 +45,7 @@ import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, l
 import { zonesFrom } from './zones';
 import {
   assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, facePoint, hopperRoom, migrateHubs, newHubState, openPit,
-  plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
+  hubGhostLine, plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
 import { ROAD } from '../data/roads';
@@ -1819,6 +1819,7 @@ export class Game {
           $placing.set({
             type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
             road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
+            hub: p.valid && p.type !== 'grade' && isHubType(p.type) ? hubGhostLine(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : undefined,
           });
         }
       } else {
