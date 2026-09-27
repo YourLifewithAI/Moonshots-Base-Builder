@@ -660,6 +660,8 @@ phone's GPU gets.
 
 - **Walk mode** (Tab, first person) is hidden: a virtual stick is not cheap and good enough. Tab does nothing, even with a keyboard attached. A desktop save made on foot loads in the command view.
 - The era chip and the map chip: the Tree and Map rail buttons carry their state (research progress, the map's pulse).
+- The Deposits chip in the resource strip and the palette's Road button: ◌ Ore and Road on the rails replace them.
+- Ordering three at once (Ctrl+Shift-click a card): a hold orders one; hold again for more.
 - Hover tooltips: tap-to-show (§13.5).
 - Key hints in shared texts: `[B]`, `[G]`, `[M]`, `[T]`, `[N]` and `[I]` are rewritten as they render (`untangleKeys` in `ui/touchUi.ts`). After "with", "in" or "Open", or before "to", a hint becomes the rail's name ("tune it with Builder"). A hint alone in a label goes. Anywhere else it is dropped ("Open Lunar Map").
 - The research header's alert echo and the transfer-rate chip (on screens under 900 px).
