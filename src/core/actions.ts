@@ -41,6 +41,16 @@ export type Action =
   | { kind: 'unpinRover'; rover: number }
   | { kind: 'digAt'; id: number; x: number; z: number } // an excavator's dig site (world m)
   | { kind: 'digHome'; id: number }
+  // extraction hubs (core/hubs.ts, docs/17 §4)
+  | { kind: 'queueUnit'; hub: number }         // + Excavator / + Ice Miner
+  | { kind: 'queueBay'; hub: number }          // + Bay (a level, once research allows it)
+  | { kind: 'cancelJob'; hub: number; index: number }
+  | { kind: 'assignPit'; hub: number; key: string | null } // the hub's preferred pit (null: auto)
+  | { kind: 'openPit'; hub: number; x: number; z: number } // stake a plain pit
+  | { kind: 'sendUnit'; unit: number; key: string }        // pin a unit to a pit or deposit
+  | { kind: 'recallUnit'; unit: number }
+  | { kind: 'dispatchUnit'; unit: number }
+  | { kind: 'autoUnit'; unit: number }
   // roads (core/roads.ts): the road tool
   | { kind: 'layRoad'; from: [number, number]; to: [number, number] } // from an open road cell to a cell
   | { kind: 'removeRoad'; cells: [number, number][] }

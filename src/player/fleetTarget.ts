@@ -21,6 +21,8 @@ import { inside, worldRect } from '../core/paths';
 import { centerOf } from '../buildings/instances';
 import { fmtClock } from '../core/daynight';
 import { $depositOverlay, $fleetFlash, $fleetTarget } from '../ui/stores';
+import { depKey, freeFace, hubOf, plainKey, plainPitRefusal, targetOf, tripTo, unitTag } from '../core/hubs';
+import { HUB } from '../data/hubs';
 import { sfx } from '../audio/sfx';
 
 export interface FleetTargetHost {
@@ -34,12 +36,16 @@ export interface FleetTargetHost {
   push(a: Action): void;
 }
 
-type Mode = { kind: 'send'; rover: number } | { kind: 'dig'; id: number };
+export type Mode = { kind: 'send'; rover: number } | { kind: 'dig'; id: number }
+  // hub units (docs/17 §4.4): Send… a unit to a pit or deposit; Open pit… for a hub
+  | { kind: 'sendUnit'; unit: number } | { kind: 'openPit'; hub: number };
 
 const G = RESOURCES.regolith.glyph;
 const perMin = (r: number) => `${Math.round(r * 60)}${G}/min`;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
 const RING_SEG = 40;
+/** faces free at a target */
+const countFree = (s: GameState, key: string, faces: number) => faces - s.haulers.filter((u) => u.target === key && u.face >= 0).length;
 
 export class FleetTarget {
   readonly group = new THREE.Group();
@@ -69,13 +75,13 @@ export class FleetTarget {
     if (!this.mode) this.overlayWas = $depositOverlay.get();
     this.mode = mode;
     // where you dig is a production decision: show the ground
-    if (mode.kind === 'dig') $depositOverlay.set(true);
+    if (mode.kind !== 'send') $depositOverlay.set(true);
     this.update();
   }
 
   cancel() {
     if (!this.mode) return;
-    if (this.mode.kind === 'dig') $depositOverlay.set(this.overlayWas);
+    if (this.mode.kind !== 'send') $depositOverlay.set(this.overlayWas);
     this.mode = null;
     this.ring.visible = false;
     $fleetTarget.set(null);
@@ -88,7 +94,9 @@ export class FleetTarget {
     const s = this.host.state();
     const hit = this.groundHit();
     if (m.kind === 'send') this.hoverSend(s, m.rover, hit);
-    else this.hoverDig(s, m.id, hit);
+    else if (m.kind === 'dig') this.hoverDig(s, m.id, hit);
+    else if (m.kind === 'sendUnit') this.hoverSendUnit(s, m.unit, hit);
+    else this.hoverOpenPit(s, m.hub, hit);
   }
 
   /** A left click while active: act on it, or say no. Always consumed. */
@@ -115,6 +123,46 @@ export class FleetTarget {
     this.hover = { valid, reason, action };
     const m = this.mode!;
     $fleetTarget.set({ mode: m.kind, id, title, line, valid, reason });
+  }
+
+  /** Send… a hub unit: the deposit or plain pit under the cursor. */
+  private hoverSendUnit(s: GameState, id: number, hit: [number, number] | null) {
+    const u = s.haulers.find((x) => x.id === id);
+    const b = u ? hubOf(s, u) : undefined;
+    if (!u || !b) { this.cancel(); return; }
+    const title = `SEND ${unitTag(u)} · click a mapped deposit or a plain pit · Esc cancels`;
+    const zone = hit ? (s.zones ?? []).find((z) => Math.hypot(hit[0] - z.cx, hit[1] - z.cz) <= z.r) : undefined;
+    const t = zone ? targetOf(s, zone.kind === 'plain' ? zone.id : depKey(zone.id)) : null;
+    if (!t) {
+      this.ring.visible = false;
+      this.publish(title, '', false, 'Not a pit — click a mapped deposit (the overlay [I]) or a plain pit', null, id);
+      return;
+    }
+    const trip = tripTo(s, this.host.mods(), b, t);
+    const lim = HUB.reachS * HUB.sendReach;
+    const why = trip.t > lim ? `OUT OF REACH — ${fmtClock(trip.t)} one way (Send… reaches ${fmtClock(lim)})` : '';
+    this.drawRing(t.cx, t.cz, t.r, !why);
+    if (why) { this.publish(title, '', false, why, null, id); return; }
+    const free = freeFace(s, t, u);
+    const used = t.faces - countFree(s, t.key, t.faces);
+    const line = `${t.name} · ${trip.connected ? '' : '≈'}${fmtClock(trip.t)} one way · faces ${used}/${t.faces}` +
+      `${free < 0 ? ' · every face working: it waits at the gate' : ''}`;
+    this.publish(title, line, true, '', { kind: 'sendUnit', unit: id, key: t.key }, id);
+  }
+
+  /** Open pit…: stake a plain pit for a hub at the cursor. */
+  private hoverOpenPit(s: GameState, hubId: number, hit: [number, number] | null) {
+    const b = s.buildings.find((x) => x.id === hubId);
+    if (!b) { this.cancel(); return; }
+    const title = `OPEN PIT… · ${label(b)} · click mapped open ground · Esc cancels`;
+    if (!hit) { this.ring.visible = false; this.publish(title, '', false, 'Point at the ground', null, hubId); return; }
+    const why = plainPitRefusal(s, this.host.mods(), SITES[s.siteId], hit[0], hit[1]);
+    this.drawRing(hit[0], hit[1], HUB.plainR, !why);
+    if (why) { this.publish(title, '', false, why, null, hubId); return; }
+    const [hx, hz] = centerOf(b);
+    this.publish(title, `plain pit · ${Math.round(Math.hypot(hit[0] - hx, hit[1] - hz))} m from ${label(b)} · ${HUB.plainFaces} faces · plain grade`,
+      true, '', { kind: 'openPit', hub: hubId, x: hit[0], z: hit[1] }, hubId);
+    void plainKey;
   }
 
   private hoverSend(s: GameState, roverId: number, hit: [number, number] | null) {

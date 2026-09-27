@@ -22,14 +22,16 @@ import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
 import { litChannel } from '../buildings/buildingShader';
 import { pathLength } from '../core/paths';
-import { cellAt, groundWay, roadRoute, routePoints } from '../core/roads';
+import { cellAt, frontDir, groundWay, roadRoute, routePoints } from '../core/roads';
+import { bayPoint } from '../core/hubs';
+import { UNIT_DEFS, UNIT_VID } from '../data/hubs';
 import { materials } from './materials';
 import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
 import { Traffic, WHOLE, pointAt, type Agent, type Driver } from './traffic';
 import type { WorkAnim } from './workAnim';
 
-const MAX = 48;
+const MAX = 64;
 const TURN = 2.2;          // rad/s: tracks turn on the spot
 const CATCH = 1.6;         // × haul speed: the most a digger drives to catch up with the sim
 const GAIN = 1.5;          // 1/s: how hard it closes the gap
@@ -41,7 +43,10 @@ const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
 interface Digger {
+  /** a legacy pad's building id, or UNIT_VID + a hub unit's id */
   id: number;
+  /** a hub unit (docs/17): no pad, always drawn here; `pad` is its bay */
+  unit: boolean;
   /** complete, enabled, powered: its lamps and windows may light */
   powered: boolean;
   x: number; z: number;
@@ -164,23 +169,40 @@ export class Haulers implements Driver {
     const jumped = simDelta < 0 || (dt <= 0 ? simDelta > 1e-6 : simDelta - dt > 3);
     const pace = dt > 0 ? clamp(simDelta / dt, 1, 5) : 1;
     const seen = new Set<number>();
-    const speed = this.speed = haulSpeed(state.techsDone) * roadSpeedFor(state.techsDone, night, true);
+    const road = roadSpeedFor(state.techsDone, night, true);
+    const speed = this.speed = haulSpeed(state.techsDone) * road;
+    // the diggers: legacy pads (a building each) and hub units (docs/17: drawn here always, parked in their bays)
+    const srcs: { id: number; h: HaulState; pad: [number, number]; padYaw: number; active: boolean; powered: boolean; homeDig: boolean; unit: boolean; v: number }[] = [];
     for (const b of state.buildings) {
       const h = b.haul;
       if (b.type !== 'excavator' || !h || (b.construction ?? 0) > 0) continue;
+      srcs.push({ id: b.id, h, pad: centerOf(b), padYaw: -b.rot * PI / 2, active: b.active, powered: b.enabled && b.idleReason !== 'power',
+        homeDig: h.phase === 'dig' && digsHome(b), unit: false, v: speed });
+    }
+    for (const u of state.haulers ?? []) {
+      const hub = state.buildings.find((b) => b.id === u.hub);
+      if (!hub) continue;
+      const [fx, fz] = frontDir(hub);
+      const h = u.haul;
+      srcs.push({ id: UNIT_VID + u.id, h, pad: bayPoint(state, hub, u.bay), padYaw: Math.atan2(fz, -fx), active: h.src !== 'flat',
+        powered: hub.enabled && h.src !== 'flat', homeDig: h.phase === 'park', unit: true,
+        v: speed * (UNIT_DEFS[u.type].speed / HAUL.speed) });
+    }
+    this.hauls = new Map(srcs.map((x) => [x.id, x.h]));
+    for (const src of srcs) {
+      const { h, pad, padYaw } = src;
+      const b = { id: src.id, active: src.active };
       seen.add(b.id);
-      const pad = centerOf(b);
-      const padYaw = -b.rot * PI / 2;
-      const driving = (h.phase === 'toDig' || h.phase === 'toDrop') && h.path.length > 0 && b.active;
+      const driving = (h.phase === 'toDig' || h.phase === 'toDrop' || h.phase === 'toBay') && h.path.length > 0 && b.active;
       // the sim's pace on the segment it drives: off-road inside a zone slower (core/haul.ts),
       // and on an RPU's trickle alone at its share (docs/02, On-board power)
-      const legV = (speed / (h.w?.[0] ?? 1)) * (h.pw ?? 1);
+      const legV = (src.v / (h.w?.[0] ?? 1)) * (h.pw ?? 1);
       // how much of the leg the sim has left, advanced by the tick fraction
       const rem = Math.max(0, pathLength(h.x, h.z, h.path) - (driving ? legV * clamp(frac, 0, 1) : 0));
       let v = this.all.get(b.id);
       if (!v) {
         v = {
-          id: b.id, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: false, digging: false,
+          id: b.id, unit: src.unit, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: src.unit, digging: false,
           target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad, simX: h.x, simZ: h.z, aim: padYaw, yieldUntil: 0, agent: null!,
         };
         v.agent = {
@@ -205,7 +227,7 @@ export class Haulers implements Driver {
       if (!jumped && this.traffic && dt > 0 && v.target - a.s > LAG_S * speed) {
         const way: [number, number][] = [[h.x, h.z], ...h.path.map(([x, z]): [number, number] => [x, z])];
         const yaw = way.length > 1 && Math.hypot(way[1][0] - h.x, way[1][1] - h.z) > 1e-6
-          ? Math.atan2(-(way[1][1] - h.z), way[1][0] - h.x) : h.phase === 'dig' && digsHome(b) ? padYaw : v.yaw;
+          ? Math.atan2(-(way[1][1] - h.z), way[1][0] - h.x) : src.homeDig ? padYaw : v.yaw;
         if (this.traffic.boxFree(a, h.x, h.z, Math.cos(yaw), -Math.sin(yaw))) {
           this.retrack(v, h, true);
           v.yaw = v.aim = yaw;
@@ -221,8 +243,8 @@ export class Haulers implements Driver {
         a.s = 0;
         const p = pointAt(a.pts, a.arcs, a.s);
         v.x = p.x; v.z = p.z; a.x = p.x; a.z = p.z;
-        // digging its own pad: squared up on it, as the building instance draws it
-        if (h.phase === 'dig' && digsHome(b) && Math.hypot(h.x - pad[0], h.z - pad[1]) < 0.3) {
+        // digging its own pad (a unit: parked in its bay): squared up on it, as the building instance draws it
+        if (src.homeDig && Math.hypot(h.x - pad[0], h.z - pad[1]) < 0.3) {
           v.yaw = v.aim = padYaw;
           a.fx = Math.cos(padYaw); a.fz = -Math.sin(padYaw);
         }
@@ -232,9 +254,9 @@ export class Haulers implements Driver {
       v.pace = pace;
       v.pad = pad;
       v.padYaw = padYaw;
-      v.homeDig = h.phase === 'dig' && digsHome(b);
-      v.digging = h.phase === 'dig' && b.active;
-      v.powered = b.enabled && b.idleReason !== 'power';
+      v.homeDig = src.homeDig;
+      v.digging = h.phase === 'dig' && b.active && !(src.unit && h.full);
+      v.powered = src.powered;
       v.simX = h.x; v.simZ = h.z;
       a.cls = h.phase === 'toDrop' || h.phase === 'unload' ? 3 : 2;
     }
@@ -243,6 +265,8 @@ export class Haulers implements Driver {
   }
 
   private state: GameState | null = null;
+  /** each digger's haul this frame (a pad's or a unit's), by its key */
+  private hauls = new Map<number, HaulState>();
 
   /** A new sim leg: the way from where the digger is to the leg's start (the
    *  rest of the way it drives, or a road route) and then the leg.
@@ -407,7 +431,7 @@ export class Haulers implements Driver {
   /** Set down where the sim has it, if that ground is free (never onto another unit). */
   rescue(a: Agent) {
     const v = this.all.get(a.id);
-    const h = this.state?.buildings.find((b) => b.id === a.id)?.haul;
+    const h = this.hauls.get(a.id);
     const t = this.traffic;
     if (!v || !h || !t) return;
     const yaw = v.yaw;
@@ -420,15 +444,15 @@ export class Haulers implements Driver {
   finish(dt: number, sunLight: number) {
     for (const v of this.all.values()) {
       const home = Math.hypot(v.x - v.pad[0], v.z - v.pad[1]) < 0.3;
-      // home on its pad and squared up: the building instance takes over
-      v.away = !home || Math.abs(wrap(v.padYaw - v.yaw)) > 0.02;
+      // home on its pad and squared up: the building instance takes over (a hub unit has no pad: always here)
+      v.away = v.unit || !home || Math.abs(wrap(v.padYaw - v.yaw)) > 0.02;
       if (dt > 0) this.lagMax = Math.max(this.lagMax, Math.max(0, v.target - v.agent.s) / this.speed);
     }
     this.drawn = [...this.all.values()].filter((v) => v.away).slice(0, MAX);
-    const sig = this.drawn.map((v) => v.id).join(',');
+    const sig = this.drawn.filter((v) => !v.unit).map((v) => v.id).join(',');
     if (sig !== this.awaySig) {
       this.awaySig = sig;
-      this.onAway?.(new Set(this.drawn.map((v) => v.id)));
+      this.onAway?.(new Set(this.drawn.filter((v) => !v.unit).map((v) => v.id)));
     }
     this.draw(sunLight);
   }

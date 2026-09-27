@@ -24,6 +24,7 @@ import { spurLeft } from '../core/roads';
 import { el, fmt, PERSON_SVG } from './hud';
 import { openTechTreeAt } from './techTree';
 import { fleetBodyHtml, fleetClick, fleetFootHtml, fleetSig, refreshFleet } from './fleetPanel';
+import { hubBodyHtml, hubClick, hubFootHtml, hubSig, refreshHub } from './hubPanel';
 import { autoTagLine } from '../core/automation';
 import { hazardStatus, isNetworkNode, occupancy, pressurizedTypes, sideTier } from '../core/hazards';
 import { HZ } from '../data/hazards';
@@ -162,8 +163,9 @@ function mainOutput(type: BuildingId): ResourceId | undefined {
 /** 'Feed (recent loads): 64% high-Ti · 8% highland → yield +17%' for the
  *  smelter and refinery inspector ('' for other buildings): the excavators'
  *  deliveries, weighted by amount (core/haul.ts). */
-function feedLine(game: Game, type: BuildingId, g: FeedGrade): string {
+function feedLine(game: Game, type: BuildingId, g: FeedGrade, hub = false): string {
   if (type !== 'smelter' && type !== 'refinery') return '';
+  if (hub) return ''; // a hub shows its own feed (hubPanel.ts)
   if (type === 'smelter' && effectiveDef('smelter', game.mods).feedInsensitive) {
     return 'Feed: molten electrolysis melts any soil — the feed grade has no effect';
   }
@@ -525,9 +527,10 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ? `WORN — output −${worn}%. Repairs need parts in stock.`
       : 'Repairs draw automatically from the parts stockpile.');
     setText('insp-eta', `▲ Shipment en route — lands in ${fmtClock($lander.get().etaS)}`);
-    setText('insp-feed', feedLine(game, sel.type, $feed.get()));
+    setText('insp-feed', feedLine(game, sel.type, $feed.get(), !!sel.hub));
     setText('insp-oc', overclockLine(sel));
     refreshFleet(insp, sel);
+    refreshHub(insp, sel);
     const dl = insp.querySelector<HTMLButtonElement>('#insp-downlink');
     if (dl) {
       const t = downlinkText();
@@ -582,11 +585,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
       ${sel.deposit ? `<section><span class="label">◎ ${sel.type === 'excavator'
         ? DEPOSIT_INFO[sel.deposit].ghost.replace(/^On /, 'Digs ') : DEPOSIT_INFO[sel.deposit].ghost}</span></section>` : ''}
       ${fleetBodyHtml(sel)}
+      ${hubBodyHtml(sel)}
       ${hazardRows(sel).html}
       ${sel.auto ? `<section class="insp-auto"><span class="label">${esc(autoTagLine(sel))}</span>
         ${sel.auto.survey ? '' : `<div ${NOTE}>Sites by distance only — Site Survey AI weighs deposits and haul lanes.</div>`}</section>` : ''}
       ${builderBody(sel)}
-      ${feedLine(game, sel.type, $feed.get()) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
+      ${feedLine(game, sel.type, $feed.get(), !!sel.hub) ? '<section><span class="label mono" id="insp-feed"></span></section>' : ''}
       <section>
         <span class="label">Condition <span class="mono" style="float:right" id="insp-cond"></span></span>
         <div class="prog" style="height:4px; margin-top:5px; background:rgba(245,247,249,0.06)">
@@ -642,6 +646,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
         <span class="label">Robot queue — sites build in placement order</span>
         <div class="prio"><button class="btn" id="insp-buildnext">Build next</button></div>
       </section>` : ''}
+      ${hubFootHtml(sel)}
       ${fleetFootHtml(sel)}
       <section class="actions">
         ${!isLander ? `<button class="btn" id="insp-toggle">${conRemaining > 0
@@ -663,7 +668,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       site && sel.idleReason === 'queued', untouchedSite(sel),
       canToggleCrew(vit.expedition, vit.crew, $tech.get()), vit.expedition, vit.crew > 0,
       sel.deposit ?? '', lander.resupplyPending, lander.orderDays, lander.agentRun > 0,
-      [...game.mods.actions].sort().join(','), fleetSig(sel),
+      [...game.mods.actions].sort().join(','), fleetSig(sel), hubSig(sel),
       sel.auto?.by ?? '', sel.auto?.rule ?? '', sel.feedPlanOff ?? false, game.mods.feedPlanner,
       $automation.get()?.rules.find((r) => r.id === sel.auto?.rule)?.on ?? '',
       sel.idleReason === 'crew', sel.agentCover ?? false, vit.agentCover, hazardRows(sel).sig,
@@ -682,6 +687,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     if (!btn || !sel) return;
     if (counterClick(game, btn)) return; // a hazard counter (docs/14 §3.7)
     if (fleetClick(game, btn, sel)) return;
+    if (hubClick(game, btn, sel)) return;
     if (btn.classList.contains('prio-btn')) {
       game.actions.push({ kind: 'setPriority', id: sel.id, priority: Number(btn.dataset.p) as 0 | 1 | 2 | 3 });
       return;

@@ -81,3 +81,6 @@ export const HUB = {
   /** the starved share is an EMA over this many game-s */
   starvedS: 120,
 };
+
+/** The visuals key a hub unit by this offset plus its id (building ids stay below it). */
+export const UNIT_VID = 100000;
