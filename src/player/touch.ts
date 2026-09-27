@@ -9,7 +9,9 @@
  *   | long-press (0.5 s)      | info                 | —              | —                  |
  *   | two fingers             | pan · pinch · twist  | same           | same               |
  *
- *  A drag never selects: past a 10 px slop a touch is a drag for good. Two
+ *  A drag never selects: past a 10 px slop a touch is a drag for good. A
+ *  hold is armed only in the command view, so a finger that rests on a road
+ *  cell or the ghost before it moves still drags. Two
  *  fingers pan by their midpoint, zoom by their spread and turn by their
  *  angle; the second finger never joins a ghost or road drag already
  *  running. The pointerdown is cancelled and stops at the window (capture),
@@ -104,7 +106,9 @@ export class TouchControls {
     const g = this.g;
     if (g.kind === 'idle' && this.pts.size === 1) {
       const id = e.pointerId;
-      const timer = window.setTimeout(() => this.longFire(id), LONG_MS);
+      // a hold means something only in the command view: placing, drawing a
+      // road or picking a target, a finger that rests before it drags still drags
+      const timer = this.host.mode() === 'select' ? window.setTimeout(() => this.longFire(id), LONG_MS) : 0;
       this.g = { kind: 'press', id, t0: performance.now(), timer };
       return;
     }

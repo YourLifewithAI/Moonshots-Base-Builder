@@ -585,6 +585,7 @@ desktop game is unchanged.
 | Two-finger drag | pan | the same | the same |
 
 - A drag never selects: past 10 px a touch is a drag for good.
+- A hold is armed only in the command view. While placing, drawing a road or picking a target, a finger that rests before it moves still drags.
 - A second finger never joins a ghost or road drag that is running.
 - A mouse keeps its desktop handlers, so `?touch` on a laptop still clicks.
 - High detail: pinch dollies, twist orbits freely, ⟲ ⟳ orbit 90°.

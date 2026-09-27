@@ -55,8 +55,10 @@ async function fingers(page: Page) {
       await page.waitForTimeout(ms);
       await send('touchEnd', []);
     },
-    async drag(from: [number, number], to: [number, number], steps = 10) {
+    /** `restMs`: the finger rests where it went down before it moves */
+    async drag(from: [number, number], to: [number, number], steps = 10, restMs = 0) {
       await send('touchStart', [from]);
+      if (restMs) await page.waitForTimeout(restMs);
       for (let i = 1; i <= steps; i++) {
         await send('touchMove', [[from[0] + ((to[0] - from[0]) * i) / steps, from[1] + ((to[1] - from[1]) * i) / steps]]);
       }
@@ -279,12 +281,14 @@ test('placement by taps: a card puts its ghost mid-view, a drag moves the ghost 
   expect((await g(page, 'getState')).buildings.length).toBe(before);
   await expect(page.locator('#place-hint')).toHaveAttribute('data-flash', /\d/);
 
-  // drag the ghost off the Lander: the pointer follows the finger, the camera stays
+  // drag the ghost off the Lander: the pointer follows the finger, the camera
+  // stays; a finger that rests first still drags (a hold means nothing while placing)
   const cam0 = await g(page, 'getCamera');
-  await f.drag([300, 200], [150, 240]);
+  await f.drag([300, 200], [150, 240], 10, 800);
   await frames(page, 3);
   const t1 = await g(page, 'getTouch');
   expect(t1.log).toContain('drag:ghost');
+  expect(t1.log).not.toContain('long');
   expect(t1.pointer.x).toBeCloseTo(844 / 2 - 150, 0);
   const cam1 = await g(page, 'getCamera');
   expect(Math.hypot(cam1.target.x - cam0.target.x, cam1.target.z - cam0.target.z)).toBeLessThan(0.5);
@@ -342,9 +346,12 @@ test('the road tool by drag: from a road cell out, laid as a job; Remove replace
     const w = (gx: number) => gx * 4 - 512 + 2;
     return { a: gm.screenOf(w(end.gx), w(end.gz)), b: gm.screenOf(w(end.gx + 5), w(end.gz)), end };
   });
-  await f.drag([pts.a.x, pts.a.y], [pts.b.x, pts.b.y], 12);
+  // the finger rests on the road cell first, as a thumb does: still a drag, not a hold
+  await f.drag([pts.a.x, pts.a.y], [pts.b.x, pts.b.y], 12, 800);
   await frames(page, 3);
-  expect((await g(page, 'getTouch')).log).toContain('drag:road');
+  const log = (await g(page, 'getTouch')).log as string[];
+  expect(log).toContain('drag:road');
+  expect(log).not.toContain('long');
   await expect.poll(async () => (await g(page, 'getState')).roadJobs.length).toBe(1);
   expect((await g(page, 'getState')).roadJobs[0].kind).toBe('draw');
   // the camera held still while it drew
