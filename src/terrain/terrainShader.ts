@@ -143,8 +143,14 @@ const FRAG_ALBEDO = /* glsl */`
 	diffuseColor.rgb *= max( 1.0 + regAlb, 0.5 );
 `;
 
+// guarded: a slope that cancels a steep face's normal keeps the face's own
+// (normalize of zero is NaN on real GPUs, and FX 0's buffers keep NaN)
 const FRAG_NORMAL = /* glsl */`
-	normal = normalize( normal + mat3( viewMatrix ) * vec3( regSlope.x, 0.0, regSlope.y ) );
+	{
+		vec3 regN = normal + mat3( viewMatrix ) * vec3( regSlope.x, 0.0, regSlope.y );
+		float regL2 = dot( regN, regN );
+		if ( regL2 > 1e-8 ) normal = regN * inversesqrt( regL2 );
+	}
 `;
 
 const FRAG_LIGHT = /* glsl */`
@@ -156,7 +162,7 @@ void RE_Direct_Regolith( const in IncidentLight directLight, const in vec3 geome
 	float mu0 = saturate( dot( geometryNormal, directLight.direction ) );
 	float mu = max( dot( geometryNormal, geometryViewDir ), 0.05 );
 	float cosG = clamp( dot( directLight.direction, geometryViewDir ), -1.0, 1.0 );
-	float tanHalfG = sqrt( ( 1.0 - cosG ) / max( 1.0 + cosG, 1e-3 ) );
+	float tanHalfG = sqrt( max( 1.0 - cosG, 0.0 ) / max( 1.0 + cosG, 1e-3 ) );
 	float surge = 1.0 + 0.8 / ( 1.0 + tanHalfG / 0.07 );
 	float shade = mix( mu0, 2.0 * mu0 / ( mu0 + mu ), regolithPhaseL( cosG ) ) * surge;
 	reflectedLight.directDiffuse += shade * directLight.color * BRDF_Lambert( material.diffuseColor );
