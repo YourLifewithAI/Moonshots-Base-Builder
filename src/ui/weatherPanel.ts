@@ -20,6 +20,7 @@ import { $hazards, $resourcePanel, $weather, $placing, $mode } from './stores';
 import { counterButton, counterClick } from './hazardsPanel';
 import { capabilityView } from '../core/flareEffects';
 import { SITES } from '../data/sites';
+import { forecastClick, mountForecastSections, refreshForecast } from './forecastPanel';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 /** a preview line: **bold** is the destroyed count (§10.3) */
@@ -36,6 +37,7 @@ function setHtml(root: ParentNode, sel: string, html: string) {
 }
 
 const isTouch = () => document.documentElement.classList.contains('touch');
+const hide = (e: Element | null, off: boolean) => { if (e) (e as HTMLElement).style.display = off ? 'none' : ''; };
 
 const CLASS_GLYPH: Record<FlareClass, string> = { C: SPACE_WEATHER.classes.C.glyph, M: SPACE_WEATHER.classes.M.glyph, X: SPACE_WEATHER.classes.X.glyph };
 
@@ -82,8 +84,11 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     return v.options.find((o) => o.key === key) ?? game.flarePreview(choiceOf(key));
   };
   const confirm = () => {
-    const p = $weather.get()?.popup;
+    const v = $weather.get();
+    const p = v?.popup ?? v?.forecast?.popup;
     if (!p || p.locked) return;
+    // 'Arrays: choose now…' (docs/16 §10.2): the choice waits for the telegraph
+    if (p.ahead) { game.actions.push({ kind: 'flareAhead', choice: selectedChoice(), repair: ui.repair, remember: ui.remember }); game.setForecastAhead(false); return; }
     game.actions.push({ kind: 'flareChoice', choice: selectedChoice(), repair: ui.repair, remember: ui.remember });
     ui.open = false;
     // the pop-up's own pause lifts with its answer
@@ -98,7 +103,7 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     <div class="fp-fine-row"><input type="range" class="fp-slider" min="0" max="100" step="5" aria-label="Stow share"><span class="fp-sv mono"></span></div>
     <div class="fp-boxes"><button class="btn fp-repair" aria-pressed="true"></button><button class="btn fp-remember" aria-pressed="false"></button><button class="btn fp-fine" aria-pressed="false">Fine…</button></div>
     <div class="fp-also"></div>
-    <div class="fp-foot"><span class="fp-def"></span><button class="btn primary fp-confirm">Confirm</button></div>` : `
+    <div class="fp-foot"><span class="fp-def"></span><span class="fp-btns"><button class="btn fp-cancel">Cancel</button><button class="btn primary fp-confirm">Confirm</button></span></div>` : `
     <div class="fp-head"><b class="fp-t"></b><span class="fp-clock mono"></span></div>
     <div class="fp-sub mono"></div>
     <div class="fp-row" data-k="run"><span class="fp-dot"></span><span class="fp-lab">Keep all running</span><span class="fp-pv mono"></span></div>
@@ -110,12 +115,12 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     <div class="fp-boxes"><label><input type="checkbox" class="fp-repair-cb"> Repair stowed arrays after the flare</label>
       <label><input type="checkbox" class="fp-remember-cb"> <span class="fp-remember-t"></span></label></div>
     <div class="fp-also"></div>
-    <div class="fp-foot"><span class="fp-def"></span><button class="btn primary fp-confirm">Confirm</button></div>`;
+    <div class="fp-foot"><span class="fp-def"></span><span class="fp-btns"><button class="btn fp-cancel">Cancel</button><button class="btn primary fp-confirm">Confirm</button></span></div>`;
   const compactHtml = () => '<span class="fp-line mono"></span><span class="fp-btns"><button class="btn fp-accept">Accept</button><button class="btn fp-change">Change</button></span>';
 
   const renderPop = () => {
     const v = $weather.get();
-    const p = v?.popup;
+    const p = v?.popup ?? v?.forecast?.popup ?? null; // the telegraph's, else the ahead card (core/forecast.ts)
     if (!v || !p) { pop.style.display = 'none'; ui.sig = ''; return; }
     if (ui.n !== p.n) {
       // a new flare: its choice as decided now, the boxes as the base keeps them
@@ -158,8 +163,9 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
       return;
     }
     // the full card
-    setText(pop, '.fp-t', touch ? `☉ FLARE ${v.classText} · protons in ${left}${v.drill ? ' · DRILL' : ''}` : p.headline);
-    setText(pop, '.fp-clock', `protons in ${left}`);
+    setText(pop, '.fp-t', touch ? (p.touchTitle ?? `☉ FLARE ${v.classText} · protons in ${left}${v.drill ? ' · DRILL' : ''}`) : p.headline);
+    setText(pop, '.fp-clock', p.clockText ?? `protons in ${left}`);
+    hide(pop.querySelector('.fp-cancel'), !p.ahead);
     const bank = Number.isFinite(p.bankS) ? fmtClock(p.bankS) : 'the whole flare';
     const sub = touch
       ? `${p.arrays} arrays · ${Math.round(p.kw)} kW · feed ${Math.round(p.criticalKW)} kW`
@@ -203,13 +209,14 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     const memB = pop.querySelector<HTMLElement>('.fp-remember');
     if (memB) { memB.textContent = `${ui.remember ? '✓ ' : ''}Remember for ${p.rememberCls}`; memB.classList.toggle('active', ui.remember); memB.setAttribute('aria-pressed', String(ui.remember)); }
     setHtml(pop, '.fp-also', alsoCounters() ? `<span class="label">ALSO</span>${alsoCounters()}` : '');
-    setText(pop, '.fp-def', touch ? (p.remembered || p.builder ? `Unanswered: ${p.defaultLine}` : 'Unanswered: the safe default')
-      : `Unanswered in ${left}: ${p.defaultLine}`);
+    setText(pop, '.fp-def', p.footText ?? (touch ? (p.remembered || p.builder ? `Unanswered: ${p.defaultLine}` : 'Unanswered: the safe default')
+      : `Unanswered in ${left}: ${p.defaultLine}`));
   };
   pop.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (counterClick(game, t)) return;
     if (t.closest('.fp-confirm')) { confirm(); return; }
+    if (t.closest('.fp-cancel')) { game.setForecastAhead(false); return; }
     if (t.closest('.fp-change')) { ui.open = true; ui.sig = ''; renderPop(); return; }
     if (t.closest('.fp-accept')) { ui.accepted = true; renderPop(); return; }
     if (t.closest('.fp-fine')) { ui.fine = !ui.fine; if (ui.fine) ui.sel = 'slider'; renderPop(); return; }
@@ -284,7 +291,7 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
       <div class="wx-line"><label><input type="checkbox" class="wx-autorepair"> Repair stowed arrays after each flare</label></div></section>
     <section><span class="label">Log — the last flares</span><div class="mono wx-log"></div></section>`;
   const refreshPanel = (v: WeatherView) => {
-    const tier = 'T0 · the flash and Earth’s bulletin';
+    const tier = v.forecast?.tierName ?? 'T0 · the flash and Earth’s bulletin';
     setText(panel, '.wx-band', `activity ${v.gauge} ${v.band} · ${v.rising ? 'rising' : 'falling'} · ${tier}`);
     const now = v.phase === 'idle'
       ? `quiet${v.watch ? ' · BIG SPOT GROUP: an X-class flare is possible within ½ day' : ''}${v.last ? ` · the last: ${v.last.cls}, day ${Math.floor(v.last.at / 720) + 1} (stowed ${v.last.stowed}, ${v.last.destroyed} destroyed)` : ''}`
@@ -326,6 +333,7 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
   };
   panel.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
+    if (forecastClick(game, t)) return;
     const b = t.closest<HTMLElement>('[data-wx]');
     if (b) {
       const a = b.dataset.wx!;
@@ -359,8 +367,9 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     if (!open || !v) { panel.style.display = 'none'; psig = ''; return; }
     panel.style.display = '';
     const sig = 'p1';
-    if (sig !== psig) { psig = sig; body.innerHTML = panelBody(v); }
+    if (sig !== psig) { psig = sig; body.innerHTML = panelBody(v); mountForecastSections(body); }
     refreshPanel(v);
+    refreshForecast(game, body, v); // NEXT and TIMELINE (docs/16 §6.5, §10.5)
   };
   $weather.subscribe(render);
   $resourcePanel.subscribe(render);

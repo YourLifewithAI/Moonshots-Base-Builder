@@ -1,7 +1,7 @@
 # 16 · Space weather: classed flares, a solar cycle, stow or risk, forecasts and shields
 
-**Status:** Phase A design, revision 2 (the player's answers, §17). **F1, F2a and F2b shipped**
-(§16.1 and §16.2, As shipped); F3–F7 to come. Phase B started after **work/unitpower** (machine batteries) merged,
+**Status:** Phase A design, revision 2 (the player's answers, §17). **F1, F2a, F3 (forecasting) and F2b
+shipped** (§16.1–16.3, As shipped); F4–F7 to come. Phase B started after **work/unitpower** (machine batteries) merged,
 since both change economy steps 1 and 8, `src/core/fleet.ts` and `src/core/hazards.ts`.
 Check these borrowed names again at merge: machine packs, `homeOf` and Rover Power Packs
 (work/unitpower); hubs, units, bays, pits and benches (docs/17); tap placement and the side
@@ -13,8 +13,9 @@ sheet (work/touch).
 data, `stormShelters`, `radHard`), `src/data/insights.ts:46` (the Regolith Shielding
 insight), `src/data/sites.ts` (`flareImmune`), `src/ui/hud.ts:247-251` (the clock).
 **Code to come:** `src/data/spaceWeather.ts` (classes, the cycle, consequences, σ, kits,
-tiers), `src/core/spaceWeather.ts` (`weatherTick`, forecasts, domes), `src/ui/weatherPanel.ts`
-(the chip and the panel), and changes to the files above.
+tiers), `src/core/spaceWeather.ts` (`weatherTick`, domes), `src/ui/weatherPanel.ts`
+(the chip and the panel), and changes to the files above. Forecasting shipped in its own
+files: `src/data/forecast.ts`, `src/core/forecast.ts`, `src/ui/forecastPanel.ts` (§16.2).
 
 If a number here disagrees with the code once it ships, the code wins.
 
@@ -1634,7 +1635,7 @@ lines wait for them.
 | F1 ✓ | **The engine and classes** (shipped) | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes (a range until the peak), CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
 | F2a ✓ | **The pop-up and the arrays** (shipped) | the flare pop-up (1280×720 and touch), its previews, Confirm, the compact form and the pause setting; the portion rule and the critical feed; remembered choices, field overrides and the safe default; the stow motion; running arrays destroyed and scarred; wrecks, Rebuild and Clear; stowed damage and field repair jobs; field berms on Regolith Shielding; `flareStance`; the power panel and dusk lines; migration step 5 | The player decides once per flare, and arrays pay for it |
 | F2b ✓ | **Scars and the rest of §4** (shipped) | capability on buildings and machines, rad scars by class × (1 − σ)² × preparation, the inspector and panel lines, the 85% alert; Replace and Re-print; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute and Shut down exposed; the blackout; wear; DOSE and bit flips by class (§9); migration step 6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, every cost has a button, and neglect adds up |
-| F3 | **Forecasting** | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block, timeline and `Arrays: choose now…`; the telegraph bonuses | Planning grade |
+| F3 ✓ | **Forecasting** (shipped) | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block, timeline and `Arrays: choose now…`; the telegraph bonuses | Planning grade |
 | F4 | **Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; the guard changes; kits, domes (over stowed fields too), the SHELTER block and the Dome tool; Flare Protocols (every row remembered, the tail row, the grid); `domeKits` and shelter planning; Maintenance Automation's replacement threshold | Every shield and counter |
 | F5 | **Benefits** | the four breakthroughs, their hosts and slots; implantation; the particle annex; the Shield Coil; CME sail windows and storm sails; the three insights | Flares pay back |
 | F6 | **Look and audio** | the speckle and the frame; the sky's flash and aurora; the stow tween and field berms; wrecks, repair poses and capability markers; bag walls and domes; glitch markers; the observatory, coil and sentinel dish recipes; the cues and the Geiger bed; touch polish | Finished |
@@ -1685,7 +1686,53 @@ all running, M and X all but the critical feed, Repair after on, each class reme
 first time; `--auto=on` hands it to `flareStance`), and reports the flares by class, the
 arrays destroyed and the repair parts. `--flares=legacy` plays the old flare.
 
-### 16.2 As shipped: F2b
+### 16.2 As shipped: F3
+
+**Where.** `src/data/forecast.ts` (`FORECAST`, the tiers), `src/core/forecast.ts`
+(`forecastTick`, run first in economy step 8 from `weatherTick`; the tier, the lead, the
+window, `predictFlares`, the sentinel, `setAhead`, `forecastView` / `withForecast`),
+`src/ui/forecastPanel.ts` (the NEXT block and the timeline, placed into the panel after NOW
+and before LOG), `tests/forecast.spec.ts`. The Solar Observatory (`solarObservatory`, 2×2,
+off-road like a Relay Mast) and its recipe; three techs: **Heliophysics Forecasting** (E2 ◎,
+240≡), **L1 Sentinel** (E5 ◎, 580≡ + 15▣), **Solar-Cycle Forecasting** (E6 ▣, 1700≡ + 10▣),
+with a new `{ kind: 'forecast', tier }` effect (`mods.forecastTier`) and the `sentinel`
+action; their parts: a sun sensor and the sentinel's link dish on the Solar Observatory,
+a helioseismology rack on the Data Center. Hooks in `spaceWeather.ts`: `drawClass` takes a
+context (the look ahead), `startFlare` takes the flash's time, the idle phase starts the
+telegraph at the lead, `beginActive`'s heliophysics and CME, `duskLine`'s tail.
+
+**As designed:** the ladder and its telegraphs (T1 90 · 150 s, T2 and T3 120 · 180 s, a
+drill +60 s), §6.2's window (T1 f 0.6 Wmin 60 s, T2 f 0.2 Wmin 30 s, v from
+`mulberry32((seed ^ 0x5f1d) + n · 64 + k)`), T1's class range (the telegraph's own
+`rangeOf`), the observatory blind at night off the pole, in shade and without power, its
+window frozen and widening 20% a game-minute; the sentinel firm at once, day and night,
+the CME to the second; the launch at the Lander (15▣ 30⚙ 80○ 20≈, or 400 stored with a
+Mass Driver), a lunar day's cruise on the chip, one only; T3's cycle strip, the maximum and
+the next three flares; the observatory's +0.05≡/s while it sees the Sun and a flare's
+heliophysics ×2; the chip's forecast, cruise and blind states; the NEXT block (§6.5), the
+timeline (§10.5) and `Arrays: choose now…` (§10.2); the dusk line's forecast (§5.6); the
+discovery lines (§13.3).
+
+**Where it differs:**
+
+| Topic | As shipped | Why |
+|---|---|---|
+| The telegraph bonus | The lead starts the telegraph earlier (at the flash − 30 s or 60 s); the flash and the protons keep the schedule's time. `f.flashAt` is the flash; the class, the activity, the last X and the CME key on it, so research never moves a flare | "The Sun does not wait for your research"; the T0 schedule and §3.5's sequences are untouched |
+| What the window forecasts | The flash (the schedule's `nextAt`, fixed once set), shown as the warning's time (the flash less the lead): when the pop-up will open | The truth never moves, so a window can never be made a liar by a lead that changes |
+| The class range, honestly | The class is predicted by the telegraph's own rule at the era now (`trueClass`), and looked at again the moment the era changes; a blind window's range widens to hold the new class | An era opening can turn a C into an M: the forecast follows it rather than lie |
+| T1's lead | With the tech and a built observatory, day or night; only the window needs it to see the Sun | The lead is the bulletins over the link as well as the dome's eye; a lead that came and went with dusk would make the pop-up's clock jump |
+| T3's far windows | The next flare keeps T2's window; the two after it get f 0.4, Wmin 90 s, around the schedule run forward at the era now (`predictFlares`) | The cycle model sees further than the sentinel, less sharply |
+| The CME at T1 | a window (T1's f) round the front's arrival once the flare has sent one | T1 cannot know an M's CME before its protons |
+| Heliophysics data | an observatory that sees the flare pays its data even with no lab running (×2); its 0.05≡/s goes straight to the bank, outside the labs' research rate | the observatory is an instrument in its own right |
+| The sentinel's 1.5 kW | the tech's `powerDelta` on the Lander, from research on | a con that exists before the launch keeps `auditTechs` simple |
+| `weatherPlanner` | not in F3: the Builder's shelter planning on a forecast is F4's | its rows are domes and kits |
+| Choose now | the flare pop-up itself, opened ahead (`n` −1 − n); Confirm stores `s.weather.ahead`, which the telegraph applies as a click: the pop-up opens compact and does not pause. A remember box sets the class's remembered choice at once | one card, one set of previews; a click already outranks every shortcut but a field override |
+| The panel's NEXT bar | the timeline carries the window; the NEXT line is text | one picture of the window, not two |
+| The sentinel's dish | on the Solar Observatory, not the Lander (§13.1's visual) | the Lander's fully upgraded mesh is at its 7,500-triangle budget |
+| The look | the observatory is a stock dome, slit and coronagraph; nothing tracks the Sun yet, the slit does not close, and the sentinel's dish is an ordinary tracked dish | F6 |
+| The launch | no plume and no hopper flight | F6 |
+
+### 16.3 As shipped: F2b
 
 **Where.** `src/core/flareEffects.ts` (the consequences beyond the arrays; weatherTick calls it
 at the protons, a second after them, at the tail, at the end of the flash and the tail, and at
@@ -1741,7 +1788,7 @@ streams (buffered, delivered after) and a survey's hop; wear spikes; DOSE and bi
 | Blackout | Laser Ranging's ×0.5 waits; the downlink's refusal comes after its busy-slot check | Laser Ranging's change is a later phase's |
 | Look | No `◌ 84%` DOM marker yet; the inspector marks under 85% with ▼ | F6 |
 | Maintenance Automation | Its replacement threshold waits | F4 (the phase table) |
-| The panel | NOW gains the telegraph's buttons (the ACTIONS block waits with F3's NEXT); EXPOSURE gains Crew, Machines, Research, Buildings and Comms; AFTER THE LAST FLARE gains SCARRED and Replace worst; the LOG the machines, research, sick and scars | F3 owns NEXT and the timeline |
+| The panel | NOW gains the telegraph's buttons (§10.2's ACTIONS block is not built: during a flare its buttons sit in NOW, and F3's `Arrays: choose now…` in NEXT); EXPOSURE gains Crew, Machines, Research, Buildings and Comms; AFTER THE LAST FLARE gains SCARRED and Replace worst; the LOG the machines, research, sick and scars | F3 owns NEXT and the timeline |
 | The chip | `⌁` while dark | §10.1 |
 
 **The probe** (`scripts/probe-pacing.mjs --flarePolicy=reasonable|ignore`): reasonable presses

@@ -94,3 +94,27 @@ html.touch #flare-popup.compact .btn { min-height: 44px; font-size: 11px; }
 #weather-panel .wx-log div { padding: 2px 0; border-bottom: 1px dotted rgba(var(--paper-rgb), 0.12); }
 .wx-insp .wx-ov { flex-wrap: wrap; align-items: center; margin-top: 4px; }
 .wx-insp .wx-ov .label { margin-right: 4px; }
+
+/* forecasting (docs/16 §6.5, §10.5; ui/forecastPanel.ts): the cruise chip, the NEXT block, the timeline */
+#weather-chip.cruise { border-style: dotted; border-color: var(--paper); }
+#flare-popup .fp-foot .fp-btns { display: flex; gap: 4px; flex: none; }
+#weather-panel .fc-line { white-space: pre-wrap; }
+#weather-panel .fc-line:empty { display: none; }
+#weather-panel .fc-btns { flex-wrap: wrap; }
+#weather-panel .fc-nowc { text-decoration: underline; }
+#weather-panel .fc-tl { color: var(--paper); margin-top: 4px; }
+#weather-panel .fc-svg { display: block; max-width: 100%; height: auto; overflow: visible; }
+.fc-svg .fc-bg { fill: none; stroke: rgba(var(--paper-rgb), 0.25); stroke-width: 1; }
+.fc-svg .fc-hl { stroke: rgba(var(--paper-rgb), 0.28); stroke-width: 1; }
+.fc-svg .fc-box { fill: var(--paper); stroke: var(--paper); stroke-width: 1; }
+.fc-svg .fc-far { fill: none; stroke-dasharray: 3 2; }
+.fc-svg .fc-past { fill: rgba(var(--paper-rgb), 0.35); stroke: none; }
+.fc-svg .fc-live { stroke-width: 2; }
+.fc-svg .fc-lab { fill: var(--paper); font: 600 9px var(--font-mono); text-anchor: middle; }
+.fc-svg .fc-lab.fc-inv { fill: var(--ink-900); }
+.fc-svg .fc-now { stroke: var(--paper); stroke-width: 1.5; }
+.fc-svg .fc-cme { stroke: var(--paper); stroke-width: 1; stroke-dasharray: 1 2; }
+.fc-svg .fc-sail { fill: none; stroke: var(--paper); stroke-width: 1.2; }
+.fc-svg .fc-curve { fill: none; stroke: rgba(var(--paper-rgb), 0.8); stroke-width: 1; }
+.fc-svg .fc-max { fill: var(--paper); }
+.fc-svg .fc-tick { fill: rgba(var(--paper-rgb), 0.55); font: 8px var(--font-mono); text-anchor: middle; }

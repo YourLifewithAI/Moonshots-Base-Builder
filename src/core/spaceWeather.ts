@@ -35,6 +35,7 @@ import { budgetShort, buildCostAt, ruleState } from './automation';
 import {
   drawMachines, effectsTick, effectsView, migrateScars, onActiveStart, onFlareEnd, replaceDone, resolveScars, type EffectsView,
 } from './flareEffects';
+import { applyAhead, firmAtOf, flareDataMult, forecastDusk, forecastTick, type ForecastView } from './forecast';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
@@ -76,23 +77,27 @@ export function classOdds(a: number, era: number, xAllowed = true): { C: number;
   return { C: 1 - X - M, M, X };
 }
 
+/** What the class rules remember between flares (the forecast's look ahead passes its own, core/forecast.ts). */
+export interface ClassCtx { seenM: boolean; xCount: number; lastX: number; noXUntil: number }
+
 /** The class of flare n if its telegraph came now, in this era (§3.4's rules). */
-export function drawClass(s: GameState, n: number, at: number, era: number): FlareClass {
+export function drawClass(s: GameState, n: number, at: number, era: number, ctx?: ClassCtx): FlareClass {
   const f = s.flare;
   if (n === 0) return 'C'; // rule 1: the first is a C drill
+  const c: ClassCtx = ctx ?? { seenM: !!f.seen?.M, xCount: f.xCount ?? 0, lastX: f.lastX ?? -1e9, noXUntil: f.noXUntil ?? 0 };
   const O = W.odds;
   const T = at / CYCLE_S;
   const a = activity(s.seed, T);
-  const lastXDay = (f.lastX ?? -1e9) / CYCLE_S;
-  const graced = at < (f.noXUntil ?? 0);
+  const lastXDay = c.lastX / CYCLE_S;
+  const graced = at < c.noXUntil;
   const u = mulberry32((s.seed ^ W.keys.cls) + n)();
   const gapOk = T - lastXDay >= O.xGapDays;
   const pX = !graced && era >= O.xEra && gapOk ? O.xPerA2 * a * a : 0;
   const pM = era >= O.mEra ? O.mBase + O.mPerA * a : 0;
   let cls: FlareClass = u < pX ? 'X' : u < pX + pM ? 'M' : 'C';
   // rule 2: the first flare from Era 2 is an M
-  if (era >= O.mEra && !f.seen?.M && cls !== 'X') cls = 'M';
-  const xs = f.xCount ?? 0;
+  if (era >= O.mEra && !c.seenM && cls !== 'X') cls = 'M';
+  const xs = c.xCount;
   const { tMax } = cycleOf(s.seed, 0);
   // rule 4: at least one X, by the maximum
   if (!graced && cls !== 'X' && era >= O.xEra && xs === 0 && T >= tMax - 1) cls = 'X';
@@ -468,7 +473,7 @@ function previewLine(p: ChoicePreview, cls: FlareClass, left: number): string {
 }
 
 /** The Builder's margin (flareStance's threshold) or the default. */
-function feedMargin(s: GameState, mods: Mods): number {
+export function feedMargin(s: GameState, mods: Mods): number {
   const r = s.auto?.rules?.flareStance;
   return mods.autoFamilies.has('power') && r?.on ? r.threshold : W.feedMargin;
 }
@@ -698,19 +703,24 @@ const emptyTally = (s: GameState, f: FlareState): FlareLogEntry => ({
   stowed: 0, running: 0, destroyed: 0, scarred: 0, scar: 0, damaged: 0, repairParts: 0, repairS: 0, solarLost: 0, data: 0,
 });
 
-/** Start a flare's telegraph now (the schedule, a migration, debug.forceFlare, a forced DOSE). */
-export function startFlare(s: GameState, site: SiteDef, cls: FlareClass, o: { drill?: boolean } = {}) {
+/** Start a flare's telegraph now (the schedule, a migration, debug.forceFlare, a forced DOSE).
+ *  `flashAt`: the flash the schedule set; a forecast's lead starts the telegraph that much
+ *  before it (docs/16 §6.1). Unset: the flash comes after the base's lead, from now. */
+export function startFlare(s: GameState, site: SiteDef, cls: FlareClass, o: { drill?: boolean; flashAt?: number } = {}) {
   const f = s.flare;
   const n = f.n ?? 0;
+  const lead = o.flashAt !== undefined ? Math.max(0, o.flashAt - s.simTime) : (s.weather?.lead ?? 0);
+  const flashAt = s.simTime + lead;
   f.phase = 'telegraph';
   f.cls = cls;
   f.drill = o.drill ?? (n === 0 || (cls === 'X' && (f.xCount ?? 0) === 0));
-  f.timer = telegraphOf(cls, f.drill);
+  f.timer = lead + telegraphOf(cls, f.drill);
   f.startedAt = s.simTime;
-  f.firmAt = s.simTime + W.firmAtS;
+  f.flashAt = flashAt;
+  f.firmAt = firmAtOf(s, flashAt);
   f.activeAt = s.simTime + f.timer;
   f.range = rangeOf(s.seed, n, cls);
-  f.a = activity(s.seed, s.simTime / CYCLE_S);
+  f.a = activity(s.seed, flashAt / CYCLE_S);
   f.watch = false;
   delete f.nextCls;
   delete f.choice;
@@ -722,9 +732,10 @@ export function startFlare(s: GameState, site: SiteDef, cls: FlareClass, o: { dr
   f.seen[cls] = true;
   if (cls === 'X') {
     f.xCount = (f.xCount ?? 0) + 1;
-    f.lastX = s.simTime;
+    f.lastX = flashAt;
   }
   f.tally = emptyTally(s, f);
+  applyAhead(s); // 'Arrays: choose now…' answers this telegraph (core/forecast.ts)
   if (first && !s.weather?.legacy) {
     const intro: Record<FlareClass, string> = {
       C: 'FIRST FLARE — a C-class drill: the warning asks what to do with your arrays · stowed arrays make nothing, running ones take the protons',
@@ -754,6 +765,7 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
   if (w.legacy) { legacyTick(s, site, day, dt); return out; }
   if (f.nextAt === 0) f.nextAt = W.firstAtDay * CYCLE_S;
   const now = s.simTime;
+  forecastTick(s, site, mods, day, dt); // the tier, its lead, the window (docs/16 §6)
 
   switch (f.phase) {
     case 'idle': {
@@ -767,12 +779,14 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
           alert(s, 'BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day · stow, dock and shield before it', 'warn', { panel: 'weather' });
         }
       }
-      if (now >= f.nextAt) {
-        let cls = drawClass(s, n, now, s.era);
+      // a forecast's lead starts the telegraph early; the flash (and the protons) keep the schedule's time
+      if (now >= f.nextAt - (w.lead ?? 0)) {
+        const flashAt = Math.max(now, f.nextAt);
+        let cls = drawClass(s, n, flashAt, s.era);
         // never an X without its watch; a watched X comes
         if (cls === 'X' && f.nextCls !== 'X') cls = 'M';
         if (f.nextCls === 'X') cls = 'X';
-        startFlare(s, site, cls);
+        startFlare(s, site, cls, { flashAt });
       }
       break;
     }
@@ -918,9 +932,10 @@ function beginActive(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
     const hit = f.drill && cls === 'C' ? W.morale.drillHit : W.morale[cls].hit;
     s.morale = Math.max(0, s.morale - hit * (mods.guards.has('stormShelters') ? 0.5 : 1));
   }
-  // a pro: an operating lab reads the particle storm
-  if (s.buildings.some((b) => b.type === 'lab' && b.active)) {
-    const d = W.heliophysics[cls];
+  // a pro: an operating lab reads the particle storm; a Solar Observatory that sees it doubles it (docs/16 §4.2)
+  const obsMult = flareDataMult(s, day);
+  if (obsMult > 1 || s.buildings.some((b) => b.type === 'lab' && b.active)) {
+    const d = W.heliophysics[cls] * obsMult;
     s.data += d;
     if (f.tally) f.tally.data += d;
     alert(s, `HELIOPHYSICS — the ${cls} flare was also an experiment · +${d}≡`, 'info');
@@ -931,7 +946,7 @@ function beginActive(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
   // the CME: every X, one M in three, 0.4 lunar day after the flash
   const n = f.n ?? 0;
   if (cls === 'X' || (cls === 'M' && mulberry32((s.seed ^ W.keys.cme) + n)() < W.cme.mShare)) {
-    const at = (f.startedAt ?? s.simTime) + W.cme.delayDays * CYCLE_S;
+    const at = (f.flashAt ?? f.startedAt ?? s.simTime) + W.cme.delayDays * CYCLE_S;
     f.cme = { at, until: at + W.cme.sailS };
   }
 }
@@ -1155,7 +1170,7 @@ export interface WeatherView {
   /** T0 (Earth's bulletin) */
   band: Band; gauge: string; a: number; rising: boolean;
   /** the chip's text and shape */
-  chip: string; chipShape: '' | 'watch' | 'telegraph' | 'crit' | 'active' | 'tail';
+  chip: string; chipShape: '' | 'watch' | 'telegraph' | 'crit' | 'active' | 'tail' | 'cruise';
   phase: FlareState['phase'];
   cls: FlareClass | null;
   /** 'M–X' while a range, else the class */
@@ -1176,6 +1191,8 @@ export interface WeatherView {
     rememberCls: FlareClass;
     headline: string;
     defaultLine: string;
+    /** 'Arrays: choose now…' (core/forecast.ts): the card ahead of the flare, its clock, title and foot */
+    ahead?: true; clockText?: string; touchTitle?: string; footText?: string;
   };
   last: FlareLogEntry | null;
   log: FlareLogEntry[];
@@ -1190,6 +1207,8 @@ export interface WeatherView {
   powerLine: string;
   /** §4 beyond the arrays (core/flareEffects.ts): the telegraph's buttons, EXPOSURE, SCARRED, the blackout */
   fx: EffectsView;
+  /** the forecast (core/forecast.ts withForecast): the NEXT block, the timeline, the ahead pop-up */
+  forecast?: ForecastView;
 }
 
 const PREVIEW_CHOICES: [string, ArrayChoice][] = [
@@ -1324,7 +1343,7 @@ export function duskLine(s: GameState): string {
     return ` · a ${shownClass(s)} flare holds ${stowed} arrays stowed into the dusk`;
   }
   if (f.watch) return ' · a big spot group: an X-class flare is possible within ½ day';
-  return '';
+  return forecastDusk(s); // from T1: the next flare due (core/forecast.ts)
 }
 
 export { CLASS_RANK };

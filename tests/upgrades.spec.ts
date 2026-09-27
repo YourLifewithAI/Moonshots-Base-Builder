@@ -49,7 +49,7 @@ test('data: 132 techs, each with a visual line, a generated pro and con, relevan
       irrelevant,
     };
   });
-  expect(r.n).toBe(132); // docs/12's 92, the Builder's 12, docs/14's 19 destiny techs, docs/15's 4 road tiers, docs/02's 3 on-board power techs … and the rest
+  expect(r.n).toBe(135); // docs/12's 92, the Builder's 12, docs/14's 19 destiny techs, docs/15's 4 road tiers, docs/02's 3 on-board power techs, docs/16's 3 forecasting techs … and the rest
   expect(r.noVisual).toEqual([]);
   expect(r.noPro).toEqual([]);
   expect(r.noCon).toEqual([]);

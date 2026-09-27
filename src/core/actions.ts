@@ -75,7 +75,10 @@ export type Action =
   | { kind: 'flareAutoRepair'; on: boolean }
   | { kind: 'fieldOverride'; id: number; mode: 'follow' | 'stow' | 'run' }
   | { kind: 'wreck'; how: 'rebuild' | 'clear'; id?: number }   // no id: every wreck
-  | { kind: 'repairArrays'; id?: number };                     // no id: every damaged field
+  | { kind: 'repairArrays'; id?: number }                      // no id: every damaged field
+  // forecasting (core/forecast.ts, docs/16 §6): the arrays' choice set ahead (null clears), the sentinel's launch
+  | { kind: 'flareAhead'; choice: ArrayChoice | null; repair?: boolean; remember?: boolean }
+  | { kind: 'launchSentinel' };
 
 export class ActionQueue {
   private q: Action[] = [];

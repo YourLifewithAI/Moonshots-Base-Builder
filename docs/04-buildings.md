@@ -84,6 +84,7 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 |---|---|---|---|---|---|
 | Research Lab (1) | S | 2 crew, −5 kW → Data | Buildable from the start (the tree's entry point); priority 3: first to idle in a crunch | The only way forward: data toward every unlock | Produces nothing you can eat, breathe, or burn — and idles first in a crunch |
 | Data-Core Foundry (3) | C | electronics + Data → Data Cores | Manufactured science: Era 4+ techs cost Cores (03) | Turns research into a product your industry can scale | Science itself now has a supply chain that can starve |
+| **Solar Observatory** (2) | S | no crew, −2 kW, 1⚙/day → 0.05 data/s while it sees the Sun | Unlocked by Heliophysics Forecasting (docs/16 §6.3): the next flare's window and class range, a flare's data ×2, telegraphs +30 s. 2×2, off-road like a Relay Mast; one is enough, a second is a spare for the night side of a hill | Sees the next flare coming: a window and a likely class | Blind at night, and in the shade of a ridge |
 | Deep-Space Observatory (4) | C | crew, power → Data surge + Breakthrough discovery | Farside/radio-quiet concept: must sit far from the base, linked by Comms Relay | Finds the Breakthroughs no lab can compute its way to | Exiled beyond your perimeter — a remote outpost with your smartest people in it |
 
 ## Logistics & export
@@ -129,7 +130,7 @@ stay as docs/15 lays them.
   Hydroponics Farm, Recreation Dome, Research Lab, Parts Fabricator, Foil
   Factory, Mass Driver — plus the free pre-placed Lander. Later additions
   (Storage Yard, Robotics Bay, Chip Fab, Data Center, Relay Mast, Propellant
-  Plant, and the four destiny buildings above) are in `buildings.ts`.
+  Plant, the Solar Observatory of docs/16, and the four destiny buildings above) are in `buildings.ts`.
 - **Merged (2 → 1):** HRI Ilmenite Reduction Plant + MRE Electrolyzer → the
   shipped Regolith Smelter. Unmerging them restores a real strategic choice:
   oxygen-rich ilmenite reduction (site-dependent) vs. site-agnostic,
@@ -218,7 +219,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Recreation Dome | 1,824 | 1,948 | 1 |
 | Research Lab | 1,680 | 3,376 | 7 |
 | Relay Mast | 1,616 | 2,220 | 4 |
-| Data Center | 1,604 | 3,136 | 10 |
+| Solar Observatory | 865 | 1,829 | 2 |
+| Data Center | 1,604 | 3,256 | 11 |
 | Foil Factory | 1,416 | 2,446 | 6 |
 | Mass Driver | 1,052 | 1,812 | 5 |
 | Propellant Plant | 2,348 | 3,556 | 6 |
@@ -406,6 +408,13 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 160 |
 | Lights-Out Charter | 6 | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. | 48 |
 
+#### Solar Observatory
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Heliophysics Forecasting | 2 | Solar Observatories can rise: a white dome with a slit and a coronagraph on a pier, and a sun sensor on the pad for the forecast link. | 112 |
+| L1 Sentinel | 5 | Solar Observatories add a dish on a pylon for the sentinel’s link. | 112 + 740 ↻ |
+
 #### Data Center
 
 | Tech | Era | What changes | △ |
@@ -418,6 +427,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Liquid Cooling | 7 | Data Centers run coolant manifolds to a pump skid; Server Monoliths, coolant risers down their fin stack. | 152 |
 | Rack Densification | 7 | Data Centers add a rack annex at the berm, and Server Monoliths one at the foot. | 36 |
 | Predictive Scheduling | 6 | Each Data Center adds a scheduling antenna: a tall whip mast beside its dish. | 136 |
+| Solar-Cycle Forecasting | 6 | Data Centers add a helioseismology rack: a tall louvred cabinet with a slow-sweeping lamp. | 120 |
 | Fleet OS | 5 | Server Monoliths can rise: black slabs with a cold lamp stripe; Data Centers raise a monolith annex in their berm. | 48 |
 | Selenic Mind | 8 | Server Monoliths and Data Centers crown themselves with radiator fins. | 156 |
 
