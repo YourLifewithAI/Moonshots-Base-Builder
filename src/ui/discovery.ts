@@ -4,6 +4,7 @@
  *  opens). An era explainer pauses the game until Continue; tech cards never
  *  do. One setting turns both off (Esc menu, or the card's own switch) for
  *  players who know the road. The queue is filled by game.publish(). */
+import { touchOn } from '../core/touch';
 import { BUILDINGS, CATEGORY_LABEL, type BuildingId } from '../data/buildings';
 import {
   ERA_BLURB, ERA_BLURB_8, ERA_GATES, ERA_NAMES, LANES, SIDE_GLYPH, SIDE_LABEL, TECHS, TECH_ORDER, TRACKS,
@@ -239,7 +240,9 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> ${era >= 2
         ? `opens with this era’s destiny and ${CHARTER_TECHS - 1} more of its techs, or the destiny, ${CHARTER_DEED_TECHS - 1} more and: ${esc(next.deed)}`
         : `opens with ${CHARTER_TECHS} techs from this era, or ${CHARTER_DEED_TECHS} plus: ${esc(next.deed)}`}</p>` : '') +
-      (intro ? '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>' : '') +
+      (intro ? (touchOn()
+        ? '<p class="eb-line">Your objectives are in the top-left card. <b>Build</b> opens the palette · <b>Tree</b> research · <b>Map</b> the Lunar Map · drag to pan, pinch to zoom · <b>☰</b> menu.</p>'
+        : '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>') : '') +
       `<div class="eb-foot"><button class="btn primary" data-dsc="ok">${intro ? 'Begin' : 'Continue'} ▸</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these explainers and pop-ups</label></div></div>`;
   };
