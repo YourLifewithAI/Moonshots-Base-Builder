@@ -565,85 +565,127 @@ capability ← capability × (1 − scar)          (never below 10%)
   a late tech could undo part of every scar. It would make scars soft and add a second
   verb beside Replace, which already clears them. The default is no.
 
-## 5. Stow or risk
+## 5. Stow or risk: one decision in the flare pop-up
+
+The player's answer (§17, Q1): the warning pop-up is the decision point. You choose once,
+for all the arrays or a share of them, and the game does it for every array. Nobody
+selects arrays one by one.
 
 ### 5.1 The choice, in numbers
 
-Sunlight does not stop in a flare, so arrays keep producing. The protons wear the
-cells. A stowed array turns its cells to the ground: the Moon shields half the sky and
-the panel's own back the rest.
+Sunlight does not stop in a flare, so arrays keep producing. A running array faces the
+protons; a stowed one folds its cells to the ground and loses its power for the flare.
 
-| | Stow | Keep generating |
+A mare base with 24 arrays (240 kW) and an unshielded field, no Rad-Hard Cells:
+
+| Choice | C | M | X (with its tail) |
+|---|---|---|---|
+| **Keep all running** | full power · every array −0.5% for good | full power · **4 destroyed** (48◆ and 3.3 rover-min to rebuild) · 20 scarred −2% | full power for 3:10 · **12 destroyed** (144◆, 10 rover-min) · 12 scarred −6.5% |
+| **Stow all** | −240 kW for 0:40 · no damage | −240 kW for 0:55 (40% of the bank) · −5% on all 24, repaired for 24⚙ | −240 kW for 3:10 (1.4 banks: the bank runs dry) · −20% on all 24, repaired for 48⚙ |
+| **Stow 75%**, keeping 6 on the critical feed | −60 kW… | −180 kW · 1 destroyed · 18 repaired for 18⚙ | −180 kW · **3 destroyed** (36◆) · 3 scarred · 18 repaired for 36⚙ |
+
+- **A C** costs little either way. Running scars 0.5%; stowing costs 40 s. They break even
+  at about 19 lunar days of use, roughly a whole run.
+- **An M or X** should be stowed, all but the few arrays life support needs through the
+  flare (§5.3). Keeping everything running buys a flare's power with arrays.
+- **The pole** is the hard case: its bank covers a stowed M only a third of the time
+  (§2), so its critical feed is large, and those arrays run. Rad-Hard Cells, a bigger bank
+  and the Shield Coil are the pole's research.
+- **With proper shielding** (field berms and Rad-Hard Cells), stowing costs almost
+  nothing but the power: an X leaves 4% on each stowed array, repaired for 1⚙ each.
+
+### 5.2 The pop-up
+
+It opens when the telegraph starts. Its layout is §10.3. It holds:
+
+| Part | What it says or does |
+|---|---|
+| The head | `☉ FLARE INBOUND — class M–X (range, T1) · protons in 0:58`. The range firms 20 s in, when the X-rays peak (§3.1); with the sentinel the class is exact from the start. |
+| Your arrays | `24 arrays in 6 fields · 240 kW now · the bank carries the base 1:16 without them · critical feed 60 kW (6 arrays)` |
+| **Keep all running** | its preview line: power kept, arrays destroyed, scars |
+| **Stow all** | its preview: power lost, what the bank covers, the repairable damage and its cost; a warning if life support would go dark |
+| **Stow a portion** | 25% · 50% · 75% · **all but the critical feed**, and a slider in 5% steps; its preview names the fields: `stows F1, F2, F4 and 3 of F3 (18 arrays) · runs F3 (6, 60 kW)` |
+| Checkboxes | `Repair stowed arrays after the flare` (on) · `Use this choice for future M flares` |
+| The rest | the other counters of this flare: [Recall machines 5] [Checkpoint research] [Shut down exposed] [Deploy domes] |
+| The foot | [Confirm], and what happens if you don't: `Unanswered in 0:58: the safe default (stow all but the critical feed)` |
+
+- **Previews are exact.** The destroyed count is the expected count the sim will use
+  (§4.3). While the class is a range, the preview shows the worse class.
+- **Confirm executes it for every array.** The pop-up folds into the flare's alert, which
+  shows the result: `STOWED 18 (F1, F2, F4, 3 of F3) · RUNNING 6, 60 kW · the bank covers
+  the rest ✓`. Stowed arrays fold in the world.
+- **It pauses** for M and X by default (the menu's *Pause on flare warnings*: M and X ·
+  all · off). A C opens it unpaused and small.
+- The choice can be changed until 10 s before the protons, when the arrays start to move.
+
+### 5.3 The portion rule
+
+Which arrays a share stows, and which stay running:
+
+```
+choosers  = every array that is up, less wrecks, less arrays under a Shield Coil (they run:
+            they have nothing to fear), less fields with an override (§5.4)
+critical  = max(0, priority 0–1 demand − other supply − bank ÷ the flare's seconds) × 1.1
+keep set  = the fewest, strongest choosers that carry the critical kW (highest output first)
+stow order, whole fields first and only the last field split:
+  1. fields with a stowed shield: field berms or a dome over them (stowing them costs least damage)
+  2. then the weakest producers: output per array, after dust, capability and shade
+  3. then by field id
+stow ⌈p × choosers⌉ in that order, never one in the keep set
+```
+
+- **Why this order.** It stows first what is safest to stow and gives the least power,
+  and it keeps running the few strong arrays that carry life support. Fewer arrays
+  running means fewer destroyed for the same kilowatts.
+- **The critical feed** is what keeps priority 0–1 loads (habitats, life support, power)
+  lit through the flare, after the bank. On the mare by day it is usually 0; at the pole,
+  and at night on the ridge, it is often most of the grid.
+- If a share would cut into the keep set, the pop-up says so: `75% asked: 3 kept running
+  for life support`.
+- **Stow all** stows everything, the keep set too, and warns first:
+  `Habitat #4 goes dark at 0:38`.
+
+### 5.4 The shortcuts
+
+The pop-up is the decision. These make it for you, in this order:
+
+| # | Who decides | How it is set |
 |---|---|---|
-| This flare | no output for the flare plus 10 s of motion | full output |
-| For good | nothing | cells −0.25% C · −1% M · −3% X · −1% in the tail |
+| 1 | **A field override** | a field's inspector: `Follow the flare choice` (default) · `Always stow` · `Always run`. It applies to that field first; the share counts the rest. |
+| 2 | **Your click** in the pop-up | this flare only |
+| 3 | **The remembered choice** for this class | `Use this choice for future M flares` in the pop-up; the Space Weather panel's PROTOCOLS block shows and edits it. From landing. |
+| 4 | **The Builder's `flareStance`** | if on (§5.5) |
+| 5 | **The safe default** | **stow all but the critical feed** |
 
-**When stowing pays.** Stowing costs this flare's seconds. Generating costs a share of
-every sunlit second the array has left. The break-even is the time the base will keep
-this array:
+- With a remembered choice or the Builder deciding, the pop-up opens small and does not
+  pause: `Using your M choice: stow 50% · [Change]`, or `The Builder: stow all but 6 ·
+  [Accept] [Change]`.
+- **The safe default** is the player's "stow on warning", less the arrays life support
+  needs. Stowing those too could darken a habitat, which is not safe. The pop-up says
+  which default applies before the clock runs out.
+- **Before Flare Protocols** (E3 ▣), the remembered choice covers the arrays. After it,
+  it covers the pop-up's other rows as well (machines, research, fabs, domes), adds an X's
+  **tail** row (`run the arrays again for the tail`), and the panel shows them as a grid
+  (§7.4).
 
-```
-stow when   loss × sunlit seconds left   >   stowed seconds
-break-even  D* = stowed seconds ÷ (loss × sunlit seconds a lunar day)
-```
+### 5.5 The Builder rule
 
-| Flare | Stowed seconds | D* mare (≈ 430 sunlit s a day) | D* pole (≈ 680) |
-|---|---|---|---|
-| C | 40 | 37 lunar days: **always generate** | 24 |
-| M | 55 | 13 days: stow early, generate late | 8 |
-| X flash | 70 | 5.4 days: **stow** unless the run is nearly over | 3.4 |
-| X tail | 120 | 28 days: **generate** | 18 |
-
-A whole run is 14–18 lunar days. So: generate through a C, think about an M, stow the X
-flash, generate in its tail. **The night changes it.** A daytime stow the bank cannot
-cover browns the base out (§5.5). The pole's bank covers a stow far less often than the
-mare's, so the pole leans to generate, and its research answer is Rad-Hard Cells and the
-Shield Coil.
-
-### 5.2 Controls
-
-| Where | Control | Before research | After Flare Protocols (E3 ▣) |
-|---|---|---|---|
-| **Base-wide** (the Space Weather panel, the power panel) | the stance | `Stow on warning` (**default**) · `Keep generating` | + `By class`: a C · M · X · tail row, each stow or generate. Default: generate · stow · stow · generate |
-| **Per field** (an array's inspector) | the field's stance | `Follow base` (default) · `Stow` · `Generate` | + `By class` |
-| **This flare** (the telegraph alert) | a one-flare override, base-wide | [Stow arrays] · [Keep generating] | the same |
-
-- **A field** is the arrays whose footprints lie within 2 m of each other: a flood fill,
-  named by its lowest array id. The inspector reads `FIELD F3 · 12 arrays · 120 kW ·
-  cells 96% · stance: follow base (stow)`, with **Apply to field**.
-- **Why stow is the default.** An unanswered warning then does no harm that lasts, and a
-  new player's flare feels like today's. The drill's card teaches the other half:
-  `Your arrays stowed: you lost 40 s of 210 kW. Generating would have cost 0.25% of their
-  cells. Stow or risk it: choose per field and, with Flare Protocols, per class.`
-- **At night** an array with no sun stows itself: it has nothing to lose. The pole's
-  ridge arrays keep the choice.
-
-### 5.3 Timing
-
-- Arrays set to stow start 10 s before the active phase, and their output ramps to 0 over
-  those 10 s.
-- They unstow when the flare ends, or when the active phase ends if the tail is set to
-  generate, over another 10 s.
-- An array switched to stow after the protons arrive takes the loss for the seconds it
-  generated.
-
-### 5.4 The Builder rule
-
-A new rule in the **power** family (Automated Power, E4 ⚡; docs/13 §3.4). It needs
-Flare Protocols as well.
+A rule in the **power** family, unlocked by Automated Power (E4 ⚡; docs/13 §3.4).
 
 | Rule | Decides | Shown as | Signal | Threshold | On by default |
 |---|---|---|---|---|---|
-| `flareStance` | each field, each flare: stow or generate | `STOW when the cells cost more than H days of this flare's power` | stow if `loss × field kW × sunlit s in H days` > `field kW × stowed s`; **generate regardless** if stowing would dark a priority 0–1 load before the next dawn (the power book, docs/13 §3.1) | H = 8 lunar days (2–20, step 1) | yes |
+| `flareStance` | the arrays' choice for each flare | `STOW M and X but the critical feed; RUN through C` | the class (the worse of a range); the critical feed from the power book (docs/13 §3.1) | the feed's margin ×1.1 (1.0–1.5, step 0.1) · C: run or stow | yes |
 
-- **Holding lines:** `stow · F3 120 kW — an M costs 1%: 5.2 days of its power at H 8,
-  against 55 s now` · `generate · F1 — a stow would dark Habitat #4 at 2:10, before dawn`.
-- **H** is how long you mean to keep the arrays. Near the end of a run, set it low.
-- With Solar-Cycle Forecasting (§6) it also counts the flares still due in H.
+- **Holding lines:** `stow all but 6 · M: running arrays would lose 15% outright; F3 keeps
+  60 kW for Habitat #4 and the O₂ line` · `run all · C: 0.5% scars, no losses`.
+- **It also** queues every repair after a flare and rebuilds wrecks through the solar
+  rule (a wreck counts against the day's margin), inside Budget Governor's floors.
+- In an X's tail it keeps the arrays stowed (5% repairable beats 1.5% for good) unless the
+  critical feed rises as the bank drains.
 
-### 5.5 Power and the night bank
+### 5.6 Power and the night bank
 
-| Flare, stowed by day | Solar lost (today's 210 kW median) | Share of the median bank: mare · pole |
+| Stowed by day | Solar lost (today's 210 kW median) | Share of the median bank: mare · pole |
 |---|---|---|
 | C (40 s) | ~8,400 kW·s | 26% · 105% |
 | M (55 s) | ~11,500 | 35% · 145% |
@@ -651,27 +693,29 @@ Flare Protocols as well.
 
 (Bank shares scale today's measured 29% and 118% for 45 s, §2.)
 
+- This is why the critical feed exists: at the pole a stowed M already outruns the bank.
 - **The dusk forecast** (economy step 2) names the next forecast flare, from T1:
   `DUSK IN 2:10 · the bank carries the night · an M due 0:40–1:30 would take 11k if
   stowed`.
-- **The power panel** during a flare: `FLARE M — 8 fields stowed: −210 kW for 0:45 · the
-  bank covers 0:38 · [Keep generating: cells −1%]`.
+- **The power panel** during a flare: `FLARE M — 18 arrays stowed (−180 kW), 6 running
+  on the critical feed · the bank covers 0:55 ✓`.
 - **Machine batteries** (work/unitpower): a stow deepens the dip. Units ride an M's 55 s
-  on their packs (a pack runs a rover 2 min). An X stowed through its tail outlasts
-  them: rovers go flat and wait. Rover Power Packs (E2) and Fuel-Cell Packs (E4) cover
-  it, which is one more reason to take them.
+  on their packs (a pack runs a rover 2 min). An X stowed through its tail outlasts them:
+  rovers go flat and wait. Rover Power Packs (E2) and Fuel-Cell Packs (E4) cover it.
 - **The Builder's power book** (`src/core/automation.ts:281`) already skips flare ticks.
   It now skips stowed ticks and the tail too.
 - **Predictive Scheduling** (E6 ▣, docs/13) with a forecast holds priority 3 loads in the
-  hour before a forecast M or X, to fill the bank.
+  hour before a forecast M or X, to fill the bank and shrink the critical feed.
 
-### 5.6 The look
+### 5.7 The look
 
-- Stowing: each array's wing turns on its hinge from sun-tracking to edge-on, cells to
-  the ground, over 10 s. Its foot lamp blinks slowly. A stowed field reads as a row of
-  upright blades.
-- Generating through a flare: the panels stay, and the §11 speckle falls on them.
-- A worn array: nothing on the mesh. Its inspector and the field's line carry `CELLS 91%`.
+- **Stowing:** each array's wing turns on its hinge from sun-tracking to edge-on, cells to
+  the ground, over 10 s; its foot lamp blinks slowly. A stowed field reads as a row of
+  upright blades. Field berms, once researched, show as a low ridge along each field.
+- **A wreck:** the wing hangs broken, dropped 30° off its hinge, half its panels gone and
+  a shade darker, with debris at its foot, and a `✕` marker.
+- **A repair:** the rover stops at each array in the weld pose; the array's lamp steadies.
+- **Scars:** nothing on the mesh. The inspector carries them (§4.13).
 
 ## 6. Forecasting
 
