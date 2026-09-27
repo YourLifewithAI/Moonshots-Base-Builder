@@ -742,9 +742,11 @@ survey finds which is fixed by the host table, so it is deterministic.
 | **Solar-Wind Implantation** | E3 ◎ · slot 2 | **Central Tranquillitatis soil**: the highest solar-wind H and ³He in the maria. **Haworth PSR**: solar-wind hydrogen that migrated into the cold. | mare (7°), pole (3°) · the lava tube at T2 |
 | **Particle Telescope** | E5 ◎ · slot 1 | **Ina**: a surface too young to hold solar-flare tracks, a clean baseline. **Malapert Massif**: a 5 km peak over the ridge, open to the sky. **Copernicus**: ray rocks whose cosmic-ray exposure dated the crater. | mare (Ina 25°), pole (Malapert 4°) · the lava tube at T2 (Copernicus 36°) |
 | **Mini-Magnetosphere** | E6 ◎ · slot 1 | **Reiner Gamma**: a crustal field that turns the solar wind aside and keeps its swirl bright. **Descartes**: Apollo 16 measured the Moon's strongest surface field there, 313 nT. | lava tube (7°), mare (12°) · the pole at T2 |
-| **Storm Sails** | E7 ◎ · slot 1 | **Tranquility Base** and **Hadley Rille**: the Solar Wind Composition foils of Apollo 11 and 15. **Von Kármán**: Chang'e 4's neutral-atom detector. | mare (0°) · the lava tube and pole at T2 |
+| **Storm Sails** | E7 ◎ · slot 1 | **Tranquility Base** and **Hadley Rille**: the Solar Wind Composition foils of Apollo 11 and 15. **Von Kármán**: Chang'e 4's neutral-atom detector. | mare (0°, local) · the lava tube and pole at T2 |
 
-- Every site finds two of the four by T1 and all four by T2 (Orbital Prospector, E4).
+- **Reach:** the mare finds all four by T1 (Prospecting Rovers, E1), the pole two, the
+  lava tube one. Every site finds all four by T2 (Orbital Prospector, E4). The tube, which
+  needs them least, reaches them last.
 - Ina, Malapert, Copernicus and Reiner Gamma lose `ANOMALY_BONUS_DATA`
   (`src/data/lunarMap.ts:161`) now that they host a breakthrough, as hosting anomalies do.
 - The slots: E3 ◎ gains slot 2, E5, E6 and E7 ◎ gain slot 1 (§13.4).
