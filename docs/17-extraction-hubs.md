@@ -1653,7 +1653,7 @@ against `homeOf` and `chargeSpotOf` from Phase 1. Phase 3 touches
 `src/terrain/heightfield.ts` and `src/terrain/chunks.ts`, which no in-flight branch
 changes.
 
-## 23. The player's answers, and one new question
+## 23. The player's answers
 
 | # | Question | Answer | Where |
 |---|---|---|---|
@@ -1662,12 +1662,11 @@ changes.
 | 3 | Hub levels: bought per hub, or granted by research? | **Bought per hub**, once research allows each level. | §4.2 |
 | 4 | Should research add working faces? | **No.** No Bench Mining. | §8.2 |
 | 5 | Old saves: deposits full, or part-dug? | **Full.** Nothing is carved on load either. | §19 |
+| 6 | The pole's first era: keep hydrogen reduction poor on highland soil, or MRE from landing? | **Keep it realistic.** MRE stays an Era 2 research, taken first at the pole. | §9.4, §17.3 |
 
-**New question 6. The pole's first era.** Hydrogen reduction barely works on highland
+**Question 6, decided: keep it.** Hydrogen reduction barely works on highland
 soil, so the pole's starter smelter digs its plain pit at about half of today's
-metals until Molten Regolith Electrolysis. Should the pole keep that realism, or get
-MRE from landing?
-**Default: keep it.** MRE stays an Era 2 research, taken first there. The pole's Era 1
+metals until Molten Regolith Electrolysis. MRE stays an Era 2 research, taken first there. The pole's Era 1
 runs 0–4 min longer and its first builds come slower (§9.4, §17.3). The alternative
 moves MRE to Era 1 at the pole only. That makes the pole's start as quick as today,
 but it takes away the pole's first real choice.
