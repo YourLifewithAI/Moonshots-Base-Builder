@@ -171,6 +171,22 @@ cannot reach it until a road returns. The Lander's door cell stays.
 
 ## 5. Excavators on roads
 
+**Hub units** (docs/17 Phases 1–2, `core/hubs.ts`) replace the placed
+excavator. Hubs (the Regolith Smelter, the Silicon Refinery and the Water
+Management Plant) are **docks**:
+
+| Rule | How |
+|---|---|
+| Bays | a hub's units park in the spur's bay cells beside its door (Level I: 2) |
+| Tipping | a unit tips at the hub's door cell, nose a pace short of the wall |
+| Haul road | placing a hub plans a haul road to the zone of the deposit it will dig, laid with its spur; a plain pit's (below) too |
+| The way in | road → the zone's gate (its pit's zone's gates count too) → off-road → once its pit is cut, down the ramp to a face on the floor |
+| Plain pits | a hub with no wanted deposit in reach stakes a **plain pit**: a zone of kind `plain` (r 12 m), 20–60 m from its door. Its zone keeps 12 m from structures' walls and 8 m from roads (the pits' setbacks) |
+| Zone order | deposits, then plain pits, then carved pits: a cell in two stays the first's |
+
+The rest of this section describes the legacy pads an old save keeps until a
+hub joins them.
+
 - The excavator leaves its pad by its door and drives only on road cells.
 - It unloads at its consumer's **stand**: an open road cell beside the
   consumer's footprint (the door first), one a digger, nose a pace short of
