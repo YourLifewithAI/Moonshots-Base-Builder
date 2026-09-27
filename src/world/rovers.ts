@@ -32,13 +32,14 @@
 import * as THREE from 'three';
 import type { GameState, RoverUnit } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { cellAt, cellCentre, cellKey, doorCell, isOpen, roadMap, roadRoute } from '../core/roads';
+import { cellAt, cellCentre, cellKey, doorCell, groundWay, isOpen, offRoadAt, roadMap, roadRoute } from '../core/roads';
+import { zoneCells } from '../core/zones';
 import { DRONE, unitKind } from '../core/fleet';
 import { BUILDINGS } from '../data/buildings';
 import { centerOf } from '../buildings/instances';
 import { groundSpots, type RoverSpot } from '../core/spots';
 import { HIVE_DECK_Y, ROAD, ROVER } from '../data/roads';
-import { arrived, droneGoal, dronePads, padPoint, pointOn, spotGoal, travelled, tripPoint } from '../core/transit';
+import { arrived, droneGoal, dronePads, padPoint, spotGoal, travelled, tripPoint, tripShare, tripSpeed } from '../core/transit';
 import { TECHS, type TechId } from '../data/techs';
 import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
@@ -174,9 +175,8 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 const spotKey = (p: RoverSpot) => `${p.site ?? 'p'}:${p.road ?? ''}@${p.gx},${p.gz},${p.side}${p.inside ? 'in' : ''}${p.survey ? 's' : ''}`;
 /** a sim trip's identity: a new one (a replan) rebuilds the way */
 const tripKey = (t: RoverUnit['trip']) => (t ? `${t.goal}#${t.len.toFixed(2)}#${t.pts[0][0].toFixed(2)},${t.pts[0][1].toFixed(2)}${t.stuck ? '!' : ''}` : '');
-/** the sim's progress along a trip, 0..1, `ahead` s on from its last tick */
-const progress = (t: NonNullable<RoverUnit['trip']>, ahead: number) =>
-  t.len > 1e-6 ? travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a) / t.len : 1;
+/** the sim's progress along a trip, 0..1 of its real metres, `ahead` s on from its last tick */
+const progress = (t: NonNullable<RoverUnit['trip']>, ahead: number) => tripShare(t, ahead);
 type Cell = [number, number];
 
 /** The right-hand lane's offset for travel along `d` (a unit cell step). */
@@ -393,8 +393,7 @@ export class RoverFleet implements Driver {
     const [x, z] = simAt ? [u.x!, u.z!] : [spot.x, spot.z];
     let yaw = spot.face;
     if (t && !settled && t.pts.length > 1) {
-      const u0 = travelled(t.t, t.len, t.v, t.a);
-      const [ax, az] = pointOn(t.pts, u0), [bx, bz] = pointOn(t.pts, u0 + 0.5);
+      const [ax, az] = tripPoint(t), [bx, bz] = tripPoint(t, 0.2);
       if (Math.hypot(bx - ax, bz - az) > 1e-6) yaw = Math.atan2(bx - ax, bz - az);
     }
     // on its slot already: no way to drive
@@ -440,11 +439,12 @@ export class RoverFleet implements Driver {
       const q = pointAt(r.agent.pts, r.agent.arcs, r.target);
       return { x: q.x, z: q.z, yaw: Math.atan2(q.dx, q.dz), there: false };
     }
-    const u0 = travelled(Math.min(t.dur, t.t + this.frac), t.len, t.v, t.a);
-    const [x, z] = pointOn(t.pts, u0);
-    const [bx, bz] = pointOn(t.pts, u0 + 0.5);
+    const [x, z] = tripPoint(t, this.frac);
+    const [bx, bz] = tripPoint(t, this.frac + 0.2);
     const dx = bx - x, dz = bz - z, l = Math.hypot(dx, dz);
     if (l < 1e-6) return { x, z, yaw: r.yaw, there: false };
+    // off the road inside a zone: the sim's point as it is
+    if (offRoadAt(this.state!, x, z)) return { x, z, yaw: Math.atan2(dx, dz), there: false };
     const ux = dx / l, uz = dz / l;
     // the lane: a lane's width to the right of the way on, along its axis
     const [lx, lz] = Math.abs(ux) >= Math.abs(uz) ? [0, Math.sign(ux) * ROAD.lane] : [-Math.sign(uz) * ROAD.lane, 0];
@@ -495,7 +495,7 @@ export class RoverFleet implements Driver {
       const k = r.p0 >= 1 - 1e-6 ? 1 : clamp((p - r.p0) / (1 - r.p0), 0, 1);
       const end = Traffic.end(a);
       r.target = r.s0 + (end - r.s0) * k;
-      r.vSim = arrived(t) ? 0 : t.v;
+      r.vSim = arrived(t) ? 0 : tripSpeed(t, this.frac);
     } else {
       r.target = Traffic.end(a);
       r.vSim = 0;
@@ -534,9 +534,11 @@ export class RoverFleet implements Driver {
       const dock = s.buildings.find((b) => b.id === spot.dock);
       const d = dock ? doorCell(dock) : null;
       if (!r.inside && d) {
-        const cells = roadRoute(s, cellAt(r.x, r.z), d);
-        if (!cells) return;
-        this.traffic.setWay(r.agent, laneWay(cells, [r.x, r.z], cellCentre(d[0], d[1])));
+        // (off the road inside a zone: out by its gate first)
+        const gw = offRoadAt(s, r.x, r.z) ? groundWay(s, [r.x, r.z], cellCentre(d[0], d[1])) : null;
+        const cells = gw ? null : roadRoute(s, cellAt(r.x, r.z), d);
+        if (!gw && !cells) return;
+        this.traffic.setWay(r.agent, gw ? gw.pts.map(([x, z]): [number, number] => [x, z]) : laneWay(cells!, [r.x, r.z], cellCentre(d[0], d[1])));
         r.agent.standMode = WHOLE;
         r.spot = spot;
         r.key = spotKey(spot);
@@ -565,6 +567,19 @@ export class RoverFleet implements Driver {
       from = d;
     } else {
       from = cellAt(r.x, r.z);
+    }
+    // off the road inside an extraction zone, either end (core/zones.ts): straight
+    // off-road to and from the zone's gate, the road between in the right-hand lane
+    if (spot.offroad || offRoadAt(s, r.x, r.z)) {
+      const pts = this.offWay(r, spot, s, from);
+      if (!pts) return;
+      this.traffic.setWay(r.agent, pts);
+      r.agent.standMode = laneMode(spot.axis === 'x' ? 0 : 1, spot.side);
+      if (r.inside) this.traffic.place(r.agent);
+      r.revUntil = -Infinity;
+      r.spot = spot; r.key = spotKey(spot); r.site = spot.site; r.inside = false; r.working = false;
+      this.mark(r, spot, s);
+      return;
     }
     // a bay is left, and come into, by its opening only (the way keeps to the slot's half)
     const same = (a: Cell, b: Cell) => a[0] === b[0] && a[1] === b[1];
@@ -603,6 +618,25 @@ export class RoverFleet implements Driver {
     r.inside = false;
     r.working = false;
     this.mark(r, spot, s);
+  }
+
+  /** A way with an off-road end (core/roads.ts groundWay): off-road legs
+   *  straight, the road between in lanes. */
+  private offWay(r: Rover, spot: RoverSpot, s: GameState, from: Cell): [number, number][] | null {
+    const gw = groundWay(s, [r.x, r.z], [spot.x, spot.z]);
+    if (!gw) return null;
+    const pts = gw.pts, w = gw.w ?? [];
+    const za = (w[0] ?? 1) > 1, zb = (w[w.length - 1] ?? 1) > 1;
+    const i0 = za ? 1 : 0, i1 = zb ? pts.length - 2 : pts.length - 1;
+    if (i1 <= i0) return pts.map(([x, z]): [number, number] => [x, z]);
+    const cells: Cell[] = [];
+    for (let i = i0; i <= i1; i++) {
+      const c = i === i0 && !za ? from : cellAt(pts[i][0], pts[i][1]);
+      const l = cells[cells.length - 1];
+      if (!l || l[0] !== c[0] || l[1] !== c[1]) cells.push(c);
+    }
+    const lane = laneWay(cells, pts[i0], pts[i1], !za && this.traffic.taken(r.agent, from[0], from[1]));
+    return [...pts.slice(0, i0), ...lane, ...pts.slice(i1 + 1)].map(([x, z]): [number, number] => [x, z]);
   }
 
   /** The way now leads to this slot: the sim goal it serves, the sim trip it
@@ -715,6 +749,7 @@ export class RoverFleet implements Driver {
       ahead.push(o);
     }
     const map = roadMap(s);
+    const zones = zoneCells(s);
     const start = cellAt(r.x, r.z);
     const sk = cellKey(start[0], start[1]);
     const refuge = (cells: Cell[], mode: number, x: number, z: number) => {
@@ -758,7 +793,7 @@ export class RoverFleet implements Driver {
         const nk = cellKey(x + dx, z + dz);
         if (from.has(nk)) continue;
         const c = map.get(nk);
-        if (!c || !isOpen(c) || t.taken(a, x + dx, z + dz)) continue;
+        if (!((c && isOpen(c)) || zones.has(nk)) || t.taken(a, x + dx, z + dz)) continue;
         from.set(nk, k);
         q.push(nk);
         if (avoid.has(nk)) continue;
@@ -1027,12 +1062,15 @@ export function spotSignature(s: GameState): string {
   return `${k}|${s.survey?.active?.rover ?? ''}`;
 }
 
-/** The traffic's road cells from the state (on change only). */
+/** The traffic's ground from the state (on change only): the open road
+ *  cells, and every cell of an extraction zone (core/zones.ts), where units
+ *  drive off-road — the same holds keep them apart there. */
 export function syncGround(t: Traffic, s: GameState) {
-  const sig = `${s.roadRev ?? 0}:${s.roads?.length ?? 0}`;
+  const sig = `${s.roadRev ?? 0}:${s.roads?.length ?? 0}:z${s.zones?.length ?? 0}`;
   if (sig === t.roadSignature) return;
   const cells: [number, number][] = [];
   for (const c of s.roads ?? []) if (isOpen(c)) cells.push([c.gx, c.gz]);
+  for (const k of zoneCells(s).keys()) cells.push([k % 256, Math.floor(k / 256)]);
   t.setRoads(sig, cells);
 }
 

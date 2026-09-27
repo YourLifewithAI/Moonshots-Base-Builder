@@ -2,7 +2,8 @@
  *  core/spots.ts, world/traffic.ts): a placement lays its road first and the
  *  rovers sinter it before they weld; a field of arrays needs no road
  *  between its arrays; the road tool lays and removes roads; an excavator
- *  hauls only on roads, its trip timed by the road and its tier; an old save
+ *  hauls on roads (off-road only inside an extraction zone, zones.spec), its
+ *  trip timed by the road and its tier; an old save
  *  gets roads; and the rovers and excavators on the roads never share
  *  ground, never leave it, and never lock up. And the early smelter trap:
  *  the palette warns before a placement that would leave too few metals for
@@ -96,6 +97,8 @@ window.drive = (frames, watch, full) => {
   g.getRenderInfo(); // clears the closest-pair record
   let worst = Infinity, pair = '', lagMaxS = 0, i = 0, T = null;
   const offroad = [];
+  // an extraction zone's cells are ground too: units drive off-road inside one (core/zones.ts)
+  const zc = new Set(g.getZones().flatMap((z) => z.cells.map(([x, k]) => k * 256 + x)));
   for (; i < frames; i++) {
     if (i % 10 === 0) {
       g.grantPower(50000);
@@ -114,7 +117,7 @@ window.drive = (frames, watch, full) => {
     const open = new Set(st.roads.filter((x) => x.left <= 0).map((x) => x.gz * 256 + x.gx));
     for (const u of T.units) {
       const gx = Math.floor((u.x + 512) / 4), gz = Math.floor((u.z + 512) / 4);
-      if (open.has(gz * 256 + gx)) continue;
+      if (open.has(gz * 256 + gx) || zc.has(gz * 256 + gx)) continue;
       if (u.kind === 'digger') {
         const fp = g.footprintOf(u.id);
         if (fp && u.x >= fp.x0 - 0.01 && u.x <= fp.x1 + 0.01 && u.z >= fp.z0 - 0.01 && u.z <= fp.z1 + 0.01) continue;
@@ -624,7 +627,8 @@ test('the road tool: N starts it, a road laid is sintered by free rovers, a remo
     const g = window.__game!;
     g.grantResources({ metals: 3000, parts: 3000 });
     const last = cells[cells.length - 1];
-    near('lab', (last % 256) * 4 - 512 + 2, Math.floor(last / 256) * 4 - 512 + 10);
+    // (south of it: the high-Ti patch to the north is an extraction zone, where a door gets no road)
+    near('lab', (last % 256) * 4 - 512 + 2, Math.floor(last / 256) * 4 - 512 - 10);
     g.finishConstruction();
     const lab = g.roadAccess().find((a: any) => a.type === 'lab');
     g.removeRoad([lab.door]);

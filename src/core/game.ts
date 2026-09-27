@@ -41,7 +41,8 @@ import {
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { accessCell, dropSpur, joinCell, layApron, laySpur, migrateRoads } from './roads';
+import { accessCell, bumpRoads, dropSpur, joinCell, layApron, laySpur, migrateRoads } from './roads';
+import { zonesFrom } from './zones';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
@@ -1000,9 +1001,11 @@ export class Game {
     };
     this.stampDeposit(b);
     s.buildings.push(b);
+    // building on unmapped ground maps it — first, so its road knows the zone it stands in
+    if (dep && !free) { this.strike(b, dep); this.syncZones(); }
     // its road (core/roads.ts): the Lander lands with its apron, the rest get a spur
+    // (one inside an extraction zone stops at the zone's rim, core/zones.ts)
     if (b.type === 'lander') { if (!s.roads) layApron(s, b); } else laySpur(s, this.hf, b, free || this.debugOpenRoads);
-    if (dep && !free) this.strike(b, dep);
     this.instances.rebuild(s);
     this.walk.colliders = this.instances.colliders(s);
     // deadlock early-warning: metals gone before your first smelter exists
@@ -1069,6 +1072,7 @@ export class Game {
     revealDeposits(s, this.hf.deposits);
     const tier = this.mods.surveyTier;
     const now = this.hf.deposits.filter((d) => depositRevealed(s, d, tier));
+    this.syncZones(now);
     const fresh = now.filter((d) => !this.revealedIds.has(d.id));
     if (!fresh.length && this.depositOverlay) return;
     this.revealedIds = new Set(now.map((d) => d.id));
@@ -1078,6 +1082,14 @@ export class Game {
     for (const d of fresh) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
     const list = [...count].map(([k, n]) => `${DEPOSIT_INFO[k].name}${n > 1 ? ` ×${n}` : ''}`).join(' · ');
     alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info');
+  }
+
+  /** The extraction zones are the deposits the player sees (core/zones.ts):
+   *  auto roads stop at their rims from now on. */
+  private syncZones(revealed = this.hf.deposits.filter((d) => depositRevealed(this.state, d, this.mods.surveyTier))) {
+    const s = this.state;
+    const next = zonesFrom(s.zones, revealed);
+    if (next !== s.zones) { s.zones = next; bumpRoads(s); }
   }
 
   /** Settlers take agent-run stations in the order the economy staffs them,
@@ -1481,7 +1493,7 @@ export class Game {
           const p = this.placement.probe!;
           $placing.set({
             type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
-            road: p.road?.length, roadS: p.roadS, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
+            road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
           });
         }
       } else {

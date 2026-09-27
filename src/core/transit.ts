@@ -122,6 +122,18 @@ export function tripPoint(t: RoverTrip, ahead = 0): Pt {
   return pointOnW(t.pts, t.w, travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a));
 }
 
+/** The trip's real speed now (m/s): its cruise, slowed on an off-road segment. */
+export function tripSpeed(t: RoverTrip, ahead = 0): number {
+  if (!t.w) return t.v;
+  const u = actualAt(t.pts, t.w, travelled(Math.min(t.dur, t.t + ahead), t.len, t.v, t.a));
+  let m = 0;
+  for (let i = 1; i < t.pts.length; i++) {
+    m += Math.hypot(t.pts[i][0] - t.pts[i - 1][0], t.pts[i][1] - t.pts[i - 1][1]);
+    if (u <= m + 1e-9) return t.v / (t.w[i - 1] ?? 1);
+  }
+  return t.v / (t.w[t.w.length - 1] ?? 1);
+}
+
 /** How far along its way (real metres, a share of the whole) the trip has it `ahead` s from now. */
 export function tripShare(t: RoverTrip, ahead = 0): number {
   if (t.len <= 1e-6) return 1;

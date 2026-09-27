@@ -140,7 +140,7 @@ const touches = (a: Placed, b: Placed) => {
 /** Memo for the siting scans (the chooser asks once a candidate): per road
  *  list, on the network's revision and the buildings. */
 const fieldMemo = new WeakMap<RoadCell[], { key: string; served: Set<number> }>();
-const layoutKey = (s: GameState) => `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${s.nextBuildingId},${s.buildings.length}`;
+const layoutKey = (s: GameState) => `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}`;
 
 /** Field structures a road serves: one within reach of any road cell, or one
  *  sharing an edge with a served structure of its own type. */
@@ -355,10 +355,13 @@ function sinkSearch(
 
 // ───────────────────────────── zones (core/zones.ts) ─────────────────────────────
 
-/** m of off-road drive from a zone's rim cell to a point, in road cells' time */
+/** A rim cell's cost as a road's end, for a drive on to (x, z): its
+ *  off-road distance, 0.9 a cell. A new road cell costs 1, so the road stops
+ *  at the rim cell nearest the network by road cost, and runs no further
+ *  round the rim than the drive it saves. */
 const offCost = (k: number, x: number, z: number) => {
   const [cx, cz] = cellCentre(...keyCell(k));
-  return Math.hypot(cx - x, cz - z) / CELL_M / ROAD.offroad;
+  return 0.9 * Math.hypot(cx - x, cz - z) / CELL_M;
 };
 
 /** Where an auto road into zone `zone` may stop, for a drive on to (x, z):
@@ -591,7 +594,7 @@ const planMemo = new Map<string, SpurPlan>();
 export function planSpur(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const none: SpurPlan = { cells: [], fresh: [], bays: [], reason: '' };
   if (!hasRoads(s)) return none;
-  const key = `${b.type},${b.gx},${b.gz},${b.rot}|${s.roadRev ?? 0},${s.roads!.length}|${s.nextBuildingId},${s.buildings.length}`;
+  const key = `${b.type},${b.gx},${b.gz},${b.rot}|${s.roadRev ?? 0},${s.roads!.length}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}`;
   const hit = planMemo.get(key);
   if (hit) return hit;
   const out = planFresh(s, hf, b);
@@ -621,6 +624,11 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   // inside a zone: its road stops at the zone's rim, the drive on off-road
   const inZone = zoneStand(s, b);
   if (inZone) {
+    // its door needs no road, but a rover must stand there
+    const d = doorCell(b);
+    if (d && (!inMap(d[0], d[1]) || occupied(s).has(cellKey(d[0], d[1])))) {
+      return { cells: [], fresh: [], bays: [], reason: 'NO ROOM AT ITS DOOR — its front is against a structure; R rotates' };
+    }
     if (FIELD_TYPES.has(b.type) && inZone.gate) return { cells: [], fresh: [], bays: [], reason: '' };
     const sink = rimTargets(s, inZone.zone, blocked, inZone.x, inZone.z);
     if (!sink.size) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — no ground on the rim of its zone for a road to stop at' };
@@ -1140,10 +1148,15 @@ export function migrateRoads(s: GameState, hf: Heights) {
       }
     }
   }
+  // every door gets its road as it would have before extraction zones (the
+  // safe choice: nothing stranded; core/zones.ts): the zones set aside meanwhile
+  const zones = s.zones;
+  s.zones = undefined;
   for (const b of s.buildings) {
     if (b.type === 'lander') continue;
     laySpur(s, hf, b, true);
   }
+  s.zones = zones;
   for (const r of s.rovers ?? []) delete r.road;
   for (const b of s.buildings) if (b.haul) delete b.haul.roadJob;
   s.roadSchema = 1;

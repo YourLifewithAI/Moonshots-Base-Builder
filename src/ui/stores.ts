@@ -204,6 +204,8 @@ export const $placing = atom<{
   /** the road it would lay (cells), and the rover-seconds to sinter it */
   road?: number;
   roadS?: number;
+  /** inside an extraction zone: m of off-road drive from its road's end */
+  offM?: number;
   /** game-seconds the nearest free rover would take to get there (core/transit.ts);
    *  Infinity: every rover is busy; undefined: not asked */
   travelS?: number;

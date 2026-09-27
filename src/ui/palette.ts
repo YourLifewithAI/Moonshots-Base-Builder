@@ -328,7 +328,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const road = p.valid && p.type !== 'grade'
       ? `<div class="road-note" id="place-road">${p.road
         ? `ROAD ${p.road} cell${p.road === 1 ? '' : 's'} · ${Math.round(p.roadS ?? 0)} rover-s to sinter, before it rises`
-        : 'ROAD — on the network already'}</div>`
+        : 'ROAD — on the network already'}${p.offM !== undefined
+        ? ` · to its zone's rim, then ${Math.round(p.offM)} m off-road` : ''}</div>`
       : '';
     // who would come, and when (core/transit.ts): the nearest free rover's drive
     const eta = p.valid && p.type !== 'grade' && p.travelS !== undefined

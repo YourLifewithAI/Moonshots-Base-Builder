@@ -524,7 +524,8 @@ test('saves keep the dig site and the cycle mid-haul; an old excavator digs its 
       g.advanceGameSeconds(1);
     };
     // the bucket it had started goes home first; then a whole one at the new dig
-    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x + 2, h().z - 60) < 0.5); i++) tick();
+    // (the dig snaps to its cell's centre: -2, 62)
+    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - h().digX, h().z - h().digZ) < 0.5); i++) tick();
     // into the haul: bucket full, on the road
     for (let i = 0; i < 200 && h().phase !== 'toDrop'; i++) tick();
     g.grantPower(100);

@@ -16,7 +16,8 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, doorCell, openAll, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, doorCell, gatesOf, openAll, roadMap, roadRoute, servedFields } from './core/roads';
+import { zoneCells } from './core/zones';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
 
@@ -290,6 +291,14 @@ function api(game: Game) {
           linked: !!(from && cell && roadRoute(s, from, cell)),
         };
       });
+    },
+    /** the extraction zones (core/zones.ts): each one's circle, its cells and its gates */
+    getZones: () => {
+      const s = game.state;
+      const cells = zoneCells(s);
+      return (s.zones ?? []).map((z, i) => ({
+        ...z, cells: [...cells].filter(([, j]) => j === i).map(([k]) => [k % 256, Math.floor(k / 256)]), gates: gatesOf(s, z),
+      }));
     },
     /** the save as written, and a load of one (the migration tests) */
     saveBlob: () => clone((game as unknown as { saveBlob(): unknown }).saveBlob()),

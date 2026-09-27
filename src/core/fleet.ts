@@ -26,7 +26,7 @@ import { ROVER } from '../data/roads';
 import type { BuildingState, GameState, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { centerOf } from '../buildings/instances';
-import { accessCell, cellAt, cellKey, frontierOf, hasRoads, roadDistances, spurLeft } from './roads';
+import { accessCell, cellAt, cellKey, frontierOf, hasRoads, roadDistances, spurLeft, zoneStand } from './roads';
 
 export interface ActionResult { ok: boolean; reason: string }
 const OK: ActionResult = { ok: true, reason: '' };
@@ -92,6 +92,9 @@ export function siteEntry(s: GameState, b: BuildingState): [number, number] | nu
     const f = frontierOf(s, b.spur);
     if (f?.from) return f.from;
   }
+  // inside an extraction zone: its gate (the drive on is off-road)
+  const zs = zoneStand(s, b);
+  if (zs?.gate) return zs.gate;
   return accessCell(s, b);
 }
 

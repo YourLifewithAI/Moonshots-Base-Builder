@@ -191,18 +191,20 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
   /** a site inside an extraction zone: its crew off the road at its door
    *  (a field's wall), two abreast facing it, reached from a gate */
   const offRoad = (ids: number[], b: BuildingState, x: number, z: number): number[] => {
+    // side by side in the cell it works from, across the way it faces the site (as in a road's two halves)
     const [bx, bz] = centerOf(b);
-    const l = Math.hypot(bx - x, bz - z) || 1;
-    const ux = (bx - x) / l, uz = (bz - z) / l;
     const [gx, gz] = cellAt(x, z);
+    const [cx, cz] = cellCentre(gx, gz);
+    const dir: Cell = Math.abs(bx - cx) >= Math.abs(bz - cz) ? [Math.sign(bx - cx) || 1, 0] : [0, Math.sign(bz - cz) || 1];
+    const axis = lateral(dir);
     const left = [...ids];
     for (const side of [0, 1] as const) {
       if (!left.length || taken.has(slotKey(gx, gz, side))) continue;
       taken.add(slotKey(gx, gz, side));
-      const o = (side ? 1 : -1) * ROAD.lane;
+      const [px, pz] = slotPoint(gx, gz, axis, side);
       const id = left.shift()!;
       out.set(id, {
-        gx, gz, side, axis: 'x', x: x - uz * o, z: z + ux * o, face: Math.atan2(ux, uz), shuffle: [Math.abs(uz), Math.abs(ux)],
+        gx, gz, side, axis, x: px, z: pz, face: Math.atan2(dir[0], dir[1]), shuffle: [Math.abs(dir[0]), Math.abs(dir[1])],
         site: b.id, dock: dockOf.get(id)!.id, offroad: true,
       });
     }
