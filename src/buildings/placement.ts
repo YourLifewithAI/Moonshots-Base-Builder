@@ -70,8 +70,8 @@ export function smelterWarning(state: GameState, site: SiteDef, type: BuildingId
 
 /** a site no robot has welded on yet: demolishing it cancels the order */
 export function untouchedSite(b: BuildingState): boolean {
-  // a flare's repair, rebuild or clear (docs/16 §4.3) is no new site: nothing to cancel back
-  if (b.fix || b.wreck) return false;
+  // a flare's repair, rebuild or clear (docs/16 §4.3), or a Replace (§4.14), is no new site: nothing to cancel back
+  if (b.fix || b.wreck || b.replace) return false;
   return b.buildTotal > 0 && (b.construction ?? 0) >= b.buildTotal;
 }
 

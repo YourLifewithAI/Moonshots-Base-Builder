@@ -573,7 +573,9 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   }
   s.researchStalled = stalled;
 
-  let budget = Math.min(s.data, rates.cap * dt);
+  // Checkpoint (docs/16 §4.6): transfers pause from a flare's protons to its end; the bank keeps filling
+  const held = !!s.flare?.checkpoint && (s.flare.phase === 'active' || s.flare.phase === 'tail');
+  let budget = held ? 0 : Math.min(s.data, rates.cap * dt);
   let moved = 0;
   let wantsData = false;
   for (const tid of s.researchQueue) {

@@ -39,6 +39,7 @@ import { isDrone as fleetIsDrone } from './fleet';
 import { buildCostAt, freezeRules, logAuto, postIncidentAudit, ruleBuilding, runawaySite, type AutoRequest } from './automation';
 import { centerOf } from '../buildings/instances';
 import { nextActiveAt, startFlare } from './spaceWeather';
+import { commsDark } from './flareEffects';
 
 // ─────────────────────────── helpers ───────────────────────────
 
@@ -765,6 +766,7 @@ function onFlareTelegraph(s: GameState, mods: Mods, site: SiteDef) {
     if (typeof h !== 'string') {
       h.n.eva = s.evaCrew;
       h.n.active = active;
+      flareClassOn(s, h);
       h.targetName = `${plural(s.evaCrew, 'crew member')} on EVA`;
       if (guard(mods, 'stormShelters')) h.used.recallEva = s.simTime; // the shelters call them in
     }
@@ -776,9 +778,18 @@ function onFlareTelegraph(s: GameState, mods: Mods, site: SiteDef) {
     if (typeof h !== 'string') {
       h.targetName = `${plural(out, 'rover')} on site`;
       h.n.active = active;
+      flareClassOn(s, h);
     }
   }
 }
+
+/** The flare's class on a hazard riding it (docs/16 §9): cls 0 C · 1 M · 2 X; xDrill: the first X, a drill in its permanent parts. */
+function flareClassOn(s: GameState, h: LiveHazard) {
+  const cls = s.flare.cls ?? 'M';
+  h.n.cls = cls === 'C' ? 0 : cls === 'M' ? 1 : 2;
+  h.n.xDrill = cls === 'X' && s.flare.drill ? 1 : 0;
+}
+const FLARE_CLS = ['C', 'M', 'X'] as const;
 
 // ── the event kinds (CASCADE, CONTROL PLANE) ──
 
@@ -1180,14 +1191,24 @@ function tickDose(s: GameState, mods: Mods, h: LiveHazard, flarePrev: GameState[
     const doses = caught * (guard(mods, 'stormShelters') ? D.shelter : 1);
     const before = s.hazards.doseLoad;
     s.hazards.doseLoad += doses;
-    s.hazards.sick.push({ n: caught, until: now + D.offDays[h.tier] * CYCLE_S });
+    // by class (docs/16 §9.2): a C's dose is drill-grade; only a real X kills
+    const cls = FLARE_CLS[h.n.cls ?? 1];
+    const days = cls === 'C' ? D.offDaysC : D.offDays[h.tier];
+    s.hazards.sick.push({ n: caught, until: now + days * CYCLE_S });
     s.morale = Math.max(0, s.morale - D.morale);
-    let lethal = Math.floor(caught * D.lethalShare[h.tier]);
-    if (before + doses > D.limit) lethal = Math.max(lethal, Math.min(caught, Math.ceil(before + doses - D.limit)));
-    if (h.drill) lethal = 0;
+    const over = before + doses > D.limit ? Math.min(caught, Math.ceil(before + doses - D.limit)) : 0;
+    let lethal = cls === 'X' ? Math.floor(caught * D.lethalShare[h.tier]) : 0;
+    let grounded = 0;
+    if (over && cls === 'X') lethal = Math.max(lethal, over);
+    else if (over) {
+      // past the limit at a C or M: grounded — off work until the load falls under warnAt
+      grounded = over;
+      s.hazards.sick.push({ n: over, until: now + Math.max(days, s.hazards.doseLoad - D.warnAt) * CYCLE_S });
+    }
+    if (h.drill || h.n.xDrill) lethal = 0;
     h.n.lethal = lethal;
-    alert(s, `DOSE — ${plural(caught, 'crew member')} caught outside by the flare: off work ${D.offDays[h.tier]} lunar day` +
-      `${lethal ? ` · ${lethal} lethal` : ''}`, lethal ? 'crit' : 'warn', { panel: 'crew' });
+    alert(s, `DOSE — ${plural(caught, 'crew member')} caught outside by the ${cls} flare: off work ${days} lunar day` +
+      `${grounded ? ` · ${grounded} past the dose limit, grounded` : ''}${lethal ? ` · ${lethal} lethal` : ''}`, lethal ? 'crit' : 'warn', { panel: 'crew' });
     if (!lethal) { endHazard(s, h, h.drill ? 'drill: dosed' : 'ignored: dosed'); return; }
     h.clockAt = now + D.criticalS;
     return;
@@ -1364,13 +1385,23 @@ function tickFirmware(s: GameState, mods: Mods, h: LiveHazard, flarePrev: GameSt
     const pool = h.flare
       ? s.rovers.filter((r) => away(r) && !((r.heldUntil ?? 0) > now) && !((r.brickedUntil ?? 0) > 0))
       : s.rovers.filter((r) => !((r.brickedUntil ?? 0) > 0));
-    const share = F.share[h.tier] * (h.flare && guard(mods, 'radHard') ? F.radHard : 1);
+    // a flare's share by class (docs/16 §9.3): C ×0.5, M ×1, X ×1.25 to 90%
+    const cls = h.flare ? FLARE_CLS[h.n.cls ?? 1] : null;
+    const byClass = cls ? Math.min(F.flareMax, F.share[h.tier] * F.flareMult[h.n.cls ?? 1]) : F.share[h.tier];
+    const share = byClass * (h.flare && guard(mods, 'radHard') ? F.radHard : 1);
     const n = pool.length ? Math.min(pool.length, Math.max(1, Math.round(pool.length * share))) : 0;
     const hit = [...pool].sort((a, b) => a.id - b.id).slice(0, n);
+    // a C's bit flips only reboot what they hit: 30 s where it stands
+    if (cls === 'C') {
+      for (const r of hit) { r.rebootUntil = Math.max(r.rebootUntil ?? 0, now + F.cRebootS); r.lastFlare = `bit flips: rebooted ${fmtClock(F.cRebootS)}`; }
+      if (hit.length) alert(s, `BIT FLIPS — ${plural(hit.length, 'rover')} rebooted ${fmtClock(F.cRebootS)} by the C flare`, 'info');
+      endHazard(s, h, hit.length ? 'rebooted' : 'nobody out');
+      return;
+    }
     let fell = 0;
     for (const r of hit) {
-      // from moderate, a drone bricked in flight falls
-      if (isDrone(s, r) && away(r) && h.tier >= 1 && !h.drill) {
+      // from moderate, a drone bricked in flight by an X falls (at C or M it lands)
+      if (isDrone(s, r) && away(r) && h.tier >= 1 && !h.drill && cls !== 'M' && !h.n.xDrill) {
         loseRover(s, mods, r, `drone #${r.id} fell, bricked in flight by ${h.flare ? 'the flare' : 'v7.2'}`, h,
           h.flare ? 'the fleet was not docked' : 'the rollout was not held');
         fell++;
@@ -1565,10 +1596,18 @@ function fleetTick(s: GameState, mods: Mods, dt: number, out: HazardTickResult) 
   // deadlines
   for (const r of s.rovers.filter((x) => (x.brickedUntil ?? 0) > 0 && x.brickedUntil! <= now)) {
     const h = hz.live.find((x) => x.id === r.brickedBy);
-    if (!h || h.drill) {
+    // an M's bit flips (docs/16 §9.3): the missed deadline is re-flashed from Earth, 60 s late — no loss
+    if (h?.flare && (h.n.cls ?? 2) < 2 && !h.drill) {
+      r.brickedUntil = now + HZ.firmware.earthLateS;
+      r.brickedBy = undefined;
+      alert(s, `RE-FLASH FROM EARTH — rover #${r.id} missed its deadline; Earth re-flashes it in ${fmtClock(HZ.firmware.earthLateS)} (an M: no loss)`, 'info');
+      continue;
+    }
+    if (!h || h.drill || h.n.xDrill) {
       r.brickedUntil = 0;
       r.brickedBy = undefined;
-      alert(s, `RE-FLASHED FROM EARTH — rover #${r.id} (drill); next time a rover bricked at its deadline is lost`, 'info');
+      alert(s, h ? `RE-FLASHED FROM EARTH — rover #${r.id} (drill); next time a rover bricked at its deadline is lost`
+        : `RE-FLASHED FROM EARTH — rover #${r.id} is back in the fleet`, 'info');
       continue;
     }
     loseRover(s, mods, r, `#${r.id} never came back from ${h.flare ? 'the flare’s bit flips' : 'v7.2'}`, h,
@@ -1863,6 +1902,7 @@ export function applyCounter(s: GameState, mods: Mods, counter: CounterId, id?: 
     }
     case 'callHome': {
       const C = HZ.cabinFever.callHome;
+      if (commsDark(s)) return no('CALL HOME WAITS — the flare’s comms blackout: the Earth link is down');
       if (now - hz.callHomeAt < CYCLE_S) return no(`CALL HOME ONCE A LUNAR DAY — next in ${fmtClock(CYCLE_S - (now - hz.callHomeAt))}`);
       if (s.data < C.data) return no(`CALL HOME NEEDS ${C.data}≡ — have ${Math.floor(s.data)}`);
       s.data -= C.data;
@@ -1992,11 +2032,11 @@ export function forceHazard(s: GameState, mods: Mods, site: SiteDef, kind: Hazar
   }
   if (kind === 'dose') {
     const drill = o.drill ?? !s.hazards.drilled.includes('dose');
-    // an M's flash, as the legacy flare's (docs/16: class scaling of DOSE is F2b)
+    // an M's flash unless a flare is in flight (docs/16 §9.2: DOSE by its class)
     if (s.flare.phase === 'idle') { startFlare(s, site, 'M', { drill: false }); s.hazards.flarePrev = 'telegraph'; }
     const active = s.simTime + s.flare.timer;
     const h = startHazard(s, mods, site, 'dose', { at: active - HZ.dose.walkInS, drill, tier: o.tier });
-    if (typeof h !== 'string') { h.n.eva = Math.max(1, s.evaCrew); h.n.active = active; h.targetName = `${h.n.eva} crew on EVA`; }
+    if (typeof h !== 'string') { h.n.eva = Math.max(1, s.evaCrew); h.n.active = active; h.targetName = `${h.n.eva} crew on EVA`; flareClassOn(s, h); }
     return h;
   }
   if (kind === 'controlPlane') {

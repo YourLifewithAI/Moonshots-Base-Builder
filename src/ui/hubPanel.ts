@@ -125,7 +125,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
     const id = $unitSel.get();
     const u = id === null ? undefined : $fleet.get().units.find((x) => x.id === id);
     if (!u || $mode.get() === 'walk') { insp.style.display = 'none'; sig = ''; return; }
-    const next = `${u.id}|${u.pinned}|${u.parked}|${u.hub}`;
+    const next = `${u.id}|${u.pinned}|${u.parked}|${u.hub}|${u.reprint}`;
     if (next !== sig) {
       sig = next;
       insp.innerHTML = `
@@ -140,6 +140,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
             <span class="k">Load</span><span class="mono" id="un-load"></span>
             <span class="k">Wear</span><span class="mono" id="un-wear"></span>
             <span class="k">Pack</span><span class="mono" id="un-pack"></span>
+            <span class="k">Flare</span><span class="mono" id="un-flare"></span>
           </div></section>
           <section><div ${NOTE}>Its hub printed it, docks and charges it, and sends it where it feeds the hub most. Send… pins it to a pit (up to twice its reach) until you press Auto.</div></section>
         </div>
@@ -148,6 +149,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
           ${u.parked === 'recalled' ? '<button class="btn" id="un-dispatch" title="Back to work">Dispatch</button>'
             : '<button class="btn" id="un-recall" title="Home to its bay, and hold there">Recall</button>'}
           ${u.pinned ? '<button class="btn" id="un-auto" title="Its hub chooses for it again">Auto</button>' : ''}
+          ${u.reprint ? '<button class="btn" id="un-reprint" title="Rad scars: its hub re-prints it new (capability 100%) for half its price; it works on until then">Re-print</button>' : ''}
           <button class="btn" id="un-hubbtn" title="Inspect its hub">⌂ Hub</button>
           <button class="btn" id="un-close">✕</button>
         </section></div>`;
@@ -160,6 +162,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
     setText(insp, 'un-load', `${Math.floor(u.cargo)}/${Math.floor(u.bucket)}${G}`);
     setText(insp, 'un-wear', `${Math.round((1 - u.wear) * 100)}%`);
     setText(insp, 'un-pack', u.pack);
+    setText(insp, 'un-flare', u.flare);
   };
   $unitSel.subscribe(render);
   $fleet.subscribe(render);
@@ -176,6 +179,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
       case 'un-recall': game.actions.push({ kind: 'recallUnit', unit: id }); break;
       case 'un-dispatch': game.actions.push({ kind: 'dispatchUnit', unit: id }); break;
       case 'un-auto': game.actions.push({ kind: 'autoUnit', unit: id }); break;
+      case 'un-reprint': game.actions.push({ kind: 'counter', counter: 'flareReprintUnit', id }); break;
       case 'un-hubbtn': if (u) game.select(u.hub); break;
       case 'un-close': game.cancelFleetTarget(); $unitSel.set(null); break;
     }

@@ -58,6 +58,7 @@ import {
   allWrecks, arrayView, clearWreck, confirmChoice, migrateFlareSchema, previewChoice, queueRepairs, rebuildWreck, setFieldOverride,
   setRemembered, shownClass, startFlare, weatherView, type ChoicePreview,
 } from './spaceWeather';
+import { applyFlareCounter, commsDark, isFlareCounter } from './flareEffects';
 import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
 import { HAZARDS, HAZARD_NAME, type HazardId, type Tier } from '../data/hazards';
 import { FleetTarget, type Mode as FleetMode } from '../player/fleetTarget';
@@ -1066,8 +1067,11 @@ export class Game {
       }
       // hazards (core/hazards.ts, docs/14 §3.7): a counter works while paused, as placement does
       case 'counter': {
-        const r = applyCounter(s, this.mods, a.counter, a.id);
+        // the flare's own counters (docs/16 §4): Recall machines, Checkpoint, Shut down exposed, Replace, Re-print
+        const flare = isFlareCounter(a.counter);
+        const r = flare ? applyFlareCounter(s, this.mods, SITES[s.siteId], a.counter as never, a.id) : applyCounter(s, this.mods, a.counter as never, a.id);
         if (!r.ok) alert(s, r.reason, 'warn');
+        else if (flare && (a.counter === 'flareReplace' || a.counter === 'flareReplaceWorst')) this.instances.rebuild(s);
         break;
       }
       case 'airGap': {
@@ -1496,6 +1500,11 @@ export class Game {
     }
     if (s.data < cost) {
       alert(s, `DOWNLINK NEEDS ${cost}≡ BANKED — have ${Math.floor(s.data)}`, 'warn');
+      return;
+    }
+    // a flare's comms blackout (docs/16 §4.8): no link to sell over until it lifts
+    if (commsDark(s)) {
+      alert(s, 'DOWNLINK WAITS — the flare’s comms blackout: the Earth link is down', 'warn');
       return;
     }
     // the Lander is the Earth gateway (docs/14 §3.5): air-gapped, it has no link to sell over

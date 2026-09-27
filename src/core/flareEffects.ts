@@ -11,10 +11,12 @@
  *    structure with an output, rate or capacity and every machine loses
  *    capability: the class's rate × (1 − σ)² × (a tenth if prepared) ×
  *    hardening. For good, down to 10%; Replace and Re-print (§4.14) clear it.
- *  - Machines (§4.5): each draws once as the protons arrive (after the bit
+ *  - Machines (§4.5): rovers and drones, hub units (docs/17) and a legacy
+ *    pad's excavator. Each draws once as the protons arrive (after the bit
  *    flips) and again, as a C, in an X's tail: reboots, latch-ups (bricked,
- *    re-flashed at the dock, lost at 480 s) and burn-outs (lost). A docked
- *    machine only reboots. Recall machines docks what can make it home.
+ *    re-flashed at the dock or bay, lost at 480 s) and burn-outs (lost). A
+ *    docked machine only reboots. Hubs recall their own units on M and X;
+ *    Recall machines docks every machine that can make it home.
  *  - Crew indoors (§4.4); labs and the head tech, Checkpoint (§4.6); Chip Fabs
  *    and compute, Shut down exposed (§4.7); the comms blackout (§4.8); wear (§4.9).
  *
@@ -27,7 +29,7 @@ import {
   FLARE_EFFECTS as E, SPACE_WEATHER as W, type FlareClass, type FlareCounterId, type FlareKey,
 } from '../data/spaceWeather';
 import type { SiteDef } from '../data/sites';
-import type { AlertCounter, BuildingState, FlareLogEntry, GameState, RoverUnit } from './state';
+import type { AlertCounter, BuildingState, FlareLogEntry, GameState, Hauler, RoverUnit } from './state';
 import { effectiveDef, effectiveRates, type Mods } from './mods';
 import { alert, condition } from './economy';
 import { fmtClock } from './daynight';
@@ -37,6 +39,8 @@ import { reachS, siteEntry } from './fleet';
 import { TRANSIT } from './transit';
 import { buildCostAt } from './automation';
 import { techCost } from './research';
+import { hubName, hubOf, jobCost, jobTime, recallUnit, targetOf, tripTo, unitTag } from './hubs';
+import { HUB } from '../data/hubs';
 import { centerOf } from '../buildings/instances';
 import { WEATHER_STUB, flareStorm } from './spaceWeather';
 
@@ -98,6 +102,19 @@ export const rebooting = (s: Pick<GameState, 'simTime'>, r: { rebootUntil?: numb
 const diggerOut = (b: BuildingState) => b.type === 'excavator' && !isSite(b) && b.enabled && !b.flareShut && !b.burned;
 
 const droneOf = (s: GameState, r: RoverUnit) => s.buildings.find((b) => b.id === r.home)?.type === 'droneHive';
+
+/** A hub unit out of its bay (docs/17 §4.3): digging, driving, tipping; parked in its bay it is docked. */
+export const unitOpen = (u: Hauler) => u.haul.phase !== 'park';
+
+/** A hub unit lost to the flare: its bay is free; its hub prints another when asked. */
+function loseUnit(s: GameState, u: Hauler, cause: string) {
+  const b = hubOf(s, u);
+  s.haulers = s.haulers.filter((x) => x.id !== u.id);
+  const warnedAt = s.flare.startedAt ?? s.simTime;
+  (s.losses ??= []).push({ at: s.simTime, what: 'building', name: `unit ${unitTag(u)}`, cause, hazard: 'flare', warnedAt });
+  alert(s, `UNIT LOST — ${cause} · warned ${fmtClock(Math.max(0, s.simTime - warnedAt))} before; it was not in its bay` +
+    (b ? ` · ${hubName(b)} prints a new one from its queue` : ''), 'crit', b ? { select: b.id } : undefined);
+}
 
 /** A machine lost to the flare, logged as a loss (docs/14 §3.10); a rover's dock prints its replacement. */
 function loseRover(s: GameState, r: RoverUnit, cause: string) {
@@ -167,10 +184,35 @@ export function drawMachines(s: GameState, site: SiteDef, mods: Mods, part: 'fla
       lost++;
     }
   }
-  // excavators: a digger out working glitches as a rover in the open does; parked (powered off), it does not
+  // hub units: out of their bays in the open; in a bay, the hub's dock σ
+  for (const u of [...s.haulers]) {
+    if (u.latch) continue;
+    const open = unitOpen(u);
+    const out = pick(700 + u.id, open, open ? 0 : M.dockSigma);
+    if (part === 'flash' && open && E.machineWear[cls] > 0) u.wear = Math.min(1, u.wear + E.machineWear[cls]);
+    if (!out) continue;
+    if (out === 'reboot') {
+      u.rebootUntil = Math.max(u.rebootUntil ?? 0, now + secs);
+      // at M and X the job's work is lost: the bucket is dumped at its face
+      if (key === 'M' || key === 'X') { u.haul.cargo = {}; u.haul.full = false; if (u.haul.phase === 'dig') u.haul.t = 0; }
+      u.lastFlare = `rebooted ${fmtClock(secs)}${key === 'M' || key === 'X' ? ', its bucket dumped' : ''}`;
+      rebooted++;
+    } else if (out === 'latch') {
+      // it drops its job and limps home in safe mode; its bay re-flashes it (§4.5)
+      u.latch = { until: now + M.deadlineS, real: !drillX, n };
+      u.haul.cargo = {}; u.haul.full = false;
+      if (u.parked !== 'recalled') recallUnit(s, mods, u.id);
+      u.lastFlare = `latched up in the ${cls}`;
+      latched++;
+    } else {
+      loseUnit(s, u, `${unitTag(u)} burned out in the ${cls} flare`);
+      lost++;
+    }
+  }
+  // a legacy pad's excavator: a digger out working glitches as a rover in the open does; parked (powered off), it does not
   for (const b of s.buildings) {
     if (!diggerOut(b) || b.latch) continue;
-    const out = pick(100000 + b.id, true, 0);
+    const out = pick(1400 + b.id, true, 0);
     if (part === 'flash' && E.machineWear[cls] > 0) b.wear = Math.min(1, b.wear + E.machineWear[cls]);
     if (!out) continue;
     if (out === 'reboot') {
@@ -335,6 +377,10 @@ function tallyScars(s: GameState) {
     const e = ex[`r${r.id}`] ?? (ex[`r${r.id}`] = [0, 0]);
     e[inOpen(s, r) ? 0 : 1] += 1;
   }
+  for (const u of s.haulers) {
+    const e = ex[`h${u.id}`] ?? (ex[`h${u.id}`] = [0, 0]);
+    e[unitOpen(u) ? 0 : 1] += 1;
+  }
 }
 
 // ─────────────────────────── rad scars (§4.13) ───────────────────────────
@@ -374,14 +420,26 @@ export function resolveScars(s: GameState, site: SiteDef, mods: Mods, part: 'fla
         crossed[crossed.length - 1] += `|b${b.id}`;
       }
     } else {
-      const r = s.rovers.find((x) => x.id === Number(k.slice(1)));
-      if (!r) continue;
+      // a machine: docked, it is behind its dock's σ and prepared
       const docked = (1 - E.machines.dockSigma) ** 2 * E.prep;
       const cut = rate * ((open + prep * docked) / tot);
-      const name = `${droneOf(s, r) ? 'drone' : 'rover'} #${r.id}`;
-      const d = scar(r, cut, name, `Re-print ${E.reprint.metals}◆ ${E.reprint.parts}⚙ at its dock`);
-      if (d > 0) { nM++; sumM += cut; }
-      if (crossed.length && crossed[crossed.length - 1].startsWith(name)) crossed[crossed.length - 1] += `|r${r.id}`;
+      const id = Number(k.slice(1));
+      if (k[0] === 'r') {
+        const r = s.rovers.find((x) => x.id === id);
+        if (!r) continue;
+        const name = `${droneOf(s, r) ? 'drone' : 'rover'} #${r.id}`;
+        const d = scar(r, cut, name, `Re-print ${E.reprint.metals}◆ ${E.reprint.parts}⚙ at its dock`);
+        if (d > 0) { nM++; sumM += cut; }
+        if (crossed.length && crossed[crossed.length - 1].startsWith(name)) crossed[crossed.length - 1] += `|r${r.id}`;
+      } else {
+        const u = s.haulers.find((x) => x.id === id);
+        const hb = u ? hubOf(s, u) : undefined;
+        if (!u) continue;
+        const name = `unit ${unitTag(u)}`;
+        const d = scar(u, cut, name, `Re-print ${hb ? `${costText(jobCost(hb, 'reprint', site))} at ${hubName(hb)}` : 'at its hub'}`);
+        if (d > 0) { nM++; sumM += cut; }
+        if (crossed.length && crossed[crossed.length - 1].startsWith(name)) crossed[crossed.length - 1] += `|h${u.id}`;
+      }
     }
   }
   // excavators are machines too: their exposure is the structure's, above (parked = prepared)
@@ -393,12 +451,15 @@ export function resolveScars(s: GameState, site: SiteDef, mods: Mods, part: 'fla
     const [name, fix, ref] = c.split('|');
     const b = ref?.[0] === 'b' ? byId.get(Number(ref.slice(1))) : undefined;
     const r = ref?.[0] === 'r' ? s.rovers.find((x) => x.id === Number(ref.slice(1))) : undefined;
-    const cap = b ? capOf(b) : r ? capOf(r) : 0;
+    const u = ref?.[0] === 'h' ? s.haulers.find((x) => x.id === Number(ref.slice(1))) : undefined;
+    const hb = u ? hubOf(s, u) : undefined;
+    const cap = b ? capOf(b) : r ? capOf(r) : u ? capOf(u) : 0;
     const text = `CAPABILITY — ${name} is down to ${pct(cap)} from rad scars · ${fix}`;
-    alert(s, text, 'warn', b ? { select: b.id } : r ? { select: r.home } : undefined);
-    const counter: AlertCounter = b ? { counter: 'flareReplace', id: b.id, label: `Replace ${costText(replaceCost(b, site))}` }
-      : { counter: 'flareReprint', id: r!.id, label: `Re-print ${E.reprint.metals}◆ ${E.reprint.parts}⚙` };
-    attachCounters(s, text, [counter]);
+    alert(s, text, 'warn', b ? { select: b.id } : r ? { select: r.home } : hb ? { select: hb.id } : undefined);
+    const counter: AlertCounter | null = b ? { counter: 'flareReplace', id: b.id, label: `Replace ${costText(replaceCost(b, site))}` }
+      : r ? { counter: 'flareReprint', id: r.id, label: `Re-print ${E.reprint.metals}◆ ${E.reprint.parts}⚙` }
+      : u && hb ? { counter: 'flareReprintUnit', id: u.id, label: `Re-print ${costText(jobCost(hb, 'reprint', site))}` } : null;
+    if (counter) attachCounters(s, text, [counter]);
   }
   f.scarEx = {};
 }
@@ -414,8 +475,13 @@ export function onFlareEnd(s: GameState): string[] {
     const b = s.buildings.find((x) => x.id === id);
     if (b?.flareShut) b.flareShut = { warm: now + E.warmS };
   }
+  // the hub units the flare sent home go back to work (a latched one waits for its re-flash)
+  for (const id of f.unitsHome ?? []) {
+    const u = s.haulers.find((x) => x.id === id);
+    if (u && u.parked === 'recalled' && !u.latch) delete u.parked;
+  }
   if (t) { t.recalled = !!f.recalled; t.checkpoint = !!f.checkpoint; t.shut = (f.shut ?? []).length; }
-  delete f.recalled; delete f.checkpoint; delete f.shut; delete f.drawn; delete f.scarEx;
+  delete f.recalled; delete f.checkpoint; delete f.shut; delete f.drawn; delete f.scarEx; delete f.unitsHome; delete f.hubsRecalled;
   const bits: string[] = [];
   if (!t) return bits;
   const m = [t.rebooted ? `${t.rebooted} rebooted` : '', t.latched ? `${t.latched} latched up` : '', t.lost ? `**${t.lost} lost**` : ''].filter(Boolean);
@@ -438,7 +504,41 @@ export function effectsTick(s: GameState, site: SiteDef, mods: Mods) {
     f.drawn = true;
     drawMachines(s, site, mods, 'flash');
   }
+  // hubs recall their own units on M and X by themselves, from landing (§7.4); C flares keep them digging
+  if (f.phase === 'telegraph' && !f.hubsRecalled && (f.cls === 'M' || f.cls === 'X')) {
+    f.hubsRecalled = true;
+    const sent = recallUnits(s, mods);
+    if (sent.home) {
+      alert(s, `HUBS RECALL — ${plural(sent.home, 'unit')} home to ${sent.home === 1 ? 'its bay' : 'their bays'} for the ${f.cls} flare` +
+        (sent.out ? ` · ${plural(sent.out, 'unit')} cannot make it in ${fmtClock(f.timer)}: ${sent.out === 1 ? 'it keeps' : 'they keep'} digging` : ''),
+        'info', { panel: 'weather' });
+    }
+  }
   if (flareStorm(s)) tallyScars(s);
+  // hub units: reboots end; a latched one is re-flashed in its bay, one per 30 s a hub; lost at its deadline
+  const R0 = E.machines.reflashS;
+  const tickR = Math.floor(now / R0) !== Math.floor((now - 1) / R0);
+  const flashed = new Set<number>();
+  for (const u of [...s.haulers].sort((a, b) => (a.latch?.until ?? 0) - (b.latch?.until ?? 0) || a.id - b.id)) {
+    if (u.rebootUntil !== undefined && u.rebootUntil <= now) delete u.rebootUntil;
+    if (!u.latch) continue;
+    const hb = hubOf(s, u);
+    if (tickR && hb && !flashed.has(hb.id) && !unitOpen(u) && hb.enabled && hb.idleReason !== 'power') {
+      flashed.add(hb.id);
+      delete u.latch;
+      u.lastFlare = 're-flashed after a latch-up';
+      if (u.parked === 'recalled' && (f.phase === 'idle' || !(f.unitsHome ?? []).includes(u.id))) delete u.parked;
+      alert(s, `RE-FLASHED — ${unitTag(u)} back at work from ${hubName(hb)}`, 'info', { select: hb.id });
+      continue;
+    }
+    if (u.latch.until > now) continue;
+    if (u.latch.real) loseUnit(s, u, `${unitTag(u)} was never re-flashed after the X flare’s latch-up`);
+    else {
+      delete u.latch;
+      if (u.parked === 'recalled') delete u.parked;
+      alert(s, `RE-FLASHED FROM EARTH — ${unitTag(u)} (a drill); next time a latched machine at its deadline is lost`, 'info', hb ? { select: hb.id } : undefined);
+    }
+  }
   for (const r of s.rovers) {
     if (r.rebootUntil !== undefined && r.rebootUntil <= now) delete r.rebootUntil;
     if (r.reprintUntil !== undefined && r.reprintUntil <= now) {
@@ -516,6 +616,32 @@ function flareEndsAt(s: GameState): number {
   return s.simTime + f.timer;
 }
 
+/** A hub unit's trip home (s): back from its target, as the hub reckons it (0: it is in or by its bay). */
+function unitHomeS(s: GameState, mods: Mods, u: Hauler): number {
+  if (!unitOpen(u) || TRANSIT.instant) return 0;
+  const b = hubOf(s, u);
+  const tt = targetOf(s, u.target);
+  if (!b || !tt || u.haul.phase === 'toBay' || u.haul.phase === 'toDrop' || u.haul.phase === 'unload') return 0;
+  const est = tripTo(s, mods, b, tt).t;
+  return Number.isFinite(est) ? est : Infinity;
+}
+
+/** Send home every hub unit in the open whose trip fits in the time to the protons (the hubs' own recall,
+ *  and Recall machines). They go back to work when the flare has passed. */
+export function recallUnits(s: GameState, mods: Mods): { home: number; out: number } {
+  const f = s.flare;
+  const left = f.phase === 'telegraph' ? f.timer : 0;
+  let home = 0, out = 0;
+  for (const u of s.haulers) {
+    if (!unitOpen(u) || u.parked === 'recalled' || u.latch) continue;
+    if (unitHomeS(s, mods, u) > left + 1e-9) { out++; continue; }
+    recallUnit(s, mods, u.id);
+    (f.unitsHome ??= []).push(u.id);
+    home++;
+  }
+  return { home, out };
+}
+
 /** Rovers and drones whose trip home fits in the time to the protons, and the excavators that can park. */
 function recallPlan(s: GameState): { home: RoverUnit[]; out: RoverUnit[]; park: BuildingState[] } {
   const f = s.flare;
@@ -551,10 +677,14 @@ export function flareCounters(s: GameState, mods: Mods, site: SiteDef): AlertCou
   const f = s.flare;
   if (s.weather?.legacy || f.phase === 'idle' || f.phase === 'tail') return [];
   const out: AlertCounter[] = [];
-  if (!f.recalled) {
+  if (!f.recalled && f.phase === 'telegraph') {
     const p = recallPlan(s);
-    const n = p.home.length + p.park.length;
-    if (n > 0 && f.phase === 'telegraph') out.push({ counter: 'flareRecall', label: `Recall machines ${n}${p.out.length ? ` (${p.out.length} can’t)` : ''}` });
+    const left = f.timer;
+    const units = s.haulers.filter((u) => unitOpen(u) && u.parked !== 'recalled' && !u.latch);
+    const uHome = units.filter((u) => unitHomeS(s, mods, u) <= left + 1e-9).length;
+    const n = p.home.length + p.park.length + uHome;
+    const cant = p.out.length + units.length - uHome;
+    if (n > 0) out.push({ counter: 'flareRecall', label: `Recall machines ${n}${cant ? ` (${cant} can’t)` : ''}` });
   }
   if (!f.checkpoint && s.researchQueue?.length && f.phase === 'telegraph') out.push({ counter: 'flareCheckpoint', label: 'Checkpoint research' });
   const shut = shutTargets(s, mods, site).length;
@@ -564,7 +694,7 @@ export function flareCounters(s: GameState, mods: Mods, site: SiteDef): AlertCou
 
 /** Recall machines (§7.4): home before the protons, every machine whose trip fits; the excavators park
  *  (powered off where they stand). The rest keep working. */
-export function recallMachines(s: GameState): EffectResult {
+export function recallMachines(s: GameState, mods: Mods): EffectResult {
   const f = s.flare;
   if (s.weather?.legacy || f.phase === 'idle') return no('NO FLARE TO RECALL FOR — the recall waits for a warning');
   if (f.phase === 'tail') return no('TOO LATE TO RECALL — the X’s tail is on; its draw is done');
@@ -577,9 +707,11 @@ export function recallMachines(s: GameState): EffectResult {
     r.site = null; r.pinned = false; delete r.road;
   }
   for (const b of p.park) { b.enabled = false; b.flareShut = { warm: 0 }; (f.shut ??= []).push(b.id); }
+  const units = recallUnits(s, mods);
   f.recalled = true;
-  const cant = p.out.length ? ` · ${plural(p.out.length, 'machine')} cannot make it home in ${fmtClock(f.phase === 'telegraph' ? f.timer : 0)}: they keep working` : '';
-  alert(s, `MACHINES RECALLED — ${plural(p.home.length, 'machine')} home for the flare${p.park.length ? `, ${plural(p.park.length, 'excavator')} parked` : ''}; construction pauses${cant}`,
+  const cantN = p.out.length + units.out;
+  const cant = cantN ? ` · ${plural(cantN, 'machine')} cannot make it home in ${fmtClock(f.phase === 'telegraph' ? f.timer : 0)}: they keep working` : '';
+  alert(s, `MACHINES RECALLED — ${plural(p.home.length + units.home, 'machine')} home for the flare${p.park.length ? `, ${plural(p.park.length, 'excavator')} parked` : ''}; construction pauses${cant}`,
     'info', { panel: 'weather' });
   return OK;
 }
@@ -682,14 +814,34 @@ export function reprintRover(s: GameState, id: number): EffectResult {
   return OK;
 }
 
+/** Re-print a scarred hub unit (§4.14, docs/17 §4.2): a job in its hub's queue, half the unit's price and
+ *  60% of its print; it keeps its bay, and the old unit is scrapped as the new one rolls out. */
+export function reprintUnit(s: GameState, mods: Mods, site: SiteDef, id: number): EffectResult {
+  const u = s.haulers.find((x) => x.id === id);
+  const b = u ? hubOf(s, u) : undefined;
+  if (!u || !b?.hub) return no('NO SUCH UNIT');
+  if (capOf(u) >= 0.9995) return no(`NOTHING TO RE-PRINT — ${unitTag(u)} is at 100%`);
+  if (b.hub.queue.some((j) => j.kind === 'reprint' && j.unit === u.id)) return no(`ALREADY QUEUED — ${unitTag(u)}’s Re-print is in ${hubName(b)}’s queue`);
+  if (b.hub.queue.length >= HUB.queueMax) return no(`QUEUE FULL — ${hubName(b)} holds ${HUB.queueMax} jobs`);
+  b.hub.queue.push({ kind: 'reprint', unit: u.id, paid: null, t: 0, total: jobTime(b, 'reprint', site, mods), by: 'player' });
+  alert(s, `RE-PRINT QUEUED — ${unitTag(u)} (${pct(capOf(u))}) at ${hubName(b)} for ${costText(jobCost(b, 'reprint', site))}: it works on until the new one rolls out`,
+    'info', { select: b.id });
+  return OK;
+}
+
 /** The scarred, worst first (the panel's SCARRED line, Replace worst, the probe). */
-export function scarredList(s: GameState): { kind: 'b' | 'r'; id: number; name: string; cap: number; burned: boolean }[] {
-  const out: { kind: 'b' | 'r'; id: number; name: string; cap: number; burned: boolean }[] = [];
+export function scarredList(s: GameState): { kind: 'b' | 'r' | 'h'; id: number; name: string; cap: number; burned: boolean }[] {
+  const out: { kind: 'b' | 'r' | 'h'; id: number; name: string; cap: number; burned: boolean }[] = [];
   for (const b of s.buildings) {
     if ((scarsOn(b) || b.type === 'solar') && !isSite(b) && !b.wreck && (capOf(b) < 0.9995 || b.burned)) out.push({ kind: 'b', id: b.id, name: label(b), cap: b.burned ? 0 : capOf(b), burned: !!b.burned });
   }
   for (const r of s.rovers) {
     if (capOf(r) < 0.9995 && !r.reprintUntil) out.push({ kind: 'r', id: r.id, name: `${droneOf(s, r) ? 'drone' : 'rover'} #${r.id}`, cap: capOf(r), burned: false });
+  }
+  for (const u of s.haulers) {
+    const hb = hubOf(s, u);
+    const queued = !!hb?.hub?.queue.some((j) => j.kind === 'reprint' && j.unit === u.id);
+    if (capOf(u) < 0.9995 && !queued) out.push({ kind: 'h', id: u.id, name: `unit ${unitTag(u)}`, cap: capOf(u), burned: false });
   }
   return out.sort((a, b) => a.cap - b.cap || a.id - b.id);
 }
@@ -698,23 +850,25 @@ export function scarredList(s: GameState): { kind: 'b' | 'r'; id: number; name: 
 export function replaceWorst(s: GameState, mods: Mods, site: SiteDef): EffectResult {
   const w = scarredList(s)[0];
   if (!w) return no('NOTHING SCARRED — every structure and machine is at 100%');
-  return w.kind === 'b' ? replaceBuilding(s, mods, site, w.id) : reprintRover(s, w.id);
+  return w.kind === 'b' ? replaceBuilding(s, mods, site, w.id) : w.kind === 'r' ? reprintRover(s, w.id) : reprintUnit(s, mods, site, w.id);
 }
 
 /** A flare counter pressed (the alert, the pop-up, the panel): game.ts routes 'counter' actions here. */
 export function applyFlareCounter(s: GameState, mods: Mods, site: SiteDef, c: FlareCounterId, id?: number): EffectResult {
   switch (c) {
-    case 'flareRecall': return recallMachines(s);
+    case 'flareRecall': return recallMachines(s, mods);
     case 'flareCheckpoint': return checkpointResearch(s);
     case 'flareShutDown': return shutDownExposed(s, mods, site);
     case 'flareReplace': return id === undefined ? no('NO STRUCTURE NAMED') : replaceBuilding(s, mods, site, id);
     case 'flareReprint': return id === undefined ? no('NO ROVER NAMED') : reprintRover(s, id);
+    case 'flareReprintUnit': return id === undefined ? no('NO UNIT NAMED') : reprintUnit(s, mods, site, id);
     case 'flareReplaceWorst': return replaceWorst(s, mods, site);
   }
 }
 
 export const isFlareCounter = (c: string): c is FlareCounterId =>
-  c === 'flareRecall' || c === 'flareCheckpoint' || c === 'flareShutDown' || c === 'flareReplace' || c === 'flareReprint' || c === 'flareReplaceWorst';
+  c === 'flareRecall' || c === 'flareCheckpoint' || c === 'flareShutDown' || c === 'flareReplace' || c === 'flareReprint' ||
+  c === 'flareReprintUnit' || c === 'flareReplaceWorst';
 
 // ─────────────────────────── what the UI reads ───────────────────────────
 
@@ -737,8 +891,8 @@ export function effectsView(s: GameState, mods: Mods, site: SiteDef): EffectsVie
   const homes = s.buildings.filter((b) => (effectiveDef(b.type, mods).housing ?? 0) > 0 && (occ.get(b.id) ?? 0) > 0);
   const bare = homes.filter((b) => sigmaOf(s, mods, site, b) < 0.5 && !mods.guards.has('stormShelters'))
     .reduce((n, b) => n + (occ.get(b.id) ?? 0), 0);
-  const machines = s.rovers.length + s.buildings.filter((b) => b.type === 'excavator' && !isSite(b)).length;
-  const out = s.rovers.filter((r) => inOpen(s, r)).length + s.buildings.filter(diggerOut).length;
+  const machines = s.rovers.length + s.haulers.length + s.buildings.filter((b) => b.type === 'excavator' && !isSite(b)).length;
+  const out = s.rovers.filter((r) => inOpen(s, r)).length + s.haulers.filter(unitOpen).length + s.buildings.filter(diggerOut).length;
   const head = s.researchQueue?.[0];
   const labsBare = s.buildings.filter((b) => b.type === 'lab' && !isSite(b) && b.enabled && sigmaOf(s, mods, site, b) < 0.5).length;
   const exposed = s.buildings.filter((b) => scarsOn(b) && !isSite(b) && b.enabled && !b.wreck && sigmaOf(s, mods, site, b) < 0.5).length;
@@ -751,8 +905,9 @@ export function effectsView(s: GameState, mods: Mods, site: SiteDef): EffectsVie
     also: flareCounters(s, mods, site),
     exposure: {
       crew: s.crew > 0 ? `${s.crew} · ${bare} in unshielded homes · ${s.evaCrew} on EVA` : 'none aboard',
-      machines: `${machines} · ${out} out${s.rovers.some((r) => rebooting(s, r)) ? ` · ${s.rovers.filter((r) => rebooting(s, r)).length} rebooting` : ''}` +
-        `${s.rovers.some((r) => r.latch) ? ` · ${s.rovers.filter((r) => r.latch).length} latched` : ''}`,
+      machines: `${machines} · ${out} out` +
+        `${[...s.rovers, ...s.haulers].some((r) => rebooting(s, r)) ? ` · ${[...s.rovers, ...s.haulers].filter((r) => rebooting(s, r)).length} rebooting` : ''}` +
+        `${[...s.rovers, ...s.haulers].some((r) => r.latch) ? ` · ${[...s.rovers, ...s.haulers].filter((r) => r.latch).length} latched` : ''}`,
       research: head ? `${TECHS[head].name} ${pct(Math.min(1, (s.researchSpent[head] ?? 0) / Math.max(1, techCost(head, s).data)))} · ${plural(labsBare, 'lab')} unshielded` : 'nothing queued',
       buildings: `${exposed} unshielded with a scar at stake${compute.length ? ` · ${compute.length} compute (σ ${sigmaOf(s, mods, site, compute[0]).toFixed(1)})` : ''}`,
       comms: dark > 0 ? `DARK ${fmtClock(dark)} · Earth traffic holds` : due !== null ? `a shipment lands in ${fmtClock(Math.max(0, due))}${due > 0 ? ': held if the blackout comes' : ''}` : 'the link is up',
@@ -790,10 +945,26 @@ export function roverFlareView(s: GameState, id: number) {
   };
 }
 
+/** A hub unit's flare status for its line ('' = none) and its capability line (the unit inspector). */
+export function unitFlareStatus(s: GameState, u: Hauler): string {
+  if (u.latch) return `LATCHED UP — safe mode, home to its bay for a re-flash · ${u.latch.real ? 'lost' : 're-flashed from Earth'} in ${fmtClock(Math.max(0, u.latch.until - s.simTime))}`;
+  if (rebooting(s, u)) return `REBOOTING — back in ${fmtClock(u.rebootUntil! - s.simTime)}`;
+  return '';
+}
+export function unitFlareLine(s: GameState, site: SiteDef, u: Hauler): string {
+  const b = hubOf(s, u);
+  const open = unitOpen(u);
+  const queued = !!b?.hub?.queue.some((j) => j.kind === 'reprint' && j.unit === u.id);
+  return `σ ${open ? 0 : E.machines.dockSigma} ${open ? 'in the open' : 'in its bay'} · CAPABILITY ${pct(capOf(u))}` +
+    `${u.scars ? ` · rad scars from ${plural(u.scars, 'flare')}` : ''}${u.lastFlare ? ` · last flare: ${u.lastFlare}` : ''}` +
+    `${queued ? ' · Re-print queued' : capOf(u) < 0.9995 && b ? ` · Re-print ${costText(jobCost(b, 'reprint', site))}` : ''}`;
+}
+
 /** Migration step 6 (§14.3): nothing scarred on load, no glitch in flight. */
 export function migrateScars(s: GameState) {
   for (const b of s.buildings ?? []) {
     delete b.cap; delete b.scars; delete b.capWarned; delete b.replace; delete b.flareShut; delete b.rebootUntil; delete b.latch; delete b.burned; delete b.lastFlare;
   }
   for (const r of s.rovers ?? []) { delete r.cap; delete r.scars; delete r.capWarned; delete r.rebootUntil; delete r.latch; delete r.reprintUntil; delete r.lastFlare; }
+  for (const u of s.haulers ?? []) { delete u.cap; delete u.scars; delete u.capWarned; delete u.rebootUntil; delete u.latch; delete u.lastFlare; }
 }

@@ -22,8 +22,9 @@ import { choicesFor, hubGhostLine, hubOf, plainPitRefusal, unitsOf } from './cor
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
-import type { ArrayChoice, FlareClass } from './data/spaceWeather';
+import type { ArrayChoice, FlareClass, FlareCounterId } from './data/spaceWeather';
 import { WEATHER_STUB, activity, arrayView, classOdds, cycleOf, drawClass, fieldsOf, weatherView } from './core/spaceWeather';
+import { capabilityView, scarredList } from './core/flareEffects';
 import { currentDay } from './core/economy';
 
 declare global {
@@ -218,7 +219,17 @@ function api(game: Game) {
     repairArrays: (id?: number) => game.actions.push({ kind: 'repairArrays', ...(id !== undefined ? { id } : {}) }),
     /** the probe's baseline: 'legacy' plays today's flare (docs/16 §12.3); 'on' the classed flares */
     setFlareMode: (mode: 'legacy' | 'on') => { (game.state.weather ??= { remember: {}, autoRepair: true, answered: {}, repairs: [], seenSunAt: 0 }).legacy = mode === 'legacy'; game.publish(); },
-    /** stand-ins for protection the later phases bring: Rad-Hard Cells' ×0.4 on array damage (F4) */
+    /** the flare's counters (docs/16 §4): 'flareRecall' | 'flareCheckpoint' | 'flareShutDown' | 'flareReplace' (id) | 'flareReprint' (rover id)
+     *  | 'flareReprintUnit' (unit id) | 'flareReplaceWorst' — as the alert and pop-up buttons push them */
+    flareCounter: (counter: FlareCounterId, id?: number) => game.actions.push({ kind: 'counter', counter, ...(id !== undefined ? { id } : {}) }),
+    /** the scarred, worst first (the panel's SCARRED line): kind 'b' a structure, 'r' a rover or drone, 'h' a hub unit */
+    flareScarred: () => clone(scarredList(game.state)),
+    /** a structure's capability line (σ, capability, scars, Replace's cost, time and payback) */
+    flareCapability: (id: number) => {
+      const s = game.state; const b = s.buildings.find((x) => x.id === id);
+      return b ? clone(capabilityView(s, game.mods, SITES[s.siteId], b)) : null;
+    },
+    /** stand-ins for protection the later phases bring: Rad-Hard Cells' ×0.4 on array damage, a σ on every structure (F4) */
     setWeatherStub: (patch: Partial<typeof WEATHER_STUB>) => { Object.assign(WEATHER_STUB, patch); },
     /** the cycle and the class draw, as the schedule reads them */
     weatherCycle: (T: number) => ({ a: activity(game.state.seed, T), ...cycleOf(game.state.seed) }),

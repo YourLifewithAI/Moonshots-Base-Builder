@@ -7,6 +7,7 @@ import { CONSTRUCTION_KW, FLEET } from '../data/balance';
 import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
 import { crewRate } from '../core/fleet';
+import { roverFlareView } from '../core/flareEffects';
 import { fmtClock } from '../core/daynight';
 import { el } from './hud';
 import { $fleet, $fleetFlash, $fleetTarget, $mode, $roverSel, $selection, type SiteCrewView } from './stores';
@@ -137,7 +138,8 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
     const id = $roverSel.get();
     const r = id === null ? undefined : $fleet.get().rovers.find((x) => x.id === id);
     if (!r || $mode.get() === 'walk') { insp.style.display = 'none'; sig = ''; return; }
-    const next = `${r.id}|${r.pinned}|${r.survey}|${r.home}`;
+    const fl = roverFlareView(game.state, r.id);
+    const next = `${r.id}|${r.pinned}|${r.survey}|${r.home}|${!!fl && fl.cap < 0.9995 && !fl.reprintS}`;
     if (next !== sig) {
       sig = next;
       insp.innerHTML = `
@@ -151,12 +153,14 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
             <span class="k">Orders</span><span class="mono" id="rv-mode"></span>
             <span class="k">Work</span><span class="mono" id="rv-work"></span>
             <span class="k">Pack</span><span class="mono" id="rv-pack"></span>
+            <span class="k">Flare</span><span class="mono" id="rv-flare"></span>
           </div></section>
           <section><div ${NOTE}>Auto rovers take the construction queue one site each, in order. Send one to a site to pin it there — it stays until the site is built. Rovers on one site build ×n^${FLEET.rateExp} (2 → ×${crewRate(2).toFixed(2)}, 3 → ×${crewRate(3).toFixed(2)}); each draws its own kW, and the weld parts stay the same.</div></section>
         </div>
         <div class="insp-foot"><section class="actions">
           ${r.survey ? '' : '<button class="btn" id="rv-send" title="Then click a construction site; Esc cancels">➚ Send to…</button>'}
           ${r.pinned ? '<button class="btn" id="rv-unpin" title="Back to the queue">Release to auto</button>' : ''}
+          ${fl && fl.cap < 0.9995 && !fl.reprintS ? `<button class="btn" id="rv-reprint" title="Rad scars: its dock re-prints it new (capability 100%) in 1:12">Re-print ${fl.cost}</button>` : ''}
           <button class="btn" id="rv-dock" title="Inspect its dock">⌂ Dock</button>
           <button class="btn" id="rv-close">✕</button>
         </section></div>`;
@@ -169,6 +173,10 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
     const mods = game.mods;
     setText(insp, 'rv-work', `×${Math.round(mods.weldRateMult * 100) / 100} build rate · ${kw(CONSTRUCTION_KW * mods.constructionKWMult)} kW while welding`);
     setText(insp, 'rv-pack', r.survey ? '—' : r.pack);
+    // docs/16 §10.7: σ, the last flare, capability
+    setText(insp, 'rv-flare', fl ? `σ ${fl.sigma} ${fl.open ? 'in the open' : 'docked'} · CAPABILITY ${Math.round(fl.cap * 100)}%` +
+      `${fl.scars ? ` · rad scars from ${fl.scars} flare${fl.scars === 1 ? '' : 's'}` : ''}${fl.last ? ` · last flare: ${fl.last}` : ''}` +
+      `${fl.rebootS ? ` · REBOOTING ${fmtClock(fl.rebootS)}` : ''}${fl.latched ? ' · LATCHED UP' : ''}${fl.reprintS ? ` · RE-PRINTING ${fmtClock(fl.reprintS)}` : ''}` : '—');
   };
   $roverSel.subscribe(render);
   $fleet.subscribe(render);
@@ -184,6 +192,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
       case 'rv-send': game.beginFleetTarget({ kind: 'send', rover: id }); break;
       case 'rv-unpin': game.actions.push({ kind: 'unpinRover', rover: id }); break;
       case 'rv-dock': if (r) game.select(r.home); break;
+      case 'rv-reprint': game.actions.push({ kind: 'counter', counter: 'flareReprint', id }); break;
       case 'rv-close': game.cancelFleetTarget(); $roverSel.set(null); break;
     }
   });

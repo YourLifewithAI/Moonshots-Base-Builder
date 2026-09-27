@@ -151,7 +151,10 @@ export interface BuildingState {
 /** A hub's job (docs/17 §4.2): a unit or a bay, paid when it reaches the
  *  head of the queue, printed at the hub (no rover), refunded if cancelled. */
 export interface HubJob {
-  kind: 'unit' | 'bay';
+  /** a new unit, a bay, or a scarred unit's Re-print (docs/16 §4.14: half its price, 60% of its time) */
+  kind: 'unit' | 'bay' | 'reprint';
+  /** a Re-print's unit (it keeps its bay; new when the job finishes) */
+  unit?: number;
   /** what it cost once paid (null: not yet at the head, or waiting on stock) */
   paid: Partial<Record<ResourceId, number>> | null;
   /** game-s printed, of the print's length */
@@ -222,6 +225,17 @@ export interface Hauler {
   wear: number;
   /** printed by the Builder */
   auto?: { by: 'rule' | 'order'; at: number };
+  // ── space weather (docs/16 §4.5, §4.13, §4.14; core/flareEffects.ts) ──
+  /** capability 0.1..1 (absent: 1): rad scars from flares met out of its bay; its bucket × it */
+  cap?: number;
+  scars?: number;
+  capWarned?: boolean;
+  /** a flare reboot: it stops where it stands until then */
+  rebootUntil?: number;
+  /** a flare latch-up: home in safe mode, re-flashed in its bay; lost at `until` (a drill's re-flashed from Earth) */
+  latch?: { until: number; real: boolean; n: number };
+  /** what the last flare did to it, for the inspector */
+  lastFlare?: string;
 }
 
 /** One 4 m road cell (core/roads.ts, docs/15-roads.md). */
@@ -652,6 +666,9 @@ export interface FlareState {
   shut?: number[];
   /** the machines have drawn this phase (the flash's a second after the protons, after the bit flips; the tail's at its start) */
   drawn?: boolean;
+  /** hub units sent home for this flare (the hubs' own recall on M and X, or Recall machines): back to work after it */
+  unitsHome?: number[];
+  hubsRecalled?: boolean;
   /** each structure's and machine's seconds this phase: exposed, prepared ('b12', 'r3') */
   scarEx?: Record<string, [number, number]>;
 }
@@ -808,8 +825,6 @@ export interface HazardState {
   liveSides: HazardSide[];
   /** debug: no hazard starts while set (tests that are not about hazards) */
   hold?: boolean;
-  /** DOSE past its limit at an M (docs/16 §9.2): the dosed are grounded, no EVA, until then */
-  groundedUntil?: number;
 }
 
 export interface GameState {

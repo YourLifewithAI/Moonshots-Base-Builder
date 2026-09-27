@@ -28,6 +28,8 @@ import { hubBodyHtml, hubClick, hubFootHtml, hubSig, refreshHub } from './hubPan
 import { autoTagLine } from '../core/automation';
 import { hazardStatus, isNetworkNode, occupancy, pressurizedTypes, sideTier } from '../core/hazards';
 import { HZ } from '../data/hazards';
+import { flareOff } from '../core/flareEffects';
+import { FLARE_EFFECTS } from '../data/spaceWeather';
 import { counterButton, counterClick } from './hazardsPanel';
 import { refreshWeatherInspector, weatherInspector, weatherInspectorClick } from './weatherPanel';
 import { touchOn } from '../core/touch';
@@ -428,8 +430,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
           ? `ROVER OUT OF CHARGE — waiting for the grid (${conPct}%)` : `CONSTRUCTION PAUSED — no power (${conPct}%)`)
         : sel.idleReason === 'inputs' ? `CONSTRUCTION STALLED — no parts (${conPct}%)`
         : sel.onPack ? `UNDER CONSTRUCTION — ${conPct}% · on its rovers' packs (the grid is short)`
-        : `UNDER CONSTRUCTION — ${conPct}%`)
-      : !sel.enabled ? 'SHUT DOWN'
+        : `${sel.replace ? 'REPLACING' : 'UNDER CONSTRUCTION'} — ${conPct}%`)
+      : !sel.enabled ? (sel.flareShut ? `SHUT DOWN FOR THE FLARE — ${sel.flareShut.warm > 0 ? `warming up, on in ${fmtClock(Math.max(0, sel.flareShut.warm - game.state.simTime))}` : `on again ${FLARE_EFFECTS.warmS} s after it`}` : 'SHUT DOWN')
       : sel.idleReason === 'power' && sel.type === 'excavator' && $fleet.get().hauls[sel.id]?.pack.startsWith('NO POWER')
         ? $fleet.get().hauls[sel.id].pack
       : sel.idleReason === 'power' ? 'IDLE — no power'
@@ -437,7 +439,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : sel.idleReason === 'inputs' ? 'IDLE — missing inputs'
       : sel.idleReason === 'reserve' ? `IDLE — holding ${lifeSupportInputs(sel.type)} for the crew`
       : sel.idleReason === 'full' ? (sel.type === 'excavator' ? 'STANDBY — waiting to unload: the store is full' : 'STANDBY — output full')
-      : sel.idleReason === 'hazard' || sel.idleReason === 'strike' ? `OFFLINE — ${hazardStatus(game.state, sel) || 'a hazard'}`
+      : sel.idleReason === 'hazard' || sel.idleReason === 'strike' ? `OFFLINE — ${hazardStatus(game.state, sel) || flareOff(game.state, sel) || 'a hazard'}`
       // an excavator's head says what it is doing: its body may scroll on a short screen
       : sel.active && sel.type === 'excavator' && $fleet.get().hauls[sel.id] ? $fleet.get().hauls[sel.id].line
       : sel.active

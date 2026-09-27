@@ -32,12 +32,16 @@ import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 import { wreckBuilding } from './hazards';
 import { budgetShort, buildCostAt, ruleState } from './automation';
+import {
+  drawMachines, effectsTick, effectsView, migrateScars, onActiveStart, onFlareEnd, replaceDone, resolveScars, type EffectsView,
+} from './flareEffects';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-/** Tests: stand-ins for protection the later phases bring (Rad-Hard Cells is F4). */
-export const WEATHER_STUB = { arrayHard: 1 };
+/** Tests: stand-ins for protection the later phases bring (F4): Rad-Hard Cells' ×0.4 on array damage,
+ *  and a σ for every structure (berms, water walls) that the rad scars and the §4 multipliers read. */
+export const WEATHER_STUB = { arrayHard: 1, sigma: 0 };
 
 // ─────────────────────────── the cycle (§3.4) ───────────────────────────
 
@@ -177,6 +181,8 @@ export function migrateFlareSchema(s: GameState) {
     delete b.cap; delete b.flareDmg; delete b.wreck; delete b.fieldOverride; delete b.stow; delete b.stowT; delete b.fix;
     if (dark.has(b.id)) { b.stow = true; b.stowT = 1; }
   }
+  // step 6: nothing scarred on load (capability 1.0 on every structure, rover, drone and unit)
+  migrateScars(s);
   s.weather = { ...defaultWeather(), ...(s.weather ?? {}) };
   const fresh = (s.flareSchema ?? 0) < 1 && t > 120;
   s.flareSchema = 1;
@@ -647,6 +653,8 @@ function repairTick(s: GameState, mods: Mods) {
 
 /** Economy step 2.5, as a repair, rebuild or clear site finishes. True: handled here (not a build). */
 export function siteDone(s: GameState, b: BuildingState): boolean {
+  // a Replace (or an excavator's Re-print, docs/16 §4.14): new, capability 100%
+  if (replaceDone(s, b)) return true;
   if (b.fix) {
     delete b.fix;
     b.flareDmg = 0;
@@ -787,10 +795,13 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
       if (f.choice?.mode === 'feed') holdFeed(s, mods, day, f.timer + (f.cls === 'X' ? W.classes.X.tailS : 0) + W.stowS);
       if (f.timer <= 0) {
         resolveArrays(s, mods, day, 'flash');
+        resolveScars(s, site, mods, 'flash');
         if ((f.cls ?? 'C') === 'X') {
           f.phase = 'tail';
           f.timer = W.classes.X.tailS;
           f.exposure = {};
+          // the tail: the machines draw again, as a C (§4.2)
+          drawMachines(s, site, mods, 'tail');
         } else endFlare(s, mods, site);
       }
       break;
@@ -801,6 +812,7 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
       if (f.choice?.mode === 'feed') holdFeed(s, mods, day, f.timer + W.stowS);
       if (f.timer <= 0) {
         resolveArrays(s, mods, day, 'tail');
+        resolveScars(s, site, mods, 'tail');
         endFlare(s, mods, site);
       }
       break;
@@ -810,6 +822,8 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
   repairTick(s, mods);
   stanceTick(s, mods, site);
   raiseConditions(s, mods, site, day);
+  // §4 beyond the arrays (core/flareEffects.ts): the machines' draw, the scars' count, reboots, re-flashes, warm-ups
+  effectsTick(s, site, mods);
   return out;
 }
 
@@ -912,6 +926,8 @@ function beginActive(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
     alert(s, `HELIOPHYSICS — the ${cls} flare was also an experiment · +${d}≡`, 'info');
   }
   if (!site.tubeShelter && s.buildings.filter((b) => b.active && b.type !== 'lander').length >= 6) s.stats.flaresWithSix += 1;
+  // §4 beyond the arrays: the blackout, crew indoors, the head tech, wear, an X's batch (core/flareEffects.ts)
+  onActiveStart(s, site, mods);
   // the CME: every X, one M in three, 0.4 lunar day after the flash
   const n = f.n ?? 0;
   if (cls === 'X' || (cls === 'M' && mulberry32((s.seed ^ W.keys.cme) + n)() < W.cme.mShare)) {
@@ -1004,6 +1020,8 @@ function endFlare(s: GameState, mods: Mods, site: SiteDef) {
   if (t.destroyed) bits.push(`${plural(t.destroyed, 'array')} destroyed [Rebuild ${t.destroyed * cost}◆]`);
   if (damaged.length) bits.push(repair ? `${damaged.length} repairs queued (${parts}⚙)` : `${damaged.length} stowed arrays damaged: Repair all (${parts}⚙)`);
   if (t.scarred) bits.push(`${t.scarred} scarred −${(t.scar * 100).toFixed(1)}%`);
+  // the machines, research, crew, fabs and scars (core/flareEffects.ts)
+  bits.push(...onFlareEnd(s).map((x) => x.replace(/\*\*/g, '')));
   // the next
   const a = f.a ?? activity(s.seed, s.simTime / CYCLE_S);
   const u = mulberry32((s.seed ^ W.keys.interval) + (f.n ?? 0))();
@@ -1017,8 +1035,8 @@ function endFlare(s: GameState, mods: Mods, site: SiteDef) {
   delete f.watch;
   delete f.nextCls;
   const text = bits.length ? `☉ ${cls} PASSED — ${bits.join(' · ')} · the next in ~${days.toFixed(1)} lunar days`
-    : `☉ ${cls} PASSED — everything was stowed or shielded · the next in ~${days.toFixed(1)} lunar days`;
-  alert(s, text, wrecks ? 'warn' : 'info', { panel: 'weather' });
+    : `☉ ${cls} PASSED — everything was docked, stowed or shielded · the next in ~${days.toFixed(1)} lunar days`;
+  alert(s, text, wrecks || (t.lost ?? 0) > 0 ? 'warn' : 'info', { panel: 'weather' });
   delete f.tally;
 }
 
@@ -1170,6 +1188,8 @@ export interface WeatherView {
   cme: { at: number; until: number } | null;
   /** the power panel's flare line (§5.6), '' outside a flare */
   powerLine: string;
+  /** §4 beyond the arrays (core/flareEffects.ts): the telegraph's buttons, EXPOSURE, SCARRED, the blackout */
+  fx: EffectsView;
 }
 
 const PREVIEW_CHOICES: [string, ArrayChoice][] = [
@@ -1204,6 +1224,9 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
   } else if (f.watch) {
     chip = `☉ X? ½d`; chipShape = 'watch';
   }
+  const fx = effectsView(s, mods, site);
+  // the comms blackout (§10.1): ⌁ on the chip
+  if (!w.legacy && fx.dark > 0) chip += ' ⌁';
   let popup: WeatherView['popup'] = null;
   if (!w.legacy && f.phase === 'telegraph' && cls) {
     const { choice, by } = f.plan?.locked ? { choice: f.choice ?? { mode: 'feed' as const }, by: f.decidedBy ?? 'default' as FlareDecider } : resolveChoice(s, mods);
@@ -1254,7 +1277,7 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
     wrecks, repairs: { queued, parts, working },
     remember: Object.fromEntries(Object.entries(w.remember).map(([k, c]) => [k, choiceText(c!)])),
     arrays: { n: arrays.length, fields: fields.length, kw: kwNow },
-    nextAt: f.nextAt, cme: f.cme ?? null, powerLine: powerLine(s, day),
+    nextAt: f.nextAt, cme: f.cme ?? null, powerLine: powerLine(s, day), fx,
   };
 }
 

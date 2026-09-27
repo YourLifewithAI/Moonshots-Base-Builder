@@ -102,7 +102,8 @@ export type FlareKey = FlareClass | 'tail';
 
 /** The flare's own counters (docs/16 §4.5–4.7, §4.14), as alert and pop-up
  *  buttons beside the hazards' (game.ts routes them to core/flareEffects.ts). */
-export type FlareCounterId = 'flareRecall' | 'flareCheckpoint' | 'flareShutDown' | 'flareReplace' | 'flareReprint' | 'flareReplaceWorst';
+export type FlareCounterId = 'flareRecall' | 'flareCheckpoint' | 'flareShutDown' | 'flareReplace' | 'flareReprint' | 'flareReprintUnit'
+  | 'flareReplaceWorst';
 
 /** What a flare costs beyond the arrays (docs/16 §4): rad scars and capability,
  *  machines in the open, crew indoors, labs, fabs and compute, the comms

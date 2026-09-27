@@ -389,6 +389,12 @@ export function wearDerate(b: Pick<BuildingState, 'type' | 'wear'>): number {
   return b.type === 'lander' ? 1 : 1 - WEAR.derate * b.wear;
 }
 
+/** output multiplier from rad scars (docs/16 §4.13): capability, for good until Replace. Solar Arrays
+ *  apply theirs with their stow and damage (spaceWeather.solarMult); the Lander never scars. */
+export function capDerate(b: Pick<BuildingState, 'type'> & { cap?: number }): number {
+  return b.type === 'solar' || b.type === 'lander' ? 1 : b.cap ?? 1;
+}
+
 /** Nobody aboard to run anything: a robotic run before its crew, or a crewed
  *  landing whose last crew rotated home at FIRST LIGHT (docs/14 §2.5). */
 export function unmanned(s: Pick<GameState, 'expedition' | 'crew'> & { crewHome?: boolean }): boolean {
@@ -478,7 +484,8 @@ export function effectiveRates(
   const agentRun = opts.agentRun ?? b?.automated ?? false;
   const crewed = def.crew > 0 && !agentRun;
   const oc = b?.overclock ? OVERCLOCK.mult : 1;
-  const wear = b ? wearDerate(b) : 1;
+  // wear and rad scars: separate axes, both derating the output (docs/16 §4.13)
+  const wear = b ? wearDerate(b) * capDerate(b) : 1;
   const workMult = opts.workMult ?? 1;
   const g = opts.feed ?? NO_FEED;
   const deposit = b?.deposit;
