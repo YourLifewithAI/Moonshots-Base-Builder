@@ -1,5 +1,5 @@
 /** What this GPU can run of the post ladder, found once at boot (High
- *  detail only) before the first level is picked (docs/08 §Render safety).
+ *  detail only) before the first level is picked (docs/06 §4).
  *
  *  Extensions say what a driver claims; a claim can be wrong (a browser may
  *  expose EXT_color_buffer_float and still store or filter half-floats

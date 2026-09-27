@@ -1,4 +1,4 @@
-/** FX 0's safety net (docs/08 §Render safety): the HDR sanitiser, the FX
+/** FX 0's safety net (docs/06 §4): the HDR sanitiser, the FX
  *  self-check and the render report.
  *
  *  The self-check compares the frame the post chain drew with the same
@@ -17,6 +17,10 @@ import { test, expect, type Page } from '@playwright/test';
 declare global {
   interface Window { __game?: any }
 }
+
+// SwiftShader draws on the CPU: a small canvas keeps a frame (and a check,
+// which waits one out) to a second or so
+test.use({ viewport: { width: 800, height: 450 } });
 
 const SLOW = { timeout: 90_000 };
 const VIEW = [{ x: 38, y: 26, z: 52 }, { x: 2, y: 0, z: 4 }] as const;

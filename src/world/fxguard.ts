@@ -1,4 +1,4 @@
-/** Numeric guards for the post chain (docs/08 §Render safety).
+/** Numeric guards for the post chain (docs/06 §4).
  *
  *  FX 0 keeps the scene in half-float buffers, which store what 8-bit ones
  *  cannot: NaN, ±Inf, negatives and values past 1. A real GPU makes NaN

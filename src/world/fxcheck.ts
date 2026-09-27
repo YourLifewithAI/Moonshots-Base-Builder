@@ -1,4 +1,4 @@
-/** The FX self-check (docs/08 §Render safety): is the frame the post chain
+/** The FX self-check (docs/06 §4): is the frame the post chain
  *  drew the frame the scene should give? The black-frame sentinel only
  *  knows black; a chain that turns the ground black but the hulls flat grey
  *  passes it. This compares instead.
