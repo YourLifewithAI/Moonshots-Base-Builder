@@ -1,0 +1,347 @@
+/* Touch mode (docs/07 §13): the phone held sideways — 667×375 (SE) up to
+   932×430 (Pro Max). Every rule is under html.touch: off, none of it
+   applies. Budget at 375 px tall: 4 edge + 44 top bar + 6 + the rails
+   (6 × 46 + 5 × 4 = 296) + 6 edge + the home indicator's inset. Targets
+   are 44 px or more; no text under 11 px. The notch and the home
+   indicator are the safe-area insets (viewport-fit=cover). */
+
+html.touch {
+  --sa-l: env(safe-area-inset-left, 0px);
+  --sa-r: env(safe-area-inset-right, 0px);
+  --sa-t: env(safe-area-inset-top, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  --edge-l: max(6px, var(--sa-l));
+  --edge-r: max(6px, var(--sa-r));
+  --edge-t: max(4px, var(--sa-t));
+  --edge-b: max(6px, var(--sa-b));
+  --tap: 44px;
+  --top-h: 44px;
+  --rail-w: 52px;
+  --gap: 6px;
+  --content-l: calc(var(--edge-l) + var(--rail-w) + var(--gap));
+  --content-r: calc(var(--edge-r) + var(--rail-w) + var(--gap));
+  --content-t: calc(var(--edge-t) + var(--top-h) + var(--gap));
+  --sheet-w: clamp(264px, 38vw, 340px);
+  --bar-h: 62px;
+  /* Safari's toolbars come and go: the dynamic viewport, else innerHeight */
+  --app-h: var(--vh, 100vh);
+  height: var(--app-h);
+  height: 100dvh;
+  touch-action: manipulation;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+html.touch body {
+  height: 100%;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+/* no selection, no long-press callout, no grey tap flash on game UI */
+html.touch, html.touch * {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+html.touch input { -webkit-user-select: auto; user-select: auto; }
+html.touch #world { touch-action: none; }
+html.touch #ui-root { bottom: auto; height: 100%; }
+
+/* ── every control is a thumb's size ── */
+html.touch #ui-root :is(button, .btn) { min-height: var(--tap); min-width: var(--tap); }
+html.touch .btn:hover { background: var(--ink-600); color: rgba(var(--paper-rgb), var(--op-secondary)); }
+html.touch .btn.active:hover, html.touch .btn.primary:hover { background: var(--paper); color: var(--ink-900); }
+html.touch .btn:active { background: var(--ink-500); color: var(--paper); }
+html.touch .label { font-size: 11px; }
+
+/* the touch buttons: a glyph over a short word */
+html.touch .tbtn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  min-width: var(--tap); min-height: var(--tap); padding: 2px 4px;
+  font-family: var(--font-ui); color: rgba(var(--paper-rgb), var(--op-secondary));
+  background: rgba(14, 15, 17, 0.88); border: var(--hair); border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+  cursor: pointer; position: relative;
+}
+html.touch .tbtn .tbg { font-size: 17px; line-height: 19px; }
+html.touch .tbtn .tbl { font-size: 11px; line-height: 13px; letter-spacing: 0.02em; white-space: nowrap; }
+html.touch .tbtn:active { background: var(--ink-500); color: var(--paper); }
+html.touch .tbtn.active { background: var(--paper); color: var(--ink-900); border-color: transparent; }
+html.touch .tbtn.primary { background: var(--paper); color: var(--ink-900); border-color: transparent; }
+html.touch .tbtn:disabled { opacity: var(--op-muted); cursor: default; }
+html.touch .tbtn.pulse { animation: map-pulse 0.9s var(--ease) infinite alternate; }
+html.touch .tbtn.alarm { border-color: var(--paper); box-shadow: inset 0 0 0 1px var(--paper); }
+html.touch .tbtn .tprog { position: absolute; left: 4px; right: 4px; bottom: 3px; height: 2px; background: rgba(var(--paper-rgb), 0.12); }
+html.touch .tbtn .tprog b { display: block; height: 100%; width: 0; background: var(--paper); }
+
+/* ── the desktop HUD's own regions, re-homed ── */
+html.touch #hud-left { display: none; }
+html.touch #time-controls .row,
+html.touch #era-chip,
+html.touch #map-chip,
+html.touch #walk-hud,
+html.touch #tooltip { display: none !important; }
+
+/* ── the top bar ── */
+html.touch #touch-top {
+  position: absolute; top: var(--edge-t); left: var(--edge-l); right: var(--edge-r); height: var(--top-h);
+  display: flex; gap: var(--gap); align-items: stretch;
+}
+html.touch #touch-res {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; gap: 4px; align-items: stretch;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
+  scrollbar-width: none; touch-action: pan-x;
+}
+html.touch #touch-res::-webkit-scrollbar { display: none; }
+html.touch #resource-strip { flex: none; flex-wrap: nowrap; max-width: none; gap: 4px; }
+html.touch #resource-strip .chip { height: var(--top-h); align-items: center; padding: 0 9px; flex: none; }
+html.touch #resource-strip .chip .glyph { font-size: 12px; }
+html.touch #resource-strip .chip .val { min-width: 0; }
+html.touch #resource-strip .chip .cap { min-width: 0; }
+html.touch #resource-strip .chip[data-slot="power"] .cap,
+html.touch #resource-strip .chip[data-slot="stored"] .cap { min-width: 0; }
+html.touch #resource-strip .chip[data-slot="deposits"] { display: none; }
+html.touch #swarm-meter {
+  position: static; transform: none; flex: none; width: auto; min-width: 128px;
+  display: grid; grid-template-columns: auto auto; column-gap: 8px; align-items: center; align-content: center;
+  padding: 0 10px; text-align: left;
+}
+html.touch #swarm-meter .label { grid-column: 1; line-height: 14px; white-space: nowrap; }
+html.touch #swarm-meter .bar { grid-column: 1; margin-top: 4px; }
+html.touch #swarm-meter .launch-row { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+html.touch #swarm-meter .launch-row .cap { display: none; }
+html.touch #touch-time { flex: none; display: flex; gap: 4px; align-items: stretch; }
+html.touch #touch-time .clock {
+  display: flex; align-items: center; padding: 0 9px; font-size: 12px; white-space: nowrap;
+}
+html.touch #touch-time .tbtn { width: var(--tap); }
+html.touch #touch-time .tbtn .tbg { font-size: 15px; font-family: var(--font-mono); }
+
+/* ── the rails ── */
+html.touch .touch-rail {
+  position: absolute; top: var(--content-t); width: var(--rail-w);
+  display: flex; flex-direction: column; gap: 4px;
+}
+html.touch #touch-rail-l { left: var(--edge-l); }
+html.touch #touch-rail-r { right: var(--edge-r); }
+html.touch .touch-rail .tbtn { width: 100%; height: 46px; }
+
+/* ── objectives: a compact card top-left (tap for the whole roadmap) ── */
+html.touch #milestones {
+  top: var(--content-t); bottom: auto; left: var(--content-l);
+  width: min(270px, 34vw); padding: 6px 10px; min-height: var(--tap);
+  max-height: calc(var(--app-h) - var(--content-t) - var(--edge-b) - 8px);
+}
+html.touch #milestones:not(.open) {
+  max-height: 96px; overflow: hidden;
+}
+html.touch #milestones:not(.open) .goal-hint {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+html.touch #milestones:not(.open) .goal-progress { display: none; }
+html.touch #milestones .goal-title { font-size: 12px; margin: 3px 0 2px; }
+html.touch #milestones .goal-hazard { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+/* a sheet, the palette over it or a bar: the card steps aside */
+html.touch #hud-layer.t-sheet #milestones,
+html.touch #hud-layer.t-sheet-folded #milestones { display: none; }
+html.touch #hud-layer.pal-open:not(.t-bar) #milestones.open,
+html.touch #hud-layer.t-bar #milestones.open {
+  max-height: calc(var(--app-h) - var(--content-t) - var(--edge-b) - 140px);
+}
+
+/* ── alerts: top right of the world, never over a control ── */
+html.touch #hud-right {
+  top: var(--content-t); right: var(--content-r);
+  width: min(300px, 36vw); max-height: calc(var(--app-h) - var(--content-t) - 150px);
+  gap: 4px; overflow: hidden;
+}
+html.touch #hud-layer.t-sheet #hud-right,
+html.touch #hud-layer.t-sheet-folded #hud-right {
+  right: calc(var(--content-r) + var(--sheet-w) + var(--gap));
+  width: min(300px, calc(100vw - var(--content-l) - var(--content-r) - var(--sheet-w) - 2 * var(--gap)));
+}
+html.touch #time-controls { width: 100%; gap: 4px; }
+html.touch #alerts { max-width: 100%; width: 100%; }
+html.touch .alert {
+  width: 100%; min-height: var(--tap); align-items: center; padding: 3px 0 3px 10px; font-size: 12px; line-height: 15px;
+}
+html.touch .alert .alert-text {
+  flex: 1 1 auto; min-width: 0;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+html.touch .alert .alert-x { min-width: var(--tap); min-height: 38px; font-size: 12px; opacity: 0.7; }
+html.touch .alert .alert-ctrs .hz-ctr { font-size: 11px; }
+html.touch .alert-more { font-size: 11px; }
+html.touch #hazard-chip { min-height: var(--tap); font-size: 11px; }
+/* the inspector's fixed-height alert stack is the desktop column's */
+html.touch #hud-layer:not(.mode-walk) #hud-right.inspecting #alerts { height: auto; overflow: visible; }
+
+/* ── the palette: a bottom sheet — tabs over a scrolling strip of cards ── */
+html.touch #palette {
+  left: var(--content-l); right: var(--content-r); bottom: var(--edge-b); transform: none;
+  display: none; align-items: stretch; gap: 4px;
+}
+html.touch #hud-layer.pal-open:not(.t-bar) #palette { display: flex; }
+html.touch #hud-layer.t-sheet #palette { right: calc(var(--content-r) + var(--sheet-w) + var(--gap)); }
+html.touch #palette .cats {
+  order: 2; align-self: flex-start; max-width: 100%; overflow-x: auto; scrollbar-width: none; touch-action: pan-x;
+}
+html.touch #palette .cats::-webkit-scrollbar, html.touch #palette .items::-webkit-scrollbar { display: none; }
+html.touch #palette .cats .btn { flex: none; padding: 0 12px; font-size: 12px; background: rgba(14, 15, 17, 0.88); }
+html.touch #palette .cats .btn.active { background: var(--paper); }
+html.touch #palette .cats .road-btn { display: none; }
+html.touch #palette .items {
+  order: 1; align-self: flex-start; max-width: 100%; padding: 4px; gap: 4px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; touch-action: pan-x;
+}
+html.touch .bld-btn { flex: none; width: 96px; min-height: 62px; padding: 5px 4px 4px; }
+html.touch .bld-btn .icon { font-size: 16px; line-height: 19px; }
+html.touch .bld-btn .nm { font-size: 11px; line-height: 13px; letter-spacing: 0.02em; }
+html.touch .bld-btn .cost { font-size: 11px; line-height: 13px; }
+html.touch .bld-btn:hover { background: var(--ink-700); color: rgba(var(--paper-rgb), var(--op-secondary)); }
+html.touch .bld-btn:active { background: var(--ink-500); }
+
+/* ── the bottom bar: placing · a road · a rover's target ── */
+html.touch #touch-bar {
+  position: absolute; left: var(--content-l); right: var(--content-r); bottom: var(--edge-b);
+  height: var(--bar-h); padding: 4px 4px 4px 8px;
+  display: none; gap: var(--gap); align-items: stretch;
+}
+html.touch #hud-layer.t-bar #touch-bar { display: flex; }
+html.touch #touch-bar .tb-hint {
+  flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+  display: flex; flex-direction: column; justify-content: center;
+}
+html.touch #touch-bar :is(#place-hint, #road-hint, #fleet-hint) {
+  background: none; border: none; backdrop-filter: none; padding: 0; text-align: left;
+  font-size: 12px; line-height: 15px;
+}
+html.touch #touch-bar .hint-line { font-size: 11px; line-height: 14px; }
+html.touch #place-hint .road-note, html.touch #place-hint .caution-act { font-size: 11px; }
+html.touch #touch-bar .tb-btns { flex: none; display: flex; gap: 4px; align-items: stretch; }
+html.touch #touch-bar .tbtn { width: 50px; }
+html.touch #touch-bar .tb-place, html.touch #touch-bar .tb-road { display: none; }
+html.touch #touch-bar[data-kind="place"] .tb-place { display: flex; }
+html.touch #touch-bar[data-kind="road"] .tb-road { display: flex; }
+/* the narrowest phones: the bar's words go, the glyphs stay */
+@media (max-width: 700px) {
+  html.touch #touch-bar .tbtn { width: 46px; }
+  html.touch #touch-bar #tp-keep .tbl, html.touch #touch-bar #tp-info .tbl { font-size: 11px; }
+}
+
+/* ── the side sheet: one panel at a time; it scrolls as one ── */
+html.touch #touch-sheet {
+  position: absolute; top: var(--content-t); right: var(--content-r); bottom: var(--edge-b);
+  width: var(--sheet-w); z-index: 20;
+  display: none; flex-direction: column;
+}
+html.touch #hud-layer.t-sheet #touch-sheet { display: flex; }
+html.touch #hud-layer.t-bar #touch-sheet { bottom: calc(var(--edge-b) + var(--bar-h) + var(--gap)); }
+html.touch #touch-sheet > .panel {
+  position: static; width: 100% !important; max-height: 100% !important; min-height: 0;
+  flex: 1 1 auto; margin: 0;
+  display: block; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
+}
+html.touch #touch-sheet > .panel[style*="display: none"] { display: none !important; }
+html.touch #touch-sheet :is(.insp-body, .res-body, .bp-body, .hz-body) { overflow: visible; max-height: none; }
+html.touch #touch-sheet :is(.insp-head, .dc-head) { position: sticky; top: 0; z-index: 1; background: rgb(18, 19, 21); }
+html.touch #touch-sheet .insp-head .tt-name,
+html.touch #touch-sheet #deposit-card .dc-head,
+html.touch #touch-sheet #touch-info .tt-name { padding-right: 46px; }
+html.touch #touch-sheet #res-panel > :first-child section:first-child,
+html.touch #touch-sheet #builder-panel > :first-child section:first-child,
+html.touch #touch-sheet #hazards-panel > :first-child section:first-child { padding-right: 52px; }
+html.touch #touch-sheet-fold {
+  position: absolute; top: 0; right: 0; z-index: 3; width: var(--tap); height: var(--tap);
+}
+/* folded: the sheet keeps its head, the world comes back */
+html.touch #touch-sheet-tab { display: none; }
+html.touch #hud-layer.t-sheet-folded #touch-sheet-tab {
+  display: flex; position: absolute; top: var(--content-t); right: var(--content-r); width: 88px;
+}
+/* sheet contents: thumb-sized rows */
+html.touch #touch-sheet section { padding: 8px 12px; }
+html.touch #touch-sheet .prio, html.touch #touch-sheet .actions { flex-wrap: wrap; }
+html.touch #touch-sheet .btn { font-size: 11px; padding: 4px 10px; }
+html.touch #touch-sheet .io .k { font-size: 11px; }
+html.touch #touch-sheet :is(.insp-foot .btn, .prio .btn) { font-size: 11px; padding: 4px 10px; }
+html.touch #touch-sheet :is(.bp-fam .bp-prio .btn, .bp-ctl .btn, .bp-order .btn, .bp-freeze .btn, .hz-ctr, #res-builder .btn) {
+  font-size: 11px; padding: 0 10px; line-height: 16px;
+}
+html.touch #touch-sheet .bp-ctls { flex-wrap: wrap; row-gap: 4px; margin-left: 0; }
+html.touch #touch-sheet .bp-status { margin-left: 0; }
+html.touch #touch-sheet :is(.bp-logs, .hz-logs, .hz-kind .hz-kd, .dc-status, .bp-status, .goal-hint) { font-size: 11px; line-height: 15px; }
+html.touch #touch-sheet #deposit-card .dc-foot .btn { font-size: 11px; }
+html.touch #touch-info .ti-body section { padding: 8px 12px; border-top: var(--hair); font-size: 12px; line-height: 17px; }
+html.touch #touch-info .ti-body section:first-child { border-top: none; }
+html.touch #touch-info .actions { display: flex; gap: 6px; border-top: var(--hair); }
+
+/* ── world markers: a finger-sized hit area round each ── */
+html.touch :is(.deposit-mark, .auto-mark, .site-mark, .hz-mark)::after {
+  content: ''; position: absolute; inset: -12px -10px;
+}
+html.touch .auto-mark, html.touch .site-mark { font-size: 11px; }
+html.touch .deposit-mark .t, html.touch .hz-mark .t { font-size: 11px; }
+
+/* ── the discovery card and the era explainer ── */
+html.touch #discovery-card {
+  top: var(--content-t); width: min(440px, calc(100vw - var(--content-l) - var(--content-r)));
+  max-height: calc(var(--app-h) - var(--content-t) - var(--edge-b)); overflow-y: auto;
+}
+html.touch #discovery-card :is(.dsc-meta, .dsc-off) { font-size: 11px; }
+html.touch #era-banner { padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l); }
+html.touch #era-banner .eb-panel {
+  max-height: calc(var(--app-h) - var(--edge-t) - var(--edge-b)); overflow-y: auto; padding: 14px 20px 10px;
+}
+html.touch #era-banner .eb-name { font-size: 22px; line-height: 26px; margin: 2px 0 8px; }
+html.touch #era-banner .eb-blurb { font-size: 13px; line-height: 18px; margin-bottom: 8px; }
+html.touch #era-banner .eb-foot { margin-top: 8px; }
+html.touch #pause-veil { top: 38%; }
+
+/* ── full screens: the landing, victory and defeat ── */
+html.touch .screen { padding: max(10px, var(--sa-t)) var(--content-r) max(10px, var(--sa-b)) var(--content-l); }
+html.touch .screen h1 { font-size: 26px; line-height: 30px; }
+html.touch .screen .sub { font-size: 11px; letter-spacing: 0.1em; }
+html.touch #site-screen { justify-content: flex-start; }
+html.touch #site-screen #sites {
+  flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; overflow-y: hidden;
+  margin: 10px 0 8px; gap: 10px; width: 100%; flex: 1 1 auto; min-height: 0;
+  scrollbar-width: none; touch-action: pan-x;
+  scroll-snap-type: x proximity;
+}
+html.touch #site-screen #sites::-webkit-scrollbar { display: none; }
+html.touch #site-screen .site-card {
+  flex: none; width: 272px; padding: 12px; overflow-y: auto; scroll-snap-align: start;
+  overscroll-behavior: contain; touch-action: pan-y;
+}
+html.touch #site-screen .site-card .diff { font-size: 11px; }
+html.touch #site-screen > .sub:last-child { display: none; }
+html.touch #site-screen #destiny-sub { display: none; }
+html.touch #victory-screen .stats, html.touch #defeat-screen .stats { margin: 12px 0 16px !important; font-size: 12px; line-height: 19px; }
+
+/* ── the menu ── */
+html.touch #menu { padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l); }
+html.touch #menu .menu-panel { max-height: 100%; overscroll-behavior: contain; touch-action: pan-y; }
+html.touch #menu .menu-head { padding: 6px 12px; align-items: center; min-height: var(--tap); }
+html.touch #menu section { padding: 10px 12px; }
+html.touch #menu .seg .btn { font-size: 11px; }
+html.touch #menu input[type=range] { height: var(--tap); }
+html.touch #menu .menu-row:has(#menu-music), html.touch #menu .menu-row:has(#menu-effects) { padding-right: 60px; }
+html.touch #menu .keys kbd, html.touch #menu .keys span { font-size: 12px; line-height: 16px; }
+html.touch #menu .menu-auto { font-size: 11px; }
+html.touch #menu .menu-note .btn { font-size: 11px; }
+
+/* ── portrait: turn the phone ── */
+html.touch #touch-rotate { display: none; }
+@media (orientation: portrait) {
+  html.touch #touch-rotate {
+    position: fixed; inset: 0; z-index: 1000;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    padding: 24px; text-align: center; background: var(--ink-900); color: var(--ink-100);
+  }
+}
+html.touch #touch-rotate .tr-glyph { font-size: 44px; line-height: 48px; color: var(--paper); animation: tr-turn 2.4s var(--ease) infinite; }
+html.touch #touch-rotate .tr-title { font-size: 17px; font-weight: 600; letter-spacing: 0.04em; color: var(--paper); }
+html.touch #touch-rotate .tr-sub { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+@keyframes tr-turn { 0%, 30% { transform: rotate(0deg); } 60%, 100% { transform: rotate(90deg); } }
+@media (prefers-reduced-motion: reduce) { html.touch #touch-rotate .tr-glyph { animation: none; } }

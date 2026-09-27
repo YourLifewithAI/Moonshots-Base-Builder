@@ -101,6 +101,10 @@ function api(game: Game) {
       yaw: game.walkController.yaw,
     }),
     save: () => game.doSave(),
+    /** touch mode: the gesture recognizer, the pointer, the road tool's Remove toggle */
+    getTouch: () => clone(game.debugTouch()),
+    /** the pointer the ghost and picking read (CSS px) */
+    pointAt: (x: number, y: number) => game.pointAt(x, y),
     surveyIce: () => game.actions.push({ kind: 'surveyIce' }),
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
     gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),

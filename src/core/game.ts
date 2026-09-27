@@ -74,6 +74,7 @@ import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buil
 import { ISO_FOV, IsoCam } from '../player/isoCam';
 import { WalkController } from '../player/walk';
 import { ModeManager } from '../player/modes';
+import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import { loadSettings, saveSettings, type RenderStyle } from './settings';
 import { RESUME_KEY, setActiveStyle } from './style';
@@ -99,6 +100,8 @@ export interface GameOptions {
   seed: number;
   /** how the world is drawn this session (fixed at boot: a change reloads) */
   style: RenderStyle;
+  /** touch mode (core/touch.ts): gestures on the world, saves on every hide */
+  touch?: boolean;
 }
 
 /** What the menu shows about the render path. */
@@ -167,6 +170,10 @@ export class Game {
   private roadTool!: RoadTool;
   /** debug: a placement's road is laid open (tests that time builds, not roads) */
   debugOpenRoads = false;
+  /** touch mode's gesture recognizer (player/touch.ts); null on desktop */
+  private touchCtl: TouchControls | null = null;
+  /** touch: the road tool's Remove toggle (Alt-drag on desktop) */
+  roadRemove = false;
 
   private playing = false;
   private econAcc = 0;
@@ -249,6 +256,7 @@ export class Game {
     this.buildCam = this.classic ? new IsoCam(this.camera, canvas) : new BuildCam(this.camera, canvas);
     this.buildCam.enabled = false;
     this.bindInput();
+    if (opts.touch) this.bindTouch();
     window.addEventListener('resize', () => this.onResize());
     $depositOverlay.subscribe((v) => { if (this.depositOverlay) this.depositOverlay.visible = v; });
     // safe mode (the player's, or the render check's from an earlier launch)
@@ -573,7 +581,7 @@ export class Game {
       this.buildCam.clearKeys();
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.playing) void this.doSave();
+      if (document.hidden && this.playing) void this.doSave(!!this.opts.touch);
     });
     // a victory or defeat overlay takes the screen: back to the command view
     // with the pointer free and nothing half-placed underneath
@@ -699,6 +707,153 @@ export class Game {
   cancelPlacement() {
     this.placement?.cancel();
     $placing.set(null);
+  }
+
+  // ─────────────────────────── touch (docs/07 §13) ───────────────────────────
+
+  /** Gestures on the world, and a save on every way the page can go away
+   *  (iOS kills a background tab without warning). */
+  private bindTouch() {
+    const host: TouchHost = {
+      ready: () => this.playing && this.commandView && !overlayUp() && !$menuOpen.get(),
+      mode: () => (this.placement?.active ? 'place' : this.roadTool?.active ? 'road'
+        : this.fleetTarget?.active ? 'target' : 'select'),
+      tap: (x, y) => this.touchTap(x, y),
+      longPress: (x, y) => this.touchLongPress(x, y),
+      pan: (dx, dy) => this.buildCam.panPx(dx, dy, true),
+      pinch: (phase, scale) => this.buildCam.pinch(phase, scale),
+      twist: (rad) => this.buildCam.twist(rad),
+      twistReset: () => this.buildCam.twistReset(),
+      ghostDrag: (dx, dy) => this.pointAt(this.mousePx.x + dx, this.mousePx.y + dy),
+      roadDown: (x, y) => { this.pointAt(x, y); this.roadTool.update(); this.roadTool.down(this.roadRemove); },
+      roadMove: (x, y) => this.pointAt(x, y),
+      roadUp: (x, y) => { this.pointAt(x, y); this.roadTool.update(); this.roadTool.up(); },
+    };
+    this.touchCtl = new TouchControls(this.canvas, host);
+    window.addEventListener('pagehide', () => { if (this.playing) void this.doSave(true); });
+  }
+
+  /** The pointer the ghost, the road tool and picking read, at a screen
+   *  point (CSS px; clamped to the viewport). */
+  pointAt(x: number, y: number) {
+    const w = window.innerWidth, h = window.innerHeight;
+    x = Math.min(w - 1, Math.max(0, x));
+    y = Math.min(h - 1, Math.max(0, y));
+    this.mousePx = { x, y };
+    this.mouse.set((x / w) * 2 - 1, -(y / h) * 2 + 1);
+  }
+
+  /** Where the pointer (the ghost, while placing) stands, CSS px. */
+  get pointer() { return { ...this.mousePx }; }
+
+  /** A tap on the world: a click, except that while placing it only moves
+   *  the ghost there (✓ places). Empty ground clears every selection; with
+   *  the deposit overlay on, a revealed deposit there opens its card. */
+  private touchTap(x: number, y: number) {
+    this.pointAt(x, y);
+    if (this.roadTool.active) {
+      this.roadTool.update();
+      this.roadTool.down(this.roadRemove);
+      this.roadTool.up();
+      return;
+    }
+    if (this.placement.active) return;
+    if (this.fleetTarget.active) { this.fleetTarget.update(); this.fleetTarget.click(); return; }
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hit = this.pickWorld();
+    if (hit?.rover !== undefined) { this.selectRover(hit.rover); $depositSel.set(null); return; }
+    const b = hit?.building !== undefined ? this.state.buildings.find((x) => x.id === hit.building) ?? null : null;
+    $roverSel.set(null);
+    $selection.set(b ? { ...b } : null);
+    const dep = b || !$depositOverlay.get() ? null : this.depositUnder();
+    $depositSel.set(dep);
+  }
+
+  /** A long-press: what is this? A structure or a rover opens its inspector
+   *  (the UI adds its info card); ground opens the card of a revealed
+   *  deposit there. Returns what was found, for the UI. */
+  private touchLongPress(x: number, y: number) {
+    if (this.placement.active || this.roadTool.active || this.fleetTarget.active) return;
+    this.pointAt(x, y);
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hit = this.pickWorld();
+    let info: { kind: 'building' | 'rover' | 'deposit' | 'ground'; type?: BuildingId; id?: string | number; x: number; y: number };
+    if (hit?.rover !== undefined) {
+      this.selectRover(hit.rover);
+      info = { kind: 'rover', id: hit.rover, x, y };
+    } else if (hit?.building !== undefined) {
+      this.select(hit.building);
+      const b = this.state.buildings.find((o) => o.id === hit.building);
+      info = { kind: 'building', type: b?.type, id: hit.building, x, y };
+    } else {
+      const dep = this.depositUnder();
+      if (dep) {
+        $selection.set(null);
+        $roverSel.set(null);
+        $depositSel.set(dep);
+        info = { kind: 'deposit', id: dep, x, y };
+      } else {
+        info = { kind: 'ground', x, y };
+      }
+    }
+    window.dispatchEvent(new CustomEvent('moonshots:long-press', { detail: info }));
+  }
+
+  /** the revealed deposit under the pointer (its id), or null */
+  private depositUnder(): string | null {
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const { origin: o, direction: d } = this.raycaster.ray;
+    const g = this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 3000);
+    if (!g) return null;
+    const dep = this.hf.depositAt(g[0], g[2]);
+    return dep && depositRevealed(this.state, dep, this.mods.surveyTier) ? dep.id : null;
+  }
+
+  /** ✓ in the placement bar: place at the ghost, as a click would (a
+   *  blocked spot flashes its reason; a stranding one asks twice). */
+  confirmPlacement(keep = false) {
+    if (this.placement?.active && this.commandView) this.onWorldClick(keep);
+  }
+
+  /** R, or ⟳ in the placement bar. */
+  rotatePlacement() {
+    if (this.placement?.active) this.placement.rotate();
+  }
+
+  /** Enter while placing, or Order in the placement bar: the rovers choose
+   *  the site for this one. */
+  orderPlacing(): boolean {
+    const p = this.placement?.active ? this.placement.probe : null;
+    if (!p || p.type === 'grade') return false;
+    this.actions.push({ kind: 'order', type: p.type, count: 1 });
+    this.cancelPlacement();
+    return true;
+  }
+
+  /** ⟲ ⟳ (and Q/E's step in the isometric view): turn the command view. */
+  turnView(dir: -1 | 1) {
+    if (this.commandView) this.buildCam.turnStep(dir);
+  }
+
+  /** H: glide home to the Lander. F: glide to the selection. */
+  cameraHome() {
+    if (this.commandView) this.homeCamera(true);
+  }
+  focusSelection() {
+    const sel = $selection.get();
+    const rover = $roverSel.get();
+    if (!this.commandView || (!sel && rover === null)) return;
+    const at = sel ? this.life.haulers.pose(sel.id) : this.life.rovers.pose(rover!);
+    const [x, z] = at ? [at.x, at.z] : sel ? centerOf(sel) : [0, 0];
+    this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
+  }
+
+  /** The recognizer's state and the pointer (tests, probes). */
+  debugTouch() {
+    return {
+      on: !!this.touchCtl, ...(this.touchCtl?.info() ?? {}), pointer: this.pointer,
+      roadRemove: this.roadRemove,
+    };
   }
 
   /** Frame the Lander from the home direction (a glide unless `glide` is false). */
@@ -1260,6 +1415,8 @@ export class Game {
 
   private frame(t: number) {
     requestAnimationFrame((tt) => this.frame(tt));
+    // touch mode (a phone's battery): a hidden page neither draws nor steps
+    if (this.opts.touch && document.hidden) { this.lastT = t; return; }
     this.firstFrame ??= { fx: this.post.fxLevel, safe: this.safeMode };
     const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
@@ -2126,10 +2283,12 @@ export class Game {
     };
   }
 
-  async doSave() {
+  /** `sync` (touch mode, the page going away): a synchronous copy too, which
+   *  outlives a tab the OS kills before the database write lands. */
+  async doSave(sync = false) {
     // a lost base is written once, at the moment of loss, and never again
     if (!this.playing || missionLost(this.state)) return;
-    await saveGame(this.saveBlob());
+    await saveGame(this.saveBlob(), sync);
     $hasSave.set(true);
   }
 
