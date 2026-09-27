@@ -494,6 +494,8 @@ export class Game {
       switch (e.code) {
         case 'Tab':
           e.preventDefault();
+          // touch mode has no walk mode, even with a keyboard attached (docs/07 §13.9)
+          if (this.opts.touch) break;
           this.cancelPlacement();
           this.modes.toggle();
           break;

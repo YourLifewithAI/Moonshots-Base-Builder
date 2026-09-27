@@ -388,6 +388,11 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   portrait.addEventListener('change', onTurn);
   $phase.subscribe(onTurn);
 
+  // ── keyboard hints: the shared modules write [T], [B] and the like into
+  // their texts; a phone has no keys, so their text nodes are rewritten as
+  // they appear (touch only; the modules stay as the desktop has them) ──
+  untangleKeys(uiRoot);
+
   // ── Safari: no page pinch, no callouts ──
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('contextmenu', (e) => {
@@ -397,4 +402,46 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   const setVh = () => document.documentElement.style.setProperty('--vh', `${window.innerHeight}px`);
   setVh();
   window.addEventListener('resize', setVh);
+}
+
+/** the rail button a key became (docs/07 §13.5) */
+const RAIL_NAME: Record<string, string> = { T: 'Tree', M: 'Map', B: 'Builder', G: 'Hazards', N: 'Road', I: 'Ore' };
+const KEY_ONLY = /^\s*\[([TMBGNI])\]\s*$/;
+const KEY_AFTER = /\b(with|in:?|[Oo]pen)\s\[([TMBGNI])\]/g;
+const KEY_BEFORE = /\[([TMBGNI])\](?=\s+to\b)/g;
+const KEY_ANY = /\s?\[([TMBGNI])\]/g;
+
+/** One text: "tune it with [B]" → "tune it with Builder", "[B] to tune" →
+ *  "Builder to tune"; "Open Lunar Map [M]" → "Open Lunar Map"; a hint alone
+ *  in a label goes, alone elsewhere ("Open <b>[G]</b>") it becomes the
+ *  rail's name. */
+function touchText(s: string, inLabel = false): string {
+  if (!s.includes('[')) return s;
+  const only = KEY_ONLY.exec(s);
+  if (only) return inLabel ? '' : RAIL_NAME[only[1]];
+  return s.replace(KEY_AFTER, (_, w: string, k: string) => `${w} ${RAIL_NAME[k]}`)
+    .replace(KEY_BEFORE, (_, k: string) => RAIL_NAME[k]).replace(KEY_ANY, '');
+}
+
+/** Rewrite every key hint under `root`, now and as the modules render. */
+function untangleKeys(root: HTMLElement) {
+  const fix = (n: Text) => {
+    const s = n.data;
+    if (!s.includes('[')) return;
+    const out = touchText(s, !!n.parentElement?.closest('.label'));
+    if (out !== s) n.data = out;
+  };
+  const walk = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) { fix(node as Text); return; }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const w = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    for (let t = w.nextNode(); t; t = w.nextNode()) fix(t as Text);
+  };
+  walk(root);
+  new MutationObserver((records) => {
+    for (const r of records) {
+      if (r.type === 'characterData') fix(r.target as Text);
+      else r.addedNodes.forEach(walk);
+    }
+  }).observe(root, { subtree: true, childList: true, characterData: true });
 }

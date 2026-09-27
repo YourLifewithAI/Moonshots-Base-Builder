@@ -151,6 +151,10 @@ test('touch mode: Auto turns it on for a phone; ?touch forces it; the desktop st
   expect(meta).toContain('user-scalable=no');
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', './manifest.webmanifest');
   expect(await page.locator('#world').evaluate((e) => getComputedStyle(e).touchAction)).toBe('none');
+  // no walk mode, even from a keyboard attached to the phone or tablet
+  await page.keyboard.press('Tab');
+  await frames(page, 3);
+  expect(await page.evaluate(() => document.getElementById('hud-layer')!.classList.contains('mode-walk'))).toBe(false);
 
   const ctx = await desktop(browser);
   const d = await ctx.newPage();
@@ -160,6 +164,9 @@ test('touch mode: Auto turns it on for a phone; ?touch forces it; the desktop st
   expect(await d.evaluate(() => window.__game.getTouch().on)).toBe(false);
   // no touch DOM exists at all on the desktop
   for (const id of ['#touch-top', '#touch-rail-l', '#touch-bar', '#touch-sheet', '#touch-rotate']) expect(await d.locator(id).count()).toBe(0);
+  // the desktop's Tab still walks (the touch page's did not, above)
+  await d.keyboard.press('Tab');
+  await expect.poll(() => d.evaluate(() => document.getElementById('hud-layer')!.classList.contains('mode-walk'))).toBe(true);
   // ?touch forces it on a desktop
   await d.goto(`${BASE}&site=mare&exp=robotic&touch`);
   await d.waitForFunction(() => window.__game !== undefined);
@@ -380,6 +387,35 @@ test('research tree by touch: the rail opens it, tabs change page, a tap shows, 
   // close by tap
   await page.locator('#tech-close').tap();
   await expect(page.locator('#tech-screen')).toBeHidden();
+});
+
+// ───────────────────────────── keyboard hints ─────────────────────────────
+
+test('keyboard hints read as the rail: "tune it with [B]" says Builder, a trailing [M] goes, no key shows', async ({ page }) => {
+  await boot(page);
+  // what the shared modules write: a discovery line, a label, a button, an alert
+  const out = await page.evaluate(async () => {
+    const d = document.createElement('div');
+    d.innerHTML = 'The Builder keeps it supplied: tune it with [B]. <span class="label">[G]</span> Open <b>[G]</b> to see the risks' +
+      ' · [B] to tune · <button>◎ Open Lunar Map [M]</button> ○ research [T]';
+    document.getElementById('ui-root')!.appendChild(d);
+    await new Promise((r) => setTimeout(r, 0));
+    const t = d.textContent;
+    d.remove();
+    return t;
+  });
+  expect(out).toBe('The Builder keeps it supplied: tune it with Builder.  Open Hazards to see the risks · Builder to tune · ◎ Open Lunar Map ○ research');
+  // the panels and screens as they render
+  await page.locator('#t-builder').tap();
+  await expect(page.locator('#builder-panel')).toBeVisible();
+  expect(await page.locator('#builder-panel').innerText()).not.toMatch(/\[[TMBGNI]\]/);
+  await page.locator('#t-hazards').tap();
+  await expect(page.locator('#hazards-panel')).toBeVisible();
+  expect(await page.locator('#hazards-panel').innerText()).not.toMatch(/\[[TMBGNI]\]/);
+  await page.locator('#t-map').tap();
+  await expect(page.locator('#map-screen')).toBeVisible();
+  await expect(page.locator('#map-strip')).toContainText('research');
+  expect(await page.locator('#map-screen').innerText()).not.toMatch(/\[[TMBGNI]\]/);
 });
 
 // ───────────────────────────── the fit, at every size ─────────────────────────────
