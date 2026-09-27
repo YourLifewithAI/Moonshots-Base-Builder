@@ -1723,6 +1723,7 @@ discovery lines (§13.3).
 | T1's lead | With the tech and a built observatory, day or night; only the window needs it to see the Sun | The lead is the bulletins over the link as well as the dome's eye; a lead that came and went with dusk would make the pop-up's clock jump |
 | T3's far windows | The next flare keeps T2's window; the two after it get f 0.4, Wmin 90 s, around the schedule run forward at the era now (`predictFlares`) | The cycle model sees further than the sentinel, less sharply |
 | The CME at T1 | a window (T1's f) round the front's arrival once the flare has sent one | T1 cannot know an M's CME before its protons |
+| Heliophysics data | an observatory that sees the flare pays its data even with no lab running (×2); its 0.05≡/s goes straight to the bank, outside the labs' research rate | the observatory is an instrument in its own right |
 | The sentinel's 1.5 kW | the tech's `powerDelta` on the Lander, from research on | a con that exists before the launch keeps `auditTechs` simple |
 | `weatherPlanner` | not in F3: the Builder's shelter planning on a forecast is F4's | its rows are domes and kits |
 | Choose now | the flare pop-up itself, opened ahead (`n` −1 − n); Confirm stores `s.weather.ahead`, which the telegraph applies as a click: the pop-up opens compact and does not pause. A remember box sets the class's remembered choice at once | one card, one set of previews; a click already outranks every shortcut but a field override |
