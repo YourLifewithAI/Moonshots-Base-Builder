@@ -626,6 +626,10 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
   // inside a zone: its road stops at the zone's rim, the drive on off-road
   const inZone = zoneStand(s, b);
   if (inZone) {
+    // a dock parks its rovers on the road: not inside a zone
+    if (DOCK_TYPES.has(b.type)) {
+      return { cells: [], fresh: [], bays: [], reason: 'IN AN EXTRACTION ZONE — a dock parks its rovers on the road; set its front outside the deposit\'s ring' };
+    }
     // its door needs no road, but a rover must stand there
     const d = doorCell(b);
     if (d && (!inMap(d[0], d[1]) || occupied(s).has(cellKey(d[0], d[1])))) {
@@ -675,6 +679,9 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
       if (!inMap(bx, bz) || taken.has(k) || map.has(k)) continue;
       bays.push(k);
     }
+    // a dock parks its rovers beside its door: with no room for a bay (its road along its
+    // front, a structure or an extraction zone beside it) it has nowhere to put them
+    if (!bays.length) return { cells: [], fresh: [], bays: [], reason: 'NO ROOM FOR ITS PARKING BAYS — beside its door is road, a structure or a deposit\'s ring; R rotates' };
   }
   return { cells, fresh, bays, reason: '' };
 }
