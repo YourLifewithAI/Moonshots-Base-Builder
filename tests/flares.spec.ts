@@ -645,42 +645,65 @@ test('determinism: two runs of seed 42 with a forced X give the same flare state
 
 // ─────────────────────────── the fit ───────────────────────────
 
-test('fit: the pop-up is a 640 × 300 card at 1280×720 and 563 × 262 on a 667×375 touch screen, six 44 px options, no text under 11 px', async ({ page }) => {
+test('fit: the pop-up is a 640 × 300 card at 1280×720 with every row in view', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   await start(page);
-  await page.evaluate(() => { window.fx.field(4); window.fx.field(3, 14); const g = window.__game; g.forceFlare('X', { drill: false }); g.advanceGameSeconds(2); });
+  await page.evaluate(() => { window.fx.field(4); window.fx.field(3, 10); const g = window.__game; g.forceFlare('X', { drill: false }); g.advanceGameSeconds(2); });
   const pop = page.locator('#flare-popup');
   await expect(pop).toBeVisible();
+  await expect(pop).not.toHaveClass(/compact/);
   const d = await pop.boundingBox();
   expect(d!.width).toBeLessThanOrEqual(640);
   expect(d!.height).toBeLessThanOrEqual(300);
   expect(d!.x).toBeGreaterThanOrEqual(0);
   expect(d!.x + d!.width).toBeLessThanOrEqual(1280);
   expect(d!.y + d!.height).toBeLessThanOrEqual(720);
-  // nothing clipped inside it
-  const clipped = await pop.evaluate((e) => e.scrollHeight > e.clientHeight + 1);
-  expect(clipped).toBe(false);
+  // nothing clipped inside it; the three options, the boxes and Confirm in view
+  expect(await pop.evaluate((e) => e.scrollHeight > e.clientHeight + 1)).toBe(false);
+  await expect(pop.locator('.fp-row')).toHaveCount(3);
   await expect(pop.locator('.fp-confirm')).toBeVisible();
+  await expect(pop.locator('.fp-remember-t')).toHaveText('Use this choice for future X flares');
+  // the compact form after Confirm: one line
+  await pop.locator('.fp-confirm').click();
+  await page.evaluate(() => window.__game.advanceGameSeconds(0));
+  await expect(pop).toHaveClass(/compact/);
+  expect((await pop.boundingBox())!.height).toBeLessThanOrEqual(50); // a line and its [Change]
+});
 
-  for (const [w, h] of [[667, 375], [844, 390], [932, 430]]) {
-    await page.setViewportSize({ width: w, height: h });
-    await page.evaluate(() => { document.documentElement.classList.add('touch'); window.__game.advanceGameSeconds(1); });
+test.describe('on touch', () => {
+  test.use({ hasTouch: true, isMobile: true, deviceScaleFactor: 2, viewport: { width: 667, height: 375 } });
+  test('fit: 563 × 262 at the top on a 667×375 phone (and 844×390, 932×430): one row of six 44 px options, 44 px controls, no text under 11 px; the chip rides the top bar', async ({ page }) => {
+    await start(page, { extra: '&touch' });
+    await expect(page.locator('#touch-top')).toBeVisible();
+    await page.evaluate(() => { window.fx.field(4); window.fx.field(3, 10); const g = window.__game; g.forceFlare('X', { drill: false }); g.advanceGameSeconds(2); });
+    const pop = page.locator('#flare-popup');
     await expect(pop).toHaveClass(/touch/);
-    const t = await pop.boundingBox();
-    expect(t!.width).toBeLessThanOrEqual(563);
-    expect(t!.height).toBeLessThanOrEqual(262);
-    expect(t!.x).toBeGreaterThanOrEqual(0);
-    expect(t!.x + t!.width).toBeLessThanOrEqual(w);
-    expect(t!.y + t!.height).toBeLessThanOrEqual(h);
-    const seg = await pop.locator('.fp-seg .btn').evaluateAll((bs) => bs.map((b) => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width }; }));
-    expect(seg.length).toBe(6);
-    for (const b of seg) { expect(b.h).toBeGreaterThanOrEqual(44); expect(b.w).toBeGreaterThanOrEqual(44); }
-    const small = await pop.evaluate((e) => [...e.querySelectorAll('*')].filter((x) => x.childNodes.length && [...x.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim())
-      && parseFloat(getComputedStyle(x).fontSize) < 11 && (x as HTMLElement).offsetParent !== null).length);
-    expect(small).toBe(0);
-    const controls = await pop.locator('button:visible').evaluateAll((bs) => bs.map((b) => b.getBoundingClientRect().height));
-    for (const hh of controls) expect(hh).toBeGreaterThanOrEqual(44);
-    const clippedT = await pop.evaluate((e) => e.scrollHeight > e.clientHeight + 1);
-    expect(clippedT).toBe(false);
-  }
+    await expect(page.locator('#touch-top #weather-chip')).toBeVisible();
+    for (const [w, h] of [[667, 375], [844, 390], [932, 430]]) {
+      await page.setViewportSize({ width: w, height: h });
+      await page.evaluate(() => window.__game.advanceGameSeconds(1));
+      const t = await pop.boundingBox();
+      expect(t!.width).toBeLessThanOrEqual(563);
+      expect(t!.height).toBeLessThanOrEqual(262);
+      expect(t!.x).toBeGreaterThanOrEqual(0);
+      expect(t!.x + t!.width).toBeLessThanOrEqual(w);
+      expect(t!.y + t!.height).toBeLessThanOrEqual(h);
+      const seg = await pop.locator('.fp-seg .btn').evaluateAll((bs) => bs.map((b) => { const r = b.getBoundingClientRect(); return { h: r.height, w: r.width, top: Math.round(r.top) }; }));
+      expect(seg.length).toBe(6);
+      expect(new Set(seg.map((b) => b.top)).size).toBe(1); // one row
+      for (const b of seg) { expect(b.h).toBeGreaterThanOrEqual(44); expect(b.w).toBeGreaterThanOrEqual(44); }
+      const small = await pop.evaluate((e) => [...e.querySelectorAll('*')].filter((x) => [...x.childNodes].some((n) => n.nodeType === 3 && n.textContent!.trim())
+        && parseFloat(getComputedStyle(x).fontSize) < 11 && (x as HTMLElement).offsetParent !== null).length);
+      expect(small).toBe(0);
+      const controls = await pop.locator('button:visible').evaluateAll((bs) => bs.map((b) => b.getBoundingClientRect().height));
+      for (const hh of controls) expect(hh).toBeGreaterThanOrEqual(44);
+      expect(await pop.evaluate((e) => e.scrollHeight > e.clientHeight + 1)).toBe(false);
+      // the chip in the bar: a thumb tall
+      expect((await page.locator('#weather-chip').boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    // Fine… opens the slider under the options
+    await pop.locator('.fp-fine').click();
+    await expect(pop.locator('.fp-slider')).toBeVisible();
+    expect((await pop.boundingBox())!.height).toBeLessThanOrEqual(262);
+  });
 });
