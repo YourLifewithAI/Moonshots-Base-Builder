@@ -1251,7 +1251,9 @@ few hundred triangles a dome.
 | **Speckle** | Proton hits on the camera, as SOHO's images fill with snow in a storm. A 2D canvas over the WebGL canvas draws white dots of 1–2 px at 60–90% alpha while the flare is active: 15 a frame for C, 50 for M, 150 for X, 50 in the tail (at 1080p, scaled by area). An X adds a few 6–12 px streaks. A new menu toggle, *Screen speckle* (on by default), turns it off. | CPU, under 0.1 ms a frame |
 | **The frame** | A 1 px hatched frame around the viewport while active, solid for X. **No tint:** earthshine is the only colour (docs/06). | DOM |
 | **The sky** (High detail, walk mode, the landing) | An X's flash lifts the Sun's glare sprite by 30% for 3 s: a white-light flare. When a CME front arrives, a faint aurora ring on Earth's night limb: the colour stays on Earth. No aurora on the Moon, which has no air. | two sprite values |
-| **Arrays stowing** | §5.6: the wing turns edge-on, cells down, over 10 s; the foot lamp blinks slowly. | a tween on the existing wing |
+| **Arrays stowing** | §5.7: the wing turns edge-on, cells down, over 10 s; the foot lamp blinks slowly. Field berms show as a low ridge along each field. | a tween on the existing wing; the berm is a strip of the ground |
+| **Wrecks** | The wing hangs broken, 30° off its hinge, half its panels hidden and a shade darker, debris at its foot, a `✕` marker. Rebuilding shows the usual scaffold (`src/buildings/scaffold.ts`). | a second instanced wing pose; debris reuses the rocks |
+| **Repairs and capability** | A repairing rover stops at each array in the weld pose; the array's lamp steadies. A building under 85% capability wears a `◌ 84%` DOM marker, like the wear markers. | DOM |
 | **Bag walls** | An instanced ring of 24 bags a course, three courses, rising course by course as the rover stacks them; they come down the same way. | 1 instanced box mesh |
 | **Water-wall domes** | A lathe hemisphere (16 segments, ~300 △) that inflates from flat, scale y 0.05 → 1 with a 5% overshoot over 15 s, then darkens a shade as it fills. Classic shows the facets as ribs; High detail adds a specular band. Deflating reverses it; the kit folds into the rover's bed as a box. | ≤ 6 up, ~1.8k △ |
 | **Glitches** | A rebooting machine's lamps strobe twice, and a DOM marker reads `⟲ 0:40`. A latched one goes dark with `⊘ 7:40`, its deadline. A burn-out throws one spark sprite and the dust puff (`src/world/dust.ts`); the wreck stays 60 s and fades. | markers are DOM |
@@ -1282,14 +1284,17 @@ The baselines are docs/14 §6's shipped medians (reasonable, `--auto=on`, seeds 
 move them**, so the targets are percentages against the same branch run with
 `--flares=legacy` (§12.3), not these minutes.
 
-| Run | Baseline FIRST LIGHT | Reasonable, full system (−2% to +4%) | Ignoring flares (+4% to +10%) |
+| Run | Baseline FIRST LIGHT | Reasonable, full system (−2% to +4%) | Ignoring flares (+5% to +15%) |
 |---|---|---|---|
-| mare robotic · ⌂ Colony | 213.3 | 209–222 | 222–235 |
-| mare robotic · ◉ Automation | 200.3 | 196–208 | 208–220 |
-| mare robotic · Concord | 217.6 | 213–226 | 226–239 |
-| pole crewed · ⌂ Colony | 162.9 | 160–169 | 169–179 |
-| pole crewed · ◉ Automation | 172.9 | 169–180 | 180–190 |
-| pole crewed · Concord | 177.9 | 174–185 | 185–196 |
+| mare robotic · ⌂ Colony | 213.3 | 209–222 | 224–245 |
+| mare robotic · ◉ Automation | 200.3 | 196–208 | 210–230 |
+| mare robotic · Concord | 217.6 | 213–226 | 228–250 |
+| pole crewed · ⌂ Colony | 162.9 | 160–169 | 171–187 |
+| pole crewed · ◉ Automation | 172.9 | 169–180 | 182–199 |
+| pole crewed · Concord | 177.9 | 174–185 | 187–205 |
+
+The ignoring band is wider than rev 1's (+4% to +10%) because scars add up: an ignored
+base runs its last eras on hardware at 80–90%.
 
 docs/14's rules still hold: robotic mare 210 ± 25 with max/min ≤ 1.08 across destinies
 (1.087 was accepted there for the drive), every era 22–32 min, and the longest idle
@@ -1301,64 +1306,78 @@ docs/14's rules still hold: robotic mare 210 ± 25 with max/min ≤ 1.08 across 
 |---|---|
 | Flares per run | mare 8–10 · pole 6–8 |
 | X per run | 1–3; the first in Era 4–6 · the first M by Era 3 |
-| Deaths, machine losses and rad scars from flares, reasonable and attentive | **none on any seed** (docs/14's fairness check) |
-| Cells at FIRST LIGHT, reasonable | mare ≥ 95% · pole ≥ 92% (the pole generates more) |
+| Deaths and machine losses from flares, reasonable and attentive | **none on any seed** (docs/14's fairness check) |
+| Arrays destroyed per run, reasonable (median) | mare ≤ 2 · pole ≤ 10 (its critical feed runs) |
+| Stowed arrays repaired | within 5 min of the flare's end (median) · repair parts per run ≤ 150⚙ on the mare |
+| Building capability at FIRST LIGHT, reasonable | mean ≥ 97% mare, ≥ 95% pole · none under 85% |
 | Ignoring: a defeat caused by flares | never |
 | Ignoring: deaths or losses before the first real X | none |
-| Ignoring: a permanent mark (a loss or a scar) | on 2 of 3 mare seeds or more: the X must bite |
+| Ignoring: building capability at FIRST LIGHT | mean 80–92% · at least one under 85% on 2 of 3 mare seeds (replacing must pay) |
 | Brownout share, reasonable | at most 1 point above the legacy run |
-| `flareStance` with `--auto=on` (mare) | generates through ≥ 80% of C flares; stows ≥ 80% of X flashes |
+| `flareStance` with `--auto=on` | runs all through ≥ 80% of C flares; at M and X runs only the critical feed |
 | Flare-minutes, the two pure paths | within ±20% of each other |
 
 ### 12.2 Expected direction
 
-- **Faster:** C flares stop blacking out the grid, since generating through them is right.
-  The pole's flare brownouts (median 5 s, p90 40 s a flare today) mostly go.
-  Heliophysics data grows with class and the observatory.
-- **Slower:** 1.7 more flares a run; X tails; recall downtime; reboots; lost loads.
+- **Faster:** C flares stop blacking out the grid (run all). The critical feed keeps
+  life support lit, so the pole's flare brownouts (median 5 s, p90 40 s a flare today)
+  mostly go. Heliophysics data grows with class and the observatory.
+- **Slower:** 1.7 more flares a run; X tails; repairs after every stowed M and X
+  (24–48⚙ and 3–5 rover-minutes on a 24-array base before shielding); the pole's feed
+  arrays destroyed at X (2–6 before Rad-Hard Cells); recall downtime; reboots; lost loads;
+  scars where the player did not prepare.
 - **Research time.** The six flare techs a reasonable player takes cost ~2.3k≡: 5% of a
   mare run's 48k≡, and 14 min of research at Era 2–5 rates (0.96–1.73≡/s, measured). As
   extras they would stretch those eras. So they are **charter-neutral** at era medians,
   and the bot takes each **in place of** the last small step of its era, which moves to
   the tail (the probe's `--replace=on`, docs/14 §6). The cost left is what the displaced
   steps would have given, later.
-- **Net:** reasonable 0 to +3%; ignoring +4% to +10%, mostly from the X's.
+- **Net:** reasonable 0 to +3%; ignoring +5% to +15%, from the X's and the scars.
 
 ### 12.3 The probe (`scripts/probe-pacing.mjs`)
 
-The bot plays flares as a reasonable player would, reading only the HUD: the chip, the
-alerts and their buttons, and a `getSpaceWeather()` view of the panel.
+The bot plays flares as a reasonable player would, reading only the HUD: the pop-up and
+its previews, the alerts and their buttons, and a `getSpaceWeather()` view of the panel.
 
 | Step | What the bot does |
 |---|---|
-| Research | Heliophysics Forecasting after Era 2's critical block; Flare Protocols and Deployable Shelters after Era 3's; Water-Wall Shielding and Fault-Tolerant Avionics after Era 4's; the L1 Sentinel in Era 5; Rad-Hard Cells at the pole in Era 5; Solar-Cycle Forecasting in Era 6's tail. Each replaces its era's last small step. Breakthroughs at their era, once found. |
-| Arrays | Before Flare Protocols, from the alert: Keep generating on a C, Stow on an M or an X. After: the §7.4 defaults, once. With `--auto=on`, the `flareStance` rule. |
-| Machines · research · fabs | Recall on M and X; Checkpoint on M and X; Shut down on X. |
-| Domes | With kits: the SHELTER block's top targets on an X, and on an M once it has water domes. It keeps 2 kits and prints one when uses fall under 6. |
+| Research | Heliophysics Forecasting after Era 2's critical block; Flare Protocols and Deployable Shelters after Era 3's; Water-Wall Shielding and Fault-Tolerant Avionics after Era 4's; the L1 Sentinel in Era 5; Rad-Hard Cells in Era 5 (first at the pole); Solar-Cycle Forecasting in Era 6's tail. Each replaces its era's last small step. Breakthroughs at their era, once found. |
+| The pop-up | C: **Keep all running**. M and X: **Stow a portion → all but the critical feed**. `Repair after` on. It ticks `Use this choice for future …` the first time it meets each class, so later flares are one line. With `--auto=on`, the `flareStance` rule decides. |
+| After a flare | Rebuilds wrecks at once when it can pay; otherwise clears them. Lets the repairs run. |
+| Machines · research · buildings | Recall on M and X; Checkpoint on M and X; Shut down exposed on X. |
+| Scars | Replaces a building, or re-prints a unit, under 85% capability when it can pay and the payback is under 10 min. |
+| Domes | With kits: the SHELTER block's top targets on an X (a stowed field counts), and on an M once it has water domes. It keeps 2 kits and prints one when uses fall under 6. |
 | Sentinel · coil · sails | Launches the sentinel when it can pay. At the pole, a Shield Coil over the main array field. Holds a volley for a sail window forecast within 5 min. |
-| `--flarePolicy=ignore` | Presses nothing for flares and researches no flare tech unless another tech requires it. |
+| `--flarePolicy=ignore` | Answers nothing (the safe default runs, and its repairs), rebuilds nothing, replaces nothing, and researches no flare tech unless another tech requires it. |
 
 **Flags:** `--flares=legacy|on` (legacy: every flare today's 45 s, solar 0 and −10
 morale, for the baseline) · `--flarePolicy=reasonable|ignore`.
 
-**New report fields:** each flare's class, time, era, stance, solar lost, cells lost,
-machines rebooted, bricked and lost, research lost, blackout seconds, domes used and data
-gained; per run, counts by class, flare-minutes, cells at the end, scars and losses.
+**New report fields:** each flare's class, time, era, the arrays' choice (stowed and
+running), arrays destroyed, repairs (parts, rover-seconds), solar lost, machines
+rebooted, bricked and lost, research lost, blackout seconds, domes used and data gained;
+per run, counts by class, flare-minutes, wrecks, the capability of every building and
+machine at the end, replacements, and losses.
 
 The instrumented copy that measured §2 is in the scratchpad (`flares/probe/`); its
 `flareSample` hook is the model for these fields.
 
 ### 12.4 Levers, in this order
 
-1. **Cell loss** (0.25 · 1 · 3% and the tail's 1%) and the 80% floor.
-2. **The X:** its odds (0.25 a²), the second-X rule, the tail's length (120 s) and
+1. **Arrays kept running:** the destroyed shares (15%, 50%) and their scars
+   (0.5 · 2 · 5 · 1.5%).
+2. **Stowed arrays:** the damage (5%, 20%) and the repair (⌈d ÷ 10%⌉⚙, 6 s + 0.2 s per %).
+3. **Rad scars:** the scale (0.25 · 1.5 · 5 · 1%), the (1 − σ)² curve and the ×0.1 for
+   preparation.
+4. **Replace:** its discount (50% of cost, 60% of time).
+5. **The X:** its odds (0.25 a²), the second-X rule, the tail's length (120 s) and
    strength (35%).
-3. **Machines:** the odds (15 · 40 · 40/45/15%) and the reboot times.
-4. **Research and compute:** the head-tech loss (3%, 10%), the lab, fab and Data Center
-   multipliers, and the scar (4%, to 12%).
-5. **Telegraphs** by class, and each tier's addition.
-6. **Domes and the coil:** σ, kit costs and uses, the coil's 40 kW.
-7. **The cycle:** tMax (11) and the interval (2.3 − 1.0 a).
+6. **Machines:** the odds (15 · 40 · 40/45/15%) and the reboot times.
+7. **Research and compute:** the head-tech loss (3%, 10%) and the lab, fab and Data
+   Center multipliers.
+8. **Telegraphs** by class, and each tier's addition.
+9. **Domes and the coil:** σ, kit costs and uses, the coil's 40 kW.
+10. **The cycle:** tMax (11) and the interval (2.3 − 1.0 a).
 
 The flare techs stay at their era's median cost. Never `ERA_COST_SCALE`: the tree's
 calibration belongs to the tree (docs/14 §6).
