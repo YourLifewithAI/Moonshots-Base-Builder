@@ -471,8 +471,48 @@ for (const [phone, vp] of Object.entries(PHONES)) {
       await page.locator('#t-menu').tap();
       await expect(page.locator('#menu')).toBeVisible();
       expectFit(await fitReport(page, '#menu .menu-panel'), `${phone} menu`);
+      await page.screenshot({ path: `test-results/touch-${vp.width}x${vp.height}-menu.png` });
       await page.locator('#menu [data-act="resume"]').tap();
       await expect(page.locator('#menu')).toBeHidden();
+
+      // the victory screen
+      await page.evaluate(() => {
+        const gm = window.__game;
+        gm.completeTech('swarmProtocol');
+        gm.grantResources({ foils: 10, launch: 3 });
+        gm.grantPower(5000);
+        gm.launch();
+        gm.advanceGameSeconds(3);
+      });
+      await expect(page.locator('#victory-screen')).toBeVisible();
+      expectFit(await fitReport(page, '#victory-screen'), `${phone} victory`);
+      await page.locator('#btn-victory-continue').tap();
+      await expect(page.locator('#victory-screen')).toBeHidden();
+
+      // with the guidance on: the era explainer, then a discovery card
+      await boot(page, '&tips');
+      await expect(page.locator('#era-banner')).toBeVisible();
+      await page.waitForTimeout(900); // it fades in
+      expectFit(await fitReport(page, '#era-banner .eb-panel'), `${phone} era banner`);
+      await page.locator('#era-banner [data-dsc="ok"]').tap();
+      await expect(page.locator('#era-banner')).toBeHidden();
+      await g(page, 'completeTech', 'regolithProcessing');
+      await expect(page.locator('#discovery-card')).toBeVisible();
+      await page.waitForTimeout(700); // it fades in
+      expectFit(await fitReport(page, `${HUD}, #discovery-card`), `${phone} discovery card`, 4);
+      await page.locator('#discovery-card [data-dsc="ok"]').tap();
+      await expect(page.locator('#discovery-card')).toBeHidden();
+
+      // the defeat screen (a crewed base, its life support drained)
+      await page.goto(`${BASE}&site=mare`);
+      await page.waitForFunction(() => window.__game !== undefined);
+      await page.evaluate(() => {
+        const gm = window.__game;
+        gm.grantResources({ oxygen: -1000, food: -1000 });
+        gm.advanceGameMinutes(7);
+      });
+      await expect(page.locator('#defeat-screen')).toBeVisible();
+      expectFit(await fitReport(page, '#defeat-screen'), `${phone} defeat`);
     });
   });
 }

@@ -24,7 +24,7 @@ import { notBuildableHere, orderCard, orderableHere, tooltipHtml, unlockingTech 
 import { openTechTreeAt } from './techTree';
 import {
   $depositOverlay, $depositSel, $fleetTarget, $hazards, $lunar, $menuOpen, $phase, $placing, $research,
-  $resourcePanel, $roadTool, $roverSel, $selection, $time, $touchInfo, overlayUp, spawnFloater,
+  $resourcePanel, $roadTool, $roverSel, $selection, $swarm, $time, $touchInfo, overlayUp, spawnFloater,
 } from './stores';
 import { onLongPress } from './longPress';
 
@@ -48,6 +48,9 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
     const e = $(id);
     if (e) res.appendChild(e);
   }
+  // the swarm waits off the bar until it has begun (or can): the resources need the room
+  const meter = $('#swarm-meter');
+  if (meter) $swarm.subscribe((sw) => meter.classList.toggle('t-idle', !sw.launches && !sw.armed));
   const time = el('div', '');
   time.id = 'touch-time';
   const clock = $('#time-controls .clock');
@@ -299,6 +302,15 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   $depositSel.listen((d) => { if (d) opened('dep'); });
   $resourcePanel.listen((k) => { if (k) opened('panel'); });
   $touchInfo.listen((t) => { if (t) opened('info'); });
+
+  // a discovery card is up: it has the top of the screen to itself (the
+  // objectives, the alerts, the palette and the sheet wait under it)
+  const dsc = $('#discovery-card');
+  if (dsc) {
+    const syncDsc = () => layer.classList.toggle('t-dsc', dsc.style.display !== 'none');
+    new MutationObserver(syncDsc).observe(dsc, { attributes: true, attributeFilter: ['style'] });
+    syncDsc();
+  }
 
   // ── the info card: a building type's tooltip, with what can be done ──
   const renderInfo = () => {
