@@ -626,6 +626,16 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
       const s = g.getState();
       for (const r of research) if (!s.techsDone.includes(r)) g.research(r);
       const next = plan[0];
+      // a pit the excavators dug since (docs/17 Phase 3) can take a planned cell:
+      // the structure goes to the nearest ground beside it, as a player's would
+      const pitWords = /^(ON A PIT|ON SPOIL|TOO CLOSE TO A PIT) — /;
+      if (next && pitWords.test(g.canPlace(next[0], next[1], next[2]).reason)) {
+        search: for (let r = 1; r <= 12; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (pitWords.test(g.canPlace(next[0], next[1] + dx, next[2] + dz).reason)) continue;
+          if (g.canPlace(next[0], next[1] + dx, next[2] + dz).valid) { next[1] += dx; next[2] += dz; break search; }
+        }
+      }
       if (next && g.canPlace(next[0], next[1], next[2]).valid) {
         g.placeBuilding(next[0], next[1], next[2]);
         plan.shift();
