@@ -52,6 +52,9 @@ export type Action =
   | { kind: 'recallUnit'; unit: number }
   | { kind: 'dispatchUnit'; unit: number }
   | { kind: 'autoUnit'; unit: number }
+  // strip mines (core/pits.ts, docs/17 §12.2, §13.2)
+  | { kind: 'surveyDeposit'; id: string }      // a rover cores a deposit: ore, grade, faces
+  | { kind: 'reclaimPit'; pit: number }        // push a worked-out pit's heap back in
   // roads (core/roads.ts): the road tool
   | { kind: 'layRoad'; from: [number, number]; to: [number, number] } // from an open road cell to a cell
   | { kind: 'removeRoad'; cells: [number, number][] }

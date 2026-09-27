@@ -31,12 +31,12 @@ import {
 } from './unitPower';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import {
-  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, printTick, printing,
+  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, pitNews, printTick, printing,
   reconcileRegolith, targetOf, unitRates, unitTick, writeRegolith,
 } from './hubs';
 import { HUB, isHubType } from '../data/hubs';
 import { FEED_KINDS } from '../data/deposits';
-import { pitsStep } from './pits';
+import { oreSurveyStep, pitsStep, stripMorale } from './pits';
 import { settleJobs, sinter, spurLeft } from './roads';
 import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -804,6 +804,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // their own hoppers (the pile first). The prints pay and progress here ──
   const unitsStep = () => {
     reconcileRegolith(s); // grants, grading, research goods, a legacy pad's load: the pile
+    pitNews(s, mods, site); // pits dug out or hemmed in: their units choose again (docs/17 §10.2)
     const gone = joinLegacy(s, mods, site);
     if (gone.length) ev.wrecked = [...(ev.wrecked ?? []), ...gone];
     for (const b of s.buildings) if (b.hub) b.hub.drew = 0;
@@ -847,8 +848,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
         if (have - (reserve[rid as ResourceId] ?? 0) < need) short = 'reserve';
       }
       if (hub) {
-        noteStarved(hub, short === 'inputs', dt);
-        hub.hub!.q = r.feedFactor;
+        noteStarved(hub, short === 'inputs', dt); // (its q is the grade its units tip: core/hubs.ts)
       }
       if (short) { b.idleReason = short; continue; }
       for (const [rid, rate] of Object.entries(r.inputs)) {
@@ -904,8 +904,10 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const was = FEED_KINDS.reduce((n, f) => n + s.feed[f], 0) > 1e-9;
     for (const f of FEED_KINDS) s.feed[f] = was ? s.feed[f] * (1 - k) + fed[f] * k : fed[f];
   }
-  // ── 4.2 · pits: what was dug deforms the ground (core/pits.ts, docs/17 §11) ──
-  pitsStep(s, dt);
+  // ── 4.2 · pits: what was dug deforms the ground (core/pits.ts, docs/17 §11);
+  // pits run out, box in and reopen for bedrock (§10); 4.3 · deposit surveys (§13) ──
+  pitsStep(s, dt, mods);
+  oreSurveyStep(s, mods, dt);
   // structures with no inputs/outputs/crew that were powered count as active
   // (crewed generators were settled by the staffing pass)
   for (const b of s.buildings) {
@@ -1102,6 +1104,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   if (s.power.brownout) target += MORALE.blackout;
   else if (s.power.shed) target += MORALE.shed;
   target += flareMoraleTarget(s, site, mods); // by class (docs/16 §4.10)
+  target += stripMorale(s).term; // strip mines near homes (docs/17 §12.1)
   // the destiny: a capstone's morale everywhere, and a launch day's lift
   target += mods.moraleBase;
   if (s.simTime < (s.launchDayUntil ?? 0)) target += mods.volleyMorale;

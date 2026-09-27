@@ -1,5 +1,6 @@
 /** One plain-JSON world state object. The sim owns it; the UI never mutates it
  *  (typed actions only); the renderer reads it. Everything here serializes. */
+import { DEP_SURVEY } from '../data/ore';
 import type { ResourceId } from '../data/resources';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { LANDING_TECH, type TechId } from '../data/techs';
@@ -355,6 +356,8 @@ export interface RoverUnit extends PackState {
   task?: 'weld' | 'sinter';
   /** a save from before transit: it settles where its work is, arrived */
   place?: boolean;
+  /** a deposit survey it cores (docs/17 §13.2): the deposit's id */
+  core?: string;
 }
 
 /** A rover's trip (core/transit.ts): planned once when its goal changes,
@@ -365,8 +368,9 @@ export interface RoverTrip {
   goal: string;
   /** weld: a site's stand · front: the cell behind a road's frontier (it
    *  sinters) · behind: queued behind a frontier · dock: parking ·
-   *  survey: into the Lander, lent · down: set down by a hazard (a drone) */
-  kind: 'weld' | 'front' | 'behind' | 'dock' | 'survey' | 'down';
+   *  survey: into the Lander, lent · down: set down by a hazard (a drone) ·
+   *  core: at a deposit's centre, coring it (docs/17 §13.2) */
+  kind: 'weld' | 'front' | 'behind' | 'dock' | 'survey' | 'down' | 'core';
   site?: number;
   job?: number;
   /** the goal's road cell (cellKey), or -1 (a drone's, straight) */
@@ -435,6 +439,39 @@ export interface PitState {
   box: [number, number, number, number];
   /** the terrain clock of its last carve attempt */
   at: number;
+  // ── Phase 4 (docs/17 §8.2, §10, §12; core/pits.ts, core/ore.ts) ──
+  /** ▲ of its deposit's ore dug (while its cut was above the cutoff, and on bedrock benches) */
+  ore?: number;
+  /** the share of its rim free to widen at the last carve (absent: all of it); faces read it */
+  free?: number;
+  /** m below the loose layer its floor has been cut to (bedrock benches: Deep Coring) */
+  rock?: number;
+  /** bedrock mode: the floor it deepens to now (m below the loose layer), its rim held at rockR */
+  rockTo?: number; rockR?: number;
+  /** the state it returns to when its bedrock benches are cut, and its ore tally when they opened */
+  rockFrom?: 'exhausted' | 'boxed'; oreRock?: number;
+  /** ▲/s dug into it, an EMA (life, the running-out warning), and the tonnes it last saw */
+  rate?: number; seenT?: number;
+  /** DEPOSIT RUNNING OUT was said */
+  warned?: boolean;
+  /** sim time it was exhausted or boxed in (the card) */
+  endedAt?: number;
+  /** m² of cut and spoil, at its last carve (strip-mine morale) */
+  scar?: number;
+  /** Reclaim (§12.2): the hub whose units push, m³ pushed back, m³ written into the ground */
+  reclaimHub?: number; fill?: number; filled?: number;
+  /** its deposit's ore is dug out (EXHAUSTED), whatever it does now */
+  spent?: boolean;
+  /** what happened to it since the hubs last looked (core/hubs.ts pitNews: units re-route, the alerts) */
+  news?: ('exhausted' | 'boxed' | 'rock' | 'rockDone' | 'running' | 'reclaimed')[];
+}
+
+/** A deposit survey (docs/17 §13): a rover's job, then what it read. */
+export interface OreSurveyState {
+  /** surveyed deposits: when, and the precision they read to (±share) */
+  done: Record<string, { at: number; precision: number }>;
+  /** queued and running: the deposit, the rover on it, the rover-seconds cored */
+  jobs: { id: string; rover?: number; t: number }[];
 }
 
 /** An excavator's haul cycle: drive to the dig site → dig a bucket → drive to
@@ -457,6 +494,8 @@ export interface HaulState extends PackState {
   /** what the bucket holds, and the ground it came from */
   cargo: Partial<Record<ResourceId, number>>;
   kind: FeedKind;
+  /** the grade its bucket carries (docs/17 §9.1: q, amount-weighted as it filled) */
+  q?: number;
   /** the consumer it is hauling to (building id), chosen when the bucket fills */
   drop: number | null;
   /** the deposit under its own pad (b.deposit is the ground it digs) */
@@ -626,7 +665,8 @@ export interface WeatherState {
 }
 
 /** what clicking an alert does: open a resource info panel, or select a building */
-export type AlertAction = { panel: string } | { select: number };
+/** what clicking an alert opens: a resource panel, a building, or a deposit's card */
+export type AlertAction = { panel: string } | { select: number } | { deposit: string };
 
 /** One line of the alert stack. A condition (cond) is re-raised by every
  *  economy tick while it holds and leaves soon after it stops; an event is
@@ -871,6 +911,8 @@ export interface GameState {
    *  pits exist (an older save gets none: nothing is carved on load) */
   terrain: { rev: number; clock: number; delta: string };
   terrainSchema: number;
+  /** deposit surveys (docs/17 §13, core/pits.ts): read deposits and the rover jobs */
+  oreSurvey: OreSurveyState;
 
   swarmPct: number;
   launches: number;
@@ -975,6 +1017,7 @@ export function createInitialState(
     nextPitId: 1,
     terrain: { rev: 0, clock: 0, delta: '' },
     terrainSchema: 1,
+    oreSurvey: { done: {}, jobs: [] },
     swarmPct: 0,
     launches: 0,
     nightsSurvived: 0,
@@ -1128,6 +1171,16 @@ export function fillStateDefaults(s: GameState): GameState {
   const t = (legacy as Partial<GameState>).terrain;
   legacy.terrain = { rev: t?.rev ?? 0, clock: t?.clock ?? 0, delta: t?.delta ?? '' };
   legacy.terrainSchema ??= 1;
+  // saves from before deposit surveys (docs/17 §19 step 8): every deposit being dug
+  // on load counts as surveyed, at the save's precision (Game.loadFrom marks them)
+  if (!legacy.oreSurvey) {
+    legacy.oreSurvey = { done: {}, jobs: [] };
+    const dug = new Set<string>();
+    for (const p of legacy.pits) if (p.key.startsWith('dep:')) dug.add(p.key.slice(4));
+    for (const u of legacy.haulers) if (u.target?.startsWith('dep:')) dug.add(u.target.slice(4));
+    // (the re-read tightens these free once the save's precision techs are counted)
+    for (const id of dug) legacy.oreSurvey.done[id] = { at: legacy.simTime, precision: DEP_SURVEY.precision };
+  }
   // saves from before the destiny tracks (docs/14 §7): nothing forwarded, nobody sent home
   const dd = destinyDefaults();
   legacy.forwarded ??= dd.forwarded;

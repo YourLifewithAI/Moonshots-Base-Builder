@@ -25,6 +25,11 @@ import type { CounterId, HazardId, Tier } from './data/hazards';
 import type { ArrayChoice, FlareClass } from './data/spaceWeather';
 import { WEATHER_STUB, activity, arrayView, classOdds, cycleOf, drawClass, fieldsOf, weatherView } from './core/spaceWeather';
 import { currentDay } from './core/economy';
+import {
+  faceCapacity, reclaimRefusal, reservesOf, stripMorale, surveyLine, surveyRefusal, targetGrade, terrainOf,
+} from './core/pits';
+import { gradeAtPoint } from './core/ore';
+import type { Process } from './data/ore';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -250,6 +255,27 @@ function api(game: Game) {
     terrainSample: (ix: number, iz: number) => game.debugSample(ix, iz),
     /** the adapter as an excavator calls it: `tonnes` of regolith dug at world (x, z) */
     pitDig: (x: number, z: number, tonnes: number, q = 1) => game.debugPitDig(x, z, tonnes, q),
+    // ── grade, reserves, faces, surveys, morale and Reclaim (core/pits.ts, core/ore.ts, docs/17 Phase 4) ──
+    /** a deposit's reserves as its card reads them (the truth too), or null */
+    getReserves: (id: string) => clone(reservesOf(game.state, game.mods, id)),
+    /** faces at a target key ('dep:<id>', 'plain:<id>'): now and at full size */
+    faceCapacity: (key: string) => faceCapacity(game.state, key),
+    /** the grade (q) a hub's units would bring from a target now */
+    targetGrade: (hub: number, key: string) => {
+      const b = game.state.buildings.find((x) => x.id === hub);
+      return b ? targetGrade(game.state, game.mods, SITES[game.state.siteId], b.type, key) : null;
+    },
+    /** the grade (q, before crew and research) at world (x, z) for a process */
+    oreGradeAt: (process: Process, x: number, z: number) => gradeAtPoint(game.state, terrainOf(game.state)?.deposits ?? [], process, x, z),
+    /** Survey: a rover cores the deposit (queued; its refusal alerts) */
+    surveyDeposit: (id: string) => game.actions.push({ kind: 'surveyDeposit', id }),
+    surveyWhy: (id: string) => surveyRefusal(game.state, game.mods, id),
+    surveyLine: (id: string) => surveyLine(game.state, id),
+    /** Reclaim a pit (by its id) */
+    reclaimPit: (pit: number) => game.actions.push({ kind: 'reclaimPit', pit }),
+    reclaimWhy: (pit: number) => reclaimRefusal(game.state, game.state.pits.find((p) => p.id === pit)),
+    /** the strip-mine morale term and its worst pit */
+    stripMorale: () => clone(stripMorale(game.state)),
     /** Site Grading's check at a square's corner cell: { valid, reason } */
     canGrade: (gx: number, gz: number) => clone(game.debugCheckGrade(gx, gz)),
     /** relief (m) over a sample rect */

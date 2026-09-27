@@ -178,7 +178,7 @@ const spurOpen = (s: GameState, b: BuildingState) => !(b.spur?.length && spurLef
 export function spotGoal(s: GameState, spot: RoverSpot): Goal {
   const cell: Pt = [spot.gx, spot.gz];
   const ck = cellKey(spot.gx, spot.gz);
-  let kind: Kind = spot.survey ? 'survey' : 'dock';
+  let kind: Kind = spot.survey ? 'survey' : spot.core !== undefined ? 'core' : 'dock';
   let [x, z] = [spot.x, spot.z];
   // inside a dock (or the Lander, lent): in at its door
   if (spot.inside) [x, z] = cellCentre(spot.gx, spot.gz);
@@ -193,7 +193,7 @@ export function spotGoal(s: GameState, spot: RoverSpot): Goal {
     const f = j ? frontierOf(s, j.cells) : null;
     kind = f?.from && cellKey(f.from[0], f.from[1]) === ck ? 'front' : 'behind';
   }
-  const tgt = spot.site ?? spot.road ?? spot.dock;
+  const tgt = spot.site ?? spot.road ?? spot.core ?? spot.dock;
   return {
     key: `${kind}:${tgt}@${ck}${spot.inside ? 'i' : ''}${spot.offroad ? 'o' : ''}`, kind, cell, x, z, ...(spot.offroad ? { off: true } : {}),
     ...(spot.site !== null ? { site: spot.site } : {}), ...(spot.road !== undefined ? { job: spot.road } : {}),
@@ -245,6 +245,9 @@ export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
   const hive = s.buildings.find((b) => b.id === u.home);
   const [px, pz] = hive ? padPoint(hive, pad) : [u.x ?? 0, u.z ?? 0];
   if (roverDown(s, u)) return { key: 'down', kind: 'down', cell: null, x: u.x ?? px, z: u.z ?? pz };
+  // a deposit survey (docs/17 §13.2): a drone flies straight to its centre
+  const core = u.core !== undefined ? s.zones?.find((z) => z.id === u.core) : undefined;
+  if (core) return at('core', core.id, core.cx, core.cz, -1);
   const site = u.site !== null ? s.buildings.find((b) => b.id === u.site && isSiteB(b)) : undefined;
   const front = (cells: readonly number[], kind: 'site' | 'job', id: number) => {
     const f = frontierOf(s, cells);
@@ -410,7 +413,7 @@ export function freeReach(
   const v = roverSpeed(mods, night);
   let best = Infinity;
   for (const r of s.rovers ?? []) {
-    if (r.pinned || r.site !== null || r.road !== undefined || r.id === away || roverDown(s, r)) continue;
+    if (r.pinned || r.site !== null || r.road !== undefined || r.core !== undefined || r.id === away || roverDown(s, r)) continue;
     const [x, z] = whereIs(s, r);
     if (isDrone(s, r)) { best = Math.min(best, travelTime(Math.hypot(at[0] - x, at[1] - z), DRONE.speed, DRONE.accel)); continue; }
     if (!to || !hasRoads(s)) { best = Math.min(best, travelTime(Math.hypot(at[0] - x, at[1] - z), v, ROVER.accel)); continue; }

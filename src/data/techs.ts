@@ -10,7 +10,7 @@
 import { BUILDINGS, type BuildingId } from './buildings';
 import { RESOURCES, type ResourceId } from './resources';
 import { SITES, SITE_ORDER, type SiteId } from './sites';
-import { siteHasDeposit, type FeedKind } from './deposits';
+import { DEPOSIT_INFO, siteHasDeposit, type DepositKind, type FeedKind } from './deposits';
 import { EXPOSURE_TEXT, GUARD_TEXT, HAZARDS_LIVE, HAZARD_NAME, type GuardId, type HazardId } from './hazards';
 import { AUTO, FAMILY_LABEL, RULES, RULE_TEXT, rulesOf, type AutoFamily } from './automation';
 import type { ProspectId } from './lunarMap';
@@ -115,7 +115,14 @@ export type TechEffect = EffectFilter & (
   | { kind: 'shadeImmune' }
   | { kind: 'buildTime'; buildings: BuildingId[]; mult: number }
   | { kind: 'action'; id: 'overclock' | 'downlink' }
-  | { kind: 'survey'; tier?: 1 | 2 | 3 | 4; dataMult?: number; minCrew?: number }
+  | { kind: 'survey'; tier?: 1 | 2 | 3 | 4; dataMult?: number; minCrew?: number;
+      /** the deposit survey (docs/17 §13): its precision (±share), its rover-seconds ×, and
+       *  the deposit kinds Relay Masts survey free in their radius */
+      precision?: number; depositTimeMult?: number; mastSurvey?: DepositKind[] }
+  /** ore grade (docs/17 §9.1): every load's q ×mult (process 'H2': hydrogen reduction's only) */
+  | { kind: 'grade'; mult: number; process?: 'H2' }
+  /** bedrock benches (docs/17 §8.5): every pit may cut this many 2 m benches below its loose layer */
+  | { kind: 'pitDepth'; benches: number }
   | { kind: 'powerDelta'; building: BuildingId; kw: number }
   | { kind: 'nightDraw'; night: number; day: number }
   | { kind: 'feedBonus'; deposit: FeedKind; mult: number }
@@ -247,6 +254,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 100, requires: [],
     effects: [
       { kind: 'survey', tier: 1 },
+      { kind: 'survey', depositTimeMult: 0.5 }, // docs/17 §14.4: deposit surveys in 20 rover-s
       { kind: 'unlock', building: 'relayMast' },
       { kind: 'powerDelta', building: 'lander', kw: -1 },
     ],
@@ -308,6 +316,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 90, requires: ['prospectingRovers'],
     effects: [
       { kind: 'survey', dataMult: 1.25 },
+      { kind: 'survey', precision: 0.15 }, // docs/17 §13.3: deposit surveys ±15%
       { kind: 'powerDelta', building: 'lander', kw: -0.5 },
     ],
     desc: 'Rovers bring cores home instead of spectra: the labs read them twice.',
@@ -426,7 +435,7 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'ilmeniteBeneficiation', era: 2, lane: 'materials', name: 'Ilmenite Beneficiation', short: 'Beneficiation',
     costData: 140, requires: ['regolithProcessing', 'prospectingRovers'], exclusive: 'smeltDoctrine', sites: [M, L],
     effects: [
-      { kind: 'feedBonus', deposit: 'ilmenite', mult: 2 },
+      { kind: 'grade', mult: 1.25, process: 'H2' }, // docs/17 §9.1: it concentrates ilmenite at the face
       { kind: 'inputMult', buildings: ['smelter'], mult: 0.8 },
       { kind: 'powerMult', buildings: ['excavator'], mult: 1.3 },
     ],
@@ -472,6 +481,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 110, requires: ['sampleCaches'],
     effects: [
       { kind: 'survey', dataMult: 1.2 },
+      { kind: 'survey', mastSurvey: ['ice', 'volatiles'] }, // docs/17 §13.2: masts survey ice and soil
       { kind: 'powerMult', buildings: ['relayMast'], mult: 1.4 },
     ],
     desc: 'Epithermal neutrons count the hydrogen a metre down, from the masts as well as the rovers.',
@@ -1003,6 +1013,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 360, requires: ['neutronSpectrometry'],
     effects: [
       { kind: 'survey', dataMult: 1.2 },
+      { kind: 'survey', precision: 0.05 }, // docs/17 §13.3: deposit surveys ±5%
       { kind: 'powerDelta', building: 'lander', kw: -1 },
     ],
     desc: 'A gradiometer at the Lander weighs the buried mass under every survey line.',
@@ -1291,6 +1302,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 1250, costGoods: { chips: 20 }, requires: ['farSideRelay'],
     effects: [
       { kind: 'survey', tier: 4 },
+      { kind: 'pitDepth', benches: 1 }, // docs/17 §10.3: one bedrock bench more
       { kind: 'powerDelta', building: 'lander', kw: -3 },
     ],
     desc: 'Orbital radar, GRAIL-class gravimetry and a seismometer network.',
@@ -2166,8 +2178,24 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
         out.push(pro(`survey data ×${num(fx.dataMult)}${fx.minCrew ? ` while ≥${fx.minCrew} crew are aboard` : ''}`,
           mag(fx.dataMult), 'mult'));
       }
+      if (fx.precision !== undefined) {
+        out.push(pro(`deposit surveys read ±${Math.round(fx.precision * 100)}%: ore and grade (surveyed deposits are re-read free)`, 1 - fx.precision, 'mult'));
+      }
+      if (fx.depositTimeMult !== undefined) {
+        out.push(pro(`deposit surveys core in ${num(40 * fx.depositTimeMult)} rover-s`, mag(fx.depositTimeMult), 'mult'));
+      }
+      if (fx.mastSurvey?.length) {
+        out.push(pro(`Relay Masts survey ${fx.mastSurvey.map((k) => DEPOSIT_INFO[k].name).join(' and ')} deposits in their radius, free`, 1, 'flag'));
+      }
       return out;
     }
+    case 'grade': {
+      const text = `${pctDelta(fx.mult)} ore grade${fx.process === 'H2' ? ': the hydrogen-reduction smelter, on any ground' : ': every pit'}`;
+      return [fx.mult >= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
+    }
+    case 'pitDepth':
+      return [pro(`pits cut ${fx.benches} bench${fx.benches === 1 ? '' : 'es'} (${fx.benches * 2} m) into bedrock: slow ore under dug-out and hemmed-in pits`, fx.benches, 'count'),
+        con('bedrock digs at ×0.3', 0.7, 'mult')];
     case 'powerDelta': {
       const text = `${fx.kw > 0 ? '+' : ''}${sgn(fx.kw)} kW: ${bname(fx.building)}`;
       return [fx.kw > 0 ? pro(text, fx.kw, 'kW') : con(text, -fx.kw, 'kW')];
