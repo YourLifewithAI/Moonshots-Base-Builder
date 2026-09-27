@@ -220,6 +220,9 @@ test('a pit never digs within its setback: 12 m of a structure, 8 m of a road, d
     const hub = P.excavator();
     g.queueUnit(hub);
     for (let i = 0; i < 8; i++) { g.grantPower(5000); g.advanceGameSeconds(10); }
+    // both sent to it: a new pit has one face (docs/17 §8.2), so the second waits at
+    // the gate until the pit's second bench opens, then digs beside the first
+    for (const u of P.units(hub)) g.sendUnit(u.id, `dep:${z.id}`);
     const before = P.footings();
     P.run(90);
     const carved = P.carved();

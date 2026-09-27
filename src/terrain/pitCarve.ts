@@ -429,8 +429,10 @@ function drift(win: Win, p: PitShape, dR: number): void {
     const b = 1 - run / PIT.probeM;
     bx -= b * ux;
     bz -= b * uz;
-    // a face needs room: two samples of free ground past the rim (docs/17 §8.2)
-    if (run >= 2 * CELL_M) open++;
+    // a face works where the rim is not against no-dig ground (docs/17 §8.2): the
+    // sample a ring past it can still take a bench
+    const fx = nearest(p.cx + ux * (p.R + CELL_M)) - win.x0, fz = nearest(p.cz + uz * (p.R + CELL_M)) - win.z0;
+    if (fx >= 0 && fz >= 0 && fx < win.w && fz < win.h && dist[fz * win.w + fx] >= CELL_M) open++;
   }
   lastFree = open / K;
   if (dR <= 0) return;
@@ -590,6 +592,9 @@ export function stakePit(
   if (away) { const d = Math.hypot(away.x - x, away.z - z); if (d > 1) { ax = (away.x - x) / d; az = (away.z - z) / d; } }
   let best: { x: number; z: number; clear: number } | null = null, bestS = Infinity;
   let fall: { x: number; z: number; clear: number } | null = null, fallS = -Infinity;
+  // on a deposit, the roomiest ground on its ore (docs/17 §10.1: a shallower pit on
+  // the ore beats a deep one beside it — the ore halo is where the grade is)
+  let onOre: { x: number; z: number; clear: number } | null = null;
   const ANG = 24;
   for (let d = 0; d <= reach; d += CELL_M) {
     const n = d === 0 ? 1 : ANG;
@@ -600,6 +605,7 @@ export function stakePit(
       if (lx < 0 || lz < 0 || lx >= win.w || lz >= win.h) continue;
       const clear = dist[lz * win.w + lx];
       if (clear > fallS) { fallS = clear; fall = { x: px, z: pz, clear }; }
+      if (onDeposit && clear >= 2 * CELL_M && onDeposit(px, pz) && (!onOre || clear > onOre.clear + 1e-9)) onOre = { x: px, z: pz, clear };
       if (clear < need) continue;
       let score = d;
       if (d > 0) score += 8 * (Math.cos(th) * ax + Math.sin(th) * az); // toward the base costs
@@ -608,6 +614,8 @@ export function stakePit(
       if (score < bestS - 1e-9) { bestS = score; best = { x: px, z: pz, clear }; }
     }
   }
+  if (best && (!onDeposit || onDeposit(best.x, best.z) || !onOre)) return best;
+  if (onOre) return onOre;
   if (best) return best;
   // a shallow pit where nothing deeper fits
   return fall && fall.clear >= 2 * CELL_M ? fall : null;

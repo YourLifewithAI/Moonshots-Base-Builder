@@ -1521,7 +1521,13 @@ export function pitNews(s: GameState, mods: Mods, site: SiteDef) {
       const sel = hubs.length ? { select: hubs[0] } : act;
       if (n === 'exhausted') {
         const never = surveyed ? '' : ' (never surveyed — a survey would have warned you a lunar day ahead)';
-        alert(s, `DEPOSIT EXHAUSTED — ${name}'s ore is dug out${tail}${never}`, 'warn', sel);
+        // a pit hemmed off its rich centre runs lean with ore still in the ground: say so
+        const R = dep ? reservesOf(s, mods, dep) : null;
+        const stays = R?.truth ? Math.max(0, R.truth.ore - R.dug) : 0;
+        const why = R?.truth && stays > R.truth.ore * 0.25
+          ? `'s pit has cut into lean ground: ~${kilo(stays)}▲ of its ore stays in the ground, hemmed in by ${hemmers(s, p)}`
+          : `'s ore is dug out`;
+        alert(s, `DEPOSIT EXHAUSTED — ${name}${why}${tail}${never}`, 'warn', sel);
       } else if (n === 'boxed') {
         const left = pitOreLeft(s, p);
         const t = bedrockTech(s);
