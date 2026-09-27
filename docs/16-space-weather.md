@@ -279,48 +279,97 @@ otherwise. The inspector shows it: `FLARE SHIELD σ 0.5 · berms`.
 | **Regolith Shielding** (E2 ⌂, extended) | 0.5 | Every structure with berms: all but Solar Arrays, Relay Masts, the Mass Driver, the Shield Coil and units |
 | A dock | 0.5 bare · **1.0 bermed** | A machine parked at its Lander, Robotics Bay, Drone Hive or hub bay (docs/17 §16.4) |
 | **Water-Wall Shielding** (E4 ⌂) | 0.85 | Habitats and every pressurized hall, Labs, Data Centers, Server Monoliths, Chip Fabs, hubs |
-| A **bag wall**, deployed (§7.2) | 0.6 | One structure up to 3×3, or up to 3 machines parked inside it |
-| A **water-wall dome**, deployed (§7.2) | 0.9 | A 14 m circle: structures whose centre is inside, up to 6 machines, and EVA crews |
+| A **bag wall**, deployed (§7.2) | 0.6 | One structure up to 3×3 (a stowed array included), or up to 3 machines parked inside it |
+| A **water-wall dome**, deployed (§7.2) | 0.9 | A 14 m circle: structures whose centre is inside (stowed arrays included), up to 6 machines, and EVA crews |
 | **Storm shelters** (⌂ guard, extended) | 1.0 | The crew indoors (and EVA recalls itself, as today) |
 | The **Shield Coil**, powered (§8.4) | 1.0 | Everything within 45 m, arrays included |
 | The **lava tube** (§3.6) | 1.0 | Pressurized and compute buildings |
-| A **stowed** array | 1.0 | Its cells |
+| **Field berms** (Regolith Shielding) | 0.5 | Stowed arrays, which fold down behind a low berm along the field |
 
 A machine that is driving, digging, flying or welding has **σ 0**. Only a dock or a dome
-covers it.
+covers it. A **running** array has σ 0 unless a Shield Coil covers it: a dome would shade
+it, and a berm cannot stand between it and the sky.
 
 ### 4.2 The table
 
-Unprotected (σ 0), per flare. The X column is the flash; the tail adds its row.
+Unprotected (σ 0) and unprepared, per flare. The X column is the flash; the tail adds its
+column.
 
 | What | C | M | X | The tail (X) | Protected by | Permanent? |
 |---|---|---|---|---|---|---|
-| **Cells** on arrays left generating | −0.25% | −1% | −3% | −1% | stowing; Rad-Hard Cells ×0.4; the Shield Coil | **Yes**, the chosen risk; floor 80% |
-| **Solar** on stowed arrays | 30 s + 10 s motion | 45 s + 10 s | 60 s + 10 s | 120 s | keep generating; the Shield Coil | no |
+| **Arrays kept running** (§4.3) | rad scar −0.5% | **15% destroyed**; the rest scarred −2% | **50% destroyed**; the rest scarred −5% | scar −1.5% | stowing; Rad-Hard Cells ×0.4; the Shield Coil | **yes**: wrecks must be rebuilt; scars stay |
+| **Arrays stowed** (§4.3) | — | −5%, repairable | −15%, repairable | −5%, repairable | field berms, domes, Rad-Hard Cells, the Shield Coil | **no**: a rover repairs it |
+| **Solar** while stowed | 30 s + 10 s motion | 45 s + 10 s | 60 s + 10 s | 120 s | keep a share running; the Shield Coil | no |
+| **Rad scars** on buildings (§4.13) | −0.25% | −1.5% | −5% | −1% | shielding (1 − σ)², preparation ×0.1, Rad-Hard | **yes**, cumulative; Replace clears |
+| **Rad scars** on machines in the open (§4.13) | −0.25% | −1.5% | −5% | −1% | docks, domes, the recall, Fault-Tolerant Avionics | **yes**, cumulative; Re-print clears |
 | **Crew indoors** | — | — | 1 in 4 sick, off work ½ lunar day | — | berms, water walls, domes, storm shelters, the tube | no: never lethal |
 | **Crew on EVA** (⌂ DOSE, §9.2) | ¼ day off | the tier's days off | the tier's days off; lethal by tier | recall holds | Recall EVA (free), storm shelters, a dome within reach | **X only**: a death |
-| **Machines in the open** | 15% reboot (20 s) | 40% reboot (40 s), the job lost | 40% reboot (60 s) · **45% latch up** · **15% burn out** | as a C | docks, domes, Fault-Tolerant Avionics, Rad-Hard | **X only**: burned out |
+| **Machines in the open** (§4.5) | 15% reboot (20 s) | 40% reboot (40 s), the job lost | 40% reboot (60 s) · **45% latch up** · **15% burn out** | as a C | docks, domes, Fault-Tolerant Avionics, Rad-Hard | **X only**: burned out |
 | **Labs** | data ×0.7 | data ×0.5 · the head tech −3% | data ×0.2 · the head tech −10% | data ×0.72 | Checkpoint, berms, water walls, domes, the tube | no |
-| **Chip Fabs** | yield −20% | −50% | −100% and the batch scrapped · **rad scar** | −35% | Shut down, Rad-Hard, σ | **X only**: the scar |
-| **Data Centers, Monoliths** | data ×0.8 | ×0.6 | ×0.3 · **rad scar** | ×0.75 | Shut down, Rad-Hard, σ | **X only**: the scar |
+| **Chip Fabs** | yield −20% | −50% | −100% and the batch scrapped | −35% | Shut down, Rad-Hard, σ | no (their scars are the row above) |
+| **Data Centers, Monoliths** | data ×0.8 | ×0.6 | ×0.3 | ×0.75 | Shut down, Rad-Hard, σ | no (the same) |
 | **Comms** | — | blackout 45 s | blackout to 60 s after the tail (240 s) | (in it) | Laser Ranging ×0.5 | no |
 | **Wear** | — | +3% · machines +5% | +8% · machines +15% | — | σ | no: heals with upkeep |
 | **Morale** (crewed) | −3, target −5 | −8, target −10 | −12, target −15 | target −10 | σ of the homes, storm shelters, the tube | no |
 | **Power beam** | ×0.5 | 0 | 0 | 0 | — | no |
 | **Heliophysics data** (a pro) | +15≡ | +30≡ | +60≡ | — | ×2 with a Solar Observatory, ×3 more with the Particle Telescope | — |
 
-### 4.3 Cells
+**What is permanent, after the player's answers** (§17): destroyed arrays, rad scars on
+anything left unshielded and unprepared, machines burned out by an X, and lethal EVA
+doses at an X. Everything a warning was answered for, by stowing, docking, shutting down
+or shielding, comes back.
 
-§5 has the choice. The numbers:
+### 4.3 Arrays: kept running, or stowed
 
-- Loss per flare = the class's rate × the share of the active phase the array spent
-  generating × (1 − σ) × the Rad-Hard Cells multiplier.
-- It is stored as `b.cells` (1.0 new), and output is × `b.cells`. Dust (`b.dust`) stays
-  separate: dust cleans off, radiation does not.
-- **The floor:** cells never fall below 0.80. A worn array reads
-  `CELLS 91% · 4 flares generated through`.
-- The only way back is a new array: demolish and rebuild (15◆), or Maintenance
-  Automation (docs/13), which now also replaces arrays under 85%.
+§5 has the choice. The numbers, per array:
+
+| | C | M | X flash | X tail |
+|---|---|---|---|---|
+| **Running:** chance of being destroyed | 0 | 15% | 50% | 0 |
+| **Running:** rad scar on the rest | −0.5% | −2% | −5% | −1.5% |
+| **Stowed:** repairable damage | 0 | −5% | −15% | −5% |
+
+- **Scales.** Running: the destroyed share × (1 − σ) and the scar × (1 − σ)², where only
+  the Shield Coil covers a running array. Stowed: × (1 − σ of the stow), from field berms
+  (Regolith Shielding, 0.5), a bag wall (0.6), a water-wall dome (0.9) or the coil (1.0).
+  **Rad-Hard Cells** multiply all three rows by 0.4.
+- **Proper shielding** for stowed arrays is Regolith Shielding's field berms plus
+  Rad-Hard Cells (0.5 × 0.4): an X costs a stowed array 4% (repairable), an M 1%. A dome over a
+  stowed field makes it near 0. The Shield Coil makes it 0, running or stowed.
+- **Which arrays are destroyed:** the expected count, rounded, picked by a seeded draw
+  weighted by each array's exposure (`mulberry32((seed ^ 0x5f20) + n · 4096 + id)`). The
+  pop-up can say how many before you choose (§5.2).
+- **An array that generated for only part of the active phase** (a late stow) takes the
+  running rows × the share of the phase it ran.
+
+**Wrecks.** A destroyed array becomes a wreck: no output, no upkeep, its pad held.
+
+| Action | Cost | Time | Where |
+|---|---|---|---|
+| **Rebuild** | the full build cost (15◆ × the site's cost: mare 12◆, pole 19◆) | the build (40 s) + 10 s to clear the wreck, a rover's weld | the wreck's inspector · **Rebuild all** in the post-flare alert and the panel |
+| **Clear** | refunds 25% (salvage) | 15 s of a rover | the same · **Clear all** |
+
+A rebuilt array is the same array: same field and override, capability 100%. Automated
+Power rebuilds wrecks through its solar rule (§7.5).
+
+**Repairs.** Stowed damage (`b.flareDmg`) derates output until a rover repairs it.
+
+| Per damaged array | Parts | Rover work | Draw |
+|---|---|---|---|
+| after an M (−5%) | 1⚙ | 7 s | 4 kW while it works |
+| after an X (−20% with the tail) | 2⚙ | 10 s | 4 kW |
+
+(⌈damage ÷ 10%⌉ ⚙, and 6 s + 0.2 s per % of damage.)
+
+- **The job is per field:** a rover drives out and works each damaged array in turn. It
+  joins the rover queue at priority 1, behind priority-0 construction.
+- **Queued by** the pop-up's `Repair stowed arrays after the flare` (on by default), or
+  **Repair all** in the post-flare alert and the panel, or a field's [Repair] in its
+  inspector. Automated Power queues every repair itself, inside Budget Governor's floors.
+- **Example:** 24 unshielded arrays stowed through an X: 48⚙ and 240 rover-seconds (two
+  rovers, 2 minutes). With berms and Rad-Hard Cells: 24⚙ and 165 s.
+- Dust (`b.dust`) stays separate: dust cleans off with upkeep. Rad scars (the running
+  rows) never do.
 
 ### 4.4 Crew indoors
 
@@ -380,13 +429,12 @@ machine a transit trip is carrying (docs/15 §6a). A machine at a dock takes the
   output, is scrapped.
 - **Soft errors:** Data Center and Server Monolith output × 0.8 · 0.6 · 0.3 (0.75 in the
   tail).
-- **Rad scar** (X flash only, permanent): each **running** Chip Fab, Data Center and
-  Server Monolith with σ < 0.5 loses 4% of its output (`b.radScar`), to −12%. The
-  inspector: `RAD SCAR −4% · X flare, day 11 · rebuild to clear`. Maintenance
-  Automation replaces a building at −8% or worse.
+- **Rad scars** fall on fabs and compute as on every building (§4.13).
 - **Shut down** (a button, or a protocol): a building switched off before the active
-  phase takes no yield loss and no scar. It makes nothing while off and restarts 20 s
-  after the flare (warm-up).
+  phase takes no yield loss, and its scar ×0.1 (it is prepared). It makes nothing while
+  off and restarts 20 s after the flare (warm-up). The pop-up's **Shut down exposed**
+  switches off every building with a scar at stake and σ under 0.5, except life support,
+  power and the guard below.
 - **Guard:** the shut-down protocol never takes down the last running Data Center once
   Fleet OS is done, since that would drop the CONTROL PLANE (docs/14 §3.5).
 
@@ -414,7 +462,7 @@ Laser Ranging (E7 ◎) halves it: the optical link is not a radio. While dark:
 At the active start, every running building's wear rises by 3% (M) or 8% (X) × (1 − σ);
 every machine in the open by 5% or 15%. It heals with parts upkeep, as all wear does
 (`WEAR`, `src/data/balance.ts:97-101`), and it feeds BREACH (⌂, docs/14 §3.4). Arrays
-that generate take the cell loss instead.
+have their own damage instead (§4.3). The permanent axis is the rad scar (§4.13).
 
 ### 4.10 Morale
 
@@ -431,31 +479,91 @@ takes none. The drill costs −3 and no target.
 ### 4.11 The first X: a drill in its permanent parts
 
 - Machines that would burn out latch up instead.
-- No rad scars and no lethal doses.
-- Generating arrays lose cells as for an M (1%).
-- Everything temporary happens at full strength.
+- No lethal doses.
+- Running arrays and every scar take an M's numbers: 15% destroyed, −1.5% scars.
+- Stowed damage, being repairable, comes at full strength, as does everything temporary.
 - Its card says what the next X would have cost, computed on this flare:
-  `THIS ONE WAS A DRILL — a real X on this base would have burned out 2 rovers, scarred
-  Data Center #12 (−4%) and cost your generating arrays 3% of their cells. Dock, stow,
-  shut down or shield before the next.`
+  `THIS ONE WAS A DRILL — a real X on this base would have destroyed 12 of your 24
+  running arrays, burned out 2 rovers and scarred 9 buildings by 5%. Stow, dock, shut
+  down or shield before the next.`
 
 ### 4.12 What ignoring costs
 
 One flare of each class on a mid-game mare base (30 arrays, 8 labs, 2 Chip Fabs, 2 Data
-Centers, 8 machines out), with no research and no buttons pressed. The default stows the
-arrays, so no cells are lost:
+Centers, 8 machines out, Regolith Shielding done), with no buttons pressed. The safe
+default stows the arrays (§5.3) and repairs them after:
 
 | | C | M | X (the second) |
 |---|---|---|---|
 | Solar | 40 s stowed (~10,000 kW·s) | 55 s (~14,000) | 190 s (~48,000: 1.5 banks) |
-| Machines | 1 reboot | 3 reboots, 3 loads lost | 3 reboots, 4 bricked, **1 lost** |
+| Arrays (field berms) | — | −2.5% on each, repaired: 30⚙, 3.3 rover-min | −10% on each, repaired: 30⚙, 4 rover-min |
+| Machines | 1 reboot · scars −0.25% | 3 reboots, 3 loads lost · −1.5% | 3 reboots, 4 bricked, **1 lost** · −6% |
+| Buildings (berms, σ 0.5) | scars −0.06% | −0.4% | −1.5% |
 | Research | labs ×0.7 for 30 s | labs ×0.5 for 45 s; −14≡ | labs ×0.2 for 180 s; −58≡ |
-| Fabs and compute | −20% chips for 30 s | −50% for 45 s | the batch lost, **2 scars (−4%)** |
+| Fabs and compute | −20% chips for 30 s | −50% for 45 s | the batch lost |
 | Comms | — | 45 s | 240 s; a shipment held |
-| Wear | — | +3% everywhere | +8% everywhere |
 
-A C costs little. An M costs about a minute of the base. An X costs several minutes and
-leaves marks. None of it ends a run alone (§12).
+Without berms, the building scars are four times these. A C costs little. An M costs a
+minute of the base and some parts. An X costs several minutes and leaves marks that add
+up (§4.13). None of it ends a run alone (§12).
+
+### 4.13 Rad scars and capability
+
+The player's answer (§17, Q3): unshielded, unprepared hardware loses capability for
+good, and it adds up until replacing it is the right call.
+
+**Who scars:** every building with a rated output, rate or capacity (producers,
+generators, Battery Banks, Labs, Data Centers, Monoliths, Chip Fabs, the Mass Driver,
+hubs), every array kept running (§4.3), and every machine caught in the open (rovers,
+drones, hub units and excavators). Buildings with none of these (Habitats, halls,
+Storage Yards, Relay Masts, roads) do not scar. **The Lander never scars**, as it never
+wears.
+
+| Per flare | C | M | X flash | X tail |
+|---|---|---|---|---|
+| Buildings and machines | −0.25% | −1.5% | −5% | −1% |
+| Arrays kept running | −0.5% | −2% | −5% | −1.5% |
+
+**Scaled:**
+
+```
+scar = the class's rate × (1 − σ)² × prep × hard
+prep = 0.1 if prepared: shut down or off (a building), docked (a machine), under a dome (either)
+hard = Rad-Hard Process 0.5 (Labs, compute, Chip Fabs) · Fault-Tolerant Avionics 0.5 (machines)
+       · Rad-Hard Cells 0.4 (arrays)
+capability ← capability × (1 − scar)          (never below 10%)
+```
+
+- **Only the unprepared scar in full.** Any shield cuts it sharply: berms (σ 0.5) to a
+  quarter, water walls (σ 0.85) to 2%. Any preparation cuts it to a tenth.
+- **It is cumulative and uncapped** (the 10% floor only keeps a building alive). Output,
+  rate or capacity × capability, on top of wear's derate (`WEAR`,
+  `src/data/balance.ts:97-101`). **Wear and scars are separate axes:** wear heals with
+  upkeep and is a flare's temporary spike (§4.9); a scar never heals.
+- **How far it goes.** An unbermed smelter left running through a whole mare run
+  (2 C, 4 M, the drill X and a real X) ends near **86%**. The same with berms: 96.5%. A
+  rover left out at every flare: 86%, or 93% if it docks for the X's.
+- **Visible:** the inspector reads `CAPABILITY 86% · rad scars from 7 flares ·
+  [Replace 20◆ 5⚙ · pays back in 3:10]`. Under 85% the line is inverted and the
+  building's DOM marker shows `◌ 84%`. The Space Weather panel lists the scarred:
+  `SCARRED 6 under 85% · [Replace worst]`.
+- **Machines** show it in their inspector and the fleet panel, and work at it: weld,
+  sinter, survey, dig and drive × capability.
+
+### 4.14 Replace and Re-print
+
+| Action | For | Cost | Time | Keeps |
+|---|---|---|---|---|
+| **Replace** | a scarred building | 50% of its build cost | 60% of its build time, offline, a rover welds | its pad, roads, door, priority, settings, a hub's bays and queue |
+| **Re-print** | a scarred hub unit (docs/17 §4.2) | 50% of the unit's price (an excavator 10◆ 3⚙) | print time × 0.6 (36 s), a job in its hub's queue | its bay; the old unit is scrapped when the new one rolls out |
+| **Re-print** | a scarred rover or drone | 5◆ 8⚙ (half the dock's reprint, docs/14 §3.5) | 72 s at its dock | its dock and pin |
+
+- A replaced building or unit is new: capability 100%, wear 0.
+- **The Builder:** Maintenance Automation (docs/13, E7 ▣) now replaces any building or
+  unit under a capability threshold (75%, 50–95%), one at a time, through the budget.
+- **Annealing: not included.** Real cells recover some radiation damage when heated, and
+  a late tech could undo part of every scar. It would make scars soft and add a second
+  verb beside Replace, which already clears them. The default is no.
 
 ## 5. Stow or risk
 
