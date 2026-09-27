@@ -72,7 +72,7 @@ The player decided two things before this design:
 | **Benefits** | Four breakthroughs found by surveys: **Solar-Wind Implantation, Particle Telescope, Mini-Magnetosphere** (the Shield Coil) and **Storm Sails** (§8). | "Exploration-discovered research that lets you benefit." |
 | **He-3** | **Flavour.** A counter on the implantation card; no stockpile. | The game has no fusion to burn it in. |
 | **The lava tube** | **Partly immune.** The tube shelters pressurized and compute buildings (σ 1). Arrays, masts, launchers, pits and machines out working are on the surface. | Rock overburden protects what lives inside; the Sun's light has to be caught outside. |
-| **Research** | **Twelve techs:** eight in the lanes (E2–E6) and four breakthroughs (E3–E7), all at their era's median, charter-neutral (§13). Nine existing techs change. | A ladder in every era from the first M to solar maximum. |
+| **Research** | **Twelve techs:** eight in the lanes (E2–E6) and four breakthroughs (E3–E7), all at their era's median, charter-neutral (§13). Twelve existing techs change. | A ladder in every era from the first M to solar maximum. |
 | **Pacing** | A reasonable player with forecasting and protection: **−2% to +4%** to FIRST LIGHT against a legacy-flare run. Ignoring flares: **+4% to +10%**, and never a defeat from flares alone (§12). | The brief's two targets. |
 
 ## 2. Measured today
@@ -1029,6 +1029,7 @@ few hundred triangles a dome.
 | **Bag walls** | An instanced ring of 24 bags a course, three courses, rising course by course as the rover stacks them; they come down the same way. | 1 instanced box mesh |
 | **Water-wall domes** | A lathe hemisphere (16 segments, ~300 △) that inflates from flat, scale y 0.05 → 1 with a 5% overshoot over 15 s, then darkens a shade as it fills. Classic shows the facets as ribs; High detail adds a specular band. Deflating reverses it; the kit folds into the rover's bed as a box. | ≤ 6 up, ~1.8k △ |
 | **Glitches** | A rebooting machine's lamps strobe twice, and a DOM marker reads `⟲ 0:40`. A latched one goes dark with `⊘ 7:40`, its deadline. A burn-out throws one spark sprite and the dust puff (`src/world/dust.ts`); the wreck stays 60 s and fades. | markers are DOM |
+| **Work animations** (docs/06 §7.1, `src/world/workAnim.ts`) | The sim sets the mode, as since `5b797b6`: a rebooting or latched machine's `mode` is null and its rig freezes; a rover raising a dome takes the weld pose facing it; filling bags takes the dig pose with a scoop; a hub unit parked in a pit's dome stows its boom. | no new rig |
 | **The Solar Observatory** | A white dome on a pier with a slit and a coronagraph tube on a sun-tracking mount. The slit closes at night. | ~700 △ |
 | **The Shield Coil** | A torus on a low pier. In a flare its lamp band lights and a faint dashed ground ring shows its 45 m. | ~900 △ |
 | **The sentinel launch** | The hopper's plume from the Lander pad, then a tracking dish on the Lander that points sunward. | the existing plume |
