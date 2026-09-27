@@ -211,11 +211,13 @@ html.touch #touch-bar {
 html.touch #hud-layer.t-bar #touch-bar { display: flex; }
 html.touch #touch-bar .tb-hint {
   flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y;
-  display: flex; flex-direction: column; justify-content: center;
+  display: flex; flex-direction: column;
 }
+/* centred by auto margins, not justify-content: a hint taller than the bar
+   then starts at the top and scrolls, instead of losing its first line */
 html.touch #touch-bar :is(#place-hint, #road-hint, #fleet-hint) {
   background: none; border: none; backdrop-filter: none; padding: 0; text-align: left;
-  font-size: 12px; line-height: 15px;
+  font-size: 12px; line-height: 15px; margin: auto 0; flex: none;
 }
 html.touch #touch-bar .hint-line { font-size: 11px; line-height: 14px; }
 html.touch #place-hint .road-note, html.touch #place-hint .caution-act { font-size: 11px; }
@@ -450,8 +452,9 @@ html.touch .doc-side .ds-head { flex-wrap: wrap; }
 html.touch .doc-side .ds-fx { grid-template-columns: 1fr; }
 html.touch .doc-side :is(.ds-cost, .why) { font-size: 11px; }
 html.touch .doc-sheet .doc-head { white-space: normal; }
+/* the queue keeps its height (up to 45 %); a long detail above it scrolls instead */
 html.touch #tech-strip {
-  order: 2; flex: 0 1 auto; height: auto; max-height: 45%; min-height: var(--tap);
+  order: 2; flex: none; height: auto; max-height: 45%; min-height: var(--tap);
   border-bottom: none; border-top: var(--hair); padding: 4px;
   display: flex; flex-direction: column; align-items: stretch; gap: 4px; overflow-y: auto;
 }

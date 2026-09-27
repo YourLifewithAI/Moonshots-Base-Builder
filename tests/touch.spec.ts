@@ -292,6 +292,12 @@ test('placement by taps: a card puts its ghost mid-view, a drag moves the ghost 
   // a valid spot: the hint shows its road
   await expect.poll(async () => (await g(page, 'getTouch')).placing.valid).toBe(true);
   await expect(page.locator('#place-road')).toBeVisible();
+  // a hint taller than the bar scrolls from its first line (none of it above the box)
+  const hint = await page.evaluate(() => {
+    const box = document.querySelector('#touch-bar .tb-hint')!, h = document.getElementById('place-hint')!;
+    return { boxTop: box.getBoundingClientRect().top, top: h.getBoundingClientRect().top, over: box.scrollHeight > box.clientHeight };
+  });
+  expect(hint.top, `the hint's first line is in the box (${JSON.stringify(hint)})`).toBeGreaterThanOrEqual(hint.boxTop - 0.5);
   // ⟳ rotates
   const rot = (await g(page, 'getTouch')).placing.rot;
   await page.locator('#tp-rotate').tap();
@@ -370,6 +376,15 @@ test('research tree by touch: the rail opens it, tabs change page, a tap shows, 
   await expect.poll(async () => (await g(page, 'getState')).researchQueue).toEqual([]);
   await page.locator('#tech-sheet-body [data-act="queue"]').tap();
   await expect.poll(async () => (await g(page, 'getState')).researchQueue).toEqual(['regolithProcessing']);
+  // the queue under a long detail keeps its item whole (the detail scrolls instead)
+  await expect(page.locator('#tech-queue .q-item')).toHaveCount(1);
+  const q = await page.evaluate(() => {
+    const strip = document.getElementById('tech-strip')!.getBoundingClientRect();
+    const item = document.querySelector('#tech-queue .q-item')!.getBoundingClientRect();
+    return { strip: [strip.top, strip.bottom], item: [item.top, item.bottom] };
+  });
+  expect(q.item[0], JSON.stringify(q)).toBeGreaterThanOrEqual(q.strip[0] - 0.5);
+  expect(q.item[1], JSON.stringify(q)).toBeLessThanOrEqual(q.strip[1] + 0.5);
   // tabs by tap
   await page.locator('.era-tab[data-era="2"]').tap();
   await expect(page.locator('.era-tab.view')).toHaveAttribute('data-era', '2');
