@@ -226,6 +226,28 @@ for (const style of ['classic', 'detailed']) {
   });
 }
 
+test('a dock is refused inside a zone: its rovers park on the road', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('constructionRobotics');
+    g.grantResources({ metals: 3000, parts: 3000 });
+    const z = zone();
+    // every spot with the Bay's footprint and door wholly inside the zone says why
+    const reasons = new Set<string>();
+    const c = { gx: Math.round((z.cx + 512) / 4), gz: Math.round((z.cz + 512) / 4) };
+    for (let dx = -3; dx <= 1; dx++) for (let dz = -3; dz <= 1; dz++) {
+      const cells: [number, number][] = [];
+      for (let i = -1; i <= 3; i++) for (let k = -1; k <= 3; k++) cells.push([c.gx + dx + i, c.gz + dz + k]);
+      if (!cells.every(([a, b]) => inZone(a, b))) continue;
+      reasons.add(g.canPlace('roboticsBay', c.gx + dx, c.gz + dz, 0).reason);
+    }
+    return [...reasons];
+  });
+  expect(r.length).toBeGreaterThan(0);
+  for (const why of r) expect(why).toMatch(/^IN AN EXTRACTION ZONE — a dock parks its rovers on the road/);
+});
+
 test('two excavators digging one zone never overlap', async ({ page }) => {
   test.setTimeout(240_000);
   await start(page);
