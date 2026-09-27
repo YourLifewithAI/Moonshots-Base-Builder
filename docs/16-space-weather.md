@@ -76,7 +76,7 @@ every exposed building and machine left unprepared, until replacing them pays.
 | **What is not** | Stowed arrays' damage, crew sickness, machine reboots and lost loads, lost research progress, chip yield and data errors, the comms blackout, wear spikes, morale. All scale with class. | The costs the player listed. |
 | **Shielding** | One number per thing, **σ from 0 to 1**, the best of its sources. Every effect is × (1 − σ). | One rule, one inspector line. |
 | **Forecasting** | T0 the flash and Earth's bulletin · T1 **Heliophysics Forecasting** and the Solar Observatory (the next flare's window and class range; blind at night off the pole) · T2 **L1 Sentinel** (firm class, a tight window, day and night) · T3 **Solar-Cycle Forecasting** (the curve and the next three flares). | "Plan strategically for them." |
-| **Protection** | Permanent: Regolith Shielding (σ 0.5; docked machines sheltered), Water-Wall Shielding, Rad-Hard Process, Fault-Tolerant Avionics, Rad-Hard Cells, storm shelters, the Shield Coil. Temporary: **rover-deployed bag walls and water-wall domes** with reuse counts. **Flare Protocols** act by class. | The player's temporary domes, and the permanent ladder behind them (§7). |
+| **Protection** | Permanent: Regolith Shielding (σ 0.5; field berms for stowed arrays; docked machines sheltered), Water-Wall Shielding, Rad-Hard Process, Fault-Tolerant Avionics, Rad-Hard Cells, storm shelters, the Shield Coil. Temporary: **rover-deployed bag walls and water-wall domes** with reuse counts. **Flare Protocols** act by class. | The player's temporary domes, and the permanent ladder behind them (§7). |
 | **Benefits** | Four breakthroughs found by surveys: **Solar-Wind Implantation, Particle Telescope, Mini-Magnetosphere** (the Shield Coil) and **Storm Sails** (§8). | "Exploration-discovered research that lets you benefit." |
 | **He-3** | **Flavour.** A counter on the implantation card; no stockpile. | The game has no fusion to burn it in. |
 | **The lava tube** | **Partly immune.** The tube shelters pressurized and compute buildings (σ 1). Arrays, masts, launchers, pits and machines out working are on the surface. | Rock overburden protects what lives inside; the Sun's light has to be caught outside. |
@@ -418,7 +418,9 @@ machine a transit trip is carrying (docs/15 §6a). A machine at a dock takes the
   rad-tolerant, the avionics are not. A latched machine with a flat pack cannot limp
   home: it waits where it stands, and its deadline still runs.
 - **The recall** (§7.4) is the counter: a machine home before the active phase is
-  behind its dock's σ.
+  behind its dock's σ, and prepared, so its rad scar is a tenth or less (§4.13).
+- **Scars add up on machines too.** A rover or unit left out loses capability at every
+  flare; its hub or dock re-prints it for half its price (§4.14, docs/17 §4.2).
 
 ### 4.6 Labs and research
 
@@ -502,7 +504,7 @@ takes none. The drill costs −3 and no target.
 
 One flare of each class on a mid-game mare base (30 arrays, 8 labs, 2 Chip Fabs, 2 Data
 Centers, 8 machines out, Regolith Shielding done), with no buttons pressed. The safe
-default stows the arrays (§5.3) and repairs them after:
+default stows the arrays (§5.4) and repairs them after:
 
 | | C | M | X (the second) |
 |---|---|---|---|
@@ -1259,7 +1261,7 @@ few hundred triangles a dome.
 | **Repairs and capability** | A repairing rover stops at each array in the weld pose; the array's lamp steadies. A building under 85% capability wears a `◌ 84%` DOM marker, like the wear markers. | DOM |
 | **Bag walls** | An instanced ring of 24 bags a course, three courses, rising course by course as the rover stacks them; they come down the same way. | 1 instanced box mesh |
 | **Water-wall domes** | A lathe hemisphere (16 segments, ~300 △) that inflates from flat, scale y 0.05 → 1 with a 5% overshoot over 15 s, then darkens a shade as it fills. Classic shows the facets as ribs; High detail adds a specular band. Deflating reverses it; the kit folds into the rover's bed as a box. | ≤ 6 up, ~1.8k △ |
-| **Glitches** | A rebooting machine's lamps strobe twice, and a DOM marker reads `⟲ 0:40`. A latched one goes dark with `⊘ 7:40`, its deadline. A burn-out throws one spark sprite and the dust puff (`src/world/dust.ts`); the wreck stays 60 s and fades. | markers are DOM |
+| **Glitches** | A rebooting machine's lamps strobe twice, and a DOM marker reads `⟲ 0:40`. A latched one goes dark with `⊘ 7:40`, its deadline. A burn-out throws one spark sprite and the dust puff (`src/world/dust.ts`); the hulk stays 60 s and fades. | markers are DOM |
 | **Work animations** (docs/06 §7.1, `src/world/workAnim.ts`) | The sim sets the mode, as since `5b797b6`: a rebooting or latched machine's `mode` is null and its rig freezes; a rover raising a dome takes the weld pose facing it; filling bags takes the dig pose with a scoop; a hub unit parked in a pit's dome stows its boom. | no new rig |
 | **The Solar Observatory** | A white dome on a pier with a slit and a coronagraph tube on a sun-tracking mount. The slit closes at night. | ~700 △ |
 | **The Shield Coil** | A torus on a low pier. In a flare its lamp band lights and a faint dashed ground ring shows its 45 m. | ~900 △ |
@@ -1506,7 +1508,7 @@ Forecasting is done.
 |---|---|
 | Economy step 8, the flare state machine (`src/core/economy.ts:865-905`) | **`weatherTick`** in a new `src/core/spaceWeather.ts`, still step 8, before hazards (8.3). It runs the cycle, the schedule, the phases, the forecasts, the consequences at the active start, the per-tick multipliers, domes and the log. |
 | `FLARE` in `src/data/balance.ts:140-145` | **`SPACE_WEATHER`** in a new `src/data/spaceWeather.ts`: the class table, the cycle, the consequence table, σ sources, kits, tiers. `FLARE` stays only for the legacy probe mode. |
-| `dayInfo(…, flareActive)` zeroes solar (`src/core/daynight.ts:44`) | `dayInfo` loses the flare argument. Economy step 1 reads each array's stow share and cells: `panel × sunFactor × (1 − stowed) × cells`. Callers: `economy.ts:192`, the probe (`scripts/probe-pacing.mjs:324`). |
+| `dayInfo(…, flareActive)` zeroes solar (`src/core/daynight.ts:44`) | `dayInfo` loses the flare argument. Economy step 1 reads each array's stow share, capability and stowed damage: `panel × sunFactor × (1 − stowed) × cap × (1 − flareDmg)`; a wreck makes 0. Callers: `economy.ts:192`, the probe (`scripts/probe-pacing.mjs:324`). |
 | The beam's blindness (`economy.ts:325`) | By class (§4.2). |
 | `MORALE.flare` and `FLARE.moraleHit` (`economy.ts:854`, `:879`) | §4.10's table, applied at the same two places. |
 | The HUD clock's `FLARE` (`src/ui/hud.ts:247-251`, `src/ui/stores.ts:76`, `src/core/game.ts:1960`) | The chip's store: phase, class, timer, tier, window. |
