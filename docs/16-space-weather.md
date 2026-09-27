@@ -1,7 +1,7 @@
 # 16 · Space weather: classed flares, a solar cycle, stow or risk, forecasts and shields
 
-**Status:** Phase A design on `work/flares`, from main `97e1373` with `e5ae67d` (docs/17)
-merged. No code yet. Phase B starts after **work/unitpower** (machine batteries) merges,
+**Status:** Phase A design, revision 2 (the player's answers, §17), on `work/flares`, from
+main `97e1373` with `e5ae67d` (docs/17) merged. No code yet. Phase B starts after **work/unitpower** (machine batteries) merges,
 since both change economy steps 1 and 8, `src/core/fleet.ts` and `src/core/hazards.ts`.
 Check these borrowed names again at merge: machine packs, `homeOf` and Rover Power Packs
 (work/unitpower); hubs, units, bays, pits and benches (docs/17); tap placement and the side
