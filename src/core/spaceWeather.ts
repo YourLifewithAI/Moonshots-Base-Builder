@@ -1147,6 +1147,8 @@ export interface WeatherView {
   popup: null | {
     n: number; full: boolean; pauses: boolean; locked: boolean; decidedBy: FlareDecider; choice: ArrayChoice;
     choiceKey: string; remembered: boolean; builder: boolean; answeredClass: boolean;
+    /** the pop-up paused the game, and it still is */
+    pausedBy: boolean;
     arrays: number; fields: number; kw: number; bankS: number; criticalKW: number; criticalN: number;
     options: ChoicePreview[];
     autoRepair: boolean;
@@ -1218,6 +1220,7 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
     popup = {
       n: f.n ?? 0, full, pauses: full && cls !== 'C', locked: !!f.plan?.locked, decidedBy: by, choice, choiceKey: choiceKey(choice),
       remembered, builder, answeredClass,
+      pausedBy: s.paused && f.pausedAt !== undefined && f.pausedAt >= (f.startedAt ?? 0),
       arrays: arrays.length, fields: fields.filter((x) => x.ids.some((id) => arrays.some((b) => b.id === id))).length, kw: kwNow,
       bankS, criticalKW: feed ? planFor({ s, mods, day, margin: feedMargin(s, mods), left: flareSeconds(cls) }, { mode: 'feed' }).criticalKW : 0,
       criticalN: critN, options, autoRepair: w.autoRepair, rememberCls: cls,

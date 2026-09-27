@@ -47,7 +47,7 @@ import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
 import {
-  allWrecks, clearWreck, confirmChoice, migrateFlareSchema, previewChoice, queueRepairs, rebuildWreck, setFieldOverride,
+  allWrecks, arrayView, clearWreck, confirmChoice, migrateFlareSchema, previewChoice, queueRepairs, rebuildWreck, setFieldOverride,
   setRemembered, shownClass, startFlare, weatherView, type ChoicePreview,
 } from './spaceWeather';
 import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
@@ -2084,6 +2084,13 @@ export class Game {
     if (!s || !cls) return null;
     const site = SITES[s.siteId];
     return previewChoice(s, this.mods, site, currentDay(s, site), choice, cls);
+  }
+
+  /** A Solar Array's inspector line (docs/16 §10.7): its field, capability, damage, override, wreck. */
+  arrayView(id: number) {
+    const s = this.state;
+    const site = SITES[s.siteId];
+    return arrayView(s, site, currentDay(s, site), id);
   }
 
   /** debug.forceFlare: a flare's telegraph now (the first of a class is still its drill unless opts say). */
