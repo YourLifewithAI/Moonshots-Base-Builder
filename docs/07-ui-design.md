@@ -120,6 +120,28 @@ a ring on the ground marks it (bright valid, faint refused — value, never
 hue), Dig at… turns the deposit overlay on, an invalid click flashes the
 reason, and Esc or right-click cancels.
 
+**The resource highlight** (docs/17 §5.2, §6; Phase 5). Placing a Regolith
+Smelter, a Silicon Refinery or a Water Management Plant, selecting one, or
+hovering its palette card lights the deposits it wants. The rings show
+whatever the [I] toggle says.
+- The lit ring is drawn twice as heavy in its kind's pattern, with a faint
+  fill and its full-size pit ring dashed. A pit's rim is solid, and the ore
+  still in the ground is hatched.
+- Out of reach is half weight, full is long dashes, and exhausted or boxed
+  in is cross-hatched. A smelter's glass and KREEP show at normal weight,
+  labelled with what they do for it. Every other kind fades to 30% with no
+  label.
+- Each lit deposit gets a label chip: `≈0:08 · 0/5 faces · pit 14 m`. The
+  chip is bordered, and the one its units would take has a heavier border.
+  ≈ marks an estimate where no road reaches yet.
+- The ghost's `#place-hub` block puts lines under the HUB headline: the
+  route, the units that fill the hub, the full-size pit against its walls,
+  the next choice, and the plain pit it would stake.
+- A structure in a pit's way (**IN THE PIT'S WAY**) and a water plant with
+  no ice in reach ask first, as a stranding placement does.
+- While placing, the labels let clicks and taps through to the ground.
+- The Lunar Map's SITE view draws the same states.
+
 **The Builder** (`ui/builderPanel.ts`; design in 13 §5). **[B]** opens
 `#builder-panel` in the left column (it replaces an open resource panel and
 hides in walk mode). Top to bottom:
@@ -428,7 +450,8 @@ Because hue is forbidden, texture is the semantic channel:
 | Pale ghost + draped outline | valid placement | **shipped** as 3D ghost materials (`placement.ts`: `#f5f7f9` @ 0.42) |
 | Dark ghost | blocked placement (+ reason line in `#place-hint`) | **shipped** (`#14161a` @ 0.60) |
 | Dot grid | buildable area | deferred with build-radius visualization |
-| Cross-hatch | blocked terrain | deferred; the dark ghost carries the meaning meanwhile |
+| Cross-hatch | blocked terrain; an exhausted or boxed-in deposit | terrain deferred (the dark ghost carries it); deposits **shipped** in a hub's highlight (docs/17 §6.1) |
+| Double-weight ring · faint fill | the deposits a hub wants (its highlight) | **shipped** (`world/depositHighlight.ts`, the Lunar Map's SITE view) |
 | Dashed border | locked / planned | **shipped** (locked cards, locked techs) |
 
 ## 11. Engineering rules the design depends on
@@ -683,6 +706,7 @@ phone's GPU gets.
 - The Deposits chip in the resource strip and the palette's Road button: ◌ Ore and Road on the rails replace them.
 - Ordering three at once (Ctrl+Shift-click a card): a hold orders one; hold again for more.
 - Hover tooltips: tap-to-show (§13.5).
+- A hub card's hover highlight: the first tap on the card lights the hub's ground. An unlocked card starts its ghost. A locked card opens its info card. A tap on a built hub lights it too, and the ◌ Ore button shows an underline while any hub's ground is lit (docs/17 §6.1).
 - Key hints in shared texts: `[B]`, `[G]`, `[M]`, `[T]`, `[N]` and `[I]` are rewritten as they render (`untangleKeys` in `ui/touchUi.ts`). After "with", "in" or "Open", or before "to", a hint becomes the rail's name ("tune it with Builder"). A hint alone in a label goes. Anywhere else it is dropped ("Open Lunar Map").
 - The research header's alert echo and the transfer-rate chip (on screens under 900 px).
 - The Lunar Map's legend and thumbnail captions.

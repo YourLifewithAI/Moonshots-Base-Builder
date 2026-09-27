@@ -35,6 +35,9 @@ src/
                           the auto choice, trips into pits by their ramps, plain pits, the pile and hoppers,
                           economy step 4.1 (unitsStep), Assign / Open pit / Send / Recall, old-save migration
     hubView.ts            the hub and unit inspectors' payload ($fleet.hubs, $fleet.units)
+    hubPreview.ts         the preview and the highlight (docs/17 Phase 5): hubLight (a hub's lit deposits, plain
+                          pits and stake, with trips, faces and pits), the ghost's HUB block and its headline,
+                          the IN THE PIT'S WAY ring warning (checkPlacement); reservesOf, Phase 4's hook (null today)
     research.ts           availability, cost, the queue, charters (the destiny pick gates eras 3–8),
                           destinyOf (the meter, the band, the reach), techSchema migration
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
@@ -128,6 +131,8 @@ src/
                           6–10 m, off the roads and out of traffic, following theirs
     settlers.ts           EVA walkers (⌂): one per EVA crew, on free cells only (never a road), home at night
     haulers.ts            excavators away from their pads, following the sim's road legs
+    depositHighlight.ts   a hub's lit deposits on the ground (docs/17 §6.1): draped ribbons in the kind's pattern,
+                          fills, full-size rings, pit rims, hatched ore, cross-hatch; High adds an emissive rim line
     traffic.ts            units on the road cells: lane holds, excavator gates, queues, the deadlock breaker
     roads.ts              the road mesh: merged draped strips, markings by tier, beacon posts, pending cells
     dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)
@@ -446,6 +451,11 @@ SaveBlob = {
   - Nothing derived is stored: the loose layer comes from `(seed, pit id)`.
   - A save without `terrainSchema` gets no pits and an empty grid. Nothing is
     carved on load.
+- **The resource highlight** (docs/17 Phase 5) stores nothing. `Game.updateHubLight` picks its source (a
+  hub's ghost, else a selected hub, else a hub card: `$hubCard` on hover, `$touchInfo` on touch) and asks
+  `core/hubPreview.ts` at most four times a second, or at once when the ghost moves a cell. The result goes
+  to `world/depositHighlight.ts` (the ground), to `$deposits` as each deposit's optional `lit`, and to
+  `$hubLight` (the plain pits and the stake). The overlay's labels and the Lunar Map read those two atoms.
 - **Restore:**
   1. Regenerate the terrain from `(siteId, seed)`.
   2. Apply the delta grid.

@@ -22,6 +22,7 @@ import { createGhost, setGhostBlocked } from './ghost';
 import { cellCentre, footprintCells, keyCell, mastStand, planSpur, roadMap, zoneStand } from '../core/roads';
 import { CellPreview } from './cellPreview';
 import { gradeEnergy, gradePitRefusal, pitRefusal } from '../core/pits';
+import { pitWayWarning } from '../core/hubPreview';
 import { ROAD } from '../data/roads';
 
 export type PlaceableType = BuildingId | 'grade';
@@ -100,6 +101,9 @@ export class PlacementController {
   private outlinePos = new THREE.BufferAttribute(new Float32Array(4 * OUTLINE_SEG * 2 * 3), 3);
   /** the road the placement would lay, on the ground */
   readonly roadPreview: CellPreview;
+  /** a warning of the game's own for a valid spot ('' none): a hub ghost's
+   *  NO ICE IN REACH (core/hubPreview.ts needs the mods placement has not) */
+  extraWarn: ((p: PlacementProbe) => string) | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -219,7 +223,11 @@ export class PlacementController {
       : checkPlacement(state, this.site, this.hf, unlocked, p.type, p.gx, p.gz, p.rot, tier);
     p.valid = res.valid;
     p.reason = res.reason;
-    p.warn = res.warn ?? '';
+    const extra = res.valid && this.extraWarn ? this.extraWarn(p) : '';
+    const warn = [res.warn ?? '', extra].filter(Boolean).join(' · ');
+    // a different warning asks again (the first click asks, the second builds)
+    if (warn !== p.warn) p.confirm = false;
+    p.warn = warn;
     p.note = res.note ?? '';
     p.road = res.road;
     p.roadS = res.roadS;
@@ -369,8 +377,10 @@ export function checkPlacement(
   // a Relay Mast gets no road: the whole way from the nearest road cell is off-road (docs/15 §5b)
   const ms = mastStand(state, probe);
   const offM = ms ? ms.offM : zs && end ? Math.hypot(cellCentre(...end)[0] - zs.x, cellCentre(...end)[1] - zs.z) : undefined;
+  // a deposit's full-size pit (or a plain pit's) would stop at this wall (docs/17 §5.2, §11.3)
+  const warn = [smelterWarning(state, site, type, unlocked), pitWayWarning(state, site, probe)].filter(Boolean).join(' · ');
   return {
-    valid: true, reason: '', warn: smelterWarning(state, site, type, unlocked),
+    valid: true, reason: '', warn,
     note: known ? DEPOSIT_INFO[known.kind].ghost : '', road, roadS, ...(offM !== undefined ? { offM } : {}),
   };
 }

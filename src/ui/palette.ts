@@ -35,8 +35,9 @@ import { touchOn } from '../core/touch';
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 import {
   $automation, $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
-  $vitals, spawnFloater, $hazards, $touchInfo, $weather,
+  $vitals, spawnFloater, $hazards, $touchInfo, $weather, $hubCard,
 } from './stores';
+import { isHubType } from '../data/hubs';
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
@@ -225,6 +226,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
   const renderItems = () => {
     const unlocked = new Set($tech.get().unlocked);
     items.innerHTML = '';
+    // the cards go (no mouseleave comes): nothing stays lit for them
+    $hubCard.set(null);
     for (const type of BUILD_ORDER) {
       const def = BUILDINGS[type];
       if (def.category !== activeCat) continue;
@@ -235,9 +238,10 @@ export function mountPalette(root: HTMLElement, game: Game) {
         .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
       b.innerHTML = `<div class="icon">${ICONS[type]}</div><div class="nm">${def.name}</div><div class="cost mono">${cost}</div>`;
       // touch: no hover — a locked card's first tap shows its card instead
+      // (a hub's card lights its deposits either way: docs/17 §6.1)
       if (!touchOn()) {
-        b.addEventListener('mouseenter', () => showTooltip(type, locked, b));
-        b.addEventListener('mouseleave', hideTooltip);
+        b.addEventListener('mouseenter', () => { showTooltip(type, locked, b); if (isHubType(type)) $hubCard.set(type); });
+        b.addEventListener('mouseleave', () => { hideTooltip(); if ($hubCard.get() === type) $hubCard.set(null); });
       }
       b.dataset.type = type;
       b.addEventListener('click', (e) => {
@@ -362,7 +366,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
         : 'NO FREE ROVER — it waits its turn in the queue'}</div>`
       : '';
     const html = `<span class="label hint-line">${hintLine(p.type)}</span>${p.valid
-      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.hub ? `<div class="road-note" id="place-hub">${p.hub}</div>` : ''}${road}${eta}${warn}`
+      ? `${p.note ? `<div class="deposit-note">${p.note}</div>` : ''}${p.hub ? `<div class="road-note hub-block" id="place-hub"><div class="hb-head">${esc(p.hub)}</div>${(p.hubBlock ?? []).map((l) => `<div class="hb-line">${esc(l)}</div>`).join('')}</div>` : ''}${road}${eta}${warn}`
       : p.reason ? `<div class="blocked">${p.reason}</div>` : ''}`;
     if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
   };
