@@ -430,9 +430,186 @@ arrays, so no cells are lost:
 A C costs little. An M costs about a minute of the base. An X costs several minutes and
 leaves marks. None of it ends a run alone (§12).
 
-## 5. Stow or risk (draft)
+## 5. Stow or risk
 
-## 6. Forecasting (draft)
+### 5.1 The choice, in numbers
+
+Sunlight does not stop in a flare, so arrays keep producing. The protons wear the
+cells. A stowed array turns its cells to the ground: the Moon shields half the sky and
+the panel's own back the rest.
+
+| | Stow | Keep generating |
+|---|---|---|
+| This flare | no output for the flare plus 10 s of motion | full output |
+| For good | nothing | cells −0.25% C · −1% M · −3% X · −1% in the tail |
+
+**When stowing pays.** Stowing costs this flare's seconds. Generating costs a share of
+every sunlit second the array has left. The break-even is the time the base will keep
+this array:
+
+```
+stow when   loss × sunlit seconds left   >   stowed seconds
+break-even  D* = stowed seconds ÷ (loss × sunlit seconds a lunar day)
+```
+
+| Flare | Stowed seconds | D* mare (≈ 430 sunlit s a day) | D* pole (≈ 680) |
+|---|---|---|---|
+| C | 40 | 37 lunar days: **always generate** | 24 |
+| M | 55 | 13 days: stow early, generate late | 8 |
+| X flash | 70 | 5.4 days: **stow** unless the run is nearly over | 3.4 |
+| X tail | 120 | 28 days: **generate** | 18 |
+
+A whole run is 14–18 lunar days. So: generate through a C, think about an M, stow the X
+flash, generate in its tail. **The night changes it.** A daytime stow the bank cannot
+cover browns the base out (§5.5). The pole's bank covers a stow far less often than the
+mare's, so the pole leans to generate, and its research answer is Rad-Hard Cells and the
+Shield Coil.
+
+### 5.2 Controls
+
+| Where | Control | Before research | After Flare Protocols (E2 ▣) |
+|---|---|---|---|
+| **Base-wide** (the Space Weather panel, the power panel) | the stance | `Stow on warning` (**default**) · `Keep generating` | + `By class`: a C · M · X · tail row, each stow or generate. Default: generate · stow · stow · generate |
+| **Per field** (an array's inspector) | the field's stance | `Follow base` (default) · `Stow` · `Generate` | + `By class` |
+| **This flare** (the telegraph alert) | a one-flare override, base-wide | [Stow arrays] · [Keep generating] | the same |
+
+- **A field** is the arrays whose footprints lie within 2 m of each other: a flood fill,
+  named by its lowest array id. The inspector reads `FIELD F3 · 12 arrays · 120 kW ·
+  cells 96% · stance: follow base (stow)`, with **Apply to field**.
+- **Why stow is the default.** An unanswered warning then does no harm that lasts, and a
+  new player's flare feels like today's. The drill's card teaches the other half:
+  `Your arrays stowed: you lost 40 s of 210 kW. Generating would have cost 0.25% of their
+  cells. Stow or risk it: choose per field and, with Flare Protocols, per class.`
+- **At night** an array with no sun stows itself: it has nothing to lose. The pole's
+  ridge arrays keep the choice.
+
+### 5.3 Timing
+
+- Arrays set to stow start 10 s before the active phase, and their output ramps to 0 over
+  those 10 s.
+- They unstow when the flare ends, or when the active phase ends if the tail is set to
+  generate, over another 10 s.
+- An array switched to stow after the protons arrive takes the loss for the seconds it
+  generated.
+
+### 5.4 The Builder rule
+
+A new rule in the **power** family (Automated Power, E4 ⚡; docs/13 §3.4). It needs
+Flare Protocols as well.
+
+| Rule | Decides | Shown as | Signal | Threshold | On by default |
+|---|---|---|---|---|---|
+| `flareStance` | each field, each flare: stow or generate | `STOW when the cells cost more than H days of this flare's power` | stow if `loss × field kW × sunlit s in H days` > `field kW × stowed s`; **generate regardless** if stowing would dark a priority 0–1 load before the next dawn (the power book, docs/13 §3.1) | H = 8 lunar days (2–20, step 1) | yes |
+
+- **Holding lines:** `stow · F3 120 kW — an M costs 1%: 5.2 days of its power at H 8,
+  against 55 s now` · `generate · F1 — a stow would dark Habitat #4 at 2:10, before dawn`.
+- **H** is how long you mean to keep the arrays. Near the end of a run, set it low.
+- With Solar-Cycle Forecasting (§6) it also counts the flares still due in H.
+
+### 5.5 Power and the night bank
+
+| Flare, stowed by day | Solar lost (today's 210 kW median) | Share of the median bank: mare · pole |
+|---|---|---|
+| C (40 s) | ~8,400 kW·s | 23% · 90% |
+| M (55 s) | ~11,500 | 32% · 125% |
+| X through the tail (190 s) | ~40,000 | 110% · 430% |
+
+(Bank shares scale today's measured 29% and 118% for 45 s, §2.)
+
+- **The dusk forecast** (economy step 2) names the next forecast flare, from T1:
+  `DUSK IN 2:10 · the bank carries the night · an M due 0:40–1:30 would take 11k if
+  stowed`.
+- **The power panel** during a flare: `FLARE M — 8 fields stowed: −210 kW for 0:45 · the
+  bank covers 0:38 · [Keep generating: cells −1%]`.
+- **Machine batteries** (work/unitpower): a stow deepens the dip. Units ride an M's 55 s
+  on their packs (a pack runs a rover 2 min). An X stowed through its tail outlasts
+  them: rovers go flat and wait. Rover Power Packs (E2) and Fuel-Cell Packs (E4) cover
+  it, which is one more reason to take them.
+- **The Builder's power book** (`src/core/automation.ts:281`) already skips flare ticks.
+  It now skips stowed ticks and the tail too.
+- **Predictive Scheduling** (E6 ▣, docs/13) with a forecast holds priority 3 loads in the
+  hour before a forecast M or X, to fill the bank.
+
+### 5.6 The look
+
+- Stowing: each array's wing turns on its hinge from sun-tracking to edge-on, cells to
+  the ground, over 10 s. Its foot lamp blinks slowly. A stowed field reads as a row of
+  upright blades.
+- Generating through a flare: the panels stay, and the §11 speckle falls on them.
+- A worn array: nothing on the mesh. Its inspector and the field's line carry `CELLS 91%`.
+
+## 6. Forecasting
+
+### 6.1 The ladder
+
+| Tier | From | What you know | Telegraph C, M · X | The HUD chip |
+|---|---|---|---|---|
+| **T0 · the flash** | landing | The class at the flash. **Earth's bulletin:** the activity band (`QUIET` a < 0.35 · `ACTIVE` · `STORMY` a ≥ 0.7). **The spot-group watch:** half a lunar day before an X, `BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day`. | 60 · 120 s | `☉ ▮▯▯ QUIET` |
+| **T1 · Heliophysics Forecasting** (E2 ◎) + a Solar Observatory that sees the Sun | the tech and the building | The next flare's **window** and its **class range** (two neighbouring classes). CME windows after an M or X. | 90 · 150 s | `☉ C–M · 0:40–1:30` |
+| **T2 · L1 Sentinel** (E5 ◎), launched and on station | the tech, then a launch | The next flare's **class, firm**, and a tight window, **day and night**. The CME's arrival to the second. | 120 · 180 s | `☉ M · 1:05 ±0:07` |
+| **T3 · Solar-Cycle Forecasting** (E6 ▣) | the tech, with the sentinel | **The cycle curve** (now, the maximum's day, the fall), and **the next three flares** on the timeline. The Builder plans on them (§7.5). | as T2 | `☉ M · 1:05 ±0:07 · max in 1.8 d` |
+
+The drill adds 60 s to its telegraph, as hazard drills do.
+
+### 6.2 Windows are honest
+
+A forecast never lies. The true time is always inside the window, and the true class
+always inside the range, as a survey's truth is always inside its ± (docs/17 §13.3).
+
+```
+every 60 s, for the next flare n (true telegraph time t):
+  W  = max(Wmin, f · (t − now))        T1: f 0.6, Wmin 60 s · T2: f 0.2, Wmin 30 s
+  v  = 0.2 + 0.6 · mulberry32((seed ^ 0x5f1d) + n · 64 + k)()      k: the update's index
+  window = [t − W · v, t − W · v + W]
+class range (T1): the true class and one neighbour: C → C–M, X → M–X,
+  M → C–M or M–X (mulberry32((seed ^ 0x5f1d) + n · 64 + 63)() < 0.5)
+```
+
+- The window narrows as the flare nears and moves a little each minute.
+- **The Solar Observatory is blind at night** off the pole: the Sun is below the
+  horizon. Its forecast freezes at dusk and widens by 20% a game-minute:
+  `☉ C–M · 0:40–2:10 (night: last seen 2:30 ago)`. The pole's ridge keeps it lit
+  (`nightSolarFraction`). The sentinel is never blind.
+- Terrain shade (`b.shaded`) blinds an observatory too; its ghost warns.
+
+### 6.3 The Solar Observatory
+
+A new building, unlocked by Heliophysics Forecasting.
+
+| id | Footprint | Cost | Build | Crew | Power | Upkeep | Priority | Does |
+|---|---|---|---|---|---|---|---|---|
+| `solarObservatory` | 2×2, a field structure (no door or road, as arrays in work/unitpower) | 25◆ 8⚙ | 60 s | 0 | −2 kW | 1⚙ a lunar day | 1 | T1 while it sees the Sun · +0.05≡/s of heliophysics while it does · flare data ×2 |
+
+- **Pro:** `Sees the next flare coming: a window and a likely class.`
+- **Con:** `Blind at night, and in the shade of a ridge.`
+- One is enough. A second is a spare for the night side of a hill, not a sharper
+  forecast.
+- The Particle Telescope breakthrough (§8.2) adds an annex to it.
+
+### 6.4 The L1 Sentinel
+
+- **The launch** is an action at the Lander once the tech is done: `Launch sentinel ·
+  15▣ 30⚙ · 80○ 20≈ of hopper propellant`. The hopper lifts a kick stage; the sentinel
+  cruises for one lunar day, and the chip counts it down.
+- **With a Mass Driver** (E7 export) the driver throws it instead, for 400 stored energy
+  and no propellant. By then most runs have launched one.
+- There is one sentinel. It does not fail.
+- Online: the Lander's link draws 1.5 kW (the tech's con).
+- **Why launch it.** A sun-watcher at L1 never loses the Sun to the lunar night. The real
+  ones (SOHO, ACE, DSCOVR) give Earth its storm warnings.
+
+### 6.5 What each tier shows
+
+The Space Weather panel's NEXT block (§10.2), one per tier:
+
+```
+T0  NEXT FLARE   unknown · activity ▮▮▯ ACTIVE (Earth bulletin, day 6)
+T1  NEXT FLARE   C–M  in 0:40–1:30  ▕░░░░████████░░░░░▏  Solar Observatory #14
+T2  NEXT FLARE   M    in 1:05 ±0:07 ▕░░░░░░░░██░░░░░░░▏  L1 sentinel
+                 CME  after it: arrives 4:48 after the flash · sail window 3:00
+T3  CYCLE        ▁▂▃▅▆▇█▇ now ▲ · maximum in 1.8 lunar days · falling from day 13
+    NEXT 3       M 1:05 · C–M 22:10–31:40 · M–X 38:00–52:20
+```
 
 ## 7. Protection (draft)
 
