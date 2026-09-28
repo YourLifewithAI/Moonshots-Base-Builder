@@ -89,6 +89,9 @@ html.touch #flare-popup.compact .btn { min-height: 44px; font-size: 11px; }
 #weather-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }
 #weather-panel .wx-btns { display: flex; gap: 4px; margin: 3px 0 6px; }
 #weather-panel .wx-btns .btn, #weather-panel .wx-pc { font-size: 10px; padding: 2px 7px; }
+/* the flare's counters during a flare (docs/16 F2b): they wrap; none, no gap */
+#weather-panel .wx-now-btns { flex-wrap: wrap; }
+#weather-panel .wx-now-btns:empty { display: none; }
 #weather-panel .wx-proto { display: flex; gap: 3px; align-items: center; margin: 3px 0; flex-wrap: wrap; }
 #weather-panel .wx-proto .mono { min-width: 3.5ch; }
 #weather-panel .wx-log div { padding: 2px 0; border-bottom: 1px dotted rgba(var(--paper-rgb), 0.12); }

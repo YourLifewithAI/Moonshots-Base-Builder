@@ -1,7 +1,7 @@
 # 16 · Space weather: classed flares, a solar cycle, stow or risk, forecasts and shields
 
-**Status:** Phase A design, revision 2 (the player's answers, §17). **F1 and F2a shipped**
-on `work/flarecore`, **F3 (forecasting) on `work/flarefore`** (§16, As shipped); F2b and F4–F7 to come. Phase B started after **work/unitpower** (machine batteries) merged,
+**Status:** Phase A design, revision 2 (the player's answers, §17). **F1, F2a, F3 (forecasting) and F2b
+shipped** (§16.1–16.3, As shipped); F4–F7 to come. Phase B started after **work/unitpower** (machine batteries) merged,
 since both change economy steps 1 and 8, `src/core/fleet.ts` and `src/core/hazards.ts`.
 Check these borrowed names again at merge: machine packs, `homeOf` and Rover Power Packs
 (work/unitpower); hubs, units, bays, pits and benches (docs/17); tap placement and the side
@@ -1634,7 +1634,7 @@ lines wait for them.
 |---|---|---|---|
 | F1 ✓ | **The engine and classes** (shipped) | `src/data/spaceWeather.ts`, `src/core/spaceWeather.ts`, `weatherTick`; the cycle, classes (a range until the peak), CMEs, the tail, drills and era floors; the T0 chip, the bulletin, the spot-group watch and the alerts; morale and heliophysics data by class; the lava tube's `tubeShelter`; the legacy mode; `flareSchema` steps 1–4; the probe's flare counts | Flares come classed on a cycle; otherwise they behave as today (solar 0 is "stowed") |
 | F2a ✓ | **The pop-up and the arrays** (shipped) | the flare pop-up (1280×720 and touch), its previews, Confirm, the compact form and the pause setting; the portion rule and the critical feed; remembered choices, field overrides and the safe default; the stow motion; running arrays destroyed and scarred; wrecks, Rebuild and Clear; stowed damage and field repair jobs; field berms on Regolith Shielding; `flareStance`; the power panel and dusk lines; migration step 5 | The player decides once per flare, and arrays pay for it |
-| F2b | **Scars and the rest of §4** | capability on buildings and machines, rad scars by class × (1 − σ)² × preparation, the inspector and panel lines, the 85% alert; Replace and Re-print; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute and Shut down exposed; the blackout; wear; DOSE and bit flips by class (§9); migration step 6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, every cost has a button, and neglect adds up |
+| F2b ✓ | **Scars and the rest of §4** (shipped) | capability on buildings and machines, rad scars by class × (1 − σ)² × preparation, the inspector and panel lines, the 85% alert; Replace and Re-print; crew indoors; machine reboots, latch-ups and burn-outs; labs and Checkpoint; fabs, compute and Shut down exposed; the blackout; wear; DOSE and bit flips by class (§9); migration step 6; the probe's reasonable and ignore flare policies | Flares cost what §4 says, every cost has a button, and neglect adds up |
 | F3 ✓ | **Forecasting** (shipped) | Heliophysics Forecasting and the Solar Observatory; the windows; the L1 Sentinel and its launch; Solar-Cycle Forecasting; the panel's NEXT block, timeline and `Arrays: choose now…`; the telegraph bonuses | Planning grade |
 | F4 | **Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; the guard changes; kits, domes (over stowed fields too), the SHELTER block and the Dome tool; Flare Protocols (every row remembered, the tail row, the grid); `domeKits` and shelter planning; Maintenance Automation's replacement threshold | Every shield and counter |
 | F5 | **Benefits** | the four breakthroughs, their hosts and slots; implantation; the particle annex; the Shield Coil; CME sail windows and storm sails; the three insights | Flares pay back |
@@ -1731,6 +1731,72 @@ discovery lines (§13.3).
 | The sentinel's dish | on the Solar Observatory, not the Lander (§13.1's visual) | the Lander's fully upgraded mesh is at its 7,500-triangle budget |
 | The look | the observatory is a stock dome, slit and coronagraph; nothing tracks the Sun yet, the slit does not close, and the sentinel's dish is an ordinary tracked dish | F6 |
 | The launch | no plume and no hopper flight | F6 |
+
+### 16.3 As shipped: F2b
+
+**Where.** `src/core/flareEffects.ts` (the consequences beyond the arrays; weatherTick calls it
+at the protons, a second after them, at the tail, at the end of the flash and the tail, and at
+the flare's end, and `effectsTick` each tick), `FLARE_EFFECTS` in `src/data/spaceWeather.ts`.
+Hooks: economy steps 0 (a reboot holds a rover in transit), 1 (a bank's capacity × capability),
+2 (`flareOff`: a legacy pad's excavator rebooting, latched or burned out), 2.5 (weld and sinter ×
+the team's capability, × 0.85 in a blackout with Earth Teleoperation), 4 (`flareOutputMult`;
+a rebooting hub unit holds), 8.5 (the resupply holds), 8.7 (streams buffer, a survey's clock
+pauses), 9 (Checkpoint holds the transfers); `effectiveRates` (capability beside wear); hazards
+(DOSE and bit flips by class, the re-flash deadlines, Call home); hub jobs (`reprint`); the
+panel, the pop-up, the inspectors (structures, rovers, hub units); the probe.
+
+**As designed:** capability on every structure with an output, rate or capacity and on every
+machine; the scar rates (C 0.25 · M 1.5 · X 5 · tail 1%) × (1 − σ)² × 0.1 prepared, multiplied
+in, floored at 10%, cumulative with no other cap, never on the Lander or on homes, halls, yards,
+masts or docks; output, rate or capacity × capability, beside wear; the first X scars as an M;
+the 85% alert once; Replace (half the cost, 60% of the time, the site kept, capability and wear
+reset) and Re-print (a rover or drone 5◆ 8⚙ in 72 s at its dock; a hub unit at half its price
+and 60% of its print, a job in its hub's queue); machines' reboots (20 · 40 · 60 s, the tail as a
+C), latch-ups (bricked, re-flashed at the dock or bay, lost at 480 s) and burn-outs at an X
+(15% burn out, 45% latch up, 40% reboot for a machine in the open) by the seeded draw, the
+first X latching what would burn, losses logged with the flare's warning; crew indoors at an X
+(a quarter of each home × (1 − σ), ½ lunar day, largest remainder, never lethal, never feeding
+the EVA dose); labs × (1 − L), the head tech's 3% and 10% (capped at its spend), Checkpoint;
+Chip Fab yield loss, the X's batch, compute errors; Shut down exposed (not life support, power
+or the last Data Center under Fleet OS) with its 20 s warm-up; the blackout (M 45 s, X 240 s)
+holding shipments, the rotation, the downlink, Call home, Earth Teleoperation's speed, outpost
+streams (buffered, delivered after) and a survey's hop; wear spikes; DOSE and bit flips by class
+(§9); migration step 6; the probe's reasonable and ignore policies.
+
+**Where it differs:**
+
+| Topic | As shipped | Why |
+|---|---|---|
+| σ now | The lava tube (σ 1 for what lives in it), a dock or a hub's bay (0.5 bare), storm shelters (the crew indoors). Regolith Shielding's 0.5, bermed docks, water walls and domes are F4's; `setWeatherStub({ sigma })` stands in for them in tests | The phase table puts shields in F4 |
+| Exposure | Each second of the protons counts a structure as exposed or prepared (shut down or off), a machine as in the open or docked; the scar takes the shares, as a late stow does for arrays | A late Shut down or recall still counts for something |
+| Docked machines | A docked machine only reboots (its odds × (1 − 0.5)); latch-ups and burn-outs need the open. An excavator parked on a legacy pad (powered off) draws nothing | A docked machine is never lost: fairness rule 5 |
+| Hub units (docs/17) | Merged before F2b ended: they draw as machines out of their bays; in a bay σ 0.5. A latched unit drops its load and limps home (as a recall); its bay re-flashes it once home, one per 30 s a hub that is up; lost at 480 s. A burned-out unit is gone; its hub prints another from its queue when asked | The bay is its cradle |
+| The hubs' own recall | From landing, at an M or X telegraph, each hub sends home the units whose trip fits (§7.4's Machines default before Flare Protocols) and sends them back after the flare | As §7.4 says; C keeps them digging |
+| Recall machines | One button (the pop-up's ALSO row, the flare's alert, the panel's NOW): rovers and drones whose trip home fits dock until the flare ends, hub units go home, legacy excavators park. It covers bit flips' Dock fleet, which ALSO then hides | One counter for every machine |
+| Legacy pads | An old save's excavator (docs/17 §19) is re-flashed over the Lander's link, one per 30 s; burned out, it is offline until Re-printed (a Replace at half its cost) | It has no bay |
+| Wear | Rovers and drones have no wear axis; the machines' spike (+5% M, +15% X) falls on hub units and legacy excavators in the open | Only they wear |
+| Capability at work | Weld, sinter and dig × capability; driving and surveys are not | Transit keeps one speed a kind, so the traffic stays coherent |
+| Re-print a rover | Paid at once, the rover held at its dock 72 s, then new; no queue at the dock | A dock's reprints of lost rovers keep their own queue |
+| Replace | A construction site on the building (rovers weld it, weld parts as any build); demolishing it refunds half the build cost, as a building. Solar Arrays can be replaced too; a hub keeps its units, bays and queue, and prints nothing until it stands again | No new job kind in the fleet, as F2a's repairs |
+| Payback | `offline × capability ÷ (1 − capability)`: when the new one has out-made the old; the cost is shown beside it | Outputs and costs are in different units |
+| The head tech | σ weighted by the running labs' and compute's data; nothing is lost if none runs | The corruption is in the running machines |
+| The X's batch | Scrapped from the chips in stock: 60 s of each running fab's output × (1 − σ) × Rad-Hard | The batch is chips the base counts |
+| Rad-Hard Process | Applied now: latch-ups and burn-outs ×0.5; chip yield loss, compute errors and the scars of labs, compute and fabs ×0.5 | An existing doctrine; Fault-Tolerant Avionics is F4 |
+| Watchdogs · Hive re-flash | A reboot takes 10 s; a Hive's re-flash queue already clears latch-ups | Existing guards |
+| DOSE by class | C: off ¼ day, never lethal. M: the tier's days, never lethal; past the limit the over-dosed are off work until the load falls under 5. X: lethal 0 · ¼ · ⅓ by tier, and past the limit. `forceHazard('dose')` still starts an M | The grounded crew are off work, so they cannot walk out |
+| Bit flips by class | The share × 0.5 · 1 · 1.25 (to 90%); a C reboots its hit 30 s; an M's missed deadline is re-flashed from Earth 60 s late; drones fall only at an X | §9.3 |
+| Blackout | Laser Ranging's ×0.5 waits; the downlink's refusal comes after its busy-slot check | Laser Ranging's change is a later phase's |
+| Look | No `◌ 84%` DOM marker yet; the inspector marks under 85% with ▼ | F6 |
+| Maintenance Automation | Its replacement threshold waits | F4 (the phase table) |
+| The panel | NOW gains the telegraph's buttons (§10.2's ACTIONS block is not built: during a flare its buttons sit in NOW, and F3's `Arrays: choose now…` in NEXT); EXPOSURE gains Crew, Machines, Research, Buildings and Comms; AFTER THE LAST FLARE gains SCARRED and Replace worst; the LOG the machines, research, sick and scars | F3 owns NEXT and the timeline |
+| The chip | `⌁` while dark | §10.1 |
+
+**The probe** (`scripts/probe-pacing.mjs --flarePolicy=reasonable|ignore`): reasonable presses
+Recall machines and Checkpoint research on M and X and Shut down exposed on X, once the class
+is firm, and replaces (or re-prints) the worst under 85% when it can pay and the payback is under
+10 min; ignore answers nothing (the safe default and its repairs run), rebuilds and replaces
+nothing. The report adds machines rebooted, latched and lost, research lost, blackout seconds,
+the capability of every structure and machine at the end, replacements and flare losses.
 
 ## 17. The player's answers, and what is still open
 

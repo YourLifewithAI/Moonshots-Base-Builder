@@ -343,6 +343,8 @@ export function transitArrive(s: GameState, dt: number): Arrivals {
     delete r.task;
     const t = r.trip;
     if (!t || t.stuck) continue;
+    // a flare reboot holds it where it stands: no driving, no work (docs/16 §4.5)
+    if ((r.rebootUntil ?? 0) > s.simTime) continue;
     // out of charge, it waits where it stands; on its RPU alone it creeps (core/unitPower.ts)
     const pw = r.pw ?? 1;
     if (t.t < t.dur && pw > 0) {

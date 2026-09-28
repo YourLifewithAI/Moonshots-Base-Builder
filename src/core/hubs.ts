@@ -53,6 +53,7 @@ import { mulberry32, hashString } from './rng';
 import { recordSpend } from './flowBook';
 import { alert, condition } from './economy';
 import { fmtClock } from './daynight';
+import { FLARE_EFFECTS } from '../data/spaceWeather';
 
 type Pt = [number, number];
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -353,8 +354,10 @@ export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, ni
 }
 
 /** A unit's rates digging `kind` ground (its wear, the techs, the site's ISRU, the deposit). */
-export function unitRates(s: GameState, mods: Mods, site: SiteDef, u: Pick<Hauler, 'type' | 'wear'>, kind: DepositKind | undefined, night = false): EffectiveRates {
+export function unitRates(s: GameState, mods: Mods, site: SiteDef, u: Pick<Hauler, 'type' | 'wear'> & { cap?: number }, kind: DepositKind | undefined, night = false): EffectiveRates {
+  // its rad scars (docs/16 §4.13) derate the bucket as wear does
   const stub = { id: -1, type: u.type, gx: 0, gz: 0, rot: 0, enabled: true, automated: true, priority: 2, wear: u.wear, dust: 0,
+    ...(u.cap !== undefined ? { cap: u.cap } : {}),
     construction: 0, buildTotal: 0, active: true, idleReason: '', ...(kind ? { deposit: kind } : {}) } as BuildingState;
   return effectiveRates(u.type, mods, site, stub, { agentRun: true, robotic: true, isNight: night });
 }
@@ -631,12 +634,14 @@ export function stakeHubPit(s: GameState, mods: Mods, site: SiteDef, b: Building
 /** A job's price at this site. */
 export function jobCost(b: BuildingState, kind: HubJob['kind'], site: SiteDef): Record<'metals' | 'parts', number> {
   const c = kind === 'bay' ? HUB.bay.cost : UNIT_DEFS[hubUnit(b.type, site)].cost;
-  return { metals: Math.ceil(c.metals * site.buildCostMult), parts: Math.ceil(c.parts * site.buildCostMult) };
+  // a scarred unit's Re-print (docs/16 §4.14): half its price
+  const k = kind === 'reprint' ? FLARE_EFFECTS.replace.cost : 1;
+  return { metals: Math.ceil(c.metals * site.buildCostMult * k), parts: Math.ceil(c.parts * site.buildCostMult * k) };
 }
 
 /** A job's print time at this site, s. */
 export function jobTime(b: BuildingState, kind: HubJob['kind'], site: SiteDef, mods: Pick<Mods, 'hubPrintTime'>): number {
-  const t = kind === 'bay' ? HUB.bay.printS : UNIT_DEFS[hubUnit(b.type, site)].printS;
+  const t = kind === 'bay' ? HUB.bay.printS : UNIT_DEFS[hubUnit(b.type, site)].printS * (kind === 'reprint' ? FLARE_EFFECTS.replace.time : 1);
   return Math.round(t * site.buildCostMult * mods.hubPrintTime);
 }
 
@@ -1080,7 +1085,8 @@ export function ensureHubs(s: GameState, mods: Mods, site: SiteDef) {
       }
     }
   }
-  const alive = new Set(s.buildings.filter((b) => b.hub && !isSite(b)).map((b) => b.id));
+  // a hub being replaced for its rad scars (docs/16 §4.14) keeps its units, bays and queue
+  const alive = new Set(s.buildings.filter((b) => b.hub && (!isSite(b) || !!b.replace)).map((b) => b.id));
   for (const u of [...s.haulers]) {
     if (alive.has(u.hub)) continue;
     const old = s.buildings.find((b) => b.id === u.hub);
@@ -1134,6 +1140,17 @@ export function printTick(s: GameState, mods: Mods, site: SiteDef, dt: number, l
     j.t += dt;
     if (j.t < j.total - 1e-9) continue;
     h.queue.shift();
+    if (j.kind === 'reprint') {
+      // the old unit is scrapped as the new one rolls out: same bay, capability 100%, wear 0 (docs/16 §4.14)
+      const u = s.haulers.find((x) => x.id === j.unit);
+      if (u) {
+        delete u.cap; delete u.scars; delete u.capWarned; delete u.lastFlare;
+        u.wear = 0;
+        if (s.weather) s.weather.replaced = (s.weather.replaced ?? 0) + 1;
+        alert(s, `RE-PRINTED — ${unitTag(u)} rolls out of ${hubName(b)} new: capability 100%`, 'info', { select: b.id });
+      }
+      continue;
+    }
     if (j.kind === 'bay') {
       const c = nextBayCell(s, b, bayCells(s, b).length);
       if (c) { s.roads!.push({ gx: c[0], gz: c[1], left: 0, bay: true }); bumpRoads(s); }

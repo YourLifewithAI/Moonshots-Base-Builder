@@ -533,10 +533,11 @@ test('dose: Recall EVA before the flare saves them; ignored at major, a lethal d
     const recalled = { log: window.hz.log().slice(-1)[0], deaths: g.getHazards().deaths.length, sick: g.getHazards().state.sick.length };
     wait(400); // the gap after the flare
     wait(Math.round(720 - (g.getState().simTime % 720) + 60)); // EVA crews go out by day
-    // ignored: the slot is busy, so Medevac fails and names when it frees
+    // ignored: the slot is busy, so Medevac fails and names when it frees; only a real X kills (docs/16 §9.2)
     g.orderResupply();
+    g.forceFlare('X', { drill: false });
     g.forceHazard('dose', undefined, { drill: false, tier: 2 });
-    wait(62);
+    wait(122);
     const acute = window.hz.alert('^ACUTE DOSE');
     const h = window.hz.one('dose');
     g.counter('medevac', h?.id);

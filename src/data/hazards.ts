@@ -363,7 +363,9 @@ export const HZ = {
     source: { ice: 1, volatiles: 0.8, smelter: 0.5 },
   },
   dose: {
-    offDays: [0.5, 1, 1.5] as const, morale: 5, walkInS: 20, lethalShare: [0, 0, 1 / 3] as const, limit: 6, warnAt: 5,
+    // by class (docs/16 §9.2): a C keeps the caught off ¼ day and never kills; an M the tier's days, never
+    // lethal (past the limit, grounded until the load falls under warnAt); only an X is lethal, by tier
+    offDays: [0.5, 1, 1.5] as const, offDaysC: 0.25, morale: 5, walkInS: 20, lethalShare: [0, 0.25, 1 / 3] as const, limit: 6, warnAt: 5,
     shelter: 0.5, criticalS: 180,
   },
   cabinFever: {
@@ -378,7 +380,12 @@ export const HZ = {
     reimage: { data: 40, s: 60, watchdogS: 20 }, patch: { data: 200, s: 120, immuneS: CYCLE_S },
     ransom: 0.15, isolateS: 30, nodesPerRisk: 12, supplyChain: 0.2, criticalS: 180, detectMult: 2,
   },
-  firmware: { minRovers: 4, share: [0.3, 0.5, 0.7] as const, deadline: [480, 360, 240] as const, reflashS: 30, radHard: 0.5 },
+  firmware: {
+    minRovers: 4, share: [0.3, 0.5, 0.7] as const, deadline: [480, 360, 240] as const, reflashS: 30, radHard: 0.5,
+    // the flare's bit flips by class (docs/16 §9.3): the share × C 0.5 · M 1 · X 1.25 (to 90%); a C only
+    // reboots its hit (30 s); an M's missed deadline is re-flashed from Earth 60 s late, no loss
+    flareMult: [0.5, 1, 1.25] as const, flareMax: 0.9, cRebootS: 30, earthLateS: 60,
+  },
   rogueDrones: { rangeM: 60, stripPerS: 0.01, killS: 60, targets: [0, 1, 2] as const },
   runaway: { sites: [0, 4, 8] as const, everyS: 20, weldS: 20, replicator: 1.5 },
   hackedOutpost: { chips: 5, lossS: CYCLE_S },

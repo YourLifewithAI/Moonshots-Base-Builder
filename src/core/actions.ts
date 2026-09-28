@@ -6,7 +6,7 @@ import type { ProspectId } from '../data/lunarMap';
 import type { ResourceId } from '../data/resources';
 import type { AutoFamily, AutoRuleId } from '../data/automation';
 import type { CounterId } from '../data/hazards';
-import type { ArrayChoice, FlareClass } from '../data/spaceWeather';
+import type { ArrayChoice, FlareClass, FlareCounterId } from '../data/spaceWeather';
 
 export type Action =
   | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3;
@@ -69,7 +69,7 @@ export type Action =
   | { kind: 'setFeedPlan'; id: number; on: boolean }                // Feed Planner opt-out
   // hazards (core/hazards.ts, docs/14 §3.7): a counter (id: the hazard, or
   // the building for Clean, Reimage and Repair), and a node's air gap
-  | { kind: 'counter'; counter: CounterId; id?: number }
+  | { kind: 'counter'; counter: CounterId | FlareCounterId; id?: number }
   | { kind: 'airGap'; id: number; on: boolean }
   // space weather (core/spaceWeather.ts, docs/16 §5): the pop-up's Confirm and
   // its boxes, a class's remembered choice, a field's override, wrecks, repairs
