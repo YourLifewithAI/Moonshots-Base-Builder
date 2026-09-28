@@ -266,12 +266,13 @@ test('at the cutoff a deposit is EXHAUSTED: its units re-route, the pit digs on 
       alerts2: H.alerts(), units: H.units(hub).map((u: any) => u.target),
     };
   });
-  // dug out: its ore ran to the cutoff; it holds about what the model says (its pit off the centre a little)
+  // dug out: its ore ran to the cutoff; it holds about what the model says (its pit off the
+  // centre a little, and this test digs it in big batches that overrun the last carve)
   expect(a.p.spent).toBe(true);
   expect(['exhausted', 'boxed']).toContain(a.p.state);
   expect(a.res.left).toBe(0);
   expect(a.res.dug).toBeGreaterThan(a.truth.ore * 0.5);
-  expect(a.res.dug).toBeLessThan(a.truth.ore * 1.3);
+  expect(a.res.dug).toBeLessThan(a.truth.ore * 1.6);
   expect(a.alerts.some((t: string) => /^DEPOSIT EXHAUSTED — high-Ti basalt #0/.test(t))).toBe(true);
   // the pit stays open at plain grade for a smelter
   if (a.choice) expect(a.choice.q).toBeCloseTo(0.62, 6);
@@ -290,38 +291,80 @@ test('at the cutoff a deposit is EXHAUSTED: its units re-route, the pit digs on 
   expect(a.units.every((k: string | null) => k !== 'dep:ilmenite-0')).toBe(true);
 });
 
-test('a pit hemmed in on every side is BOXED IN; bedrock benches reopen it at ×0.3, and it deepens', async ({ page }) => {
+test('a pit hemmed in on every side is BOXED IN: no faces, its words name what hems it in', async ({ page }) => {
+  test.setTimeout(300_000);
+  await start(page, 'mare', 'human');
+  const a = await page.evaluate(() => {
+    const g = window.__game!;
+    const x = -60, z = -40;
+    // two habitats carry the build network round the ground to hem in
+    H.place('habitat', -45, -5, 3);
+    g.finishConstruction();
+    H.place('habitat', -95, -25, 3);
+    g.finishConstruction();
+    // a pit first, then a closed ring of labs whose 12 m setbacks reach its rim and overlap all round
+    H.dig(x, z, 1500, 6);
+    const p0 = g.getPits().pits.find((q: any) => q.key.startsWith('dig:'));
+    let labs = 0;
+    for (let k = 0; k < 12; k++) {
+      const th = (k / 12) * Math.PI * 2;
+      if (H.place('lab', p0.cx + Math.cos(th) * (p0.R + 17), p0.cz + Math.sin(th) * (p0.R + 17), 2) !== null) labs++;
+    }
+    g.finishConstruction();
+    for (let i = 0; i < 40 && g.getPits().pits.find((q: any) => q.id === p0.id)?.state !== 'boxed'; i++) H.dig(x, z, 800, 4);
+    g.advanceGameSeconds(1);
+    const p = g.getPits().pits.find((q: any) => q.id === p0.id);
+    return { labs, p0, p, alerts: H.alerts(), faces: g.faceCapacity(p.key) };
+  });
+  expect(a.labs).toBeGreaterThanOrEqual(11); // (a missing one's neighbours' setbacks still overlap)
+  expect(a.p.state).toBe('boxed');
+  expect(a.p.R).toBeLessThan(a.p0.R + 6);
+  expect(a.faces.now).toBe(0);
+  expect(a.alerts.some((t: string) => /^PIT BOXED IN — pit \d+ is hemmed in by .*Research Lab #\d+.* · Deep Sounding Network digs 2 m below it$/.test(t))).toBe(true);
+});
+
+test('bedrock benches reopen a dug-out pit: it deepens 2 m under its held rim, its ore at ×0.3 dig and 0.8 of the grade', async ({ page }) => {
   test.setTimeout(300_000);
   await start(page);
   const a = await page.evaluate(() => {
     const g = window.__game!;
-    const x = -64, z = -44;
-    for (const [dx, dz] of [[30, 0], [-30, 0], [0, 30], [0, -30], [22, 22], [-22, 22], [22, -22], [-22, -22]]) H.place('lab', x + dx, z + dz, 2);
+    g.revealAll();
+    const d = H.clearDeposit('ilmenite');
+    const key = `dep:${d.id}`;
+    for (let i = 0; i < 60 && !H.pit(key)?.spent; i++) H.dig(d.x, d.z, 800, 2);
+    H.dig(d.x, d.z, 300, 2);
+    const p = H.pit(key);
+    const hub = H.hub('smelter', null, 0, -30, 30); // (its type sets the grade's process)
     g.finishConstruction();
-    for (let i = 0; i < 40 && g.getPits().pits.find((p: any) => p.key.startsWith('dig:'))?.state !== 'boxed'; i++) H.dig(x, z, 800, 4);
-    const p = g.getPits().pits.find((q: any) => q.key.startsWith('dig:'));
-    const alerts = H.alerts();
-    const faces = g.faceCapacity(p.key);
+    const qSpent = g.targetGrade(hub, key);
     g.completeTech('deepSounding');
+    g.advanceGameSeconds(2);
+    const reopened = H.pit(key);
+    const qRock = g.targetGrade(hub, key);
+    const res = g.getReserves(d.id);
+    for (let i = 0; i < 40 && H.pit(key).rockR !== undefined; i++) H.dig(d.x, d.z, 400, 2);
     g.advanceGameSeconds(1);
-    const reopened = g.getPits().pits.find((q: any) => q.id === p.id);
-    for (let i = 0; i < 30 && g.getPits().pits.find((q: any) => q.id === p.id).rockR !== undefined; i++) H.dig(x, z, 600, 3);
-    const done = g.getPits().pits.find((q: any) => q.id === p.id);
-    return { p, alerts, faces, reopened, done, alerts2: H.alerts() };
+    return { p, qSpent, reopened, qRock, res, done: H.pit(key), alerts: H.alerts(), centre: res.truth.centre };
   });
-  expect(a.p.state).toBe('boxed');
-  expect(a.faces.now).toBe(0);
-  expect(a.alerts.some((t: string) => /^PIT BOXED IN — pit \d+ is hemmed in by .*Research Lab #\d+/.test(t))).toBe(true);
-  // bedrock benches: it reopens, holding its rim, and cuts 2 m below its loose layer
+  expect(a.p.spent).toBe(true);
+  // dug out: a smelter would dig it on at plain grade
+  expect(a.qSpent).toBeCloseTo(0.62, 6);
+  // reopened: its rim held, its floor to go 2 m into bedrock; bedrock carries 80% of the grade above
   expect(a.reopened.state).toBe('open');
   expect(a.reopened.rockR).toBeCloseTo(a.p.R, 6);
   expect(a.reopened.rockTo).toBe(2);
-  expect(a.alerts2.some((t: string) => /^DEEPER BENCHES — pit \d+ reopens/.test(t))).toBe(true);
+  expect(a.res.bedrock).toBe(true);
+  expect(a.qRock).toBeGreaterThan(0.62 * 0.8 - 1e-9);
+  expect(a.qRock).toBeLessThan(a.centre * 0.8 + 1e-9);
+  expect(a.alerts.some((t: string) => /^DEEPER BENCHES — high-Ti basalt #\d reopens: .* at ×0\.3 dig \(Deep Sounding Network\)$/.test(t))).toBe(true);
+  // its benches cut: deeper by up to 2 m, no wider, and back to dug out
+  expect(a.done.rockR).toBeUndefined();
   expect(a.done.rock).toBe(2);
   expect(a.done.deep).toBeGreaterThan(a.p.deep + 1);
   expect(a.done.deep).toBeLessThanOrEqual(a.p.L + 2 + 1e-6);
-  expect(a.done.R).toBeLessThanOrEqual(a.p.R + 1e-6);
-  expect(a.done.state).toBe('boxed');
+  // (what it was owed past its benches widens it on a little, at plain grade)
+  expect(a.done.R).toBeLessThanOrEqual(a.p.R + 1.5);
+  expect(a.done.state).toBe('exhausted');
 });
 
 test('the survey: a free rover cores the deposit, pays 30 energy and 2⚙, and reads it to ±30/15/5% with the truth inside', async ({ page }) => {
@@ -331,11 +374,12 @@ test('the survey: a free rover cores the deposit, pays 30 energy and 2⚙, and r
     const g = window.__game!;
     const far = g.getDeposits().filter((d: any) => !d.revealed)[0];
     const unmapped = far ? g.surveyWhy(far.id) : 'UNMAPPED';
+    g.advanceGameSeconds(1); // the bank settles to its capacity
     const s0 = g.getState();
     const e0 = s0.powerStored, p0 = s0.resources.parts, d0 = s0.data;
     const before = g.getReserves('ilmenite-0');
     g.surveyDeposit('ilmenite-0');
-    g.advanceGameSeconds(1);
+    g.advanceGameSeconds(0); // the action alone, no tick
     const s1 = g.getState();
     const paid = { energy: e0 - s1.powerStored, parts: p0 - s1.resources.parts };
     const job = s1.oreSurvey.jobs.find((j: any) => j.id === 'ilmenite-0');
