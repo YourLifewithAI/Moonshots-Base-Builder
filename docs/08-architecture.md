@@ -30,14 +30,18 @@ src/
                           advanced by the clock; who has arrived where (economy step 0); ETAs
     zones.ts              extraction zones (docs/15 §5a): the revealed deposits' cells and rims; pit zones (explicit cells)
     pits.ts               strip-mine pits (docs/17 §8, §11): s.pits, the growth (digInto, called by hubs.ts dug),
-                          economy step 4.2 (stake, carve, dump), pit zones, the placement and grading refusals
+                          economy step 4.2 (stake, carve, dump), pit zones, the placement and grading refusals;
+                          Phase 4: the states (exhausted, boxed, bedrock, reclaimed; `news` for hubs.ts pitNews),
+                          faceCapacity, targetGrade, reservesOf, stripMorale, Reclaim, deposit surveys (step 4.3)
+    ore.ts                grade, the ore halo, the cutoff, reserves and the survey's reading (docs/17 §9–§13; pure,
+                          derived from (seed, deposit id)); tables in data/ore.ts
     hubs.ts               extraction hubs (docs/17 Phases 1–2): hub state, units (s.haulers), the print queue, bays,
                           the auto choice, trips into pits by their ramps, plain pits, the pile and hoppers,
                           economy step 4.1 (unitsStep), Assign / Open pit / Send / Recall, old-save migration
     hubView.ts            the hub and unit inspectors' payload ($fleet.hubs, $fleet.units)
     hubPreview.ts         the preview and the highlight (docs/17 Phase 5): hubLight (a hub's lit deposits, plain
                           pits and stake, with trips, faces and pits), the ghost's HUB block and its headline,
-                          the IN THE PIT'S WAY ring warning (checkPlacement); reservesOf, Phase 4's hook (null today)
+                          the IN THE PIT'S WAY ring warning (checkPlacement); reservesOf (Phase 4's numbers)
     research.ts           availability, cost, the queue, charters (the destiny pick gates eras 3–8),
                           destinyOf (the meter, the band, the reach), techSchema migration
     automation.ts         the Builder (docs/13): rule signals + state machine, budget, orders, vetoes,
@@ -226,7 +230,8 @@ in `game.ts`):
 | 4 | Worker allocation | Crew assigned in the same `(priority, id)` order; unstaffed buildings idle with reason `crew`. Then agents cover: once stations may run on agents, a short-handed one goes agent-run (`agentCover`) from the next tick, and every 30 s free workers take covered ones back (not a station set to Crewed by hand, `crewPinned`; off with `s.agentCover = false`) |
 | 5 | Production, tier order | `PROD_ORDER`: extraction → smelter/refinery/partsFab → life → foilFactory/massDriver → lab. **Same-tick chaining**: this tick's regolith can smelt this tick. Inputs checked/consumed, outputs scaled by tech mults × site ISRU × morale work-mult (0.5 + morale/100 × 0.7) × wear penalty; launch output × site launch mult; labs emit data at 0.3/s × workMult^1.5 |
 | 5a | Hub units (`unitsStep`, economy step 4.1, first in `PROD_ORDER`'s processing tier) | ▲ changed elsewhere goes to or from the pile. Each unit, in id order, runs its cycle: bay → road → gate → down its pit's ramp → face → dig → back → tip into its own hub's hopper. Then the print queue at each hub. Hubs draw the pile first (smelters and refineries), then their hopper. `resources.regolith` is written back as pile + Σ hoppers |
-| 5b | Pits (`pitsStep`, economy step 4.2) | Each unit's dig adds its tonnes to its target's pit (`digInto`, from `dug` in core/hubs.ts). Then, in id order on the pits' own clock: a new pit stakes free ground; an open one carves once its rim would move 0.5 m or 150 m³ is owed (at most every 5 s); its heap takes 0.81× the cut. Pit zones follow; a grown one bumps `roadRev`. Nothing feeds back into production |
+| 5b | Pits (`pitsStep`, economy step 4.2) | Each unit's dig adds its tonnes, at the grade it cut, to its target's pit (`digInto`, from `dug` in core/hubs.ts). Then, in id order on the pits' own clock: a new pit stakes free ground; an open one carves once its rim would move 0.5 m or 150 m³ is owed (at most every 5 s); its heap takes 0.81× the cut. A deposit pit whose cut reaches the cutoff is exhausted; one that cannot widen is boxed in; bedrock benches reopen either; Reclaim fills. Pit zones follow; a grown one bumps `roadRev`. The hubs read the news next tick (units re-route, alerts). A hub's output is recipe × the q its units tipped (docs/17 §9) |
+| 5c | Deposit surveys (`oreSurveyStep`, 4.3) | A rover on a survey job (`RoverUnit.core`, assigned before road jobs in `assignRovers`) cores once its `core` trip has arrived; research re-reads surveyed deposits; masts survey ice and soil with Neutron Spectrometry |
 | 6 | Life support & crew | O₂ 0.02 and food 0.008 per crew-second (× closed-loop mult). Shortage runs a 60 s grace timer, then loses 1 crew per 30 s with a −15 morale hit. Growth: morale > 60 + a free powered bed + fed + life support that carries crew+1 for a lunar day at the current flow → +1 crew per lunar day |
 | 7 | Parts upkeep, wear, dust | Each building pays `upkeepParts/day` (× tech × site mults). Paid → wear recovers, solar dust nets toward clean. Unpaid → wear climbs (0.5/day) toward the −50% output threshold, dust climbs to a 50% cap. The tick's net flow per resource so far (deliveries and research goods excluded) feeds a 20 s average, `state.rates`, which the info panels show |
 | 8 | Morale | Target = site base + active-building deltas + fed/starving + crowding + brownout + flare penalties, clamped 0–100; state lerps toward it at 0.05/tick |
