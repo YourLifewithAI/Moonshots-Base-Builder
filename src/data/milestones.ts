@@ -75,7 +75,10 @@ export const MILESTONES: MilestoneDef[] = [
   {
     // docs/17 §14.1: the smelter comes with its first excavator, which brings the regolith in
     id: 'dig-in', title: 'Dig In',
-    hint: 'Raise a Regolith Smelter by the high-Ti basalt (the overlay [I] shows it): its excavator digs and brings in the first 50 regolith.',
+    hint: 'Raise a Regolith Smelter beside high-Ti basalt, outside its future pit ring. Its included excavator delivers to that hub’s hopper. The First mine guide shows the ground and the controls.',
+    hintFor: (s) => s.siteId === 'southpole'
+      ? 'No high-Ti basalt at the pole: raise a Regolith Smelter on mapped plain ground with room for its pit. Its included excavator brings the first 50 regolith to its hopper. Open the First mine guide for help.'
+      : 'Raise a Regolith Smelter beside high-Ti basalt, outside its future pit ring. Its included excavator delivers to that hub’s hopper. Open the First mine guide to show the ground.',
     check: (s) => (s.stats?.produced?.regolith ?? 0) >= 50 || s.resources.regolith >= 50,
     progress: (s) => `${built(s, 'smelter')} · Regolith ${Math.floor(s.stats?.produced?.regolith ?? 0)}/50 delivered`,
   },

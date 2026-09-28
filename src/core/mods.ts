@@ -17,7 +17,7 @@ import {
 import type { BuildingState, GameState, OutpostState } from './state';
 import { AUTO, type AutoFamily } from '../data/automation';
 
-export type ActionId = 'overclock' | 'downlink' | 'sentinel';
+export type ActionId = 'overclock' | 'downlink' | 'sentinel' | 'electrolysis';
 export type SurveyTier = 0 | 1 | 2 | 3 | 4;
 
 export interface Mods {
@@ -76,11 +76,15 @@ export interface Mods {
   haulBucketMult: number;
   /** hub units off the road (docs/17 §5.1): off-road speed × this */
   haulOffroadMult: number;
+  haulDigMult: number;
   /** extraction hubs (docs/17 §4.2, core/hubs.ts): the highest level a hub may buy,
    *  bays every hub gets free, and the print time's multiplier */
   hubLevel: 1 | 2 | 3;
   hubBays: number;
   hubPrintTime: number;
+  hubPrintCost: number;
+  /** Water draw multiplier while a Water Management Plant operates. */
+  reclaimWater: number;
   /** ore grade (docs/17 §9.1, core/ore.ts): every load's q × gradeAll; hydrogen
    *  reduction's × gradeH2 as well (Beneficiation) */
   gradeAll: number;
@@ -199,7 +203,8 @@ export function computeMods(
     feedBonus: Object.fromEntries(FEED_KINDS.map((k) => [k, 1])) as Record<FeedKind, number>,
     housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
-    haulSpeedMult: 1, haulBucketMult: 1, haulOffroadMult: 1, hubLevel: 1, hubBays: 0, hubPrintTime: 1,
+    haulSpeedMult: 1, haulBucketMult: 1, haulOffroadMult: 1, haulDigMult: 1,
+    hubLevel: 1, hubBays: 0, hubPrintTime: 1, hubPrintCost: 1, reclaimWater: 1,
     gradeAll: 1, gradeH2: 1, pitBedrockBenches: 0,
     surveyPrecision: DEP_SURVEY.precision, surveyTimeMult: 1, mastSurveyKinds: new Set(),
     roadSpeedMult: 1, roadHaulMult: 1, roadNightMult: 1, roadDustMult: 1, roadCellMult: 1,
@@ -295,7 +300,15 @@ export function computeMods(
           m.haulSpeedMult *= fx.speedMult ?? 1;
           m.haulBucketMult *= fx.bucketMult ?? 1;
           m.haulOffroadMult *= fx.offroadMult ?? 1;
+          m.haulDigMult *= fx.digMult ?? 1;
           break;
+        case 'hubLevel': m.hubLevel = Math.max(m.hubLevel, fx.level) as Mods['hubLevel']; break;
+        case 'hubBays': m.hubBays += fx.delta; break;
+        case 'hubPrint':
+          m.hubPrintTime *= fx.timeMult ?? 1;
+          m.hubPrintCost *= fx.costMult ?? 1;
+          break;
+        case 'reclaim': m.reclaimWater *= fx.water; break;
         case 'road':
           m.roadSpeedMult *= fx.speedMult ?? 1;
           m.roadHaulMult *= fx.haulMult ?? 1;
@@ -469,6 +482,8 @@ export const OVERCLOCKABLE: readonly BuildingId[] = [
 ];
 
 export interface RateOpts {
+  /** An operating reclamation loop reduces only farms' fresh-water input. */
+  waterReclaim?: number;
   /** default: b ? b.automated : false */
   agentRun?: boolean;
   /** robotic run (agent labs hold 0.75) */
@@ -517,6 +532,7 @@ export function effectiveRates(
   const workMult = opts.workMult ?? 1;
   const g = opts.feed ?? NO_FEED;
   const deposit = b?.deposit;
+  const electrolysis = type === 'waterPlant' && !!b?.electrolysis && mods.actions.has('electrolysis');
 
   let powerKW = 0;
   if (def.powerKW > 0) {
@@ -529,11 +545,20 @@ export function effectiveRates(
     const dn = opts.isNight === undefined ? 1 : opts.isNight ? mods.nightDrawMult : mods.dayDrawMult;
     // a water plant off the ice bakes mature soil: a hotter retort
     const soil = type === 'waterPlant' && !site.hasIce ? FEED.soilKW : 1;
-    powerKW = def.powerKW * mods.powerMult[type] * tax * oc * dn * soil;
+    // Heating mature soil scales the retort, not the flat loads of its
+    // dispatch mast or greywater still.
+    const plantKW = (def.powerKW - mods.powerDelta[type]) * soil + mods.powerDelta[type];
+    powerKW = plantKW * mods.powerMult[type] * tax * oc * dn;
+    // The stack's load is separate from the soil retort: only an enabled
+    // stack draws it, and soil heating must not multiply it again.
+    if (electrolysis) powerKW -= 10 * mods.powerMult[type] * tax * oc * dn;
   }
 
   const inputs: Partial<Record<ResourceId, number>> = {};
   for (const [r, v] of Object.entries(def.inputs)) inputs[r as ResourceId] = (v ?? 0) * mods.inputMult[type] * oc;
+  if ((type === 'hydroponics' || type === 'greenhouseRing') && inputs.water !== undefined) {
+    inputs.water *= opts.waterReclaim ?? 1;
+  }
 
   let outMult = mods.outputMult[type] * oc * wear;
   if (crewed) outMult *= workMult * mods.crewedOutputMult[type];
@@ -567,6 +592,11 @@ export function effectiveRates(
     }
     outputs[r as ResourceId] = amt;
   }
+  if (electrolysis) {
+    const split = (outputs.water ?? 0) * 0.4;
+    outputs.water = (outputs.water ?? 0) - split;
+    outputs.oxygen = (outputs.oxygen ?? 0) + split * 0.89;
+  }
 
   let data = 0;
   if (type === 'lab') {
@@ -591,6 +621,13 @@ export function effectiveRates(
     agentRun,
     feedFactor,
   };
+}
+
+/** A stopped or starved plant cannot reclaim water. Call after the plants
+ *  have run in the production pass, or with the published active state. */
+export function waterReclaimFactor(s: Pick<GameState, 'buildings'>, mods: Pick<Mods, 'reclaimWater'>): number {
+  return mods.reclaimWater < 1 && s.buildings.some((b) => b.type === 'waterPlant' && b.enabled && b.active && !b.wreck && !(b.construction > 0))
+    ? mods.reclaimWater : 1;
 }
 
 /** Whether stations may switch between crewed and agent-run — the one rule

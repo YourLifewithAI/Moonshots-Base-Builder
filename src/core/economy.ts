@@ -21,7 +21,7 @@ import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
 import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState, type RoverUnit } from './state';
 import {
-  canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, wearDerate, type EffectiveRates, type Mods,
+  canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, waterReclaimFactor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
 import { computeEra, destinyOf, eraTick, insightTick, producerHint, researchTick, uplinkShare } from './research';
 import { explorationTick } from './exploration';
@@ -179,9 +179,9 @@ export function crewReserve(s: Pick<GameState, 'crew'>, mods: Pick<Mods, 'inputM
  *  can: at the current net flow, each must keep crew+1 alive for a lunar day,
  *  with at least five minutes of their supply in the tanks (night stops most
  *  producers). No production means a full lunar day in reserve. */
-export function boardingShortfall(s: GameState, lsMult: number): '' | 'oxygen' | 'food' | 'water' {
+export function boardingShortfall(s: GameState, lsMult: number, waterMult = 1): '' | 'oxygen' | 'food' | 'water' {
   for (const [rid, rate] of LIFE_SUPPORT) {
-    const perCrew = rate * lsMult;
+    const perCrew = rate * lsMult * (rid === 'water' ? waterMult : 1);
     const flow = s.rates?.[rid] ?? -s.crew * perCrew;
     const deficit = Math.max(0, perCrew - flow); // the newcomer's share the base can't make
     const stock = s.resources[rid];
@@ -249,7 +249,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     let r = rateCache.get(b.id);
     if (!r) {
       // a hub runs on its own feed (docs/17 §3.2); the rest read the base's
-      r = effectiveRates(b.type, mods, site, b, { ...rateOpts, agentRun: isAuto(b), feed: b.hub?.feed ?? s.feed });
+      r = effectiveRates(b.type, mods, site, b, { ...rateOpts, agentRun: isAuto(b), feed: b.hub?.feed ?? s.feed,
+        waterReclaim: waterReclaimFactor(s, mods) });
       rateCache.set(b.id, r);
     }
     return r;
@@ -842,6 +843,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       // recipe, multipliers, agents, morale, wear, overclock, feed, site and deposit
       const r = effectiveRates(type, mods, site, b, {
         ...rateOpts, agentRun: isAuto(b), feed: b.hub?.feed ?? s.feed, uplinkShare: share,
+        waterReclaim: waterReclaimFactor(s, mods),
       });
       // what it asks for counts as demand, covered or not (the flow book)
       for (const [rid, rate] of Object.entries(r.inputs)) add(want, rid as ResourceId, (rate ?? 0) * dt);
@@ -947,7 +949,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // ── 5 · life support & crew (nobody aboard → nothing to keep alive) ─
   const o2Need = s.crew * CREW.oxygenPerCrew * lsMult * dt;
   const foodNeed = s.crew * CREW.foodPerCrew * lsMult * dt;
-  const waterNeed = s.crew * CREW.waterPerCrew * lsMult * dt;
+  const waterMult = waterReclaimFactor(s, mods);
+  const waterNeed = s.crew * CREW.waterPerCrew * lsMult * waterMult * dt;
   add(want, 'oxygen', o2Need);
   add(want, 'food', foodNeed);
   add(want, 'water', waterNeed);
@@ -990,7 +993,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // supply the crew notices, and morale sinks (robots notice nothing)
   const o2Rate = Math.max(1e-6, s.crew * CREW.oxygenPerCrew * lsMult);
   const foodRate = Math.max(1e-6, s.crew * CREW.foodPerCrew * lsMult);
-  const waterRate = Math.max(1e-6, s.crew * CREW.waterPerCrew * lsMult);
+  const waterRate = Math.max(1e-6, s.crew * CREW.waterPerCrew * lsMult * waterMult);
   const o2Anxious = s.crew > 0 && s.resources.oxygen / o2Rate < LOW_SUPPLY_S;
   const foodAnxious = s.crew > 0 && s.resources.food / foodRate < LOW_SUPPLY_S;
   const waterAnxious = s.crew > 0 && s.resources.water / waterRate < LOW_SUPPLY_S;
@@ -1011,7 +1014,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // growth — robotic missions attract settlers only after Human Cohabitation
   // (its crew rotation boards first), and nobody boards a base that cannot
   // keep one more alive
-  const sustainable = boardingShortfall(s, lsMult) === '';
+  const sustainable = boardingShortfall(s, lsMult, waterMult) === '';
   // a destiny sets the pace: charters invite settlers faster, a Lights-Out
   // Charter invites none, and a crew sent home at FIRST LIGHT does not return
   const invited = mods.growthMult > 0 && !s.crewHome;

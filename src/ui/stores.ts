@@ -6,7 +6,7 @@ import type { ResourceId } from '../data/resources';
 import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import type { SiteId } from '../data/sites';
-import type { AlertMsg, BuildingState } from '../core/state';
+import type { AlertMsg, BuildingState, HubPolicy } from '../core/state';
 import type { DestinyView, ResearchView } from '../core/research';
 import type { AutomationView } from '../core/automation';
 import type { HazardView } from '../core/hazards';
@@ -47,6 +47,7 @@ export const $vitals = atom({
   expedition: 'human' as 'human' | 'robotic',
   boardingHold: '' as '' | 'oxygen' | 'food' | 'water',
   lifeSupport: { oxygen: 0, food: 0, water: 0 },
+  waterReclaim: 1,
   sites: 0, welding: 0, weldParts: 0, upkeep: 0,
   /** robots lent to a survey (not in botsTotal) */
   surveying: 0,
@@ -427,6 +428,9 @@ export interface PitView {
 }
 /** a hub unit (docs/17 §4.6) as the ROBOTS list and its own inspector show it */
 export interface UnitView {
+  planner: boolean;
+  feedPlanOff: boolean;
+  planWhy: string;
   id: number;
   /** 'E3' */
   tag: string;
@@ -457,6 +461,11 @@ export interface UnitView {
 }
 /** a hub (docs/17 §4.7): its hopper, feed, units, queue and pits */
 export interface HubView {
+  electrolysis: boolean;
+  canElectrolysis: boolean;
+  policy: HubPolicy;
+  planner: boolean;
+  plannerWhy: string;
   id: number;
   name: string;
   level: number;

@@ -1,0 +1,34 @@
+/* The guide and objectives share one slot, so neither covers the other's controls. */
+#first-mine-stack {
+  position: absolute; left: var(--gutter); bottom: var(--gutter); width: 310px;
+  display: flex; flex-direction: column; gap: 6px; max-height: 62vh;
+}
+#first-mine-stack[hidden], #first-mine-stack [hidden] { display: none !important; }
+#first-mine-stack #milestones { position: static; width: 100%; max-height: 52vh; }
+#first-mine-toggle { align-self: flex-start; text-align: left; }
+#first-mine { padding: 12px; display: flex; flex-direction: column; min-height: 0; font-size: 13px; line-height: 1.45; }
+#first-mine .fm-copy { overflow-y: auto; min-height: 0; }
+#first-mine :is(.fm-head, .fm-actions, .fm-note) { flex-shrink: 0; }
+#first-mine .fm-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+#first-mine .fm-head .btn { flex: none; padding: 4px 6px; font-size: 10px; }
+#first-mine p { margin-top: 9px; }
+#first-mine #fm-task { color: var(--paper); }
+#first-mine #fm-detail { color: rgba(var(--paper-rgb), 0.8); }
+#first-mine .fm-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+#first-mine .fm-actions .btn { white-space: normal; text-align: left; }
+#first-mine .fm-note { font-size: 11px; color: rgba(var(--paper-rgb), 0.65); }
+html.touch #first-mine-stack {
+  left: var(--content-l); top: var(--content-t); bottom: auto; width: min(330px, 47vw);
+  max-height: calc(var(--app-h) - var(--content-t) - var(--edge-b) - 8px);
+}
+html.touch #first-mine-stack #milestones { position: static; width: min(270px, 34vw); }
+html.touch #first-mine-toggle { font-size: 11px; min-height: 44px; }
+html.touch #first-mine { padding: 9px; font-size: 13px; }
+html.touch #first-mine .fm-head { flex-wrap: wrap; }
+html.touch #first-mine .fm-head .btn, html.touch #first-mine .fm-note { display: none; }
+html.touch #first-mine .fm-actions { display: grid; grid-template-columns: 1fr 1fr; }
+html.touch #first-mine .fm-actions .btn { padding: 4px 8px; font-size: 11px; }
+html.touch #hud-layer.first-mine-open #palette { display: none !important; }
+html.touch #hud-layer.first-mine-open #pause-veil { left: 70%; }
+html.touch #hud-layer:is(.t-sheet, .t-dsc) #first-mine { display: none; }
+html.touch #hud-layer.t-dsc #first-mine-toggle { display: none; }

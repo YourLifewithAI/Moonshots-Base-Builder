@@ -69,16 +69,21 @@ function nextStep(fx: TechEffect[], s: GameState): string {
       case 'autoLaunch':
         return `Nothing to press: the rail fires when ${LAUNCH_COST_FOILS}${RESOURCES.foils.glyph}, the launch capacity and the charge are ready.`;
       case 'unlock': {
+        if (f.building === 'waterPlant') return s.siteId === 'southpole'
+          ? 'Pick the Water Management Plant: cold-trap ice lights up. Leave room for the full pit when placing its hub.'
+          : 'Place a Water Management Plant by mature soil: its excavator brings soil to the retort.';
         if (f.building === 'solarObservatory') return 'Place a Solar Observatory in the sun: the ☉ chip shows the next flare’s window and likely class.';
         const b = BUILDINGS[f.building as BuildingId];
         return `Build it: ${CATEGORY_LABEL[b.category]} tab → ${b.name}.`;
       }
       case 'action':
+        if (f.id === 'electrolysis') return 'Select a Water Management Plant and switch Electrolysis on: oxygen from water, with an extra power draw.';
         if (f.id === 'sentinel') return 'Select the Lander and Launch sentinel: a lunar day later the ☉ chip reads the class for sure, day and night.';
         return f.id === 'overclock'
           ? 'Select a production building and switch on Overclock ×1.5 in its panel.'
           : 'Select the Lander and press Downlink to trade banked data for a cargo drop.';
       case 'survey':
+        if (f.precision !== undefined) return 'Surveyed deposits are re-read: ore and grade estimates now have tighter ranges.';
         if (f.tier) return 'The Lunar Map [M] reaches further: new prospects are waiting to be surveyed.';
         break;
       // flare forecasting (docs/16 §13.3)
@@ -97,7 +102,15 @@ function nextStep(fx: TechEffect[], s: GameState): string {
         if (f.delta > 0) return 'Each Robotics Bay docks another rover: select a site and Summon the spare ones onto the builds that matter.';
         break;
       case 'haul':
-        return 'Excavators drive faster and carry more: select one and Dig at… a rich deposit farther out — the long hauls gain most.';
+        return f.digMult ? 'Buckets fill faster, and pits grow faster: check whether the hub needs another unit or a better haul road.'
+          : f.offroadMult ? 'Your units cross pits and ramps faster: the hub inspector shows their shorter trips.'
+          : 'Hub units drive faster and carry more: compare the intake and free faces of the pits their hub can reach.';
+      case 'hubLevel': return `Select a hub and press + Bay: a Level ${f.level === 2 ? 'II' : 'III'} hub holds ${f.level + 1} units before free-bay bonuses.`;
+      case 'hubBays': return 'Every hub has one more bay: print another unit where its pit has a free face and the grid has headroom.';
+      case 'hubPrint': return 'New unit print jobs finish faster. Each hub keeps its own queue.';
+      case 'pitDepth': return 'Worked-out and hemmed-in pits can cut bedrock now. Their deposit cards show the slower ore below.';
+      case 'grade': return 'The ore grade your units deliver is better now: check the hub’s product output.';
+      case 'reclaim': return 'Keep a Water Management Plant operating: crew and farms draw less fresh water while its recovery loop runs.';
       // on-board power (core/unitPower.ts): what a unit does off the grid now
       case 'unitPower':
         if (f.rpu) return 'Every unit makes its own trickle now: through any brownout, rovers, drones and excavators keep working slowly.';
@@ -164,13 +177,6 @@ function hazardHtml(kind: HazardId): string {
     `<div class="eb-foot"><button class="btn primary" data-dsc="ok">Continue ▸</button></div></div>`;
 }
 
-/** Until the smelter is researched, every card's Next line says so first:
- *  the landing's metals are all there is until one stands (the early trap). */
-function smelterFirst(game: Game, tid: TechId): string {
-  if (tid === 'regolithProcessing' || game.mods.unlocked.has('smelter')) return '';
-  return `No smelter yet: research ${TECHS.regolithProcessing.name} next — without one the metals run out. `;
-}
-
 export function mountDiscovery(root: HTMLElement, game: Game) {
   // ── tech cards: top centre, under the swarm meter, one at a time ──
   const card = el('div', 'panel interactive');
@@ -212,7 +218,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `${cons.map((l) => `<div class="dsc-con">⊖ ${esc(l.text)}</div>`).join('')}</div>` +
       (def.visual ? `<div class="dsc-look"><span class="label">Look for it</span> ${esc(def.visual)}</div>` : '') +
       riskLine(def.effects) +
-      `<div class="dsc-next"><span class="label">Next</span> ${esc(smelterFirst(game, tid) + nextStep(def.effects.filter((fx) => effectApplies(fx, s.siteId, s.expedition, s.techsDone)), s))}</div>` +
+      `<div class="dsc-next"><span class="label">Next</span> ${esc(nextStep(def.effects.filter((fx) => effectApplies(fx, s.siteId, s.expedition, s.techsDone)), s))}</div>` +
       `<div class="dsc-foot"><button class="btn primary" data-dsc="ok">Got it</button>` +
       `<button class="btn" data-dsc="tree" data-tech="${tid}">In the tree</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these pop-ups</label></div>`;

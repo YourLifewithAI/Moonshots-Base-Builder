@@ -28,6 +28,27 @@ const activeCount = (s: GameState, type: string) =>
   s.buildings.filter((b) => b.type === type && b.active).length;
 
 export const INSIGHTS: InsightDef[] = [
+  // Engineering pilots: normal operation earns a saved, optional research discount.
+  { tech: 'bayExtensions', discount: 0.25, hint: 'run a hub with 2 units and ore in its hopper',
+    lesson: 'two machines proved the loading loop — now make room for a third',
+    check: (s) => s.buildings.some((b) => b.active && (b.hub?.hopper ?? 0) > 0
+      && s.haulers.filter((u) => u.hub === b.id).length >= 2) },
+  { tech: 'hardfacedTeeth', discount: 0.25, hint: 'excavate 300 tonnes across your pits',
+    lesson: 'three hundred tonnes exposed the cost of abrasive ground',
+    check: (s) => s.pits.reduce((n, p) => n + p.tonnes, 0) >= 300 },
+  { tech: 'waterReclamation', discount: 0.3, hint: 'produce 150 water locally',
+    lesson: 'a working water line makes recovery worth engineering',
+    check: (s) => s.stats.produced.water >= 150 },
+  { tech: 'waterElectrolysis', discount: 0.25, hint: 'produce 300 water locally and keep 100 in reserve',
+    lesson: 'a proven water supply can support a controlled oxygen pilot',
+    check: (s) => s.stats.produced.water >= 300 && s.resources.water >= 100 },
+  { tech: 'deepCoring', discount: 0.3, hint: 'work a pit until it is boxed in or exhausted',
+    lesson: 'the shallow mine reached its limit — test a deeper cut',
+    check: (s) => s.pits.some((p) => p.tonnes > 0 && (p.state === 'boxed' || p.state === 'exhausted')) },
+  { tech: 'depotHalls', discount: 0.25, hint: 'run a Level II hub with 3 units and ore in its hopper',
+    lesson: 'three machines proved the expanded depot before the next investment',
+    check: (s) => s.buildings.some((b) => b.active && (b.hub?.level ?? 0) >= 2 && (b.hub?.hopper ?? 0) > 0
+      && s.haulers.filter((u) => u.hub === b.id).length >= 3) },
   // era 2
   { tech: 'batteryStorage', discount: 0.4, hint: 'a night with any load shed',
     lesson: 'a night brownout taught you what storage is worth', check: (s) => s.stats.nightBrownouts >= 1 },
@@ -95,8 +116,10 @@ export const INSIGHTS: InsightDef[] = [
     lesson: 'three nights on the core showed how much heat the Stirlings waste', check: (s) => s.nightsSurvived >= 3 },
   { tech: 'waferPolishing', discount: 0.3, hint: '50▣ fabbed',
     lesson: 'fifty chips, and the dead dies cluster where the wafer is rough', check: (s) => s.stats.produced.chips >= 50 },
-  { tech: 'oreSorting', discount: 0.3, hint: '4 excavators operating',
-    lesson: 'four wheels carry more waste rock than ore', check: (s) => activeCount(s, 'excavator') >= 4 },
+  { tech: 'oreSorting', discount: 0.3, hint: '4 excavators working',
+    lesson: 'four wheels carry more waste rock than ore', check: (s) => activeCount(s, 'excavator') +
+      s.haulers.filter((u) => u.type === 'excavator' && !u.parked && u.target !== null
+        && (u.haul.pw ?? 1) > 0 && !u.latch && (u.rebootUntil ?? 0) <= s.simTime).length >= 4 },
   // era 5
   { tech: 'lunarDataCenter', discount: 0.4, hint: '6 labs operating',
     lesson: 'six labs saturated the uplink — think on site', check: (s) => activeCount(s, 'lab') >= 6 },

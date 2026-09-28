@@ -47,7 +47,8 @@ try {
   const T = await import(pathToFileURL(out).href);
   let stale = false;
   for (const { file, render } of DOCS) {
-    const doc = readFileSync(file, 'utf8');
+    // Git may check out CRLF on Windows; line endings are not stale content.
+    const doc = readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
     const a = doc.indexOf(BEGIN), b = doc.indexOf(END);
     if (a < 0 || b < a) throw new Error(`${file}: GENERATED markers missing`);
     const next = doc.slice(0, a + BEGIN.length) + '\n' + render(T) + doc.slice(b);

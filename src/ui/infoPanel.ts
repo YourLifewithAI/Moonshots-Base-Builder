@@ -16,7 +16,7 @@ import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
 import {
-  $caps, $counts, $feed, $lander, $power, $rates, $research, $resourcePanel, $resources, $siteId, $tech,
+  $caps, $counts, $feed, $fleet, $lander, $power, $rates, $research, $resourcePanel, $resources, $siteId, $tech,
   $time, $vitals, $weather,
 } from './stores';
 import { SPACE_WEATHER } from '../data/spaceWeather';
@@ -51,7 +51,8 @@ function ratesOf(type: BuildingId, mods: Mods): EffectiveRates {
   const agentRun = robotic && BUILDINGS[type].crew > 0;
   const rv = $research.get();
   return effectiveRates(type, mods, SITES[$siteId.get() ?? 'mare'], undefined, {
-    agentRun, robotic, uplinkShare: type === 'lab' && agentRun ? rv?.uplinkShare ?? 1 : 1,
+    agentRun, robotic, waterReclaim: $vitals.get().waterReclaim,
+    uplinkShare: type === 'lab' && agentRun ? rv?.uplinkShare ?? 1 : 1,
   });
 }
 
@@ -66,14 +67,14 @@ function feedSection(): string {
   const g = $feed.get();
   const dug = FEED_KINDS.filter((k) => g[k] > 0.005);
   if (!dug.length) {
-    return '<section><span class="label">Feed (recent loads)</span><div class="goal-hint">Nothing delivered yet. Excavators haul what they dig to the nearest smelter or refinery: the ground each one digs sets the feed.</div></section>';
+    return '<section><span class="label">Feed (recent loads)</span><div class="goal-hint">Nothing delivered yet. Each excavator or ice miner returns to its own hub and tips into that hub’s hopper. The unit’s pit determines its feed; another hub does not receive that load.</div></section>';
   }
   const segs = dug.map((k, i) =>
     `<i class="feed-seg${i % 2 ? ' alt' : ''}" style="width:${(g[k] * 100).toFixed(1)}%" title="${FEED_LABEL[k]}"></i>`).join('');
   const legend = dug.map((k) => `${Math.round(g[k] * 100)}% ${FEED_LABEL[k]}`).join(' · ');
   return `<section><span class="label">Feed (recent loads)</span>
     <div class="feed-bar">${segs}</div><div class="goal-hint mono">${legend}</div>
-    <div class="goal-hint">The mix of the last few loads the excavators delivered, by amount. High-Ti basalt lifts the H₂ smelter, highland anorthosite the refinery; select an excavator and Dig at… a deposit (the overlay [I] shows them) — far ground delivers less per minute.</div></section>`;
+    <div class="goal-hint">This is the fleet’s overall feed mix; each hub keeps its own hopper and grade. High-Ti basalt suits the H₂ smelter and highland anorthosite suits the refinery. Select a hub and use Assign on a pit, or Send… for one unit. Longer trips mean fewer deliveries; a face serves one working unit.</div></section>`;
 }
 
 /** signed per-minute rate: '+4.2', '−0.8', '0' */
@@ -85,8 +86,8 @@ function perMin(ratePerS: number): string {
 const NOTES: Partial<Record<string, string>> = {
   oxygen: 'Smelters exhale oxygen while smelting regolith — industry keeps the crew breathing. Crew consume it constantly; Closed-Loop Life Support cuts that 40%.',
   food: 'Hydroponics grow food from water and power. Crew eat around the clock; low reserves make everyone anxious.',
-  water: 'Ice Harvesters mine polar deposits (survey first); smelting regolith recovers a trickle everywhere. The crew drinks first: farms stand idle rather than take the last five minutes of the crew’s water.',
-  regolith: 'Excavators dig it and haul it to the nearest smelter or refinery (the Lander when there is none); it counts once unloaded. Nearly every industry eats it. Stockpile capacity comes from the Lander and Storage Yards.',
+  water: 'Water Management Plants own their mining units: Ice Miners bring icy regolith at the pole; excavators bring mature soil at dry sites. The plant extracts water from its own hopper. Water Reclamation cuts crew and hydroponics water use by 40% while a water plant operates. The crew drinks first: farms protect the last five minutes of drinking water.',
+  regolith: 'The top number is the shared pile plus every hub’s hopper. A unit’s load counts after unloading at its own hub. Smelters and refineries can also draw the shared plain-regolith pile; a water plant needs its own feed. Grade q is a process-specific yield multiplier, not the size of the reserve. Check the hub’s hopper and delivery rate when it stalls.',
   metals: 'Smelted from regolith. If you run dry with no smelter, Earth sends an emergency shipment — a full day away.',
   silicon: 'Refined from regolith. Feeds batteries, foils, and the entire endgame.',
   parts: `Made by Parts Fabricators. EVERY building burns parts as upkeep — run dry and machines wear, losing up to half their output (the Lander never wears). Paid upkeep repairs them again. No fabricator yet? Order an Earth shipment at the Lander (+${RESUPPLY.metals} metals, +${RESUPPLY.parts} parts; the first is a lunar day out, each later order a day longer) — Earth sends one on its own when the cache drops below ${RESUPPLY.partsFloor}.`,
@@ -99,7 +100,7 @@ const NOTES: Partial<Record<string, string>> = {
 const NOTES_UNCREWED: Partial<Record<string, string>> = {
   oxygen: `Smelters exhale oxygen while smelting regolith. Nobody breathes it yet — the tanks bank it for ${TECHS.humanCohabitation.name}, when settlers board only with a lunar day of oxygen, food and water for each, or production that covers them.`,
   food: `Hydroponics grow food from water and power. Nobody eats yet — a stocked larder is what lets settlers board after ${TECHS.humanCohabitation.name}.`,
-  water: `Ice Harvesters mine polar deposits (survey first); smelting regolith recovers a trickle everywhere. Hydroponics drink it now; settlers will after ${TECHS.humanCohabitation.name}.`,
+  water: `Water Management Plants process their own units’ loads: icy regolith at the pole, mature soil at dry sites. Smelters also recover a trickle. Hydroponics use it now; settlers need reserves after ${TECHS.humanCohabitation.name}.`,
 };
 
 /** the panel's content for `key`, or null when there is none */
@@ -135,7 +136,7 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
         <span class="label">Each settler consumes</span>
         ${row('Oxygen', `−${fmt(CREW.oxygenPerCrew * lsMult * 60)}/min`)}
         ${row('Food', `−${fmt(CREW.foodPerCrew * lsMult * 60)}/min`)}
-        ${row('Water', `−${fmt(CREW.waterPerCrew * lsMult * 60)}/min`)}
+        ${row('Water', `−${fmt(CREW.waterPerCrew * lsMult * v.waterReclaim * 60)}/min`)}
         <div class="goal-hint">${TECHS.closedLoopLS.name} (Era ${TECHS.closedLoopLS.era}) cuts all three by 40%. ${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets buildings run without crew at ${mult(1 + mods.agentTax)} power.</div>
       </section>`;
   }
@@ -230,10 +231,14 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
   const makers = BUILD_ORDER.filter((b) => (effectiveDef(b, mods).outputs[rid] ?? 0) > 0);
   const producers = makers.filter((b) => hasIce || !BUILDINGS[b].requiresIce)
     .map((b) => buildingLine(b, ratesOf(b, mods).outputs[rid] ?? 0, '+')).join('');
+  const units = $fleet.get().units;
+  const extraction = rid === 'regolith' ? `<div class="goal-hint">Hub mining units: ${units.filter((u) => u.type === 'excavator').length} excavators · ${units.filter((u) => u.type === 'iceMiner').length} ice miners. Hubs commission with one unit and print more in their inspector. Delivery rate includes digging, the haul, unloading and charging.</div>` : '';
   const iceless = makers.some((b) => BUILDINGS[b].requiresIce) && !hasIce
-    ? '<div class="goal-hint">No ice at this site — Ice Harvesters need polar deposits.</div>' : '';
+    ? '<div class="goal-hint">No ice at this site. Use a Water Management Plant’s excavators on mature soil instead.</div>' : '';
   const consumers = BUILD_ORDER.filter((b) => (effectiveDef(b, mods).inputs[rid] ?? 0) > 0)
     .map((b) => buildingLine(b, ratesOf(b, mods).inputs[rid] ?? 0, '−')).join('');
+  // Published totals already include reclamation; the per-person row above
+  // derives its own rate from CREW and applies the factor there.
   const crewDraw = rid === 'oxygen' || rid === 'food' || rid === 'water' ? v.lifeSupport[rid] : 0;
   const shipped = rid === 'metals' ? RESUPPLY.metals : rid === 'parts' ? RESUPPLY.parts : 0;
   const extraIn = shipped ? row('Earth shipment', `+${shipped} · ${lander.resupplyPending
@@ -256,13 +261,13 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
     <section><div class="tt-name"><span>${def.glyph} ${def.name}</span>
       <span class="mono">${fmt(stock)}${cap ? ` / ${fmt(cap)}` : ''}</span></div>
       <span class="label">net ${perMin(rate)}/min${eta} · ${def.desc}</span></section>
-    <section><span class="label">Produced by</span>${producers}${extraIn}${iceless}
-      ${!producers && !extraIn && !iceless ? '<div class="goal-hint">Nothing on the Moon makes this yet.</div>' : ''}</section>
+    <section><span class="label">Produced by</span>${producers}${extraction}${extraIn}${iceless}
+      ${!producers && !extraction && !extraIn && !iceless ? '<div class="goal-hint">Nothing on the Moon makes this yet.</div>' : ''}</section>
     <section><span class="label">Consumed by</span>${consumers}${extraOut}
       ${!consumers && !extraOut ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
     ${rid === 'regolith' ? feedSection() : ''}
     ${cap !== undefined ? `<section><span class="label">Storage</span>
-      <div class="goal-hint">Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground; a producer whose every output is full stands by instead of burning its inputs.</div></section>` : ''}
+      <div class="goal-hint">${rid === 'regolith' ? 'The shared pile and each hub’s hopper are separate stores. A full hopper makes its units wait to unload; another hub’s spare room cannot take their load.' : `Capacity ${fmt(cap)} from the Lander and Storage Yards. Excess production is lost on the ground; a producer whose every output is full stands by instead of burning its inputs.`}</div></section>` : ''}
     ${note ? `<section><span class="label">Field notes</span><div class="goal-hint">${note}</div></section>` : ''}`;
 }
 
@@ -293,7 +298,7 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
   const schedule = perFrame(render);
-  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time, $feed, $research] as ReadableAtom<unknown>[]) {
+  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time, $feed, $fleet, $research] as ReadableAtom<unknown>[]) {
     store.subscribe(schedule);
   }
 }

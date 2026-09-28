@@ -102,7 +102,7 @@ function ioRows(type: BuildingId, mods: Mods, b?: BuildingState): string {
   const agentRun = def.crew > 0 && (b ? b.automated || unmanned : robotic || vit.crewHome);
   const rv = $research.get();
   const share = type === 'lab' && agentRun ? (b ? rv?.uplinkShare ?? 1 : uplinkShare((rv?.agentLabs ?? 0) + 1)) : 1;
-  const r = effectiveRates(type, mods, site, b ? { ...b, wear: 0 } : undefined, { agentRun, robotic, uplinkShare: share });
+  const r = effectiveRates(type, mods, site, b ? { ...b, wear: 0 } : undefined, { agentRun, robotic, uplinkShare: share, waterReclaim: vit.waterReclaim });
   const cost = Object.entries(buildCost(type, site))
     .map(([rid, amt]) => `${amt} ${RESOURCES[rid as ResourceId].name.toLowerCase()}`)
     .join(' · ') || '—';

@@ -144,6 +144,8 @@ export interface BuildingState {
   // ── extraction hubs (docs/17, core/hubs.ts) ──
   /** a hub's own state: its hopper, feed, queue and choices (smelters, refineries, water plants) */
   hub?: HubState;
+  /** Water Electrolysis: split part of this plant's water output into oxygen. */
+  electrolysis?: boolean;
   /** an old save's excavator or ice harvester with no hub to join yet (docs/17 §19):
    *  it works as it did, and joins the first hub that completes */
   legacy?: boolean;
@@ -166,7 +168,11 @@ export interface HubJob {
 }
 
 /** A hub's state (docs/17 §4.6), on its building. */
+export type HubPolicy = 'balanced' | 'conserve' | 'night';
 export interface HubState {
+  /** Feed Planner policy; older saves default to balanced. */
+  policy?: HubPolicy;
+  plannerWhy?: string;
   /** Level I: 2 bays; II and III are bought per hub once research allows them */
   level: 1 | 2 | 3;
   /** regolith (▲) waiting at the furnace: its own units fill it */
@@ -207,6 +213,10 @@ export interface PlainPit {
  *  its hub. It digs where its hub's choice (or the player) sends it and tips
  *  into its own hub's hopper. Its pack rides on its haul (core/unitPower.ts). */
 export interface Hauler {
+  /** Feed Planner leaves this unit's route alone when opted out. */
+  feedPlanOff?: boolean;
+  planAt?: number;
+  planWhy?: string;
   id: number;
   type: 'excavator' | 'iceMiner';
   /** its hub's building id (unitPower's homeOf) */
@@ -1183,7 +1193,7 @@ function hazardDefaults(graceUntil: number) {
 
 function researchDefaults() {
   return {
-    techSchema: 4,
+    techSchema: 5,
     insights: {},
     discoveries: [] as TechId[],
     researchStalled: [] as TechId[],
@@ -1237,6 +1247,13 @@ export function fillStateDefaults(s: GameState): GameState {
   }
   // saves from before the Builder: every rule off (a loaded save never switches
   // one on), rules added later join with their defaults
+  if (legacy.auto && !legacy.auto.rules?.hubUnit) {
+    for (const h of legacy.hazards?.live ?? []) {
+      if (h.kind === 'runaway' && Number.isInteger(h.n.rule)) {
+        h.n.rule = h.n.rule <= 1 ? 0 : h.n.rule - 1;
+      }
+    }
+  }
   legacy.auto = fillAuto(legacy.auto);
   legacy.flowBook ??= {};
   // saves from before extraction hubs (docs/17 §19): no units yet — Game.loadFrom
@@ -1313,6 +1330,20 @@ export function fillAuto(a: Partial<AutoState> | undefined): AutoState {
   for (const id of RULE_ORDER) {
     const r = a.rules?.[id];
     if (r) rules[id] = { ...defaultRule(id), ...r };
+  }
+  // Retired extractor rules now grow the hub fleet. Preserve opt-in and caps,
+  // but discard their old rate thresholds (the new trigger is starvation share).
+  if (!a.rules?.hubUnit) {
+    const legacy = (['excavator', 'iceHarvester'] as const).flatMap((id) =>
+      a.rules?.[id] ? [{ ...defaultRule(id), ...a.rules[id] }] : []);
+    if (legacy.length) rules.hubUnit = {
+      ...defaultRule('hubUnit'),
+      on: legacy.some((r) => r.on),
+      cap: Math.min(60, Math.max(0, legacy.reduce((n, r) => n + r.cap, 0))),
+      built: legacy.reduce((n, r) => n + r.built, 0),
+      nextAt: Math.max(...legacy.map((r) => r.nextAt ?? 0)),
+      frozenUntil: Math.max(...legacy.map((r) => r.frozenUntil ?? 0)),
+    };
   }
   const priority = (a.priority ?? []).filter((f) => FAMILY_PRIORITY.includes(f));
   for (const f of FAMILY_PRIORITY) if (!priority.includes(f)) priority.push(f);

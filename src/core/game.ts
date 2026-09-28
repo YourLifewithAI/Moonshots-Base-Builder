@@ -14,7 +14,7 @@ import {
 import { DEPOSIT_INFO, type DepositKind } from '../data/deposits';
 import { TIER_VIEW, type MapView, type ProspectId } from '../data/lunarMap';
 import { createInitialState, type AlertMsg, type BuildingState, type GameState } from './state';
-import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveDef, effectiveRates } from './mods';
+import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveDef, effectiveRates, waterReclaimFactor } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
   boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction,
@@ -48,6 +48,7 @@ import {
   plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
+import { setHubPolicy, setUnitFeedPlan } from './hubPlanner';
 import { ghostBlock, hubLight, type HubLight, type LightSource } from './hubPreview';
 import { DepositHighlight } from '../world/depositHighlight';
 import { ROAD } from '../data/roads';
@@ -1090,6 +1091,26 @@ export class Game {
       case 'setFeedPlan': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (b && b.type === 'excavator') b.feedPlanOff = !a.on;
+        break;
+      }
+      case 'setHubPolicy': {
+        const why = setHubPolicy(s, this.mods, a.hub, a.policy);
+        if (why) alert(s, why, 'warn');
+        break;
+      }
+      case 'setUnitFeedPlan': {
+        const why = setUnitFeedPlan(s, this.mods, a.unit, a.on);
+        if (why) alert(s, why, 'warn');
+        break;
+      }
+      case 'setElectrolysis': {
+        const b = s.buildings.find((x) => x.id === a.id);
+        if (!b || b.type !== 'waterPlant') break;
+        if (a.on && !this.mods.actions.has('electrolysis')) {
+          alert(s, 'Research Water Electrolysis to split water into oxygen.', 'warn');
+          break;
+        }
+        b.electrolysis = a.on;
         break;
       }
       // hazards (core/hazards.ts, docs/14 §3.7): a counter works while paused, as placement does
@@ -2622,15 +2643,17 @@ export class Game {
       }
       if (b.enabled && b.idleReason === 'crew') crewIdle++;
       if (b.agentCover && b.automated) covered++;
-      if (b.enabled) upkeep += effectiveRates(b.type, this.mods, site, b, { feed: s.feed }).upkeepPartsPerDay / CYCLE_S;
+      if (b.enabled) upkeep += effectiveRates(b.type, this.mods, site, b, { feed: s.feed, waterReclaim: waterReclaimFactor(s, this.mods) }).upkeepPartsPerDay / CYCLE_S;
     }
     const ls = s.crew * this.mods.inputMult.habitat;
+    const waterReclaim = waterReclaimFactor(s, this.mods);
     $vitals.set({
       crew: s.crew, housing: s.housingActive ?? 0, beds, morale: Math.round(s.morale), data: s.data,
       botsFree: (s.bots?.total ?? 0) - (s.bots?.busy ?? 0), botsTotal: s.bots?.total ?? 0,
       expedition: s.expedition ?? 'human',
-      boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat) : '',
-      lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew },
+      boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat, waterReclaim) : '',
+      lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew * waterReclaim },
+      waterReclaim,
       sites, welding, weldParts, upkeep, surveying: s.survey.active ? 1 : 0,
       crewHome: !!s.crewHome,
       seats, crewIdle, covered,

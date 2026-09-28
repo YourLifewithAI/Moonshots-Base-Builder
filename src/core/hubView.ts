@@ -17,6 +17,7 @@ import { pitOf, reservesOf } from './pits';
 import { CYCLE_S } from '../data/balance';
 import { fmtClock } from './daynight';
 import { unitFlareLine, unitFlareStatus } from './flareEffects';
+import { hubPolicy, plannerSummary } from './hubPlanner';
 
 const G = RESOURCES.regolith.glyph;
 const n0 = (v: number) => Math.floor(v);
@@ -69,6 +70,7 @@ export function unitView(s: GameState, mods: Mods, site: SiteDef, u: Hauler): Un
     rate: t && trip ? spec.bucket / cycle : 0,
     pack: packLine(u.haul, 'digger', mods, !!s.power?.brownout), wear: u.wear, flat: u.haul.src === 'flat',
     cap: u.cap ?? 1, flare: unitFlareLine(s, site, u), reprint: (u.cap ?? 1) < 0.9995 && !!b,
+    planner: mods.feedPlanner, feedPlanOff: !!u.feedPlanOff, planWhy: u.planWhy ?? '',
   };
 }
 
@@ -137,9 +139,11 @@ export function hubViews(s: GameState, mods: Mods, site: SiteDef): { hubs: Recor
         kind: j.kind, name: j.kind === 'bay' ? '+ Bay' : j.kind === 'reprint' ? `Re-print ${unitName(type).toLowerCase()} #${j.unit}` : `+ ${unitName(type)}`, pct: j.total > 0 ? j.t / j.total : 0,
         left: Math.max(0, j.total - j.t), paid: !!j.paid, waiting: i === 0 ? h.waiting ?? '' : '',
       })),
-      unitName: unitName(type), unitCost: costText(jobCost(b, 'unit', site)), unitTime: jobTime(b, 'unit', site, mods),
-      canUnit, canBay: queueRefusal(s, mods, b, 'bay'), bayCost: `${costText(jobCost(b, 'bay', site))} · ${fmtClock(jobTime(b, 'bay', site, mods))}`,
+      unitName: unitName(type), unitCost: costText(jobCost(b, 'unit', site, mods)), unitTime: jobTime(b, 'unit', site, mods),
+      canUnit, canBay: queueRefusal(s, mods, b, 'bay'), bayCost: `${costText(jobCost(b, 'bay', site, mods))} · ${fmtClock(jobTime(b, 'bay', site, mods))}`,
       pits, prefer: h.prefer ?? null, plainPit: h.plainPit ?? null, hint, status,
+      policy: hubPolicy(b), planner: mods.feedPlanner, plannerWhy: plannerSummary(s, mods, b),
+      electrolysis: !!b.electrolysis, canElectrolysis: b.type === 'waterPlant' && mods.actions.has('electrolysis'),
     };
   }
   const units = s.haulers.filter((u) => hubOf(s, u)).map((u) => unitView(s, mods, site, u));

@@ -7,6 +7,7 @@ import type { ResourceId } from '../data/resources';
 import type { AutoFamily, AutoRuleId } from '../data/automation';
 import type { CounterId } from '../data/hazards';
 import type { ArrayChoice, FlareClass, FlareCounterId } from '../data/spaceWeather';
+import type { HubPolicy } from './state';
 
 export type Action =
   | { kind: 'place'; type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3;
@@ -67,6 +68,9 @@ export type Action =
   | { kind: 'moveFamily'; family: AutoFamily; delta: -1 | 1 }       // Governor priority
   | { kind: 'freezeRules'; seconds: number }    // every rule holds (0 = thaw)
   | { kind: 'setFeedPlan'; id: number; on: boolean }                // Feed Planner opt-out
+  | { kind: 'setHubPolicy'; hub: number; policy: HubPolicy }
+  | { kind: 'setUnitFeedPlan'; unit: number; on: boolean }
+  | { kind: 'setElectrolysis'; id: number; on: boolean }
   // hazards (core/hazards.ts, docs/14 §3.7): a counter (id: the hazard, or
   // the building for Clean, Reimage and Repair), and a node's air gap
   | { kind: 'counter'; counter: CounterId | FlareCounterId; id?: number }

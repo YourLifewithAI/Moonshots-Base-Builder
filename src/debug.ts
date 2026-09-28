@@ -5,7 +5,7 @@ import type { BuildingId } from './data/buildings';
 import { TECHS, TECH_ALIASES, TRACKS, auditTechs, techRelevanceMatrix, type Era, type Side, type TechId } from './data/techs';
 import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
-import type { GameStats } from './core/state';
+import type { GameStats, HubPolicy } from './core/state';
 import { destinyOf, gateProgress, researchView } from './core/research';
 import { GRID, volleyTerms } from './core/economy';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
@@ -432,6 +432,9 @@ function api(game: Game) {
     recallUnit: (unit: number) => game.actions.push({ kind: 'recallUnit', unit }),
     dispatchUnit: (unit: number) => game.actions.push({ kind: 'dispatchUnit', unit }),
     autoUnit: (unit: number) => game.actions.push({ kind: 'autoUnit', unit }),
+    setHubPolicy: (hub: number, policy: HubPolicy) => game.actions.push({ kind: 'setHubPolicy', hub, policy }),
+    setUnitFeedPlan: (unit: number, on: boolean) => game.actions.push({ kind: 'setUnitFeedPlan', unit, on }),
+    setElectrolysis: (id: number, on: boolean) => game.actions.push({ kind: 'setElectrolysis', id, on }),
     /** open a hub unit's inspector (null closes it) */
     selectUnit: (id: number | null) => game.selectUnit(id),
     beginSendUnit: (unit: number) => game.beginFleetTarget({ kind: 'sendUnit', unit }),
