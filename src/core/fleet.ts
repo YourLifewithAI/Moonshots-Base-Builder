@@ -195,8 +195,14 @@ export function assignRovers(s: GameState): Map<number, number> {
     if (r.id === away) { r.site = null; r.pinned = false; }
     if (roverDown(s, r)) { r.site = null; r.pinned = false; delete r.road; }
   }
+  // deposit surveys (docs/17 §13.2): a rover coring keeps to it until the job is done or gone
+  const coreJobs = s.oreSurvey?.jobs ?? [];
+  const coreLive = new Set(coreJobs.map((j) => j.id));
+  for (const r of s.rovers) {
+    if (r.core !== undefined && (r.site !== null || r.pinned || r.id === away || roverDown(s, r) || !coreLive.has(r.core))) delete r.core;
+  }
   const pinnedAt = new Set(s.rovers.filter((r) => r.pinned && r.site !== null).map((r) => r.site!));
-  const auto = s.rovers.filter((r) => !r.pinned && r.id !== away && !roverDown(s, r));
+  const auto = s.rovers.filter((r) => !r.pinned && r.id !== away && !roverDown(s, r) && r.core === undefined);
   const targets = sites.filter((b) => b.enabled && !pinnedAt.has(b.id)).slice(0, auto.length);
   const wanted = new Set(targets.map((b) => b.id));
   const served = new Set<number>();
@@ -215,15 +221,26 @@ export function assignRovers(s: GameState): Map<number, number> {
     r.site = b.id;
     served.add(b.id);
   }
+  // a free rover takes each queued deposit survey, before the road jobs (docs/17 §13.2)
+  for (const j of coreJobs) {
+    const on = s.rovers.find((r) => r.core === j.id);
+    if (on) { j.rover = on.id; continue; }
+    delete j.rover;
+    const r = s.rovers.find((x) => x.site === null && !x.pinned && x.id !== away && x.core === undefined && !roverDown(s, x));
+    if (!r) break;
+    delete r.road;
+    r.core = j.id;
+    j.rover = r.id;
+  }
   // free rovers sinter the roads drawn and the haul roads: one a job, oldest
   // first, in roster order (core/roads.ts)
   const jobs = (s.roadJobs ?? []).map((j) => j.id);
   const live = new Set(jobs);
   for (const r of s.rovers) {
-    if (r.road !== undefined && (r.site !== null || r.pinned || r.id === away || !live.has(r.road))) delete r.road;
+    if (r.road !== undefined && (r.site !== null || r.pinned || r.id === away || r.core !== undefined || !live.has(r.road))) delete r.road;
   }
   const onJob = new Set(s.rovers.filter((r) => r.road !== undefined).map((r) => r.road!));
-  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.id !== away && r.road === undefined && !roverDown(s, r));
+  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.id !== away && r.road === undefined && r.core === undefined && !roverDown(s, r));
   for (const id of jobs) {
     if (onJob.has(id)) continue;
     const r = idle.shift();
@@ -237,7 +254,7 @@ export function assignRovers(s: GameState): Map<number, number> {
     if (r.site !== null && enabled.has(r.site)) crews.set(r.site, (crews.get(r.site) ?? 0) + 1);
   }
   const lent = away !== undefined && s.rovers.some((r) => r.id === away) ? 1 : 0;
-  s.bots = { total: s.rovers.length - lent, busy: s.rovers.filter((r) => r.site !== null || r.road !== undefined).length };
+  s.bots = { total: s.rovers.length - lent, busy: s.rovers.filter((r) => r.site !== null || r.road !== undefined || r.core !== undefined).length };
   return crews;
 }
 

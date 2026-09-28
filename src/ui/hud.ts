@@ -338,6 +338,10 @@ export function mountHud(root: HTMLElement, game: Game) {
       game.actions.push({ kind: 'dismissAlert', id });
     } else if ('panel' in a.action) {
       $resourcePanel.set(a.action.panel);
+    } else if ('deposit' in a.action) {
+      // a deposit's alert opens its card (docs/17 §13.4)
+      $depositOverlay.set(true);
+      $depositSel.set(a.action.deposit);
     } else {
       game.select(a.action.select);
     }

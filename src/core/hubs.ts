@@ -37,7 +37,13 @@ import {
   bumpRoads, cellAt, cellCentre, cellKey, doorCell, frontDir, gatesOf, groundWay, hasRoads, isOpen, jobOpen, keyCell,
   layJob, planLink, roadMap, type Heights, type OffArea,
 } from './roads';
-import { digGrade, digInto, looseLayer, pitFor, pitOf } from './pits';
+import {
+  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pushFill, releasePit, reservesOf, targetGrade,
+} from './pits';
+import { GRADE } from '../data/ore';
+import { groundOf, plainQ, processOf } from './ore';
+import { TECHS, TECH_ORDER } from '../data/techs';
+import { HAUL } from '../data/balance';
 import { zoneAt } from './zones';
 import { creditFeed, drive, legLen, stopShort } from './haul';
 import { centerOf, footprintRect } from '../buildings/instances';
@@ -150,12 +156,13 @@ export function targetOf(s: GameState, key: string | null | undefined): Target |
     const p = s.plainPits.find((x) => x.id === id);
     if (!p) return null;
     const zone = s.zones?.find((z) => z.id === key) ?? null;
-    return { key, kind: undefined, name: `plain pit P${p.id}`, cx: p.x, cz: p.z, r: HUB.plainR, zone, faces: HUB.plainFaces, plain: true };
+    return { key, kind: undefined, name: `plain pit P${p.id}`, cx: p.x, cz: p.z, r: HUB.plainR, zone, faces: faceCapacity(s, key).now, plain: true };
   }
   if (!key.startsWith('dep:')) return null;
   const zone = s.zones?.find((z) => z.id === key.slice(4)) ?? null;
   if (!zone || zone.kind === 'plain' || zone.kind === 'pit') return null;
-  const faces = Math.max(1, Math.min(HUB.facesMax, Math.floor((2 * Math.PI * HUB.faceRing * zone.r) / HUB.faceM)));
+  // faces are benches (docs/17 §8.2): a new pit has one; they open as it widens
+  const faces = faceCapacity(s, key).now;
   const n = zone.id.split('-').pop();
   return {
     key, kind: zone.kind, name: `${DEPOSIT_INFO[zone.kind].name} #${n}`, cx: zone.cx, cz: zone.cz, r: zone.r, zone, faces, plain: false,
@@ -171,7 +178,7 @@ export const pitAt = (s: GameState, t: Pick<Target, 'key'>): PitState | null => 
 export function facePoint(s: GameState, t: Target, i: number): Pt {
   const p = pitAt(s, t);
   if (p) {
-    const rf = Math.max(0, p.R - PIT.bench * looseLayer(s, p)) * 0.85;
+    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
     const back = Math.atan2(-p.uz, -p.ux);
     const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * Math.PI * 1.2 : 0);
     return [p.cx + Math.cos(a) * rf, p.cz + Math.sin(a) * rf];
@@ -228,7 +235,7 @@ export function wayIn(s: GameState, t: Target): { area: OffArea | null; via: Pt[
   let via: Pt[] = [];
   if (p) {
     add(s.zones?.find((z) => z.id === `pit-${p.id}`));
-    const rf = Math.max(0, p.R - PIT.bench * looseLayer(s, p));
+    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p));
     via = [[p.ox + p.ux * p.A, p.oz + p.uz * p.A], [p.cx + p.ux * rf, p.cz + p.uz * rf]];
   }
   return { area: gates.length ? { id: t.key, gates } : null, via };
@@ -370,15 +377,17 @@ export function unitSpec(mods: Mods, type: UnitType, r: EffectiveRates): UnitSpe
 
 // ───────────────────────────── the auto choice (§4.4) ─────────────────────────────
 
-/** A hub's feed factor on pure `kind` ground (the grade q of Phase 4 stands in). */
+/** A hub's grade on `kind` ground in general (docs/17 §9.1: a deposit's
+ *  mid-range centre, else plain ground), before crew: the ghost's estimate.
+ *  The units' own choice reads the pit's cut (core/pits.ts targetGrade). */
 export function groundQ(mods: Mods, site: SiteDef, type: BuildingId, kind: DepositKind | undefined): number {
-  const g = emptyFeed();
-  g[feedKindOf(kind)] = 1;
-  if (type === 'smelter') return effectiveDef('smelter', mods).feedInsensitive ? 1 : smelterFeed(mods, g).all;
-  if (type === 'refinery') return refineryFeed(mods, g);
-  if (type === 'waterPlant') return waterFeed(site, g);
-  return 1;
+  const proc = processOf(mods, site, type);
+  if (!proc || proc === 'MRE') return 1;
+  const range = kind ? GRADE.centre[kind]?.[proc] : undefined;
+  const q = range ? (range[0] + range[1]) / 2 : plainQ(proc, site.id);
+  return q * mods.gradeAll * (proc === 'H2' ? mods.gradeH2 : 1);
 }
+void effectiveDef; void smelterFeed; void refineryFeed; void waterFeed; void emptyFeed; void groundOf;
 
 /** What the hub burns a second, ▲. */
 export function hubHunger(mods: Mods, site: SiteDef, b: BuildingState): number {
@@ -417,11 +426,15 @@ export function choicesFor(s: GameState, mods: Mods, site: SiteDef, b: BuildingS
     const t = targetOf(s, key);
     if (!t) continue;
     if (t.plain && !def.plain(site)) continue;
+    const pit = pitOf(s, key);
+    if (pit && (pit.state === 'reclaiming' || pit.state === 'reclaimed')) continue;
+    // the grade of its cut now (docs/17 §9); a water plant never digs a dug-out pit
+    const q = targetGrade(s, mods, site, b.type, key);
+    if (!(q > 0.005)) continue;
     const trip = tripTo(s, mods, b, t, night);
     const r = unitRates(s, mods, site, { type, wear: 0 }, t.kind);
     const spec = unitSpec(mods, type, r);
-    const rate = spec.bucket / (spec.digS + spec.unloadS + 2 * trip.t);
-    const q = groundQ(mods, site, b.type, t.kind);
+    const rate = spec.bucket / (spec.digS + spec.unloadS + 2 * trip.t) * (pit?.rockR !== undefined ? GRADE.bedrockDig : 1);
     out.push({
       target: t, trip, rate, q, score: Math.min(Math.max(1, n) * rate, hunger) * q, free: t.faces - facesUsed(s, key),
       inReach: trip.t <= HUB.reachS,
@@ -462,6 +475,16 @@ function askRoad(s: GameState, b: BuildingState, t: Target): string {
  *  road asked for). Returns the target and face, or why it parks. */
 function chooseFor(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: BuildingState): { t: Target; face: number } | { why: string } {
   const hub = b.hub!;
+  // Reclaim (docs/17 §12.2): the hub's units push a worked-out pit's heap back in, first
+  for (const p of s.pits ?? []) {
+    if (p.state !== 'reclaiming' || p.reclaimHub !== b.id) continue;
+    const t = targetOf(s, p.key);
+    if (!t) continue;
+    const f = freeFace(s, t, u);
+    if (f < 0) continue;
+    if (tripTo(s, mods, b, t).connected) return { t, face: f };
+    askRoad(s, b, t);
+  }
   // Assign: the hub's preferred pit, while a face is free there
   if (hub.prefer) {
     const t = targetOf(s, hub.prefer);
@@ -473,8 +496,16 @@ function chooseFor(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Buildi
   }
   const auto = unitsOf(s, b.id).filter((x) => !x.pinned).length;
   const list = choicesFor(s, mods, site, b, auto).filter((c) => c.inReach);
-  // the one it works now stays unless another is clearly better (no flip-flopping)
+  // the one it works now stays unless another is clearly better (no flip-flopping);
+  // a deposit's pit with ore left keeps its units until it is dug out (docs/17 §10:
+  // they extract it concentrically — moving them on early is Feed Planner's job)
   const cur = u.target ? list.find((c) => c.target.key === u.target && c.trip.connected) : undefined;
+  if (cur && !cur.target.plain && freeFace(s, cur.target, u) >= 0) {
+    const p = pitAt(s, cur.target);
+    if (p && !p.spent && p.state !== 'boxed') {
+      return { t: cur.target, face: u.face >= 0 && u.target === cur.target.key ? u.face : freeFace(s, cur.target, u) };
+    }
+  }
   let why = 'IDLE — no pit in reach with a free face';
   for (const c of list) {
     if (cur && c !== cur && c.score <= cur.score * 1.1 && freeFace(s, cur.target, u) >= 0) {
@@ -786,16 +817,16 @@ function goTip(s: GameState, mods: Mods, u: Hauler, b: BuildingState) {
 /** Room left in a hub's hopper, ▲. */
 export const hopperRoom = (b: BuildingState): number => Math.max(0, hopperCap(b) - (b.hub?.hopper ?? 0));
 
-/** The one place a dig happens: unit `u` cut `tonnes` of `kind` ground at its
+/** The one place a dig happens: unit `u` cut `tonnes` at grade `q` at its
  *  target. Its pit grows (core/pits.ts): the target's key is the pit's
  *  ('dep:<id>', shared by every unit on that deposit, or 'plain:<id>'), the
- *  volume ▲ ÷ 1.5 m³, the load's grade kept on the pit (the stand-in for q).
- *  Deposits' reserves (Phase 4) read the tally. */
-export function dug(s: GameState, u: Hauler, tonnes: number, kind: FeedKind) {
+ *  volume ▲ ÷ 1.5 m³, the grade kept on the pit; a deposit's pit tallies its
+ *  ore (docs/17 §10). */
+export function dug(s: GameState, u: Hauler, tonnes: number, _kind: FeedKind, q: number) {
   if (!(tonnes > 0) || !u.target) return;
   const book = (s.dug ??= {});
   book[u.target] = (book[u.target] ?? 0) + tonnes;
-  digInto(s, pitFor(s, u.target), tonnes, digGrade(kind));
+  digInto(s, pitFor(s, u.target), tonnes, q);
 }
 
 export interface UnitTickOut {
@@ -862,8 +893,10 @@ export function unitTick(
       // at its gate, waiting for a face (sent to a full pit)
       if (h.wait === 'gate') {
         const tt = targetOf(s, u.target);
-        const f = tt ? freeFace(s, tt, u) : -1;
-        if (!tt || f < 0) break;
+        // its pit is done with (dug out, hemmed in, reclaimed): home, to choose again
+        if (!tt) { delete h.wait; goBay(s, mods, u, b, 'noPit'); continue; }
+        const f = freeFace(s, tt, u);
+        if (f < 0) break;
         goDig(s, mods, u, tt, f);
         at(u.target);
         continue;
@@ -873,23 +906,47 @@ export function unitTick(
       continue;
     }
     if (h.phase === 'dig') {
-      // the target went (a pit unstaked, the map changed): home
-      if (!at(u.target)) { goBay(s, mods, u, b, 'noPit'); continue; }
+      // the target went (a pit unstaked, dug out, hemmed in, reclaimed): it
+      // leaves with what its bucket holds, and chooses again (docs/17 §10.2)
+      const tt = at(u.target);
+      if (!tt) {
+        if ((h.cargo.regolith ?? 0) > 1e-6) goTip(s, mods, u, b); else goBay(s, mods, u, b, 'noPit');
+        continue;
+      }
+      const pit = pitAt(s, tt);
+      // Reclaim (§12.2): it pushes the heap back in, at its dig rate, with nothing to haul
+      if (pit?.state === 'reclaiming') {
+        const step = Math.min(t, spec.digS - h.t);
+        pushFill(pit, ((r.outputs.regolith ?? 0) * spec.gain * step) / PIT.tPerM3);
+        h.t += step;
+        t -= step;
+        out.dugS += step;
+        if (h.t >= spec.digS - 1e-9) {
+          h.t = 0;
+          if (h.charge !== undefined && h.charge < packFull * HUB.chargeAt) { goBay(s, mods, u, b, 'charge'); continue; }
+        }
+        continue;
+      }
       // a full bucket and a full hopper: it waits here, at its face
       if (h.full) {
         if (hopperRoom(b) < (h.cargo.regolith ?? 0) - 1e-6) break;
         goTip(s, mods, u, b);
         continue;
       }
-      const step = Math.min(t, spec.digS - h.t);
+      // bedrock benches dig at ×0.3 (§8.5); the bucket carries the grade it cut (§9.1)
+      const rock = pit?.rockR !== undefined ? GRADE.bedrockDig : 1;
+      const step = Math.min(t, (spec.digS - h.t) / rock);
+      const q = targetGrade(s, mods, site, b.type, tt.key);
+      const had = h.cargo.regolith ?? 0;
       let cut = 0;
       for (const [rid, rate] of Object.entries(r.outputs) as [ResourceId, number][]) {
-        const amt = rate * spec.gain * step;
+        const amt = rate * spec.gain * step * rock;
         h.cargo[rid] = (h.cargo[rid] ?? 0) + amt;
         if (rid === 'regolith') cut = amt;
       }
-      dug(s, u, cut, h.kind);
-      h.t += step;
+      if (cut > 0) h.q = had > 1e-9 && h.q !== undefined ? (h.q * had + q * cut) / (had + cut) : q;
+      dug(s, u, cut, h.kind, q);
+      h.t += step * rock;
       t -= step;
       out.dugS += step;
       if (h.t >= spec.digS - 1e-9) {
@@ -906,6 +963,12 @@ export function unitTick(
     const reg = Math.min(h.cargo.regolith ?? 0, hopperRoom(b));
     hub.hopper += reg;
     out.tipped += reg;
+    // the hub's grade (docs/17 §9.1): an EMA of its loads' q, by amount (the first load sets it)
+    if (reg > 0) {
+      const lq = h.q ?? hub.q;
+      const fresh = FEED_KINDS.reduce((a, k) => a + hub.feed[k], 0) <= 1e-9;
+      hub.q = fresh ? lq : hub.q + (lq - hub.q) * (reg / (reg + HAUL.feedMemory));
+    }
     creditFeed(hub.feed, h.kind, reg);
     for (const [rid, amt] of Object.entries(h.cargo) as [ResourceId, number][]) {
       if (rid === 'regolith' || !(amt > 0)) continue;
@@ -915,6 +978,7 @@ export function unitTick(
       out.credited[rid] = (out.credited[rid] ?? 0) + add;
     }
     h.cargo = {};
+    delete h.q;
     out.kind = h.kind;
     // then: out again, or home — shut down, recalled, its pack low
     if (!b.enabled) { goBay(s, mods, u, b, 'off'); continue; }
@@ -1129,12 +1193,24 @@ export function meanFeed(s: GameState): FeedGrade | null {
 
 const unitById = (s: GameState, id: number) => s.haulers.find((u) => u.id === id);
 
+/** Why no unit may be sent to or assigned a pit ('' = it may): reclaimed, being reclaimed, hemmed in. */
+function pitClosed(s: GameState, key: string): string {
+  const p = pitOf(s, key);
+  if (!p) return '';
+  if (p.state === 'reclaimed') return 'RECLAIMED — the ground builds again; its zone is closed';
+  if (p.state === 'reclaiming') return 'RECLAIM UNDER WAY — its hub’s units are pushing the heap back in';
+  if (p.state === 'boxed') return `BOXED IN — ${pitName(s, p)} can neither widen nor deepen`;
+  return '';
+}
+
 /** Assign: the hub's auto units prefer this target while a face is free (null clears it). */
 export function assignPit(s: GameState, mods: Mods, b: BuildingState | undefined, key: string | null): string {
   if (!b?.hub) return 'NOT A HUB';
   if (key === null) { delete b.hub.prefer; return ''; }
   const t = targetOf(s, key);
   if (!t) return 'NO SUCH PIT — pick a mapped deposit or a plain pit';
+  const closed = pitClosed(s, key);
+  if (closed) return closed;
   if (!t.plain && !HUB_DEFS[b.type]!.wants(SITES[s.siteId]).includes(t.kind!)) {
     return `NOT ITS GROUND — a ${BUILDINGS[b.type].name} wants ${HUB_DEFS[b.type]!.wants(SITES[s.siteId]).map((k) => DEPOSIT_INFO[k].name).join(' or ')}`;
   }
@@ -1166,6 +1242,8 @@ export function sendUnit(s: GameState, mods: Mods, id: number, key: string): str
   if (!u || !b) return 'NO SUCH UNIT';
   const t = targetOf(s, key);
   if (!t) return 'NOT A PIT — click a mapped deposit or a plain pit';
+  const closed = pitClosed(s, key);
+  if (closed) return closed;
   const site = SITES[s.siteId];
   if (t.plain && !HUB_DEFS[b.type]!.plain(site)) return 'NO ICE OUTSIDE THE SHADOWS — its hub digs cold traps only';
   if ((t.kind === 'ice') !== (u.type === 'iceMiner')) {
@@ -1330,3 +1408,103 @@ export function migrateHubs(s: GameState, mods: Mods, site: SiteDef) {
   }
   void gone;
 }
+
+// ───────────────────────────── pits run out (docs/17 §10.2; Phase 4) ─────────────────────────────
+
+/** The first research not yet done that cuts bedrock benches, and how deep (for the words). */
+export function bedrockTech(s: GameState): { name: string; m: number } | null {
+  const ids = TECH_ORDER.filter((id) => !s.techsDone.includes(id) && TECHS[id].effects.some((fx) => fx.kind === 'pitDepth'));
+  ids.sort((a, b) => TECHS[a].era - TECHS[b].era);
+  const t = ids[0] ? TECHS[ids[0]] : null;
+  if (!t) return null;
+  const fx = t.effects.find((e) => e.kind === 'pitDepth');
+  return { name: t.name, m: fx && fx.kind === 'pitDepth' ? fx.benches * PIT.bench : PIT.bench };
+}
+
+/** What hems a pit in, for the words: the structures and roads beside its rim. */
+function hemmers(s: GameState, p: PitState): string {
+  const near: { name: string; d: number }[] = [];
+  for (const b of s.buildings) {
+    const r = worldRect(b);
+    const dx = Math.max(r.x0 - p.cx, 0, p.cx - r.x1), dz = Math.max(r.z0 - p.cz, 0, p.cz - r.z1);
+    const d = Math.hypot(dx, dz) - p.R;
+    if (d > 16) continue;
+    near.push({ name: b.type === 'lander' ? 'the Lander’s apron' : `${BUILDINGS[b.type].name} #${b.id}`, d });
+  }
+  near.sort((a, b) => a.d - b.d || (a.name < b.name ? -1 : 1));
+  const names = near.slice(0, 2).map((n) => n.name);
+  const road = (s.roads ?? []).some((c) => { const [x, z] = cellCentre(c.gx, c.gz); return Math.hypot(x - p.cx, z - p.cz) - p.R < 12; });
+  if (road) names.push('a road');
+  return names.length ? names.join(names.length > 2 ? ', ' : ' and ').replace(/, ([^,]*)$/, ' and $1') : 'the ground round it';
+}
+
+/** The pits' news since the last tick (core/pits.ts sets it): units off a
+ *  dug-out or hemmed-in pit choose again, and the alerts say why (§10.2). */
+export function pitNews(s: GameState, mods: Mods, site: SiteDef) {
+  for (const p of s.pits ?? []) {
+    const news = p.news;
+    if (!news?.length) continue;
+    delete p.news;
+    const name = pitName(s, p);
+    const dep = p.key.startsWith('dep:') ? p.key.slice(4) : null;
+    const surveyed = !!(dep && s.oreSurvey?.done[dep]);
+    const act = dep ? { deposit: dep } : undefined;
+    for (const n of news) {
+      if (n === 'running') {
+        const units = s.haulers.filter((u) => u.target === p.key).length;
+        alert(s, `DEPOSIT RUNNING OUT — ${name}: ~1 lunar day of ore left at ${units} unit${units === 1 ? '' : 's'} · survey the next one [I]`, 'warn', act);
+        continue;
+      }
+      if (n === 'rock') {
+        const left = dep ? pitOreLeft(s, p) : null;
+        const more = left ? `~${kilo(left)}▲ of ore in bedrock` : 'its bedrock';
+        const by = TECH_ORDER.filter((id) => s.techsDone.includes(id) && TECHS[id].effects.some((fx) => fx.kind === 'pitDepth'))
+          .map((id) => TECHS[id].name).join(' and ');
+        alert(s, `DEEPER BENCHES — ${name} reopens: ${more} at ×${GRADE.bedrockDig} dig${by ? ` (${by})` : ''}`, 'info', act);
+        continue;
+      }
+      if (n === 'reclaimed') {
+        alert(s, `PIT RECLAIMED — ${name}: its heap is back in the ground, and it builds again`, 'info', act);
+        continue;
+      }
+      // exhausted, boxed in, its bedrock cut: its units move on
+      const on = s.haulers.filter((u) => u.target === p.key);
+      const hubs = [...new Set(on.map((u) => u.hub))];
+      releasePit(s, p.key);
+      const moves = hubs.map((id) => {
+        const b = s.buildings.find((x) => x.id === id);
+        if (!b?.hub) return '';
+        const k = on.filter((u) => u.hub === id).length;
+        const unit = unitName(hubUnit(b.type, site)).toLowerCase();
+        const who = `${hubName(b)}'s ${k > 1 ? `${k} ${unit}s` : unit}`;
+        const next = choicesFor(s, mods, site, b, k).find((c) => c.inReach && c.trip.connected && c.free > 0);
+        if (!next) return `${who} ${k > 1 ? 'park' : 'parks'}: nothing else in reach`;
+        if (next.target.key === p.key || (next.target.plain && next.q < b.hub.q * 0.9)) {
+          return `${who}: nothing richer in reach — ${k > 1 ? 'they dig' : 'it digs'} on at plain grade (q ${next.q.toFixed(2)})`;
+        }
+        return `${who} go${k > 1 ? '' : 'es'} to ${next.target.name} (${fmtClock(next.trip.t)}) · feed q ${b.hub.q.toFixed(2)} → ${next.q.toFixed(2)}`;
+      }).filter(Boolean);
+      const tail = moves.length ? ` · ${moves.join(' · ')}` : '';
+      const sel = hubs.length ? { select: hubs[0] } : act;
+      if (n === 'exhausted') {
+        const never = surveyed ? '' : ' (never surveyed — a survey would have warned you a lunar day ahead)';
+        // a pit hemmed off its rich centre runs lean with ore still in the ground: say so
+        const R = dep ? reservesOf(s, mods, dep) : null;
+        const stays = R?.truth ? Math.max(0, R.truth.ore - R.dug) : 0;
+        const why = R?.truth && stays > R.truth.ore * 0.25
+          ? `'s pit has cut into lean ground: ~${kilo(stays)}▲ of its ore stays in the ground, hemmed in by ${hemmers(s, p)}`
+          : `'s ore is dug out`;
+        alert(s, `DEPOSIT EXHAUSTED — ${name}${why}${tail}${never}`, 'warn', sel);
+      } else if (n === 'boxed') {
+        const left = pitOreLeft(s, p);
+        const t = bedrockTech(s);
+        const ore = left && left > 50 ? `; ${kilo(left)}▲ of ore stays in the ground` : '';
+        const deeper = t ? ` · ${t.name} digs ${t.m} m below it` : '';
+        alert(s, `PIT BOXED IN — ${name} is hemmed in by ${hemmers(s, p)}${ore}${deeper}${tail}`, 'warn', sel);
+      } else if (n === 'rockDone') {
+        alert(s, `BEDROCK BENCHES CUT — ${name} is dug to ${p.deep.toFixed(1)} m${tail}`, 'info', sel);
+      }
+    }
+  }
+}
+const kilo = (t: number) => (t >= 1000 ? `${(t / 1000).toFixed(1)}k` : `${Math.round(t)}`);

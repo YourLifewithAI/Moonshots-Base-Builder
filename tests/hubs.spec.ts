@@ -27,19 +27,21 @@ async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'robo
   await page.evaluate(HELPERS);
 }
 
-declare function hubBy(type: string, depId: string | null, x?: number, z?: number): number | null;
+declare function hubBy(type: string, depId: string | null, x?: number, z?: number, off?: number): number | null;
 declare function byId(id: number): any;
 declare function openNear(hub: number, x: number, z: number): any;
 declare function units(hub?: number): any[];
 declare function hubOf(id: number): any;
 declare function power(n: number): void;
 const HELPERS = `(() => {
-/** place a hub just outside a deposit's ring (door toward it), or near (x, z); its id */
-window.hubBy = (type, depId, x, z) => {
+/** place a hub just outside a deposit's ring (door toward it), or near (x, z); its id.
+ *  off: cells further out (a hub at the ring stands in its pit's way: the pits'
+ *  12 m setback pushes the pit off the deposit's rich centre, docs/17 §8.1, §10.1) */
+window.hubBy = (type, depId, x, z, off = 0) => {
   const g = window.__game;
   const d = depId ? g.getDeposits().find((q) => q.id === depId) : { x, z, r: 0 };
   const cgx = Math.floor((d.x + 512) / 4), cgz = Math.floor((d.z + 512) / 4);
-  const R0 = Math.ceil(d.r / 4);
+  const R0 = Math.ceil(d.r / 4) + off;
   for (let rr = R0; rr <= R0 + 16; rr++) {
     const found = [];
     for (let i = -rr; i <= rr; i++) for (const [gx, gz] of [[cgx + i, cgz - rr], [cgx + i, cgz + rr], [cgx - rr, cgz + i], [cgx + rr, cgz + i]]) {
@@ -381,7 +383,8 @@ test('each hub has its own hopper; ▲ is their sum and the pile; each hub has i
   await start(page);
   const a = await page.evaluate(() => {
     const g = window.__game!;
-    const h1 = hubBy('smelter', 'ilmenite-0')!;
+    // 12–16 m off the ring, as the Builder stands a hub: its pit opens at the rich centre
+    const h1 = hubBy('smelter', 'ilmenite-0', undefined, undefined, 3)!;
     // a second smelter by the Lander, sent to its own plain pit
     const h2 = hubBy('smelter', null, -40, -40)!;
     power(14);
@@ -402,6 +405,7 @@ test('each hub has its own hopper; ▲ is their sum and the pile; each hub has i
     g.advanceGameSeconds(1);
     const st2 = g.getState();
     return {
+      res: g.getReserves('ilmenite-0'),
       reg: st.resources.regolith, sum, h1: b1.hub, h2: b2.hub, feed: st.feed, pile2: st2.pile,
       reg2: st2.resources.regolith, sum2: st2.pile + st2.buildings.find((b: any) => b.id === h1).hub.hopper + st2.buildings.find((b: any) => b.id === h2).hub.hopper,
       caps: st.storageCaps.regolith,
@@ -411,11 +415,13 @@ test('each hub has its own hopper; ▲ is their sum and the pile; each hub has i
   expect(a.reg2).toBeCloseTo(a.sum2, 6);
   // a grant lands on the pile, and smelters draw the pile first
   expect(a.pile2).toBeGreaterThan(0);
-  // the hub on high-Ti basalt feeds at 1.3, the one on plain ground at 1.0
+  // each hub's q is the grade its units bring (docs/17 §9.1): high-Ti basalt near its
+  // centre (at most the centre's grade), plain mare ground at 0.62 (robots)
   expect(a.h1.feed.ilmenite).toBeGreaterThan(0.95);
-  expect(a.h1.q).toBeCloseTo(1.3, 2);
+  expect(a.h1.q).toBeGreaterThan(1.2);
+  expect(a.h1.q).toBeLessThanOrEqual(a.res.truth.centre + 1e-6);
   expect(a.h2.feed.plain).toBeGreaterThan(0.95);
-  expect(a.h2.q).toBeCloseTo(1.0, 2);
+  expect(a.h2.q).toBeCloseTo(0.62, 2);
   // the base's feed is their mean, weighted by what each drew
   expect(a.feed.ilmenite).toBeGreaterThan(0.2);
   expect(a.feed.plain).toBeGreaterThan(0.2);
@@ -429,7 +435,7 @@ test('a water plant on the ice prints Ice Miners, which dig the cold trap for it
     const g = window.__game!;
     g.completeTech('iceExtraction');
     const ice = g.getDeposits().filter((d: any) => d.kind === 'ice' && d.revealed).sort((p: any, q: any) => Math.hypot(p.x, p.z) - Math.hypot(q.x, q.z))[0];
-    const hub = hubBy('waterPlant', ice.id)!;
+    const hub = hubBy('waterPlant', ice.id, undefined, undefined, 3)!;
     power(8);
     g.finishConstruction();
     const w0 = g.getState().stats.produced.water;
@@ -441,7 +447,10 @@ test('a water plant on the ice prints Ice Miners, which dig the cold trap for it
   expect(a.units[0].type).toBe('iceMiner');
   expect(a.units[0].target).toBe(`dep:${a.ice}`);
   expect(a.hubState.feed.ice).toBeGreaterThan(0.95);
-  expect(a.hubState.q).toBeCloseTo(1, 2);
+  // the starter trap is seeded rich: 8–10 wt% at its centre (q 1.6–2.0), its halo leaner
+  // (a small trap: its pit soon cuts into the lean edge, above the cutoff)
+  expect(a.hubState.q).toBeGreaterThan(0.26);
+  expect(a.hubState.q).toBeLessThanOrEqual(2.0);
   expect(a.water).toBeGreaterThan(20);
   // off the ice (the mare): the plant prints excavators for mature soil
   await start(page, 'mare');
@@ -462,7 +471,7 @@ test('Assign, Send… and Recall: the hub prefers a pit; a sent unit is pinned t
   const a = await page.evaluate(() => {
     const g = window.__game!;
     g.revealAll();
-    const hub = hubBy('smelter', 'ilmenite-0')!;
+    const hub = hubBy('smelter', 'ilmenite-0', undefined, undefined, 3)!;
     power(10);
     g.finishConstruction();
     g.queueUnit(hub);
@@ -471,8 +480,11 @@ test('Assign, Send… and Recall: the hub prefers a pit; a sent unit is pinned t
     // Open pit… a plain pit, and Assign it: the auto units go there
     const pit = openNear(hub, -60, 10);
     g.assignPit(hub, `plain:${pit.id}`);
-    g.advanceGameSeconds(400);
+    // a new pit has one face; its second opens as it widens (docs/17 §8.2), and the
+    // second unit follows the Assign then
+    for (let i = 0; i < 24 && !units(hub).every((u: any) => u.target === `plain:${pit.id}`); i++) { g.grantPower(5000); g.advanceGameSeconds(100); }
     const assigned = units(hub).map((u: any) => u.target);
+    const plainPitNow = g.getPits().pits.find((p: any) => p.key === `plain:${pit.id}`);
     // Send… one unit back to the deposit: pinned
     g.sendUnit(us[0].id, 'dep:ilmenite-0');
     g.advanceGameSeconds(300);
@@ -482,10 +494,10 @@ test('Assign, Send… and Recall: the hub prefers a pit; a sent unit is pinned t
     g.autoUnit(us[0].id);
     g.advanceGameSeconds(400);
     const auto = units(hub).find((u: any) => u.id === us[0].id);
-    return { pit: pit.id, n: us.length, assigned, sent, other, auto, view: hubOf(hub) };
+    return { pit: pit.id, n: us.length, assigned, sent, other, auto, view: hubOf(hub), plainPitNow };
   });
   expect(a.n).toBe(2);
-  expect(a.assigned.every((k: string) => k === `plain:${a.pit}`)).toBe(true);
+  expect(a.assigned.every((k: string) => k === `plain:${a.pit}`), JSON.stringify({ assigned: a.assigned, R: a.plainPitNow?.R })).toBe(true);
   expect(a.sent.pinned).toBe(true);
   expect(a.sent.target).toBe('dep:ilmenite-0');
   expect(a.other.target).toBe(`plain:${a.pit}`);
@@ -502,7 +514,7 @@ test('a unit sent to a pit with every face working waits at its gate', async ({ 
     power(6);
     g.finishConstruction();
     g.advanceGameSeconds(2);
-    // stake a plain pit (3 faces), fill its faces with the hub's second unit and two sent from a second smelter
+    // stake a plain pit (one face while it is new), fill it with the hub's second unit and two sent from a second smelter
     const pit = openNear(hub, -60, 10);
     const key = `plain:${pit.id}`;
     const s = g.getState();
@@ -523,7 +535,8 @@ test('a unit sent to a pit with every face working waits at its gate', async ({ 
   expect(a.faces).toBe(4);
   expect(a.raw.face).toBe(-1);
   expect(a.raw.haul.wait).toBe('gate');
-  expect(a.last.line).toMatch(/^WAITING AT THE GATE — plain pit P\d+ has 3\/3 faces working/);
+  // a new pit has one face (docs/17 §8.2): every face working
+  expect(a.last.line).toMatch(/^WAITING AT THE GATE — plain pit P\d+ has (\d)\/\1 faces working/);
 });
 
 test('with no wanted deposit in reach, the hub stakes a plain pit (a zone of its own) and its unit digs it', async ({ page }) => {

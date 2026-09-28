@@ -64,6 +64,8 @@ export interface CarveResult {
   ix0: number; iz0: number; ix1: number; iz1: number;
   /** the deepest (or highest) sample of it now, m */
   extreme: number;
+  /** a pit's: the share of its rim with room to widen (16 probes, 8 m past the rim), 0–1 */
+  free?: number;
 }
 
 // ───────────────────────────── scratch ─────────────────────────────
@@ -407,9 +409,11 @@ function ownAt(win: Win, x: number, z: number): boolean {
 /** Grow away: where past the rim the ground is blocked, push the centre the
  *  other way by up to `dR` (the rim's advance for this carve). A pit blocked
  *  on half its rim drifts about dR, keeping its blocked side where it is. */
+let lastFree = 1;
 function drift(win: Win, p: PitShape, dR: number): void {
-  if (dR <= 0 || p.anchor < 0) return;
-  let bx = 0, bz = 0;
+  lastFree = 1;
+  if (p.anchor < 0) return;
+  let bx = 0, bz = 0, open = 0;
   const K = PIT.probes;
   for (let k = 0; k < K; k++) {
     const a = (2 * Math.PI * k) / K;
@@ -425,7 +429,13 @@ function drift(win: Win, p: PitShape, dR: number): void {
     const b = 1 - run / PIT.probeM;
     bx -= b * ux;
     bz -= b * uz;
+    // a face works where the rim is not against no-dig ground (docs/17 §8.2): the
+    // sample a ring past it can still take a bench
+    const fx = nearest(p.cx + ux * (p.R + CELL_M)) - win.x0, fz = nearest(p.cz + uz * (p.R + CELL_M)) - win.z0;
+    if (fx >= 0 && fz >= 0 && fx < win.w && fz < win.h && dist[fz * win.w + fx] >= CELL_M) open++;
   }
+  lastFree = open / K;
+  if (dR <= 0) return;
   const mag = Math.sqrt(bx * bx + bz * bz);
   if (mag < 0.5) return;
   let step = dR * Math.min(1, mag / (K / Math.PI));
@@ -438,12 +448,13 @@ function drift(win: Win, p: PitShape, dR: number): void {
 
 /** Cut a pit toward `addM3` more of volume (never past it): drift its centre
  *  away from blocked sides by up to `dR`, solve its rim radius, write the
- *  grid. Mutates `p` (centre, R, A, anchor). */
-export function carvePit(hf: Heightfield, p: PitShape, bl: Blockers, addM3: number, dR: number): CarveResult {
+ *  grid. Mutates `p` (centre, R, A, anchor). `Rmax`: the rim it may not pass
+ *  (bedrock benches deepen the floor under a held rim, docs/17 §8.5). */
+export function carvePit(hf: Heightfield, p: PitShape, bl: Blockers, addM3: number, dR: number, Rmax?: number, dry = false): CarveResult {
   const res: CarveResult = { added: 0, changed: 0, ix0: N, iz0: N, ix1: -1, iz1: -1, extreme: 0 };
   if (addM3 <= 0) return res;
   const Rfree = pitRadius(addM3 + pitVolume(p.R, p.L), p.L);
-  const rHi = Math.min(140, Math.max(p.R, Rfree) * 1.5 + 12);
+  const rHi = Math.min(140, Rmax ?? Infinity, Math.max(p.R, Rfree) * 1.5 + 12);
   const win = windowAt(p.cx, p.cz, rHi + dR + 2 * p.L + 2 * CELL_M);
   ensure(win.w * win.h, Math.max(win.w, win.h));
   floodOwn(hf, win, p.anchor, -1);
@@ -464,6 +475,8 @@ export function carvePit(hf: Heightfield, p: PitShape, bl: Blockers, addM3: numb
     R = lo;
   }
   const A = rampTop(p, R);
+  // a dry run (a hemmed-in pit looking again): what it would cut, nothing written
+  if (dry) { res.added = pitAdded(p, Ldm, R); res.free = lastFree; return res; }
   let dm = 0, deepK = -1, deep = 0;
   for (let i = 0; i < nCand; i++) {
     const t = pitTarget(i, p, Ldm, R, A);
@@ -479,6 +492,7 @@ export function carvePit(hf: Heightfield, p: PitShape, bl: Blockers, addM3: numb
   }
   res.added = dm * DM_M3;
   res.extreme = deep / 10;
+  res.free = lastFree;
   if (res.changed) {
     p.R = Math.max(R, 0);
     p.A = A;
@@ -578,6 +592,9 @@ export function stakePit(
   if (away) { const d = Math.hypot(away.x - x, away.z - z); if (d > 1) { ax = (away.x - x) / d; az = (away.z - z) / d; } }
   let best: { x: number; z: number; clear: number } | null = null, bestS = Infinity;
   let fall: { x: number; z: number; clear: number } | null = null, fallS = -Infinity;
+  // on a deposit, the roomiest ground on its ore (docs/17 §10.1: a shallower pit on
+  // the ore beats a deep one beside it — the ore halo is where the grade is)
+  let onOre: { x: number; z: number; clear: number } | null = null;
   const ANG = 24;
   for (let d = 0; d <= reach; d += CELL_M) {
     const n = d === 0 ? 1 : ANG;
@@ -588,6 +605,7 @@ export function stakePit(
       if (lx < 0 || lz < 0 || lx >= win.w || lz >= win.h) continue;
       const clear = dist[lz * win.w + lx];
       if (clear > fallS) { fallS = clear; fall = { x: px, z: pz, clear }; }
+      if (onDeposit && clear >= 2 * CELL_M && onDeposit(px, pz) && (!onOre || clear > onOre.clear + 1e-9)) onOre = { x: px, z: pz, clear };
       if (clear < need) continue;
       let score = d;
       if (d > 0) score += 8 * (Math.cos(th) * ax + Math.sin(th) * az); // toward the base costs
@@ -596,6 +614,8 @@ export function stakePit(
       if (score < bestS - 1e-9) { bestS = score; best = { x: px, z: pz, clear }; }
     }
   }
+  if (best && (!onDeposit || onDeposit(best.x, best.z) || !onOre)) return best;
+  if (onOre) return onOre;
   if (best) return best;
   // a shallow pit where nothing deeper fits
   return fall && fall.clear >= 2 * CELL_M ? fall : null;
@@ -695,7 +715,7 @@ export function takeCarved(hf: Heightfield, fn: (gx0: number, gz0: number, gx1: 
   return n;
 }
 
-/** Reclaim's hook (Phase 4, docs/17 §12.2): the one writer allowed to raise a
+/** Reclaim's hook (docs/17 §12.2): the one writer allowed to raise a
  *  carved sample, to `dm` (never above the ground it was cut from). */
 export function raiseCut(hf: Heightfield, k: number, dm: number) {
   const cur = hf.delta[k];
@@ -703,6 +723,70 @@ export function raiseCut(hf: Heightfield, k: number, dm: number) {
   hf.setDelta(k, Math.min(0, Math.max(cur, dm)));
   const ix = k % N, iz = (k - ix) / N;
   hf.carved.push(ix - 1, iz - 1, ix, iz);
+}
+
+/** A shape's own samples (grid indices): flooded from its anchor over one sign
+ *  (−1 a pit's cut, +1 a heap) inside its bounds and two samples round them. */
+export function ownSamples(hf: Heightfield, anchor: number, box: readonly number[], sign: -1 | 1): number[] {
+  if (anchor < 0 || box[2] < box[0]) return [];
+  const x0 = Math.max(0, box[0] - 2), z0 = Math.max(0, box[1] - 2);
+  const win: Win = { x0, z0, w: Math.min(N - 1, box[2] + 2) - x0 + 1, h: Math.min(N - 1, box[3] + 2) - z0 + 1 };
+  ensure(win.w * win.h, Math.max(win.w, win.h));
+  floodOwn(hf, win, anchor, sign);
+  const out: number[] = [];
+  for (let lz = 0; lz < win.h; lz++) {
+    for (let lx = 0; lx < win.w; lx++) if (own[lz * win.w + lx]) out.push((win.z0 + lz) * N + win.x0 + lx);
+  }
+  return out;
+}
+
+/** Reclaim (docs/17 §12.2): push up to `addM3` of spoil back into a pit's own
+ *  samples, filling from the bottom (the deepest first, a decimetre at a time),
+ *  never above `floorDm` deep (10: a metre below the ground). Returns m³ filled. */
+export function fillPit(hf: Heightfield, samples: readonly number[], addM3: number, floorDm: number): CarveResult {
+  const res: CarveResult = { added: 0, changed: 0, ix0: N, iz0: N, ix1: -1, iz1: -1, extreme: 0 };
+  if (addM3 <= 0 || !samples.length) return res;
+  let deep = 0;
+  for (const k of samples) deep = Math.max(deep, -hf.delta[k]);
+  // the level the fill reaches: each decimetre up costs a decimetre on every sample below it
+  let level = deep, left = addM3;
+  while (level > floorDm) {
+    let n = 0;
+    for (const k of samples) if (-hf.delta[k] >= level) n++;
+    const cost = n * DM_M3;
+    if (cost > left + 1e-9) break;
+    left -= cost;
+    level--;
+  }
+  if (level >= deep) return res;
+  for (const k of samples) {
+    if (-hf.delta[k] <= level) continue;
+    const before = hf.delta[k];
+    raiseCut(hf, k, -level);
+    res.added += (hf.delta[k] - before) * DM_M3;
+    res.changed++;
+    const ix = k % N, iz = (k - ix) / N;
+    if (ix < res.ix0) res.ix0 = ix; if (ix > res.ix1) res.ix1 = ix;
+    if (iz < res.iz0) res.iz0 = iz; if (iz > res.iz1) res.iz1 = iz;
+  }
+  res.extreme = level / 10;
+  return res;
+}
+
+/** Reclaim: a heap's samples lowered to `share` of their height (0: gone). Returns m³ taken. */
+export function lowerHeap(hf: Heightfield, samples: readonly number[], share: number): number {
+  let dm = 0;
+  for (const k of samples) {
+    const cur = hf.delta[k];
+    if (cur <= 0) continue;
+    const next = Math.max(0, Math.min(cur, Math.round(cur * share)));
+    if (next === cur) continue;
+    dm += cur - next;
+    hf.setDelta(k, next);
+    const ix = k % N, iz = (k - ix) / N;
+    hf.carved.push(ix - 1, iz - 1, ix, iz);
+  }
+  return dm * DM_M3;
 }
 
 // ───────────────────────────── the look ─────────────────────────────

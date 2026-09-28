@@ -22,7 +22,7 @@ export function hubSig(sel: BuildingState): string {
   const h = hubOf(sel);
   if (!h) return '';
   return [h.level, h.bays, h.units.join(','), h.queue.map((j) => `${j.kind}${j.paid}`).join(','), h.canUnit === '', h.canBay === '',
-    h.pits.map((p) => `${p.key}${p.assigned}${p.inReach}`).join(','), h.prefer ?? '', unitsOf(h).map((u) => `${u.pinned}${u.parked}`).join(',')].join('|');
+    h.pits.map((p) => `${p.key}${p.assigned}${p.inReach}${p.unsurveyed}`).join(','), h.prefer ?? '', unitsOf(h).map((u) => `${u.pinned}${u.parked}`).join(',')].join('|');
 }
 
 function hopperBar(h: HubView): string {
@@ -44,8 +44,9 @@ export function hubBodyHtml(sel: BuildingState): string {
         : `<button class="btn unit-recall" data-unit="${u.id}" title="Home to its bay, and hold there">Recall</button>`}
       ${u.pinned ? `<button class="btn unit-auto" data-unit="${u.id}" title="Its hub chooses for it again">Auto</button>` : ''}</span></div>`).join('');
   const pits = h.pits.map((p, i) => `<div class="row"><span class="mono" id="hub-pit-${i}"></span>
+      <span>${p.unsurveyed ? `<button class="btn hub-survey" data-key="${esc(p.key)}" title="A free rover cores it: its ore, grade and faces (30 stored energy, 2⚙)">Survey</button>` : ''}
       <button class="btn hub-assign${p.assigned ? ' active' : ''}" data-key="${esc(p.key)}" aria-pressed="${p.assigned}"
-        title="${p.assigned ? 'Assigned: its auto units go here as faces allow — click to let them choose' : 'Its auto units go here as faces allow'}">${p.assigned ? 'Assigned' : 'Assign'}</button></div>`).join('');
+        title="${p.assigned ? 'Assigned: its auto units go here as faces allow — click to let them choose' : 'Its auto units go here as faces allow'}">${p.assigned ? 'Assigned' : 'Assign'}</button></span></div>`).join('');
   return `<section>
       <span class="label" id="hub-hopper"></span>
       <div class="mono" style="margin-top:3px" id="hub-feed"></div>
@@ -91,7 +92,7 @@ export function refreshHub(root: HTMLElement, sel: BuildingState) {
     `${j.name} · ${j.paid ? `${pct(j.pct)} · ${fmtClock(Math.ceil(j.left))} left` : j.waiting ? `waiting: ${j.waiting}` : 'queued'}`));
   for (const u of unitsOf(h)) setText(root, `hub-unit-${u.id}`, `${u.tag} ${u.pinned ? '(sent) ' : ''}· ${u.line}`);
   h.pits.forEach((p, i) => setText(root, `hub-pit-${i}`,
-    `${p.glyph} ${p.name} · ${p.connected ? '' : '≈'}${fmtClock(p.tripS)}${p.inReach ? '' : ' (out of reach)'} · faces ${p.used}/${p.faces} · q ${p.q.toFixed(2)} · ${(p.rate).toFixed(2)}${G}/s a unit`));
+    `${p.glyph} ${p.name} · ${p.connected ? '' : '≈'}${fmtClock(p.tripS)}${p.inReach ? '' : ' (out of reach)'} · faces ${p.used}/${p.faces} · q ${p.q.toFixed(2)} · ${(p.rate).toFixed(2)}${G}/s a unit${p.ore ? ` · ${p.ore}` : ''}`));
 }
 
 /** The hub inspector's buttons; true when handled. */
@@ -103,6 +104,7 @@ export function hubClick(game: Game, btn: HTMLButtonElement, sel: BuildingState)
     return true;
   }
   if (btn.classList.contains('unit-send')) { game.beginFleetTarget({ kind: 'sendUnit', unit }); return true; }
+  if (btn.classList.contains('hub-survey')) { game.actions.push({ kind: 'surveyDeposit', id: (btn.dataset.key ?? '').replace(/^dep:/, '') }); return true; }
   if (btn.classList.contains('unit-recall')) { game.actions.push({ kind: 'recallUnit', unit }); return true; }
   if (btn.classList.contains('unit-dispatch')) { game.actions.push({ kind: 'dispatchUnit', unit }); return true; }
   if (btn.classList.contains('unit-auto')) { game.actions.push({ kind: 'autoUnit', unit }); return true; }

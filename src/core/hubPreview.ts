@@ -26,8 +26,10 @@
  *  gives it — 1.3 × the straight line to its rim, then off-road — marked ≈.
  *
  *  **Phase 4's numbers** (reserves left, grade, survey precision, faces at
- *  full size, life) come through `reservesOf`, which answers null today:
- *  every line and label that shows them renders only when they are present. */
+ *  full size, life) come through `reservesOf` (core/pits.ts): a surveyed
+ *  deposit's reading, the grade of a pit's cut; every line and label that
+ *  shows them renders only when they are present. The grade a hub's units
+ *  would bring is core/pits.ts `targetGrade`. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { HUB, HUB_DEFS, HUB_TYPES } from '../data/hubs';
 import { ROAD } from '../data/roads';
@@ -42,7 +44,8 @@ import {
   proposePlainPit, standPoint, targetOf, unitName, unitRates, unitSpec, unitSpeed, unitsOf, wayIn,
   type Target, type TripEst,
 } from './hubs';
-import { pitOf, looseLayer } from './pits';
+import { pitOf, looseLayer, faceCapacity, reservesOf as oreReserves, targetGrade } from './pits';
+import { CYCLE_S } from '../data/balance';
 import { cellCentre, cellKey, doorCell, hasRoads, joinCell, keyCell, planSpur, roadDistances, type SpurPlan } from './roads';
 import { pitRadius } from '../terrain/pitCarve';
 import { footprintRect } from '../buildings/instances';
@@ -70,12 +73,35 @@ export interface Reserves {
   fullR?: number;
   /** lunar days of ore left at the current dig */
   lifeDays?: number;
+  /** the loose layer (m) its pit widens at, and the true full-size rim (the ring warning's) */
+  L?: number;
+  trueFullR?: number;
 }
 
-/** Phase 4 hook: a deposit's (`dep:<id>`) or plain pit's (`plain:<id>`)
- *  reserves, grade and survey precision. Null: not known (today, always). */
-export function reservesOf(_s: GameState, _key: string): Reserves | null {
-  return null;
+/** A deposit's (`dep:<id>`) or plain pit's (`plain:<id>`) reserves, grade and
+ *  survey precision (core/pits.ts reservesOf): what the survey read (ore, its
+ *  range, centre grade, faces and the pit at full size, life), and the grade
+ *  of the cut once it is dug. An unsurveyed deposit knows only its cut. */
+export function reservesOf(s: GameState, key: string): Reserves | null {
+  if (key.startsWith('plain:')) return { facesFull: faceCapacity(s, key).full };
+  if (!key.startsWith('dep:')) return null;
+  const r = oreReserves(s, { surveyPrecision: 0.3 }, key.slice(4));
+  if (!r || !r.process) return null;
+  const out: Reserves = { L: r.L, ...(r.truth ? { trueFullR: r.truth.fullR } : {}) };
+  if (r.cutQ !== null && r.pitR > 0) out.cutQ = r.cutQ;
+  if (r.surveyed && r.est) {
+    const left = r.spent && !r.bedrock ? 0 : r.bedrock ? r.left : Math.max(0, r.est.ore - r.dug);
+    out.left = left;
+    out.total = r.est.ore;
+    out.precision = r.precision ?? undefined;
+    out.centreQ = r.est.centre;
+    out.cutQ ??= r.cutQ ?? undefined;
+    out.facesFull = r.facesFull;
+    out.fullR = r.fullR;
+    // at its dig now, else one hub's hunger (2▲/s)
+    out.lifeDays = left / (r.rate > 0.05 ? r.rate : 2) / CYCLE_S;
+  }
+  return out;
 }
 
 // ───────────────────────────── shapes ─────────────────────────────
@@ -295,7 +321,8 @@ export function hubLight(s: GameState, mods: Mods, site: SiteDef, src: LightSour
       : estimateTrip(unitSpeed(mods, unit), 1 / (ROAD.offroad * mods.haulOffroadMult), standPoint(stub), t);
     const sp = specFor(t.kind);
     const rate = sp.bucket / (sp.digS + sp.unloadS + 2 * trip.t);
-    const q = groundQ(mods, site, type, t.kind);
+    // the grade of its cut now (docs/17 §9.1): a deposit's centre before it is dug, then leaner
+    const q = targetGrade(s, mods, site, type, t.key);
     return { trip, rate, q, score: Math.min(rate, hunger) * q };
   };
   const push = (t: Target, tier: LitTier, state0: LitState | null, id: string) => {
@@ -312,7 +339,7 @@ export function hubLight(s: GameState, mods: Mods, site: SiteDef, src: LightSour
       cx: t.cx, cz: t.cz, r: t.r, tier, state, eta, approx: !!m && !m.trip.connected, inReach,
       roadM: m?.trip.roadM ?? 0, offM: m?.trip.offM ?? 0,
       faces: t.faces, used, pit: pitView(pit), fullR: fullRadius(s, t.key, kind, t.r, pit),
-      q: m?.q ?? groundQ(mods, site, type, t.kind), rate: m?.rate ?? 0, score: m?.score ?? 0,
+      q: m?.q ?? targetGrade(s, mods, site, type, t.key), rate: m?.rate ?? 0, score: m?.score ?? 0,
       note: tier === 'dim' && kind ? notes[kind] ?? '' : '', reserves: reservesOf(s, t.key), best: false, label: '',
     };
     entries.push(e);
@@ -339,7 +366,8 @@ export function hubLight(s: GameState, mods: Mods, site: SiteDef, src: LightSour
   }
   // the plain pit a ghost would stake
   if (stake && stub && src.kind === 'ghost') {
-    const t: Target = { key: 'stake', kind: undefined, name: 'plain pit', cx: stake[0], cz: stake[1], r: HUB.plainR, zone: null, faces: HUB.plainFaces, plain: true };
+    // a new pit has one face (docs/17 §8.2)
+    const t: Target = { key: 'stake', kind: undefined, name: 'plain pit', cx: stake[0], cz: stake[1], r: HUB.plainR, zone: null, faces: 1, plain: true };
     push(t, 'lit', 'stake', 'stake');
   }
   // where its units would go: the best in reach with a free face
@@ -537,17 +565,21 @@ export function pitWay(s: GameState, site: SiteDef, b: Pick<BuildingState, 'type
   let worst: { name: string; fullR: number; share: number } | null = null;
   const consider = (key: string, name: string, kind: DepositKind | null, cx: number, cz: number, r: number) => {
     const pit = pitOf(s, key);
-    if (pit?.state === 'exhausted') return;
-    const fullR = fullRadius(s, key, kind, r, pit);
+    if (pit?.spent || pit?.state === 'exhausted' || pit?.state === 'reclaimed') return;
+    const res = kind ? reservesOf(s, key) : null;
+    if (kind && res && res.trueFullR === undefined) return; // no ore bed to stop
+    const fullR = res?.trueFullR ?? fullRadius(s, key, kind, r, pit);
+    const L = res?.L ?? looseMid(s, kind);
     if (distToRect(cx, cz, rect) >= fullR + pad) return;
-    // sample the full-size disc on a 2 m grid: the ore halo weighs a deposit's centre most
+    // sample the full-size pit on a 2 m grid: its ore is every tonne it cuts to the cutoff
+    // (core/ore.ts), so each point weighs the depth the pit reaches there (1:2 walls, floor at L)
     let all = 0, hit = 0;
     const step = 2;
     for (let z = -fullR; z <= fullR; z += step) {
       for (let x = -fullR; x <= fullR; x += step) {
         const rr = Math.hypot(x, z);
         if (rr > fullR) continue;
-        const w = kind ? Math.max(0, 1 - (rr / fullR) ** 2) : 1;
+        const w = kind ? Math.max(0, Math.min(L, (fullR - rr) / 2)) : 1;
         all += w;
         const px = cx + x, pz = cz + z;
         if (px > rect.x0 - pad && px < rect.x1 + pad && pz > rect.z0 - pad && pz < rect.z1 + pad) hit += w;

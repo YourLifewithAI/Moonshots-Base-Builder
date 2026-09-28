@@ -7,7 +7,8 @@ import { TECHS, effectApplies, type Expedition, type RecipeOverride, type TechId
 import type { GuardId, HazardId } from '../data/hazards';
 import type { SiteDef, SiteId } from '../data/sites';
 import type { ResourceId } from '../data/resources';
-import { FEED_KINDS, emptyFeed, type FeedGrade, type FeedKind } from '../data/deposits';
+import { FEED_KINDS, emptyFeed, type DepositKind, type FeedGrade, type FeedKind } from '../data/deposits';
+import { DEP_SURVEY } from '../data/ore';
 import { OUTPOST_LINK_KW } from '../data/lunarMap';
 import {
   AGENT_GEN_TAX, AGENT_TAX, BATTERY_EFF, DC_DATA_PER_S, DEPOSIT_FX, FEED, LAB_DATA, LAUNCH_CAP_PER_VOLLEY, MONOLITH,
@@ -80,6 +81,17 @@ export interface Mods {
   hubLevel: 1 | 2 | 3;
   hubBays: number;
   hubPrintTime: number;
+  /** ore grade (docs/17 §9.1, core/ore.ts): every load's q × gradeAll; hydrogen
+   *  reduction's × gradeH2 as well (Beneficiation) */
+  gradeAll: number;
+  gradeH2: number;
+  /** bedrock benches a pit may cut below its loose layer (docs/17 §8.5: Deep Coring, Deep Sounding) */
+  pitBedrockBenches: number;
+  /** the deposit survey (docs/17 §13): its precision (±share), its rover-seconds ×, and
+   *  the deposit kinds Relay Masts survey free in their radius */
+  surveyPrecision: number;
+  surveyTimeMult: number;
+  mastSurveyKinds: Set<DepositKind>;
   /** the roadway tier (core/roads.ts, docs/15-roads.md): travel speed on
    *  roads (all, excavators alone, at night), road dust, sintering time a cell */
   roadSpeedMult: number;
@@ -188,6 +200,8 @@ export function computeMods(
     housingDelta: fill(0), moraleDelta: fill(0),
     kreepOutpost: false,
     haulSpeedMult: 1, haulBucketMult: 1, haulOffroadMult: 1, hubLevel: 1, hubBays: 0, hubPrintTime: 1,
+    gradeAll: 1, gradeH2: 1, pitBedrockBenches: 0,
+    surveyPrecision: DEP_SURVEY.precision, surveyTimeMult: 1, mastSurveyKinds: new Set(),
     roadSpeedMult: 1, roadHaulMult: 1, roadNightMult: 1, roadDustMult: 1, roadCellMult: 1,
     packMult: 1, unitDriveMult: 1, chargeEff: 1, rpu: false,
     orderBook: 0, orderMax: AUTO.orderMax, autoFamilies: new Set(), siteSurvey: false, governor: false,
@@ -265,7 +279,15 @@ export function computeMods(
           } else if (fx.dataMult !== undefined) {
             m.surveyDataMult *= fx.dataMult;
           }
+          // the deposit survey (docs/17 §13.3): the tightest precision researched
+          if (fx.precision !== undefined) m.surveyPrecision = Math.min(m.surveyPrecision, fx.precision);
+          if (fx.depositTimeMult !== undefined) m.surveyTimeMult *= fx.depositTimeMult;
+          for (const k of fx.mastSurvey ?? []) m.mastSurveyKinds.add(k);
           break;
+        case 'grade':
+          if (fx.process === 'H2') m.gradeH2 *= fx.mult; else m.gradeAll *= fx.mult;
+          break;
+        case 'pitDepth': m.pitBedrockBenches += fx.benches; break;
         case 'powerDelta': m.powerDelta[fx.building] += fx.kw; break;
         case 'nightDraw': m.nightDrawMult *= fx.night; m.dayDrawMult *= fx.day; break;
         case 'feedBonus': m.feedBonus[fx.deposit] *= fx.mult; break;
@@ -456,6 +478,9 @@ export interface RateOpts {
   /** apply night/day draw multipliers; omitted = nameplate */
   isNight?: boolean;
   feed?: FeedGrade;
+  /** a hub's grade (docs/17 §9.1): its output is recipe × q (default: the hub's own q EMA,
+   *  b.hub.q; absent both, the kind-share feed factor of old) */
+  q?: number;
   /** agent-run labs' shared DSN share (default 1) */
   uplinkShare?: number;
 }
@@ -515,7 +540,13 @@ export function effectiveRates(
   if (ISRU.includes(type)) outMult *= site.isruMult;
   let feedFactor = 1;
   let o2Factor = 1;
-  if (type === 'smelter' && !def.feedInsensitive) {
+  const q = opts.q ?? b?.hub?.q;
+  if (q !== undefined && (type === 'smelter' || type === 'refinery' || type === 'waterPlant')) {
+    // a hub runs on the grade its units bring (docs/17 §9): MRE melts any ground at q 1;
+    // glass's extra oxygen still follows its share of the feed
+    feedFactor = type === 'smelter' && def.feedInsensitive ? 1 : q;
+    if (type === 'smelter' && !def.feedInsensitive) o2Factor = smelterFeed(mods, g).o2;
+  } else if (type === 'smelter' && !def.feedInsensitive) {
     const f = smelterFeed(mods, g);
     feedFactor = f.all;
     o2Factor = f.o2;

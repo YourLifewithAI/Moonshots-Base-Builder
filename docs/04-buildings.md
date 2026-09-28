@@ -57,6 +57,12 @@ Format, one row per building: *inputs → outputs | secondary effect | pro | con
 | Silicon Refinery (2) | S | 2 crew, −14 kW, 2 regolith/s → 0.4 silicon/s | A hub, with its first excavator (70◆ 20⚙). Feeds solar, foils — the whole endgame | Silicon for panels and foils — the whole endgame flows through here | The hungriest machine of the mid-game grid |
 | Rare-Earth Extractor (3) | C | crew, power, regolith → rare earths + thorium | KREEP-terrane sites only (05); feeds Electronics + reactor fuel | Unlocks the one supply chain no other site can run | Worthless geology everywhere but Procellarum — a site bet, not a building |
 
+**Hubs run on grade** (docs/17 Phase 4): a Smelter, Refinery or Water Management
+Plant makes its recipe × q, the grade its units bring — a deposit's centre is
+richest, plain ground leanest (mare H₂ q 0.62), MRE q 1 anywhere. Its pits hold one
+unit per face (a new pit has one) and run out at the cutoff; a survey on the
+deposit's card says how much ore a deposit holds and how many units it can take.
+
 ## Life & society
 
 | Building (Era) | St | Inputs → Outputs | Secondary effect | Pro | Con |

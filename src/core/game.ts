@@ -51,7 +51,7 @@ import { UNIT_VID, isHubType } from '../data/hubs';
 import { ghostBlock, hubLight, type HubLight, type LightSource } from './hubPreview';
 import { DepositHighlight } from '../world/depositHighlight';
 import { ROAD } from '../data/roads';
-import { bindTerrain, digSiteKey, onDig, pitsView, restoreTerrain, saveTerrain, syncPitZones } from './pits';
+import { bindTerrain, digSiteKey, onDig, pitsView, queueSurvey, restoreTerrain, saveTerrain, startReclaim, syncPitZones } from './pits';
 import { encodeDelta, takeCarved } from '../terrain/pitCarve';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
@@ -1285,6 +1285,16 @@ export class Game {
       case 'recallUnit': { const why = recallUnit(s, this.mods, a.unit); if (why) alert(s, why, 'warn'); break; }
       case 'dispatchUnit': { const why = dispatchUnit(s, a.unit); if (why) alert(s, why, 'warn'); break; }
       case 'autoUnit': { const why = autoUnit(s, a.unit); if (why) alert(s, why, 'warn'); break; }
+      case 'surveyDeposit': {
+        const why = queueSurvey(s, this.mods, a.id);
+        if (why) alert(s, `CANNOT SURVEY — ${why}`, 'warn', { deposit: a.id });
+        break;
+      }
+      case 'reclaimPit': {
+        const why = startReclaim(s, a.pit);
+        if (why) alert(s, `CANNOT RECLAIM — ${why}`, 'warn');
+        break;
+      }
       case 'digHome': {
         const b = s.buildings.find((x) => x.id === a.id);
         if (!b || b.type !== 'excavator') break;

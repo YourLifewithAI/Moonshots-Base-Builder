@@ -133,6 +133,24 @@ unload (4 s) → back to the dig
   before, while the cycle runs; in a brownout it runs on its pack (On-board
   power, below).
 
+### Grade and reserves — pits run out (docs/17 Phase 4)
+
+- **Output is recipe × q.** A hub's q is an EMA of the grade its units tip
+  (`core/ore.ts`, `core/pits.ts targetGrade`): a deposit is rich at its centre
+  (high-Ti basalt q 1.4–2.0 for hydrogen reduction) and falls to plain ground
+  (q 0.62 at the mare, 0.45 highland) at 1.3× its ring. The cut starts rich and
+  gets leaner as the pit widens: a lean pit digs more hole for less metal. MRE is
+  q 1 anywhere; a crew high-grades plain ground ×1.25; Beneficiation ×1.25 (H₂).
+- **Reserves.** A deposit is dug out when its cut reaches plain + 15% of its
+  enrichment: its ore is the full-size pit that far (about 11–18k▲ for a mare
+  ilmenite bed). Then its units re-route; smelters and refineries may dig it on
+  at plain grade. Bedrock benches (Deep Sounding now, Deep Coring in Phase 6)
+  reopen dug-out and hemmed-in pits at ×0.3 dig, 80% grade.
+- **Faces** are benches: floor(free rim / 30 m), 1–6 — a new pit holds one digger.
+- **Surveys** (a rover's job, 30 stored energy + 2⚙) read ore, grade, depth and
+  faces to ±30/15/5%. Strip mines near homes cost a crewed base morale (up to −12);
+  Reclaim pushes a worked-out pit's heap back in.
+
 ## The construction fleet — rovers as units
 
 Construction rovers are units the sim knows (`core/fleet.ts`, economy step 0):

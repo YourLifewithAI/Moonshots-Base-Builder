@@ -4,7 +4,9 @@
 **Phases 1–3 have shipped.** Phase 3 (heightfield editing and pits) shipped first,
 on `work/pits`. Phases 1–2 (hub units, haul to hub) followed on `work/hubunits`, and
 hub units now dig the pits (§22, "As shipped"). Phase 5 (the preview and the
-highlight) shipped on `work/hubview`, ahead of Phase 4. Revision 2
+highlight) shipped on `work/hubview`, ahead of Phase 4, and Phase 4 (grade,
+reserves, faces, surveys, morale and Reclaim) followed on `work/pitgrade`: pits
+run out now, and you can see why. Revision 2
 takes in the player's answers (§23) and redesigns extraction as **strip mining that
 deforms the terrain** (Part 2). Phase B starts after
 **work/unitpower** (machine battery packs) merges, since it changes the same files.
@@ -26,8 +28,10 @@ unit tables), `src/core/hubs.ts` (units, printing, bays, the choice, trips, plai
 pits, the pile and hoppers, migration), `src/core/hubView.ts` and
 `src/ui/hubPanel.ts` (the inspectors). **Code shipped (Phase 5):** `src/core/hubPreview.ts`
 (the highlight, the ghost's HUB block, the ring warning, Phase 4's `reservesOf` hook) and
-`src/world/depositHighlight.ts` (the lit rings on the ground). **Code to come:** grade,
-reserves, faces and surveys in `src/core/pits.ts`.
+`src/world/depositHighlight.ts` (the lit rings on the ground). **Code shipped (Phase 4):**
+`src/data/ore.ts` (the grade tables, faces, the survey, strip-mine morale, Reclaim) and
+`src/core/ore.ts` (grade, the halo, the cutoff, reserves, the survey's reading, pure);
+the pits' states, faces, reserves, surveys, morale and Reclaim in `src/core/pits.ts`.
 
 If a number here disagrees with the code once it ships, the code wins.
 
@@ -1667,7 +1671,7 @@ Each phase merges on its own and leaves the game playable.
 | 1 | **Data and hub units** ✅ **shipped** (`work/hubunits`) | `src/data/hubs.ts`; `waterPlant`; unit defs; the smelter from landing; `s.haulers`; the queue, printing, bays and Level I; the inspector's UNITS and ROBOTS; the palette drops the Excavator and Ice Harvester; the minimal migration | Units printed by hubs, hauling by today's rules into the old pool |
 | 2 | **Haul to hub** ✅ **shipped** (`work/hubunits`) | hoppers; ▲ as their sum; the pile; per-hub grade and feed; trips hub → gate → face → hub; plain pits as staked points (no carving yet); reach; the auto choice; Assign, Open pit…, Send…, Recall; the haul road with the spur; power per unit | Hubs live on their own hauls |
 | 3 | **Heightfield editing and pits** ✅ **shipped** (`work/pits`) | `src/terrain/pitCarve.ts`: the delta grid, carving, heaps, ramps, no-dig and no-build masks; `s.pits` and step 4.2; saving (base → deltas → flattens); the chunk rebuild queue and shadow throttle; placement, road A*, `roadReach`, zones and gates on the new terrain; Site Grading on pits and heaps; rocks | The ground deforms as units dig |
-| 4 | **Grade, reserves, faces, surveys and morale** | the grade tables and q; the ore halo and cutoff; exhaustion and boxed-in pits; bedrock benches; faces as benches; the survey job, precision and the card; strip-mine morale; Reclaim | Pits run out and you can see why |
+| 4 | **Grade, reserves, faces, surveys and morale** ✅ **shipped** (`work/pitgrade`) | the grade tables and q; the ore halo and cutoff; exhaustion and boxed-in pits; bedrock benches; faces as benches; the survey job, precision and the card; strip-mine morale; Reclaim | Pits run out and you can see why |
 | 5 | **The preview and the highlight** ✅ **shipped** (`work/hubview`) | the ghost's HUB block, its plain-pit stake and ring warnings; lit rings, rims and labels; the Lunar Map; touch | Placement shows its strategy |
 | 6 | **The research reshuffle** | Pit Mapping and the six other new techs; §14.4's changes; techSchema 5; milestones; discovery; the 71 test references | The ladder is in |
 | 7 | **The Builder and the probe** | `hubUnit`; siting's anchors and ring-keeping; plain-pit staking; relocation; Site Survey AI surveys; Feed Planner routing; the probe bot, its metrics and the pacing pass against §18 | Automation and pacing are tuned |
@@ -1863,6 +1867,46 @@ THE PIT'S WAY asks once. It covers a selected hub's pit, full and boxed-in
 states, and the pole's NO ICE IN REACH. It covers card hover, the Lunar Map, and
 High detail's rim line. It covers the phone: the card tap, the bar's block, a
 tapped hub. `tests/hubs.spec.ts` still passes.
+
+### As shipped: Phase 4 (`work/pitgrade`)
+
+Pits run out, and you can see why. Every number is derived from `(seed, deposit
+id)` (`src/core/ore.ts`, tables in `src/data/ore.ts`); the pits' states, faces,
+reserves, surveys, morale and Reclaim live in `src/core/pits.ts`.
+
+| Piece | As shipped |
+|---|---|
+| Grade (§9.1) | q per process: H₂ smelter, MRE (q 1 anywhere), refinery (plagioclase), water plant on ice (ice wt% ÷ 5) or off it (mature soil). Plain ground: H₂ 0.62 mare / 0.45 highland, refinery 0.8 / 1.0, soil 0.4, ice 0. Deposits' centres are seeded in §9.1's ranges; the starter cold trap 8–10 wt%. A crew (2 aboard or more) high-grades plain ground ×1.25. Beneficiation is now `{ kind: 'grade', mult: 1.25, process: 'H2' }` (`mods.gradeH2`); `gradeAll` is in place for Ore Sorting (Phase 6). |
+| The halo and the cut (§10.1) | g(ρ) = plain + (centre − plain) × max(0, 1 − (ρ / 1.3 r)²). A pit's grade is the mean over the band R − 2L … R round its actual centre (equal-area rings × 16 angles), so a pit off its deposit's centre, or drifting from a wall, runs leaner. `targetGrade(s, mods, site, hubType, key)` is what a hub's units bring. |
+| q flows | A bucket carries the grade it cut (`HaulState.q`), tipping moves the hub's `q` (an EMA by amount, as the feed shares), and `effectiveRates` makes a hub's output recipe × q (`b.hub.q`, or `opts.q`). Glass's extra O₂ still follows its feed share. |
+| Reserves (§10.1) | The cutoff is plain + 15% of the enrichment. The full-size pit R_full is the rim at which a round pit at the centre cuts at the cutoff (closed form, bisected); its ore is `pitVolume(R_full, L) × 1.5`. A deposit's pit tallies the ore it digs (`PitState.ore`). The loose layer of a deposit is now seeded from (seed, deposit id), so the survey reads it before a pit exists. KREEP and peaks of light hold no ore bed. |
+| Exhausted (§10.2) | When a deposit pit's cut falls to the cutoff it is `spent` (state `exhausted`): its units are released (pins too) and choose again; a smelter or refinery may dig it on at plain grade, a water plant never. The alert names where each hub's units go and its feed q before → after; a pit hemmed off its rich centre says how much ore stays in the ground and what hems it in. |
+| Boxed in | A carve that cuts nothing with a batch (150 m³) owed, or with no free rim, boxes the pit in: 0 faces, units released, `PIT BOXED IN — … is hemmed in by …`. Every 60 s a dry-run carve looks again, so a demolished neighbour frees it. |
+| Bedrock benches (§8.5) | `{ kind: 'pitDepth', benches }` → `mods.pitBedrockBenches`. Deep Sounding carries +1 now (Deep Coring's +2 is Phase 6). A dug-out or boxed-in pit reopens (`rockR` holds its rim, `rockTo` the floor below L): units dig at ×0.3, at 80% of the floor's grade; when a carve cuts nothing it returns to what it was. |
+| Faces (§8.2) | `faceCapacity(s, key)`: floor(2π R × free / 30 m), 1–6; a new pit 1; boxed in or reclaimed 0; on bedrock, its floor's. The free share is the rim's probes whose next sample can still take a bench. Plain pits follow the same rule (`HUB.plainFaces` is retired). Faces now and at full size. |
+| The choice | Unchanged in form (min(units × rate, hunger) × q), with q from `targetGrade`. **A deposit's pit keeps its units until it is dug out or boxed in** (Assign and Reclaim still come first): moving them early is Feed Planner's job. |
+| Staking | A deposit's pit prefers the roomiest ground on its ore over deep ground beside it: a hub at the ring pushes its pit off the rich centre, and the grade shows it. |
+| Surveys (§13) | `surveyDeposit { id }` on the deposit card or a hub's pit row: 30 stored energy and 2⚙ paid when queued (up to 4 jobs). A free rover takes the job before road jobs (`RoverUnit.core`), drives off-road to the centre (trip kind `core`; a drone flies), and cores 40 rover-s (× 0.5 with Prospecting Rovers); +5≡. `SURVEYED — …: 8.5k–15.9k▲ of ore (±30%) · centre 11% ilmenite (q 1.7) · loose to 4.4 m · 1 face now, 5 at full size (R 27 m) · ~8 lunar days at one smelter · +5≡`. Precision `mods.surveyPrecision`: ±30%, ±15% (Sample-Return Caches), ±5% (Gravity Gradiometry); surveyed deposits are re-read free. The reading sits off the truth by a seeded share of up to half the precision. Neutron Spectrometry: masts survey ice and mature soil free. A running-out warning at 1 lunar day of ore left needs a survey. |
+| The card (§13.4) | The deposit card's ore block (SURVEYED, the ore bar, left of total ±, cut and centre q, the product at its hub), pit block (R now of full, depth, loose layer, faces now and at full size, heap), EXHAUSTED/BOXED/RECLAIMING lines, life, the hubs that serve it; Survey, Select, Reclaim. The hub's pit rows add the pit, the ore left and the life, and a Survey button. The morale panel shows the strip-mine term and its worst pit. |
+| Morale (§12.1) | `stripMorale(s)`: −1 per 1,000 m² of scar (a plain pit, or a dead deposit pit), −0.4 for a working deposit's, ×0.2 reclaimed; full within 100 m of a habitat or the crewed Lander, 0 at 250 m; capped at −12. Scar = the pit's and heap's samples × 16 m², at each carve. Robotic bases: none. |
+| Reclaim (§12.2) | `reclaimPit { pit }` for a dug-out, hemmed-in or idle pit with spoil. The nearest hub's units push (their dig rate, no haul): the pit fills from the bottom toward a metre below the ground (`fillPit`, through `raiseCut`), the heap comes down by as much (`lowerHeap`); then it is `reclaimed`, its heap gone, its zone closed, and placement builds on it. |
+| Phase 5's hooks | `hubPreview.reservesOf` returns the survey's reading (left, total, ±, centre q, faces and R at full size, life) and the cut's q once dug; the highlight's q is `targetGrade`; IN THE PIT'S WAY reads the true full-size pit, weighted by the depth the pit reaches (its ore is every tonne to the cutoff). Pure functions for others: `reservesOf`, `faceCapacity`, `targetGrade`, `gradeAtPoint`, `surveyPrecision`. |
+| Saving | `s.oreSurvey { done, jobs }`; new optional `PitState` fields (ore, free, rock, rockR/rockTo, rate, spent, scar, fill, news …); an old save marks every deposit being dug as surveyed (§19 step 8). |
+
+**Deviations from the design.**
+
+- **Deep Coring** is not in the tree yet (Phase 6). The mechanism is in, and Deep
+  Sounding carries its one bench, so bedrock reopens pits in Era 7 until then.
+- **No +25% draw on bedrock**, and no heap dump time (as Phases 1–2).
+- **Reclaimed ground builds but no road crosses it**: roads still wall off any cell
+  with a cut corner.
+- **Units are sticky on a deposit's pit** until it is dug out (the design's auto
+  choice re-weighs each trip; without the stickiness units hopped to every fresh
+  deposit's rich centre and scarred them all).
+- **Survey costs are paid when queued**, not when a rover starts.
+- **The running-out warning** needs a survey; an unsurveyed exhaustion says a survey
+  would have warned you.
+- **Pacing:** pending the final diagnostic pass, as for Phases 1–3.
 
 ## 23. The player's answers
 

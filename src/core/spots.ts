@@ -50,6 +50,8 @@ export interface RoverSpot {
   survey?: boolean;
   /** off the road inside an extraction zone (a site there): reached from a gate (core/zones.ts) */
   offroad?: boolean;
+  /** a deposit it cores (docs/17 §13.2): off the road at the deposit's centre */
+  core?: string;
 }
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -110,6 +112,7 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
   const crews = new Map<number, number[]>();
   const jobs = new Map<number, number[]>();
   const parked = new Map<number, number[]>();
+  const cores = new Map<string, number[]>();
   const push = (m: Map<number, number[]>, k: number, id: number) => (m.get(k) ?? m.set(k, []).get(k)!).push(id);
   for (const u of roster) {
     const dock = at.get(u.home) ?? lander;
@@ -118,6 +121,7 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     const site = u.site !== null ? at.get(u.site) : undefined;
     if (site && isSite(site)) push(crews, site.id, u.id);
     else if (u.road !== undefined) push(jobs, u.road, u.id);
+    else if (u.core !== undefined) (cores.get(u.core) ?? cores.set(u.core, []).get(u.core)!).push(u.id);
     else push(parked, dock.id, u.id);
   }
 
@@ -248,6 +252,22 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     const team = jobs.get(j.id)?.filter((id) => !out.has(id));
     if (!team?.length) continue;
     for (const id of along(team, frontier(j.cells) ?? [], null, j.id)) push(parked, dockOf.get(id)!.id, id);
+  }
+
+  // deposit surveys (docs/17 §13.2): off the road at the deposit's centre, reached from its gate
+  for (const [dep, team] of cores) {
+    const z = s.zones?.find((q) => q.id === dep);
+    if (!z) { for (const id of team) push(parked, dockOf.get(id)!.id, id); continue; }
+    const [gx, gz] = cellAt(z.cx, z.cz);
+    const left = [...team];
+    for (const side of [0, 1] as const) {
+      if (!left.length || taken.has(slotKey(gx, gz, side))) continue;
+      taken.add(slotKey(gx, gz, side));
+      const [px, pz] = slotPoint(gx, gz, 'x', side);
+      const id = left.shift()!;
+      out.set(id, { gx, gz, side, axis: 'x', x: px, z: pz, face: 0, shuffle: [1, 0], site: null, dock: dockOf.get(id)!.id, offroad: true, core: dep });
+    }
+    for (const id of left) push(parked, dockOf.get(id)!.id, id);
   }
 
   // parking: the bays within two cells of the dock's door, nearest first, nose

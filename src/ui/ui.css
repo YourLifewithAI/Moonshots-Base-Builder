@@ -283,6 +283,9 @@
 .dc-about { color: rgba(var(--paper-rgb), var(--op-secondary)); line-height: 16px; }
 .dc-fx .pro, .dc-fx .con { line-height: 16px; }
 .dc-now { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+/* the ore and pit block (docs/17 §13.4): what the survey read, the cut, the pit, its life */
+.dc-ore { font-size: 11px; line-height: 15px; display: flex; flex-direction: column; gap: 2px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.dc-ore b { color: var(--paper); font-weight: 600; letter-spacing: 0.03em; }
 .dc-todo { line-height: 16px; }
 #deposit-card .dc-foot, .map-dep .dc-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px; border-top: var(--hair); }
 #deposit-card .dc-foot .btn, .map-dep .dc-foot .btn { font-size: 11px; padding: 4px 9px; }
