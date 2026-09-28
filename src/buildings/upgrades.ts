@@ -1083,6 +1083,29 @@ const LANE: Partial<Record<BuildingId, Upgrade[]>> = {
   propellantPlant, storageYard, solarObservatory,
 };
 
+// Extraction research: use the same compact parts in both render styles.
+// The purchased bay posts remain the hub renderer's job; these are the
+// workshop controls and roof hardware enabled by the researched process.
+const miningTools: Upgrade[] = [
+  { tech: 'regolithProcessing', parts: () => [bar([-0.6, 2.8, 1.0], [0.6, 2.8, 1.0], 0.1, TRIM),
+    ...[-0.6, 0.6].map((x) => box(0.2, 0.2, 0.24, LAMP, x, 2.8, 1.05))] },
+  { tech: 'hardfacedTeeth', parts: () => [-1.2, -0.6, 0, 0.6, 1.2].map((x) => box(0.16, 0.32, 0.3, PLATE, x, 0.6, 3.0)) },
+  { tech: 'deepCoring', parts: () => [bar([1.5, 1.6, 0.4], [1.8, 0.4, 2.0], 0.22, TRIM), cyl(0.16, 0.24, 0.8, PLATE, 1.8, 0.4, 2.0, 0, 0, 8)] },
+];
+const hubWorkshop: Upgrade[] = [
+  { tech: 'bayExtensions', parts: () => [box(0.8, 0.9, 0.5, BODY, 3.4, 0.45, 2.8), box(0.5, 0.12, 0.04, LAMP, 3.4, 0.72, 3.07)] },
+  { tech: 'depotHalls', parts: () => [bar([-2.6, 6.2, -1.0], [2.6, 6.2, -1.0], 0.2, TRIM), box(0.9, 0.4, 0.6, BODY, 0, 6.15, -1.0)] },
+];
+LANE.excavator = [...excavator, ...miningTools];
+LANE.iceMiner = [...excavator.filter((u) => ['dustMitigation', 'regolithProcessing'].includes(u.tech)), ...iceHarvester, ...miningTools];
+LANE.smelter = [...smelter, ...hubWorkshop];
+LANE.refinery = [...refinery, ...hubWorkshop];
+LANE.waterPlant = [
+  ...hubWorkshop,
+  { tech: 'waterReclamation', parts: () => [cyl(0.8, 0.8, 1.2, BODY, -2.5, 5.8, 0.8, 0, 0, 12), pipe([-2.5, 6.4, 0.8], [-2.5, 7.2, 0.8], 0.12, TRIM), pipe([-2.5, 7.2, 0.8], [-1.8, 7.2, 0.8], 0.12, TRIM)] },
+  { tech: 'waterElectrolysis', parts: () => [box(1.2, 1.7, 1.0, PLATE, 2.0, 6.0, 0.8), bar([1.4, 6.4, 0.8], [0.3, 6.4, 0.8], 0.12, TRIM), sensorMast(2.7, 5.3, -1.5)] },
+];
+
 /** Every type's upgrades: the lane techs' parts, then the destiny's (the
  *  picks, the capstones, and the destiny buildings' own lists; destinyParts.ts). */
 export const UPGRADES: Partial<Record<BuildingId, Upgrade[]>> = Object.fromEntries(

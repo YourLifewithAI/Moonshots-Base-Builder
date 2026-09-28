@@ -17,7 +17,7 @@ export type AutoFamily =
   | 'research' | 'export';
 
 export type AutoRuleId =
-  | 'excavator' | 'iceHarvester'
+  | 'hubUnit' | 'excavator' | 'iceHarvester'
   | 'solar' | 'battery' | 'reactor' | 'flareStance'
   | 'smelter' | 'refinery' | 'storageYard'
   | 'partsFab' | 'chipFab' | 'roboticsBay'
@@ -60,6 +60,13 @@ const R = (d: RuleDef) => d;
 
 /** In table order; rules within a family act in this order. */
 export const RULES: Record<AutoRuleId, RuleDef> = {
+  hubUnit: R({
+    id: 'hubUnit', family: 'excavation', building: 'excavator', res: 'regolith',
+    objective: 'KEEP every hub fed → print a useful unit when starvation ≥ T', unit: 'share', threshold: 0.25,
+    range: [0.1, 0.6], step: 0.05, rearm: 0.1,
+    dwellS: 60, cooldownS: 120, settleS: 60, cap: 12, capRange: [0, 60], onByDefault: true,
+  }),
+  // Retained only so legacy saves/tags and old debug commands can be read.
   excavator: R({
     id: 'excavator', family: 'excavation', building: 'excavator', res: 'regolith',
     objective: 'KEEP regolith supply ≥ demand', unit: 'rate', threshold: -0.1, range: [-1, 0], step: 0.05, rearm: 0,
@@ -164,7 +171,7 @@ export const RULES: Record<AutoRuleId, RuleDef> = {
   }),
 };
 
-export const RULE_ORDER = Object.keys(RULES) as AutoRuleId[];
+export const RULE_ORDER: AutoRuleId[] = (Object.keys(RULES) as AutoRuleId[]).filter((id) => id !== 'excavator' && id !== 'iceHarvester');
 
 export const FAMILY_LABEL: Record<AutoFamily, string> = {
   excavation: 'Excavation', power: 'Power', smelting: 'Smelting', fabrication: 'Fabrication',
@@ -227,6 +234,7 @@ export const AUTO = {
 
 /** Each rule's default trigger in words (tech cards, the discovery card, the panel's help). */
 export const RULE_TEXT: Record<AutoRuleId, string> = {
+  hubUnit: '+1 unit at a hub starved ≥25% for 60 s, with a free face, a day of surveyed ore, a bay, power and a protected budget',
   excavator: '+1 Regolith Excavator, printed at the most starved hub, when regolith demand outruns supply by 6▲/min for 60 s',
   iceHarvester: '+1 Ice Miner, printed at a starved water plant, when water demand outruns supply by 1.2≈/min for 60 s',
   solar: '+1 Solar Array when the day’s grid margin, the bank’s recharge paid, is under 10% for 30 s',

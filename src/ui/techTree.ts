@@ -5,6 +5,7 @@
  *  across pages. It renders $research and dispatches research actions;
  *  availability, cost and ETA all come from core/research.ts. */
 import './techTree.css';
+import { evidenceButton, mountTechEvidence } from './techEvidence';
 import {
   BAND_LABEL, CAPSTONES, DOCTRINES, ERA_BLURB, ERA_BLURB_8, ERA_NAMES, LANES, SIDE_GLYPH, SIDE_LABEL, TECHS, TECH_ORDER, TRACKS,
   describeTech,
@@ -115,6 +116,7 @@ export function openTechTreeAt(tid: TechId | null) { focusHook?.(tid); }
 
 export function mountTechTree(root: HTMLElement, game: Game) {
   const push = (a: Action) => game.actions.push(a);
+  const evidence = mountTechEvidence(root);
 
   // the era chip with the live research gauge, in the top-right stack
   const chip = el('button', 'btn panel interactive');
@@ -894,7 +896,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       ${statusHtml(c)}
       <div class="sh-desc">${esc(def.desc)}</div>
       <div class="sh-flavor"><i>${esc(def.tradeoff)}</i></div>
-      ${note ? `<div class="sh-site">${esc(note)}</div>` : ''}`;
+      ${note ? `<div class="sh-site">${esc(note)}</div>` : ''}${evidenceButton(c.tid)}`;
   }
 
   function doctrineSide(tid: TechId, group: DoctrineId): string {
@@ -919,7 +921,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
         <span class="mono ds-cost">${c.cost.data}≡${Object.entries(c.cost.goods)
           .map(([r, a]) => ` <span class="g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span>`).join('')}${eta}</span>
         ${action}</div>
-      <div class="ds-fx"><div>${pros}</div><div>${cons}</div>
+      <div class="ds-fx"><div>${pros}${evidenceButton(tid)}</div><div>${cons}</div>
         <div class="ds-yb"><div class="sh-h label">Your base</div>${c.state === 'done' ? '' : previewHtml(tid)}</div></div>
     </div>`;
   }
@@ -949,7 +951,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
         <span class="mono ds-cost">${c.cost.data}≡${Object.entries(c.cost.goods)
           .map(([r, a]) => ` <span class="g" data-res="${r}" data-need="${a}">${a}${glyph(r)}</span>`).join('')}${eta}</span>
         ${action}</div>
-      <div class="ds-fx"><div>${pros}<div class="fx ds-vis"><i>${esc(TECHS[tid].visual ?? '')}</i></div></div><div>${cons}</div>
+      <div class="ds-fx"><div>${pros}<div class="fx ds-vis"><i>${esc(TECHS[tid].visual ?? '')}</i></div>${evidenceButton(tid)}</div><div>${cons}</div>
         <div class="ds-yb"><div class="sh-h label">Your base</div>${c.state === 'done' ? '' : previewHtml(tid)}</div></div>
     </div>`;
   }
@@ -1008,6 +1010,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const v = view!;
     const tid = subject();
     const c = tid ? v.cards[tid] : null;
+    if (c) evidence.update(c);
     const dph = !!tid && !!layout?.items.get(tid)?.dph;
     const shown = !!c && (isVisible(c) || isPlaceholder(c) || dph);
     const counts = Object.values($counts.get()).reduce((a, x) => a + (x?.total ?? 0), 0);
@@ -1123,10 +1126,13 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-act]');
     if (qi && !b) { jumpTo(qi.dataset.tech as TechId); return; }
     if (!b || b.disabled) return;
-    b.blur(); // Space pauses the game; it must not re-press a focused sheet button
+    if (b.dataset.act !== 'evidence') b.blur(); // notebook restores its opener's focus
     const tid = b.dataset.tech as TechId;
     const c = view?.cards[tid];
     switch (b.dataset.act) {
+      case 'evidence':
+        if (c) { selected = tid; hover = null; evidence.show(tid, c); }
+        break;
       case 'queue': push({ kind: 'research', tech: tid }); break;
       case 'path': push({ kind: 'researchPath', tech: tid }); break;
       case 'cancel': push({ kind: 'cancelResearch', tech: tid }); break;
@@ -1194,6 +1200,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   // capture phase, so the build camera never pans or homes on the keys the tree uses
   window.addEventListener('keydown', (e) => {
+    if (evidence.isOpen()) return;
     // under a victory or defeat overlay the tree stays shut
     if ($phase.get() !== 'playing' || overlayUp() || (e.target as HTMLElement)?.tagName === 'INPUT') return;
     if (e.code === 'KeyT' && !e.ctrlKey && !e.metaKey && !e.altKey) {

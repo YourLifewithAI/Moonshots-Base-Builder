@@ -35,7 +35,8 @@ import { flowBalance } from './flowBook';
 import { fmtClock, type DayInfo } from './daynight';
 import { siteTransit } from './transit';
 import { flareQuiet } from './spaceWeather';
-import { hubName, hubUnit, hubsOf, queueRefusal } from './hubs';
+import { hubName, hubsOf, jobCost, jobTime } from './hubs';
+import { planHubFeeds, usefulUnit } from './hubPlanner';
 
 // ─────────────────────────── requests ───────────────────────────
 
@@ -70,6 +71,9 @@ export type AutoRequest =
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const complete = (b: { construction?: number }) => !isSite(b);
+/** Dwell belongs to one hungry hub; alternating deficits must not combine
+ * into an immediate purchase. Loading a save restarts only this watch. */
+const unitWatch = new WeakMap<RuleState, Map<number, number>>();
 const name = (t: BuildingId) => BUILDINGS[t].name;
 const label = (b: BuildingState) => `${name(b.type)} #${b.id}`;
 const plural = (t: BuildingId, n: number) => (n === 1 ? name(t) : `${name(t)}s`);
@@ -199,6 +203,8 @@ function researchHeld(s: GameState, mods: Mods): Partial<Record<ResourceId, numb
 }
 
 export interface BudgetOpts {
+  /** Hub print jobs have their own discounted price, rather than a building's pad price. */
+  cost?: Partial<Record<ResourceId, number>>;
   /** 'rule': one more of the same stays in stock; 'order': the player's command; 'held': a held order */
   by: 'rule' | 'order' | 'held';
   /** hazard requests (docs/14): skip the rule reserve (never the weld debt, never the Governor's floors) */
@@ -209,7 +215,7 @@ export interface BudgetOpts {
 
 /** Why the builder may not pay for one of `type` now ('' = it may). */
 export function budgetShort(s: GameState, mods: Mods, site: SiteDef, type: BuildingId, o: BudgetOpts): string {
-  const cost = buildCostAt(type, site);
+  const cost = o.cost ?? buildCostAt(type, site);
   const held = o.by === 'order' ? {} : researchHeld(s, mods);
   for (const [r, amt] of Object.entries(cost) as [ResourceId, number][]) {
     let reserve = 0;
@@ -416,7 +422,7 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       const held = mods.launchArmed && s.resources.launch >= v.launch && s.resources.foils < v.foils;
       return { past: held, rearmed: !held, text: held ? `a volley waits on foils (${Math.floor(s.resources.foils)}/${v.foils}▰)` : 'foils keep up' };
     }
-    case 'replace': case 'flareStance':
+    case 'hubUnit': case 'replace': case 'flareStance':
       return { past: false, rearmed: true, text: '' };
   }
 }
@@ -425,8 +431,8 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
 
 /** the main input a processor needs another of (and the rule that supplies it) */
 const INPUT_OF: Partial<Record<BuildingId, { res: ResourceId; rule: AutoRuleId }>> = {
-  smelter: { res: 'regolith', rule: 'excavator' },
-  refinery: { res: 'regolith', rule: 'excavator' },
+  smelter: { res: 'regolith', rule: 'hubUnit' },
+  refinery: { res: 'regolith', rule: 'hubUnit' },
   partsFab: { res: 'metals', rule: 'smelter' },
   chipFab: { res: 'silicon', rule: 'refinery' },
   hydroponics: { res: 'water', rule: 'water' },
@@ -547,38 +553,57 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
   const busy = new Set<AutoFamily>();
   for (const b of s.buildings) if (isSite(b) && b.auto?.by === 'rule' && b.auto.rule) busy.add(RULES[b.auto.rule].family);
   let placed = 0;
+  let pendingFleetKW = 0;
   const forced = new Set<AutoRuleId>();
   const predictive = predictiveOn(s, mods);
 
-  /** An excavation rule (docs/17 §15, minimal until Phase 7's hubUnit): its
-   *  signal as before; it prints a unit at the hub most starved with a free
-   *  bay, never places one. */
+  /** A hub's own starvation is the signal: aggregate regolith can hide a
+   * starving refinery behind a well-fed smelter. Guard the purchase with
+   * faces, reserves, useful throughput, power, and the shared budget. */
   const unitRule = (id: AutoRuleId, r: RuleState, d: RuleDef) => {
     const frozen = Math.max(frozenAll ? a.frozenUntil : 0, r.frozenUntil ?? 0);
-    if (frozen > now) { setPhase(s, id, r, 'frozen', `frozen · resumes in ${fmtClock(frozen - now)}`, dt); return; }
-    if (now < r.nextAt) { setPhase(s, id, r, 'settling', `settling ${fmtClock(r.nextAt - now)} — letting the rates catch up`, dt); return; }
-    const sig = signalOf(s, mods, site, day, id, r);
-    r.dwell = sig.past ? r.dwell + dt : sig.rearmed ? 0 : Math.max(0, r.dwell - dt);
+    if (frozen > now) { unitWatch.delete(r); r.dwell = 0; setPhase(s, id, r, 'frozen', `frozen · resumes in ${fmtClock(frozen - now)}`, dt); return; }
+    if (now < r.nextAt) { unitWatch.delete(r); r.dwell = 0; setPhase(s, id, r, 'settling', `settling ${fmtClock(r.nextAt - now)} — letting the rates catch up`, dt); return; }
+    const hubs = hubsOf(s).filter((b) => b.enabled && b.hub!.starved >= r.threshold)
+      .sort((p, q) => q.hub!.starved - p.hub!.starved || p.id - q.id);
+    const watched = unitWatch.get(r) ?? new Map<number, number>();
+    for (const id of watched.keys()) if (!hubs.some((b) => b.id === id)) watched.delete(id);
+    for (const b of hubs) watched.set(b.id, (watched.get(b.id) ?? 0) + dt);
+    unitWatch.set(r, watched);
+    r.dwell = Math.max(0, ...watched.values());
+    const watching = [...hubs].sort((a, b) => watched.get(b.id)! - watched.get(a.id)!)[0];
+    const past = hubs.length > 0;
+    const text = watching ? `${hubName(watching)} starved ${Math.round(watching.hub!.starved * 100)}%` : `every hub below ${Math.round(r.threshold * 100)}% starvation`;
     const dwellS = d.dwellS * mods.builderDwellMult * (predictive ? 0.5 : 1);
-    if (!(sig.past && r.dwell >= dwellS)) {
-      setPhase(s, id, r, sig.past ? 'watching' : 'ok', sig.past ? `watching · ${sig.text} for ${Math.floor(r.dwell)} s of ${Math.round(dwellS)}` : `ok · ${sig.text}`, dt);
+    if (!(past && r.dwell >= dwellS)) {
+      setPhase(s, id, r, past ? 'watching' : 'ok', past ? `watching · ${text} for ${Math.floor(r.dwell)} s of ${Math.round(dwellS)}` : `ok · ${text}`, dt);
       return;
     }
-    const type = id === 'iceHarvester' ? 'iceMiner' : 'excavator';
-    const n = s.haulers.filter((u) => u.type === type).length;
+    const n = s.haulers.length + hubsOf(s).reduce((sum, b) => sum + b.hub!.queue.filter((j) => j.kind === 'unit').length, 0);
     const cap = effCap(r, mods);
     if (n >= cap) { setPhase(s, id, r, 'capped', `cap ${n}/${cap} units — raise the cap to let it print more`, dt); return; }
-    const hubs = hubsOf(s).filter((b) => b.enabled && hubUnit(b.type, site) === type && b.hub!.starved >= 0.1 && !queueRefusal(s, mods, b, 'unit'))
-      .sort((p, q) => q.hub!.starved - p.hub!.starved || p.id - q.id);
-    if (!hubs.length) {
-      setPhase(s, id, r, 'holding', `holding · every hub is fed, or its bays are full (${sig.text})`, dt);
-      return;
+    if (placed >= AUTO.maxPerTick) { setPhase(s, id, r, 'watching', `watching · ${text}`, dt); return; }
+    let ready: { b: BuildingState; why: string; draw: number; cycle: number } | undefined;
+    let refusal = '';
+    const pb = powerBook(s, mods);
+    for (const b of hubs) {
+      if ((watched.get(b.id) ?? 0) < dwellS) continue;
+      const result = usefulUnit(s, mods, site, b, pb.headroom - pendingFleetKW);
+      const short = result.why || budgetShort(s, mods, site, 'excavator', { by: 'rule', holds, cost: jobCost(b, 'unit', site, mods) });
+      if (short) { refusal ||= `${hubName(b)} — ${short}`; continue; }
+      ready = { b, draw: result.draw, cycle: result.cycle,
+        why: `${hubName(b)} starved ${Math.round(b.hub!.starved * 100)}%; +${result.gain.toFixed(2)}▲/s at ${result.choice!.target.name}` };
+      break;
     }
-    if (placed >= AUTO.maxPerTick) { setPhase(s, id, r, 'watching', `watching · ${sig.text}`, dt); return; }
-    const b = hubs[0];
-    out.push({ kind: 'unit', hub: b.id, rule: id, why: sig.text });
+    if (!ready) { setPhase(s, id, r, 'holding', `holding · ${refusal}`, dt); return; }
+    const { b, why } = ready;
+    out.push({ kind: 'unit', hub: b.id, rule: id, why });
+    // Requests resolve after this pass. Reserve this job's budget and power
+    // now so a later rule in the same pass cannot spend them a second time.
+    for (const [res, amt] of Object.entries(jobCost(b, 'unit', site, mods))) holds[res as ResourceId] = (holds[res as ResourceId] ?? 0) + amt;
+    pendingFleetKW += ready.draw;
     placed++;
-    r.nextAt = now + d.cooldownS;
+    r.nextAt = now + Math.max(d.cooldownS, jobTime(b, 'unit', site, mods) + ready.cycle + d.settleS);
     r.dwell = 0;
     r.built += 1;
     setPhase(s, id, r, 'ok', `→ printing a unit at ${hubName(b)} (starved ${Math.round(b.hub!.starved * 100)}%)`, dt);
@@ -589,11 +614,11 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const r = ruleState(s, id);
     if (id === 'replace') return; // maintenance runs below
     if (id === 'flareStance') return; // it decides flares, not builds (core/spaceWeather.ts)
-    if (!mods.autoFamilies.has(d.family)) { setPhase(s, id, r, 'locked', `locked — ${familyTech(d.family)}`, dt); r.dwell = 0; return; }
-    if (!r.on) { setPhase(s, id, r, 'off', 'off', dt); r.dwell = 0; return; }
+    if (!mods.autoFamilies.has(d.family)) { unitWatch.delete(r); setPhase(s, id, r, 'locked', `locked — ${familyTech(d.family)}`, dt); r.dwell = 0; return; }
+    if (!r.on) { unitWatch.delete(r); setPhase(s, id, r, 'off', 'off', dt); r.dwell = 0; return; }
     if (id === 'iceHarvester' && !site.hasIce) { setPhase(s, id, r, 'locked', 'no polar ice at this site', dt); return; }
     // the excavation rules print units at hubs now (docs/17 §15): hubs place nothing
-    if (id === 'excavator' || id === 'iceHarvester') { unitRule(id, r, d); return; }
+    if (id === 'hubUnit') { unitRule(id, r, d); return; }
     const type = ruleBuilding(s, mods, id);
     if (!type) { setPhase(s, id, r, 'locked', `nothing here makes ${RESOURCES[d.res!].name.toLowerCase()} yet`, dt); return; }
     if (!mods.unlocked.has(type)) { setPhase(s, id, r, 'locked', `locked — ${unlocker(type)}`, dt); return; }
@@ -654,7 +679,7 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const draw = newDraw(s, mods, site, type, crew.automated);
     if (draw > 0) {
       const pb = powerBook(s, mods);
-      if (pb.headroom < AUTO.headroom * draw) {
+      if (pb.headroom - pendingFleetKW < AUTO.headroom * draw) {
         const solar = ruleState(s, 'solar');
         if (mods.autoFamilies.has('power') && solar.on && id !== 'solar') {
           forced.add('solar');
@@ -771,15 +796,10 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     setPhase(s, 'replace', rep, 'locked', `locked — ${familyTech('maintenance')}`, dt);
   }
 
-  // ── Feed Planner: one excavator a tick, each at most every 120 s ──
-  if (mods.feedPlanner && !frozenAll) {
-    const digs = s.buildings.filter((b) => b.type === 'excavator' && complete(b) && b.enabled && !b.feedPlanOff);
-    if (digs.length) {
-      const slot = Math.floor(now) % 120;
-      const b = digs.find((x) => x.id % 120 === slot);
-      if (b) out.push({ kind: 'feed', id: b.id });
-    }
-  }
+  // Hub-owned units replaced excavator pads. Plan safe departures directly:
+  // the shared hub helpers preserve road paths, cargo and face reservations.
+  const routed = planHubFeeds(s, mods, site);
+  if (routed) logAuto(s, `Feed Planner · unit #${routed.unit} · ${routed.why}`, routed.hub);
   return out;
 }
 
@@ -960,12 +980,14 @@ export function automationView(s: GameState, mods: Mods): AutomationView {
       if (locked && (f === 'research' || f === 'export')) continue;
       rules.push({
         id, family: f, familyLabel: FAMILY_LABEL[f],
-        building: type ? name(type) : d.res ? `the ${RESOURCES[d.res].name.toLowerCase()} maker` : 'the machine',
+        building: id === 'hubUnit' ? 'Hub units' : type ? name(type) : d.res ? `the ${RESOURCES[d.res].name.toLowerCase()} maker` : 'the machine',
         objective: d.objective.replace(' T', d.unit === 'none' ? '' : ` ${fmtThreshold(id, r.threshold)}`),
         on: r.on, locked, phase: locked ? 'locked' : r.phase,
         status: locked ? `locked — ${familyTech(f)}` : r.why || (r.on ? 'ok' : 'off'),
         threshold: r.threshold, thresholdText: fmtThreshold(id, r.threshold), unit: d.unit, range: d.range, step: d.step,
-        cap: r.cap, capRange: d.capRange, count: type ? count(s, type) : 0, res: d.res, site: r.site, built: r.built,
+        cap: r.cap, capRange: d.capRange,
+        count: id === 'hubUnit' ? s.haulers.length + hubsOf(s).reduce((n, b) => n + b.hub!.queue.filter((j) => j.kind === 'unit').length, 0) : type ? count(s, type) : 0,
+        res: d.res, site: r.site, built: r.built,
       });
     }
   }
@@ -1016,6 +1038,9 @@ export function autoTagLine(b: BuildingState): string {
  *  weld debt, the Governor's floors (Budget Governor) or life-support stock.
  *  null when the stock is not there (the drift orders nothing it cannot pay). */
 export function runawaySite(s: GameState, mods: Mods, site: SiteDef, rule: AutoRuleId, hazard: number): AutoRequest | null {
+  // Hub jobs have no construction pad. Until junk print jobs have their own
+  // lifecycle, never let this hazard place a retired excavator building.
+  if (rule === 'hubUnit') return null;
   const type = ruleBuilding(s, mods, rule);
   if (!type || !mods.unlocked.has(type)) return null;
   if (budgetShort(s, mods, site, type, { by: 'rule', bypassReserve: true })) return null;

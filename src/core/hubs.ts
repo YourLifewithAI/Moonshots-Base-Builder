@@ -38,13 +38,13 @@ import {
   layJob, planLink, roadMap, type Heights, type OffArea,
 } from './roads';
 import {
-  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pushFill, releasePit, reservesOf, targetGrade,
+  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pitRefusal, pushFill, releasePit, reservesOf, targetGrade, terrainOf,
 } from './pits';
 import { GRADE } from '../data/ore';
 import { groundOf, plainQ, processOf } from './ore';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { HAUL } from '../data/balance';
-import { zoneAt } from './zones';
+import { zoneAt, zoneOfCell } from './zones';
 import { creditFeed, drive, legLen, stopShort } from './haul';
 import { centerOf, footprintRect } from '../buildings/instances';
 import { inside, worldRect } from './paths';
@@ -354,12 +354,15 @@ export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, ni
 }
 
 /** A unit's rates digging `kind` ground (its wear, the techs, the site's ISRU, the deposit). */
-export function unitRates(s: GameState, mods: Mods, site: SiteDef, u: Pick<Hauler, 'type' | 'wear'> & { cap?: number }, kind: DepositKind | undefined, night = false): EffectiveRates {
+export function unitRates(s: GameState, mods: Mods, site: SiteDef, u: Pick<Hauler, 'type' | 'wear'> & Partial<Pick<Hauler, 'cap' | 'target' | 'haul'>>, kind: DepositKind | undefined, night = false): EffectiveRates {
   // its rad scars (docs/16 §4.13) derate the bucket as wear does
   const stub = { id: -1, type: u.type, gx: 0, gz: 0, rot: 0, enabled: true, automated: true, priority: 2, wear: u.wear, dust: 0,
     ...(u.cap !== undefined ? { cap: u.cap } : {}),
     construction: 0, buildTotal: 0, active: true, idleReason: '', ...(kind ? { deposit: kind } : {}) } as BuildingState;
-  return effectiveRates(u.type, mods, site, stub, { agentRun: true, robotic: true, isNight: night });
+  const rates = effectiveRates(u.type, mods, site, stub, { agentRun: true, robotic: true, isNight: night });
+  const pit = u.target ? (s.pits ?? []).find((p) => p.key === u.target) : undefined;
+  if (u.haul?.phase === 'dig' && !u.haul.full && pit?.rockR !== undefined && pit.state !== 'reclaiming') rates.powerKW *= 1.25;
+  return rates;
 }
 
 export interface UnitSpec { bucket: number; digS: number; unloadS: number; gain: number }
@@ -370,8 +373,8 @@ export interface UnitSpec { bucket: number; digS: number; unloadS: number; gain:
 export function unitSpec(mods: Mods, type: UnitType, r: EffectiveRates): UnitSpec {
   const d = UNIT_DEFS[type];
   const ref = BUILDINGS[type].outputs.regolith ?? 1;
-  const digS = d.digS * mods.haulBucketMult;
-  const gain = d.bucket / (ref * d.digS);
+  const digS = d.digS * mods.haulBucketMult / mods.haulDigMult;
+  const gain = d.bucket / (ref * d.digS) * mods.haulDigMult;
   return { bucket: (r.outputs.regolith ?? 0) * gain * digS, digS, unloadS: d.unloadS, gain };
 }
 
@@ -632,17 +635,17 @@ export function stakeHubPit(s: GameState, mods: Mods, site: SiteDef, b: Building
 // ───────────────────────────── printing: the queue ─────────────────────────────
 
 /** A job's price at this site. */
-export function jobCost(b: BuildingState, kind: HubJob['kind'], site: SiteDef): Record<'metals' | 'parts', number> {
+export function jobCost(b: BuildingState, kind: HubJob['kind'], site: SiteDef, mods?: Pick<Mods, 'hubPrintCost'>): Record<'metals' | 'parts', number> {
   const c = kind === 'bay' ? HUB.bay.cost : UNIT_DEFS[hubUnit(b.type, site)].cost;
   // a scarred unit's Re-print (docs/16 §4.14): half its price
-  const k = kind === 'reprint' ? FLARE_EFFECTS.replace.cost : 1;
+  const k = (kind === 'reprint' ? FLARE_EFFECTS.replace.cost : 1) * (kind === 'bay' ? 1 : mods?.hubPrintCost ?? 1);
   return { metals: Math.ceil(c.metals * site.buildCostMult * k), parts: Math.ceil(c.parts * site.buildCostMult * k) };
 }
 
 /** A job's print time at this site, s. */
 export function jobTime(b: BuildingState, kind: HubJob['kind'], site: SiteDef, mods: Pick<Mods, 'hubPrintTime'>): number {
   const t = kind === 'bay' ? HUB.bay.printS : UNIT_DEFS[hubUnit(b.type, site)].printS * (kind === 'reprint' ? FLARE_EFFECTS.replace.time : 1);
-  return Math.round(t * site.buildCostMult * mods.hubPrintTime);
+  return Math.round(t * site.buildCostMult * (kind === 'bay' ? 1 : mods.hubPrintTime));
 }
 
 /** Why the hub cannot queue that job ('' = it can). */
@@ -658,13 +661,16 @@ export function queueRefusal(s: GameState, mods: Mods, b: BuildingState | undefi
     if (have + queued >= cap) {
       return `BAYS FULL ${Math.min(have, cap)}/${cap}${queued ? ` (${queued} printing)` : ''}${h.level < mods.hubLevel ? ' — + Bay' : ' — every bay has its unit'}`;
     }
+    const blocked = bonusBayRefusal(s, mods, b, have + queued);
+    if (blocked) return blocked;
     return '';
   }
   const queued = h.queue.filter((j) => j.kind === 'bay').length;
   if (h.level + queued >= mods.hubLevel) {
-    return h.level >= 3 ? 'LEVEL III — the most bays a hub holds' : `LEVEL ${h.level === 1 ? 'II' : 'III'} NEEDS RESEARCH — every hub buys its own bays once research allows it`;
+    const tech = h.level === 1 ? TECHS.bayExtensions.name : TECHS.depotHalls.name;
+    return h.level >= 3 ? 'LEVEL III — the most bays a hub holds' : `NEEDS ${tech.toUpperCase()} — research it, then buy this hub’s next bay`;
   }
-  if (!nextBayCell(s, b, bayCells(s, b).length + queued)) return 'NO ROOM FOR ANOTHER BAY — beside its bays is road or a structure';
+  if (!nextBayCell(s, b, bayCells(s, b).length + queued)) return 'NO ROOM FOR ANOTHER BAY — beside its bays is a road, structure, pit or extraction zone';
   return '';
 }
 
@@ -683,7 +689,34 @@ function nextBayCell(s: GameState, b: BuildingState, k: number): Pt | null {
     const r = footprintRect(o);
     if (c[0] >= r.gx0 && c[0] < r.gx1 && c[1] >= r.gz0 && c[1] < r.gz1) return null;
   }
+  // A bay follows the same ground rule as its hub: never erase a pit,
+  // reclaim its spoil implicitly, or extend pavement into an extraction zone.
+  if (zoneOfCell(s, c[0], c[1])) return null;
+  const hf = terrainOf(s);
+  if (hf && pitRefusal(s, hf, c[0], c[1], c[0] + 1, c[1] + 1)) return null;
   return c;
+}
+
+/** Free research bays use real parking cells too. Local jobs still own
+ *  level changes, so a granted bay never advances or pays a + Bay job. */
+function provisionBonusBays(s: GameState, mods: Pick<Mods, 'hubBays'>, b: BuildingState) {
+  if (!(mods.hubBays > 0) || !hasRoads(s)) return;
+  const target = bayCap(b, mods);
+  while (bayCells(s, b).length < target) {
+    const c = nextBayCell(s, b, bayCells(s, b).length);
+    if (!c) break;
+    s.roads!.push({ gx: c[0], gz: c[1], left: 0, bay: true });
+    bumpRoads(s);
+  }
+}
+
+/** A researched slot blocked by neighboring ground cannot hold a new unit. */
+function bonusBayRefusal(s: GameState, mods: Pick<Mods, 'hubBays'>, b: BuildingState, used: number): string {
+  const paid = HUB.bays[(b.hub?.level ?? 1) - 1];
+  return mods.hubBays > 0 && hasRoads(s) && used >= paid && used >= bayCells(s, b).length &&
+    !nextBayCell(s, b, bayCells(s, b).length)
+    ? 'FLEET OS BAY BLOCKED — the extra parking cell needs clear ground beside this hub; roads, structures and pits keep it closed'
+    : '';
 }
 
 /** Queue a job; '' on success, else the refusal. */
@@ -916,7 +949,7 @@ export function unitTick(
       const pit = pitAt(s, tt);
       // Reclaim (§12.2): it pushes the heap back in, at its dig rate, with nothing to haul
       if (pit?.state === 'reclaiming') {
-        const step = Math.min(t, spec.digS - h.t);
+        const step = Math.min(t, Math.max(0, spec.digS - h.t));
         pushFill(pit, ((r.outputs.regolith ?? 0) * spec.gain * step) / PIT.tPerM3);
         h.t += step;
         t -= step;
@@ -935,7 +968,9 @@ export function unitTick(
       }
       // bedrock benches dig at ×0.3 (§8.5); the bucket carries the grade it cut (§9.1)
       const rock = pit?.rockR !== undefined ? GRADE.bedrockDig : 1;
-      const step = Math.min(t, (spec.digS - h.t) / rock);
+      // Research can shorten the cycle while this bucket is already filling.
+      // Never rewind time or subtract cargo when its new duration is shorter.
+      const step = Math.min(t, Math.max(0, spec.digS - h.t) / rock);
       const q = targetGrade(s, mods, site, b.type, tt.key);
       const had = h.cargo.regolith ?? 0;
       let cut = 0;
@@ -1077,6 +1112,7 @@ export function ensureHubs(s: GameState, mods: Mods, site: SiteDef) {
   for (const b of s.buildings) {
     if (!isHubType(b.type) || isSite(b)) continue;
     if (!b.hub) b.hub = newHubState();
+    provisionBonusBays(s, mods, b);
     if (!b.hub.seeded) {
       b.hub.seeded = true;
       if (unitsOf(s, b.id).length === 0) {
@@ -1094,7 +1130,7 @@ export function ensureHubs(s: GameState, mods: Mods, site: SiteDef) {
     const [ux, uz] = [u.haul.x, u.haul.z];
     const next = s.buildings
       .filter((b) => b.hub && !isSite(b) && (kind ? b.type === kind : hubUnit(b.type, site) === u.type) &&
-        unitsOf(s, b.id).length < bayCap(b, mods))
+        unitsOf(s, b.id).length < bayCap(b, mods) && !bonusBayRefusal(s, mods, b, unitsOf(s, b.id).length))
       .sort((a, c) => Math.hypot(...sub(centerOf(a), [ux, uz])) - Math.hypot(...sub(centerOf(c), [ux, uz])) || a.id - c.id)[0];
     if (next) {
       u.hub = next.id;
@@ -1117,12 +1153,17 @@ const sub = (p: Pt, q: Pt): Pt => [p[0] - q[0], p[1] - q[1]];
  *  the share of its draw the grid served (`lit`). Returns the units that rolled out. */
 export function printTick(s: GameState, mods: Mods, site: SiteDef, dt: number, lit: ReadonlySet<number>) {
   for (const b of hubsOf(s)) {
+    provisionBonusBays(s, mods, b);
     const h = b.hub!;
     const j = h.queue[0];
     h.waiting = '';
     if (!j) continue;
+    if (j.kind === 'unit') {
+      const blocked = bonusBayRefusal(s, mods, b, unitsOf(s, b.id).length);
+      if (blocked) { h.waiting = blocked; continue; }
+    }
     if (!j.paid) {
-      const cost = jobCost(b, j.kind, site);
+      const cost = jobCost(b, j.kind, site, mods);
       const short = (Object.entries(cost) as [ResourceId, number][]).find(([rid, amt]) => s.resources[rid] < amt);
       if (short) {
         const [rid, amt] = short;
@@ -1139,6 +1180,10 @@ export function printTick(s: GameState, mods: Mods, site: SiteDef, dt: number, l
     if (!b.enabled || !lit.has(b.id)) continue; // shut down, or a brownout: it pauses
     j.t += dt;
     if (j.t < j.total - 1e-9) continue;
+    if (j.kind === 'bay' && !nextBayCell(s, b, bayCells(s, b).length)) {
+      h.waiting = 'BAY BLOCKED — clear the ground beside this hub; cancel to recover the paid materials';
+      continue;
+    }
     h.queue.shift();
     if (j.kind === 'reprint') {
       // the old unit is scrapped as the new one rolls out: same bay, capability 100%, wear 0 (docs/16 §4.14)

@@ -320,7 +320,7 @@ test('a pit hemmed in on every side is BOXED IN: no faces, its words name what h
   expect(a.p.state).toBe('boxed');
   expect(a.p.R).toBeLessThan(a.p0.R + 6);
   expect(a.faces.now).toBe(0);
-  expect(a.alerts.some((t: string) => /^PIT BOXED IN — pit \d+ is hemmed in by .*Research Lab #\d+.* · Deep Sounding Network digs 2 m below it$/.test(t))).toBe(true);
+  expect(a.alerts.some((t: string) => /^PIT BOXED IN — pit \d+ is hemmed in by .*Research Lab #\d+.* · Deep Coring digs 4 m below it$/.test(t))).toBe(true);
 });
 
 test('bedrock benches reopen a dug-out pit: it deepens 2 m under its held rim, its ore at ×0.3 dig and 0.8 of the grade', async ({ page }) => {

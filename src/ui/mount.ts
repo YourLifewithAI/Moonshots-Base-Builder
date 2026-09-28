@@ -21,6 +21,7 @@ import { mountVisor } from './visor';
 import { sfx } from '../audio/sfx';
 import { touchOn } from '../core/touch';
 import { mountTouchUi } from './touchUi';
+import { mountFirstMine } from './firstMine';
 
 export function mountUI(game: Game) {
   const root = document.getElementById('ui-root')!;
@@ -53,6 +54,7 @@ export function mountUI(game: Game) {
   mountSiteSelect(root, game);
   // touch mode: last, so it can re-home what the desktop modules built
   if (touchOn()) mountTouchUi(root, hudLayer, game);
+  mountFirstMine(hudLayer, game);
 
   $phase.subscribe((p) => {
     hudLayer.style.display = p === 'playing' ? 'block' : 'none';

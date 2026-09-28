@@ -6,11 +6,15 @@ import { RESOURCES } from '../data/resources';
 import type { Game } from '../core/game';
 import type { BuildingState } from '../core/state';
 import { fmtClock } from '../core/daynight';
+import { HUB_POLICIES } from '../core/hubPlanner';
+import type { HubPolicy } from '../core/state';
+import type { TechId } from '../data/techs';
+import { openTechTreeAt } from './techTree';
 import { el } from './hud';
 import { $fleet, $mode, $roverSel, $selection, $unitSel, type HubView, type UnitView } from './stores';
 
 const G = RESOURCES.regolith.glyph;
-const NOTE = 'class="goal-hint" style="font-size:11px; margin-top:4px; color:rgba(245,247,249,0.52)"';
+const NOTE = 'class="goal-hint" style="font-size:12px; margin-top:4px; color:rgba(245,247,249,0.68)"';
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const pct = (f: number) => `${Math.round(f * 100)}%`;
 
@@ -21,8 +25,9 @@ const unitsOf = (h: HubView): UnitView[] => $fleet.get().units.filter((u) => u.h
 export function hubSig(sel: BuildingState): string {
   const h = hubOf(sel);
   if (!h) return '';
-  return [h.level, h.bays, h.units.join(','), h.queue.map((j) => `${j.kind}${j.paid}`).join(','), h.canUnit === '', h.canBay === '',
-    h.pits.map((p) => `${p.key}${p.assigned}${p.inReach}${p.unsurveyed}`).join(','), h.prefer ?? '', unitsOf(h).map((u) => `${u.pinned}${u.parked}`).join(',')].join('|');
+  return [h.level, h.bays, h.units.join(','), h.queue.map((j) => `${j.kind}${j.paid}`).join(','), h.canUnit, h.canBay,
+    h.pits.map((p) => `${p.key}${p.assigned}${p.inReach}${p.unsurveyed}`).join(','), h.prefer ?? '', h.policy, h.planner,
+    h.electrolysis, h.canElectrolysis, unitsOf(h).map((u) => `${u.pinned}${u.parked}${u.feedPlanOff}`).join(',')].join('|');
 }
 
 function hopperBar(h: HubView): string {
@@ -42,7 +47,8 @@ export function hubBodyHtml(sel: BuildingState): string {
       <span><button class="btn unit-send" data-unit="${u.id}" title="Pick a mapped deposit or plain pit; Esc cancels">Send…</button>
       ${u.parked === 'recalled' ? `<button class="btn unit-dispatch" data-unit="${u.id}" title="Back to work">Dispatch</button>`
         : `<button class="btn unit-recall" data-unit="${u.id}" title="Home to its bay, and hold there">Recall</button>`}
-      ${u.pinned ? `<button class="btn unit-auto" data-unit="${u.id}" title="Its hub chooses for it again">Auto</button>` : ''}</span></div>`).join('');
+      ${u.pinned ? `<button class="btn unit-auto" data-unit="${u.id}" title="Its hub chooses for it again">Auto</button>` : ''}
+      ${h.planner ? `<button class="btn unit-feed-plan${u.feedPlanOff ? '' : ' active'}" data-unit="${u.id}" aria-pressed="${!u.feedPlanOff}" title="Advanced routing for this unit; manual Send and Recall still take priority">Planner ${u.feedPlanOff ? 'off' : 'on'}</button>` : ''}</span></div>`).join('');
   const pits = h.pits.map((p, i) => `<div class="row"><span class="mono" id="hub-pit-${i}"></span>
       <span>${p.unsurveyed ? `<button class="btn hub-survey" data-key="${esc(p.key)}" title="A free rover cores it: its ore, grade and faces (30 stored energy, 2⚙)">Survey</button>` : ''}
       <button class="btn hub-assign${p.assigned ? ' active' : ''}" data-key="${esc(p.key)}" aria-pressed="${p.assigned}"
@@ -55,6 +61,17 @@ export function hubBodyHtml(sel: BuildingState): string {
       <div ${NOTE} id="hub-hint"></div>
       ${queue ? `<div style="margin-top:4px"><span class="label">Queue</span>${queue}</div>` : ''}
     </section>
+    <section><span class="label">Feed Planner</span>
+      ${h.planner ? `<div class="prio" style="flex-wrap:wrap">${(Object.keys(HUB_POLICIES) as HubPolicy[]).map((policy) =>
+        `<button class="btn hub-policy${h.policy === policy ? ' active' : ''}" data-policy="${policy}" aria-pressed="${h.policy === policy}" title="${esc(HUB_POLICIES[policy].help)}">${HUB_POLICIES[policy].label}</button>`).join('')}</div>` : ''}
+      <div ${NOTE} id="hub-planner-why"></div>
+      ${h.planner ? '' : '<button class="btn hub-tech" data-tech="feedPlanner">View Feed Planner research</button>'}
+    </section>
+    ${sel.type === 'waterPlant' ? `<section><span class="label">Water electrolysis</span>
+      <button class="btn${h.electrolysis ? ' active' : ''}" id="hub-electrolysis" aria-pressed="${h.electrolysis}"${h.canElectrolysis ? '' : ' disabled title="Research Water Electrolysis in Era 4"'}>${h.electrolysis ? 'On' : 'Off'} · split 40% into oxygen</button>
+      <div ${NOTE}>Consumes an extra 10 kW while enabled. Diverts 40% of water output and makes 0.89 oxygen per unit split.${h.canElectrolysis ? '' : ' Requires Water Electrolysis research.'}</div>
+      ${h.canElectrolysis ? '' : '<button class="btn hub-tech" data-tech="waterElectrolysis">View Water Electrolysis research</button>'}
+    </section>` : ''}
     <section><span class="label">Robots</span>${robots || `<div ${NOTE}>No units yet.</div>`}</section>
     <section><span class="label">Pits in reach (one way, now)</span>
       ${pits || `<div ${NOTE}>Nothing mapped to dig — Open pit… stakes a plain pit on mapped open ground.</div>`}
@@ -72,6 +89,7 @@ export function hubFootHtml(sel: BuildingState): string {
         <button class="btn" id="hub-bay"${h.canBay ? ` disabled title="${esc(h.canBay)}"` : ` title="A bay: one more unit (${esc(h.bayCost)})"`}>+ Bay</button>
         <button class="btn" id="hub-openpit" title="Stake a plain pit on mapped open ground for this hub; Esc cancels">Open pit…</button>
       </div>
+      ${h.canBay ? `<div ${NOTE}>${esc(h.canBay)}</div>${/^NEEDS /.test(h.canBay) ? `<button class="btn hub-tech" data-tech="${h.level === 1 ? 'bayExtensions' : 'depotHalls'}">View ${h.level === 1 ? 'Bay Extensions' : 'Depot Halls'} research</button>` : ''}` : ''}
     </section>`;
 }
 
@@ -88,6 +106,7 @@ export function refreshHub(root: HTMLElement, sel: BuildingState) {
   setText(root, 'hub-feed', h.status || `Feed (its own loads): ${h.feed}`);
   setText(root, 'hub-units-head', `Units ${h.units.length}/${h.bays} · Level ${['I', 'II', 'III'][h.level - 1]}`);
   setText(root, 'hub-hint', h.hint || (h.canUnit ? h.canUnit : `+ ${h.unitName}: ${h.unitCost}, printed in ${fmtClock(h.unitTime)}`));
+  setText(root, 'hub-planner-why', h.plannerWhy);
   h.queue.forEach((j, i) => setText(root, `hub-job-${i}`,
     `${j.name} · ${j.paid ? `${pct(j.pct)} · ${fmtClock(Math.ceil(j.left))} left` : j.waiting ? `waiting: ${j.waiting}` : 'queued'}`));
   for (const u of unitsOf(h)) setText(root, `hub-unit-${u.id}`, `${u.tag} ${u.pinned ? '(sent) ' : ''}· ${u.line}`);
@@ -98,6 +117,9 @@ export function refreshHub(root: HTMLElement, sel: BuildingState) {
 /** The hub inspector's buttons; true when handled. */
 export function hubClick(game: Game, btn: HTMLButtonElement, sel: BuildingState): boolean {
   const unit = Number(btn.dataset.unit);
+  if (btn.classList.contains('hub-tech')) { openTechTreeAt(btn.dataset.tech as TechId); return true; }
+  if (btn.classList.contains('hub-policy')) { game.actions.push({ kind: 'setHubPolicy', hub: sel.id, policy: btn.dataset.policy as HubPolicy }); return true; }
+  if (btn.classList.contains('unit-feed-plan')) { game.actions.push({ kind: 'setUnitFeedPlan', unit, on: btn.getAttribute('aria-pressed') !== 'true' }); return true; }
   if (btn.classList.contains('hub-cancel')) { game.actions.push({ kind: 'cancelJob', hub: sel.id, index: Number(btn.dataset.i) }); return true; }
   if (btn.classList.contains('hub-assign')) {
     game.actions.push({ kind: 'assignPit', hub: sel.id, key: btn.getAttribute('aria-pressed') === 'true' ? null : btn.dataset.key ?? null });
@@ -112,6 +134,7 @@ export function hubClick(game: Game, btn: HTMLButtonElement, sel: BuildingState)
     case 'hub-print': game.actions.push({ kind: 'queueUnit', hub: sel.id }); return true;
     case 'hub-bay': game.actions.push({ kind: 'queueBay', hub: sel.id }); return true;
     case 'hub-openpit': game.beginFleetTarget({ kind: 'openPit', hub: sel.id }); return true;
+    case 'hub-electrolysis': game.actions.push({ kind: 'setElectrolysis', id: sel.id, on: btn.getAttribute('aria-pressed') !== 'true' }); return true;
   }
   return false;
 }
@@ -127,7 +150,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
     const id = $unitSel.get();
     const u = id === null ? undefined : $fleet.get().units.find((x) => x.id === id);
     if (!u || $mode.get() === 'walk') { insp.style.display = 'none'; sig = ''; return; }
-    const next = `${u.id}|${u.pinned}|${u.parked}|${u.hub}|${u.reprint}`;
+    const next = `${u.id}|${u.pinned}|${u.parked}|${u.hub}|${u.reprint}|${u.planner}|${u.feedPlanOff}`;
     if (next !== sig) {
       sig = next;
       insp.innerHTML = `
@@ -139,6 +162,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
             <span class="k">Hub</span><span class="mono" id="un-hub"></span>
             <span class="k">Pit</span><span class="mono" id="un-pit"></span>
             <span class="k">Orders</span><span class="mono" id="un-mode"></span>
+            ${u.planner ? '<span class="k">Feed Planner</span><span class="mono" id="un-planner"></span>' : ''}
             <span class="k">Load</span><span class="mono" id="un-load"></span>
             <span class="k">Wear</span><span class="mono" id="un-wear"></span>
             <span class="k">Pack</span><span class="mono" id="un-pack"></span>
@@ -151,6 +175,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
           ${u.parked === 'recalled' ? '<button class="btn" id="un-dispatch" title="Back to work">Dispatch</button>'
             : '<button class="btn" id="un-recall" title="Home to its bay, and hold there">Recall</button>'}
           ${u.pinned ? '<button class="btn" id="un-auto" title="Its hub chooses for it again">Auto</button>' : ''}
+          ${u.planner ? `<button class="btn${u.feedPlanOff ? '' : ' active'}" id="un-feed-plan" aria-pressed="${!u.feedPlanOff}">Planner ${u.feedPlanOff ? 'off' : 'on'}</button>` : ''}
           ${u.reprint ? '<button class="btn" id="un-reprint" title="Rad scars: its hub re-prints it new (capability 100%) for half its price; it works on until then">Re-print</button>' : ''}
           <button class="btn" id="un-hubbtn" title="Inspect its hub">⌂ Hub</button>
           <button class="btn" id="un-close">✕</button>
@@ -161,6 +186,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
     setText(insp, 'un-hub', `${u.hubName} · bay ${u.bay + 1}`);
     setText(insp, 'un-pit', u.targetName ? `${u.targetName}${u.tripS ? ` · ${fmtClock(u.tripS)} one way · ${u.rate.toFixed(2)}${G}/s` : ''}` : '—');
     setText(insp, 'un-mode', u.pinned ? 'sent — stays until you press Auto' : 'auto — its hub chooses');
+    setText(insp, 'un-planner', u.planWhy || (u.feedPlanOff ? 'Off — basic hub dispatch remains active' : 'Enabled — reviews empty departures at its hub'));
     setText(insp, 'un-load', `${Math.floor(u.cargo)}/${Math.floor(u.bucket)}${G}`);
     setText(insp, 'un-wear', `${Math.round((1 - u.wear) * 100)}%`);
     setText(insp, 'un-pack', u.pack);
@@ -181,6 +207,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
       case 'un-recall': game.actions.push({ kind: 'recallUnit', unit: id }); break;
       case 'un-dispatch': game.actions.push({ kind: 'dispatchUnit', unit: id }); break;
       case 'un-auto': game.actions.push({ kind: 'autoUnit', unit: id }); break;
+      case 'un-feed-plan': game.actions.push({ kind: 'setUnitFeedPlan', unit: id, on: !!u?.feedPlanOff }); break;
       case 'un-reprint': game.actions.push({ kind: 'counter', counter: 'flareReprintUnit', id }); break;
       case 'un-hubbtn': if (u) game.select(u.hub); break;
       case 'un-close': game.cancelFleetTarget(); $unitSel.set(null); break;

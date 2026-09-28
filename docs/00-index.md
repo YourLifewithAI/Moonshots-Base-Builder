@@ -73,6 +73,9 @@ A quick key used throughout:
 
 ---
 
+The scoped mining, automation, onboarding and evidence implementation is documented
+in [19-mining-learning-plan.md](19-mining-learning-plan.md).
+
 ## Reading order
 
 - **New to the project?** 01 → 10 → 02. Vision first, then what actually exists,

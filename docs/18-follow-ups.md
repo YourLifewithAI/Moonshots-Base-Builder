@@ -1,5 +1,30 @@
 # 18 — Follow-ups
 
+## September 27 update: mining and learning
+
+The implementation in [19-mining-learning-plan.md](19-mining-learning-plan.md)
+addresses review recommendations 1–3 and 8:
+
+- **Research:** Bay Extensions, Hardfaced Teeth, Water Reclamation, Water
+  Electrolysis, Deep Coring and Depot Halls now have working modifiers and
+  reachable prerequisites. Schema 5 preserves Pit Mapping's existing ID and
+  research progress. Deep Coring opens two 2 m benches in Era 4; digging bedrock
+  carries the additional 25% power draw.
+- **Delegation:** the Builder's `hubUnit` rule uses each hub's starvation and
+  checks power, bays, faces, ore and budget before printing. Feed Planner operates
+  on hub-owned units with production, power and night-feed policies. Manual
+  assignments, recalled units, opt-outs and cargo deliveries take priority.
+- **Learning:** the optional First Mine guide handles each landing site's
+  resources, supports replay, and explains the current mining constraint.
+  Resource help now teaches private hoppers, grades and working faces.
+- **Evidence:** 31 research nodes link to 26 primary sources in an engineering
+  notebook with maturity labels, lunar adaptation gaps and explicit game
+  simplifications. Six optional engineering pilots earn saved Insight discounts.
+
+The historical test inventory below still applies to the older standalone-pad
+specs. This change runs targeted integration and existing hub/reserve regression
+checks; the deferred full-suite conversion and pacing pass remain separate.
+
 This is a list of what is left open after the extraction-hub and space-weather work of late September 2026 (PRs #39–#46; main at 063305a). It covers four things:
 - test files that still describe the old game;
 - the design phases not yet built;
@@ -66,8 +91,8 @@ Other effects the old specs may trip on:
 | docs/16 | **F5 · Benefits** | the four exploration breakthroughs (implantation, the particle annex, the Shield Coil, storm sails and CME sail windows) and the three insights |
 | docs/16 | **F6 · Look and audio** | the speckle, sky flash and aurora, the stow tween, berms, wrecks, repair poses, the `◌` capability marker, domes, the observatory's Sun tracking and slit, the sentinel launch plume, cues and the Geiger bed |
 | docs/16 | F7 · Pacing | deferred to the diagnostic pass, and optional: the player prefers fun over hitting era times |
-| docs/17 | **6 · The research reshuffle** | the six other new extraction techs (including Deep Coring), §14.4's changes, techSchema 5, milestones and discovery; this is where the specs in §1 get their new names |
-| docs/17 | **7 · The Builder** | `hubUnit`, siting anchors and ring-keeping, plain-pit staking, relocation, Site Survey AI surveys, Feed Planner routing; the probe bot's metrics (the pacing half is deferred) |
+| docs/17 | **6 · Remaining test migration** | The research reshuffle, schema 5, milestones and discovery are implemented. Older standalone-pad test fixtures in §1 still need conversion. |
+| docs/17 | **7 · Remaining Builder work** | `hubUnit` and Feed Planner routing are implemented. Siting anchors and ring-keeping, relocation, automatic Site Survey AI surveys and probe metrics remain. Printing requires surveyed reserves; the player can still order a print manually. |
 | docs/17 | **8 · The look and the migration** | recipes for the water plant, ice miner, bays, chutes and stakes; bench lips, bedrock and rubble; the ice miner's rig and work animations; the full old-save migration |
 
 ## 3. Stand-ins waiting for those phases
@@ -75,11 +100,10 @@ Other effects the old specs may trip on:
 - **F4 stand-ins:**
   - `setWeatherStub({ arrayHard })` and `setWeatherStub({ sigma })` (debug) stand in for Rad-Hard Cells and the F4 shields in tests. `mods.arrayHardMult` is the hook.
   - Laser Ranging's blackout ×0.5 and Maintenance Automation's replacement threshold wait for F4.
-- **Phase 6 stand-in:** the hub's **+ Bay** is gated on `mods.hubLevel`, which no research raises yet.
+- **Bay progression implemented:** Bay Extensions permits Level II and Depot Halls permits Level III; each hub buys its own bay. Fleet OS adds one bay globally.
 - **Untested:** the L1 Sentinel's Mass Driver launch path is written but not covered by a test.
 - **Phase 4 leftovers:**
-  - Deep Coring (a Phase 6 tech) doesn't exist yet, so only Deep Sounding (Era 7) reopens a pit for bedrock.
-  - Not built yet: the bedrock +25% draw and the heap dump time.
+  - Deep Coring and the bedrock +25% draw are implemented. Heap dump time remains.
   - Cut-corner cells still block roads after Reclaim, although placement accepts the ground.
 
 ## 4. The full diagnostic pass

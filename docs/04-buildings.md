@@ -213,9 +213,9 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Solar Array | 896 | 2,012 | 8 |
 | Battery Bank | 1,044 | 2,138 | 4 |
 | Thorium Reactor | 1,752 | 2,044 | 2 |
-| Regolith Smelter | 1,204 | 2,492 | 9 |
-| Silicon Refinery | 2,348 | 3,272 | 6 |
-| Water Management Plant | 1,868 | 1,868 | 0 |
+| Regolith Smelter | 1,204 | 2,540 | 11 |
+| Silicon Refinery | 2,348 | 3,320 | 8 |
+| Water Management Plant | 1,868 | 2,100 | 4 |
 | Storage Yard | 956 | 1,016 | 1 |
 | Robotics Bay | 1,336 | 3,074 | 12 |
 | Parts Fabricator | 1,048 | 1,644 | 6 |
@@ -234,8 +234,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Greenhouse Ring | 1,764 | 1,860 | 2 |
 | Garden Dome | 2,156 | 2,252 | 1 |
 | Server Monolith | 516 | 768 | 4 |
-| Regolith Excavator | 1,060 | 2,428 | 11 |
-| Ice Miner | 784 | 784 | 0 |
+| Regolith Excavator | 1,060 | 2,568 | 14 |
+| Ice Miner | 784 | 1,364 | 7 |
 
 #### Lander
 
@@ -301,6 +301,8 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Oxygen Liquefaction | 5 | Smelters add a cold-box liquefier and a spherical LOX tank. | 312 |
 | Refractory Linings | 6 | Smelter stacks and Refinery columns are banded with refractory courses. | 180 |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
+| Bay Extensions | 2 | Hubs raise a bay canopy over a third charging post. | 24 |
+| Depot Halls | 5 | Hubs roof their bays into a depot hall with a gantry. | 24 |
 
 #### Silicon Refinery
 
@@ -312,6 +314,17 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Refractory Linings | 6 | Smelter stacks and Refinery columns are banded with refractory courses. | 200 |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
 | Automated Smelting & Refining | 5 | Silicon Refineries grow an ore-sampler arm over the feed hopper. | 80 |
+| Bay Extensions | 2 | Hubs raise a bay canopy over a third charging post. | 24 |
+| Depot Halls | 5 | Hubs roof their bays into a depot hall with a gantry. | 24 |
+
+#### Water Management Plant
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Bay Extensions | 2 | Hubs raise a bay canopy over a third charging post. | 24 |
+| Depot Halls | 5 | Hubs roof their bays into a depot hall with a gantry. | 24 |
+| Water Reclamation | 3 | Water Management Plants add a greywater still: a squat tank with a vent stack. | 80 |
+| Water Electrolysis | 4 | Water Management Plants raise an electrolysis stack with heavy busbars and a vent mast. | 104 |
 
 #### Storage Yard
 
@@ -328,7 +341,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Self-Replicating Systems | 7 | Parts Fabricators and Robotics Bays grow replicator assembly arms. | 76 |
 | Rover Autonomy | 4 | Robotics Bays raise a navigation mast: a radar dome and the lidar heads the rovers plan their paths by. | 310 |
 | Predictive Maintenance | 6 | Robotics Bays raise a diagnostics mast with a beacon. | 136 |
-| Automated Excavation | 3 | Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof. | 268 |
+| Automated Excavation | 3 | Smelters, Refineries and Water Management Plants grow a dispatch mast. | 268 |
 | Site Survey AI | 3 | A survey drone rests on a pad on each Robotics Bay roof. | 212 |
 | Maintenance Automation | 7 | Robotics Bays get a service crane arm over the charging rover. | 112 |
 | Pressure-Rated Halls | 2 | Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window. | 128 |
@@ -502,7 +515,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Tech | Era | What changes | △ |
 |---|---|---|---|
 | Grizzly Screens | 1 | Excavators carry a slotted grizzly screen over the back deck. | 144 |
-| Solar-Wind Volatiles (ILMENITE PLAINS, MARIUS HILLS TUBE) | 1 | Excavators carry a heated volatiles retort with a cold-trap tank. | 256 |
+| Solar-Wind Volatiles (ILMENITE PLAINS, MARIUS HILLS TUBE) | 1 | Water Management Plants heat mature soil in a retort beside a cold-trap tank. | 256 |
 | Ilmenite Beneficiation (ILMENITE PLAINS, MARIUS HILLS TUBE) | 2 | Excavators carry a magnetic separator drum. | 92 |
 | Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
 | Optical Ore Sorting | 4 | Excavators mount an optical ore-sorting hood over the bucket wheel. | 60 |
@@ -512,4 +525,19 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Rover Power Packs | 2 | Rovers, drones and excavators bolt a pair of battery pods to their flanks. | 96 |
 | Regenerative Fuel-Cell Packs | 4 | Rovers, drones and excavators carry paired hydrogen and oxygen tanks behind their battery pods. | 136 |
 | Radioisotope Power Units | 5 | Rovers, drones and excavators grow a finned radioisotope unit on the tail. | 144 |
+| Pit Mapping | 1 | Excavators and Ice Miners mount a stereo camera boom over the cab. | 36 |
+| Hardfaced Teeth | 2 | Bucket wheels and augers wear a band of hardfaced teeth. | 60 |
+| Deep Coring | 4 | Excavators carry a rock-breaker arm; deep pits expose a bedrock bench. | 44 |
+
+#### Ice Miner
+
+| Tech | Era | What changes | △ |
+|---|---|---|---|
+| Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
+| Sublimation Tents (SHACKLETON RIM) | 2 | Ice Miners pitch a foil sublimation tent over the dig. | 156 |
+| Heated Augers (SHACKLETON RIM) | 4 | Ice Miners sink a second, heated auger. | 156 |
+| Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
+| Pit Mapping | 1 | Excavators and Ice Miners mount a stereo camera boom over the cab. | 36 |
+| Hardfaced Teeth | 2 | Bucket wheels and augers wear a band of hardfaced teeth. | 60 |
+| Deep Coring | 4 | Excavators carry a rock-breaker arm; deep pits expose a bedrock bench. | 44 |
 <!-- END GENERATED -->

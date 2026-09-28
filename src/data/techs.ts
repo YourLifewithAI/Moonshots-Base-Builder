@@ -39,16 +39,19 @@ export type TechId =
   | 'mpptInverters' | 'heatRecoveryJackets' | 'sublimationTents' | 'neutronSpectrometry' | 'benchRobots'
   | 'buildOrders' | 'roverPowerPacks'
   | 'heliophysicsForecasting'
+  | 'bayExtensions' | 'hardfacedTeeth'
   // era 3 — robotic fabrication
   | 'thoriumPower' | 'regenFuelCells' | 'swarmRobotics' | 'heavyConstructors' | 'dustMitigation' | 'btLavaTubeCaverns'
   | 'stackedCells' | 'slagRecycling' | 'refluxColumns' | 'cryoSampleStore' | 'bunkRacks'
   | 'autoExcavation' | 'siteSurveyAI'
   | 'basaltPaving'
+  | 'waterReclamation'
   // era 4 — chip fabrication
   | 'waferFab' | 'acceleratorDesign' | 'radHardProcess' | 'cleanroomRobotics' | 'orbitalProspector' | 'btVolcanicGlass'
   | 'braytonConverters' | 'pressureTanks' | 'mliBlankets' | 'waferPolishing' | 'oreSorting' | 'heatedAugers' | 'growLights'
   | 'roverAutonomy' | 'fuelCellPacks'
   | 'autoPower' | 'budgetGovernor' | 'autoLifeSupport'
+  | 'waterElectrolysis' | 'deepCoring'
   // era 5 — lunar compute
   | 'lunarDataCenter' | 'dynamicClocking' | 'cryoRadiators' | 'crewWellness'
   | 'wingExtensions' | 'deployableRadiators' | 'oxygenLiquefaction' | 'immersionLitho' | 'toolChangers'
@@ -56,6 +59,7 @@ export type TechId =
   | 'autoSmelting' | 'feedPlanner'
   | 'guidanceBeacons'
   | 'l1Sentinel'
+  | 'depotHalls'
   // era 6 — human habitation
   | 'humanCohabitation' | 'closedLoopLS' | 'safetyProtocols' | 'conditionOptimization' | 'scienceCrews'
   | 'farSideRelay' | 'btColdTrapChemistry'
@@ -118,7 +122,7 @@ export type TechEffect = EffectFilter & (
   | { kind: 'repair'; mult: number }
   | { kind: 'shadeImmune' }
   | { kind: 'buildTime'; buildings: BuildingId[]; mult: number }
-  | { kind: 'action'; id: 'overclock' | 'downlink' | 'sentinel' }
+  | { kind: 'action'; id: 'overclock' | 'downlink' | 'sentinel' | 'electrolysis' }
   | { kind: 'survey'; tier?: 1 | 2 | 3 | 4; dataMult?: number; minCrew?: number;
       /** the deposit survey (docs/17 §13): its precision (±share), its rover-seconds ×, and
        *  the deposit kinds Relay Masts survey free in their radius */
@@ -133,7 +137,13 @@ export type TechEffect = EffectFilter & (
   | { kind: 'housing'; building: BuildingId; delta: number }   // beds per building of that type
   | { kind: 'morale'; building: BuildingId; delta: number }    // morale while that building runs
   /** excavator haul cycle: drive speed, and bucket size (its dig time grows with it) */
-  | { kind: 'haul'; speedMult?: number; bucketMult?: number; offroadMult?: number }
+  | { kind: 'haul'; speedMult?: number; bucketMult?: number; offroadMult?: number; digMult?: number }
+  /** Hubs buy each new level locally; destiny bay grants are free capacity. */
+  | { kind: 'hubLevel'; level: 2 | 3 }
+  | { kind: 'hubBays'; delta: number }
+  | { kind: 'hubPrint'; timeMult?: number; costMult?: number }
+  /** Crew and farm water recovered while an operating Water Plant closes the loop. */
+  | { kind: 'reclaim'; water: number }
   /** the roadway (docs/15-roads.md): travel on roads (all, excavators alone,
    *  at night), road dust, and the sintering a cell takes */
   | { kind: 'road'; speedMult?: number; haulMult?: number; nightMult?: number; dustMult?: number; cellMult?: number }
@@ -231,7 +241,8 @@ const M: SiteId = 'mare', P: SiteId = 'southpole', L: SiteId = 'lavatube';
 export const TECHS: Record<TechId, TechDef> = {
   // ─── ERA 1 · FIRST LANDING ───
   // the smelter is known from landing (docs/17 §14.1): this slot is Pit Mapping's
-  // now; its id is renamed (with an alias and techSchema 5) in the research reshuffle
+  // now. Keep the shipped regolithProcessing id: saved completion, queue, spent
+  // data and insight keys stay valid across the schema-5 extraction reshuffle.
   regolithProcessing: {
     id: 'regolithProcessing', era: 1, lane: 'materials', name: 'Pit Mapping', short: 'Pit Mapping',
     costData: 30, requires: [],
@@ -288,11 +299,10 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'regolithVolatiles', era: 1, lane: 'habitat', name: 'Solar-Wind Volatiles', short: 'Volatile Mining',
     costData: 100, requires: [], sites: [M, L],
     effects: [
-      { kind: 'recipe', building: 'excavator', outputs: { regolith: 1.5, water: 0.02 }, powerKW: -9 },
       { kind: 'unlock', building: 'waterPlant' },
     ],
     desc: 'Heat mature soil to ~700 °C and the implanted solar wind comes out: H₂, H₂O, ³He.',
-    visual: 'Excavators carry a heated volatiles retort with a cold-trap tank.',
+    visual: 'Water Management Plants heat mature soil in a retort beside a cold-trap tank.',
     tradeoff: 'Four billion years of wind, a teaspoon a minute.',
   },
   bifacialCells: {
@@ -342,6 +352,30 @@ export const TECHS: Record<TechId, TechDef> = {
   },
 
   // ─── ERA 2 · EARLY CONSTRUCTION ───
+  bayExtensions: {
+    id: 'bayExtensions', era: 2, lane: 'robotics', name: 'Bay Extensions', short: 'Bay Extensions',
+    costData: 120, requires: [],
+    effects: [
+      { kind: 'hubLevel', level: 2 },
+      { kind: 'powerDelta', building: 'smelter', kw: -1 },
+      { kind: 'powerDelta', building: 'refinery', kw: -1 },
+      { kind: 'powerDelta', building: 'waterPlant', kw: -1 },
+    ],
+    desc: 'A third charging post and service bay at each processing hub. Buy the extension where another unit will help.',
+    visual: 'Hubs raise a bay canopy over a third charging post.',
+    tradeoff: 'The bay controls stay powered even when its machine is away.',
+  },
+  hardfacedTeeth: {
+    id: 'hardfacedTeeth', era: 2, lane: 'materials', name: 'Hardfaced Teeth', short: 'Hardfaced Teeth',
+    costData: 120, requires: [],
+    effects: [
+      { kind: 'haul', digMult: 1.25 },
+      { kind: 'upkeepMult', buildings: ['excavator', 'iceMiner'], mult: 1.25 },
+    ],
+    desc: 'Wear-resistant cutting edges let wheels and augers fill the same bucket faster.',
+    visual: 'Bucket wheels and augers wear a band of hardfaced teeth.',
+    tradeoff: 'Faster cuts consume more replacement teeth.',
+  },
   batteryStorage: {
     id: 'batteryStorage', era: 2, lane: 'power', name: 'Battery Banks', short: 'Battery Banks',
     costData: 110, requires: [],
@@ -384,7 +418,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   siliconRefining: {
     id: 'siliconRefining', era: 2, lane: 'compute', name: 'Silicon Refining', short: 'Silicon Refining',
-    costData: 130, requires: ['regolithProcessing'],
+    costData: 130, requires: [],
     effects: [{ kind: 'unlock', building: 'refinery' }],
     desc: 'Anorthite to wafer-grade silicon.',
     visual: 'Silicon Refineries can rise: three distillation columns.',
@@ -392,7 +426,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   partsFabrication: {
     id: 'partsFabrication', era: 2, lane: 'robotics', name: 'Parts Fabrication', short: 'Parts Fabrication',
-    costData: 110, requires: ['regolithProcessing'],
+    costData: 110, requires: [],
     effects: [{ kind: 'unlock', building: 'partsFab' }],
     desc: 'Make your own spares.',
     visual: 'Parts Fabricators can rise: a sawtooth-roofed machine shop.',
@@ -424,7 +458,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   moltenElectrolysis: {
     id: 'moltenElectrolysis', era: 2, lane: 'materials', name: 'Molten Regolith Electrolysis', short: 'MRE Smelting',
-    costData: 150, costGoods: { parts: 10 }, requires: ['regolithProcessing'], exclusive: 'smeltDoctrine',
+    costData: 150, costGoods: { parts: 10 }, requires: [], exclusive: 'smeltDoctrine',
     effects: [
       {
         kind: 'recipe', building: 'smelter',
@@ -439,7 +473,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   ilmeniteBeneficiation: {
     id: 'ilmeniteBeneficiation', era: 2, lane: 'materials', name: 'Ilmenite Beneficiation', short: 'Beneficiation',
-    costData: 140, requires: ['regolithProcessing', 'prospectingRovers'], exclusive: 'smeltDoctrine', sites: [M, L],
+    costData: 140, requires: ['prospectingRovers'], exclusive: 'smeltDoctrine', sites: [M, L],
     effects: [
       { kind: 'grade', mult: 1.25, process: 'H2' }, // docs/17 §9.1: it concentrates ilmenite at the face
       { kind: 'inputMult', buildings: ['smelter'], mult: 0.8 },
@@ -462,7 +496,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   heatRecoveryJackets: {
     id: 'heatRecoveryJackets', era: 2, lane: 'materials', name: 'Heat-Recovery Jackets', short: 'Heat Recovery',
-    costData: 120, requires: ['regolithProcessing'],
+    costData: 120, requires: [],
     effects: [
       { kind: 'powerMult', buildings: ['smelter'], mult: 0.88 },
       { kind: 'upkeepMult', buildings: ['smelter'], mult: 1.25 },
@@ -475,11 +509,11 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'sublimationTents', era: 2, lane: 'habitat', name: 'Sublimation Tents', short: 'Sublimation Tents',
     costData: 120, requires: ['iceExtraction'], sites: [P],
     effects: [
-      { kind: 'outputMult', buildings: ['iceHarvester'], mult: 1.15 },
-      { kind: 'powerMult', buildings: ['iceHarvester'], mult: 1.2 },
+      { kind: 'outputMult', buildings: ['iceMiner', 'iceHarvester'], mult: 1.15 },
+      { kind: 'powerMult', buildings: ['iceMiner', 'iceHarvester'], mult: 1.2 },
     ],
     desc: 'Heat the ice in place under a tent and catch the vapour on a cold plate (the Colorado School of Mines trials).',
-    visual: 'Ice Harvesters pitch a foil sublimation tent over the dig.',
+    visual: 'Ice Miners pitch a foil sublimation tent over the dig.',
     tradeoff: 'You are heating a 40 K crater.',
   },
   neutronSpectrometry: {
@@ -541,6 +575,17 @@ export const TECHS: Record<TechId, TechDef> = {
   },
 
   // ─── ERA 3 · ROBOTIC FABRICATION ───
+  waterReclamation: {
+    id: 'waterReclamation', era: 3, lane: 'habitat', name: 'Water Reclamation', short: 'Water Reclamation',
+    costData: 150, requires: [], requiresAny: ['iceExtraction', 'regolithVolatiles'], crewTech: true,
+    effects: [
+      { kind: 'reclaim', water: 0.6 },
+      { kind: 'powerDelta', building: 'waterPlant', kw: -4 },
+    ],
+    desc: 'An operating Water Management Plant recovers greywater from crew and farms, reducing their fresh-water draw.',
+    visual: 'Water Management Plants add a greywater still: a squat tank with a vent stack.',
+    tradeoff: 'The still needs steady electricity to keep the loop closed.',
+  },
   thoriumPower: {
     id: 'thoriumPower', era: 3, lane: 'power', name: 'Thorium Reactor', short: 'Thorium Reactor',
     costData: 160, costGoods: { metals: 80 }, requires: ['regolithShielding'], exclusive: 'nightPower',
@@ -587,7 +632,7 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 160, requires: [], requiresAny: ['partsFabrication', 'constructionRobotics'],
     effects: [
       { kind: 'dustMult', mult: 0.4 },
-      { kind: 'upkeepMult', buildings: ['excavator'], mult: 0.5 },
+      { kind: 'upkeepMult', buildings: ['excavator', 'iceMiner'], mult: 0.5 },
       { kind: 'powerMult', buildings: ['solar'], mult: 0.95 },
       { kind: 'guard', guard: 'dustScreens' }, // docs/14 §3.6
     ],
@@ -669,10 +714,12 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 150, costGoods: { parts: 10 }, requires: ['buildOrders'],
     effects: [
       { kind: 'autoRule', family: 'excavation' },
-      { kind: 'powerDelta', building: 'roboticsBay', kw: -1 },
+      { kind: 'powerDelta', building: 'smelter', kw: -1 },
+      { kind: 'powerDelta', building: 'refinery', kw: -1 },
+      { kind: 'powerDelta', building: 'waterPlant', kw: -1 },
     ],
-    desc: 'The rovers watch the regolith books themselves: when the furnaces want more than the diggers deliver, they raise another excavator.',
-    visual: 'Robotics Bays grow a dispatch mast: a lattice tower with a beacon on the roof.',
+    desc: 'The hubs watch their intake: when their machines need more ore, an underfed hub prints another unit within its bay and pit limits.',
+    visual: 'Smelters, Refineries and Water Management Plants grow a dispatch mast.',
     tradeoff: 'It spends your metals before you have decided what they were for.',
   },
   siteSurveyAI: {
@@ -688,7 +735,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   basaltPaving: {
     id: 'basaltPaving', era: 3, lane: 'materials', name: 'Basalt Paving', short: 'Basalt Paving',
-    costData: 150, requires: ['regolithProcessing'],
+    costData: 150, requires: [],
     effects: [
       { kind: 'road', speedMult: 1.25, dustMult: 0.5 },
       { kind: 'road', cellMult: 1.2 },
@@ -699,6 +746,28 @@ export const TECHS: Record<TechId, TechDef> = {
   },
 
   // ─── ERA 4 · CHIP FABRICATION ───
+  waterElectrolysis: {
+    id: 'waterElectrolysis', era: 4, lane: 'habitat', name: 'Water Electrolysis', short: 'Water Electrolysis',
+    costData: 240, costGoods: { parts: 10 }, requires: [], requiresAny: ['iceExtraction', 'regolithVolatiles'],
+    effects: [
+      { kind: 'action', id: 'electrolysis' },
+      { kind: 'inputMult', buildings: ['propellantPlant'], mult: 0.6 },
+    ],
+    desc: 'Split a share of a plant’s water into oxygen and hydrogen. Each plant can keep water or make breathing oxygen as the base needs.',
+    visual: 'Water Management Plants raise an electrolysis stack with heavy busbars and a vent mast.',
+    tradeoff: 'Water spent making air cannot fill the reservoir; hydrogen is vented until a Propellant Plant stands.',
+  },
+  deepCoring: {
+    id: 'deepCoring', era: 4, lane: 'exploration', name: 'Deep Coring', short: 'Deep Coring',
+    costData: 240, costGoods: { parts: 10 }, requires: ['prospectingRovers'],
+    effects: [
+      { kind: 'pitDepth', benches: 2 },
+      { kind: 'powerMult', buildings: ['excavator', 'iceMiner'], mult: 1.1 },
+    ],
+    desc: 'Rock breakers reopen worked-out and hemmed-in pits, cutting two more benches into bedrock below the loose soil.',
+    visual: 'Excavators carry a rock-breaker arm; deep pits expose a bedrock bench.',
+    tradeoff: 'Bedrock yields slowly and the cutters draw more power while they work it.',
+  },
   waferFab: {
     id: 'waferFab', era: 4, lane: 'materials', name: 'Wafer Fabrication', short: 'Wafer Fabrication',
     costData: 260, costGoods: { silicon: 40 }, requires: ['siliconRefining', 'partsFabrication'],
@@ -833,22 +902,22 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'oreSorting', era: 4, lane: 'materials', name: 'Optical Ore Sorting', short: 'Ore Sorting',
     costData: 220, requires: ['grizzlyScreens'],
     effects: [
-      { kind: 'outputMult', buildings: ['excavator'], mult: 1.1 },
-      { kind: 'upkeepMult', buildings: ['excavator'], mult: 1.3 },
+      { kind: 'grade', mult: 1.1 },
+      { kind: 'upkeepMult', buildings: ['excavator', 'iceMiner'], mult: 1.3 },
     ],
     desc: 'Cameras over the wheel reject the anorthosite lumps before they ride the belt.',
     visual: 'Excavators mount an optical ore-sorting hood over the bucket wheel.',
-    tradeoff: 'Lenses in a dust storm.',
+    tradeoff: 'Abrasive lunar dust wears the lenses.',
   },
   heatedAugers: {
     id: 'heatedAugers', era: 4, lane: 'habitat', name: 'Heated Augers', short: 'Heated Augers',
     costData: 230, requires: ['sublimationTents'], sites: [P],
     effects: [
-      { kind: 'outputMult', buildings: ['iceHarvester'], mult: 1.15 },
-      { kind: 'upkeepMult', buildings: ['iceHarvester'], mult: 1.3 },
+      { kind: 'outputMult', buildings: ['iceMiner', 'iceHarvester'], mult: 1.15 },
+      { kind: 'upkeepMult', buildings: ['iceMiner', 'iceHarvester'], mult: 1.3 },
     ],
     desc: 'A second auger with heated flights lifts icy regolith the tent cannot reach.',
-    visual: 'Ice Harvesters sink a second, heated auger.',
+    visual: 'Ice Miners sink a second, heated auger.',
     tradeoff: 'Ice-bound flights shear.',
   },
   growLights: {
@@ -900,6 +969,18 @@ export const TECHS: Record<TechId, TechDef> = {
   },
 
   // ─── ERA 5 · LUNAR COMPUTE ───
+  depotHalls: {
+    id: 'depotHalls', era: 5, lane: 'robotics', name: 'Depot Halls', short: 'Depot Halls',
+    costData: 400, costGoods: { parts: 20 }, requires: ['bayExtensions'],
+    effects: [
+      { kind: 'hubLevel', level: 3 },
+      { kind: 'hubPrint', timeMult: 0.75 },
+      { kind: 'upkeepMult', buildings: ['smelter', 'refinery', 'waterPlant'], mult: 1.15 },
+    ],
+    desc: 'Roofed service halls hold a fourth bay and a gantry that prints units in three quarters of the time.',
+    visual: 'Hubs roof their bays into a depot hall with a gantry.',
+    tradeoff: 'The larger workshops need more spare parts.',
+  },
   lunarDataCenter: {
     id: 'lunarDataCenter', era: 5, lane: 'compute', name: 'Lunar Data Center', short: 'Data Center',
     costData: 420, costGoods: { chips: 10 }, requires: ['waferFab'],
@@ -1126,7 +1207,7 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'conditionOptimization', era: 6, lane: 'materials', name: 'Condition Optimization', short: 'Condition Tuning',
     costData: 1200, costGoods: { chips: 10 }, requires: ['lunarDataCenter'], crewTech: true,
     effects: [
-      { kind: 'outputMult', buildings: ['excavator', 'iceHarvester', 'smelter', 'refinery'], mult: 1.15 },
+      { kind: 'outputMult', buildings: ['excavator', 'iceMiner', 'iceHarvester', 'waterPlant', 'smelter', 'refinery'], mult: 1.15 },
       { kind: 'powerMult', buildings: ['habitat'], mult: 1.25 },
     ],
     desc: 'Researchers tune set-points that agents merely accept. This is the optimizing-conditions purpose.',
@@ -1324,13 +1405,13 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 1700, costGoods: { parts: 80, chips: 15 },
     requires: ['lunarDataCenter'], requiresAny: ['swarmRobotics', 'heavyConstructors'],
     effects: [
-      { kind: 'outputMult', buildings: ['excavator', 'smelter', 'refinery', 'iceHarvester'], mult: 1.3 },
+      { kind: 'outputMult', buildings: ['excavator', 'smelter', 'refinery', 'iceMiner', 'iceHarvester', 'waterPlant'], mult: 1.3 },
       { kind: 'outputMult', buildings: ['partsFab', 'foilFactory'], mult: 1.6 },
       { kind: 'crewDelta', buildings: ['partsFab', 'foilFactory'], delta: -1 },
       { kind: 'botPerBay', delta: 1 },
       {
         kind: 'powerMult', mult: 1.25,
-        buildings: ['excavator', 'smelter', 'refinery', 'iceHarvester', 'partsFab', 'foilFactory'],
+        buildings: ['excavator', 'smelter', 'refinery', 'iceMiner', 'iceHarvester', 'waterPlant', 'partsFab', 'foilFactory'],
       },
       { kind: 'upkeepMult', buildings: ['roboticsBay'], mult: 2 },
     ],
@@ -1652,6 +1733,7 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'fleetOS', era: 5, name: 'Fleet OS', short: 'Fleet OS',
     costData: 400, costGoods: { chips: 10 }, requires: [], track: { era: 5, side: 'automation' },
     effects: [
+      { kind: 'hubBays', delta: 1 },
       { kind: 'unlock', building: 'serverMonolith' },
       { kind: 'agentTax', mult: 0.85 },
       { kind: 'builder', dwellMult: 0.5, families: ['research'] },
@@ -1670,7 +1752,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'bringsCrew', expeditions: ['robotic'] },
       { kind: 'housing', building: 'habitat', delta: 1 },
       { kind: 'growth', mult: 2 / 3, crew: true },
-      { kind: 'outputMult', buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab'], mult: 1.15, crewedOnly: true },
+      { kind: 'outputMult', buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab', 'waterPlant'], mult: 1.15, crewedOnly: true },
       { kind: 'guard', guard: 'stormShelters' },
       { kind: 'inputMult', buildings: ['habitat'], mult: 1.2 },
       { kind: 'exposure', hazard: 'cabinFever' },
@@ -1711,6 +1793,7 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'replicatorStacks', era: 7, name: 'Replicator Stacks', short: 'Replicator Stacks',
     costData: 1125, costGoods: { chips: 20, parts: 30 }, requires: [], track: { era: 7, side: 'automation' },
     effects: [
+      { kind: 'hubPrint', timeMult: 0.5 },
       { kind: 'outputMult', buildings: ['partsFab', 'foilFactory'], mult: 1.2 },
       { kind: 'builder', capMult: 2, families: ['export'] },
       { kind: 'guard', guard: 'attestation' },
@@ -1756,7 +1839,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'housing', building: 'gardenDome', delta: 2 },
       {
         kind: 'outputMult', mult: 1.1, crewedOnly: true,
-        buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab', 'foilFactory', 'hydroponics', 'greenhouseRing'],
+        buildings: ['lab', 'smelter', 'refinery', 'partsFab', 'chipFab', 'foilFactory', 'hydroponics', 'greenhouseRing', 'waterPlant'],
       },
       { kind: 'inputMult', buildings: ['habitat'], mult: 1.2 },
       { kind: 'exposure', hazard: 'cabinFever' },
@@ -2194,6 +2277,10 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
     }
     case 'action':
+      if (fx.id === 'electrolysis') return [
+        pro('NEW TOGGLE Electrolysis: a Water Plant splits 40% of its produced water into oxygen (0.89 oxygen per water)', 1, 'flag'),
+        con('10 kW more per Water Plant while Electrolysis is on; 40% less water; hydrogen is vented until propellant production', 10, 'kW'),
+      ];
       if (fx.id === 'sentinel') {
         const F = FORECAST.sentinel;
         return [
@@ -2243,7 +2330,22 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
     }
     case 'pitDepth':
       return [pro(`pits cut ${fx.benches} bench${fx.benches === 1 ? '' : 'es'} (${fx.benches * 2} m) into bedrock: slow ore under dug-out and hemmed-in pits`, fx.benches, 'count'),
-        con('bedrock digs at ×0.3', 0.7, 'mult')];
+        con('bedrock digs at ×0.3 and draws +25% while cutting', 0.7, 'mult')];
+    case 'hubLevel': return [
+      pro(`LEVEL ${fx.level === 2 ? 'II' : 'III'} HUBS: + Bay at any hub (${fx.level + 1} bays)`, 1, 'flag'),
+      con('buy each bay at its hub: 30 metals and 10 parts before site modifiers', 1, 'use'),
+    ];
+    case 'hubBays': return [pro(`+${fx.delta} free bay${fx.delta === 1 ? '' : 's'} at every hub`, fx.delta, 'count')];
+    case 'hubPrint': {
+      const out: EffectLine[] = [];
+      for (const [m, label] of [[fx.timeMult, 'unit print time'], [fx.costMult, 'unit print cost']] as const) {
+        if (m === undefined) continue;
+        const text = `${label} ×${num(m)}`;
+        out.push(m <= 1 ? pro(text, mag(m), 'mult') : con(text, mag(m), 'mult'));
+      }
+      return out;
+    }
+    case 'reclaim': return [pro(`${pctDelta(fx.water)} fresh water: crew and farms, while a Water Management Plant operates`, mag(fx.water), 'mult')];
     case 'powerDelta': {
       const text = `${fx.kw > 0 ? '+' : ''}${sgn(fx.kw)} kW: ${bname(fx.building)}`;
       return [fx.kw > 0 ? pro(text, fx.kw, 'kW') : con(text, -fx.kw, 'kW')];
@@ -2273,6 +2375,10 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       if (fx.offroadMult !== undefined) {
         const text = `${pctDelta(fx.offroadMult)} speed off-road, in pits and deposits: Regolith Excavator, Ice Miner`;
         out.push(fx.offroadMult >= 1 ? pro(text, mag(fx.offroadMult), 'mult') : con(text, mag(fx.offroadMult), 'mult'));
+      }
+      if (fx.digMult !== undefined) {
+        const text = `${pctDelta(fx.digMult)} dig rate: Regolith Excavator and Ice Miner; the same bucket fills sooner`;
+        out.push(fx.digMult >= 1 ? pro(text, mag(fx.digMult), 'mult') : con(text, mag(fx.digMult), 'mult'));
       }
       return out;
     }

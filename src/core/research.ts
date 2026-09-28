@@ -17,7 +17,7 @@ import {
   QUEUE_MAX, RESEARCH_RATE_EMA_S, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB,
 } from '../data/balance';
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
-import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, type Mods } from './mods';
+import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, waterReclaimFactor, type Mods } from './mods';
 import { alert, crewReserve, moraleWorkMult } from './economy';
 import { KIND_LABEL, baseStream, outpostSlots, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
@@ -34,8 +34,9 @@ export interface TechCtx { siteId: SiteId; expedition: Expedition; discoveries?:
 
 const OK: ActionResult = { ok: true, reason: '' };
 /** the research tree's save schema: 2 = the 47-tech tree, 3 = the 90-tech tree,
- *  4 = the destiny tracks (docs/14 §7) */
-export const TECH_SCHEMA = 4;
+ *  4 = destiny tracks, 5 = the extraction upgrade ladder (docs/17 §14).
+ *  Pit Mapping intentionally retains its shipped regolithProcessing id. */
+export const TECH_SCHEMA = 5;
 const TECHS_SCHEMA_2 = 47;
 const nameOf = (t: TechId) => TECHS[t]?.name ?? t;
 const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -809,9 +810,9 @@ export function previewTech(tid: TechId, s: GameState): PreviewLine[] {
     if (!list?.length) continue;
     const line: PreviewLine = { type, count: list.length, text: '', dKW: 0, dOut: {}, dIn: {}, dData: 0, dUpkeep: 0, dBots: 0 };
     for (const inst of list) {
-      const opts = { agentRun: isAgentRun(inst, s), robotic, workMult, uplinkShare: share, feed: s.feed };
-      const ra = effectiveRates(type, a, site, inst, opts);
-      const rb = effectiveRates(type, b, site, inst, opts);
+      const opts = { agentRun: isAgentRun(inst, s), robotic, workMult, uplinkShare: share, feed: inst.hub?.feed ?? s.feed };
+      const ra = effectiveRates(type, a, site, inst, { ...opts, waterReclaim: waterReclaimFactor(s, a) });
+      const rb = effectiveRates(type, b, site, inst, { ...opts, waterReclaim: waterReclaimFactor(s, b) });
       line.dKW += rb.powerKW - ra.powerKW;
       line.dData += rb.data - ra.data;
       line.dUpkeep += rb.upkeepPartsPerDay - ra.upkeepPartsPerDay;
@@ -983,7 +984,9 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
  *  banked and queued is kept; past eras' picks stay open as leftovers, and a
  *  pick is required only for eras still to open; a Swarm Protocol queued
  *  without an Era 8 pick drops (its data stays banked). Deposit re-stamping
- *  (rule 7) needs the heightfield and is done by the caller. */
+ *  (rule 7) needs the heightfield and is done by the caller.
+ *  4 → 5 adds six mining/water techs. Pit Mapping keeps regolithProcessing:
+ *  done, queued, spent and insight entries need no translation and lose nothing. */
 export function migrateTechSchema(s: GameState): { refund: number; retired: string[] } {
   fillStateDefaults(s);
   const from = s.techSchema ?? 1;
@@ -1021,6 +1024,9 @@ export function migrateTechSchema(s: GameState): { refund: number; retired: stri
   }
   if (from < 4) {
     alert(s, 'DESTINIES — every era now has a track choice (T). Past eras’ choices are open at their old prices.', 'info');
+  }
+  if (from < 5) {
+    alert(s, 'EXTRACTION RESEARCH — bay upgrades, faster digging, water recovery and Deep Coring are available. Your Pit Mapping research and progress are kept.', 'info');
   }
   return { refund, retired };
 }
