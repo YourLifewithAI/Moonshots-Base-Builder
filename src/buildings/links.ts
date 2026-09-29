@@ -14,7 +14,7 @@
  *  Pure planning on the build grid (planLinks), then one merged mesh per
  *  layer, rebuilt like the berms only when its signature changes. Each
  *  layer is an InstancedMesh of one instance on the building material, so
- *  it lights, colours (the Classic palette) and warms (iWarm: walkways
+ *  it lights, colours (the cel palette) and warms (iWarm: walkways
  *  warm, spines cold) like the buildings.
  *
  *  Links and roads (docs/15). A link never sits on a road cell, a door or a
