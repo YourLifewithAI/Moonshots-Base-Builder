@@ -344,6 +344,8 @@ export class Game {
     // saves from before keyed alerts: an old line cannot tell whether it still
     // holds, so it becomes an event that fades — nothing stale stays pinned
     legacy.alertSnooze ??= {};
+    // saves from before the notification log (docs/19): an empty one
+    legacy.log ??= [];
     for (const a of legacy.alerts) {
       if (a.key !== undefined) continue;
       a.key = a.text;

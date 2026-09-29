@@ -342,9 +342,10 @@ export function mountHud(root: HTMLElement, game: Game) {
       // a deposit's alert opens its card (docs/17 §13.4)
       $depositOverlay.set(true);
       $depositSel.set(a.action.deposit);
-    } else {
+    } else if ('select' in a.action) {
       game.select(a.action.select);
     }
+    // ({map}, {tech} and {building} open their panels once notify.ts handles them)
   });
 
   // ── milestone goals (the tutorial) — click to expand the whole roadmap ──

@@ -259,6 +259,16 @@ export interface RoadCell {
   bay?: boolean;
   /** no new road joins or crosses it (the Lander's apron short of its stub's end) */
   closed?: boolean;
+  // ── docs/19 S3 (contract: W0d). Plain open cells: none of these is `bay`,
+  //    which routing excludes; gatesOf and rimTargets skip pass and hold. ──
+  /** the gate of that zone (ZoneState.id): where the road stops and units go on off-road */
+  gate?: string;
+  /** a passing bay: a widened shoulder where two units meet and one waits */
+  pass?: true;
+  /** a holding bay beside a gate: units queue here, never on the gate; the zone it serves (ZoneState.id) */
+  hold?: string;
+  /** the last cells of a haul road inside a full-size pit ring: the pit consumes them and the gate steps back */
+  sacrificial?: true;
 }
 
 /** A road the player drew, or a haul road to an excavator's dig: open for
@@ -398,6 +408,8 @@ export interface RoverUnit extends PackState {
   place?: boolean;
   /** a deposit survey it cores (docs/17 §13.2): the deposit's id */
   core?: string;
+  /** the grading job it works (docs/19 S5): GradeJob.id */
+  grade?: number;
   // ── space weather (docs/16 §4.5, §4.13, §4.14; core/flareEffects.ts) ──
   /** capability 0.1..1 (absent: 1): rad scars from flares met in the open; weld and sinter × it */
   cap?: number;
@@ -423,8 +435,9 @@ export interface RoverTrip {
   /** weld: a site's stand · front: the cell behind a road's frontier (it
    *  sinters) · behind: queued behind a frontier · dock: parking ·
    *  survey: into the Lander, lent · down: set down by a hazard (a drone) ·
-   *  core: at a deposit's centre, coring it (docs/17 §13.2) */
-  kind: 'weld' | 'front' | 'behind' | 'dock' | 'survey' | 'down' | 'core';
+   *  core: at a deposit's centre, coring it (docs/17 §13.2) ·
+   *  grade: at a stand on the next cell of a grading job (docs/19 S5) */
+  kind: 'weld' | 'front' | 'behind' | 'dock' | 'survey' | 'down' | 'core' | 'grade';
   site?: number;
   job?: number;
   /** the goal's road cell (cellKey), or -1 (a drone's, straight) */
@@ -445,6 +458,9 @@ export interface RoverTrip {
   local?: boolean;
   /** no road there: it waits where it is and asks again each tick */
   stuck?: boolean;
+  /** game-seconds it has been held up on the way by another unit's reservation
+   *  (docs/19 S4a; the inspector reads it, the trip's own clock is unchanged) */
+  held?: number;
   /** the share of the clock it drives on now (core/unitPower.ts): 0 flat,
    *  between on an RPU's trickle; absent: 1 (the visuals read it too) */
   rate?: number;
@@ -624,13 +640,57 @@ export interface OutpostState {
   /** HACKED OUTPOST: the stream is diverted (docs/14 §3.5) */
   hacked?: boolean;
 }
+/** One survey drone (docs/19 S6, core/surveyDrones.ts): docked at the Lander or a Prospecting Bay,
+ *  it flies one map survey at a time. */
+export interface SurveyDrone {
+  id: number;
+  /** the building it docks at: the Lander or a Prospecting Bay (building id) */
+  home: number;
+  /** its pack's charge, 0..1 (absent: full) */
+  charge?: number;
+}
+
+/** A survey under way, flown by one drone (docs/19 S6): the fleet's flights run in parallel. */
+export interface SurveyFlight {
+  drone: number;
+  id: ProspectId;
+  startedAt: number;
+  endsAt: number;
+}
+
 export interface SurveyState {
   /** deposit ids revealed outside the tier radius (placement strike, relay mast, legacy ice survey) */
   struck: string[];
   prospects: Partial<Record<ProspectId, ProspectRecord>>;
+  /** deprecated (docs/19 S6): the one rover-borne survey; null once `surveyDrones` exist */
   active: ActiveSurvey | null;
   outposts: OutpostState[];
   atlas: boolean;
+  /** docs/19 S6: the survey-drone fleet, and its flights (one per drone away) */
+  surveyDrones?: SurveyDrone[];
+  flights?: SurveyFlight[];
+  nextSurveyDrone?: number;
+  /** 1: surveys are flown by drones (an older save migrates in Game.loadFrom) */
+  surveySchema?: number;
+}
+
+/** A box-drag grading job (docs/19 S5, core/grading.ts): rovers level a
+ *  rectangle cell by cell over time. */
+export interface GradeJob {
+  id: number;
+  /** the rectangle's cells (cell keys), in the order they level */
+  cells: number[];
+  /** the height it is levelled to: the rectangle's mean, m */
+  h: number;
+  /** cells levelled so far (the next is cells[done]) */
+  done: number;
+  /** rover-seconds the whole job takes, and what is left of it */
+  total: number;
+  left: number;
+  /** energy paid when it was queued (refunded per undone cell on cancel) */
+  energy: number;
+  /** the rovers on it (roster ids) */
+  rovers?: number[];
 }
 
 /** A flare's phases (docs/16 §3.3): the flash (the telegraph), the protons
@@ -757,8 +817,16 @@ export interface WeatherState {
 }
 
 /** what clicking an alert does: open a resource info panel, or select a building */
-/** what clicking an alert opens: a resource panel, a building, or a deposit's card */
-export type AlertAction = { panel: string } | { select: number } | { deposit: string };
+/** what clicking an alert opens: a resource panel, a building, or a deposit's card;
+ *  docs/19 S7 adds the map at a prospect, the tech tree at a tech, and a building
+ *  (a placed one by id, or a kind of building) — types only until S7 handles them */
+export type AlertAction =
+  | { panel: string } | { select: number } | { deposit: string }
+  | { map: ProspectId } | { tech: TechId } | { building: BuildingId | number };
+
+/** The five notification families (docs/19 S7): each has its own shape,
+ *  colour rule, position, sound and pause behaviour. */
+export type NotifyFamily = 'research' | 'field' | 'era' | 'weather' | 'hazard';
 
 /** One line of the alert stack. A condition (cond) is re-raised by every
  *  economy tick while it holds and leaves soon after it stops; an event is
@@ -780,6 +848,21 @@ export interface AlertMsg {
   action?: AlertAction;
   /** hazard counters shown as buttons on the alert (docs/14 §3.8) */
   counters?: AlertCounter[];
+  /** docs/19: the notification family it belongs to (absent: not yet classed) */
+  family?: NotifyFamily;
+}
+
+/** One line of the notification log (docs/19 S7): every event raised, newest last, capped and saved. */
+export interface LogEntry {
+  /** the alert's id: a repeat that merges into a listed alert counts on its entry */
+  id: number;
+  at: number;
+  family?: NotifyFamily;
+  kind: AlertMsg['kind'];
+  text: string;
+  action?: AlertAction;
+  /** times raised (merged repeats) */
+  count: number;
 }
 
 /** a counter button on an alert: the counter action it pushes */
@@ -981,6 +1064,9 @@ export interface GameState {
   nextBuildingId: number;
   /** flatten history, replayed onto regenerated terrain on load */
   flattens: { x0: number; z0: number; x1: number; z1: number; h: number }[];
+  /** box-drag grading jobs rovers work (docs/19 S5, core/grading.ts), oldest first */
+  gradeJobs?: GradeJob[];
+  nextGradeJob?: number;
   /** extraction hubs (docs/17, core/hubs.ts): every hub's units, in id order */
   haulers: Hauler[];
   nextHaulerId: number;
@@ -1030,6 +1116,8 @@ export interface GameState {
   storageCaps: Partial<Record<import('../data/resources').ResourceId, number>>;
   alerts: AlertMsg[];
   nextAlertId: number;
+  /** the notification log (docs/19 S7): every event alert, oldest first, at most LOG_MAX; saved */
+  log: LogEntry[];
   /** dismissed conditions: key → game time the snooze ends */
   alertSnooze: Record<string, number>;
   milestonesDone: string[];
@@ -1124,6 +1212,7 @@ export function createInitialState(
     storageCaps: {},
     alerts: [],
     nextAlertId: 1,
+    log: [],
     alertSnooze: {},
     milestonesDone: [],
     auto: defaultAuto(),

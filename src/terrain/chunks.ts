@@ -23,7 +23,7 @@ import { regolithPatch } from './terrainShader';
 import type { Crater, Heightfield } from './heightfield';
 import { classicActive } from '../core/style';
 import { classicGround, facet } from './classicGround';
-import { cutTone } from './pitCarve';
+import { cutTone, decorate } from './pitCarve';
 
 /** the pits' rebuild queue: seconds between rebuilds (two a second), and between shadow refreshes */
 const REBUILD_GAP_S = 0.5;
@@ -130,7 +130,8 @@ export class TerrainChunks {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
-    return classic ? facet(geo) : geo;
+    // the pits' additions to the ground's geometry (a hook: terrain/pitCarve.ts decorate)
+    return decorate(classic ? facet(geo) : geo, cx, cz, this.hf);
   }
 
   /** Rebuild the (≤4) chunks covering a cell rect after a flatten. */

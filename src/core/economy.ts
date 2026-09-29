@@ -19,7 +19,7 @@ import {
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
-import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState, type RoverUnit } from './state';
+import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState, type NotifyFamily, type RoverUnit } from './state';
 import {
   canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, waterReclaimFactor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
@@ -78,8 +78,10 @@ const SEVERITY: Record<AlertKind, number> = { info: 0, warn: 1, crit: 2 };
  *  is out of reach (debug forceGridDark; a forced brownout). */
 export const GRID = { dark: false };
 
-/** A one-shot event. Repeating one still listed merges into it (×N). */
-export function alert(s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction) {
+/** A one-shot event. Repeating one still listed merges into it (×N). It
+ *  belongs to a notification `family` (docs/19 S7; absent: not yet classed)
+ *  and is written to the saved log (`s.log`, the last ALERTS.logMax events). */
+export function alert(s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction, family?: NotifyFamily) {
   const i = s.alerts.findIndex((a) => !a.cond && a.key === text);
   if (i >= 0) {
     const [a] = s.alerts.splice(i, 1);
@@ -87,9 +89,15 @@ export function alert(s: GameState, text: string, kind: AlertKind = 'info', acti
     a.at = s.simTime;
     a.quiet = false;
     s.alerts.push(a);
+    const line = (s.log ??= []).find((e) => e.id === a.id);
+    if (line) { line.count = a.count; line.at = s.simTime; }
     return;
   }
-  s.alerts.push({ id: s.nextAlertId++, text, kind, at: s.simTime, key: text, count: 1, action });
+  const id = s.nextAlertId++;
+  s.alerts.push({ id, text, kind, at: s.simTime, key: text, count: 1, action, ...(family ? { family } : {}) });
+  const log = (s.log ??= []);
+  log.push({ id, at: s.simTime, kind, text, count: 1, ...(action ? { action } : {}), ...(family ? { family } : {}) });
+  if (log.length > ALERTS.logMax) log.splice(0, log.length - ALERTS.logMax);
   // bounded: the least severe, then the oldest, event makes room
   const events = s.alerts.filter((a) => !a.cond);
   if (events.length > ALERTS.maxEvents) {
