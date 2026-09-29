@@ -4,25 +4,29 @@
  *  Palette. The kit bakes each part's finish into its vertices (a gray
  *  value in `color`, roughness / metalness / emissive id in `mat`); the cel
  *  palette maps each finish to a colour, per structure where it helps identity:
- *    hull (BODY)       warm white       radiators   white
- *    panels (PLATE)    mid gray         trim        orange accent
+ *    hull (BODY)       warm paper       radiators   white
+ *    panels (PLATE)    cool slate       trim        the family accent
  *    PV cells (GLASS)  dark blue        windows     dark blue glass
  *    lamps             warm white       beacons     red, blinking
  *    MLI foil          gold             decks       slate (trim parts with
  *                                                   a face over 5 m²: roofs,
  *                                                   plinths, stacks — the
- *                                                   orange stays an accent)
+ *                                                   accent stays an accent)
  *    foliage (LEAF)    greenhouse green
- *  with the solar wings' and arrays' frames silver, the Foil Factory's trim
- *  gold, the Server Monolith near-black with teal glass, the Drone Hive dark
- *  and the Garden Dome's ribs silver. The colours go into the instanced view's
- *  own `color` attribute (celColors), so the shared recipe buffers stay the
- *  kit's grays.
+ *  One accent per family (data/families.ts): a structure's trim is
+ *  `FAMILY_ACCENT[FAMILY_OF[recipe]]`, a moving thing's its `UNIT_ACCENT`,
+ *  a hub's digger its `HUB_LIVERY` band and body; anything untagged wears the
+ *  logistics slate. The solar wings' and dishes' frames stay silver, the
+ *  Server Monolith is near-black with teal glass and the Drone Hive dark. The
+ *  colours go into the instanced view's own `color` attribute (celColors), so
+ *  the shared recipe buffers stay the kit's grays.
  *
  *  Shader. One small ShaderMaterial, no patches, no loops, no derivatives,
- *  no extensions: Lambert from the key light plus the hemisphere fill,
- *  evaluated per vertex (the kit's parts are flat or smooth by geometry),
- *  and per-instance state: unpowered = dark windows and no beacon, wear
+ *  no extensions. A face's light is a ramp of its own colour: n·l against
+ *  the key, evaluated per fragment (so a dome's terminator is a curve), steps
+ *  the top step's colour (celLighting's `uLightFull`) by 1.0 / 0.72 / 0.5
+ *  (variant A: two steps), edges 0.02 soft (celStyle.ts). Per-instance
+ *  state: unpowered = dark windows and no beacon, wear
  *  darkens, dust greys the PV glass, and fragments above the print cut are
  *  discarded under a warm band (the 3D-print reveal). Windows and lamps glow
  *  at their light level (lightLevel below, per instance in `iGlow`;
@@ -34,7 +38,7 @@
 import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
 import type { BuildingId } from '../data/buildings';
-import { UNIT_ACCENT } from '../data/families';
+import { FAMILY_ACCENT, FAMILY_OF, UNIT_ACCENT, liveryOf, type UnitKey } from '../data/families';
 import { materials } from '../world/materials';
 import { celLightUniforms } from '../world/celLighting';
 import {
@@ -85,13 +89,15 @@ export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell
   | 'leaf' | 'road' | 'roadMark';
 type Palette = Record<PaletteKey, number>;
 
-/** sRGB, as authored (the renderer does no tone mapping) */
+/** sRGB, as authored (the renderer does no tone mapping). `trim` is the extraction
+ *  accent: the work kit's (world/workAnim.ts) and the default of a palette
+ *  nobody tagged; a structure's own trim is its family's (celColors). */
 export const CEL_PALETTE: Readonly<Palette> = {
-  hull: 0xebe6dc,
+  hull: 0xefeae0,
   radiator: 0xf3f2ed,
-  panel: 0x8e9197,
-  trim: 0xd9772b,
-  deck: 0x6f747c,
+  panel: 0x828b99,
+  trim: FAMILY_ACCENT.extraction,
+  deck: 0x5d6675,
   cell: 0x1d3a6c,
   window: 0x2a4c80,
   lamp: 0xfff1d6,
@@ -105,21 +111,37 @@ export const CEL_PALETTE: Readonly<Palette> = {
 };
 
 const SILVER: Partial<Palette> = { trim: 0xc4c8ce, panel: 0xaeb2b8 };
-/** per structure (or moving part) */
-export const PALETTE_OVERRIDES: Partial<Record<BuildingId | PartId | 'surveyDrone', Partial<Palette>>> = {
+
+/** What a geometry may be tagged with (`userData.recipe` / `.part`): a
+ *  structure, a moving part, a hub's digger, or a unit class. */
+export type CelId = BuildingId | PartId | UnitKey | 'surveyDrone' | 'rover' | 'drone' | 'crew';
+
+/** per structure (or moving part): what the family accent does not say */
+export const PALETTE_OVERRIDES: Partial<Record<CelId, Partial<Palette>>> = {
   // the survey drone (docs/19 S6, world/rovers.ts surveyDroneGeometry): teal trim
   surveyDrone: { trim: UNIT_ACCENT.surveyDrone },
+  // the moving parts' frames are bare metal, whoever they belong to
   wing: SILVER,
   wingXL: SILVER, // Wing Extensions: the same wing, a row longer
-  solar: { trim: 0xb7bbc1 },
   dish: { trim: 0xb7bbc1 },
-  foilFactory: { trim: 0xcf9d36 },
-  // the destiny buildings (docs/14 §4.4): near-black slabs with teal glass,
-  // a dark hive, the dome's silver ribs
+  // the destiny buildings (docs/14 §4.4): near-black slabs with teal glass, a dark hive
   serverMonolith: { hull: 0x23262b, cell: 0x23262b, window: 0x0f3a44 },
   droneHive: { hull: 0x3a3f46 },
-  gardenDome: { trim: 0xc4c8ce },
 };
+
+/** The trim (and, for a hub's digger, the body) a tagged geometry wears:
+ *  its family's accent, its unit class's, its livery's; the logistics slate
+ *  when nothing says. */
+export function accentOf(id: CelId | undefined): Partial<Palette> {
+  if (!id) return { trim: FAMILY_ACCENT.logistics };
+  if (id in FAMILY_OF) return { trim: FAMILY_ACCENT[FAMILY_OF[id as BuildingId]] };
+  if (id in UNIT_ACCENT) return { trim: UNIT_ACCENT[id as keyof typeof UNIT_ACCENT] };
+  if (id.includes(':')) {
+    const l = liveryOf(id as UnitKey);
+    return { trim: l.band, hull: l.body };
+  }
+  return { trim: FAMILY_ACCENT.logistics };
+}
 
 const FINISHES: [Finish, PaletteKey][] = [
   [BODY, 'hull'], [RADIATOR, 'radiator'], [PLATE, 'panel'], [TRIM, 'trim'], [GLASS, 'cell'],
@@ -149,8 +171,9 @@ export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
   if (attr) return attr;
   const col = src.getAttribute('color');
   const mat = src.getAttribute('mat');
-  const id = (src.userData.recipe ?? src.userData.part) as BuildingId | PartId | 'surveyDrone' | undefined;
-  const pal: Palette = { ...CEL_PALETTE, ...(id ? PALETTE_OVERRIDES[id] : undefined) };
+  const id = (src.userData.recipe ?? src.userData.part) as CelId | undefined;
+  const pal: Palette = { ...CEL_PALETTE, ...accentOf(id), ...(id ? PALETTE_OVERRIDES[id] : undefined) };
+  src.userData.celTrim = pal.trim;
   const lin = new Map<PaletteKey, THREE.Color>();
   for (const k of Object.keys(pal) as PaletteKey[]) lin.set(k, new THREE.Color(pal[k]));
   const area = src.userData.partArea as Float32Array | undefined;
@@ -184,13 +207,10 @@ attribute vec3 mat;
 	attribute float iWarm;
 	attribute float iAlarm;
 #endif
-uniform vec3 uLightDir;
-uniform vec3 uLightColor;
-uniform vec3 uSky;
-uniform vec3 uGround;
 uniform float uBldNight;
 uniform float uBldTime;
-varying vec3 vLit;
+varying vec3 vAlb;
+varying vec3 vN;
 varying vec3 vEmit;
 varying float vY;
 varying float vCut;
@@ -222,10 +242,9 @@ void main() {
 	float beacon = step( 1.5, mat.z );
 	c = mix( c, vec3( 0.28 ), st.y * glass * 0.85 * ( 1.0 - win ) );
 	c *= 1.0 - 0.3 * st.z;
-	vec3 n = normalize( mat3( m ) * normal );
-	vec3 light = mix( uGround, uSky, 0.5 + 0.5 * n.y ) + uLightColor * max( dot( n, uLightDir ), 0.0 );
+	vN = normalize( mat3( m ) * normal );
 	float g = clamp( win * powered * glow, 0.0, 1.0 );
-	vLit = c * light * ( 1.0 - g * glass );
+	vAlb = c * ( 1.0 - g * glass );
 	vEmit = mix( ${cold}, ${warm}, clamp( warmth, 0.0, 1.0 ) ) * g * mix( 0.55, 1.15, glass );
 	float blink = step( 0.9, fract( uBldTime * 0.5 + phase ) );
 	vEmit += vec3( 1.0, 0.13, 0.08 ) * ( beacon * powered * blink * ( 0.9 + 0.6 * uBldNight ) );
@@ -240,15 +259,26 @@ void main() {
 
 const FRAG = /* glsl */`
 #define MBB_CEL
-varying vec3 vLit;
+uniform vec3 uLightDir;
+uniform vec3 uLightFull;
+uniform vec3 uRamp;
+uniform vec2 uRampEdge;
+uniform float uRampSoft;
+varying vec3 vAlb;
+varying vec3 vN;
 varying vec3 vEmit;
 varying float vY;
 varying float vCut;
 void main() {
 	if ( vY > vCut ) discard;
+	// the ramp: n·l against the key, stepped (1.0 / 0.72 / 0.5; two steps for variant A)
+	float ndl = dot( normalize( vN ), uLightDir );
+	float s0 = smoothstep( uRampEdge.x - uRampSoft, uRampEdge.x + uRampSoft, ndl );
+	float s1 = smoothstep( uRampEdge.y - uRampSoft, uRampEdge.y + uRampSoft, ndl );
+	float q = mix( mix( uRamp.z, uRamp.y, s1 ), uRamp.x, s0 );
 	// the print head: a warm band just under the cut while building
 	float band = ( 1.0 - smoothstep( 0.0, 0.14, vCut - vY ) ) * step( vCut, 999.0 );
-	gl_FragColor = vec4( vLit + vEmit + ${warm} * ( band * 1.3 ), 1.0 );
+	gl_FragColor = vec4( vAlb * uLightFull * q + vEmit + ${warm} * ( band * 1.3 ), 1.0 );
 	#include <tonemapping_fragment>
 	#include <colorspace_fragment>
 }

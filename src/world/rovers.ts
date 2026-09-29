@@ -124,6 +124,7 @@ function roverGeometry(key = ''): THREE.BufferGeometry {
     }
   }
   const g = merge(parts);
+  g.userData.recipe = 'rover'; // the cel palette: the logistics accent
   g.scale(SCALE, SCALE, SCALE);
   g.computeBoundingBox();
   g.computeBoundingSphere();
@@ -1175,6 +1176,7 @@ function droneGeometry(key = ''): THREE.BufferGeometry {
   // skids' feet
   parts.push(box(0.06, 0.2, 0.06, TRIM, -0.25, 0.3, 0), box(0.06, 0.2, 0.06, TRIM, 0.25, 0.3, 0));
   const g = merge(parts);
+  g.userData.recipe = 'drone'; // the cel palette: the Drone Hive's accent
   g.translate(0, -0.28, 0); // skids at y 0
   g.scale(DRONE_SCALE, DRONE_SCALE, DRONE_SCALE);
   g.computeBoundingBox();

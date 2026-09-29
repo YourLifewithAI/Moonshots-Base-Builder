@@ -79,6 +79,7 @@ import {
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera, drawFrame, probeGround } from '../world/renderer';
 import { CelLighting, sunStep } from '../world/celLighting';
+import { ramp } from '../world/celStyle';
 import { installCel } from '../world/cel';
 import { CEL_MARKER, celFallbackMaterial } from '../buildings/celBuilding';
 import { BaseLife } from '../world/life';
@@ -2894,7 +2895,7 @@ export class Game {
 
   /** Render-path state for tests and probes. `style` is 'cel' (the one
    *  renderer); `outlines` and `ramp` are the look constants S1a and S1b
-   *  replace (stubs until then: no ink pass yet, a 3-step ramp). */
+   *  replace (`outlines` a stub until S1b's ink pass; `ramp` the variant's step count). */
   debugRenderInfo() {
     const gl = this.renderer.getContext();
     const iso = this.buildCam.info();
@@ -2905,7 +2906,7 @@ export class Game {
       triangles: this.frameStats.triangles,
       camera: { rot: iso.rot, tilt: iso.tilt, zoom: iso.zoom },
       outlines: 0,
-      ramp: 3,
+      ramp: ramp().steps,
       /** the last drawn frame */
       frame: { ...this.frameStats },
       context: {
