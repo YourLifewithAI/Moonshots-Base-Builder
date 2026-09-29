@@ -405,9 +405,6 @@ export class BuildingInstances {
       window: lit ? EMISSIVE.window * Math.max(dark, EMISSIVE.windowDay) : 0,
       lamp: lit ? EMISSIVE.lamp * dark : 0,
       beacon: lit ? blinkOn : 0,
-      /** the retired shader-flood slots: none any more (kept for old probes) */
-      flood: null,
-      path: 'cel',
     };
   }
 

@@ -1294,7 +1294,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - `src/buildings/links.ts` (new): walkways and spines.
 - `src/world/settlers.ts` (new), wired through `life.ts`.
 - `src/world/rovers.ts`: the drone variant, with the `drone` unit kind in `src/core/fleet.ts`.
-- `src/buildings/classicBuilding.ts`: the `leaf` key, `CLASSIC_COLD`, `iWarm`, the overrides.
+- `src/buildings/celBuilding.ts` (was `classicBuilding.ts`): the `leaf` key, `CEL_COLD`, `iWarm`, the overrides.
 - `src/buildings/instances.ts`: `iWarm` per type and lean.
 - `tests/upgrades.spec.ts`, `tests/classic.spec.ts`.
 

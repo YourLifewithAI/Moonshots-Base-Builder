@@ -72,7 +72,7 @@ In the table below, each hit count is the number of lines matching `'excavator'`
 
 `tests/upgrades.spec.ts` was also touched, with its tech count raised from 132 to 135 by F3, and was not run.
 
-Specs written for the new model are current, and each passed alone when its piece merged: `hubs`, `pits`, `hubview`, `reserves`, `flares`, `forecast` and `fxcheck`. Use them as the reference for the new helpers, such as `P.excavator()` in `tests/pits.spec.ts`, which places a smelter hub outside a deposit ring.
+Specs written for the new model are current, and each passed alone when its piece merged: `hubs`, `pits`, `hubview`, `reserves`, `flares` and `forecast` (`fxcheck` was deleted with the FX ladder, docs/19 W0b1). Use them as the reference for the new helpers, such as `P.excavator()` in `tests/pits.spec.ts`, which places a smelter hub outside a deposit ring.
 
 Other effects the old specs may trip on:
 - **F2b:** natural M flares now black out comms for 45 s and set back the head research by 3%. Long simulated runs can shift.
@@ -127,5 +127,5 @@ When the features are complete, do these in order:
 ## 5. For the player
 
 - **Web version:** GitHub Pages isn't enabled yet. Go to Settings → Pages → Source: **GitHub Actions**, then re-run the "Deploy to GitHub Pages" workflow. Until then, deploys fail at `configure-pages`.
-- **High detail:** try the Full level again. If it looks wrong, use Menu → Graphics → **Copy render report** and share the JSON.
+- **High detail** (retired by docs/19 W0b1: there is one renderer now, and no render report; Menu → Graphics has only the safe-mode row).
 - **Unit power:** machines on packs charged from the grid apply to both the crewed and the robotic expedition. This hasn't been confirmed as intended yet.
