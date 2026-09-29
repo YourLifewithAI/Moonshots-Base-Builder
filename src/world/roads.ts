@@ -15,27 +15,22 @@
  *  A gate (a road cell on an extraction zone's rim, core/zones.ts) carries a
  *  striped line across its edge facing into the zone.
  *
- *  Classic reads its colours from the classic palette (`road`, `roadMark`). */
+ *  Its colours come from the cel palette (`road`, `roadMark`). */
 import * as THREE from 'three';
 import type { GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { cellCentre, cellKey, isOpen, roadMap } from '../core/roads';
 import { zoneCells } from '../core/zones';
 import { ROAD } from '../data/roads';
-import { CLASSIC_PALETTE } from '../buildings/classicBuilding';
+import { CEL_PALETTE } from '../buildings/celBuilding';
 import { materials } from './materials';
-import { classicActive } from '../core/style';
 
 const LIFT = 0.07;          // m over the ground
 const MARK_LIFT = 0.09;
 const H = 2;                // half a cell, m
 const TIERS = ['basaltPaving', 'guidanceBeacons', 'guidewayRails', 'maglevFreight'] as const;
 
-materials.define('road', new THREE.MeshStandardMaterial({
-  vertexColors: true, roughness: 0.96, metalness: 0,
-  polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
-}));
-materials.defineClassic('road', new THREE.MeshLambertMaterial({
+materials.define('road', new THREE.MeshLambertMaterial({
   vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
 }));
 
@@ -95,11 +90,9 @@ export class RoadMesh {
   private sig = '';
   private pendingSig = '';
   private tier = 0;
-  private classic: boolean;
   private cells = 0;
 
-  constructor(private hf: Heightfield, classic = classicActive()) {
-    this.classic = classic;
+  constructor(private hf: Heightfield) {
     this.postMat = new THREE.MeshBasicMaterial({ color: 0x55504a });
     const post = new THREE.BoxGeometry(0.16, 0.9, 0.16);
     post.translate(0, 0.45, 0);
@@ -110,9 +103,9 @@ export class RoadMesh {
   }
 
   private colors() {
-    const pal = CLASSIC_PALETTE;
-    const road = new THREE.Color(this.classic ? pal.road : 0x8a867f);
-    const mark = new THREE.Color(this.classic ? pal.roadMark : 0xd9d4c8);
+    const pal = CEL_PALETTE;
+    const road = new THREE.Color(pal.road);
+    const mark = new THREE.Color(pal.roadMark);
     if (this.tier >= 1) road.multiplyScalar(0.55); // basalt pavers
     const bay = road.clone().lerp(new THREE.Color(0x000000), 0.12);
     const rail = new THREE.Color(0xc9ccd1);

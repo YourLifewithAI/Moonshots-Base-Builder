@@ -92,14 +92,13 @@ Debug/test drive: `/?debug&seed=42` exposes `window.__game`
 (place buildings, grant resources, complete techs, fast-forward the economy).
 
 URL flags: `?site=mare|southpole|lavatube` (skip site select) · `?seed=n` ·
-`?fx=0..3` (post-effects ladder: 0 full · 1 standard-precision buffers ·
-2 no ambient occlusion · 3 plain) · `?lowfx` (start at level 2) ·
-`?safe` (unlit safe rendering) · `?debug`.
+`?safe` (unlit safe rendering) · `?debug`. (`?style`, `?fx` and
+`?lowfx` are ignored: there is one renderer, the cel style.)
 
-The game auto-detects GPUs that can't run the full effect chain: it steps
-down the FX ladder until the frame renders, announces what it did in the
-alert stack, and remembers the working level for future launches. Force a
-retry of the full chain after a driver update with `?fx=0`.
+The game draws with plain forward rendering — no post chain, no shadow map.
+If a GPU shows a black frame the game switches itself to safe mode (unlit
+materials), says so in the alert stack and remembers it for future launches;
+turn it off again in the Esc menu (Graphics) after a driver update.
 
 ## Design documents
 

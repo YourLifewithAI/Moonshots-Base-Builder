@@ -1,9 +1,9 @@
-/** The classic style's buildings (and everything else on the building
- *  material: solar wings and dishes, rovers, the cargo lander).
+/** The cel style's buildings (and everything else on the building material:
+ *  solar wings and dishes, rovers, hub units, the cargo lander, the work kit).
  *
  *  Palette. The kit bakes each part's finish into its vertices (a gray
- *  value in `color`, roughness / metalness / emissive id in `mat`); classic
- *  maps each finish to a colour, per structure where it helps identity:
+ *  value in `color`, roughness / metalness / emissive id in `mat`); the cel
+ *  palette maps each finish to a colour, per structure where it helps identity:
  *    hull (BODY)       warm white       radiators   white
  *    panels (PLATE)    mid gray         trim        orange accent
  *    PV cells (GLASS)  dark blue        windows     dark blue glass
@@ -15,8 +15,9 @@
  *    foliage (LEAF)    greenhouse green
  *  with the solar wings' and arrays' frames silver, the Foil Factory's trim
  *  gold, the Server Monolith near-black with teal glass, the Drone Hive dark
- *  and the Garden Dome's ribs silver. The colours go into the instanced view's own `color`
- *  attribute, so the shared recipe buffers stay High detail's.
+ *  and the Garden Dome's ribs silver. The colours go into the instanced view's
+ *  own `color` attribute (celColors), so the shared recipe buffers stay the
+ *  kit's grays.
  *
  *  Shader. One small ShaderMaterial, no patches, no loops, no derivatives,
  *  no extensions: Lambert from the key light plus the hemisphere fill,
@@ -26,24 +27,53 @@
  *  discarded under a warm band (the 3D-print reveal). Windows and lamps glow
  *  at their light level (lightLevel below, per instance in `iGlow`;
  *  −1 = follow the night, for rovers and moving parts), warm or cold by the
- *  instance's `iWarm` (CLASSIC_WARM … CLASSIC_COLD), and flicker red while
+ *  instance's `iWarm` (CEL_WARM … CEL_COLD), and flicker red while
  *  its `iAlarm` is up. If a GPU rejects it,
- *  game.ts swaps in stock Lambert (classicFallbackMaterial) — the palette
+ *  game.ts swaps in stock Lambert (celFallbackMaterial) — the palette
  *  stays, the glow and the reveal go. */
 import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
 import type { BuildingId } from '../data/buildings';
 import { UNIT_ACCENT } from '../data/families';
 import { materials } from '../world/materials';
-import { classicLightUniforms } from '../world/classicLighting';
-import { CUT_NONE, buildingUniforms } from './buildingShader';
+import { celLightUniforms } from '../world/celLighting';
 import {
-  BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
+  BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
 } from './meshKit';
 import type { PartId } from './recipes';
 
+/** Cut height meaning "fully built" (no discard, no band); defined in
+ *  meshKit.ts (the kit's own instance state needs it) and shared from here. */
+export { CUT_NONE };
+
+/** The per-frame uniforms the building program reads (night level, blink clock). */
+export const buildingUniforms = {
+  uBldNight: { value: 0 },
+  uBldTime: { value: 0 },
+};
+
+/** The lit channel, iState.x: 0 unlit · 1 lit at the night's darkness (parts
+ *  that carry only the flag: rovers, the cargo lander, dishes and wings) ·
+ *  2 + k lit at the structure's own darkness k (buildings/darkness.ts). */
+export function litChannel(powered: boolean, k: number): number {
+  return powered ? 2 + Math.min(1, Math.max(0, k)) : 0;
+}
+
+/** The darkness a lit channel value lights at (as the shader reads it). */
+export function channelDark(x: number, night: number): number {
+  return x >= 1.5 ? Math.min(1, Math.max(0, x - 2)) : x >= 0.5 ? night : 0;
+}
+
+/** Emissive gains, all × lit: windows `window × max(k, windowDay)`, lamps
+ *  `lamp × k`, beacons `beaconDay + beaconDark × k + beaconNight × night`
+ *  while their flash is on (k = the structure's darkness). */
+export const EMISSIVE = {
+  window: 1.6, windowDay: 0.1, lamp: 2.6,
+  beaconDay: 1.0, beaconDark: 3.0, beaconNight: 2.0,
+};
+
 /** How brightly a structure's own lights burn, 0 (off) … 1 (full): the one
- *  place the classic windows and flood discs key on. A complete, enabled,
+ *  place the cel windows and flood pools key on. A complete, enabled,
  *  powered structure lights as dark as it stands (`dark`: the structure's
  *  darkness from darkness.ts — night, a set or grazing sun, terrain shadow). */
 export function lightLevel(b: BuildingState, dark: number): number {
@@ -55,8 +85,8 @@ export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell
   | 'leaf' | 'road' | 'roadMark';
 type Palette = Record<PaletteKey, number>;
 
-/** sRGB, as authored (the classic renderer does no tone mapping) */
-export const CLASSIC_PALETTE: Readonly<Palette> = {
+/** sRGB, as authored (the renderer does no tone mapping) */
+export const CEL_PALETTE: Readonly<Palette> = {
   hull: 0xebe6dc,
   radiator: 0xf3f2ed,
   panel: 0x8e9197,
@@ -113,14 +143,14 @@ export function finishKey(v: number, rough: number, metal: number, emit: number)
 
 const colors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute>();
 
-/** The classic colour attribute for a baked geometry (cached per source). */
-export function classicColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
+/** The cel colour attribute for a baked geometry (cached per source). */
+export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
   let attr = colors.get(src);
   if (attr) return attr;
   const col = src.getAttribute('color');
   const mat = src.getAttribute('mat');
   const id = (src.userData.recipe ?? src.userData.part) as BuildingId | PartId | 'surveyDrone' | undefined;
-  const pal: Palette = { ...CLASSIC_PALETTE, ...(id ? PALETTE_OVERRIDES[id] : undefined) };
+  const pal: Palette = { ...CEL_PALETTE, ...(id ? PALETTE_OVERRIDES[id] : undefined) };
   const lin = new Map<PaletteKey, THREE.Color>();
   for (const k of Object.keys(pal) as PaletteKey[]) lin.set(k, new THREE.Color(pal[k]));
   const area = src.userData.partArea as Float32Array | undefined;
@@ -137,16 +167,16 @@ export function classicColors(src: THREE.BufferGeometry): THREE.BufferAttribute 
 }
 
 /** window and lamp light, linear: a warm sodium-ish yellow (≈ #ffd494 on screen) */
-export const CLASSIC_WARM = new THREE.Color(1.0, 0.66, 0.29);
+export const CEL_WARM = new THREE.Color(1.0, 0.66, 0.29);
 /** …and the machines' cold light (≈ #bfe9ff on screen): server cyan, the
  *  Automation's night (docs/14 §4.4). Each instance mixes the two by its iWarm. */
-export const CLASSIC_COLD = new THREE.Color(0.52, 0.815, 1.0);
+export const CEL_COLD = new THREE.Color(0.52, 0.815, 1.0);
 const vec = (c: THREE.Color) => `vec3( ${c.r.toFixed(3)}, ${c.g.toFixed(3)}, ${c.b.toFixed(3)} )`;
-const warm = vec(CLASSIC_WARM);
-const cold = vec(CLASSIC_COLD);
+const warm = vec(CEL_WARM);
+const cold = vec(CEL_COLD);
 
 const VERT = /* glsl */`
-#define MBB_CLASSIC
+#define MBB_CEL
 attribute vec3 mat;
 #ifdef USE_INSTANCING
 	attribute vec4 iState;
@@ -209,7 +239,7 @@ void main() {
 `;
 
 const FRAG = /* glsl */`
-#define MBB_CLASSIC
+#define MBB_CEL
 varying vec3 vLit;
 varying vec3 vEmit;
 varying float vY;
@@ -224,34 +254,34 @@ void main() {
 }
 `;
 
-/** Marks the classic building program: a compile error in it is the classic
- *  shader's own fault (game.ts swaps in stock Lambert). */
-export const CLASSIC_MARKER = 'MBB_CLASSIC';
+/** Marks the cel building program: a compile error in it is that shader's
+ *  own fault (game.ts swaps in stock Lambert). */
+export const CEL_MARKER = 'MBB_CEL';
 
-export const CLASSIC_BUILDING = new THREE.ShaderMaterial({
-  name: 'classic-building',
+export const CEL_BUILDING = new THREE.ShaderMaterial({
+  name: 'cel-building',
   vertexShader: VERT,
   fragmentShader: FRAG,
   vertexColors: true,
   uniforms: {
-    ...classicLightUniforms,
+    ...celLightUniforms,
     uBldNight: buildingUniforms.uBldNight,
     uBldTime: buildingUniforms.uBldTime,
   },
 });
-materials.defineClassic('building', CLASSIC_BUILDING);
+materials.define('building', CEL_BUILDING);
 
-/** Stock Lambert in the classic palette: the fallback when the classic
+/** Stock Lambert in the cel palette: the fallback when the cel building
  *  shader does not compile on a GPU. */
-export function classicFallbackMaterial(): THREE.Material {
+export function celFallbackMaterial(): THREE.Material {
   return new THREE.MeshLambertMaterial({ vertexColors: true });
 }
 
-/** Install the classic palette and light level on every instanced view
- *  made from here on (call once at boot, classic style only). */
-export function installClassicBuildings() {
+/** Install the cel palette and light level on every instanced view
+ *  made from here on (call once at boot). */
+export function installCelBuildings() {
   setInstanceHook((view, src, max) => {
-    if (src.getAttribute('color')) view.setAttribute('color', classicColors(src));
+    if (src.getAttribute('color')) view.setAttribute('color', celColors(src));
     view.setAttribute('iGlow', new THREE.InstancedBufferAttribute(new Float32Array(max).fill(-1), 1));
   });
 }

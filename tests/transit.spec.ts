@@ -343,10 +343,10 @@ test('a drone lays its site\'s road from the air, over each frontier cell in tur
 
 // ───────────────────────────── the visuals ─────────────────────────────
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['cel']) {
   test(`${style}: the rover is drawn at its stand when the building starts to rise, and never far behind the sim`, async ({ page }) => {
     test.setTimeout(120_000);
-    await start(page, { style: style === 'classic' ? '' : style });
+    await start(page, {});
     const r = await page.evaluate(() => {
       const g = window.__game!;
       g.grantResources({ metals: 500, parts: 500 });

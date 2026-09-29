@@ -1,7 +1,7 @@
 /** Scaffold outline over construction sites: corner standards, a ledger
  *  ring every lift and alternating face braces up to the structure's height,
- *  on a base ring draped over the pad. Lines only — every FX level and safe
- *  mode draw it the same. */
+ *  on a base ring draped over the pad. Lines only — safe mode draws it the
+ *  same. */
 import * as THREE from 'three';
 import type { Heightfield } from '../terrain/heightfield';
 

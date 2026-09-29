@@ -2,14 +2,16 @@
  *  ONE geometry so each building type renders as a single InstancedMesh — one
  *  draw call per type. Each part is baked with a Finish: its gray value goes
  *  into vertex colors, and its surface response into a per-vertex `mat`
- *  attribute (roughness, metalness, emissive id) that the building shader
- *  patch reads (buildingShader.ts). The stock shader ignores `mat`, so FX 3
- *  and safe mode still show the values. Every bake writes both attributes:
- *  merged parts must carry identical attribute sets. */
+ *  attribute (roughness, metalness, emissive id) that the cel building
+ *  program reads (celBuilding.ts): the emissive id says which parts glow, the
+ *  finish tells the palette which colour a part takes. Every bake writes both
+ *  attributes: merged parts must carry identical attribute sets. */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { materials } from '../world/materials';
-import { CUT_NONE, buildingDepthPatch, buildingPatch } from './buildingShader';
+/** Cut height meaning "fully built" (no discard, no band). Lives here, at the
+ *  bottom of the import graph, and is re-exported by celBuilding.ts (which
+ *  imports this file), so the two never import each other's values cyclically. */
+export const CUT_NONE = 1e4;
 
 export interface Finish {
   /** linear gray value */
@@ -32,8 +34,8 @@ export const RADIATOR: Finish = { v: 0.81, rough: 0.9, metal: 0 };      // matte
 export const FOIL: Finish = { v: 0.81, rough: 0.3, metal: 0.45 };       // MLI blankets
 export const PLATE: Finish = { v: 0.42, rough: 0.45, metal: 0.35 };     // bare machined metal
 /** foliage under glass (docs/14 §4.4): the Colony's green — trellises,
- *  planters, canopies. A dark foliage gray in High detail (monochrome, as
- *  docs/06 asks); Classic maps its unique signature to the `leaf` key. */
+ *  planters, canopies. The cel palette maps its unique signature to the
+ *  `leaf` key. */
 export const LEAF: Finish = { v: 0.28, rough: 0.85, metal: 0 };
 
 type V3 = readonly [number, number, number];
@@ -50,8 +52,8 @@ function bake(geo: THREE.BufferGeometry, f: Finish): THREE.BufferGeometry {
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   geo.setAttribute('mat', new THREE.BufferAttribute(mat, 3));
   geo.deleteAttribute('uv'); // no textures anywhere; keeps merges compatible
-  // the part's largest face (m²): the classic palette keeps its orange
-  // accent to small parts and greys big slabs (classicBuilding.ts)
+  // the part's largest face (m²): the cel palette keeps its orange
+  // accent to small parts and greys big slabs (celBuilding.ts)
   geo.computeBoundingBox();
   const sz = geo.boundingBox!.getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a);
   geo.userData.area = sz[0] * sz[1];
@@ -359,19 +361,8 @@ export function merge(parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[]):
   return merged;
 }
 
-export const BUILDING_MATERIAL = new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  roughness: 0.55,
-  metalness: 0.15,
-});
-materials.define('building', BUILDING_MATERIAL, buildingPatch);
-/** Shadow-pass twin of the building patch: the same print-reveal cut, so a
- *  half-printed structure casts a half-height shadow. */
-export const BUILDING_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);
-
-/** Style-specific extras for every instanced view (the classic palette and
- *  its per-instance light level — buildings/classicBuilding.ts installs it). */
+/** Extras for every instanced view (the cel palette and its per-instance
+ *  light level — buildings/celBuilding.ts installs it). */
 type InstanceHook = (view: THREE.BufferGeometry, src: THREE.BufferGeometry, max: number) => void;
 let instanceHook: InstanceHook | null = null;
 export function setInstanceHook(hook: InstanceHook | null) {
@@ -382,10 +373,10 @@ export function setInstanceHook(hook: InstanceHook | null) {
  *  own per-instance state: iState = (lit, dust, wear, print cut height),
  *  iWarm (0 cold … 1 warm light) and iAlarm (the hazard hook, 0 calm),
  *  lit being 0 (unlit), 1 (lit at the night's darkness) or 2 + the darkness
- *  the structure stands in (buildingShader.ts litChannel). `prev`: the view
+ *  the structure stands in (celBuilding.ts litChannel). `prev`: the view
  *  an upgraded recipe replaces — its instances keep every per-instance
- *  attribute they had (iState, classic's iGlow), while the style's
- *  per-vertex extras (the classic palette) are made for the new recipe. */
+ *  attribute they had (iState, iGlow), while the per-vertex extras
+ *  (the cel palette) are made for the new recipe. */
 export function withInstanceState(src: THREE.BufferGeometry, max: number,
   prev?: THREE.BufferGeometry): THREE.BufferGeometry {
   const g = new THREE.BufferGeometry();

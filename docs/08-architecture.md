@@ -4,7 +4,7 @@
 > out, and a renderer that only ever *reads*.
 
 Stack: **Vite + TypeScript + Three.js** (`three` 0.180), with
-`postprocessing` + `n8ao` (post chain), `simplex-noise` (terrain),
+`simplex-noise` (terrain),
 `nanostores` (UI bridge), `idb-keyval` (saves). No physics engine, no React,
 no web workers, zero binary assets. `npm run build` runs `tsc --noEmit` then
 `vite build`.
@@ -68,8 +68,7 @@ src/
     daynight.ts           compressed lunar clock → DayInfo {sunFactor, elevation, night}
     save.ts               SaveBlob ⇄ idb-keyval ('mbb-save-v1') with localStorage fallback
     rng.ts                mulberry32 seeded PRNG + string hash
-    settings.ts           menu settings in localStorage (FX choice, safe mode, audio, render style)
-    style.ts              the render style this session draws with (fixed at boot)
+    settings.ts           menu settings in localStorage (safe mode, audio, touch, guidance pauses); RESUME_KEY
   data/                   pure data, no logic (single source of truth for content)
     balance.ts            every tuning constant (grid, day length, morale, flare, launch…)
     resources.ts          9 stockpiled resources, tiers, HUD glyphs
@@ -91,10 +90,9 @@ src/
                           (base, delta, skirt mask, setDelta, noRoad)
     pitCarve.ts           the height-delta grid's writers (docs/17 §11): masks, distance transform, carvePit and
                           dumpHeap (volume-solved, monotone), stakes, pit cells, the cut's tone, the sparse codec
-    chunks.ts             8×8 render chunks, regolith vertex colors, ≤4-chunk rebuilds (classic: faceted);
-                          the pits' rebuild queue (one a frame, two a second, shadows every 2 s)
-    classicGround.ts      classic ground colour (site tint, relief, craters, deposits) + facet()
-    terrainShader.ts      regolith patch: micro-relief texture, lunar-Lambert + opposition surge
+    chunks.ts             8×8 render chunks, faceted, coloured by celGround, ≤4-chunk rebuilds; the pits'
+                          rebuild queue (one a frame, two a second); the `decorate` hook (pitCarve.ts)
+    celGround.ts          cel ground colour (site tint, relief, craters, deposits) + facet()
     horizon.ts            far horizon ring continuing the terrain to ~12 km, compressed curvature
     rocks.ts              instanced boulder scatter (power-law sizes, crater blocks)
   buildings/
@@ -105,35 +103,27 @@ src/
     look.ts               the destiny's lean (−1 ◉ … +1 ⌂) and each structure's light warmth (iWarm)
     links.ts              walkways (⌂) and conveyor spines (◉): planned on the grid round the roads,
                           skybridges over them; one merged mesh per layer, rebuilt on change
-    buildingShader.ts     building patch: finishes, seams, windows, beacons, print reveal, floods
     instances.ts          one InstancedMesh per type + iState, iWarm (per type and lean), iAlarm (the
-                          hazards' hook, `alarmOf`); floods, discs fallback, scaffold, picking, AABBs
-    classicBuilding.ts    classic palette (per finish incl. `leaf`, per type), the classic building shader
-                          (warm ↔ cold light by iWarm, the alarm flicker), lightLevel()
-    classicFloods.ts      classic night floods: draped additive pools at each structure's light level
-    contactDecals.ts      classic contact decals under every footprint (no shadow map)
+                          hazards' hook, `alarmOf`), iGlow; flood pools, contact decals, scaffold, picking
+    celBuilding.ts        cel palette (per finish incl. `leaf`, per type), the one building shader (print
+                          reveal, warm ↔ cold light by iWarm, the alarm flicker), lightLevel(), and the shared
+                          CUT_NONE / buildingUniforms / litChannel / channelDark / EMISSIVE
+    celFloods.ts          cel night floods: draped additive pools at each structure's light level
+    contactDecals.ts      contact decals under every footprint (no shadow map)
     darkness.ts           per-structure darkness k (night, low or set sun, terrain shadow) for the base's own lights
     trackers.ts           sun-tracking solar wings, Earth-aimed dishes (instanced apart)
     scaffold.ts           construction scaffold line geometry
-    ghost.ts              placement ghost material (lit/hatched patch) + depth pre-pass
+    ghost.ts              placement ghost (the registry's translucent Lambert) + depth pre-pass
     overlays.ts           draped placement grid, network radius rings, selection bracket
     placement.ts          ghost preview + checkPlacement validity chain (its road too) + site build costs
     cellPreview.ts        road cells a placement or the road tool would lay (or remove), on the ground
     berms.ts              Regolith Shielding berms draped round shielded footprints
   world/
-    renderer.ts           WebGLRenderer + camera (High detail: AgX, PCF shadows; classic: MSAA, no shadows)
-    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce
-    classicLighting.ts    classic key light + hemisphere fill: day by the sun, night by earthshine
-    classic.ts            the classic style's registry materials (stock Lambert, stock points)
-    sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
-    materials.ts          material registry: lit or safe-mode twin, FX-level shader patches, classic materials
-    floodlights.ts        flood uniform array (per-slot darkness) + night earthshine floor, shared by the patches
-    post.ts               FX ladder: N8AO → bloom (FX 0) → SMAA·AgX·grain·vignette; raise trials, safe = plain;
-                          classic = plain, no ladder; frame probe; boots no better than the capability floor
-    fxguard.ts            FX 0's HDR sanitiser (in N8AO's hardened composite, else its own pass); debug breaks
-    fxcaps.ts             boot capability probe: extensions, precision, a half-float render/blend/filter test → floor
-    fxcheck.ts            FX self-check: the chain's frame vs the same scene drawn plain (06 §4)
-    renderReport.ts       render log (console mirror, GL errors) and the report's helpers (clipboard, GPU strings)
+    renderer.ts           WebGLRenderer (MSAA canvas, no shadow map, no tone mapping, DPR ≤ 1.5) + camera;
+                          drawFrame() and the black-frame probeGround()
+    celLighting.ts        one key light + hemisphere fill: day by the sun, night by earthshine; sunStep()
+    cel.ts                the cel style's registry materials (stock Lambert, stock points); installCel()
+    materials.ts          material registry: define/get/custom/replace, safe-mode unlit twins
     life.ts               the motion layer, one call per frame; each part fails soft
     rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads, following the sim's
                           trips (core/transit.ts); and DroneFlight, the Drone Hive's units flying straight at
@@ -141,16 +131,14 @@ src/
     settlers.ts           EVA walkers (⌂): one per EVA crew, on free cells only (never a road), home at night
     haulers.ts            excavators away from their pads, following the sim's road legs
     depositHighlight.ts   a hub's lit deposits on the ground (docs/17 §6.1): draped ribbons in the kind's pattern,
-                          fills, full-size rings, pit rims, hatched ore, cross-hatch; High adds an emissive rim line
+                          fills, full-size rings, pit rims, hatched ore, cross-hatch
     traffic.ts            units on the road cells: lane holds, excavator gates, queues, the deadlock breaker
     roads.ts              the road mesh: merged draped strips, markings by tier, beacon posts, pending cells
-    dust.ts               GPU-analytic ballistic regolith grains (registry patch; static FX 3 fallback)
+    dust.ts               regolith grains: pooled emitter slots, static puffs placed on the CPU
     events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
     swarm.ts              Dyson-swarm glints near the sun, growing with swarm %
   player/
-    buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys;
-                          the CommandCam interface both command views implement
-    isoCam.ts             classic isometric camera: 20° lens, 90° yaw steps (Q/E), two tilts 32°/55° (V), continuous zoom 100–830 m;
+    isoCam.ts             the fixed isometric camera: 20° lens, 90° yaw steps (Q/E), two tilts 32°/55° (V), continuous zoom 100–830 m;
                           its preset (step, tilt, dist) is saved as SaveBlob.camera; owns commandKey and CommandCam
     roadTool.ts           the road tool [N]: drag out a road from the network, Alt-drag removes
   audio/
@@ -538,39 +526,36 @@ boots it; a preinstalled Chromium is used when present). Screenshots
 | 4 · Tech tree | 6 era columns render; researching drains granted data and completes; era 2 opens at two era-1 techs — gating math verified |
 | 5 · Endgame | Full tech ladder → milestones in order → real Launch button → victory overlay ("FIRST LIGHT") → **save, reload, Continue restores** launches and buildings |
 
-## 12. Render styles (`core/style.ts`, `world/materials.ts`)
+## 12. The renderer (`world/renderer.ts`, `world/materials.ts`, `world/cel.ts`)
 
-Two ways to draw the same world — **Classic** (the default) and **High
-detail** — chosen once at boot (`?style=`, else the menu's setting, else
-classic) and fixed for the session: the canvas's context attributes
-(`antialias`) are set when it is created, so a menu switch saves, stores
-the choice and reloads, and `main.ts` continues the save on the next boot
-(a session flag, `mbb-resume`). The simulation, the heightfield, the
-building kit, picking, overlays, the HUD and the save format are shared;
-the style decides only how pixels are made:
+One way to draw the world: the **cel style** (docs/19). There is no second
+style, no FX ladder, no post chain, no shadow map and no render report: the
+old Classic path is the base, and the High detail path (post.ts, fxcaps,
+fxcheck, fxguard, lighting.ts, sky.ts, floodlights.ts, the terrain and
+building shader patches) was deleted whole. The simulation, the heightfield,
+the building kit, picking, overlays, the HUD and the save format did not
+change.
 
-| | Classic | High detail |
-|---|---|---|
-| Renderer | MSAA canvas, no shadow map, no tone mapping, DPR ≤ 1.5 | no MSAA (SMAA in the chain), PCF shadows, AgX, DPR ≤ 2 |
-| Frame | one forward render straight to the canvas; `PostFX` in its classic mode never builds a composer, reads or stores an FX level, or steps | the FX ladder 0–3 (06 §4), raise trials, remembered failures |
-| Materials | the registry's classic entries (`defineClassic`): stock Lambert + one small custom building shader; `patched()` is false for everything | the lit entries and their FX-variant shader patches |
-| Lights | `ClassicLighting`: one key + one hemisphere fill | `Lighting`: fitted-shadow sun, earthshine + bounce, stock-path PointLights |
-| Night | per-structure `lightLevel()` into `iGlow` + draped pools | shader floods, or discs + PointLights on the stock path |
-| Command camera | `IsoCam` | `BuildCam` (MapControls) |
-| Safety | the black-frame check still probes; safe mode's unlit twins are the fallback; a classic shader fault swaps stock Lambert in | the ladder, patch stripping, safe mode |
+| | The cel renderer |
+|---|---|
+| Renderer | MSAA canvas, no shadow map, no tone mapping, sRGB out, DPR ≤ 1.5 |
+| Frame | one forward render straight to the canvas (`drawFrame()`); a throwing scene render skips the frame and is reported once |
+| Materials | the registry (`materials.define`): stock Lambert for the terrain, ring, berms, rocks, roads and the ghost, stock points for dust, and one small custom building shader (`celBuilding.ts`: palette, glow, beacons, print reveal) |
+| Lights | `CelLighting`: one key + one hemisphere fill; the base's own light is `iGlow` windows and draped pools at each structure's darkness |
+| Command camera | `IsoCam` (the only camera) |
+| Safety | the black-frame check (`probeGround`) reads frames wherever the ground cannot be black; a black frame or a compile error in any program but the building's turns **safe mode** on (unlit twins of every material, no dust; kept in `mbb-settings`, one menu row); a compile error in the cel building program swaps in stock Lambert in the same palette (`celFallbackMaterial`, `materials.replace`) |
 
-**How the style reaches the meshes.** `Game`'s constructor sets it before
-the first mesh exists: `setActiveStyle()` (read by the mesh creators whose
-*geometry or colours* differ — chunks, horizon, rocks, berms) and
-`materials.setClassic()` (every creator already takes its material from the
-registry, so the classic materials reach meshes made at any time). The
-classic palette and per-instance light level are installed as a hook on
-`withInstanceState()` (`installClassic()`), so trackers, rovers and the
-cargo lander pick them up without knowing the style. The style is exposed
-as `getRenderInfo().style`, with the last frame's draw calls and triangles
-(`frame`, summed over every pass: `renderer.info` is reset once per frame),
-every render-target type ever bound (`targets`: none in classic), and the
-context attributes.
+**How the meshes get their material.** Every creator asks the registry
+(`materials.get(key)`, keys `building | terrain | rock | ghost | dust | road`),
+so a fault fallback or safe mode reaches meshes made at any time. The cel
+palette and per-instance light level are installed as a hook on
+`withInstanceState()` (`installCel()`), so trackers, rovers, hub units and the
+cargo lander pick them up. `getRenderInfo()` reports `style: 'cel'`, `safe`,
+`drawCalls`, `triangles`, `camera: {rot, tilt, zoom}` (from `IsoCam.info()`),
+`outlines` and `ramp` (stubs until S1a and S1b), the last frame (`frame`) and
+the context attributes, beside the fields the older specs read (`life`,
+`base`, `rocks`, `terrain`, `buildingMaterials`, `probes`, `firstFrame`).
+`?style`, `?fx` and `?lowfx` in the address are ignored.
 
 ## 13. Known limitations (accepted for the slice)
 

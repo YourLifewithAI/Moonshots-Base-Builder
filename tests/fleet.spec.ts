@@ -175,7 +175,7 @@ test('release and completion return rovers to auto', async ({ page }) => {
 
 // picking and targeting under both cameras: Classic's isometric one (the
 // default) and High detail's orbit
-for (const style of ['classic', 'detailed']) test(`${style}: select a rover in the world, Send to…, click a site: it is pinned there`, async ({ page }) => {
+for (const style of ['cel']) test(`${style}: select a rover in the world, Send to…, click a site: it is pinned there`, async ({ page }) => {
   await start(page, 'mare', 'human', style);
   await page.evaluate(() => {
     const g = window.__game!;
@@ -453,7 +453,7 @@ test('distance is the trade-off: a haul delivers by its road route (15 m: today\
   expect(r.far.rate / old).toBeLessThan(0.7);
 });
 
-for (const style of ['classic', 'detailed']) test(`${style}: Dig at… refuses unmapped ground with its reason, and Return home digs the pad again`, async ({ page }) => {
+for (const style of ['cel']) test(`${style}: Dig at… refuses unmapped ground with its reason, and Return home digs the pad again`, async ({ page }) => {
   await start(page, 'mare', 'human', style);
   const id = await excavator(page);
   // a wide view west of the base: 190 m out and the mapped ground both in it

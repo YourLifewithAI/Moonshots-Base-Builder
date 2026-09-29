@@ -1,5 +1,5 @@
-/** Classic style: each lit structure's flood as a soft additive pool on the
- *  ground — the stock path's discs, draped on the heightfield so a pool
+/** Each lit structure's flood as a soft additive pool on the
+ *  ground, draped on the heightfield so a pool
  *  follows the slope it falls on instead of cutting into it, and feathered
  *  to nothing at the rim. One merged mesh (a centre and rings every ~3 m);
  *  positions are rebuilt only when the lit set moves, colours whenever a
@@ -20,7 +20,7 @@ const WARM = new THREE.Color(1.0, 0.74, 0.42);
 /** the machines' pools (docs/14 §4.4): the same light as their windows, cold */
 const COLD = new THREE.Color(0.62, 0.84, 1.0);
 
-export class ClassicFloods {
+export class CelFloods {
   readonly mesh: THREE.Mesh;
   private sig = '';
   /** per structure: its first vertex and vertex count */

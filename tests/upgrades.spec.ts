@@ -74,7 +74,7 @@ test('budget: every upgrade part stays under 600 triangles, every fully upgraded
   expect(empty).toEqual([]); // every upgrade adds something you can see
 });
 
-for (const style of ['classic', 'detailed']) test(`${style}: a tech with a visual grows its part on every building of the type, once, and a save restores it`, async ({ page }) => {
+for (const style of ['cel']) test(`${style}: a tech with a visual grows its part on every building of the type, once, and a save restores it`, async ({ page }) => {
   await start(page, 'mare', 'human', `&style=${style}`);
   expect((await page.evaluate(() => window.__game.getRenderInfo())).style).toBe(style);
   const spots = (type: string, n: number) => page.evaluate(([type, n]) => {
@@ -188,8 +188,8 @@ test('doctrine follow-ups are foreclosed with the doctrine they build on', async
   expect(r.cryocoolerHeads.state).toBe('eraLocked');
 });
 
-test('classic: a swap keeps each instance\'s light and state, repaints the palette; decals and pools follow', async ({ page }) => {
-  await start(page, 'mare'); // Classic is the default style
+test('a swap keeps each instance\'s light and state, repaints the palette; decals and pools follow', async ({ page }) => {
+  await start(page, 'mare');
   const r = await page.evaluate(() => {
     const g = window.__game!;
     const style = g.getRenderInfo().style;
@@ -208,7 +208,7 @@ test('classic: a swap keeps each instance\'s light and state, repaints the palet
     g.stepFrame(0.016);
     return { style, ok, before, after: { up: g.getUpgrades(), glow: g.buildingGlow(lab.id) } };
   });
-  expect(r.style).toBe('classic');
+  expect(r.style).toBe('cel');
   expect(r.ok).toEqual([true, true, true]);
   const [a, b] = [r.before.up.meshes.lab, r.after.up.meshes.lab];
   expect(b.key).toBe('fieldSpectrometers');
@@ -276,7 +276,7 @@ test('destiny: every pick and capstone grows a part on each type its visual name
   }
 });
 
-for (const style of ['classic', 'detailed']) test(`${style}: a pick grows its part on the buildings it names, and the ghost follows`, async ({ page }) => {
+for (const style of ['cel']) test(`${style}: a pick grows its part on the buildings it names, and the ghost follows`, async ({ page }) => {
   await start(page, 'mare', 'robotic', `&style=${style}`);
   const r = await page.evaluate(() => {
     const g = window.__game!;

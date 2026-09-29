@@ -5,9 +5,9 @@
  *  A new deploy installs behind the running version; the worker waits, and
  *  a small chip offers it: "Update ready — tap to reload". The tap saves the
  *  game, lets the new worker take over and reloads straight back into the
- *  base (the render-style switch's resume flag). */
+ *  base (core/settings.ts RESUME_KEY). */
 import type { Game } from './core/game';
-import { RESUME_KEY } from './core/style';
+import { RESUME_KEY } from './core/settings';
 import { $phase } from './ui/stores';
 
 let waiting: ServiceWorker | null = null;

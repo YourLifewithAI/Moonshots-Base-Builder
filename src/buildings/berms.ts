@@ -2,20 +2,18 @@
  *  structure gets a bulldozed regolith berm around its footprint — steep
  *  against the wall, a long outer slope, open (tapered to the ground) at
  *  its doors. One merged mesh draped on the heightfield in the terrain's
- *  own material and albedo, so it shades, floods and falls back exactly
- *  like the ground it was pushed up from. Rebuilt only when the set of
- *  shielded structures or the ground under them changes. The classic style
- *  colours it from the classic ground and facets it like the terrain. */
+ *  own material, coloured from the cel ground and faceted like the terrain,
+ *  so it shades and falls back exactly like the ground it was pushed up
+ *  from. Rebuilt only when the set of shielded structures or the ground
+ *  under them changes. */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { CELL_M } from '../data/balance';
 import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
-import { regolithAlbedo } from '../terrain/chunks';
 import { materials } from '../world/materials';
 import { centerOf } from './instances';
-import { classicActive } from '../core/style';
-import { classicGround, facet } from '../terrain/classicGround';
+import { celGround, facet } from '../terrain/celGround';
 
 type Side = '+x' | '-x' | '+z' | '-z';
 interface Gap { side: Side; at: number; w: number }
@@ -52,13 +50,9 @@ export class Berms {
   private sig = '';
   /** structures bermed at the last rebuild */
   count = 0;
-  /** fired after a rebuild (berms cast shadows) */
-  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), materials.get('terrain'));
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
     this.mesh.visible = false;
   }
 
@@ -72,13 +66,11 @@ export class Berms {
     this.mesh.geometry = this.build(list);
     this.mesh.visible = list.length > 0;
     this.count = list.length;
-    this.onShadowCastersChanged?.();
   }
 
   private build(list: readonly BuildingState[]): THREE.BufferGeometry {
     const pos: number[] = [], col: number[] = [], idx: number[] = [];
-    const albedo = this.hf.site.terrain.albedo;
-    const ground = classicActive() ? classicGround(this.hf) : null;
+    const ground = celGround(this.hf);
     const gc = [0, 0, 0];
     const P = PROFILE.length;
     for (const b of list) {
@@ -89,13 +81,8 @@ export class Berms {
         for (const [d, h] of PROFILE) {
           const x = s.x + s.nx * d, z = s.z + s.nz * d;
           pos.push(x, this.hf.sample(x, z) + h * s.f - (s.f === 0 ? 0.1 : 0), z);
-          if (ground) {
-            ground.color(x, z, this.hf.sample(x, z), 1, gc, 0);
-            col.push(0.9 * gc[0], 0.9 * gc[1], 0.9 * gc[2]);
-          } else {
-            const v = 0.9 * regolithAlbedo(albedo, this.hf.craters, x, z);
-            col.push(v, v, v * 1.005);
-          }
+          ground.color(x, z, this.hf.sample(x, z), 1, gc, 0);
+          col.push(0.9 * gc[0], 0.9 * gc[1], 0.9 * gc[2]);
         }
       }
       for (let i = 0; i < st.length; i++) {
@@ -111,10 +98,7 @@ export class Berms {
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(idx);
-    if (ground) return facet(g);
-    g.computeVertexNormals();
-    g.computeBoundingSphere();
-    return g;
+    return facet(g);
   }
 
   /** Wall-line stations round the footprint (world), outward normals, and

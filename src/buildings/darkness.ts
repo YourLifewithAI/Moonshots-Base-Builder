@@ -30,11 +30,8 @@ const LOW_SUN_FULL = 2 * DEG;
 const LOW_SUN_TOP = 8 * DEG;
 /** real seconds: the fade's time constant (90% in ~1.2 s) */
 const TAU_S = 0.5;
-/** the terrain the shadow map holds reaches about this far sunward */
+/** the terrain that can shade a structure reaches about this far sunward */
 const REACH_M = 900;
-/** a k this small counts as sunlit (lights, floods and PointLights skip it) */
-export const DARK_LIVE = 0.03;
-
 interface Entry {
   id: number;
   /** 1 = terrain between the structure and the sun (last pass) */

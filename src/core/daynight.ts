@@ -1,6 +1,7 @@
 /** Compressed lunar day/night clock. Drives both the economy's solar factor and
  *  the renderer's sun. Night is the villain of this game.
  *  Dusk and dawn blend smoothly — no hard cut when the terminator crosses. */
+import * as THREE from 'three';
 import { CYCLE_S, DAY_S } from '../data/balance';
 import type { SiteDef } from '../data/sites';
 
@@ -77,4 +78,10 @@ export function fmtClock(sec: number): string {
   const m = Math.floor((t % 3600) / 60);
   const ss = String(t % 60).padStart(2, '0');
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+/** Unit direction for (elevation, azimuth) in the scene's sun convention
+ *  (the sun, Earth and the night key all point this way). */
+export function skyDirection(elev: number, azim: number, out = new THREE.Vector3()): THREE.Vector3 {
+  return out.set(Math.cos(azim) * Math.cos(elev), Math.sin(elev), Math.sin(azim) * Math.cos(elev));
 }

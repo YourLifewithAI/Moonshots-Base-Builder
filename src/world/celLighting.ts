@@ -1,4 +1,4 @@
-/** The classic style's light: one directional key light and a hemisphere
+/** The cel style's light: one directional key light and a hemisphere
  *  fill, nothing else — no shadow map, no point lights, no spot lamp, so
  *  every lit program stays the cheapest Lambert three.js has.
  *
@@ -13,18 +13,27 @@
  *            (lifted to ≥ 35°), blue and dim, over a blue-black fill, so
  *            open ground sits well off black and every building still
  *            reads by its lit and shaded faces. The base's own lights (warm
- *            windows, flood discs) carry the rest.
+ *            windows, flood pools) carry the rest.
  *
  *  Light levels are in albedo units (1 = the surface's own colour facing
- *  the light); three's lights take them × π. The classic building shader
- *  reads the same values through classicLightUniforms. The true sun
- *  direction still drives the sky, the solar wings and the rover decals. */
+ *  the light); three's lights take them × π. The cel building shader
+ *  reads the same values through celLightUniforms. The true sun
+ *  direction still drives the solar wings and the rover decals. */
 import * as THREE from 'three';
 import type { SiteDef } from '../data/sites';
-import { skyDirection } from './sky';
+import { skyDirection } from '../core/daynight';
 
-/** the key and fill as the classic building shader sees them */
-export const classicLightUniforms = {
+const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-aim once the sun turns 0.1° (up to 3×)
+
+/** The sun turn (as a cosine) that re-aims the solar wings: 0.1° up to 3×
+ *  speed, growing with speed past that — so the sweep costs about as many
+ *  re-aims a second at 10× as at 3×. */
+export function sunStep(speed: number): number {
+  return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
+}
+
+/** the key and fill as the cel building shader sees them */
+export const celLightUniforms = {
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   uLightColor: { value: new THREE.Color(1, 1, 1) },
   uSky: { value: new THREE.Color(0.3, 0.3, 0.3) },
@@ -43,13 +52,9 @@ const EARTH = new THREE.Color(0.16, 0.22, 0.38);
 const SKY_NIGHT = new THREE.Color(0.06, 0.085, 0.15);
 const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
 
-export class ClassicLighting {
+export class CelLighting {
   readonly sun: THREE.DirectionalLight;
   readonly fill: THREE.HemisphereLight;
-  /** shadow bookkeeping the High detail rig has; classic draws no shadows */
-  readonly shadowTexel: [number, number] = [0, 0];
-  readonly shadowRenders = 0;
-  groundAlbedo = 0.3;
 
   private sunDir = new THREE.Vector3(0, 1, 0);
   private keyDir = new THREE.Vector3(0, 1, 0);
@@ -100,7 +105,7 @@ export class ClassicLighting {
     this.fill.color.copy(SKY_DAY).lerp(SKY_NIGHT, night);
     this.fill.groundColor.copy(GROUND_DAY).lerp(GROUND_NIGHT, night);
 
-    const u = classicLightUniforms;
+    const u = celLightUniforms;
     u.uLightDir.value.copy(this.keyDir);
     u.uLightColor.value.copy(key);
     u.uSky.value.copy(this.fill.color);
@@ -115,12 +120,4 @@ export class ClassicLighting {
 
   /** Unit vector toward the key light (sun or earthshine, as drawn). */
   get keyDirection(): THREE.Vector3 { return this.keyDir; }
-
-  // the High detail rig's shadow and work-light hooks: nothing to do here
-  requestShadowUpdate() { /* no shadow map */ }
-  fitShadow(..._args: unknown[]) { /* no shadow map */ }
-  useWorkLights(_on: boolean) { /* flood discs instead (buildings/instances.ts) */ }
-  setWorkLights(..._args: unknown[]) { /* flood discs instead */ }
-  /** the stock path's work-light spots; classic has none to fill */
-  readonly workSpots: import('./lighting').WorkSpot[] = [];
 }

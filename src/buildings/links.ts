@@ -14,7 +14,7 @@
  *  Pure planning on the build grid (planLinks), then one merged mesh per
  *  layer, rebuilt like the berms only when its signature changes. Each
  *  layer is an InstancedMesh of one instance on the building material, so
- *  it lights, colours (the Classic palette) and warms (iWarm: walkways
+ *  it lights, colours (the cel palette) and warms (iWarm: walkways
  *  warm, spines cold) like the buildings.
  *
  *  Links and roads (docs/15). A link never sits on a road cell, a door or a
@@ -291,8 +291,6 @@ export class Links {
   private tris: Record<LinkLayer, number> = { walkway: 0, spine: 0 };
   /** the ground cells the links stand on (legs, gantry posts): walkers keep off them */
   readonly ground = new Set<number>();
-  /** fired after a rebuild (the links cast shadows in High detail) */
-  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {}
 
@@ -311,7 +309,6 @@ export class Links {
       for (const l of links) parts.push(...this.build(l, at.get(l.a)!, at.get(l.b)!, layer === 'walkway' ? on.glazed : on.chevrons));
       this.setMesh(layer, parts);
     }
-    this.onShadowCastersChanged?.();
   }
 
   private setMesh(layer: LinkLayer, parts: THREE.BufferGeometry[]) {
@@ -331,9 +328,6 @@ export class Links {
     (view.getAttribute('iWarm') as THREE.InstancedBufferAttribute).setX(0, layer === 'walkway' ? 1 : 0);
     const m = new THREE.InstancedMesh(view, materials.get('building'), 1);
     m.setMatrixAt(0, new THREE.Matrix4());
-    m.castShadow = true;
-    m.receiveShadow = true;
-    m.customDepthMaterial = materials.get('buildingDepth');
     m.computeBoundingSphere();
     m.userData.links = layer;
     this.meshes[layer] = m;

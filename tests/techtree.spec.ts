@@ -156,11 +156,11 @@ test('every era page fits 1280×720 with the sheet open: no overlap, nothing off
   expect(await page.locator('#tech-board').evaluate((e) => getComputedStyle(e).getPropertyValue('--row-h').trim())).toBe('56px');
 });
 
-test('pages fit the 1440×900 default viewport and the High-detail style; a short screen shrinks the rows', async ({ page }) => {
+test('pages fit the 1440×900 default viewport and 1280×720; a short screen shrinks the rows', async ({ page }) => {
   test.setTimeout(300_000);
   await checkRuns(page, [
     ['mare', 'human', { width: 1440, height: 900 }, ''],
-    ['mare', 'robotic', { width: 1280, height: 720 }, '&style=detailed'],
+    ['mare', 'robotic', { width: 1280, height: 720 }, ''],
   ]);
   // taller than 720: the sheet takes up to 220 px, the rows stay 56
   await boot(page, 'mare', 'robotic', { width: 1440, height: 900 });

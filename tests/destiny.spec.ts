@@ -714,7 +714,7 @@ test('migration: a techSchema-3 save in Era 5 gains its landing pick, keeps its 
 
 // ───────────────────────────── the four buildings ─────────────────────────────
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['cel']) {
   test(`${style}: the four destiny buildings stand and render, on budget; a hive docks four rovers, a monolith counts as a Data Center`, async ({ page }) => {
     await start(page, 'mare', 'robotic', `&style=${style}`);
     expect((await g(page, 'getRenderInfo')).style).toBe(style);

@@ -1,4 +1,4 @@
-/** Classic style: a soft dark footprint under every structure, standing in
+/** A soft dark footprint under every structure, standing in
  *  for the shadow map it does not draw — the building sits on the ground
  *  instead of floating over it. One merged mesh: per structure a 4×4-vertex
  *  nine-slice (a fixed 1.6 m feathered margin whatever the footprint's

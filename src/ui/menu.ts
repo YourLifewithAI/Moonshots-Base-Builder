@@ -4,22 +4,11 @@
  *  persist through core/settings.ts and apply at the next boot before the
  *  first frame (main.ts).
  *
- *  Graphics: the render style first — Classic (the default: flat colours,
- *  the isometric camera, no effects) or High detail. A switch saves the
- *  game, stores the choice and reloads straight back into it (the canvas's
- *  context attributes are fixed at creation). The FX ladder and safe mode
- *  belong to High detail and show only there (safe mode also shows in
- *  Classic while the render check has it on, so it can be turned off).
- *
- *  High detail: the running FX level is shown as the ladder left it. Lowering is
- *  always one click; raising is the player's explicit pick, and a level that
- *  failed a render check on this GPU (in any session) asks for a second
- *  click. A raise — and turning safe mode off — is checked by the black-frame
- *  check on the next frames that can tell, kept once one passes, and undone
- *  if the frame comes out black; the game (not the menu) stores those.
- *
- *  Copy render report: the GPU, the browser, the ladder's state and the
- *  render checks' findings as JSON on the clipboard (and the console). */
+ *  Graphics: one row, safe render mode — the last resort for a GPU that shows
+ *  black (unlit materials, no effects). The game turns it on by itself when
+ *  the black-frame check fires (it says so here); turning it off retries lit
+ *  rendering, kept once a frame draws and undone if the frame comes out
+ *  black. The game (not the menu) stores those. */
 import type { Game } from '../core/game';
 import { loadSettings, saveSettings, storedTouch } from '../core/settings';
 import { FLARE_PAUSE_LABEL } from '../data/spaceWeather';
@@ -28,40 +17,22 @@ import { sfx } from '../audio/sfx';
 import { el } from './hud';
 import { $announce, $defeat, $menuOpen, $phase, $time } from './stores';
 
-const FX_LEVELS = [
-  { name: 'Full', desc: 'HDR buffers, ambient occlusion, bloom and film' },
-  { name: 'Standard', desc: 'standard buffers with ambient occlusion' },
-  { name: 'No AO', desc: 'standard buffers, no ambient occlusion' },
-  { name: 'Plain', desc: 'no post effects at all' },
+/** Camera lines: the fixed isometric view. */
+const CAMERA_KEYS: [string, string][] = [
+  ['Right-drag · middle-drag', 'pan'],
+  ['Wheel', 'zoom'],
+  ['W A S D · arrows', 'pan the camera'],
+  ['Q · E', 'turn the view 90°'],
+  ['V', 'tilt the view — low or high'],
 ];
 
-const STYLES = [
-  { id: 'classic', name: 'Classic', desc: 'flat colours, a fixed isometric view, no effects — made to run well on any GPU' },
-  { id: 'detailed', name: 'High detail', desc: 'shadows, ambient occlusion, bloom and a free camera; steps down on its own if the GPU struggles' },
-] as const;
-
-/** Camera lines by style: the isometric view steps, the free one orbits. */
-const CAMERA_KEYS: Record<'classic' | 'detailed', [string, string][]> = {
-  classic: [
-    ['Right-drag · middle-drag', 'pan'],
-    ['Wheel', 'zoom'],
-    ['W A S D · arrows', 'pan the camera'],
-    ['Q · E', 'turn the view 90°'],
-    ['V', 'tilt the view — low or high'],
-  ],
-  detailed: [
-    ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
-    ['W A S D · arrows', 'pan the camera'],
-    ['Q · E', 'orbit'],
-  ],
-};
-
-export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] => [
+/** The keyboard controls (one table: there is one camera). */
+export const CONTROLS: [string, string][] = [
   ['Click', 'place · select a building'],
   ['⇧ Click', 'keep placing'],
   ['R', 'rotate while placing'],
   ['Right-click · Esc', 'stop placing · close the inspector'],
-  ...CAMERA_KEYS[style],
+  ...CAMERA_KEYS,
   ['F', 'focus the selection'],
   ['H · Home', 'back to the Lander'],
   ['Space', 'pause'],
@@ -130,22 +101,11 @@ export function mountMenu(root: HTMLElement, game: Game) {
           </section>
           <section>
             <span class="label">Graphics</span>
-            <div class="seg seg-2" id="menu-style">${STYLES.map((st) =>
-              `<button class="btn" data-style="${st.id}" title="${st.name} — ${st.desc}">${st.name}</button>`).join('')}</div>
-            <div class="menu-note" id="menu-style-note"></div>
-            <div class="seg" id="menu-fx">${FX_LEVELS.map((l, n) =>
-              `<button class="btn" data-fx="${n}" title="FX ${n} — ${l.desc}"><b>${n}</b>${l.name}</button>`).join('')}</div>
-            <div class="menu-note" id="menu-fx-note"></div>
             <div class="menu-row" id="menu-safe-row">
               <span>Safe render mode</span>
               <button class="btn" data-act="safe" id="menu-safe" aria-pressed="false">Off</button>
             </div>
             <div class="menu-note" id="menu-safe-note"></div>
-            <div class="menu-row" id="menu-report-row">
-              <span>Something looks wrong?</span>
-              <button class="btn" data-act="report" id="menu-report">Copy render report</button>
-            </div>
-            <div class="menu-note" id="menu-report-note">GPU, browser, FX level and the render checks' findings, as text for a bug report.</div>
           </section>
           <section>
             <span class="label">Touch controls</span>
@@ -195,7 +155,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
         <div class="menu-col">
           <section>
             <span class="label">Controls</span>
-            <div class="keys" id="menu-keys">${(touchOn() ? TOUCH_CONTROLS : controlsFor(game.opts.style)).map(([k, v]) =>
+            <div class="keys" id="menu-keys">${(touchOn() ? TOUCH_CONTROLS : CONTROLS).map(([k, v]) =>
               `<kbd>${k}</kbd><span>${v}</span>`).join('')}</div>
           </section>
         </div>
@@ -205,7 +165,6 @@ export function mountMenu(root: HTMLElement, game: Game) {
   const $ = <T extends HTMLElement = HTMLElement>(sel: string) => veil.querySelector(sel) as T;
   const note = $('#menu-note');
   const confirmRow = $('#menu-confirm');
-  const fxNote = $('#menu-fx-note');
   const safeBtn = $<HTMLButtonElement>('#menu-safe');
   const safeNote = $('#menu-safe-note');
   const vol = $<HTMLInputElement>('#menu-vol');
@@ -216,65 +175,16 @@ export function mountMenu(root: HTMLElement, game: Game) {
   const fxVol = $<HTMLInputElement>('#menu-effects');
   const fxVal = $('#menu-effects-val');
 
-  /** a raise to a level that failed a render check waits for a second click */
-  let confirmFx: number | null = null;
-
-  const styleNote = $('#menu-style-note');
-  /** a style switch is saving and reloading */
-  let switching = false;
-
-  const renderStyle = (st: ReturnType<Game['renderStatus']>) => {
-    const running = game.opts.style;
-    veil.querySelectorAll<HTMLButtonElement>('[data-style]').forEach((b) => {
-      b.classList.toggle('active', b.dataset.style === running);
-      b.disabled = switching;
-    });
-    const cur = STYLES.find((x) => x.id === running)!;
-    styleNote.textContent = switching ? 'Saving and reloading…'
-      : `${cur.name}: ${cur.desc}. Switching saves the game and reloads.`;
-    // the FX ladder and safe mode are High detail's; Classic shows safe mode
-    // only while the render check has it on
-    const detailed = running === 'detailed';
-    for (const id of ['#menu-fx', '#menu-fx-note']) $(id).style.display = detailed ? '' : 'none';
-    const safeShown = detailed || st.safe;
-    $('#menu-safe-row').style.display = safeShown ? '' : 'none';
-    safeNote.style.display = safeShown ? '' : 'none';
-  };
-
   const renderGfx = () => {
     const st = game.renderStatus();
-    renderStyle(st);
-    const choice = loadSettings().fx ?? 0;
-    veil.querySelectorAll<HTMLButtonElement>('[data-fx]').forEach((b) => {
-      const n = Number(b.dataset.fx);
-      b.classList.toggle('active', n === st.level);
-      b.classList.toggle('mine', n === choice);
-      b.classList.toggle('failed', st.failed.includes(n));
-      b.classList.toggle('confirm', n === confirmFx);
-    });
-    const auto = st.ladder > choice;
-    const restore = `<button class="btn" data-act="restore" id="menu-fx-restore">Restore FX ${choice}</button>`;
-    const html = confirmFx !== null
-      ? `FX ${confirmFx} drew a black frame or failed to build on this GPU before. Try it anyway? It is checked at once, kept only if it draws, and a black frame puts FX ${st.ladder} back. <button class="btn" data-act="try" data-level="${confirmFx}" id="menu-fx-try">Try FX ${confirmFx}</button>`
-      : st.safe
-        ? `Safe mode draws with no effects. Turning it off returns to FX ${st.ladder}: ${FX_LEVELS[st.ladder].desc}.`
-        : st.checking
-          ? `Checking FX ${st.level}: ${FX_LEVELS[st.level].desc}. Kept once a frame draws; a black frame goes straight back.`
-          : auto && !st.reason && st.level <= st.floor
-            ? `Held at FX ${st.level} by the ?lowfx address. Your setting: FX ${choice} ◆ ${restore}`
-            : auto
-              ? `<span class="menu-auto">AUTO</span> Lowered to FX ${st.level} — ${st.reason || 'a render check in an earlier session'}. Your setting: FX ${choice} ◆ ${restore}`
-              : `FX ${st.level}: ${FX_LEVELS[st.level].desc}. A black-frame check steps down on its own if the frame comes out black.`;
-    if (fxNote.dataset.html !== html) { fxNote.dataset.html = html; fxNote.innerHTML = html; }
-    fxNote.dataset.level = String(st.level);
     safeBtn.textContent = st.safe ? 'On' : 'Off';
     safeBtn.classList.toggle('active', st.safe);
     safeBtn.setAttribute('aria-pressed', String(st.safe));
     safeNote.textContent = st.safe && st.safeAuto
-      ? `Switched on by the render check (GPU issue detected). Turning it off retries lit rendering at FX ${st.ladder}; it stays off once a frame draws, and a black frame switches it back on.`
-      : st.safe ? 'Unlit materials, no shadows, no post effects — draws on any GPU.'
+      ? 'Switched on by the render check (GPU issue detected). Turning it off retries lit rendering; it stays off once a frame draws, and a black frame switches it back on.'
+      : st.safe ? 'Unlit materials, no effects — draws on any GPU.'
       : st.checking ? 'Checking the lit frame — safe mode switches back on if it comes out black.'
-      : 'The last resort for a GPU that shows black: unlit materials, no shadows, no post effects.';
+      : 'The last resort for a GPU that shows black: unlit materials, no effects.';
   };
 
   /** a touch-mode switch is saving and reloading */
@@ -315,15 +225,6 @@ export function mountMenu(root: HTMLElement, game: Game) {
     pf.classList.toggle('active', s.pauseFlares !== 'off');
   };
 
-  const pickFx = (n: number) => {
-    const st = game.renderStatus();
-    if (n < st.ladder && st.failed.includes(n) && confirmFx !== n) { confirmFx = n; renderGfx(); return; }
-    confirmFx = null;
-    saveSettings({ fx: n });
-    if (n !== st.ladder) game.setFxLevel(n);
-    renderGfx();
-  };
-
   // open: pause (remembering how it was); close: put it back. A save made
   // meanwhile (Save now, autosave, tab hidden) records the game as it was
   // before the menu, not paused by it
@@ -335,14 +236,13 @@ export function mountMenu(root: HTMLElement, game: Game) {
       resumePaused = $time.get().paused;
       game.savePausedAs = resumePaused;
       if (!resumePaused) game.actions.push({ kind: 'setPaused', paused: true });
-      confirmFx = null;
       confirmRow.style.display = 'none';
       note.textContent = '';
       renderGfx();
       renderAudio();
       renderTouch();
       veil.style.display = 'flex';
-      poll = window.setInterval(renderGfx, 500); // the ladder can still step while paused
+      poll = window.setInterval(renderGfx, 500); // the render check can still answer while paused
       $<HTMLButtonElement>('[data-act="resume"]').focus({ preventScroll: true });
     } else {
       veil.style.display = 'none';
@@ -365,17 +265,6 @@ export function mountMenu(root: HTMLElement, game: Game) {
   veil.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (t === veil) { $menuOpen.set(false); return; } // a click outside the panel resumes
-    const fx = t.closest<HTMLElement>('[data-fx]');
-    if (fx) { pickFx(Number(fx.dataset.fx)); return; }
-    const style = t.closest<HTMLButtonElement>('[data-style]');
-    if (style) {
-      const want = style.dataset.style as 'classic' | 'detailed';
-      if (want === game.opts.style || switching) return;
-      switching = true;
-      renderGfx();
-      void game.switchStyle(want);
-      return;
-    }
     const tc = t.closest<HTMLButtonElement>('[data-touch]');
     if (tc) {
       if (touchSwitching) return;
@@ -405,18 +294,6 @@ export function mountMenu(root: HTMLElement, game: Game) {
         b.textContent = 'Leaving orbit…';
         void game.abandonMission();
         break;
-      case 'restore': pickFx(loadSettings().fx ?? 0); break;
-      case 'try': pickFx(Number(b.dataset.level)); break;
-      case 'report': {
-        // the render report (core/game.ts renderReport): clipboard + console
-        const out = $('#menu-report-note');
-        out.textContent = 'Copying…';
-        void game.copyRenderReport().then((ok) => {
-          out.textContent = ok ? 'Render report copied — paste it into your bug report. It is in the console (F12) too.'
-            : 'The browser blocked the clipboard: the report is in the console (F12), under [MOONSHOTS] Render report.';
-        });
-        break;
-      }
       case 'safe':
         // the game stores it: on at once, off once a lit frame has drawn
         if (game.safeModeOn) game.disableSafeMode();

@@ -1,5 +1,4 @@
-/** Draped build-mode overlays (lines only, so every FX level and safe mode
- *  draw them alike):
+/** Draped build-mode overlays (lines only, so safe mode draws them alike):
  *   - a 4 m cell grid under the placement footprint, fading out past it;
  *   - dashed build-radius rings around every node of the build network while
  *     placing (core/exploration.networkNodes — the same nodes placement
@@ -12,7 +11,6 @@ import type { GameState } from '../core/state';
 import { networkNodes } from '../core/exploration';
 import type { Heightfield } from '../terrain/heightfield';
 import { footprintRect } from './instances';
-import { ghostUniforms } from './ghost';
 import type { PlacementProbe } from './placement';
 
 const GRID_MARGIN = 2;     // cells of fading grid beyond the footprint
@@ -49,8 +47,7 @@ export class BaseOverlays {
 
   /** Per frame. `probe` is the active placement (null when not placing). */
   update(state: GameState, probe: PlacementProbe | null, ghostVisible: boolean,
-    selected: Footprinted | null, sunDir: THREE.Vector3) {
-    ghostUniforms.uGhostSun.value.copy(sunDir);
+    selected: Footprinted | null) {
     this.updateGrid(probe && ghostVisible ? probe : null);
     this.updateRings(state, probe);
     this.updateBracket(selected);

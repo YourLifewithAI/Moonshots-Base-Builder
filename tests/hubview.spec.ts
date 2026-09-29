@@ -132,7 +132,6 @@ test('a smelter\'s ghost lights ◆ only: trip, faces and the full-size ring; th
   expect(h.drawn.visible).toBe(true);
   expect(h.drawn.ribbonTris).toBeGreaterThan(0);
   expect(h.drawn.fillTris).toBeGreaterThan(0);
-  expect(h.drawn.glow).toBe(0);
   await expect(page.locator('#place-hub .hb-head')).toContainText(/^HUB — /);
   await expect(page.locator('#place-hub .hb-line').first()).toContainText(/high-Ti basalt #0 · /);
   const chip = page.locator('.deposit-mark.hl-lit[data-dep="ilmenite-0"]');
@@ -340,19 +339,6 @@ test('a hub\'s palette card lights its ground on hover (no position: faces and p
   await expect(page.locator('#map-screen .mk .dep-t.lit .lbl').first()).toContainText(/high-Ti basalt · (\d+:\d\d · \d\/\d faces|FULL (\d)\/\2 · \d+:\d\d)/);
   await expect(page.locator('#map-screen .mb circle.dep-full').first()).toBeAttached();
   await shot(page, 'map-site-selected-smelter');
-});
-
-test('High detail draws the same highlight, with the emissive rim line', async ({ page }) => {
-  await start(page, { style: 'detailed' });
-  const spot = await page.evaluate(() => spotBy('smelter', 'ilmenite-0', 14, 60));
-  await ghostAt(page, 'smelter', spot!);
-  await page.waitForTimeout(600);
-  const h = await page.evaluate(() => window.__game!.getHighlight());
-  expect(h.drawn.classic).toBe(false);
-  expect(h.drawn.ribbonTris).toBeGreaterThan(0);
-  expect(h.drawn.glow).toBeGreaterThan(0);
-  await expect(page.locator('.deposit-mark.hl-lit[data-dep="ilmenite-0"]')).toBeVisible();
-  await shot(page, 'high-smelter-ghost');
 });
 
 test.describe('touch', () => {

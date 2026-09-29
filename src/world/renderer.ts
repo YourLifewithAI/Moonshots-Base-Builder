@@ -1,30 +1,21 @@
-/** WebGL renderer + camera.
- *
- *  High detail: AgX tonemapping and physically-lit units give the
- *  Apollo-photograph contrast the art direction calls for; no MSAA (SMAA
- *  runs in the post chain), PCF sun shadows.
- *
- *  Classic: the canvas is the only target — MSAA on the context, no shadow
- *  map, no tone mapping (the palette is authored as the colours you see),
- *  the pixel ratio held to 1.5 so a HiDPI laptop does not quadruple the
- *  fill. Context attributes are fixed at creation, hence the reload on a
- *  style change. */
+/** WebGL renderer + camera. The one path: the canvas is the only target — MSAA
+ *  on the context, no shadow map, no tone mapping (the palette is authored as
+ *  the colours you see), sRGB output, and the pixel ratio held to 1.5 so a
+ *  HiDPI laptop does not quadruple the fill. There is no post chain, no
+ *  render target and no float buffer. */
 import * as THREE from 'three';
 
-export function createRenderer(canvas: HTMLCanvasElement, classic = false): THREE.WebGLRenderer {
+export function createRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: classic, // detailed: SMAA in the post chain
+    antialias: true,
     powerPreference: 'high-performance',
     stencil: false,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, classic ? 1.5 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = !classic;
-  // hard-edged PCF (radius set on the sun): no atmosphere, razor shadows
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = classic ? THREE.NoToneMapping : THREE.AgXToneMapping;
-  renderer.toneMappingExposure = classic ? 1 : 1.1;
+  renderer.shadowMap.enabled = false;
+  renderer.toneMapping = THREE.NoToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // per-frame counts summed over every pass (game.ts resets them each frame)
   renderer.info.autoReset = false;
@@ -41,6 +32,52 @@ export function gpuInfo(renderer: THREE.WebGLRenderer): string {
   } catch {
     return 'unavailable';
   }
+}
+
+/** Draw the frame: forward rendering straight to the canvas. A throw skips the
+ *  frame and returns the message (the caller reports it once), so one bad
+ *  frame never stops the loop; null when the frame was drawn. */
+export function drawFrame(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera): string | null {
+  try {
+    renderer.render(scene, camera);
+    return null;
+  } catch (e) {
+    console.error('[MOONSHOTS] Scene render failed — frame skipped.', e);
+    return e instanceof Error ? e.message : e ? String(e) : 'render error';
+  }
+}
+
+/** A probe of the frame just drawn: black, fine, or too little ground in
+ *  view to tell. */
+export type ProbeVerdict = 'black' | 'ok' | 'unknown';
+
+/** r+g+b at or under this is black (lit or floored regolith never is; the
+ *  black sky is fine) */
+export const BLACK_SUM = 2;
+
+/** Some drivers fail shader compilation silently and render pure black —
+ *  sometimes only one program (the terrain) while buildings still draw.
+ *  Called right after a render whose ground cannot legitimately be black:
+ *  reads a 4×4 grid of the drawing buffer and asks `expectsGround(u, v)`
+ *  (0..1, origin bottom-left) which samples should show terrain. Black if
+ *  most of those are black, unknown with fewer than 3 such samples. */
+export function probeGround(renderer: THREE.WebGLRenderer, expectsGround: (u: number, v: number) => boolean): ProbeVerdict {
+  const gl = renderer.getContext();
+  const w = gl.drawingBufferWidth, h = gl.drawingBufferHeight;
+  if (w === 0 || h === 0) return 'unknown';
+  const px = new Uint8Array(4);
+  let expected = 0, black = 0;
+  for (let j = 0; j < 4; j++) {
+    for (let i = 0; i < 4; i++) {
+      const u = (i + 0.5) / 4, v = (j + 0.5) / 4;
+      if (!expectsGround(u, v)) continue;
+      gl.readPixels(Math.floor(w * u), Math.floor(h * v), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      expected++;
+      if (px[0] + px[1] + px[2] <= BLACK_SUM) black++;
+    }
+  }
+  if (expected < 3) return 'unknown';
+  return black >= expected * 0.75 ? 'black' : 'ok';
 }
 
 export function createCamera(): THREE.PerspectiveCamera {

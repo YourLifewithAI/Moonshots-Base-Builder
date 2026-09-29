@@ -91,56 +91,8 @@ test('menu: Esc with nothing to cancel opens it paused; Resume closes it as it w
   expect(errors).toEqual([]);
 });
 
-test('menu graphics: the FX level persists across reload and draws the first frame', async ({ page }) => {
-  // the FX ladder is High detail's; software GL rebuilds its chain on every
-  // rung and reload (~2 min here — it overran the 90 s default at cb2add9 too)
-  test.setTimeout(240_000);
-  await boot(page, 'human', '&style=detailed');
-  await page.keyboard.press('Escape');
-  // ?lowfx holds the ladder at 2 — the menu says why, not "auto"
-  await expect(page.locator('#menu [data-fx="2"]')).toHaveClass(/active/);
-  await expect(page.locator('#menu-fx-note')).toContainText('?lowfx');
-  await page.locator('#menu [data-fx="3"]').click();
-  expect((await g(page, 'getRenderInfo')).fxLevel).toBe(3);
-  await expect(page.locator('#menu [data-fx="3"]')).toHaveClass(/active/);
-  await expect(page.locator('#menu [data-fx="3"]')).toHaveClass(/mine/);
-
-  const levels: number[] = [];
-  page.on('console', (m) => {
-    const hit = /FX level (\d)/.exec(m.text());
-    if (hit) levels.push(Number(hit[1]));
-  });
-  await page.reload();
-  await page.waitForFunction(() => window.__game !== undefined);
-  const info = await g(page, 'getRenderInfo');
-  expect(levels[0]).toBe(3);       // the composer was never built for a higher rung
-  expect(info.firstFrame.fx).toBe(3);
-  expect(info.fxLevel).toBe(3);
-  await page.keyboard.press('Escape');
-  await expect(page.locator('#menu [data-fx="3"]')).toHaveClass(/active/);
-  await expect(page.locator('#menu [data-fx="3"]')).toHaveClass(/mine/);
-
-  // choose 2; the ladder steps down on its own: shown as AUTO with the cause
-  await page.locator('#menu [data-fx="2"]').click();
-  await g(page, 'degradeFx');
-  await expect(page.locator('#menu-fx-note')).toContainText('AUTO');
-  await expect(page.locator('#menu-fx-note')).toContainText('Lowered to FX 3 — debug');
-  await expect(page.locator('#menu [data-fx="2"]')).toHaveClass(/failed/);
-  expect((await g(page, 'getRenderStatus')).failed).toEqual([2]);
-  // restoring a rung that failed this session takes an explicit second yes
-  await page.locator('#menu-fx-restore').click();
-  await expect(page.locator('#menu-fx-note')).toContainText('drew a black frame');
-  expect((await g(page, 'getRenderInfo')).fxLevel).toBe(3);
-  await page.locator('#menu-fx-try').click();
-  await expect.poll(async () => (await g(page, 'getRenderInfo')).fxLevel).toBe(2);
-  await expect(page.locator('#menu-fx-note')).not.toContainText('AUTO');
-  // lowering never asks
-  await page.locator('#menu [data-fx="3"]').click();
-  expect((await g(page, 'getRenderInfo')).fxLevel).toBe(3);
-});
-
 test('menu: safe render mode toggles both ways, persists, and holds from the first frame', async ({ page }) => {
-  await boot(page, 'robotic', '&style=detailed');
+  await boot(page, 'robotic');
   await page.keyboard.press('Escape');
   const safe = page.locator('#menu-safe');
   await expect(safe).toHaveText('Off');
@@ -165,9 +117,9 @@ test('menu: safe render mode toggles both ways, persists, and holds from the fir
   await expect(safe).toHaveText('Off');
   info = await g(page, 'getRenderInfo');
   expect(info.safeMode).toBe(false);
-  expect(info.terrainMaterial).toBe('MeshStandardMaterial');
-  expect(info.horizonMaterial).toBe('MeshStandardMaterial');
-  expect(info.buildingMaterials.lander).toBe('MeshStandardMaterial');
+  expect(info.terrainMaterial).toBe('MeshLambertMaterial');
+  expect(info.horizonMaterial).toBe('MeshLambertMaterial');
+  expect(info.buildingMaterials.lander).toBe('ShaderMaterial');
   // leaving safe mode is kept once the black-frame check has seen a lit frame
   await expect.poll(async () => (await g(page, 'getRenderStatus')).checking).toBe(false);
   await page.reload();

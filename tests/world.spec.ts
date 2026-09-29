@@ -1,9 +1,7 @@
-/** World-dressing and build-camera tests: the sky's exposure and Earth phase,
- *  rocks cleared by pads and grading (and still cleared after a reload),
- *  the camera held above the ground, the build-mode keys (the High
- *  detail free camera; the classic isometric one is in classic.spec.ts),
- *  and the removal of walk mode (Tab does nothing; an old save made on
- *  foot loads in the command view). */
+/** World-dressing and build-camera tests: rocks cleared by pads and grading
+ *  (and still cleared after a reload), the camera held above the ground, the
+ *  build-mode keys, and the removal of walk mode (Tab does nothing; an old
+ *  save made on foot loads in the command view). */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -18,39 +16,11 @@ async function boot(page: Page, site: string, extra = '') {
   await page.evaluate(() => window.__game.setPaused(true));
 }
 
-const sky = (page: Page) => page.evaluate(() => window.__game.getRenderInfo().sky);
 const cam = (page: Page) => page.evaluate(() => window.__game.getCamera());
 
 /** World rect of a cell rect [gx0..gx1) × [gz0..gz1). */
 const rect = (gx0: number, gz0: number, gx1: number, gz1: number) =>
   [gx0 * 4 - 512, gz0 * 4 - 512, gx1 * 4 - 512, gz1 * 4 - 512] as const;
-
-test('sky: no stars in sunlight, full stars at night, Earth phase follows the sun', async ({ page }) => {
-  await boot(page, 'mare');
-  // mid-morning: the sun is up, the film exposure leaves the sky black
-  await expect.poll(async () => (await sky(page)).sunVisible).toBe(true);
-  const day = await sky(page);
-  expect(day.starLevel).toBeLessThan(0.01);
-  expect(day.earthElevDeg).toBeGreaterThan(55);
-  // noon: sun and Earth share the sky, so Earth is a crescent
-  await page.evaluate(() => window.__game.advanceGameSeconds(150));
-  await page.waitForTimeout(800);
-  const noon = await sky(page);
-  expect(noon.earthPhase).toBeLessThan(0.3);
-  // night: sun gone, stars at full exposure, Earth's lit side turned to us
-  await page.evaluate(() => window.__game.advanceGameSeconds(390));
-  await expect.poll(async () => (await sky(page)).starLevel).toBeGreaterThan(0.99);
-  const night = await sky(page);
-  expect(night.sunVisible).toBe(false);
-  expect(night.earthPhase).toBeGreaterThan(noon.earthPhase + 0.2);
-
-  // the south pole keeps Earth on the horizon
-  await boot(page, 'southpole');
-  await expect.poll(async () => {
-    const e = (await sky(page)).earthElevDeg;
-    return e > 0 && e < 5;
-  }).toBe(true);
-});
 
 test('rocks: pads and grading clear the ground, and a reload replays it', async ({ page }) => {
   test.setTimeout(120_000);
@@ -119,11 +89,11 @@ test('rocks: pads and grading clear the ground, and a reload replays it', async 
 });
 
 test('build camera: stays above the ground and its target rides the terrain', async ({ page }) => {
-  await boot(page, 'southpole', '&style=detailed'); // the free camera: High detail's (classic: classic.spec.ts)
-  // starts ~90 m from the Lander
+  await boot(page, 'southpole');
+  // the isometric view starts at its home zoom (170 m) from the Lander
   const c0 = await cam(page);
-  expect(c0.dist).toBeGreaterThan(80);
-  expect(c0.dist).toBeLessThan(100);
+  expect(c0.dist).toBeGreaterThan(100);
+  expect(c0.dist).toBeLessThan(300);
   // a view pushed below the ground is lifted back over it
   await page.evaluate(() => window.__game.setView({ x: 17, y: -30, z: 4 }, { x: 0, y: 0, z: 0 }));
   await expect.poll(async () => (await cam(page)).clearance).toBeGreaterThan(3.9);
@@ -135,8 +105,8 @@ test('build camera: stays above the ground and its target rides the terrain', as
   }, { timeout: 15_000 }).toBeLessThan(0.5);
 });
 
-test('build camera: WASD pans, Q/E orbit, F focuses the selection, H returns home', async ({ page }) => {
-  await boot(page, 'mare', '&style=detailed'); // the free camera: High detail's (classic: classic.spec.ts)
+test('build camera: WASD pans, Q/E turn, F focuses the selection, H returns home', async ({ page }) => {
+  await boot(page, 'mare');
   await page.evaluate(() => window.__game.grantResources({ metals: 200 }));
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
   const c0 = await cam(page);

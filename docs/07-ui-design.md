@@ -473,6 +473,14 @@ rebuild freely.
 
 ## 12. Menu and sound (`menu.ts`, `audio/sfx.ts`)
 
+> **Superseded in part by the cel style (docs/19, W0b1).** There is one
+> render style, so the menu has no render-style control, no FX ladder row and
+> no *Copy render report*: Graphics is the single safe-mode row (the last
+> resort for a GPU that shows black; the render check turns it on by itself and
+> says so), and Controls is one table. `?style`, `?fx` and `?lowfx` are
+> ignored. The paragraphs below on the style switch, the FX ladder and the
+> render report describe removed behaviour; S10 rewrites this section.
+
 **Esc** closes one thing at a time — a targeting mode, the road tool, placement, the
 inspector, the rover inspector, a resource panel or the Builder panel, the tree — and with nothing left to cancel opens the mission menu
 (also ☰ beside the speed buttons). The sim pauses while it is open and

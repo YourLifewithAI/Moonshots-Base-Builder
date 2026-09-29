@@ -24,7 +24,7 @@ import { centerOf } from '../buildings/instances';
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
-import { litChannel } from '../buildings/buildingShader';
+import { litChannel } from '../buildings/celBuilding';
 import { pathLength } from '../core/paths';
 import { cellAt, frontDir, groundWay, roadRoute, routePoints } from '../core/roads';
 import { bayPoint } from '../core/hubs';
@@ -541,7 +541,7 @@ export class Haulers implements Driver {
       um.mesh.visible = um.drawn.length > 0;
       um.mesh.instanceMatrix.needsUpdate = true;
       um.mesh.boundingSphere = null;
-      // its lights as the pad's would be: the lit channel 0 / 2 + k, and classic's window level
+      // its lights as the pad's would be: the lit channel 0 / 2 + k, and the window level
       const g = um.mesh.geometry;
       const st = g.getAttribute('iState') as THREE.InstancedBufferAttribute;
       const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
