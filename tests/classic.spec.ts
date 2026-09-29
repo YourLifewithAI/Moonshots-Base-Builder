@@ -2,7 +2,7 @@
  *  to an MSAA canvas (no composer, no render targets, no shadow map),
  *  faceted Lambert terrain whose vertex colours carry the site and its
  *  deposits, the classic building palette and lights, the fixed isometric
- *  camera, walk mode on the classic materials, the menu's Style switch,
+ *  camera, the menu's Style switch,
  *  no "RENDER —" alerts, and a frame-cost sanity check. */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
 
@@ -38,7 +38,7 @@ const cam = (page: Page) => g(page, 'getCamera') as Promise<any>;
 async function settled(page: Page) {
   await expect.poll(async () => {
     const c = await cam(page);
-    return !c.iso.turning && Math.abs(c.iso.dist - c.iso.levels[c.iso.level]) < 0.05;
+    return !c.iso.turning && !c.iso.tilting && Math.abs(c.iso.dist - c.iso.zoomTo) < 0.05;
   }, { timeout: 30_000 }).toBe(true);
   return cam(page);
 }
@@ -237,7 +237,7 @@ test('windows: dark by day in the sun, warm at night, dark when the structure is
   expect(await warmPixels(page, rect), 'an unpowered structure stays dark').toBeLessThan(5);
 });
 
-test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD and right-drag pan, F and H', async ({ page }) => {
+test('isometric camera: Q/E turn exactly 90°, the wheel zooms continuously, WASD and right-drag pan, F and H', async ({ page }) => {
   test.setTimeout(150_000);
   await boot(page, 'mare');
   await g(page, 'setPaused', true);
@@ -273,7 +273,7 @@ test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD an
   // turning never moves the target
   expect(Math.hypot(c.target.x - home.x, c.target.z - home.z)).toBeLessThan(0.5);
 
-  // the wheel: one notch, one level (eased), clamped at both ends
+  // the wheel zooms continuously (a notch is about one old level step, eased), clamped at both ends
   await page.mouse.move(720, 450);
   const dists: number[] = [];
   for (let i = 0; i < 5; i++) {
@@ -281,7 +281,9 @@ test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD an
     c = await settled(page);
     dists.push(c.dist);
   }
-  expect(dists.map((d) => Math.round(d))).toEqual([290, 490, 830, 830, 830]);
+  expect(dists[0]).toBeGreaterThan(250);
+  expect(dists[1]).toBeGreaterThan(dists[0] * 1.5);
+  expect(dists.slice(2).map((d) => Math.round(d))).toEqual([830, 830, 830]);
   for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await frames(page, 2); }
   c = await settled(page);
   expect(c.iso.level).toBe(0);
@@ -348,31 +350,6 @@ test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD an
   await g(page, 'setView', { x: 17, y: -30, z: 4 }, { x: 0, y: 0, z: 0 });
   c = await cam(page);
   expect(c.clearance, 'a view pushed under the ground is lifted back').toBeGreaterThan(40);
-});
-
-test('walk mode on the classic materials: the suit lens on foot, the isometric lens back', async ({ page }) => {
-  await boot(page, 'mare');
-  await g(page, 'setPaused', true);
-  await g(page, 'setMode', 'walk');
-  await frames(page, 5);
-  let c = await cam(page);
-  expect(c.fov).toBe(70);
-  const info = await g(page, 'getRenderInfo');
-  expect(info.style).toBe('classic');
-  expect(info.terrain.material).toBe('MeshLambertMaterial');
-  expect(info.lens.near).toBeCloseTo(0.15, 6);
-  const p0 = await g(page, 'getPlayer');
-  await page.keyboard.down('KeyW');
-  await page.waitForTimeout(1500);
-  await page.keyboard.up('KeyW');
-  const p1 = await g(page, 'getPlayer');
-  expect(Math.hypot(p1.x - p0.x, p1.z - p0.z), 'the astronaut walked').toBeGreaterThan(0.5);
-  // Tab back: the dolly up ends on the isometric lens and its steps
-  await page.keyboard.press('Tab');
-  await expect.poll(async () => (await cam(page)).fov, { timeout: 20_000 }).toBe(20);
-  c = await settled(page);
-  expect(c.iso.pitchDeg).toBe(32);
-  expect((await g(page, 'getRenderInfo')).lens.near).toBeGreaterThan(10);
 });
 
 test('menu: the Style switch saves, reloads straight back into the game, and persists', async ({ page }) => {

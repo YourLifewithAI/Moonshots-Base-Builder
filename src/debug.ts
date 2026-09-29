@@ -104,17 +104,12 @@ function api(game: Game) {
     advanceGameSeconds: (s: number) => game.debugAdvance(Math.round(s)),
     /** one live frame of `realDt` wall-seconds, through the real loop's clamps */
     stepFrame: (realDt: number) => game.debugFrame(realDt),
-    setMode: (m: 'build' | 'walk') => game.setModeInstant(m),
     setView: (pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) =>
       game.debugSetView(pos, target),
     setTerrainVisible: (v: boolean) => game.debugSetTerrainVisible(v),
     /** run the black-frame check on the next drawn frame (with the terrain
      *  hidden: a silent terrain failure, as the check sees it) */
     probeNext: () => game.debugProbeNext(),
-    getPlayer: () => ({
-      x: game.walkController.pos.x, y: game.walkController.pos.y, z: game.walkController.pos.z,
-      yaw: game.walkController.yaw,
-    }),
     save: () => game.doSave(),
     /** touch mode: the gesture recognizer, the pointer, the road tool's Remove toggle */
     getTouch: () => clone(game.debugTouch()),

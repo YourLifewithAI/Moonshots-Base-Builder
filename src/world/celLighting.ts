@@ -55,15 +55,10 @@ const GROUND_DAY = new THREE.Color(0.24, 0.215, 0.19);
 const EARTH = new THREE.Color(0.16, 0.22, 0.38);
 const SKY_NIGHT = new THREE.Color(0.06, 0.085, 0.15);
 const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
-/** on foot at night the eye adapts: key and fill lift this much */
-const ADAPT = 0.45;
 
 export class CelLighting {
   readonly sun: THREE.DirectionalLight;
   readonly fill: THREE.HemisphereLight;
-  /** walk-mode night adaptation, 0..1 (named for the High detail headlamp
-   *  it stands in for: probes read `headlamp.intensity`) */
-  readonly headlamp = { intensity: 0 };
   /** shadow bookkeeping the High detail rig has; classic draws no shadows */
   readonly shadowTexel: [number, number] = [0, 0];
   readonly shadowRenders = 0;
@@ -90,17 +85,6 @@ export class CelLighting {
     skyDirection(Math.max(EARTH_MIN, e.elevDeg * DEG), e.azimDeg * DEG, this.earthDir);
   }
 
-  /** The camera joins the scene, as in High detail (no lamp rides on it). */
-  attachHeadlamp(scene: THREE.Scene, camera: THREE.Camera) {
-    scene.add(camera);
-  }
-
-  /** On foot: `night` 0..1 lifts the night light a little; 0 = off. */
-  setHeadlamp(night: number) {
-    const k = Math.min(1, Math.max(0, (night - 0.25) / 0.5));
-    this.headlamp.intensity = k * k * (3 - 2 * k);
-  }
-
   /** Per frame: the true sun (elevation, azimuth, radians) and 0 day … 1 night. */
   setSun(elev: number, azim: number, nightFactor = 0) {
     skyDirection(elev, azim, this.sunDir);
@@ -109,7 +93,6 @@ export class CelLighting {
     const up = Math.min(1, Math.max(0, (elev + 0.03) / 0.1));
     this.light = up;
     const night = Math.min(1, Math.max(0, nightFactor));
-    const adapt = 1 + ADAPT * this.headlamp.intensity * night;
 
     // the day key: the sun's azimuth, lifted; golden while the sun is low
     const t = Math.min(1, Math.max(0, elev / SUN_TOP));
@@ -122,14 +105,13 @@ export class CelLighting {
     if (this.v.lengthSq() < 1e-8) this.v.copy(this.earthDir);
     this.keyDir.copy(this.v.normalize());
     key.r += EARTH.r * night; key.g += EARTH.g * night; key.b += EARTH.b * night;
-    key.multiplyScalar(adapt);
 
     this.sun.color.copy(key);
     this.sun.position.copy(this.keyDir).multiplyScalar(100);
     this.sun.target.position.set(0, 0, 0);
     this.sun.updateMatrixWorld();
-    this.fill.color.copy(SKY_DAY).lerp(SKY_NIGHT, night).multiplyScalar(adapt);
-    this.fill.groundColor.copy(GROUND_DAY).lerp(GROUND_NIGHT, night).multiplyScalar(adapt);
+    this.fill.color.copy(SKY_DAY).lerp(SKY_NIGHT, night);
+    this.fill.groundColor.copy(GROUND_DAY).lerp(GROUND_NIGHT, night);
 
     const u = celLightUniforms;
     u.uLightDir.value.copy(this.keyDir);

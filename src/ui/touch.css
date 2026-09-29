@@ -78,7 +78,6 @@ html.touch #hud-left { display: none; }
 html.touch #time-controls .row,
 html.touch #era-chip,
 html.touch #map-chip,
-html.touch #walk-hud,
 html.touch #tooltip { display: none !important; }
 
 /* ── the top bar ── */
@@ -175,7 +174,7 @@ html.touch .alert .alert-ctrs .hz-ctr { font-size: 11px; }
 html.touch .alert-more { font-size: 11px; }
 html.touch #hazard-chip { min-height: var(--tap); font-size: 11px; }
 /* the inspector's fixed-height alert stack is the desktop column's */
-html.touch #hud-layer:not(.mode-walk) #hud-right.inspecting #alerts { height: auto; overflow: visible; }
+html.touch #hud-layer #hud-right.inspecting #alerts { height: auto; overflow: visible; }
 
 /* ── the palette: a bottom sheet — tabs over a scrolling strip of cards ── */
 html.touch #palette {

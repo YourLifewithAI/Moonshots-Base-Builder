@@ -18,10 +18,6 @@ export const CYCLE_S = DAY_S + NIGHT_S;
 export const SPEEDS = [1, 3, 10] as const;
 
 export const GRAVITY = 1.62;           // m/s^2 — the Moon
-export const JUMP_V = 2.6;             // m/s  — apex ~2.1 m, hang ~3.2 s
-export const WALK_SPEED = 3.0;         // m/s lope
-export const EYE_HEIGHT = 1.7;
-export const PLAYER_RADIUS = 0.5;
 
 export const CONSTRUCTION_KW = 4;      // grid draw per working construction rover
 export const CONSTRUCTION_PARTS_PER_S = 0.04; // welding consumables per site, one rover's pace

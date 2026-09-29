@@ -2,7 +2,7 @@
  *  solar wings track the sun each frame (yaw to its azimuth, tilt to its
  *  elevation — near-vertical under the pole's grazing sun, stowed flat at
  *  night) and dishes hold on Earth, which never moves in a site's sky.
- *  Picking maps a hit back to its building; colliders stay the recipe AABB.
+ *  Picking maps a hit back to its building.
  *  Built structures only: a part is mounted once its building is complete. */
 import * as THREE from 'three';
 import type { BuildingState } from '../core/state';

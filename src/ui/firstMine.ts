@@ -8,7 +8,7 @@ import { isHubType } from '../data/hubs';
 import { loadSettings } from '../core/settings';
 import { el, perFrame } from './hud';
 import {
-  $announce, $deposits, $depositOverlay, $depositSel, $fleet, $menuOpen, $mode, $phase,
+  $announce, $deposits, $depositOverlay, $depositSel, $fleet, $menuOpen, $phase,
   $placing, $resourcePanel, $time, overlayUp,
   type DepositView, type FleetView,
 } from './stores';
@@ -97,7 +97,7 @@ export function mountFirstMine(root: HTMLElement, game: Game) {
       open = !hub && !folded && loadSettings().tips && (!q.has('debug') || q.has('tips'));
     }
     const announcing = $announce.get().length > 0 && loadSettings().tips;
-    stack.hidden = $mode.get() !== 'build' || $menuOpen.get() || overlayUp() || announcing;
+    stack.hidden = $menuOpen.get() || overlayUp() || announcing;
     card.hidden = !open;
     root.classList.toggle('first-mine-open', open);
     goals.hidden = open;
@@ -133,7 +133,7 @@ export function mountFirstMine(root: HTMLElement, game: Game) {
     button('done').hidden = step !== 3;
   };
   const schedule = perFrame(render);
-  for (const store of [$phase, $mode, $menuOpen, $announce, $deposits, $fleet, $placing, $time]) store.subscribe(schedule);
+  for (const store of [$phase, $menuOpen, $announce, $deposits, $fleet, $placing, $time]) store.subscribe(schedule);
   toggle.addEventListener('click', () => {
     open = !open;
     if (!open) rememberFold();

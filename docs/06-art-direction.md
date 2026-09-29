@@ -60,7 +60,7 @@ Corollaries that follow from the thesis:
 | No filters, only light | AgX tonemapping does the "film" work; albedo stays neutral |
 | Shape is identity | Buildings must read by silhouette, never by hue (§6) |
 | The sky is black | UI panels are dark so the *world* is the bright element (see 07) |
-| Vacuum physics | Dust flies in clean parabolas and falls; bootprints never erode; no fog, no smoke, no twinkle |
+| Vacuum physics | Dust flies in clean parabolas and falls; no fog, no smoke, no twinkle |
 | Zero binary assets | Every texture-like effect is vertex color, noise, a texture generated at boot, or post |
 
 ---
@@ -90,9 +90,7 @@ reference; the floats are canonical.
 | Rovers, cargo lander | the building finishes (BODY / TRIM / GLASS / PLATE, LAMP, BEACON) | — | `world/rovers.ts`, `world/events.ts` — no new values |
 | Window / print band / floods | `#fff4e0`-ish warm white (`1.0, 0.955, 0.88`) | — | the only light the base makes; neutral enough to stay "gray" |
 | Machines' window and lamp light | cold white (`0.8, 0.92, 1.0`) | — | per instance by `iWarm` (0 cold … 1 warm, §13): Data Centers, Monoliths, fabs, bays, hives, masts; everything else by the destiny's lean |
-| Headlamp | `#fff6ea` | — | the suit lamp (§9) |
 | Dust grains | linear gray `0.015 + 0.45 × sun`, opacity 0.9 | — | `world/life.ts` → `world/dust.ts`; sunlit grains catch the light brighter than the ground they leave |
-| Bootprints | black @ 0.42 × tread alpha | — | `player/footprints.ts`: compacted soil reads darker |
 | Rover contact shadow | black @ 0.5 × sun | — | `world/rovers.ts` decal |
 | Launch capsule | white × **9** (HDR) + additive glow sprite; trail 0 → 2.2 additive | — | `world/events.ts`: blooms at FX 0, clips white below |
 | Descent plume | additive gray ≤ **0.14** | — | a faint frustum, not a flame: exhaust is nearly invisible in vacuum |
@@ -132,7 +130,7 @@ and metalness, never value; there is no per-building tint.
 
 ## 3. Light and sky (`src/world/lighting.ts`, `src/world/sky.ts`)
 
-One sun, one fill, the base's own lamps, and a suit lamp on foot:
+One sun, one fill and the base's own lamps:
 
 | Light | Values |
 |---|---|
@@ -142,7 +140,6 @@ One sun, one fill, the base's own lamps, and a suit lamp on foot:
 | Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy. Night only: a shadowed crater by day keeps the day's earthshine and bounce |
 | Floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2 × the structure's darkness *k*; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
 | Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
-| Headlamp | camera-mounted `SpotLight #fff6ea`, **16 cd** at full night, range 40 m, cone 0.52 rad, penumbra 0.6, decay 2, 0.12 m above the eye and aimed ~23° under the gaze; no shadow. Always in the scene (constant light count — a light joining would recompile every lit program), intensity 0 except on foot, ramped in over night factor 0.25 → 0.75 |
 | Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
 
 Dynamics, driven by the day/night clock (`core/daynight.ts`):
@@ -154,11 +151,10 @@ Dynamics, driven by the day/night clock (`core/daynight.ts`):
   "peak of eternal light" rendered literally.
 - **Shadows are fitted, snapped, and change-driven** (`Lighting.fitShadow`).
   The four frustum-corner rays are intersected with the ground plane through
-  the focus (clamped to 2.2 × camera distance in build mode, 160 m in walk
-  mode), the box is padded for 20 m-tall receivers, and its size steps in
+  the focus (clamped to 2.2 × camera distance), the box is padded for 20 m-tall receivers, and its size steps in
   9% increments with hysteresis. The window is snapped to whole texels in
   light space, so edges hold still while panning. Typical texels: 0.06 m in
-  a close build view or on foot, 0.12–0.18 m in the default overview (the
+  a close build view, 0.12–0.18 m in the default overview (the
   old fixed ±460 m window was 0.45 m). The map is re-rendered only when the
   sun turns a step (0.1° up to 3×, growing with speed past that: 0.33° at
   10×), the view leaves the window it was drawn for (the window stands while
@@ -278,7 +274,7 @@ sun.
    1.0`, quality "Medium" at **half resolution** with depth-aware upsampling
    (cheaper than the old full-res "Low"). AO is what makes white-on-gray
    forms legible: contact shadows glue buildings to the regolith and carve
-   panel joins without edge lines. Transparent decals (bootprints, rover
+   panel joins without edge lines. Transparent decals (rover
    shadows, the ghost) write no depth and stay out of it. N8AO's automatic
    transparency detection is off: left on, the first transparent material
    in the scene turned its transparency pass on — two more renders of the
@@ -324,9 +320,7 @@ by feature:
 | Launch capsule / trail / glow | ✓ (capsule blooms) | ✓ | ✓ | ✓ | capsule only |
 | Resupply lander / plume | ✓ | ✓ | ✓ | stock lander | unlit lander, no plume |
 | Berms | regolith shader | regolith shader | regolith shader | stock | unlit twin |
-| Bootprints, rover shadows | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Headlamp | ✓ | ✓ | ✓ | ✓ | no effect (unlit) |
-| Visor | DOM | DOM | DOM | DOM | DOM |
+| Rover shadows | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 **The registry contract** (every scene shader patch, including the ones
 added for motion): a patch checks its injection anchors against the stock
@@ -522,9 +516,7 @@ and never opens a crack. The chunks cast and receive sun shadows (§3).
   its flat, limb-bright look) times a Hapke-style opposition surge
   (B₀ 0.8, h 0.07): the bright halo around the anti-solar point, i.e. around
   your own shadow. μ is floored at 0.05 so the blend never divides by zero
-  at grazing view angles. It applies to every direct light, so the headlamp
-  — which sits next to the eye — lights the ground ahead of you with the
-  same retro-reflective surge.
+  at grazing view angles. It applies to every direct light.
 
 **Horizon ring** (`terrain/horizon.ts`): one mesh from the map's square edge
 out to ~12 km that continues the analytic terrain (fBm, the map's craters,
@@ -859,7 +851,7 @@ asked ("research has no visible consequences"). All visual only.
 
 ---
 
-## 9. Cameras: command view and on foot
+## 9. The camera: command view
 
 **Command view** (`player/buildCam.ts`): MapControls — left-drag pan,
 right-drag orbit, wheel zoom toward the cursor — plus WASD/arrows (pan at
@@ -870,30 +862,6 @@ sinks below 4 m over the highest ground under it, distance stays within
 90 m, ~22° above the horizon — the landing site with its horizon; F glides to
 the selection (0.6 s). Lens: **55°**, near plane 0.5 m.
 
-**On foot** (`player/walk.ts`, `player/modes.ts`, `player/footprints.ts`,
-`ui/visor.ts`). The same camera dollies down in 1.2 s (ease-out cubic) and
-the lens changes with it:
-
-- **Wider lens**: the FOV tweens 55° → **70°** on the way down and back on
-  the way up (a suit visor, not a telephoto); the near plane pulls in to
-  **0.15 m** so walls and boulders at arm's length never clip.
-- **Gait**: a slow lope — the eye bobs 3.5 cm at 1.1 bounds per second at
-  walking pace (cadence ×0.6–1.6 with speed), easing in and out as you start
-  and stop — and on landing from a leap a damped spring (k 120/s², c 16/s)
-  dips the eye ≈ 7 cm after a full jump (clamped at 16 cm), integrated in
-  1/120 s substeps so a slow frame cannot overshoot it.
-- **Headlamp** (§3): on only at night — a pool of light that leads you
-  across the dark plain, and nothing more.
-- **Bootprints**: every 1.15 m of grounded travel (left and right 0.13 m
-  either side of the path; both feet on landing) a treaded sole
-  (0.15 × 0.33 m, chevron ribs, a generated texture) is pressed into the
-  ground, tilted to it. An instanced ring buffer of 400 prints; nothing
-  erodes them — no wind, no rain — so they stay until the buffer wraps.
-- **Visor**: a pure-CSS layer at the back of `#walk-hud` (so the reticle and
-  helmet readouts sit on it): the helmet's curved glass edge as a radial
-  falloff to 88% black, a faint specular sheen high on the left (two 128°
-  streaks under a radial mask) and a hairline rim. No GPU cost at all.
-
 ---
 
 ## 10. Performance budget
@@ -903,10 +871,10 @@ direction, not an afterthought:
 
 | Budget | Target | Shipped reality |
 |---|---|---|
-| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 6 (rovers, rover shadows, dust, glints, bootprints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply); the destiny adds ≤ 4 building types and ≤ 6 layer meshes, each only while it exists (walkways, spines; walkers and their decals; drones and theirs); the work animations add ≤ 2 (the kit, the glow: §7.1), each only while it holds something |
+| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 5 (rovers, rover shadows, dust, glints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply); the destiny adds ≤ 4 building types and ≤ 6 layer meshes, each only while it exists (walkways, spines; walkers and their decals; drones and theirs); the work animations add ≤ 2 (the kit, the glow: §7.1), each only while it holds something |
 | Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 380 each (+ 36 of print arm in the work kit); an excavator's rig 276 (372 with the wider lips); drones ~200, walkers ~100; links ≤ 12 k |
 | Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
-| Lights | 1 sun + 1 hemisphere + 1 spot | the headlamp is always present at intensity 0; 8 PointLights join only on the stock path |
+| Lights | 1 sun + 1 hemisphere | 8 PointLights join only on the stock path |
 | Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
 | Per-frame CPU | small and flat | ≤ 64 rover matrices, ≤ 48 drone and ≤ 24 walker matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; the work kit's and glow's matrices in use (only that part uploaded: ~0.1 ms for 160 on a busy base); paths planned only on (re)assignment; berms and links rebuilt only on change (a numeric signature) |
 | Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
@@ -926,15 +894,12 @@ Designed during research, deliberately cut from the slice (sequencing in
 2. **Blue-noise dither upgrade** — the shipped grain is white-noise
    `NoiseEffect`; a tiled blue-noise texture would dither gradients with less
    visible crawl at the same 0.14 opacity.
-3. **Rover tracks** — wheel ruts in the ring buffer the bootprints use; the
+3. **Rover tracks** — wheel ruts in an instanced ring buffer; the
    dust already says where they drive. (The turning bucket wheel shipped
    with the work animations, §7.1.)
 4. **Moving casters in the shadow map** — rovers and a descending lander
    would need a second, small shadow map (or per-frame re-renders of the one
    we have); the contact decal carries it for now.
-
-*Shipped since the slice plan:* the walk-mode helmet visor (formerly deferred
-item 3) is the CSS layer in §9.
 
 ---
 
@@ -1011,8 +976,8 @@ cold colour by its `iWarm` (§13); its flood pool takes the same mix
   heightfield sample — with every triangle its own three vertices and a face
   normal. Faceting comes from the geometry, not from derivative (`dFdx`)
   shading. 64 chunks, 131 k triangles; the horizon ring (43 k) and berms
-  are faceted the same way. Measured against `hf.sample` (which buildings,
-  rovers and the walker stand on), seed 42, 4,000 points: every vertex 0 m
+  are faceted the same way. Measured against `hf.sample` (which buildings and
+  rovers stand on), seed 42, 4,000 points: every vertex 0 m
   off; the triangulated surface departs from the bilinear sample by at most
   0.12 m on the mare, 0.22 m at the pole and 0.23 m in the lava tube
   (on crater walls), 1.5–5 mm on average — and on pads, where buildings
@@ -1087,28 +1052,24 @@ reads the same values):
 | Fill (sky / ground) | `(0.34, 0.37, 0.43)` / `(0.24, 0.215, 0.19)` | `(0.06, 0.085, 0.15)` / `(0.018, 0.024, 0.04)` |
 
 The two blend on the night factor, the key's direction weighted by the two
-strengths; on foot at night the eye adapts (key and fill × up to 1.45) in
-place of the High detail headlamp. The result is a blue-black night where
+strengths. The result is a blue-black night where
 every building reads by its lit and shaded faces and the base's own lights
 carry the rest. The true sun still drives the sky, the solar wings and the
 rover decals. The sky is High detail's own stock-material sky — stars,
-Milky Way, sun disc, Earth — seen on foot and on the way down (the
-isometric view never looks above the horizon).
+Milky Way, sun disc, Earth; the isometric view never looks above the
+horizon, so classic draws none.
 
 ### 12.6 The isometric camera (`player/isoCam.ts`)
 
 | | |
 |---|---|
 | Lens | perspective, **20°** vertical — near-orthographic, so picking, `screenOf` and the overlays work unchanged |
-| Pitch | fixed **32°** below the horizon (the top of the frame looks 22° down: never the sky) |
+| Tilt | two fixed tilts, **32°** (low, the default framing: the top of the frame looks 22° down, never the sky) and **55°** (high); V flips them in a 0.35 s ease-in-out |
 | Yaw | **45° + k·90°**; Q / E turn one step in a 0.35 s ease-in-out; presses queue, a held key turns once |
-| Zoom | the wheel steps through **5 levels** — 100, 170 (home), 290, 490, 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view), eased; a trackpad's trickle adds up to a step |
+| Zoom | the wheel and a pinch zoom **continuously** between 100 m and 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view at the low tilt), eased; a mouse notch is ×1.7; home is 170 m, F closes to 100 m |
 | Pan | W A S D / arrows at 1.1 view heights a second; right- or middle-drag, the ground following the pointer. The left button stays select / place / target |
 | F / H | F glides to the selection (0.6 s) and closes to the nearest level; H glides home to the Lander at the home level |
 | Limits | the target rides the terrain and stays 40 m inside the map; the camera never sits under 4 m of clearance; the clip planes track the zoom (near 0.2 d, far 6 d + 800 m) |
-
-Walk mode is unchanged and draws with the classic materials: Tab dollies
-down to the 70° suit lens and back up to the isometric one.
 
 ### 12.7 Cost (measured)
 

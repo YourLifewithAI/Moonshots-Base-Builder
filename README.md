@@ -5,7 +5,7 @@ land on an empty patch of the Moon, choose your site's trade-offs, build a base 
 every structure pulls on your resources and gives something back — and bend the curve
 until you're launching thin-film solar collectors toward the Sun.
 
-Elegant grayscale. Simple procedural 3D. You can walk around everything you build.
+Elegant grayscale. Simple procedural 3D, seen from above.
 
 ## Play in your browser
 
@@ -24,15 +24,13 @@ themselves on a phone (Menu → Touch controls: Auto · On · Off):
 
 | Touch | Action |
 |---|---|
-| Drag · pinch · twist | Pan · zoom (five steps) · turn the view 90° (or ⟲ ⟳) |
+| Drag · pinch · twist | Pan · zoom · turn the view 90° (or ⟲ ⟳) · **▱** tilts it, low or high |
 | Tap · hold | Select · what is this? (a building's or a deposit's card) |
 | **Build** → tap a card | Its ghost appears mid-view: drag it, ⟳ rotate, ✓ place, ✕ cancel |
 | Hold a card · **Order** | The rovers choose the site |
 | **Road** | Drag out from a road · **Remove** toggles |
 | **Tree** | Tap a tech to see it, tap again to queue · hold to queue its whole path |
 | ❚❚ · 1× · ☰ | Pause · speed · menu |
-
-Walk mode (first person) needs a keyboard and mouse.
 
 ## Play locally
 
@@ -52,11 +50,10 @@ game is ~300 kB gzipped.
 | Right-drag | Orbit the camera |
 | Click | Place building · select building |
 | `R` | Rotate while placing · right-click cancels |
-| `Tab` | Drop to first-person walk mode (and back) |
-| `WASD` + mouse | Walk the base · `Space` jumps (1/6 g — enjoy the hang time) |
+| `WASD` | Pan the command view |
 | `T` | Tech tree |
 | `I` | Toggle the ice-deposit overlay (after surveying from the Lander) |
-| `Space` | Pause · `1` `2` `3` — speed 1×/3×/10× |
+| `Space` | Pause · `1` `2` `3` — speed 1×/3×/10× (a speed also resumes a paused game) |
 
 ## The game
 
@@ -91,12 +88,11 @@ npm run build      # typecheck + production build
 npm test           # Playwright smoke suite: full loop from site select to victory
 ```
 
-Debug/test drive: `/?debug&seed=42&nolock` exposes `window.__game`
-(place buildings, grant resources, complete techs, fast-forward the economy,
-toggle walk mode without pointer lock).
+Debug/test drive: `/?debug&seed=42` exposes `window.__game`
+(place buildings, grant resources, complete techs, fast-forward the economy).
 
 URL flags: `?site=mare|southpole|lavatube` (skip site select) · `?seed=n` ·
-`?safe` (unlit safe rendering) · `?debug` · `?nolock`. (`?style`, `?fx` and
+`?safe` (unlit safe rendering) · `?debug`. (`?style`, `?fx` and
 `?lowfx` are ignored: there is one renderer, the cel style.)
 
 The game draws with plain forward rendering — no post chain, no shadow map.

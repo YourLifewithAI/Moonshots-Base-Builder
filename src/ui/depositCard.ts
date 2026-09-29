@@ -21,7 +21,7 @@ import { faceCapacity, pitName, reclaimRefusal, reservesOf, surveyRefusal, type 
 import { bedrockTech, hubName } from '../core/hubs';
 import { fmtClock } from '../core/daynight';
 import { openTechTreeAt } from './techTree';
-import { $depositOverlay, $deposits, $depositSel, $feed, $lunar, $mode, $phase, $selection, type DepositView } from './stores';
+import { $depositOverlay, $deposits, $depositSel, $feed, $lunar, $phase, $selection, type DepositView } from './stores';
 
 interface Line { sign: 'pro' | 'con'; text: string }
 interface Guide {
@@ -309,7 +309,7 @@ export function mountDepositCard(root: HTMLElement, game: Game) {
   const render = () => {
     const id = $depositSel.get();
     const d = id ? $deposits.get().find((x) => x.id === id) : undefined;
-    if (!d || $phase.get() !== 'playing' || $mode.get() !== 'build') {
+    if (!d || $phase.get() !== 'playing') {
       if (card.style.display !== 'none') card.style.display = 'none';
       sig = '';
       return;
@@ -326,5 +326,5 @@ export function mountDepositCard(root: HTMLElement, game: Game) {
   // a building selected closes the card; the card opened drops the selection
   $selection.subscribe((sel) => { if (sel && $depositSel.get()) $depositSel.set(null); });
   $depositSel.subscribe((id) => { if (id && $selection.get()) $selection.set(null); render(); });
-  for (const a of [$deposits, $feed, $mode, $phase]) a.subscribe(render);
+  for (const a of [$deposits, $feed, $phase]) a.subscribe(render);
 }

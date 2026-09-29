@@ -13,7 +13,11 @@ const SYNC_KEY = 'mbb-save-v1-sync';
 
 export interface SaveBlob {
   state: GameState;
-  player: { mode: 'build' | 'walk'; x: number; y: number; z: number; yaw: number; pitch: number };
+  // (saves from before walk mode was removed also carry a `player` block: nothing reads it)
+  /** the isometric view's preset (player/isoCam.ts CameraPreset): the yaw step,
+   *  the tilt (0 low, 1 high) and the zoom distance (m); absent in older saves,
+   *  which load with the default view */
+  camera?: { step: number; tilt: number; dist: number };
   savedAt: number;
 }
 

@@ -10,7 +10,6 @@
 #weather-chip.tail { background: repeating-linear-gradient(45deg, rgba(var(--paper-rgb), 0.28) 0 3px, transparent 3px 7px), var(--ink-700); color: var(--paper); }
 @keyframes wx-flash { from { border-color: rgba(var(--paper-rgb), 0.25); } to { border-color: var(--paper); } }
 @media (prefers-reduced-motion: reduce) { #weather-chip.telegraph, #weather-chip.crit { animation: none; border-color: var(--paper); } }
-#hud-layer.mode-walk #weather-chip, #hud-layer.mode-walk #weather-panel { display: none; }
 
 /* the pop-up: 640 × 300 at 1280×720, top centre under the swarm meter, 12 px mono */
 #flare-popup {

@@ -2,7 +2,6 @@
  *  ?site=mare|southpole|lavatube  skip site select and land immediately
  *  ?seed=42                       deterministic world + events
  *  ?debug                         expose window.__game
- *  ?nolock                        walk mode without pointer lock (headless tests)
  *  ?safe                          safe render mode (also a menu setting)
  *  (?style, ?fx and ?lowfx are ignored: there is one renderer, the cel style)
  *  ?touch  (?touch=0)             touch mode on (off) for this launch (the
@@ -79,7 +78,6 @@ function takeResume(): boolean {
 let game: Game | null = null;
 try {
   game = new Game(canvas, {
-    nolock: params.has('nolock'),
     // ?lowfx, ?fx and ?style are ignored (the fixed values below go with GameOptions' fields)
     lowfx: false,
     safe: params.has('safe') || settings.safe || settings.safeAuto,

@@ -13,8 +13,7 @@
  *  noon lays no flood, nightfall fades the lights in, and an unpowered
  *  structure stays dark at any darkness.
  *  The motion layer (rovers, dust, launch and resupply, research visuals)
- *  is checked at FX 0, FX 3 and in safe mode, and walk mode for its lens,
- *  headlamp, bootprints and visor. The render-safety contract: safe mode
+ *  is checked at FX 0, FX 3 and in safe mode. The render-safety contract: safe mode
  *  draws plain with the black-frame check still on, a return to a patched
  *  level recompiles with live uniforms, the check reads night frames and
  *  keeps a raise only once it draws, each frame draws the scene once, and a
@@ -503,41 +502,13 @@ test('base life: rovers, dust, launch and resupply at FX 0; static dust at FX 3;
   expect(shaderErrors).toEqual([]);
 });
 
-test('walk mode: wider lens, a headlamp at night, bootprints, a visor', async ({ page }) => {
-  test.setTimeout(180_000);
+test('the building shader keeps a clock: beacons blink', async ({ page }) => {
   await page.setViewportSize({ width: 800, height: 450 });
   await page.goto('/?debug&style=detailed&seed=42&nolock&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   const info = () => page.evaluate(() => window.__game.getRenderInfo());
-  await page.evaluate(() => {
-    const g = window.__game;
-    g.setPaused(true);
-    g.grantPower(200000);
-    g.advanceGameSeconds(610 - g.getState().simTime); // mid-night
-    g.grantPower(200000);
-  });
-  let i = await info();
-  expect(i.lens).toEqual({ fov: 55, near: 0.5 });
-  expect(i.headlamp, 'no headlamp in command view').toBe(0);
-
-  await page.evaluate(() => window.__game.setMode('walk'));
-  await expect(page.locator('#visor')).toBeVisible();
-  i = await info();
-  expect(i.lens).toEqual({ fov: 70, near: 0.15 });
-  await expect.poll(async () => (await info()).headlamp, { timeout: 20_000 }).toBeGreaterThan(0);
-
-  await page.keyboard.down('KeyW');
-  await expect.poll(async () => (await info()).life.footprints, { timeout: 60_000 }).toBeGreaterThan(1);
-  await page.keyboard.up('KeyW');
-
-  await page.evaluate(() => window.__game.setMode('build'));
-  await expect(page.locator('#visor')).toBeHidden();
-  await expect.poll(async () => (await info()).headlamp, { timeout: 20_000 }).toBe(0);
-  i = await info();
-  expect(i.lens).toEqual({ fov: 55, near: 0.5 });
-  expect(i.life.footprints, 'prints stay where they were pressed').toBeGreaterThan(1);
-  // beacons blink on the building shader's clock
-  const t0 = i.base.clock;
+  expect((await info()).lens, 'the command lens').toEqual({ fov: 55, near: 0.5 });
+  const t0 = (await info()).base.clock;
   await expect.poll(async () => (await info()).base.clock, { timeout: 10_000 }).not.toBe(t0);
 });
 

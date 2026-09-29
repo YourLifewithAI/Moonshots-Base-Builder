@@ -139,20 +139,20 @@ balance-heavy.
 ## Phase 7 · Presentation — Audio and the Deferred Art Passes
 
 **What:** The first soundscape has shipped (07 §12: UI ticks, placement,
-Quindar-framed alerts, the grid hum, suit breathing); this phase finishes
-it — a habitat-interior room tone, muffled-through-structure thumps in walk mode
+Quindar-framed alerts, the grid hum); this phase finishes
+it — a habitat-interior room tone and telegraph/alarm tones for events
 (vacuum outside: sound only via conduction — the audio *is* an art
-direction), and telegraph/alarm tones for events. Plus the deferred render
+direction). Plus the deferred render
 work from 06 §11: the **hairline edge/outline post pass**, **blue-noise
 dither** replacing white-noise grain, rover tracks, and a second shadow map
-for moving casters (the walk-mode helmet visor has since shipped, 06 §9).
+for moving casters.
 
 **Why next:** Pure polish multipliers — they touch nothing mechanical, so
 they slot after systems stabilize but before any public milestone build.
 WebAudio synthesis keeps the zero-binary-asset rule.
 
 **Rough scope:** M. Audio graph + ~15 synthesized cues; the edge pass is a
-contained `postprocessing` effect; helmet layer is DOM/CSS.
+contained `postprocessing` effect.
 
 ## Phase 8 · Platform & Engine — Workers, LOD, Tiers, Saves
 
@@ -187,7 +187,7 @@ Phase 1 changes `GameState`).
 | 4 Jeopardy | Micrometeorites, Buried Hab, Medical | 3 | full pressure roster |
 | 5 Logistics & Automation | Drone Hub coverage, Seed | 1 | 6 |
 | 6 The Long Swarm | Bands, beaming curve, VN portfolio | 5 | the real endgame |
-| 7 Presentation | Audio, edge pass, dither, helmet | any time | polish |
+| 7 Presentation | Audio, edge pass, dither | any time | polish |
 | 8 Platform & Engine | Worker, LOD, tiers, save migration | continuous | scale |
 
 The first `GameState`-shape change in any phase must bring save migration

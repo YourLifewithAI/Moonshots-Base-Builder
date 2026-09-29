@@ -207,7 +207,7 @@ export class TerrainChunks {
   }
 
   /** How far the drawn ground departs from hf.sample, which buildings,
-   *  rovers and the walker stand on: the largest vertex offset from its grid
+   *  and rovers stand on: the largest vertex offset from its grid
    *  sample (read back from the meshes), and the largest and mean gap of the
    *  triangulated surface from the bilinear sample over `n` seeded points
    *  (tests, probes). */

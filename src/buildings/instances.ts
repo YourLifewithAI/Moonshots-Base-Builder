@@ -463,20 +463,4 @@ export class BuildingInstances {
     }
     return null;
   }
-
-  /** AABBs for walk-mode collision. */
-  colliders(state: GameState): { minX: number; maxX: number; minZ: number; maxZ: number; top: number }[] {
-    return state.buildings.map((b) => {
-      const r = footprintRect(b);
-      const [cx, cz] = centerOf(b);
-      const y = this.hf.sample(cx, cz);
-      return {
-        minX: r.gx0 * CELL_M - MAP_M / 2,
-        maxX: r.gx1 * CELL_M - MAP_M / 2,
-        minZ: r.gz0 * CELL_M - MAP_M / 2,
-        maxZ: r.gz1 * CELL_M - MAP_M / 2,
-        top: y + BUILDINGS[b.type].height,
-      };
-    });
-  }
 }

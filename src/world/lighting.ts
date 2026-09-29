@@ -6,16 +6,11 @@
  *  Sun shadows: one 2048² ortho map fitted to the ground the camera can see
  *  and snapped to whole texels, re-rendered only when something changed (the
  *  sun turned a step, the view left the window, casters rebuilt) and at most
- *  every MIN_RENDER_S — never at night.
- *
- *  Walk mode adds the suit's headlamp: a SpotLight riding on the camera. It
- *  never leaves the scene (a light joining or leaving recompiles every lit
- *  program); it simply sits at intensity 0 except on foot at night. */
+ *  every MIN_RENDER_S — never at night. */
 import * as THREE from 'three';
 import { sunStep, type WorkSpot } from './celLighting';
 
 const WORK_LIGHTS = 8; // stock-path floods over the buildings nearest the camera
-const HEADLAMP = 16;    // cd at full night
 // Earthshine by day is a whisper under the sun; at night the eye adapts to
 // it. The landscape gets its own floor on top (world/floodlights.ts).
 const EARTHSHINE_DAY = 0.3;
@@ -50,7 +45,6 @@ function windowSize(w: number, prev: number): number {
 export class Lighting {
   readonly sun: THREE.DirectionalLight;
   readonly earthshine: THREE.HemisphereLight;
-  readonly headlamp: THREE.SpotLight;
   private workLights: THREE.PointLight[] = [];
   /** filled by the caller (nearest dark structures first), then setWorkLights */
   readonly workSpots: WorkSpot[] = Array.from({ length: WORK_LIGHTS }, () => ({ x: 0, y: 0, z: 0, k: 0, d: 0 }));
@@ -92,24 +86,6 @@ export class Lighting {
 
     this.earthshine = new THREE.HemisphereLight(0x2a3a55, 0x000000, 0.42);
     scene.add(this.earthshine);
-
-    // helmet-mounted, a hand above the eye, aimed a little below the gaze
-    this.headlamp = new THREE.SpotLight(0xfff6ea, 0, 40, 0.52, 0.6, 2);
-    this.headlamp.castShadow = false;
-    this.headlamp.position.set(0, 0.12, 0);
-    this.headlamp.target.position.set(0, -0.3, -1);
-  }
-
-  /** Parent the headlamp to the camera (which then joins the scene). */
-  attachHeadlamp(scene: THREE.Scene, camera: THREE.Camera) {
-    camera.add(this.headlamp, this.headlamp.target);
-    scene.add(camera);
-  }
-
-  /** On foot: `night` 0..1 drives the lamp; 0 switches it off. */
-  setHeadlamp(night: number) {
-    const k = Math.min(1, Math.max(0, (night - 0.25) / 0.5));
-    this.headlamp.intensity = HEADLAMP * k * k * (3 - 2 * k);
   }
 
   /** Point the sun from (elevation, azimuth) radians; called per frame. */
@@ -172,7 +148,7 @@ export class Lighting {
       this.p.copy(o).addScaledVector(dir, t).y = focus.y;
       addColumn(this.p);
     }
-    // a camera standing among the receivers (walk mode) sees walls at its feet
+    // a camera standing among the receivers sees walls at its feet
     if (o.y - focus.y < RECEIVER_H) addColumn(this.p.set(o.x, focus.y, o.z));
     add(focus);
     return { minX, maxX, minY, maxY, minZ };

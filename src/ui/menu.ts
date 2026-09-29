@@ -20,9 +20,10 @@ import { $announce, $defeat, $menuOpen, $phase, $time } from './stores';
 /** Camera lines: the fixed isometric view. */
 const CAMERA_KEYS: [string, string][] = [
   ['Right-drag · middle-drag', 'pan'],
-  ['Wheel', 'zoom — five steps'],
+  ['Wheel', 'zoom'],
   ['W A S D · arrows', 'pan the camera'],
   ['Q · E', 'turn the view 90°'],
+  ['V', 'tilt the view — low or high'],
 ];
 
 /** The keyboard controls (one table: there is one camera). */
@@ -35,7 +36,7 @@ export const CONTROLS: [string, string][] = [
   ['F', 'focus the selection'],
   ['H · Home', 'back to the Lander'],
   ['Space', 'pause'],
-  ['1 · 2 · 3', 'speed 1× · 3× · 10×'],
+  ['1 · 2 · 3', 'speed 1× · 3× · 10× (resumes when paused)'],
   ['T', 'research tree'],
   ['M', 'Lunar Map — surveys and outposts'],
   ['I', 'deposit overlay'],
@@ -48,8 +49,6 @@ export const CONTROLS: [string, string][] = [
   ['Click a rover', 'inspect it · Send to… then click a site'],
   ['Site · Summon', 'another rover onto a build (Release lets one go)'],
   ['Excavator · Dig at…', 'click a deposit or mapped ground · Esc cancels'],
-  ['Tab', 'walk the surface · command view'],
-  ['On foot', 'W A S D move · Space jump · ⇧ run · E inspect'],
   ['Esc', 'this menu'],
 ];
 
@@ -58,8 +57,9 @@ export const TOUCH_CONTROLS: [string, string][] = [
   ['Tap', 'select a building, rover or site · empty ground clears'],
   ['Hold', 'what is it: a building’s card · a deposit’s card'],
   ['Drag', 'pan the view (a drag never selects)'],
-  ['Pinch', 'zoom — it settles on the nearest of five steps'],
+  ['Pinch', 'zoom'],
   ['Twist · ⟲ ⟳', 'turn the view 90°'],
+  ['▱ Tilt', 'tilt the view — low or high'],
   ['⌂ Home · ⊙ Focus', 'back to the Lander · to the selection'],
   ['◌ Ore', 'deposit overlay'],
   ['Build', 'the palette · tap a card: its ghost in the middle'],
@@ -71,7 +71,6 @@ export const TOUCH_CONTROLS: [string, string][] = [
   ['Map · Builder · Hazards', 'the Lunar Map · orders and rules · risks and counters'],
   ['❚❚ · 1×', 'pause · speed 1× → 3× → 10×'],
   ['☰', 'this menu'],
-  ['Walk mode', 'not in touch mode (a keyboard and mouse walk the base)'],
 ];
 
 const TOUCH_NAME: Record<TouchChoice, string> = { auto: 'Auto', on: 'On', off: 'Off' };

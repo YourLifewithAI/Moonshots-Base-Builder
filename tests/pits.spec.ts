@@ -592,16 +592,9 @@ for (const style of ['classic', 'detailed']) {
         cells++;
         rocks += g.rocksIn(ix * 4 - 512, iz * 4 - 512, ix * 4 - 508, iz * 4 - 508);
       }
-      // walk mode stands on the pit's floor
-      const pit = g.getPits().pits[0];
-      g.setMode('walk');
-      g.setView({ x: pit.cx, y: 0, z: pit.cz }, { x: pit.cx + 10, y: 0, z: pit.cz });
-      const me = g.getPlayer();
-      const floor = g.terrainSample(Math.round((me.x + 512) / 4), Math.round((me.z + 512) / 4));
-      g.setMode('build');
       return {
         style: g.getRenderInfo().style, err: g.terrainError(), n: ratios.length, median: ratios[Math.floor(ratios.length / 2)],
-        queue: g.getPits().queue, rocks, cells, walkY: me.y, floorH: floor.h, floorBase: floor.base,
+        queue: g.getPits().queue, rocks, cells,
       };
     });
     expect(r.style).toBe(style === 'detailed' ? 'detailed' : 'classic');
@@ -613,9 +606,6 @@ for (const style of ['classic', 'detailed']) {
     expect(r.median).toBeGreaterThan(1.1);
     expect(r.cells).toBeGreaterThan(20);
     expect(r.rocks).toBe(0);
-    // on foot, in the pit: its floor, metres below the ground it was cut from
-    expect(Math.abs(r.walkY - r.floorH)).toBeLessThan(1);
-    expect(r.floorBase - r.walkY).toBeGreaterThan(2);
     await page.screenshot({ path: `test-results/pits-${style}.png` });
   });
 }
