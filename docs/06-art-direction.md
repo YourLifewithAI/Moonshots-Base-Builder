@@ -1,5 +1,16 @@
 # 06 · Art Direction — The Apollo Photography Bible
 
+> **Superseded by the cel style (docs/19, W0b1).** The game now draws in one
+> style: cel-shaded, one renderer, MSAA canvas, no post chain, no shadow map,
+> no FX ladder, N8AO, bloom, self-check or render report (§12's Classic
+> path is the base, with `classic*` renamed `cel*`: `world/cel.ts`,
+> `celBuilding.ts`, `celLighting.ts`, `terrain/celGround.ts`, `celFloods.ts`).
+> The High detail sections (§1–11 wherever they describe the post chain, the
+> ladder, shader patches, `lighting.ts`, `sky.ts`, `floodlights.ts`,
+> `terrainShader.ts`, `buildingShader.ts`) describe deleted code and stay only
+> as history. S10 rewrites this file as the cel bible (family palette, ramp
+> and ink constants, silhouettes, night rules, camera presets).
+
 > The Moon is already monochrome. We do not desaturate a colorful world;
 > we light a gray one correctly.
 

@@ -422,23 +422,11 @@
 #menu .menu-col section:first-child { border-top: none; }
 #menu .menu-actions > .btn { text-align: left; }
 #menu .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
-#menu .seg.seg-2 { grid-template-columns: repeat(2, 1fr); }
 #menu .seg.seg-3 { grid-template-columns: repeat(3, 1fr); }
 #menu .seg.seg-3 .btn { font-size: 11px; padding: 6px 4px; }
-#menu .seg.seg-2 .btn { font-size: 11px; padding: 6px 4px; }
 #menu .seg .btn { position: relative; padding: 5px 4px 6px; text-align: center; font-size: 10px; }
-#menu .seg .btn b { display: block; font-family: var(--font-mono); font-size: 14px; line-height: 18px; }
-/* ◆ marks the player's own setting; a dashed rung drew black this session */
-#menu .seg .btn.mine::after { content: '◆'; position: absolute; top: 3px; right: 5px; font-size: 8px; line-height: 8px; }
-#menu .seg .btn.failed { border-style: dashed; }
-#menu .seg .btn.confirm { outline: 1px solid var(--paper); outline-offset: 1px; }
-#menu .menu-auto {
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
-  background: var(--paper); color: var(--ink-900); padding: 0 4px; margin-right: 2px;
-}
 #menu .menu-note { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 #menu .menu-note:empty { display: none; }
-#menu .menu-note .btn { padding: 2px 8px; font-size: 10px; margin-left: 4px; }
 #menu .menu-confirm { display: flex; flex-direction: column; gap: 6px; }
 #menu .menu-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #menu input[type=range] { flex: 1; accent-color: var(--paper); }

@@ -347,7 +347,6 @@ html.touch #menu .seg .btn { font-size: 11px; }
 html.touch #menu input[type=range] { height: var(--tap); }
 html.touch #menu .menu-row:has(#menu-music), html.touch #menu .menu-row:has(#menu-effects) { padding-right: 60px; }
 html.touch #menu .keys kbd, html.touch #menu .keys span { font-size: 12px; line-height: 16px; }
-html.touch #menu .menu-auto { font-size: 11px; }
 html.touch #menu .menu-note .btn { font-size: 11px; }
 
 /* ── portrait: turn the phone ── */
