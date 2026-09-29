@@ -55,7 +55,7 @@ const smooth = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-export class ClassicGround {
+export class CelGround {
   private base: THREE.Color;
   private relief: number;
   private deposits: readonly Deposit[];
@@ -109,12 +109,12 @@ export class ClassicGround {
   }
 }
 
-const cache = new WeakMap<Heightfield, ClassicGround>();
+const cache = new WeakMap<Heightfield, CelGround>();
 
 /** The classic ground colour for a heightfield (one per world). */
-export function classicGround(hf: Heightfield): ClassicGround {
+export function celGround(hf: Heightfield): CelGround {
   let g = cache.get(hf);
-  if (!g) { g = new ClassicGround(hf); cache.set(hf, g); }
+  if (!g) { g = new CelGround(hf); cache.set(hf, g); }
   return g;
 }
 

@@ -20,7 +20,7 @@ const WARM = new THREE.Color(1.0, 0.74, 0.42);
 /** the machines' pools (docs/14 §4.4): the same light as their windows, cold */
 const COLD = new THREE.Color(0.62, 0.84, 1.0);
 
-export class ClassicFloods {
+export class CelFloods {
   readonly mesh: THREE.Mesh;
   private sig = '';
   /** per structure: its first vertex and vertex count */

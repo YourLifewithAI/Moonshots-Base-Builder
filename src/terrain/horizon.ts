@@ -23,7 +23,7 @@ import { materials } from '../world/materials';
 import { regolithAlbedo } from './chunks';
 import type { Crater, Heightfield } from './heightfield';
 import { classicActive } from '../core/style';
-import { classicGround, facet } from './classicGround';
+import { celGround, facet } from './celGround';
 
 const HALF = MAP_M / 2;
 const REACH_M = 11_500;     // ring extent past the map edge
@@ -192,7 +192,7 @@ export class Horizon {
     }
     this.seam = this.measureSeam(pos);
     if (classic) {
-      const ground = classicGround(this.hf);
+      const ground = celGround(this.hf);
       for (let i = 0; i < verts; i++) {
         ground.color(pos[i * 3], pos[i * 3 + 2], pos[i * 3 + 1], nrm[i * 3 + 1], col, i * 3, fps[i], this.allCraters);
       }

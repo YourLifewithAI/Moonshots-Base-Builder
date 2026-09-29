@@ -22,7 +22,7 @@ import type { Heightfield } from '../terrain/heightfield';
 import { cellCentre, cellKey, isOpen, roadMap } from '../core/roads';
 import { zoneCells } from '../core/zones';
 import { ROAD } from '../data/roads';
-import { CLASSIC_PALETTE } from '../buildings/classicBuilding';
+import { CEL_PALETTE } from '../buildings/celBuilding';
 import { materials } from './materials';
 import { classicActive } from '../core/style';
 
@@ -110,7 +110,7 @@ export class RoadMesh {
   }
 
   private colors() {
-    const pal = CLASSIC_PALETTE;
+    const pal = CEL_PALETTE;
     const road = new THREE.Color(this.classic ? pal.road : 0x8a867f);
     const mark = new THREE.Color(this.classic ? pal.roadMark : 0xd9d4c8);
     if (this.tier >= 1) road.multiplyScalar(0.55); // basalt pavers

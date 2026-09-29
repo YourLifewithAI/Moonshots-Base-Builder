@@ -15,9 +15,9 @@
  *                          additive discs + 8 PointLights
  *    classic               the classic shader's print reveal and window
  *                          glow at each structure's light level
- *                          (classicBuilding.ts lightLevel, keyed on its
+ *                          (celBuilding.ts lightLevel, keyed on its
  *                          darkness), draped flood pools at the same level
- *                          (classicFloods.ts), a contact decal under every
+ *                          (celFloods.ts), a contact decal under every
  *                          footprint (no shadow map) */
 import * as THREE from 'three';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
@@ -37,10 +37,10 @@ import {
   type FloodSource,
 } from '../world/floodlights';
 import { classicActive } from '../core/style';
-import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, lightLevel, litChannel } from './classicBuilding';
+import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, lightLevel, litChannel } from './celBuilding';
 import { ContactDecals } from './contactDecals';
-import { ClassicFloods } from './classicFloods';
-import type { WorkSpot } from '../world/classicLighting';
+import { CelFloods } from './celFloods';
+import type { WorkSpot } from '../world/celLighting';
 import { leanOf, warmthOf } from './look';
 
 const MAX_PER_TYPE = 96;
@@ -118,7 +118,7 @@ export class BuildingInstances {
   /** classic style: per-instance light levels, contact decals */
   private readonly classic = classicActive();
   private decals: ContactDecals | null = null;
-  private pools: ClassicFloods | null = null;
+  private pools: CelFloods | null = null;
   private night = 0;
   private glowNight = -1;
   private glowSeen = -1;
@@ -162,7 +162,7 @@ export class BuildingInstances {
     this.group.add(this.scaffold);
     if (this.classic) {
       this.decals = new ContactDecals(hf);
-      this.pools = new ClassicFloods(hf);
+      this.pools = new CelFloods(hf);
       this.group.add(this.decals.mesh, this.pools.mesh);
     }
   }

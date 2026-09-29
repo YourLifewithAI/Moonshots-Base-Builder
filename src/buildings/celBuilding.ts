@@ -26,15 +26,15 @@
  *  discarded under a warm band (the 3D-print reveal). Windows and lamps glow
  *  at their light level (lightLevel below, per instance in `iGlow`;
  *  −1 = follow the night, for rovers and moving parts), warm or cold by the
- *  instance's `iWarm` (CLASSIC_WARM … CLASSIC_COLD), and flicker red while
+ *  instance's `iWarm` (CEL_WARM … CEL_COLD), and flicker red while
  *  its `iAlarm` is up. If a GPU rejects it,
- *  game.ts swaps in stock Lambert (classicFallbackMaterial) — the palette
+ *  game.ts swaps in stock Lambert (celFallbackMaterial) — the palette
  *  stays, the glow and the reveal go. */
 import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
 import type { BuildingId } from '../data/buildings';
 import { materials } from '../world/materials';
-import { classicLightUniforms } from '../world/classicLighting';
+import { celLightUniforms } from '../world/celLighting';
 import {
   BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
 } from './meshKit';
@@ -84,7 +84,7 @@ export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell
 type Palette = Record<PaletteKey, number>;
 
 /** sRGB, as authored (the classic renderer does no tone mapping) */
-export const CLASSIC_PALETTE: Readonly<Palette> = {
+export const CEL_PALETTE: Readonly<Palette> = {
   hull: 0xebe6dc,
   radiator: 0xf3f2ed,
   panel: 0x8e9197,
@@ -140,13 +140,13 @@ export function finishKey(v: number, rough: number, metal: number, emit: number)
 const colors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute>();
 
 /** The classic colour attribute for a baked geometry (cached per source). */
-export function classicColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
+export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
   let attr = colors.get(src);
   if (attr) return attr;
   const col = src.getAttribute('color');
   const mat = src.getAttribute('mat');
   const id = (src.userData.recipe ?? src.userData.part) as BuildingId | PartId | undefined;
-  const pal: Palette = { ...CLASSIC_PALETTE, ...(id ? PALETTE_OVERRIDES[id] : undefined) };
+  const pal: Palette = { ...CEL_PALETTE, ...(id ? PALETTE_OVERRIDES[id] : undefined) };
   const lin = new Map<PaletteKey, THREE.Color>();
   for (const k of Object.keys(pal) as PaletteKey[]) lin.set(k, new THREE.Color(pal[k]));
   const area = src.userData.partArea as Float32Array | undefined;
@@ -163,16 +163,16 @@ export function classicColors(src: THREE.BufferGeometry): THREE.BufferAttribute 
 }
 
 /** window and lamp light, linear: a warm sodium-ish yellow (≈ #ffd494 on screen) */
-export const CLASSIC_WARM = new THREE.Color(1.0, 0.66, 0.29);
+export const CEL_WARM = new THREE.Color(1.0, 0.66, 0.29);
 /** …and the machines' cold light (≈ #bfe9ff on screen): server cyan, the
  *  Automation's night (docs/14 §4.4). Each instance mixes the two by its iWarm. */
-export const CLASSIC_COLD = new THREE.Color(0.52, 0.815, 1.0);
+export const CEL_COLD = new THREE.Color(0.52, 0.815, 1.0);
 const vec = (c: THREE.Color) => `vec3( ${c.r.toFixed(3)}, ${c.g.toFixed(3)}, ${c.b.toFixed(3)} )`;
-const warm = vec(CLASSIC_WARM);
-const cold = vec(CLASSIC_COLD);
+const warm = vec(CEL_WARM);
+const cold = vec(CEL_COLD);
 
 const VERT = /* glsl */`
-#define MBB_CLASSIC
+#define MBB_CEL
 attribute vec3 mat;
 #ifdef USE_INSTANCING
 	attribute vec4 iState;
@@ -235,7 +235,7 @@ void main() {
 `;
 
 const FRAG = /* glsl */`
-#define MBB_CLASSIC
+#define MBB_CEL
 varying vec3 vLit;
 varying vec3 vEmit;
 varying float vY;
@@ -252,32 +252,32 @@ void main() {
 
 /** Marks the classic building program: a compile error in it is the classic
  *  shader's own fault (game.ts swaps in stock Lambert). */
-export const CLASSIC_MARKER = 'MBB_CLASSIC';
+export const CEL_MARKER = 'MBB_CEL';
 
-export const CLASSIC_BUILDING = new THREE.ShaderMaterial({
-  name: 'classic-building',
+export const CEL_BUILDING = new THREE.ShaderMaterial({
+  name: 'cel-building',
   vertexShader: VERT,
   fragmentShader: FRAG,
   vertexColors: true,
   uniforms: {
-    ...classicLightUniforms,
+    ...celLightUniforms,
     uBldNight: buildingUniforms.uBldNight,
     uBldTime: buildingUniforms.uBldTime,
   },
 });
-materials.defineClassic('building', CLASSIC_BUILDING);
+materials.defineClassic('building', CEL_BUILDING);
 
 /** Stock Lambert in the classic palette: the fallback when the classic
  *  shader does not compile on a GPU. */
-export function classicFallbackMaterial(): THREE.Material {
+export function celFallbackMaterial(): THREE.Material {
   return new THREE.MeshLambertMaterial({ vertexColors: true });
 }
 
 /** Install the classic palette and light level on every instanced view
  *  made from here on (call once at boot, classic style only). */
-export function installClassicBuildings() {
+export function installCelBuildings() {
   setInstanceHook((view, src, max) => {
-    if (src.getAttribute('color')) view.setAttribute('color', classicColors(src));
+    if (src.getAttribute('color')) view.setAttribute('color', celColors(src));
     view.setAttribute('iGlow', new THREE.InstancedBufferAttribute(new Float32Array(max).fill(-1), 1));
   });
 }

@@ -17,7 +17,7 @@
  *
  *  Light levels are in albedo units (1 = the surface's own colour facing
  *  the light); three's lights take them × π. The classic building shader
- *  reads the same values through classicLightUniforms. The true sun
+ *  reads the same values through celLightUniforms. The true sun
  *  direction still drives the sky, the solar wings and the rover decals. */
 import * as THREE from 'three';
 import type { SiteDef } from '../data/sites';
@@ -37,7 +37,7 @@ export function sunStep(speed: number): number {
 }
 
 /** the key and fill as the classic building shader sees them */
-export const classicLightUniforms = {
+export const celLightUniforms = {
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   uLightColor: { value: new THREE.Color(1, 1, 1) },
   uSky: { value: new THREE.Color(0.3, 0.3, 0.3) },
@@ -58,7 +58,7 @@ const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
 /** on foot at night the eye adapts: key and fill lift this much */
 const ADAPT = 0.45;
 
-export class ClassicLighting {
+export class CelLighting {
   readonly sun: THREE.DirectionalLight;
   readonly fill: THREE.HemisphereLight;
   /** walk-mode night adaptation, 0..1 (named for the High detail headlamp
@@ -131,7 +131,7 @@ export class ClassicLighting {
     this.fill.color.copy(SKY_DAY).lerp(SKY_NIGHT, night).multiplyScalar(adapt);
     this.fill.groundColor.copy(GROUND_DAY).lerp(GROUND_NIGHT, night).multiplyScalar(adapt);
 
-    const u = classicLightUniforms;
+    const u = celLightUniforms;
     u.uLightDir.value.copy(this.keyDir);
     u.uLightColor.value.copy(key);
     u.uSky.value.copy(this.fill.color);

@@ -6,7 +6,7 @@
  *  Classic style: the same grid samples (so the surface is the one
  *  hf.sample describes), each triangle its own vertices with a face normal
  *  — faceted Lambert with no derivative shading — coloured by the classic
- *  ground (terrain/classicGround.ts: site tint, relief, craters, deposits).
+ *  ground (terrain/celGround.ts: site tint, relief, craters, deposits).
  *
  *  Pits (docs/17 §11.6): a carve marks its box; the chunks it overlaps join a
  *  queue, rebuilt at most one a frame and two a second of frame time, and the
@@ -22,7 +22,7 @@ import { materials } from '../world/materials';
 import { regolithPatch } from './terrainShader';
 import type { Crater, Heightfield } from './heightfield';
 import { classicActive } from '../core/style';
-import { classicGround, facet } from './classicGround';
+import { celGround, facet } from './celGround';
 import { cutTone } from './pitCarve';
 
 /** the pits' rebuild queue: seconds between rebuilds (two a second), and between shadow refreshes */
@@ -95,7 +95,7 @@ export class TerrainChunks {
     const gx0 = cx * CHUNK_CELLS;
     const gz0 = cz * CHUNK_CELLS;
     const albedo = this.hf.site.terrain.albedo;
-    const classic = classicActive() ? classicGround(this.hf) : null;
+    const classic = classicActive() ? celGround(this.hf) : null;
     let p = 0;
     for (let iz = 0; iz < n; iz++) {
       for (let ix = 0; ix < n; ix++) {

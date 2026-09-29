@@ -53,7 +53,7 @@ function bake(geo: THREE.BufferGeometry, f: Finish): THREE.BufferGeometry {
   geo.setAttribute('mat', new THREE.BufferAttribute(mat, 3));
   geo.deleteAttribute('uv'); // no textures anywhere; keeps merges compatible
   // the part's largest face (m²): the classic palette keeps its orange
-  // accent to small parts and greys big slabs (classicBuilding.ts)
+  // accent to small parts and greys big slabs (celBuilding.ts)
   geo.computeBoundingBox();
   const sz = geo.boundingBox!.getSize(new THREE.Vector3()).toArray().sort((a, b) => b - a);
   geo.userData.area = sz[0] * sz[1];
@@ -371,7 +371,7 @@ export const BUILDING_MATERIAL = new THREE.MeshStandardMaterial({
 export const BUILDING_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
 
 /** Style-specific extras for every instanced view (the classic palette and
- *  its per-instance light level — buildings/classicBuilding.ts installs it). */
+ *  its per-instance light level — buildings/celBuilding.ts installs it). */
 type InstanceHook = (view: THREE.BufferGeometry, src: THREE.BufferGeometry, max: number) => void;
 let instanceHook: InstanceHook | null = null;
 export function setInstanceHook(hook: InstanceHook | null) {

@@ -15,7 +15,7 @@ import { regolithAlbedo } from '../terrain/chunks';
 import { materials } from '../world/materials';
 import { centerOf } from './instances';
 import { classicActive } from '../core/style';
-import { classicGround, facet } from '../terrain/classicGround';
+import { celGround, facet } from '../terrain/celGround';
 
 type Side = '+x' | '-x' | '+z' | '-z';
 interface Gap { side: Side; at: number; w: number }
@@ -78,7 +78,7 @@ export class Berms {
   private build(list: readonly BuildingState[]): THREE.BufferGeometry {
     const pos: number[] = [], col: number[] = [], idx: number[] = [];
     const albedo = this.hf.site.terrain.albedo;
-    const ground = classicActive() ? classicGround(this.hf) : null;
+    const ground = classicActive() ? celGround(this.hf) : null;
     const gc = [0, 0, 0];
     const P = PROFILE.length;
     for (const b of list) {

@@ -22,7 +22,7 @@
  *  3 stock (squash-rise fallback, whole-hull glow, discs + PointLights). */
 import * as THREE from 'three';
 import { PATCH_MARKER, hasAnchors, injectAll, materials, type ShaderPatch } from '../world/materials';
-import { CUT_NONE, EMISSIVE, buildingUniforms } from './classicBuilding';
+import { CUT_NONE, EMISSIVE, buildingUniforms } from './celBuilding';
 import { BUILDING_DEPTH_MATERIAL, BUILDING_MATERIAL } from './meshKit';
 import { FLOOD_COLOR, WORLD_NORMAL, bindFloodUniforms, floodPars, floodSlots } from '../world/floodlights';
 

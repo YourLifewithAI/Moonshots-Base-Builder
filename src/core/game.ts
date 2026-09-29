@@ -80,9 +80,9 @@ import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';
-import { ClassicLighting, sunStep } from '../world/classicLighting';
-import { installClassic } from '../world/classic';
-import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBuilding';
+import { CelLighting, sunStep } from '../world/celLighting';
+import { installCel } from '../world/cel';
+import { CEL_MARKER, celFallbackMaterial } from '../buildings/celBuilding';
 import { Sky } from '../world/sky';
 import { FX_PLAIN, PostFX } from '../world/post';
 import { FxSelfCheck, type FxCheckResult } from '../world/fxcheck';
@@ -170,7 +170,7 @@ export class Game {
   readonly classic: boolean;
   private camera: THREE.PerspectiveCamera;
   private scene = new THREE.Scene();
-  private lighting: Lighting | ClassicLighting;
+  private lighting: Lighting | CelLighting;
   private sky: Sky;
   private post: PostFX;
   private hf!: Heightfield;
@@ -240,9 +240,9 @@ export class Game {
     installRenderLog();
     this.renderer = createRenderer(canvas, this.classic);
     this.watchRenderTargets();
-    if (this.classic) installClassic();
+    if (this.classic) installCel();
     this.camera = createCamera();
-    this.lighting = this.classic ? new ClassicLighting(this.scene) : new Lighting(this.scene);
+    this.lighting = this.classic ? new CelLighting(this.scene) : new Lighting(this.scene);
     this.sky = new Sky(this.scene);
     this.lighting.attachHeadlamp(this.scene, this.camera);
     this.post = new PostFX(this.renderer, this.scene, this.camera, {
@@ -285,7 +285,7 @@ export class Game {
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
       const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
-      if (src(CLASSIC_MARKER)) this.shaderFault = 'classic';
+      if (src(CEL_MARKER)) this.shaderFault = 'classic';
       else if (this.shaderFault !== 'patch' && this.shaderFault !== 'classic') {
         this.shaderFault = src(PATCH_MARKER) ? 'patch' : 'other';
       }
@@ -420,7 +420,7 @@ export class Game {
       this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
     this.lighting.requestShadowUpdate();
     this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
-    if (this.lighting instanceof ClassicLighting) this.lighting.setSite(SITES[state.siteId]);
+    if (this.lighting instanceof CelLighting) this.lighting.setSite(SITES[state.siteId]);
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     // a hub ghost's own warning (a water plant with no ice in reach), asked once like the rest
     this.placement.extraWarn = (p) => (p.type !== 'grade' && isHubType(p.type)
@@ -1874,7 +1874,7 @@ export class Game {
     const fault = this.shaderFault;
     this.shaderFault = null;
     // the classic building shader is the classic style's only custom program
-    if (fault === 'classic' && materials.replaceClassic('building', classicFallbackMaterial(), this.scene)) {
+    if (fault === 'classic' && materials.replaceClassic('building', celFallbackMaterial(), this.scene)) {
       console.warn('[MOONSHOTS] Classic building shader failed to compile — stock Lambert.');
       if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
       return;

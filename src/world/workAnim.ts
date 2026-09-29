@@ -39,8 +39,8 @@ import { BODY, PLATE, TRIM, box, merge, withInstanceState, type Finish } from '.
 import { DIGGER_BOOM, DIGGER_RIG, diggerWheel, type RigBox } from '../buildings/rigs';
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
-import { CLASSIC_PALETTE, CUT_NONE } from '../buildings/classicBuilding';
-import { SITE_GROUND } from '../terrain/classicGround';
+import { CEL_PALETTE, CUT_NONE } from '../buildings/celBuilding';
+import { SITE_GROUND } from '../terrain/celGround';
 import { classicActive } from '../core/style';
 import { materials } from './materials';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
@@ -343,11 +343,11 @@ export class WorkAnim {
   private tints() {
     const rel = (c: THREE.Color, base: THREE.Color) => new THREE.Color(c.r / base.r, c.g / base.g, c.b / base.b);
     if (this.classic) {
-      const hull = new THREE.Color(CLASSIC_PALETTE.hull);
+      const hull = new THREE.Color(CEL_PALETTE.hull);
       const soil = (SITE_GROUND[this.hf.site.id] ?? SITE_GROUND.mare).clone().multiplyScalar(0.72);
       return {
-        body: new THREE.Color(1, 1, 1), trim: rel(new THREE.Color(CLASSIC_PALETTE.trim), hull),
-        plate: rel(new THREE.Color(CLASSIC_PALETTE.panel), hull), soil: rel(soil, hull),
+        body: new THREE.Color(1, 1, 1), trim: rel(new THREE.Color(CEL_PALETTE.trim), hull),
+        plate: rel(new THREE.Color(CEL_PALETTE.panel), hull), soil: rel(soil, hull),
       };
     }
     const k = (f: Finish) => new THREE.Color().setScalar(f.v / BODY.v);

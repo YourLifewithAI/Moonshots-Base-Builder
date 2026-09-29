@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
 import { partGeometry, type Mount, type PartId } from './recipes';
 import { withInstanceState } from './meshKit';
-import { CUT_NONE } from './classicBuilding';
+import { CUT_NONE } from './celBuilding';
 import { materials } from '../world/materials';
 import { skyDirection } from '../core/daynight';
 import type { SiteDef } from '../data/sites';

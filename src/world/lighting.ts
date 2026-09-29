@@ -12,7 +12,7 @@
  *  never leaves the scene (a light joining or leaving recompiles every lit
  *  program); it simply sits at intensity 0 except on foot at night. */
 import * as THREE from 'three';
-import { sunStep, type WorkSpot } from './classicLighting';
+import { sunStep, type WorkSpot } from './celLighting';
 
 const WORK_LIGHTS = 8; // stock-path floods over the buildings nearest the camera
 const HEADLAMP = 16;    // cd at full night

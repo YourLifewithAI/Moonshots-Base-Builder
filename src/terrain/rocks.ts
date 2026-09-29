@@ -27,7 +27,7 @@ import { materials } from '../world/materials';
 import { floodPatch } from '../world/floodlights';
 import type { Heightfield } from './heightfield';
 import { classicActive } from '../core/style';
-import { classicGround } from './classicGround';
+import { celGround } from './celGround';
 
 materials.define('rock', new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), floodPatch);
 
@@ -108,7 +108,7 @@ export class Rocks {
     }
 
     const albedo = t.albedo;
-    const ground = classicActive() ? classicGround(hf) : null;
+    const ground = classicActive() ? celGround(hf) : null;
     const gc = [0, 0, 0];
     const make = (items: typeof list, geo: THREE.BufferGeometry): RockSet => {
       const n = items.length;
