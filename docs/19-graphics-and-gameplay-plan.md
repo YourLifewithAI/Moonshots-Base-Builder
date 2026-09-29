@@ -136,6 +136,18 @@ Milestones: M1 delete and unhook, `tsc` green; M2 tests and docs; M3 time contro
 Spec: `world.spec.ts` (Q/E turn, V tilt, continuous zoom, the preset survives save/load).
 Milestones: M1 tilt and continuous zoom; M2 preset saved and `info()` aliases; M3 touch tilt button and spec.
 
+#### As shipped: W0b2
+
+Files: `src/player/isoCam.ts` (rewritten), `buildCam.ts` (shim), `core/save.ts` (`SaveBlob.camera?`), `core/game.ts` (three additive hunks: `saveBlob`, `loadFrom`, `tiltView()`), `ui/touchUi.ts` (the ▱ button), `ui/menu.ts` (control lines). Specs: `world.spec.ts` (4 new tests: Q/E and V, continuous zoom with F/H, panning at the high tilt, the preset through a real save and reload plus an old and a damaged save), `touch.spec.ts` (the pinch no longer snaps; the ▱ button), `classic.spec.ts` (the wheel test reads the continuous zoom).
+- **Keys.** `commandKey` now includes `KeyV`, so the existing key path in `game.ts` feeds V to the camera; no key edit was needed there. R and T are untouched. `CommandCam` gained optional `tiltStep`, `preset`, `setPreset` (the free camera has none).
+- **Tilt.** `ISO_TILTS_DEG = [32, 55]`, eased 0.35 s (from wherever the pitch is, so a quick second press reverses). `place()` and `panPx` read the eased pitch. **Deviation:** `metresPerPx` never used the pitch (it is the horizontal metres at the target), so it is unchanged. Forward keys are scaled by sin 32° ÷ sin(pitch) so their screen-space pace is the same at both tilts (identical at 32°). `home()` resets to the low tilt.
+- **Zoom.** Continuous, clamped 100–830 m (`ISO_MIN_DIST`, `ISO_MAX_DIST`); a mouse notch (100 deltaY) is ×1.7, one event moves at most 300 deltaY. A pinch may pass the clamps by 15% while the fingers are down and eases back inside on release; it no longer snaps to a level. F still closes to 100 m and H goes to 170 m. **Debug `view()` still snaps to the nearest level** (framing determinism for old specs) and keeps the current tilt.
+- **Preset.** `SaveBlob.camera = { step, tilt, dist }` (`step` is the raw yaw count, `tilt` 0 or 1, `dist` the zoom asked for, 0.1 m). `loadFrom` calls `homeCamera(false)` and then `setPreset`, so the target is still the Lander; an old save has no `camera` and loads with the default view; unreadable fields keep the default. The free camera saves nothing.
+- **`info()`.** New: `rot` (0–3), `tilt` (0 low, 1 high; the one asked for), `zoom` (the eased distance, m), plus `zoomTo` (the distance it is easing to) and `tilting`. Aliases kept until D4: `yawStep` (raw), `yawDeg`, `turning`, `pitchDeg` (eased, exactly 32 or 55 at rest), `levels`, `level` (now the nearest of `levels`), `dist`, `fov`, `pinching`. `getRenderInfo().camera` should report `{rot, tilt, zoom}`.
+- **Touch.** `#t-tilt` (▱) joins ⟲ ⟳ in the right rail: six buttons, the same 296 px budget as the left rail. Menu lines: `V — tilt the view`, `▱ Tilt`, and the "five steps" texts are gone.
+- **Shim.** `buildCam.ts` keeps `BuildCam`, `HOME_DIST`, `HOME_DIR` and re-exports `commandKey` and `CommandCam` from `isoCam.ts`; `game.ts` still constructs `BuildCam` for High detail (W0b1 deletes both).
+- **Checks.** `touch.spec.ts` has five failures that predate this stream (same at 9f1c071): "placement by taps" (✓ places nothing), "research tree by touch" (a card names Pit Mapping, not Regolith) and the three "fit at …" tests (`#milestones` overlaps `#palette` with the objectives open).
+
 ### W0b1 · Renderer collapse (port 5821)
 
 Keep the Classic path as the base (MSAA, no shadow map, `NoToneMapping`, contact decals, key + hemisphere light, draped flood pools, faceted terrain) and delete everything High-detail-only.
