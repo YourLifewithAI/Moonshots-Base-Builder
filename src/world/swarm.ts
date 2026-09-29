@@ -2,11 +2,11 @@
  *  the sun (the ring seen nearly edge-on), more of them with every volley —
  *  n = 12 + 40·log10(1 + swarm% · 10⁴), so the first launch already shows
  *  and the growth stays legible from 0.0001 % to 100 %. Each glint idles
- *  dim and flashes as its foil catches the sun (HDR, so FX 0 blooms it).
+ *  dim and flashes as its foil catches the sun.
  *
  *  A camera-centred group drawn in the sky slot (group order −1, depth
  *  writes off), so the ground paints over it like the stars; a stock
- *  PointsMaterial, the same at every FX level and in safe mode. */
+ *  PointsMaterial, the same in safe mode. */
 import * as THREE from 'three';
 import { mulberry32 } from '../core/rng';
 

@@ -140,32 +140,12 @@ function api(game: Game) {
     forceOutposts: (n: number) => game.debugForceOutposts(n),
     setMapOpen: (open: boolean) => game.setMapOpen(open),
     setMapView: (view: MapView) => game.setMapView(view),
-    forceRenderFallback: () => (game as any).post.forceFallback('debug'),
     enableSafeMode: () => game.enableSafeMode(),
     /** the player turning safe mode off in the menu (a checked raise) */
     disableSafeMode: () => game.disableSafeMode(),
-    getFxLevel: () => (game as any).post.fxLevel as number,
-    setFxLevel: (n: number) => (game as any).post.setLevel(n),
-    degradeFx: () => (game as any).post.degrade('debug'),
     getRenderInfo: () => game.debugRenderInfo(),
-    /** the render report (the menu's Copy render report), as data */
-    getRenderReport: () => clone(game.renderReport()),
-    /** run the FX self-check on the next drawn frame; getFxChecks() gains a result */
-    fxCheckNext: () => game.debugFxCheckNext(),
-    getFxChecks: () => game.debugFxChecks(),
-    /** the last self-check's chain and plain images (display luminance) */
-    getFxCheckImages: () => game.debugFxCheckImages(),
     /** hold the black-frame sentinel off (true) or resume it */
     holdBlackFrameCheck: (on: boolean) => game.debugHoldProbe(on),
-    /** automatic self-checks (boot, level changes) on or off */
-    setFxCheckAuto: (on: boolean) => game.debugSetFxCheckAuto(on),
-    /** make FX `level` draw wrong: 'player' (the report: black ground, flat grey hulls),
-     *  'zero' (black landscape), 'nan' (NaN in the hulls' light); null mends it */
-    debugBreakFx: (level: number | null, mode?: 'player' | 'zero' | 'nan') => game.debugBreakFx(level, mode),
-    /** the HDR sanitiser on or off */
-    setFxSanitize: (on: boolean) => game.debugSetSanitize(on),
-    /** N8AO's hardened composite and the sanitiser on or off together (off = the stock chain) */
-    setFxHardening: (on: boolean) => game.debugSetHardening(on),
     /** the work animations (docs/06 §7): per rover its mode, arm (unfold, yaw,
      *  reach, tip) and spark; per drone its spark; per excavator its wheel and
      *  boom angles; the kit and glow instance counts */
@@ -173,7 +153,7 @@ function api(game: Game) {
     /** hide or show the work animations' two meshes (the draw-call budget) */
     setWorkAnimVisible: (on: boolean) => { (game as any).life.work.group.visible = on; },
     /** one structure's own light: its darkness k (and what makes it), the
-     *  lit channel its instance carries, the emissive gains and its flood slot */
+     *  lit channel its instance carries, the emissive gains */
     getBuildingLight: (id: number) => clone((game as any).instances.lightInfo(id)),
     /** what the menu shows about the render path */
     getRenderStatus: () => game.renderStatus(),
@@ -183,11 +163,11 @@ function api(game: Game) {
     getCamera: () => game.debugCamera(),
     /** CSS px of the ground at (x, z), `lift` m above it */
     screenOf: (x: number, z: number, lift = 0) => game.debugScreenOf(x, z, lift),
-    /** the classic terrain mesh's vertex colour nearest (x, z) */
+    /** the terrain mesh's vertex colour nearest (x, z) */
     terrainColorAt: (x: number, z: number) => game.debugTerrainColor(x, z),
     /** the drawn ground vs hf.sample: { vertex, max, mean } (m) */
     terrainError: () => game.debugTerrainError(),
-    /** a structure's light: { glow (classic iGlow), powered } */
+    /** a structure's light: { glow (the windows' iGlow), powered } */
     buildingGlow: (id: number) => game.debugBuildingGlow(id),
     /** a structure's light colour and alarm (docs/14 §4.4): { warm (iWarm 0 cold … 1 warm), alarm (iAlarm), lean } */
     buildingLook: (id: number) => clone((game as any).instances.lookOf(id)),

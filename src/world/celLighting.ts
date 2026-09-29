@@ -1,4 +1,4 @@
-/** The classic style's light: one directional key light and a hemisphere
+/** The cel style's light: one directional key light and a hemisphere
  *  fill, nothing else — no shadow map, no point lights, no spot lamp, so
  *  every lit program stays the cheapest Lambert three.js has.
  *
@@ -13,10 +13,10 @@
  *            (lifted to ≥ 35°), blue and dim, over a blue-black fill, so
  *            open ground sits well off black and every building still
  *            reads by its lit and shaded faces. The base's own lights (warm
- *            windows, flood discs) carry the rest.
+ *            windows, flood pools) carry the rest.
  *
  *  Light levels are in albedo units (1 = the surface's own colour facing
- *  the light); three's lights take them × π. The classic building shader
+ *  the light); three's lights take them × π. The cel building shader
  *  reads the same values through celLightUniforms. The true sun
  *  direction still drives the sky, the solar wings and the rover decals. */
 import * as THREE from 'three';
@@ -36,7 +36,7 @@ export function sunStep(speed: number): number {
   return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
 }
 
-/** the key and fill as the classic building shader sees them */
+/** the key and fill as the cel building shader sees them */
 export const celLightUniforms = {
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   uLightColor: { value: new THREE.Color(1, 1, 1) },

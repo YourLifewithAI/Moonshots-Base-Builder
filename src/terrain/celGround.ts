@@ -1,5 +1,5 @@
-/** The classic style's ground colour: a subtly tinted regolith, authored as
- *  the colour you see (the classic renderer does no tone mapping). One
+/** The cel ground colour: a subtly tinted regolith, authored as
+ *  the colour you see (the renderer does no tone mapping). One
  *  function for everything that stands on the ground — terrain chunks, the
  *  horizon ring, berms and boulders — so they agree wherever they meet.
  *
@@ -111,7 +111,7 @@ export class CelGround {
 
 const cache = new WeakMap<Heightfield, CelGround>();
 
-/** The classic ground colour for a heightfield (one per world). */
+/** The cel ground colour for a heightfield (one per world). */
 export function celGround(hf: Heightfield): CelGround {
   let g = cache.get(hf);
   if (!g) { g = new CelGround(hf); cache.set(hf, g); }

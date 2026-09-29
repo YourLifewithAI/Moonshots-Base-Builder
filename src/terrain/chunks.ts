@@ -3,15 +3,15 @@
  *  slope darkening, crater-floor basalt, bright rims — all relative to the
  *  site's albedo. Rebuilt per-chunk when a building pad flattens the field.
  *
- *  Classic style: the same grid samples (so the surface is the one
+ *  Cel style: the same grid samples (so the surface is the one
  *  hf.sample describes), each triangle its own vertices with a face normal
- *  — faceted Lambert with no derivative shading — coloured by the classic
+ *  — faceted Lambert with no derivative shading — coloured by the cel
  *  ground (terrain/celGround.ts: site tint, relief, craters, deposits).
  *
  *  Pits (docs/17 §11.6): a carve marks its box; the chunks it overlaps join a
  *  queue, rebuilt at most one a frame and two a second of frame time, and the
  *  shadow map is asked again at most every 2 s. The cut and its heap are a
- *  fresher, brighter regolith in both styles (terrain/pitCarve.ts cutTone),
+ *  fresher, brighter regolith (terrain/pitCarve.ts cutTone),
  *  multiplied into the vertex colours the terrain material reads — no shader
  *  change. */
 import * as THREE from 'three';
