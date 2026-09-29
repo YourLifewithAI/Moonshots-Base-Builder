@@ -81,8 +81,8 @@ export interface CameraPreset {
   dist: number;
 }
 
-/** What the game and the mode manager need from a command-view camera:
- *  the classic isometric one (this file) or the free one (buildCam.ts). */
+/** What the game needs from the command-view camera:
+ *  the fixed isometric one (this file). */
 export interface CommandCam {
   /** the ground point the view is centred on (it rides the terrain) */
   readonly target: THREE.Vector3;

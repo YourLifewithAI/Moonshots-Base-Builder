@@ -134,10 +134,10 @@ window.drive = (frames, watch, full) => {
 
 // ───────────────────────────── a crowded base ─────────────────────────────
 
-for (const style of ['classic']) {
+for (const style of ['cel']) {
   test(`${style}: rovers and excavators on the roads never share ground, never leave it, never lock up`, async ({ page }) => {
     test.setTimeout(300_000);
-    await start(page, { style: style === 'classic' ? '' : style });
+    await start(page, {});
     const setup = await page.evaluate(() => {
       const g = window.__game!;
       g.completeTech('constructionRobotics');

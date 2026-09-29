@@ -562,10 +562,10 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
   expect(r.err.vertex).toBeLessThan(0.01);
 });
 
-for (const style of ['classic', 'detailed']) {
-  test(`both render styles draw the pit (${style}): the mesh follows the cut, and the cut is brighter`, async ({ page }) => {
+{
+  test('the pit is drawn: the mesh follows the cut, and the cut is brighter', async ({ page }) => {
     test.setTimeout(240_000);
-    await start(page, style === 'detailed' ? 'detailed' : '');
+    await start(page);
     const r = await page.evaluate(() => {
       const g = window.__game;
       const x = -60, z = 20;
@@ -594,7 +594,7 @@ for (const style of ['classic', 'detailed']) {
         queue: g.getPits().queue, rocks, cells,
       };
     });
-    expect(r.style).toBe(style === 'detailed' ? 'detailed' : 'classic');
+    expect(r.style).toBe('cel');
     expect(r.queue.queued).toBe(0);
     expect(r.n).toBeGreaterThan(20);
     // the drawn ground is the carved ground
@@ -603,6 +603,6 @@ for (const style of ['classic', 'detailed']) {
     expect(r.median).toBeGreaterThan(1.1);
     expect(r.cells).toBeGreaterThan(20);
     expect(r.rocks).toBe(0);
-    await page.screenshot({ path: `test-results/pits-${style}.png` });
+    await page.screenshot({ path: 'test-results/pits-cel.png' });
   });
 }

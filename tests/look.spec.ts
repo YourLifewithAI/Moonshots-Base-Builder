@@ -299,7 +299,7 @@ test('light: homes burn warm and machines cold whatever the lean; the rest follo
   expect(alarm).toEqual({ on: 1, off: 0 });
 });
 
-for (const style of ['classic']) {
+for (const style of ['cel']) {
   test(`${style}: an Era 8 base in each band stays within the frame budget`, async ({ page }) => {
     test.setTimeout(300_000);
     const out: Record<string, { calls: number; triangles: number }> = {};
@@ -311,8 +311,7 @@ for (const style of ['classic']) {
       await page.evaluate(() => {
         const g = window.__game!;
         const t = { x: 8, z: 8 }, d = 290, p = 32 * Math.PI / 180, a = Math.PI / 4;
-        if (g.getRenderInfo().style === 'classic') g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
-        else g.setView({ x: 90, y: 60, z: 100 }, { x: 8, y: 2, z: 3 });
+        g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
       });
       await page.waitForTimeout(1500);
       out[band] = (await g(page, 'getRenderInfo')).frame;
@@ -320,8 +319,8 @@ for (const style of ['classic']) {
     test.info().annotations.push({ type: 'frame cost', description: JSON.stringify(out) });
     console.log(`[era 8 frame cost · ${style}]`, JSON.stringify(out));
     for (const [band, f] of Object.entries(out)) {
-      expect(f.calls, `${band}: draw calls`).toBeLessThan(style === 'classic' ? 90 : 160);
-      expect(f.triangles, `${band}: triangles`).toBeLessThan(style === 'classic' ? 600_000 : 1_200_000);
+      expect(f.calls, `${band}: draw calls`).toBeLessThan(90);
+      expect(f.triangles, `${band}: triangles`).toBeLessThan(600_000);
     }
   });
 }

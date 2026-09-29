@@ -4,7 +4,7 @@
  *  frontier (the hook) and the cells glow and cool; a printing drone sparks; the
  *  excavator's wheel turns and its boom dips while it digs, home or away,
  *  and holds while it drives. Pause freezes all of it, 3× and 10× run it at
- *  game speed, both styles draw it, and it costs two draw calls at most. */
+ *  game speed, and it costs two draw calls at most. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -68,9 +68,6 @@ async function until(page: Page, pred: (w: any) => boolean, frames = 1200, batch
   return null;
 }
 
-/** High detail under software GL draws slowly between the steps: hold its ladder low */
-const HD_FAST = (style: string) => (style === 'detailed' ? '&lowfx' : '');
-
 /** An excavator on plain ground near the Lander, complete: it digs its own pad. */
 const EXCAVATOR = () => {
   const g = window.__game!;
@@ -88,10 +85,10 @@ const EXCAVATOR = () => {
   return g.getState().buildings.find((b: any) => b.type === 'excavator').id as number;
 };
 
-for (const style of ['classic']) {
+for (const style of ['cel']) {
   test(`${style}: a welding rover unfolds its arm and sweeps it over the site, spark on; it folds as it leaves`, async ({ page }) => {
     test.setTimeout(300_000);
-    await start(page, style, HD_FAST(style));
+    await start(page, style);
     await page.evaluate(() => { const g = window.__game!; g.placeBuilding('habitat', 132, 124); g.finishRoads(); g.advanceGameSeconds(1); });
     const w0 = await until(page, (w) => w.rovers.some((r: any) => r.spark && r.arm.unfold > 0.99));
     expect(w0, 'a rover reaches its site and welds').not.toBeNull();
@@ -132,7 +129,7 @@ for (const style of ['classic']) {
 
   test(`${style}: the excavator's wheel turns and its boom dips while it digs, home and away; still while it drives`, async ({ page }) => {
     test.setTimeout(300_000);
-    await start(page, style, HD_FAST(style));
+    await start(page, style);
     const id = await page.evaluate(EXCAVATOR);
     const dig = (w: any) => w.diggers.find((d: any) => d.id === id);
     const home = await until(page, (w) => dig(w)?.digging && !dig(w).away, 600);
@@ -143,10 +140,10 @@ for (const style of ['classic']) {
     expect(b.wheel - a.wheel, 'the wheel turns (home)').toBeCloseTo(1.3, 1);
     expect(b.boom, 'the boom dips into the cut').toBeLessThan(-0.03);
     expect(b.boom).toBeGreaterThan(-0.2);
-    // spoil flies off the wheel (High detail here runs ?lowfx: no particles, the same motion)
+    // spoil flies off the wheel
     const w = wb;
-    if (style === 'classic') expect(w.clods, 'spoil flies off the wheel').toBeGreaterThan(0);
-    expect(w.particles).toBe(style === 'classic');
+    expect(w.clods, 'spoil flies off the wheel').toBeGreaterThan(0);
+    expect(w.particles).toBe(true);
     // Dig at… 50 m north: under way the wheel holds and the boom rides high
     await page.evaluate((id) => { const g = window.__game!; g.digAt(id, -2, 50); g.grantPower(20000); g.advanceGameSeconds(1); }, id);
     const drive = await until(page, (w) => dig(w)?.driving && dig(w)?.away, 400, 5);
@@ -362,24 +359,14 @@ test('pause freezes every work animation; 3× and 10× run them at game speed', 
   expect(r10.wheel / r1.wheel).toBeCloseTo(10, 0);
 });
 
-test('safe mode and ?lowfx keep the motion and the glow but drop the particles', async ({ page }) => {
+test('safe mode keeps the motion and the glow but drops the particles', async ({ page }) => {
   test.setTimeout(180_000);
-  await start(page, 'classic', '&lowfx');
-  let id = await page.evaluate(EXCAVATOR);
-  let w = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging), 600);
-  expect(w).not.toBeNull();
-  let a = w!.diggers.find((d: any) => d.id === id).wheel;
-  await live(page, 10);
-  w = await work(page);
-  expect(w!.particles).toBe(false);
-  expect(w!.clods).toBe(0);
-  expect(w!.diggers.find((d: any) => d.id === id).wheel).toBeGreaterThan(a);
-  await start(page, 'classic');
-  id = await page.evaluate(EXCAVATOR);
-  w = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging) && w.clods > 0, 600);
-  expect(w, 'clods fly without ?lowfx').not.toBeNull();
+  await start(page, 'cel');
+  const id = await page.evaluate(EXCAVATOR);
+  let w = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging) && w.clods > 0, 600);
+  expect(w, 'clods fly before safe mode').not.toBeNull();
   await page.evaluate(() => window.__game!.enableSafeMode());
-  a = w!.diggers.find((d: any) => d.id === id).wheel;
+  const a = w!.diggers.find((d: any) => d.id === id).wheel;
   await live(page, 10);
   w = await work(page);
   expect(w!.particles).toBe(false);
@@ -425,7 +412,7 @@ async function busyBase(page: Page) {
   });
 }
 
-for (const style of ['classic']) {
+for (const style of ['cel']) {
   test(`${style}: on a busy base the work animations cost two draw calls at most`, async ({ page }) => {
     test.setTimeout(300_000);
     await start(page, style, '&exp=robotic');
@@ -436,8 +423,7 @@ for (const style of ['classic']) {
       const g = window.__game!;
       g.setPaused(true);
       const t = { x: 8, z: 8 }, d = 290, p = 32 * Math.PI / 180, a = Math.PI / 4;
-      if (g.getRenderInfo().style === 'classic') g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
-      else g.setView({ x: 90, y: 60, z: 100 }, { x: 8, y: 2, z: 3 });
+      g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
     });
     const frame = async (on: boolean) => {
       await page.evaluate((on) => { const g = window.__game!; g.setWorkAnimVisible(on); g.stepFrame(0.016); }, on);

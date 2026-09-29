@@ -89,11 +89,11 @@ test('rocks: pads and grading clear the ground, and a reload replays it', async 
 });
 
 test('build camera: stays above the ground and its target rides the terrain', async ({ page }) => {
-  await boot(page, 'southpole', '&style=detailed'); // the free camera: High detail's (classic: classic.spec.ts)
-  // starts ~90 m from the Lander
+  await boot(page, 'southpole');
+  // the isometric view starts at its home zoom (170 m) from the Lander
   const c0 = await cam(page);
-  expect(c0.dist).toBeGreaterThan(80);
-  expect(c0.dist).toBeLessThan(100);
+  expect(c0.dist).toBeGreaterThan(100);
+  expect(c0.dist).toBeLessThan(300);
   // a view pushed below the ground is lifted back over it
   await page.evaluate(() => window.__game.setView({ x: 17, y: -30, z: 4 }, { x: 0, y: 0, z: 0 }));
   await expect.poll(async () => (await cam(page)).clearance).toBeGreaterThan(3.9);
@@ -105,8 +105,8 @@ test('build camera: stays above the ground and its target rides the terrain', as
   }, { timeout: 15_000 }).toBeLessThan(0.5);
 });
 
-test('build camera: WASD pans, Q/E orbit, F focuses the selection, H returns home', async ({ page }) => {
-  await boot(page, 'mare', '&style=detailed'); // the free camera: High detail's (classic: classic.spec.ts)
+test('build camera: WASD pans, Q/E turn, F focuses the selection, H returns home', async ({ page }) => {
+  await boot(page, 'mare');
   await page.evaluate(() => window.__game.grantResources({ metals: 200 }));
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
   const c0 = await cam(page);
