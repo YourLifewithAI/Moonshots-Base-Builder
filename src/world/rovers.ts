@@ -1045,8 +1045,8 @@ export class RoverFleet implements Driver {
 
   /** The rovers nearest the listener, for the audio layer: distance, bearing
    *  as a stereo pan, speed as a fraction of cruise, and whether printing.
-   *  On foot the listener is the camera. From a command view it is the
-   *  ground point in view (`focus`), lifted by a share of the camera's
+   *  With no `focus` the listener is the camera; otherwise it is the
+   *  ground point in view, lifted by a share of the camera's
    *  distance: what you look at is heard, and zooming out quietens it,
    *  whatever lens the view uses (the isometric one sits far off). */
   sounds(cam: THREE.Camera, focus: THREE.Vector3 | null = null): RoverSound[] {

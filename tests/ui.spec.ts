@@ -1,6 +1,6 @@
-/** HUD rules under stress: on foot the command HUD stays down and no command
- *  screen opens; the Overclock and Downlink verbs have their controls; the
- *  victory and defeat overlays sit over every screen with the keys dead
+/** HUD rules under stress: the Overclock and Downlink verbs have their
+ *  controls; the speed buttons and keys 1/2/3 resume a paused game (never
+ *  under an era banner); the victory and defeat overlays sit over every screen with the keys dead
  *  beneath; the objectives and a resource panel never cover each other; the
  *  inspector's buttons stay above the fold on a laptop; Enter queues in a
  *  tree opened from its chip; held keys toggle once; nothing throws before
@@ -63,49 +63,68 @@ const topAt = (page: Page, sel: string) => page.evaluate((s) => {
   return hit?.closest('#victory-screen, #defeat-screen, #tech-screen, #map-screen')?.id ?? hit?.tagName ?? null;
 }, sel);
 
-test('walk mode: the command HUD stays down, and no command screen opens on foot', async ({ page }) => {
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(String(e)));
+// ───────────────────────────── time controls ─────────────────────────────
+
+const speedButton = (page: Page, label: string) => page.locator('#time-controls button', { hasText: label });
+const clockState = async (page: Page) => { const s = await state(page); return [s.paused, s.speed]; };
+
+test('time controls: clicking a speed while paused resumes at that speed', async ({ page }) => {
   await boot(page);
-  // everything that used to force itself visible with an inline display
-  await g(page, 'select', (await state(page)).buildings[0].id);
-  await page.locator('#resource-strip .chip[data-key="metals"]').click();
-  await expect(page.locator('#inspector')).toBeVisible();
-  await expect(page.locator('#res-panel')).toBeVisible();
-  await expect(page.locator('#era-chip')).toBeVisible();
-  // the chip that opened the panel keeps focus into walk mode — not after it
-  await page.locator('#era-chip').focus();
-  await g(page, 'setMode', 'walk');
-  await expect(page.locator('#walk-hud')).toBeVisible();
-  for (const sel of ['#inspector', '#res-panel', '#era-chip', '#map-chip', '#resource-strip', '#palette', '#milestones', '#swarm-meter']) {
-    await expect(page.locator(sel), sel).toBeHidden();
-  }
-  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await g(page, 'setPaused', true);
+  await expect.poll(async () => (await state(page)).paused).toBe(true);
+  await expect(page.locator('#pause-veil')).toBeVisible();
+  const three = speedButton(page, '3×');
+  await three.click();
+  await expect.poll(() => clockState(page)).toEqual([false, 3]);
+  await expect(three).toHaveClass(/active/);
+  await expect(speedButton(page, '❚❚')).not.toHaveClass(/active/);
+  await expect(page.locator('#pause-veil')).toBeHidden();
+  // paused again, another speed: it resumes at that one
+  await g(page, 'setPaused', true);
+  await expect.poll(async () => (await state(page)).paused).toBe(true);
+  await speedButton(page, '10×').click();
+  await expect.poll(() => clockState(page)).toEqual([false, 10]);
+  // while running a click only sets the speed
+  await speedButton(page, '1×').click();
+  await expect.poll(() => clockState(page)).toEqual([false, 1]);
+});
 
-  // no way into the tree or the map on foot: chip, event, keys, a stray Space
-  await page.evaluate(() => (document.getElementById('era-chip') as HTMLButtonElement).click());
-  await page.evaluate(() => (document.getElementById('map-chip') as HTMLButtonElement).click());
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('moonshots:open-map')));
-  await page.keyboard.press('KeyT');
-  await page.keyboard.press('KeyM');
-  await page.keyboard.press('Space');
+test('time controls: keys 1, 2 and 3 resume a paused game at 1×, 3× and 10×', async ({ page }) => {
+  await boot(page);
+  await g(page, 'setPaused', true);
+  await expect.poll(async () => (await state(page)).paused).toBe(true);
+  await page.keyboard.press('Digit2');
+  await expect.poll(() => clockState(page)).toEqual([false, 3]);
+  await g(page, 'setPaused', true);
+  await expect.poll(async () => (await state(page)).paused).toBe(true);
+  await page.keyboard.press('Digit3');
+  await expect.poll(() => clockState(page)).toEqual([false, 10]);
+  // running: the key only sets the speed; the core action still leaves a pause alone
+  await page.keyboard.press('Digit1');
+  await expect.poll(() => clockState(page)).toEqual([false, 1]);
+  await g(page, 'setPaused', true);
+  await g(page, 'setSpeed', 3);
   await frames(page, 4);
-  await expect(page.locator('#tech-screen')).toBeHidden();
-  await expect(page.locator('#map-screen')).toBeHidden();
+  expect(await clockState(page)).toEqual([true, 3]);
+});
 
-  // back in command view T opens the tree; stepping onto the surface shuts it
-  await g(page, 'setMode', 'build');
-  await expect(page.locator('#inspector')).toBeVisible();
-  await page.keyboard.press('KeyT');
-  await expect(page.locator('#tech-screen')).toBeVisible();
-  await g(page, 'setMode', 'walk');
-  await expect(page.locator('#tech-screen')).toBeHidden();
-  await g(page, 'setMode', 'build');
-  await page.keyboard.press('KeyM');
-  await expect(page.locator('#map-screen')).toBeVisible();
-  await g(page, 'setMode', 'walk');
-  await expect(page.locator('#map-screen')).toBeHidden();
-  expect(errors).toEqual([]);
+test('time controls: a speed pick under an era banner leaves the game paused until Continue', async ({ page }) => {
+  await page.goto(`${BASE}&site=mare&exp=robotic&tips`);
+  await page.waitForFunction(() => window.__game !== undefined);
+  const banner = page.locator('#era-banner');
+  await expect(banner).toBeVisible();
+  await expect.poll(async () => (await state(page)).paused).toBe(true);
+  // the banner covers the HUD, so a real click cannot land: send one to the button itself
+  await page.evaluate(() => {
+    const b = [...document.querySelectorAll<HTMLButtonElement>('#time-controls button')].find((x) => x.textContent === '3×')!;
+    b.click();
+  });
+  await page.keyboard.press('Digit2');
+  await frames(page, 4);
+  expect((await state(page)).paused).toBe(true);
+  await expect(banner).toBeVisible();
+  await page.locator('#era-banner [data-dsc="ok"]').click();
+  await expect.poll(async () => (await state(page)).paused).toBe(false);
 });
 
 test('before a world exists: T, M, Tab, Space and Esc on the title and site screens throw nothing', async ({ page }) => {
@@ -201,7 +220,6 @@ test('victory: over the map and the tree, keys dead beneath it', async ({ page }
   await frames(page, 4);
   await expect(page.locator('#tech-screen')).toBeHidden();
   await expect(page.locator('#map-screen')).toBeHidden();
-  await expect(page.locator('#walk-hud')).toBeHidden();
   await expect(page.locator('#menu')).toBeHidden();
   const s = await state(page);
   expect([s.paused, s.speed]).toEqual([paused, speed]);
@@ -331,7 +349,7 @@ test('tree opened from its chip: Enter queues the selected card and the tree sta
   await expect(tree).toBeHidden();
 });
 
-test('held keys: T, M, Esc, Space, I and Tab toggle once; camera keys keep repeating', async ({ page }) => {
+test('held keys: T, M, Esc, Space and I toggle once; camera keys keep repeating', async ({ page }) => {
   await boot(page);
   const held = async (key: string, n = 4) => {
     for (let i = 0; i < n; i++) await page.keyboard.down(key); // presses 2..n arrive with repeat set
@@ -361,10 +379,6 @@ test('held keys: T, M, Esc, Space, I and Tab toggle once; camera keys keep repea
   await expect.poll(async () => (await state(page)).paused).toBe(false);
   await held('KeyI');
   await expect(page.locator('.chip[data-key="deposits"]')).toHaveClass(/warn/);
-  await held('Tab');
-  await expect(page.locator('#walk-hud')).toBeVisible({ timeout: 20_000 });
-  await held('Tab');
-  await expect(page.locator('#walk-hud')).toBeHidden({ timeout: 20_000 });
   // W held: the camera pans on every repeat
   const t0 = (await g(page, 'getCamera')).target;
   for (let i = 0; i < 6; i++) { await page.keyboard.down('KeyW'); await frames(page, 2); }
@@ -474,15 +488,9 @@ test('live numbers: the data panel shows the sim\'s research transfer, and the n
   await expect(page.locator('#milestones')).toContainText('The lunar night (4 min at 1×) kills solar power');
 });
 
-test('robotic mission: no crew or morale on the helmet or the victory screen, which lands on the command view', async ({ page }) => {
+test('robotic mission: no crew or morale on the victory screen', async ({ page }) => {
   await boot(page);
-  await g(page, 'setMode', 'walk');
-  await expect(page.locator('#helmet .chip')).toHaveCount(2);
-  await expect(page.locator('#helmet')).not.toContainText('%');
-  // victory on foot: back in the command view beneath the overlay
   await win(page);
-  await expect(page.locator('#walk-hud')).toBeHidden();
-  expect(await page.evaluate(() => document.getElementById('hud-layer')!.classList.contains('mode-walk'))).toBe(false);
   await expect(page.locator('#victory-screen')).toContainText('2 robots, no one aboard');
   await expect(page.locator('#victory-screen')).not.toContainText('morale');
 });

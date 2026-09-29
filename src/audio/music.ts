@@ -87,7 +87,6 @@ export class Music {
   private bellBus: GainNode;
   private timer: number | null = null;
   private mood: Mood = 'day';
-  private walking = false;
   private level = 1;
   private nextChordAt = 0;
   private nextBellAt = 0;
@@ -161,7 +160,7 @@ export class Music {
     const t = this.ctx.currentTime;
     this.out.gain.cancelScheduledValues(t);
     this.out.gain.setValueAtTime(0, t);
-    this.out.gain.setTargetAtTime(this.target(), t + 0.2, 2.2);
+    this.out.gain.setTargetAtTime(1, t + 0.2, 2.2);
     this.nextChordAt = t + 0.3;
     this.nextBellAt = t + rand(6, 10);
     this.timer = window.setInterval(() => this.tick(), TICK_MS);
@@ -188,12 +187,6 @@ export class Music {
   /** After a death: the next four chords keep to the night pool (D Dorian). */
   mourn() { this.mourning = 4; }
 
-  setWalking(w: boolean) {
-    if (w === this.walking) return;
-    this.walking = w;
-    this.applyLevel();
-  }
-
   /** 0..1 after the bus volume: 0 stops new notes (the score picks up again when raised) */
   setLevel(v: number) {
     this.level = v;
@@ -218,11 +211,9 @@ export class Music {
 
   // ─────────────────────────── internals ───────────────────────────
 
-  private target() { return this.walking ? 0.75 : 1; }
-
   private applyLevel() {
     try {
-      this.out.gain.setTargetAtTime(this.level > 0 ? this.target() : 0, this.ctx.currentTime, 0.6);
+      this.out.gain.setTargetAtTime(this.level > 0 ? 1 : 0, this.ctx.currentTime, 0.6);
     } catch { /* context gone */ }
   }
 

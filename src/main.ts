@@ -2,7 +2,6 @@
  *  ?site=mare|southpole|lavatube  skip site select and land immediately
  *  ?seed=42                       deterministic world + events
  *  ?debug                         expose window.__game
- *  ?nolock                        walk mode without pointer lock (headless tests)
  *  ?lowfx                         drop AO for weak GPUs
  *  ?safe                          safe render mode (also a menu setting)
  *  ?style=classic|detailed        render style for this launch (the menu's
@@ -82,7 +81,6 @@ function takeResume(): boolean {
 let game: Game | null = null;
 try {
   game = new Game(canvas, {
-    nolock: params.has('nolock'),
     lowfx: params.has('lowfx'),
     safe: params.has('safe') || settings.safe || settings.safeAuto,
     safeAuto: !params.has('safe') && !settings.safe && settings.safeAuto,

@@ -24,7 +24,7 @@ import type { Game } from '../core/game';
 import type { Action } from '../core/actions';
 import { el, fmt } from './hud';
 import {
-  $alerts, $counts, $defeat, $lunar, $mode, $phase, $research, $resources, $siteId, $swarm, $time, $victory, $vitals, overlayUp,
+  $alerts, $counts, $defeat, $lunar, $phase, $research, $resources, $siteId, $swarm, $time, $victory, $vitals, overlayUp,
 } from './stores';
 import {
   DEPENDENTS, GEO, computePageLayout, isPlaceholder, isVisible,
@@ -238,7 +238,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     card.classList.add('pulse');
   };
 
-  // a command-view screen: the chip never opens it on foot or mid-flight
+  // a command-view screen: the chip opens it once a world is up
   chip.addEventListener('click', () => {
     if (open) toggle(false);
     else if (game.commandView && !overlayUp()) toggle(true);
@@ -1277,12 +1277,11 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   $swarm.subscribe(() => { if (open && view) updatePageHead(); });
   $alerts.subscribe(renderAlerts);
   $phase.subscribe((p) => {
-    // '' lets the stylesheet decide: walk mode hides the chip
+    // '' lets the stylesheet decide
     chip.style.display = p === 'playing' ? '' : 'none';
     if (p !== 'playing') toggle(false);
   });
-  // on foot, or under a victory or defeat overlay, the tree is shut
-  $mode.subscribe((m) => { if (m === 'walk' && open) toggle(false); });
+  // under a victory or defeat overlay the tree is shut
   for (const store of [$victory, $defeat]) store.subscribe((up) => { if (up && open) toggle(false); });
   renderChip(null);
 }

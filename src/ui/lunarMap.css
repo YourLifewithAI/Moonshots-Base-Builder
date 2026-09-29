@@ -293,7 +293,6 @@
   from { background: var(--paper); color: var(--ink-900); }
   to { background: rgba(14, 15, 17, 0.88); color: var(--ink-100); }
 }
-#hud-layer.mode-walk #map-chip { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .pm .spin { animation: none; }

@@ -15,7 +15,7 @@ no web workers, zero binary assets. `npm run build` runs `tsc --noEmit` then
 
 ```
 src/
-  main.ts                 boot: URL params (?site ?seed ?debug ?nolock ?lowfx ?style), create Game, mount UI;
+  main.ts                 boot: URL params (?site ?seed ?debug ?lowfx ?style), create Game, mount UI;
                           after a menu style switch, continue the saved game
   debug.ts                window.__game test API (attached with ?debug)
   core/
@@ -122,7 +122,7 @@ src/
     berms.ts              Regolith Shielding berms draped round shielded footprints
   world/
     renderer.ts           WebGLRenderer + camera (High detail: AgX, PCF shadows; classic: MSAA, no shadows)
-    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce + headlamp
+    lighting.ts           sun (view-fitted, change-driven shadows) + earthshine/bounce
     classicLighting.ts    classic key light + hemisphere fill: day by the sun, night by earthshine
     classic.ts            the classic style's registry materials (stock Lambert, stock points)
     sky.ts                camera-centred sky: magnitude stars, Milky Way, sun disc + glare, phased Earth
@@ -151,12 +151,9 @@ src/
     buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys;
                           the CommandCam interface both command views implement
     isoCam.ts             classic isometric camera: 20° lens, 32° pitch, 90° yaw steps, 5 zoom levels
-    walk.ts               first-person controller: lunar gravity, capsule vs AABBs, lope bob, landing dip
-    modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° or 20° iso / 70°)
-    footprints.ts         instanced bootprint ring buffer
     roadTool.ts           the road tool [N]: drag out a road from the network, Alt-drag removes
   audio/
-    sfx.ts                procedural cues, suit radio, hum, breath; buses, limiter, meter; the destiny's
+    sfx.ts                procedural cues, suit radio, hum; buses, limiter, meter; the destiny's
                           layers (docs/14 §4.6): rotor hum, walkers' squelch, greenhouse air, modem chirp
     music.ts              the generative score: day and night pools, tilted by the lean (setDestiny);
                           the hazards' hooks hold() and mourn()
@@ -165,7 +162,6 @@ src/
     tokens.css / ui.css   design tokens + HUD layout (see 07)
     stores.ts             nanostores atoms — the one-way sim → UI bridge
     mount.ts              assembles the DOM overlay
-    visor.ts / visor.css  walk-mode helmet visor (pure CSS)
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
     builderPanel.ts       the [B] Builder panel and the resource panels' BUILDER section
@@ -183,15 +179,14 @@ playwright.config.ts      test runner config (preinstalled Chromium aware)
 ## 2. The loop (`core/game.ts`)
 
 One `requestAnimationFrame` loop; no separate sim thread. Per frame, with
-`dt = min(frameDt, 0.1 s)` for the camera, walk physics and effects, and
+`dt = min(frameDt, 0.1 s)` for the camera and effects, and
 `simDt = min(frameDt, 0.5 s)` for game time (so a 2 fps GPU still runs the
 clock at full speed):
 
 1. **Drain the action queue** — every frame, before anything else, so UI
    commands feel immediate even when paused.
-2. **Mode/camera update** — the mode tween if transitioning; otherwise the
-   command camera (the free MapControls one in High detail, the isometric
-   one in Classic; plus the placement ghost raycast) or the walk controller.
+2. **Camera update** — the command camera (the free MapControls one in High
+   detail, the isometric one in Classic; plus the placement ghost raycast).
 3. **Game-time accumulation** — if not paused, `simTime += simDt × speed`
    (speeds 1/3/10).
 4. **Fixed 1 Hz economy ticks** — an accumulator fires `econStep()` for each
@@ -209,11 +204,6 @@ clock at full speed):
    day clock, focus following the active camera.
 7. **Autosave** — every 60 real seconds, plus on `visibilitychange` →
    hidden.
-
-**Walk physics runs on real `dt`, not game time** — deliberately. Pause
-freezes the economy and the clock, but the astronaut still walks: you can
-stop the world and go stand next to your mass driver. It also means walking
-feel is independent of game speed.
 
 ## 3. The economy tick (`core/economy.ts`)
 
@@ -257,8 +247,8 @@ DOM events ──► ActionQueue (typed Action union) ──► sim (applyAction
                                                     GameState  ◄── renderer reads
                                                         │ publish() at economy boundary
                                                 nanostores atoms ($resources, $power, $time,
-                                                 $tech, $swarm, $alerts, $milestones, $mode,
-                                                 $selection, $placing, $victory, $lookAt…)
+                                                 $tech, $swarm, $alerts, $milestones,
+                                                 $selection, $placing, $victory…)
                                                         │ subscribe
                                                        DOM
 ```
@@ -271,8 +261,7 @@ The UI **never mutates GameState** — every intent is a typed `Action`
 `freezeRules`, `setFeedPlan`, …) drained
 at the top of the tick. Published snapshots are copies (`{...}` / array
 spreads), so a subscriber can never reach back into live sim state. High-rate
-UI state that isn't economy output (`$placing` per frame during placement,
-`$lookAt` at ~8 Hz in walk mode) is set directly by the frame loop.
+UI state that isn't economy output (`$placing` per frame during placement) is set directly by the frame loop.
 
 ## 5. Placement pipeline (`buildings/placement.ts`, `game.ts`)
 
@@ -298,8 +287,7 @@ UI state that isn't economy output (`$placing` per frame during placement,
 5. **Commit** (`commitPlace`): deduct cost → `heightfield.flatten()` the pad
    to mean height with a smoothed 1-sample skirt → **record the flatten** in
    `state.flattens` (§7) → rebuild the ≤4 affected terrain chunks → push
-   `BuildingState` → rebuild that type's `InstancedMesh` matrices → refresh
-   walk colliders.
+   `BuildingState` → rebuild that type's `InstancedMesh` matrices.
 
 ## 6. Terrain (`terrain/`)
 
@@ -310,7 +298,7 @@ UI state that isn't economy output (`$placing` per frame during placement,
   so adjacent chunks reference identical corner heights and cracks are
   impossible by construction, including after a flatten rebuild.
 - **One bilinear `sample(x, z)` API** serves placement (pad heights, ray
-  march), walking (ground snap), and rendering (instance Y placement).
+  march) and rendering (instance Y placement).
   There is exactly one definition of "the ground."
 - `raycast` and `flatten`/`maxDelta` live beside `sample` so all terrain
   queries stay analytic and allocation-free.
@@ -355,23 +343,11 @@ UI state that isn't economy output (`$placing` per frame during placement,
   classes and times on the same era times (`tests/flares.spec.ts`).
 - `Math.random` appears only in `main.ts` to pick a seed when none is given.
 
-## 8. Walk collision (`player/walk.ts`)
+## 8. (retired)
 
-No physics engine. The controller is ~130 lines of analytic code:
-
-- **Ground**: `heightfield.sample` under the player; grounded state snaps to
-  the surface and walks slopes; a >0.4 m drop transitions to falling.
-- **Gravity** 1.62 m/s² (the real Moon), jump 2.6 m/s → apex ≈ 2.1 m,
-  hang ≈ 3.2 s; air control drops to 25% (vacuum: you cannot steer a leap).
-  Walk 3.0 m/s, sprint ×1.6.
-- **Buildings**: cylinder-vs-AABB pushout in XZ against per-building
-  colliders (footprint rect + def height); the degenerate inside-the-box case
-  pushes out of the nearest face.
-- **Spawn**: entering walk mode spawns at the camera target; if that is
-  inside a structure, a spiral search (radius 3→60 m, 12 headings) finds the
-  first free spot — you never materialize inside a habitat.
-- Arrow-key look works without pointer lock (accessibility + headless tests);
-  `?nolock` skips pointer-lock requests entirely.
+This section described the walk-mode collision (`player/walk.ts`), removed
+with walk mode (docs/19 W0a). The number stays so the references to §9
+onward hold.
 
 ## 9. Save format (`core/save.ts`)
 
@@ -381,7 +357,6 @@ a `localStorage` fallback when IDB is unavailable:
 ```ts
 SaveBlob = {
   state: GameState,          // version: 1 — plain JSON, includes flatten history
-  player: { mode, x, y, z, yaw, pitch },
   savedAt: number
 }
 ```
@@ -478,8 +453,10 @@ SaveBlob = {
   2. Apply the delta grid.
   3. Replay the flattens.
   4. Rebuild the pit zones, the chunk meshes (once each), the rocks, the
-     instances and the colliders.
-  5. Restore the player's pose and mode.
+     instances.
+  5. The `player` block that saves from before walk mode's removal carry
+     (pose and mode) is ignored: a save made on foot loads in the command
+     view.
 
 ## 10. Debug API (`debug.ts`) — the testability keystone
 
@@ -540,8 +517,7 @@ a faulty GPU would; `null` mends it) · `setFxSanitize(on)` /
 `setFxHardening(on)` · `holdBlackFrameCheck(on)` (only the self-check
 sees a break) · `probeNext()`.
 
-**Why it exists**: headless Chromium cannot grant pointer lock, and real-time
-waits make tests slow and flaky. `?nolock` makes walk mode drivable, and
+**Why it exists**: real-time waits make tests slow and flaky.
 `advanceGameMinutes` makes hours of economy synchronous. Every Playwright
 assertion drives this surface (plus real DOM clicks for UI-owned flows), so
 tests exercise the same code paths as play — `placeBuilding` cannot bypass
@@ -549,7 +525,7 @@ validity, `launch` goes through the same action the button pushes.
 
 ## 11. Testing strategy (`tests/smoke.spec.ts`)
 
-Six serial tests, one full game loop, against `vite` on 5173 (Playwright
+Five serial tests, one full game loop, against `vite` on 5173 (Playwright
 boots it; a preinstalled Chromium is used when present). Screenshots
 `01-site-select` … `07-restored` land in `test-results/` for visual review.
 
@@ -558,9 +534,8 @@ boots it; a preinstalled Chromium is used when present). Screenshots
 | 1 · Site selection | Title renders, all 3 site cards with pros/cons/ratings, Land gates on selection, **zero page errors** on boot |
 | 2 · Landing | HUD mounts (resource strip, swarm meter, milestone panel), state has exactly the pre-placed Lander on the chosen site |
 | 3 · Economy & night | Placement API respects validity; regolith/metals/O₂ flow; at Mare night the smelter idles with reason `power` while the lander's trickle keeps the excavator alive — brownout triage works end-to-end |
-| 4 · Walk mode | Instant mode switch, walk HUD/reticle visible, real WASD displacement across the terrain (works under software GL), clean return to build |
-| 5 · Tech tree | 6 era columns render; researching drains granted data and completes; era 2 opens at two era-1 techs — gating math verified |
-| 6 · Endgame | Full tech ladder → milestones in order → real Launch button → victory overlay ("FIRST LIGHT") → **save, reload, Continue restores** launches and buildings |
+| 4 · Tech tree | 6 era columns render; researching drains granted data and completes; era 2 opens at two era-1 techs — gating math verified |
+| 5 · Endgame | Full tech ladder → milestones in order → real Launch button → victory overlay ("FIRST LIGHT") → **save, reload, Continue restores** launches and buildings |
 
 ## 12. Render styles (`core/style.ts`, `world/materials.ts`)
 
@@ -578,7 +553,7 @@ the style decides only how pixels are made:
 | Renderer | MSAA canvas, no shadow map, no tone mapping, DPR ≤ 1.5 | no MSAA (SMAA in the chain), PCF shadows, AgX, DPR ≤ 2 |
 | Frame | one forward render straight to the canvas; `PostFX` in its classic mode never builds a composer, reads or stores an FX level, or steps | the FX ladder 0–3 (06 §4), raise trials, remembered failures |
 | Materials | the registry's classic entries (`defineClassic`): stock Lambert + one small custom building shader; `patched()` is false for everything | the lit entries and their FX-variant shader patches |
-| Lights | `ClassicLighting`: one key + one hemisphere fill | `Lighting`: fitted-shadow sun, earthshine + bounce, headlamp, stock-path PointLights |
+| Lights | `ClassicLighting`: one key + one hemisphere fill | `Lighting`: fitted-shadow sun, earthshine + bounce, stock-path PointLights |
 | Night | per-structure `lightLevel()` into `iGlow` + draped pools | shader floods, or discs + PointLights on the stock path |
 | Command camera | `IsoCam` | `BuildCam` (MapControls) |
 | Safety | the black-frame check still probes; safe mode's unlit twins are the fallback; a classic shader fault swaps stock Lambert in | the ladder, patch stripping, safe mode |

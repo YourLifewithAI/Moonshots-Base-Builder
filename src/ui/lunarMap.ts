@@ -25,7 +25,7 @@ import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
 import { openTechTreeAt } from './techTree';
 import {
-  $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $mode, $phase, $research, $siteId, $victory, overlayUp,
+  $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $phase, $research, $siteId, $victory, overlayUp,
   type DepositView, type LunarOutpostView, type LunarProspectView, type LunarView,
   type HubLightView,
 } from './stores';
@@ -1436,8 +1436,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     }
   }
 
-  // like the tree, a command-view screen: never opened on foot or mid-flight
-  // (pointer lock would strand it), nor under a victory or defeat overlay
+  // like the tree, a command-view screen: never opened under a victory or defeat overlay
   const canOpen = () => $phase.get() === 'playing' && !$menuOpen.get() && !overlayUp() && game.commandView;
   chip.addEventListener('click', () => {
     if (isOpen) toggle(false);
@@ -1487,6 +1486,5 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   $alerts.subscribe(() => { if (isOpen) renderAlert(); });
   $siteId.subscribe(() => { reset(); schedule(); });
   $phase.subscribe((p) => { if (p !== 'playing') toggle(false); });
-  $mode.subscribe((m) => { if (m === 'walk') toggle(false); });
   for (const store of [$victory, $defeat]) store.subscribe((up) => { if (up) toggle(false); });
 }

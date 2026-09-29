@@ -248,7 +248,6 @@ export const $destiny = atom<DestinyView>({
   picks: [null, null, null, null, null, null, null, null], c: 0, a: 0, left: 8, band: null, certain: null, lean: 0,
   reach: { colony: { need: 6, ok: true }, automation: { need: 6, ok: true }, concord: true }, crewHome: false,
 });
-export const $mode = atom<'build' | 'walk'>('build');
 export const $selection = atom<BuildingState | null>(null);
 /** note = the ghost's deposit line ('On high-Ti basalt — smelter feed ↑'), '' off deposits */
 export const $placing = atom<{
@@ -275,6 +274,10 @@ export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 /** a victory or defeat overlay is up: the world's screens and keys wait under it */
 export const overlayUp = () => $victory.get() || $defeat.get();
+/** something that holds the game paused for the player's answer is up: a victory or defeat
+ *  overlay, an era or hazard banner (ui/discovery.ts; a tech card is not one), or the menu.
+ *  A speed click or key resumes a paused game only when none of these is up. */
+export const modalUp = () => overlayUp() || $menuOpen.get() || ($announce.get()[0]?.kind ?? 'tech') !== 'tech';
 
 /** ice survey state (legacy saves) */
 export const $ice = atom<{ hasIce: boolean; surveyed: boolean }>({ hasIce: false, surveyed: false });
@@ -290,7 +293,6 @@ export const $counts = atom<Partial<Record<BuildingId, { total: number; active: 
 export const $rates = atom<Partial<Record<ResourceId, number>>>({});
 /** which resource info panel is open (chip click) */
 export const $resourcePanel = atom<string | null>(null);
-export const $lookAt = atom<{ name: string; x: number; y: number } | null>(null);
 
 /** Floating deltas at the cursor on placement (Islanders-style diegetic feedback). */
 export interface Floater { id: number; text: string; x: number; y: number }

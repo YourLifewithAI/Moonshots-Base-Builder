@@ -1,7 +1,7 @@
 /** Procedural lunar heightfield: fBm base + explicit craters using real simple-
  *  crater geometry — parabolic bowl (depth ≈ D/5 scaled down for playability),
  *  gaussian raised rim (~4% D), and a d^-3 ejecta falloff. Sampled analytically
- *  by placement, walking, and the chunk meshes; flatten() writes building pads
+ *  by placement and the chunk meshes; flatten() writes building pads
  *  back into the field. */
 import { createNoise2D, type NoiseFunction2D } from 'simplex-noise';
 import { CELL_M, MAP_CELLS, MAP_M, MAX_SLOPE_DELTA } from '../data/balance';

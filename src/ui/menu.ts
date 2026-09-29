@@ -64,7 +64,7 @@ export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] =
   ['F', 'focus the selection'],
   ['H · Home', 'back to the Lander'],
   ['Space', 'pause'],
-  ['1 · 2 · 3', 'speed 1× · 3× · 10×'],
+  ['1 · 2 · 3', 'speed 1× · 3× · 10× (resumes when paused)'],
   ['T', 'research tree'],
   ['M', 'Lunar Map — surveys and outposts'],
   ['I', 'deposit overlay'],
@@ -77,8 +77,6 @@ export const controlsFor = (style: 'classic' | 'detailed'): [string, string][] =
   ['Click a rover', 'inspect it · Send to… then click a site'],
   ['Site · Summon', 'another rover onto a build (Release lets one go)'],
   ['Excavator · Dig at…', 'click a deposit or mapped ground · Esc cancels'],
-  ['Tab', 'walk the surface · command view'],
-  ['On foot', 'W A S D move · Space jump · ⇧ run · E inspect'],
   ['Esc', 'this menu'],
 ];
 
@@ -100,7 +98,6 @@ export const TOUCH_CONTROLS: [string, string][] = [
   ['Map · Builder · Hazards', 'the Lunar Map · orders and rules · risks and counters'],
   ['❚❚ · 1×', 'pause · speed 1× → 3× → 10×'],
   ['☰', 'this menu'],
-  ['Walk mode', 'not in touch mode (a keyboard and mouse walk the base)'],
 ];
 
 const TOUCH_NAME: Record<TouchChoice, string> = { auto: 'Auto', on: 'On', off: 'Off' };

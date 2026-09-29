@@ -29,8 +29,6 @@ export const UNIT = {
   rover: { r: 1.3, off: 0, body: 0.9 },
   /** 6.2 × 3.8 m: tracks at ±1.9 m, from 1.9 m behind the origin to the wheel 4.3 m ahead */
   digger: { r: 3.5, off: 1.2, body: 2.0 },
-  /** the astronaut on foot */
-  walker: { r: 0.5, off: 0, body: 0 },
 } as const;
 
 const GRID = 2;          // m per planning cell

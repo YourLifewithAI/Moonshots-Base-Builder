@@ -87,16 +87,16 @@
    hover), so alerts coming and going never shift the inspector beneath.
    Its row count is set once as each building opens (hud.ts): the alerts
    standing then, at least one, fewer on a short screen */
-#hud-layer:not(.mode-walk) #hud-right.inspecting #alerts {
+#hud-layer #hud-right.inspecting #alerts {
   --alert-row: 28px;
   height: calc(var(--alert-rows, 4) * (var(--alert-row) + 4px) + 14px);
   overflow: hidden;
 }
-#hud-layer:not(.mode-walk) #hud-right.inspecting .alert {
+#hud-layer #hud-right.inspecting .alert {
   box-sizing: border-box; height: var(--alert-row); max-width: 100%;
   align-items: center; white-space: nowrap; flex: 0 0 auto;
 }
-#hud-layer:not(.mode-walk) #hud-right.inspecting .alert-text {
+#hud-layer #hud-right.inspecting .alert-text {
   overflow: hidden; text-overflow: ellipsis; min-width: 0;
 }
 
@@ -211,45 +211,6 @@
 #inspector .btn:disabled { opacity: 0.4; cursor: default; }
 #inspector .prio .insp-bld { margin-left: auto; }
 
-/* walk mode strips the HUD to a helmet readout */
-#hud-layer.mode-walk #res-panel,
-#hud-layer.mode-walk #builder-panel,
-#hud-layer.mode-walk .auto-mark,
-#hud-layer.mode-walk .site-mark,
-#hud-layer.mode-walk #resource-strip,
-#hud-layer.mode-walk #swarm-meter,
-#hud-layer.mode-walk #milestones,
-#hud-layer.mode-walk #palette,
-#hud-layer.mode-walk #era-chip,
-#hud-layer.mode-walk #inspector,
-#hud-layer.mode-walk #rover-inspector,
-#hud-layer.mode-walk #unit-inspector,
-#hud-layer.mode-walk #place-hint,
-#hud-layer.mode-walk #fleet-hint,
-#hud-layer.mode-walk #time-controls .row { display: none; }
-
-/* ── walk mode ── */
-#walk-hud { position: absolute; inset: 0; }
-#reticle {
-  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  width: 4px; height: 4px; border-radius: 50%;
-  background: rgba(var(--paper-rgb), 0.8);
-  box-shadow: 0 0 0 5px rgba(var(--paper-rgb), 0.12);
-}
-#nameplate {
-  position: absolute; transform: translate(-50%, -100%);
-  padding: 4px 10px; font-size: 12px;
-}
-#helmet {
-  position: absolute; bottom: var(--gutter); left: 50%; transform: translateX(-50%);
-  display: flex; gap: var(--s2);
-}
-#walk-exit {
-  position: absolute; top: var(--gutter); left: 50%; transform: translateX(-50%);
-  padding: 5px 12px; font-size: 11px;
-  color: rgba(var(--paper-rgb), var(--op-tertiary));
-}
-
 /* ── condition bars over damaged buildings ── */
 .wear-bar {
   position: absolute; transform: translate(-50%, -50%);
@@ -289,7 +250,6 @@
 .dc-todo { line-height: 16px; }
 #deposit-card .dc-foot, .map-dep .dc-foot { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 14px; border-top: var(--hair); }
 #deposit-card .dc-foot .btn, .map-dep .dc-foot .btn { font-size: 11px; padding: 4px 9px; }
-#hud-layer.mode-walk #deposit-card { display: none !important; }
 .deposit-mark .g { font-size: 14px; color: var(--paper); line-height: 1; }
 .deposit-mark .t { font-size: 10px; letter-spacing: 0.04em; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 .deposit-mark.lead .g { font-size: 13px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
@@ -480,7 +440,6 @@ html.touch #update-chip { bottom: auto; top: var(--content-t); min-height: 44px;
 #discovery-card .dsc-foot { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-top: var(--hair); }
 #discovery-card .dsc-foot .btn { font-size: 11px; padding: 4px 10px; }
 .dsc-off { margin-left: auto; font-size: 10px; color: rgba(var(--paper-rgb), var(--op-tertiary)); display: flex; align-items: center; gap: 4px; cursor: pointer; }
-#hud-layer.mode-walk #discovery-card { display: none !important; }
 #era-banner {
   position: absolute; inset: 0; z-index: 55; align-items: center; justify-content: center;
   background: rgba(8, 9, 11, 0.62);
@@ -556,7 +515,6 @@ html.touch #update-chip { bottom: auto; top: var(--content-t); min-height: 44px;
 #hazard-chip.solid { background: var(--paper); color: var(--ink-900); font-weight: 600; }
 @keyframes hz-flash { from { border-color: rgba(var(--paper-rgb), 0.25); } to { border-color: var(--paper); } }
 @media (prefers-reduced-motion: reduce) { #hazard-chip.flash { animation: none; border-color: var(--paper); } }
-#hud-layer.mode-walk #hazard-chip, #hud-layer.mode-walk #hazards-panel, #hud-layer.mode-walk .hz-mark { display: none; }
 #hazards-panel {
   width: 380px; max-height: 70vh;
   flex: 0 1 auto; min-height: 120px; display: flex; flex-direction: column;

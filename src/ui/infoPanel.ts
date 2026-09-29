@@ -294,7 +294,7 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
     const key = $resourcePanel.get();
     const html = key ? panelHtml(key, game.mods, key === 'morale' ? stripMorale(game.state) : undefined) : null;
     if (html === null) { panel.style.display = 'none'; lastHtml = ''; return; }
-    panel.style.display = ''; // the stylesheet's flex column; walk mode hides it
+    panel.style.display = ''; // the stylesheet's flex column
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
   const schedule = perFrame(render);

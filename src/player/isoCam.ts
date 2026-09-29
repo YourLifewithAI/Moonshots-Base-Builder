@@ -73,6 +73,8 @@ export class IsoCam implements CommandCam {
   private v = new THREE.Vector3();
 
   constructor(private camera: THREE.PerspectiveCamera, private dom: HTMLElement) {
+    // the iso lens (a 20° near-orthographic view); place() then tracks near/far with the zoom
+    camera.fov = ISO_FOV; camera.near = 20; camera.far = 5000; camera.updateProjectionMatrix();
     dom.addEventListener('wheel', (e) => this.onWheel(e), { passive: false });
     dom.addEventListener('pointerdown', (e) => this.onDown(e));
     dom.addEventListener('pointermove', (e) => this.onMove(e));
