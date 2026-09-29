@@ -1,7 +1,9 @@
 /** World-dressing and build-camera tests: the sky's exposure and Earth phase,
  *  rocks cleared by pads and grading (and still cleared after a reload),
- *  the camera held above the ground, and the build-mode keys (the High
- *  detail free camera; the classic isometric one is in classic.spec.ts). */
+ *  the camera held above the ground, the build-mode keys (the High
+ *  detail free camera; the classic isometric one is in classic.spec.ts),
+ *  and the removal of walk mode (Tab does nothing; an old save made on
+ *  foot loads in the command view). */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -178,13 +180,67 @@ test('build camera: WASD pans, Q/E orbit, F focuses the selection, H returns hom
     const c = await cam(page);
     return Math.hypot(c.target.x - c0.target.x, c.target.z - c0.target.z);
   }, { timeout: 15_000 }).toBeLessThan(1);
+});
 
-  // walk mode keeps WASD for the astronaut: the build target stays put
-  await page.evaluate(() => window.__game.setMode('walk'));
+// ───────────────────────────── walk mode is gone ─────────────────────────────
+
+test('Tab does nothing: no walk mode, no walk HUD, no walk API', async ({ page }) => {
+  await boot(page, 'mare');
+  await expect(page.locator('#resource-strip')).toBeVisible();
+  const c0 = await cam(page);
+  const lens0 = await page.evaluate(() => window.__game.getRenderInfo().lens);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  await page.waitForTimeout(600);
+  await expect(page.locator('#walk-hud')).toHaveCount(0);
+  await expect(page.locator('#reticle, #visor, #helmet')).toHaveCount(0);
+  expect(await page.evaluate(() => document.getElementById('hud-layer')!.classList.contains('mode-walk'))).toBe(false);
+  // Tab leaves focus where it was (no focus walk onto the HUD) and the view as it was
+  expect(await page.evaluate(() => document.activeElement === document.body)).toBe(true);
+  await expect(page.locator('#resource-strip')).toBeVisible();
+  const c1 = await cam(page);
+  expect(c1.target).toEqual(c0.target);
+  expect(c1.dist).toBeCloseTo(c0.dist, 6);
+  expect(await page.evaluate(() => window.__game.getRenderInfo().lens)).toEqual(lens0);
+  expect(await page.evaluate(() => [typeof window.__game.setMode, typeof window.__game.getPlayer])).toEqual(['undefined', 'undefined']);
+});
+
+test('an old save made on foot (player.mode walk) loads in the command view', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await boot(page, 'mare');
+  await page.evaluate(() => window.__game.save());
+  // rewrite the stored save as a build from before this change wrote it: the player block says walk
+  await page.evaluate(() => new Promise((resolve, reject) => {
+    const req = indexedDB.open('keyval-store');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const tx = req.result.transaction('keyval', 'readwrite');
+      const store = tx.objectStore('keyval');
+      const get = store.get('mbb-save-v1');
+      get.onsuccess = () => {
+        const blob = get.result;
+        blob.player = { mode: 'walk', x: 12, y: 3, z: -8, yaw: 1.2, pitch: 0.1 };
+        store.put(blob, 'mbb-save-v1');
+      };
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error);
+    };
+  }));
+  await page.goto(URL_DEBUG);
+  await page.locator('#btn-continue').click();
+  await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 0);
+  await expect(page.locator('#resource-strip')).toBeVisible();
+  await expect(page.locator('#walk-hud')).toHaveCount(0);
+  expect(await page.evaluate(() => document.getElementById('hud-layer')!.classList.contains('mode-walk'))).toBe(false);
+  // the command camera has the view: the iso lens, and W pans it
+  await expect.poll(async () => (await page.evaluate(() => window.__game.getRenderInfo().lens)).fov).toBe(20);
   const t0 = (await cam(page)).target;
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(800);
   await page.keyboard.up('KeyW');
   const t1 = (await cam(page)).target;
-  expect(Math.hypot(t1.x - t0.x, t1.z - t0.z)).toBeLessThan(0.01);
+  expect(Math.hypot(t1.x - t0.x, t1.z - t0.z), 'W pans the command camera').toBeGreaterThan(1);
+  expect(errors).toEqual([]);
 });

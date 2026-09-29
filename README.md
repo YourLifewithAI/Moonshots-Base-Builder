@@ -5,7 +5,7 @@ land on an empty patch of the Moon, choose your site's trade-offs, build a base 
 every structure pulls on your resources and gives something back — and bend the curve
 until you're launching thin-film solar collectors toward the Sun.
 
-Elegant grayscale. Simple procedural 3D. You can walk around everything you build.
+Elegant grayscale. Simple procedural 3D, seen from above.
 
 ## Play in your browser
 
@@ -32,8 +32,6 @@ themselves on a phone (Menu → Touch controls: Auto · On · Off):
 | **Tree** | Tap a tech to see it, tap again to queue · hold to queue its whole path |
 | ❚❚ · 1× · ☰ | Pause · speed · menu |
 
-Walk mode (first person) needs a keyboard and mouse.
-
 ## Play locally
 
 ```bash
@@ -52,11 +50,10 @@ game is ~300 kB gzipped.
 | Right-drag | Orbit the camera |
 | Click | Place building · select building |
 | `R` | Rotate while placing · right-click cancels |
-| `Tab` | Drop to first-person walk mode (and back) |
-| `WASD` + mouse | Walk the base · `Space` jumps (1/6 g — enjoy the hang time) |
+| `WASD` | Pan the command view |
 | `T` | Tech tree |
 | `I` | Toggle the ice-deposit overlay (after surveying from the Lander) |
-| `Space` | Pause · `1` `2` `3` — speed 1×/3×/10× |
+| `Space` | Pause · `1` `2` `3` — speed 1×/3×/10× (a speed also resumes a paused game) |
 
 ## The game
 
@@ -91,14 +88,13 @@ npm run build      # typecheck + production build
 npm test           # Playwright smoke suite: full loop from site select to victory
 ```
 
-Debug/test drive: `/?debug&seed=42&nolock` exposes `window.__game`
-(place buildings, grant resources, complete techs, fast-forward the economy,
-toggle walk mode without pointer lock).
+Debug/test drive: `/?debug&seed=42` exposes `window.__game`
+(place buildings, grant resources, complete techs, fast-forward the economy).
 
 URL flags: `?site=mare|southpole|lavatube` (skip site select) · `?seed=n` ·
 `?fx=0..3` (post-effects ladder: 0 full · 1 standard-precision buffers ·
 2 no ambient occlusion · 3 plain) · `?lowfx` (start at level 2) ·
-`?safe` (unlit safe rendering) · `?debug` · `?nolock`.
+`?safe` (unlit safe rendering) · `?debug`.
 
 The game auto-detects GPUs that can't run the full effect chain: it steps
 down the FX ladder until the frame renders, announces what it did in the

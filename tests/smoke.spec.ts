@@ -1,4 +1,4 @@
-/** Full-loop smoke test: site select → build → economy ticks → walk mode →
+/** Full-loop smoke test: site select → build → economy ticks →
  *  tech tree → night survival → launch → victory → save/reload restore.
  *  Drives the sim through window.__game (?debug&nolock) plus real UI clicks. */
 import { test, expect, type Page } from '@playwright/test';
@@ -214,25 +214,6 @@ test('slow frames keep game time at full speed; a hitch is capped', async ({ pag
   expect(r.slow).toBeCloseTo(4, 6);    // 0.4 s × 10, not the 0.1 s frame clamp × 10
   expect(r.welded).toBeGreaterThanOrEqual(3); // the economy ticked along with it
   expect(r.hitch).toBeCloseTo(5, 6);   // at most half a second of game time per frame
-});
-
-test('walk mode: WASD moves the astronaut across the terrain', async ({ page }) => {
-  await page.goto(`${URL_DEBUG}&site=mare`);
-  await game(page);
-  await page.evaluate(() => window.__game.setMode('walk'));
-  await expect(page.locator('#reticle')).toBeVisible();
-  await expect(page.locator('#walk-hud')).toBeVisible();
-  const p0 = await page.evaluate(() => window.__game.getPlayer());
-  await page.keyboard.down('KeyW');
-  await page.waitForTimeout(3000);
-  await page.keyboard.up('KeyW');
-  const p1 = await page.evaluate(() => window.__game.getPlayer());
-  // headless software GL runs rAF slowly; any real displacement proves the controller
-  const moved = Math.hypot(p1.x - p0.x, p1.z - p0.z);
-  expect(moved).toBeGreaterThan(2);
-  await page.screenshot({ path: 'test-results/04-walk.png' });
-  await page.evaluate(() => window.__game.setMode('build'));
-  await expect(page.locator('#reticle')).toBeHidden();
 });
 
 test('tech tree: research queues, completes, unlocks buildings, gates eras', async ({ page }) => {
@@ -1040,7 +1021,7 @@ test('info panels: live values, life support in seconds, shipments and construct
   await expect(panel).toBeHidden();
 });
 
-test('robotic mission copy: landing, objectives, perimeter, launch reasons, T under walk mode', async ({ page }) => {
+test('robotic mission copy: landing, objectives, perimeter, launch reasons', async ({ page }) => {
   await page.goto(URL_DEBUG);
   await page.locator('.site-card', { hasText: 'ILMENITE' }).click();
   await page.locator('#btn-land').click();
@@ -1077,11 +1058,6 @@ test('robotic mission copy: landing, objectives, perimeter, launch reasons, T un
   await expect(page.locator('#launch-cost')).toContainText('launch 0/3↑ ✗');
   await expect(page.locator('#launch-cost')).toContainText('stored 400/400 ✓');
   await expect(page.locator('#btn-launch')).toHaveAttribute('title', 'Needs 10 more foils, 3 more launch capacity');
-  // T is a command-view key: under walk mode's pointer lock the tree stays shut
-  await page.evaluate(() => window.__game.setMode('walk'));
-  await page.keyboard.press('KeyT');
-  await expect(page.locator('#tech-screen')).toBeHidden();
-  await page.evaluate(() => window.__game.setMode('build'));
   await page.keyboard.press('KeyT');
   await expect(page.locator('#tech-screen')).toBeVisible();
   await page.keyboard.press('Escape');

@@ -201,15 +201,13 @@ for (const [name, stub] of Object.entries(STUBS)) {
     await page.locator('#menu [data-act="mute"]').click();
     await page.locator('#menu [data-act="mute"]').click();
     await page.locator('#menu [data-act="resume"]').click();
-    // every cue, walk-mode breathing, nightfall, placement
+    // every cue, nightfall, placement
     await page.evaluate(() => {
       for (const c of ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'modem', 'squelch']) {
         window.__game.playCue(c);
       }
     });
-    await g(page, 'setMode', 'walk');
     await frames(page, 40);
-    await g(page, 'setMode', 'build');
     expect(await g(page, 'placeBuilding', 'solar', 132, 126)).toBe(true);
     await g(page, 'finishConstruction');
     await g(page, 'advanceGameSeconds', 490 - (await g(page, 'getState')).simTime);
@@ -246,9 +244,6 @@ test('audio: cues follow the state; the hum sags as the bank runs dry', async ({
   expect(after.nightfall).toBeGreaterThan(before.nightfall);
   expect(after.crit).toBeGreaterThan(before.crit); // over the radio, between Quindar tones
   await expect.poll(async () => (await g(page, 'getAudio')).hum.margin).toBeLessThan(0);
-  // walking the surface, the suit breathes
-  await g(page, 'setMode', 'walk');
-  await expect.poll(async () => (await g(page, 'getAudio')).breathing).toBe(true);
 });
 
 test('audio: the score plays after the first gesture, answers its own slider, and darkens at night', async ({ page }) => {

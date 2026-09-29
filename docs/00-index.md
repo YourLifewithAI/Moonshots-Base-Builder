@@ -58,7 +58,7 @@ A quick key used throughout:
 | Doc | Title | What it covers |
 |---|---|---|
 | **[06-art-direction.md](06-art-direction.md)** | Art direction | PBR-monochrome grayscale recipe, earthshine as the only color, procedural terrain and building vocabulary, post-processing chain. |
-| **[07-ui-design.md](07-ui-design.md)** | UI design | The "living blueprint / mission-control" HUD, design tokens, tooltip template, the swimlane research tree and Lunar Map, site-selection screen, walk-mode HUD, menu and sound, and touch mode for a phone in landscape (installable, offline). |
+| **[07-ui-design.md](07-ui-design.md)** | UI design | The "living blueprint / mission-control" HUD, design tokens, tooltip template, the swimlane research tree and Lunar Map, site-selection screen, menu and sound, and touch mode for a phone in landscape (installable, offline). |
 | **[08-architecture.md](08-architecture.md)** | Architecture | Vite + TS + Three.js stack, fixed-timestep sim, economy tick order, terrain pipeline, save format, test hooks. |
 | **[09-roadmap.md](09-roadmap.md)** | Roadmap | The expansion plan: in what order the CUT content in docs 02–05 comes back, and why. |
 | **[10-slice-scope.md](10-slice-scope.md)** | Slice scope | Exactly what the vertical slice contains, the cut lines drawn, and the verification story. |
