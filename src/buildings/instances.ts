@@ -63,19 +63,13 @@ export class BuildingInstances {
   /** instance order per type, mirroring rebuild() — used for picking */
   private ids = new Map<BuildingId, number[]>();
   private rows: Row[] = [];
-  /** lit structures at the last rebuild */
-  private litIds: number[] = [];
   /** the darkness revision last written out (−1: write on the next frame) */
   private darkSeen = -1;
   private trackers: Trackers;
   private scaffold: THREE.LineSegments;
   private scaffoldSig = '';
-  /** placement + construction-rise of every instance at the last rebuild */
-  private casterSig = '';
   private last: GameState | null = null;
   private revisionSeen = -1;
-  /** fired when a rebuild moved, added or removed a shadow caster */
-  onShadowCastersChanged?: () => void;
   /** dust shown on a solar array's glass (visual only; default b.dust) */
   panelDust?: (b: BuildingState) => number;
   /** Building-state visual hook (docs/14 §3, the hazards): how alarmed a
@@ -122,9 +116,6 @@ export class BuildingInstances {
     if (this.last) this.rebuild(this.last);
   }
 
-  /** @deprecated the base's lights are always the cel program's; removed with the game.ts pass. */
-  get shaderLights(): boolean { return false; }
-
   /** Construction shows as the print reveal (the cel program discards above
    *  the cut) rather than the squash-rise of a stock material. */
   private get reveal(): boolean { return materials.custom('building'); }
@@ -146,7 +137,7 @@ export class BuildingInstances {
     if (this.darkness.revision !== this.glowSeen || Math.abs(nightFactor - this.glowNight) > 0.004) {
       this.refreshGlow();
     }
-    if (this.trackers.update(sunDir, step)) this.onShadowCastersChanged?.();
+    this.trackers.update(sunDir, step);
   }
 
   /** Each lit structure's darkness into its lit channel (2 + k) — only when
@@ -170,9 +161,6 @@ export class BuildingInstances {
     }
   }
 
-  /** @deprecated the stock path's work lights are gone; removed with the game.ts pass. */
-  nearestDark(_focus: { x: number; z: number }, _out: unknown[]): number { return 0; }
-
   private meshFor(type: BuildingId, key: string): THREE.InstancedMesh {
     let m = this.meshes.get(type);
     if (m && this.keys.get(type) !== key) {
@@ -189,8 +177,6 @@ export class BuildingInstances {
       m = new THREE.InstancedMesh(withInstanceState(recipeGeometry(type, key), MAX_PER_TYPE),
         materials.get('building'), MAX_PER_TYPE);
       this.keys.set(type, key);
-      m.castShadow = true;
-      m.receiveShadow = true;
       m.count = 0;
       m.userData.buildingType = type;
       this.meshes.set(type, m);
@@ -205,15 +191,12 @@ export class BuildingInstances {
     this.last = state;
     const types = new Set<BuildingId>(this.meshes.keys());
     for (const b of state.buildings) types.add(b.type);
-    let sig = '';
     this.lean = leanOf(state.techsDone);
-    for (const type of types) sig += this.rebuildType(state, type);
+    for (const type of types) this.rebuildType(state, type);
 
-    sig += `|keys:${[...this.keys.values()].join(';')}`;
     // a digger out on its haul leaves its pad unlit: no flood, pool or disc
     const lit = state.buildings.filter((b) =>
       (b.construction ?? 0) <= 0 && b.idleReason !== 'power' && b.enabled && !this.hidden.has(b.id) && !this.hasFx(b.id, 'dark'));
-    this.litIds = lit.map((b) => b.id);
     this.rows = [];
     for (const [type, m] of this.meshes) {
       this.rows.push({ st: m.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute, ids: this.ids.get(type) ?? [] });
@@ -227,11 +210,6 @@ export class BuildingInstances {
       placed.push({ b, x, y: this.hf.sample(x, z), z, dust: this.panelDust?.(b), mounts });
     }
     this.trackers.rebuild(placed);
-    sig += `|parts:${placed.map((p) => p.b.id).join(',')}`;
-    if (sig !== this.casterSig) {
-      this.casterSig = sig;
-      this.onShadowCastersChanged?.();
-    }
 
     // light pools from every completed, POWERED structure — brownouts go dark
     this.darkSeen = -1; // the lit channel is written on the next frame
@@ -299,8 +277,7 @@ export class BuildingInstances {
   private hasFx(id: number, f: string): boolean { return !!this.fxOf?.(id)?.includes(f); }
   private static FULL = new THREE.Color(1, 1, 1);
 
-  /** Returns this type's caster signature (placements + rise). */
-  private rebuildType(state: GameState, type: BuildingId): string {
+  private rebuildType(state: GameState, type: BuildingId) {
     const mesh = this.meshFor(type, upgradeKey(type, state.techsDone));
     const list = state.buildings.filter((b) => b.type === type);
     mesh.count = Math.min(list.length, MAX_PER_TYPE);
@@ -314,7 +291,6 @@ export class BuildingInstances {
     const rot = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
     const order: number[] = [];
-    let sig = type;
     list.forEach((b, i) => {
       if (i >= MAX_PER_TYPE) return;
       const [cx, cz] = centerOf(b);
@@ -344,7 +320,6 @@ export class BuildingInstances {
       const hazard = fx?.includes('flicker') ? 1 : fx?.includes('strip') ? 0.6 : 0;
       alarmA.setX(i, Math.max(hazard, this.alarmOf ? Math.max(0, Math.min(1, this.alarmOf(b) || 0)) : 0));
       order.push(b.id);
-      sig += `|${b.gx},${b.gz},${b.rot},${sy.toFixed(3)},${cut === CUT_NONE ? '-' : cut.toFixed(2)}`;
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -354,7 +329,6 @@ export class BuildingInstances {
     mesh.computeBoundingSphere();
     this.ids.set(type, order);
     this.lists.set(type, list.slice(0, MAX_PER_TYPE));
-    return sig;
   }
 
   /** Each type's upgrade key and the triangles its mesh draws per instance

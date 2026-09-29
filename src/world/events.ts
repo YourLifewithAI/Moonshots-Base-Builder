@@ -237,20 +237,15 @@ export class ResupplyFx {
   private plumeMat: THREE.MeshBasicMaterial;
   private spot: [number, number, number] | null = null;
   private spotFor = -1;
-  private shadowOn = false;
   private phase: 'idle' | 'descent' | 'landed' | 'ascent' = 'idle';
   private alt = 0;
   private throttle = 0;
   private flicker = 0;
   private m = new THREE.Matrix4();
   private q = new THREE.Quaternion();
-  /** fired when the lander starts or stops casting a shadow */
-  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {
     this.lander = new THREE.InstancedMesh(withInstanceState(cargoLanderGeometry(), 1), materials.get('building'), 1);
-    this.lander.receiveShadow = true;
-    this.lander.castShadow = false;
     this.lander.frustumCulled = false;
     this.lander.visible = false;
     // a faint frustum from the bell's lip, widening and fading downward
@@ -307,7 +302,6 @@ export class ResupplyFx {
     if (!on) {
       this.phase = 'idle';
       this.lander.visible = this.plume.visible = false;
-      this.setShadow(false);
       return;
     }
     if (this.spotFor !== rs!.arriveAt || !this.spot) {
@@ -344,7 +338,6 @@ export class ResupplyFx {
     this.lander.setMatrixAt(0, this.m.compose(new THREE.Vector3(x, y, z), this.q, new THREE.Vector3(1, 1, 1)));
     this.lander.instanceMatrix.needsUpdate = true;
     this.lander.visible = true;
-    this.setShadow(this.phase === 'landed');
 
     this.flicker += dt;
     const len = Math.min(9, Math.max(0.4, alt + 0.3)) * (0.9 + 0.1 * Math.sin(this.flicker * 37));
@@ -354,13 +347,6 @@ export class ResupplyFx {
     this.plume.quaternion.copy(this.q);
     this.plume.scale.set(wide, len, wide);
     this.plumeMat.color.setScalar(0.14 * thrust);
-  }
-
-  private setShadow(on: boolean) {
-    if (on === this.shadowOn) return;
-    this.shadowOn = on;
-    this.lander.castShadow = on;
-    this.onShadowCastersChanged?.();
   }
 
   /** The dust sheet under a low engine: flat and fast, six slots' worth. */
@@ -379,7 +365,6 @@ export class ResupplyFx {
       phase: this.phase,
       alt: Math.round(this.alt * 10) / 10,
       spot: this.spot ? this.spot.map((v) => Math.round(v)) : null,
-      shadow: this.shadowOn,
       material: (this.lander.material as THREE.Material).type,
     };
   }

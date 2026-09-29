@@ -81,7 +81,7 @@ export class BaseLife {
   private emitList: { e: DustEmitter; d: number }[] = [];
   private earthAzim: number;
 
-  constructor(private hf: Heightfield, requestShadowUpdate: () => void) {
+  constructor(private hf: Heightfield) {
     this.rovers = new RoverFleet(hf, this.traffic);
     this.haulers = new Haulers(hf, this.traffic);
     this.roads = new RoadMesh(hf);
@@ -93,7 +93,6 @@ export class BaseLife {
     this.work = new WorkAnim(hf);
     this.rovers.setWork(this.work);
     this.haulers.work = this.work;
-    this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = this.links.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
       this.berms.mesh, this.swarm.group, this.links.group, this.settlers.group, this.work.group);

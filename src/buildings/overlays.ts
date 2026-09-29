@@ -47,7 +47,7 @@ export class BaseOverlays {
 
   /** Per frame. `probe` is the active placement (null when not placing). */
   update(state: GameState, probe: PlacementProbe | null, ghostVisible: boolean,
-    selected: Footprinted | null, _sunDir?: THREE.Vector3 /* deprecated: dropped with the game.ts pass */) {
+    selected: Footprinted | null) {
     this.updateGrid(probe && ghostVisible ? probe : null);
     this.updateRings(state, probe);
     this.updateBracket(selected);

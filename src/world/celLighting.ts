@@ -18,20 +18,16 @@
  *  Light levels are in albedo units (1 = the surface's own colour facing
  *  the light); three's lights take them × π. The cel building shader
  *  reads the same values through celLightUniforms. The true sun
- *  direction still drives the sky, the solar wings and the rover decals. */
+ *  direction still drives the solar wings and the rover decals. */
 import * as THREE from 'three';
 import type { SiteDef } from '../data/sites';
 import { skyDirection } from '../core/daynight';
 
-/** A stock-path work light's spot: a structure's ground point, how dark it
- *  stands (0..1) and its squared distance from the camera focus. */
-export interface WorkSpot { x: number; y: number; z: number; k: number; d: number }
+const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-aim once the sun turns 0.1° (up to 3×)
 
-const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-render once the sun turns 0.1° (up to 3×)
-
-/** The sun turn (as a cosine) that re-renders the map and re-aims the solar
- *  wings: 0.1° up to 3× speed, growing with speed past that — so the sweep
- *  costs about as many shadow renders a second at 10× as at 3×. */
+/** The sun turn (as a cosine) that re-aims the solar wings: 0.1° up to 3×
+ *  speed, growing with speed past that — so the sweep costs about as many
+ *  re-aims a second at 10× as at 3×. */
 export function sunStep(speed: number): number {
   return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
 }
@@ -59,10 +55,6 @@ const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
 export class CelLighting {
   readonly sun: THREE.DirectionalLight;
   readonly fill: THREE.HemisphereLight;
-  /** shadow bookkeeping the High detail rig has; classic draws no shadows */
-  readonly shadowTexel: [number, number] = [0, 0];
-  readonly shadowRenders = 0;
-  groundAlbedo = 0.3;
 
   private sunDir = new THREE.Vector3(0, 1, 0);
   private keyDir = new THREE.Vector3(0, 1, 0);
@@ -128,12 +120,4 @@ export class CelLighting {
 
   /** Unit vector toward the key light (sun or earthshine, as drawn). */
   get keyDirection(): THREE.Vector3 { return this.keyDir; }
-
-  // the High detail rig's shadow and work-light hooks: nothing to do here
-  requestShadowUpdate() { /* no shadow map */ }
-  fitShadow(..._args: unknown[]) { /* no shadow map */ }
-  useWorkLights(_on: boolean) { /* flood discs instead (buildings/instances.ts) */ }
-  setWorkLights(..._args: unknown[]) { /* flood discs instead */ }
-  /** the stock path's work-light spots; classic has none to fill */
-  readonly workSpots: WorkSpot[] = [];
 }

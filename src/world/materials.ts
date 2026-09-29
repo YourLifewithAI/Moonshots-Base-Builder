@@ -122,25 +122,6 @@ class MaterialRegistry {
       this.replaced.delete(mesh);
     });
   }
-
-  // ── DEPRECATED, deleted with the game.ts pass (W0b1 M3): game.ts still
-  // calls these; the cel style has no patches, no FX level and no second
-  // style, so each answers "none".
-  setClassic(_on: boolean) { /* one style */ }
-  clearFault() { /* no patches to fault */ }
-  setFxLevel(_level: number) { /* no FX ladder */ }
-  stripPatches(): boolean { return false; }
-  patched(_key: MaterialKey): boolean { return false; }
-  variants(): Record<string, string | null> { return {}; }
-  get patchesFaulted(): boolean { return false; }
-  get fxLevel(): number { return 3; }
-  classicCustom(key: MaterialKey): boolean { return this.custom(key); }
-  replaceClassic(key: MaterialKey, fallback: THREE.Material, root: THREE.Object3D): boolean {
-    return this.replace(key, fallback, root);
-  }
 }
 
 export const materials = new MaterialRegistry();
-
-/** @deprecated with the deprecated members above: game.ts still imports it. */
-export const PATCH_MARKER = 'MBB_PATCHED';

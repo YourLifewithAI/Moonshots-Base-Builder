@@ -55,8 +55,6 @@ export class Trackers {
     const make = (part: PartId) => {
       const mesh = new THREE.InstancedMesh(withInstanceState(partGeometry(part), MAX[part]),
         materials.get('building'), MAX[part]);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
       mesh.count = 0;
       mesh.userData.part = part;
       this.group.add(mesh);
@@ -105,10 +103,9 @@ export class Trackers {
     this.sunSeen.set(0, -2, 0); // wings re-aim next update
   }
 
-  /** Aim the wings at the sun once it has turned by `step` (a cosine — the
-   *  shadow map's own, so one re-aim costs one shadow render); they fold flat
-   *  once it is below the horizon. True when anything moved (the shadow map
-   *  needs a render). */
+  /** Aim the wings at the sun once it has turned by `step` (a cosine,
+   *  celLighting.ts sunStep); they fold flat once it is below the horizon.
+   *  True when anything moved. */
   update(sunDir: THREE.Vector3, step: number): boolean {
     const elev = Math.asin(Math.min(1, Math.max(-1, sunDir.y)));
     const stow = Math.round(Math.min(1, Math.max(0, (elev + 0.03) / 0.04)) * 100) / 100;

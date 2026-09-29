@@ -78,13 +78,7 @@ function takeResume(): boolean {
 let game: Game | null = null;
 try {
   game = new Game(canvas, {
-    // ?lowfx, ?fx and ?style are ignored (the fixed values below go with GameOptions' fields)
-    lowfx: false,
-    safe: params.has('safe') || settings.safe || settings.safeAuto,
-    safeAuto: !params.has('safe') && !settings.safe && settings.safeAuto,
-    fx: undefined,
-    fxChoice: 0,
-    style: 'classic',
+    safe: params.has('safe') || settings.safe,
     seed: Number(params.get('seed') ?? Math.floor(Math.random() * 1e9)),
     touch,
   });

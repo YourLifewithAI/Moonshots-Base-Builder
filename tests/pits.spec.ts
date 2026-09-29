@@ -514,7 +514,7 @@ test('save and reload restore the ground exactly (base → deltas → flattens);
   expect(c).toEqual({ pits: 0, nonzero: 0, schema: 1 });
 });
 
-test('chunk rebuilds are throttled: one a frame, two a second, shadows at most every 2 s; a debug advance rebuilds each once', async ({ page }) => {
+test('chunk rebuilds are throttled: one a frame, two a second; a debug advance rebuilds each once', async ({ page }) => {
   test.setTimeout(240_000);
   await start(page);
   const r = await page.evaluate(() => {
@@ -556,9 +556,6 @@ test('chunk rebuilds are throttled: one a frame, two a second, shadows at most e
   for (let i = 1; i < log.length; i++) expect(log[i] - log[i - 1]).toBeGreaterThan(0.5 - 1e-6);
   // all of it drawn in the end
   expect(r.q1.queued).toBe(0);
-  // the shadow map asked at most every 2 s of frame time
-  expect(r.q1.shadowAsks).toBeGreaterThan(0);
-  expect(r.q1.shadowAsks).toBeLessThanOrEqual(Math.ceil((r.q1.clock - r.q0.clock) / 2) + 1);
   // a debug advance: nothing left queued, the drawn ground is the carved ground
   expect(r.q2.queued).toBe(0);
   expect(r.q2.rebuilds).toBeGreaterThan(r.q1.rebuilds);

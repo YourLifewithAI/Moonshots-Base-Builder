@@ -6,9 +6,8 @@
  *  per-chunk when a building pad flattens the field.
  *
  *  Pits (docs/17 §11.6): a carve marks its box; the chunks it overlaps join a
- *  queue, rebuilt at most one a frame and two a second of frame time, and the
- *  shadow map is asked again at most every 2 s. The cut and its heap are a
- *  fresher, brighter regolith (terrain/pitCarve.ts cutTone),
+ *  queue, rebuilt at most one a frame and two a second of frame time. The
+ *  cut and its heap are a fresher, brighter regolith (terrain/pitCarve.ts cutTone),
  *  multiplied into the vertex colours the terrain material reads — no shader
  *  change. */
 import * as THREE from 'three';
@@ -19,36 +18,26 @@ import type { Heightfield } from './heightfield';
 import { celGround, facet } from './celGround';
 import { cutTone, decorate } from './pitCarve';
 
-/** the pits' rebuild queue: seconds between rebuilds (two a second), and between shadow refreshes */
+/** the pits' rebuild queue: seconds between rebuilds (two a second) */
 const REBUILD_GAP_S = 0.5;
-const SHADOW_GAP_S = 2;
 
 export class TerrainChunks {
   readonly group = new THREE.Group();
   private meshes: THREE.Mesh[] = [];
-  /** fired after a flatten rebuilt chunk geometry (terrain casts shadows) */
-  onShadowCastersChanged?: () => void;
   /** chunks the pits changed, waiting to be rebuilt (in the order marked) */
   private queued = new Uint8Array(CHUNKS * CHUNKS);
   private queue: number[] = [];
-  /** frame time pumped so far, and when the queue last rebuilt and asked for shadows */
+  /** frame time pumped so far, and when the queue last rebuilt */
   private clock = 0;
   private lastRebuild = -Infinity;
-  private lastShadow = -Infinity;
-  private shadowOwed = false;
-  /** probes: queue rebuilds done, and shadow requests they made */
+  /** probes: queue rebuilds done */
   private rebuilds = 0;
-  private shadowAsks = 0;
   private rebuildLog: number[] = [];
 
   constructor(private hf: Heightfield) {
     for (let cz = 0; cz < CHUNKS; cz++) {
       for (let cx = 0; cx < CHUNKS; cx++) {
         const mesh = new THREE.Mesh(this.buildGeometry(cx, cz), materials.get('terrain'));
-        mesh.receiveShadow = true;
-        // back faces fill the shadow map (three's default shadowSide), so lit
-        // slopes never self-shadow into acne; ridges and crater walls do cast
-        mesh.castShadow = true;
         mesh.matrixAutoUpdate = false;
         this.meshes.push(mesh);
         this.group.add(mesh);
@@ -110,7 +99,6 @@ export class TerrainChunks {
         this.meshes[i].geometry = this.buildGeometry(cx, cz);
       }
     }
-    this.onShadowCastersChanged?.();
   }
 
   /** The pits changed cells [gx0..gx1] × [gz0..gz1]: queue the chunks they touch
@@ -131,7 +119,7 @@ export class TerrainChunks {
   }
 
   /** Per frame: at most one queued chunk, and at most two a second of frame
-   *  time; the shadow map is asked again at most every 2 s. */
+   *  time. */
   pump(dt: number) {
     this.clock += dt;
     if (this.queue.length && this.clock - this.lastRebuild >= REBUILD_GAP_S - 1e-9) {
@@ -144,18 +132,11 @@ export class TerrainChunks {
       this.rebuilds++;
       this.rebuildLog.push(this.clock);
       if (this.rebuildLog.length > 64) this.rebuildLog.shift();
-      this.shadowOwed = true;
-    }
-    if (this.shadowOwed && this.clock - this.lastShadow >= SHADOW_GAP_S - 1e-9) {
-      this.shadowOwed = false;
-      this.lastShadow = this.clock;
-      this.shadowAsks++;
-      this.onShadowCastersChanged?.();
     }
   }
 
   /** Sim time the visuals never showed (a debug advance): every queued chunk
-   *  rebuilt now, once each, and one shadow refresh. */
+   *  rebuilt now, once each. */
   flushQueue() {
     if (!this.queue.length) return;
     for (const i of this.queue) {
@@ -166,10 +147,6 @@ export class TerrainChunks {
       this.rebuilds++;
     }
     this.queue.length = 0;
-    this.shadowOwed = false;
-    this.lastShadow = this.clock;
-    this.shadowAsks++;
-    this.onShadowCastersChanged?.();
   }
 
   /** A load: every chunk rebuilt at once, the queue cleared. */
@@ -178,10 +155,10 @@ export class TerrainChunks {
     this.queue.length = 0;
   }
 
-  /** The pits' queue (tests, probes): chunks waiting, rebuilds done and when (frame clock), shadow asks. */
+  /** The pits' queue (tests, probes): chunks waiting, rebuilds done and when (frame clock). */
   queueInfo() {
     return {
-      queued: this.queue.length, rebuilds: this.rebuilds, shadowAsks: this.shadowAsks, clock: this.clock,
+      queued: this.queue.length, rebuilds: this.rebuilds, clock: this.clock,
       log: [...this.rebuildLog],
     };
   }

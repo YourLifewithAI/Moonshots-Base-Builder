@@ -77,27 +77,18 @@ import {
   PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, gradeCost, untouchedSite, type PlaceableType,
 } from '../buildings/placement';
 import { BaseOverlays } from '../buildings/overlays';
-import { createRenderer, createCamera } from '../world/renderer';
-import { Lighting } from '../world/lighting';
+import { createRenderer, createCamera, drawFrame, probeGround } from '../world/renderer';
 import { CelLighting, sunStep } from '../world/celLighting';
 import { installCel } from '../world/cel';
 import { CEL_MARKER, celFallbackMaterial } from '../buildings/celBuilding';
-import { Sky } from '../world/sky';
-import { FX_PLAIN, PostFX } from '../world/post';
-import { FxSelfCheck, type FxCheckResult } from '../world/fxcheck';
-import { REPORT_EXTENSIONS, diagnosticTargets } from '../world/fxcaps';
-import { applyFxBreak, fxBreak, sanitizeUniform, setFxBreak, setHardening, type FxBreak } from '../world/fxguard';
-import { copyText, gpuStrings, installRenderLog, logRender, pollGlErrors, renderLog } from '../world/renderReport';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
-import { materials, PATCH_MARKER } from '../world/materials';
-import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buildCam';
-import { IsoCam } from '../player/isoCam';
+import { materials } from '../world/materials';
+import { IsoCam, commandKey } from '../player/isoCam';
 import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
-import { loadSettings, saveSettings, type RenderStyle } from './settings';
+import { loadSettings, saveSettings, RESUME_KEY } from './settings';
 import { autoTouch, type TouchChoice } from './touch';
-import { RESUME_KEY, setActiveStyle } from './style';
 import { sfx } from '../audio/sfx';
 import {
   modalUp, $alerts, $autoMarkers, $automation, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel, $feed, $hasSave, $ice,
@@ -110,39 +101,24 @@ import {
 } from '../ui/stores';
 
 export interface GameOptions {
-  lowfx: boolean;
+  /** safe render mode from the very first frame (?safe, or the stored setting) */
   safe: boolean;
-  /** the safe mode at boot came from the render check, not the player */
-  safeAuto?: boolean;
-  fx?: number;      // explicit FX-ladder level override (?fx=0..3)
-  /** the player's own FX level from the menu: boot never renders above it */
-  fxChoice?: number;
   seed: number;
-  /** how the world is drawn this session (fixed at boot: a change reloads) */
-  style: RenderStyle;
   /** touch mode (core/touch.ts): gestures on the world, saves on every hide */
   touch?: boolean;
 }
 
 /** What the menu shows about the render path. */
 export interface RenderStatus {
-  /** the level being drawn (plain in safe mode) */
-  level: number;
-  /** the ladder's level: what leaving safe mode returns to */
-  ladder: number;
-  /** levels that failed a render check on this GPU (black frame, shader
-   *  error, throwing pass, a failed raise) — kept across sessions */
-  failed: number[];
-  /** why the ladder last stepped down ('' = it has not, this session) */
-  reason: string;
-  /** a raise (or leaving safe mode) waits for its black-frame check */
+  /** leaving safe mode waits for its black-frame check */
   checking: boolean;
   safe: boolean;
   /** safe mode came from the black-frame check, not the player */
   safeAuto: boolean;
-  /** ?lowfx holds the ladder at 2 or below */
-  floor: number;
 }
+
+/** frame the home view at this distance (the isometric view frames it by its own zoom) */
+const HOME_DIST = 90;
 
 /** game-seconds of bank runway below which the hum starts to sag */
 const GRID_RUNWAY_S = 180;
@@ -162,13 +138,9 @@ export class Game {
   savePausedAs: boolean | null = null;
 
   private renderer: THREE.WebGLRenderer;
-  /** the classic render style (no post chain, no shadows, the iso camera) */
-  readonly classic: boolean;
   private camera: THREE.PerspectiveCamera;
   private scene = new THREE.Scene();
-  private lighting: Lighting | CelLighting;
-  private sky: Sky;
-  private post: PostFX;
+  private lighting: CelLighting;
   private hf!: Heightfield;
   private chunks!: TerrainChunks;
   private horizon!: Horizon;
@@ -180,8 +152,8 @@ export class Game {
   private placement!: PlacementController;
   private overlays!: BaseOverlays;
   private life!: BaseLife;
-  /** the command view: the free camera (High detail) or the isometric one (classic) */
-  private buildCam: CommandCam;
+  /** the command view: the fixed isometric camera */
+  private buildCam: IsoCam;
   /** Send to… / Dig at… (player/fleetTarget.ts) */
   private fleetTarget!: FleetTarget;
   /** the road tool (player/roadTool.ts) */
@@ -224,62 +196,22 @@ export class Game {
   private lastPlace: BuildingState | string | null = null;
 
   constructor(private canvas: HTMLCanvasElement, readonly opts: GameOptions) {
-    // the style reaches every mesh creator and the material registry before
-    // the first mesh exists
-    this.classic = opts.style === 'classic';
-    setActiveStyle(opts.style);
-    materials.setClassic(this.classic);
-    installRenderLog();
-    this.renderer = createRenderer(canvas, this.classic);
-    this.watchRenderTargets();
-    if (this.classic) installCel();
+    // the cel program and its palette reach every mesh creator before the
+    // first mesh exists
+    this.renderer = createRenderer(canvas);
+    installCel();
     this.camera = createCamera();
-    this.lighting = this.classic ? new CelLighting(this.scene) : new Lighting(this.scene);
-    this.sky = new Sky(this.scene);
-        this.post = new PostFX(this.renderer, this.scene, this.camera, {
-      lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe, classic: this.classic,
-    });
-    this.post.onIssue = (msg) => {
-      logRender('alert', msg);
-      if (this.state) { alert(this.state, msg, 'warn'); this.publish(); }
-    };
-    // the capability floor held the boot below the stored/chosen level: the
-    // menu says why (the level itself never failed, so it is not remembered)
-    if (this.post.capHeld !== null && this.post.caps) this.fxReason = this.post.caps.floorReason;
-    if (!this.classic) this.fxCheck = new FxSelfCheck(this.renderer, this.scene, this.camera, this.post.caps?.halfFloat.ok ?? false);
-    // the self-check's own two renders are not the frame's
-    this.scene.onBeforeRender = () => { if (!this.inFxCheck) this.sceneRenders++; };
-    // scene shader patches ride the same ladder as the post chain (safe mode
-    // draws unlit twins, so the ladder level stays theirs to return to)
-    if (opts.fx !== undefined) materials.clearFault();
-    materials.setFxLevel(this.post.ladderLevel);
-    this.post.onLevelChange = (level, cause, reason, failed = []) => {
-      if (cause === 'choice') materials.clearFault();
-      if (failed.length) {
-        for (const l of failed) this.fxFailed.add(l);
-        this.fxReason = reason ?? 'render error';
-        this.saveFailed();
-      }
-      materials.setFxLevel(level);
-      if (!this.classic) this.rocks?.setFxLevel(level);
-      logRender('fx', `FX ${level} (${cause}${reason ? `: ${reason}` : ''})`);
-      // a raise is checked on the next frames that can tell; a new rung soon
-      this.reprobe(this.post.onTrial ? 2 : 40);
-      // …and the self-check compares the new level's frame with the plain path
-      this.scheduleFxCheck();
-    };
+    this.lighting = new CelLighting(this.scene);
     // a program that fails to compile is reported here (replacing three's
     // console dump); the response waits until the frame has finished
     this.renderer.debug.onShaderError = (gl, program, vs, fs) => {
       const log = (s: WebGLShader) => gl.getShaderInfoLog(s)?.trim() ?? '';
-      // (the console mirror files this in the render log too)
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
       const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
-      if (src(CEL_MARKER)) this.shaderFault = 'classic';
-      else if (this.shaderFault !== 'patch' && this.shaderFault !== 'classic') {
-        this.shaderFault = src(PATCH_MARKER) ? 'patch' : 'other';
-      }
+      // the cel building program's own fault outranks any other
+      if (src(CEL_MARKER)) this.shaderFault = 'cel';
+      else if (this.shaderFault !== 'cel') this.shaderFault = 'other';
     };
     // context loss (driver reset / tab memory pressure) looks like a permanent
     // black screen with a working HUD — tell the player what happened
@@ -291,7 +223,7 @@ export class Game {
     canvas.addEventListener('webglcontextrestored', () => {
       console.warn('[MOONSHOTS] WebGL context restored.');
     });
-    this.buildCam = this.classic ? new IsoCam(this.camera, canvas) : new BuildCam(this.camera, canvas);
+    this.buildCam = new IsoCam(this.camera, canvas);
     this.buildCam.enabled = false;
     this.bindInput();
     if (opts.touch) this.bindTouch();
@@ -299,7 +231,7 @@ export class Game {
     $depositOverlay.subscribe(() => this.showOverlay());
     // safe mode (the player's, or the render check's from an earlier launch)
     // holds from the very first frame
-    if (opts.safe) this.enableSafeMode(opts.safeAuto ?? false, false);
+    if (opts.safe) this.enableSafeMode(false, false);
     requestAnimationFrame((t) => this.frame(t));
     void loadGame().then((blob) => this.publishSaveSlot(blob));
   }
@@ -382,7 +314,7 @@ export class Game {
     // (a save made on foot, from before walk mode was removed, loads here like any other)
     this.homeCamera(false);
     // the view the player left (turn, tilt, zoom); an older save has none and keeps the default
-    if (blob.camera) this.buildCam.setPreset?.(blob.camera);
+    if (blob.camera) this.buildCam.setPreset(blob.camera);
     this.publish();
     if (missionLost(this.state)) $defeat.set(true);
   }
@@ -400,27 +332,19 @@ export class Game {
     this.chunks = new TerrainChunks(this.hf);
     this.horizon = new Horizon(this.hf);
     this.rocks = new Rocks(this.hf);
-    // classic draws half the small rocks (the FX 2 density), whatever the ladder
-    this.rocks.setFxLevel(this.classic ? 2 : this.post.ladderLevel);
     this.darkness = new BuildingDarkness(this.hf);
     this.instances = new BuildingInstances(this.hf, this.darkness);
-    this.chunks.onShadowCastersChanged = this.instances.onShadowCastersChanged =
-      this.rocks.onShadowCastersChanged = () => this.lighting.requestShadowUpdate();
-    this.lighting.requestShadowUpdate();
-    this.lighting.groundAlbedo = SITES[state.siteId].terrain.albedo;
-    if (this.lighting instanceof CelLighting) this.lighting.setSite(SITES[state.siteId]);
+    this.lighting.setSite(SITES[state.siteId]);
     this.placement = new PlacementController(this.scene, this.hf, SITES[state.siteId]);
     // a hub ghost's own warning (a water plant with no ice in reach), asked once like the rest
     this.placement.extraWarn = (p) => (p.type !== 'grade' && isHubType(p.type)
       ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }).warn : '');
     this.overlays = new BaseOverlays(this.hf);
-    this.life = new BaseLife(this.hf, () => this.lighting.requestShadowUpdate());
+    this.life = new BaseLife(this.hf);
     this.instances.panelDust = (b) => this.life.panelDust(b);
     // an excavator away from its pad is drawn by the haulers, not the pad instance
     this.life.haulers.onAway = (ids) => this.instances.setHidden(ids);
     this.life.haulers.darkOf = (id) => this.instances.darkness.of(id);
-    // ?lowfx: the work animations keep their motion and glow, drop their particles
-    this.life.work.lowFx = this.opts.lowfx;
     // the hazards' look (docs/14 §3): flicker, dark, tints on the instances; plumes in the dust
     const hazardFx = (id: number) => $hazards.get()?.fx?.[id];
     this.instances.fxOf = hazardFx;
@@ -442,7 +366,7 @@ export class Game {
     $roverSel.set(null);
     this.worldGroup = new THREE.Group();
     this.highlight?.dispose();
-    this.highlight = new DepositHighlight(this.hf, this.classic);
+    this.highlight = new DepositHighlight(this.hf);
     this.light = null;
     this.lightKey = '';
     this.overlayLit = '';
@@ -474,13 +398,11 @@ export class Game {
       this.worldGroup.add(ring);
     }
     this.scene.add(this.worldGroup);
-    this.sky.setSite(site);
     this.buildCam.groundAt = this.groundAnywhere;
     this.buildCam.enabled = true;
     this.playing = true;
     this.playFrames = 0; // sentinel probes count from gameplay start
     this.nextProbe = 40;
-    this.scheduleFxCheck(30);
     if (this.safeMode) {
       this.safeMode = false; // fresh world = fresh materials; re-apply
       this.enableSafeMode(this.safeAuto, false);
@@ -875,7 +797,7 @@ export class Game {
 
   /** ▱ (and V's flip in the isometric view): tilt the command view, low ↔ high. */
   tiltView() {
-    if (this.commandView) this.buildCam.tiltStep?.();
+    if (this.commandView) this.buildCam.tiltStep();
   }
 
   /** H: glide home to the Lander. F: glide to the selection. */
@@ -1560,20 +1482,16 @@ export class Game {
   private introPending = false;
   /** alert key → real time (ms) its radio call last played */
   private cueKeyAt = new Map<string, number>();
-  /** FX levels that failed a render check on this GPU (kept in settings),
-   *  and the last cause this session */
-  private fxFailed = new Set<number>(loadSettings().fxFailed);
-  private fxReason = '';
   private safeAuto = false;
   /** the player left safe mode: back to it if the lit frame comes out black */
   private safeTrial = false;
   /** full-screen opaque screens over the world: the tech tree */
   private techOpen = false;
-  /** renders of the whole scene so far: the render pass, and any pass that
-   *  draws it again (N8AO's transparency pass did, twice a frame) */
-  private sceneRenders = 0;
   private framesDrawn = 0;
-  private firstFrame: { fx: number; safe: boolean } | null = null;
+  /** the render path the very first frame drew with */
+  private firstFrame: { safe: boolean } | null = null;
+  /** scene render errors already reported (each is reported once) */
+  private sceneFaults = new Set<string>();
   /** alert id → real time (ms) it was last raised, as seen by this session */
   private alertClock = new Map<number, { t: number; count: number }>();
   private playFrames = 0;      // frames since gameplay (not page load) began
@@ -1582,49 +1500,12 @@ export class Game {
   /** black-frame probe verdicts so far (tests, probes) */
   private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
-  /** the FX self-check (world/fxcheck.ts): High detail only; due at boot and
-   *  after every level change, on a frame at FX 0–2 */
-  private fxCheck: FxSelfCheck | null = null;
-  private fxCheckDue = false;
-  private fxCheckAt = 0;
-  private fxCheckTries = 0;
-  /** debug: automatic checks off (an explicit fxCheckNext still runs one) */
-  private fxCheckAuto = true;
-  private fxCheckForced = false;
-  private inFxCheck = false;
-  private shaderFault: 'patch' | 'classic' | 'other' | null = null;
-  /** the last drawn frame's totals over every pass (shadow map included) */
+  /** a shader program that failed to compile this frame: the cel building
+   *  program (its fallback is stock Lambert) or any other (safe mode). S1b
+   *  adds 'ink' for the outlines. */
+  private shaderFault: 'cel' | 'other' | null = null;
+  /** the last drawn frame's totals */
   private frameStats = { calls: 0, triangles: 0, points: 0, lines: 0 };
-  /** texture types of every render target bound so far (the classic style
-   *  binds none: it draws straight to the canvas) */
-  private targetTypes = new Set<number>();
-
-  /** Record each render target the renderer binds (probes, tests). */
-  private watchRenderTargets() {
-    const r = this.renderer;
-    const set = r.setRenderTarget.bind(r);
-    r.setRenderTarget = (target, ...rest) => {
-      if (target && !diagnosticTargets.has(target)) this.targetTypes.add((target.texture as THREE.Texture).type);
-      set(target, ...rest);
-    };
-  }
-
-  /** The player picked a render style (the menu): stored, the game saved,
-   *  and the page reloaded straight back into it — the renderer's context
-   *  attributes are fixed at creation. URL shortcuts that would override
-   *  the choice or start a new game are dropped. */
-  async switchStyle(style: RenderStyle) {
-    saveSettings({ style });
-    if (style === this.opts.style) return;
-    if (this.playing && !missionLost(this.state)) {
-      await this.doSave();
-      try { sessionStorage.setItem(RESUME_KEY, '1'); } catch { /* the title screen, then */ }
-    }
-    this.playing = false; // nothing may write the save again before the reload
-    const url = new URL(location.href);
-    for (const k of ['style', 'site', 'exp', 'fx', 'safe']) url.searchParams.delete(k);
-    location.assign(url.toString());
-  }
 
   /** Would this touch choice change the running mode (and so reload)? */
   touchSwitchReloads(choice: TouchChoice): boolean {
@@ -1653,7 +1534,7 @@ export class Game {
     requestAnimationFrame((tt) => this.frame(tt));
     // touch mode (a phone's battery): a hidden page neither draws nor steps
     if (this.opts.touch && document.hidden) { this.lastT = t; return; }
-    this.firstFrame ??= { fx: this.post.fxLevel, safe: this.safeMode };
+    this.firstFrame ??= { safe: this.safeMode };
     const realDt = Math.max(0, (t - this.lastT) / 1000);
     this.lastT = t;
     if (this.playing) {
@@ -1664,7 +1545,7 @@ export class Game {
     // an opaque full-screen screen hides the world: the sim ticks, the GPU rests
     const covered = this.playing && (this.techOpen || this.lunarUi.open);
     this.renderer.info.reset();
-    const drawn = !covered && this.post.render(Math.min(realDt, 0.1));
+    const drawn = !covered && this.drawScene();
     if (drawn) {
       this.framesDrawn++;
       const r = this.renderer.info.render;
@@ -1676,74 +1557,32 @@ export class Game {
     // driver failures. Only a frame drawn just now can be read back.
     if (!this.playing) return;
     this.playFrames++;
-    if (drawn && this.fxCheckDue && this.playFrames >= this.fxCheckAt) this.runFxCheck();
     if (drawn && this.playFrames >= this.nextProbe) this.probeFrame();
   }
 
-  /** The self-check is due `frames` from now (the level has settled by then:
-   *  its programs compiled, its first frames drawn). */
-  private scheduleFxCheck(frames = 20) {
-    if (this.classic) return;
-    this.fxCheckDue = true;
-    this.fxCheckTries = 0;
-    this.fxCheckAt = this.playFrames + frames;
-  }
-
-  /** Compare the frame just drawn with the plain path (world/fxcheck.ts). A
-   *  gross deviation fails the level like a black frame does: a raise on
-   *  trial goes back, anything else steps one rung down — and the next
-   *  level is checked the same way. Inconclusive views are retried. */
-  private runFxCheck() {
-    this.fxCheckDue = false;
-    const forced = this.fxCheckForced;
-    this.fxCheckForced = false;
-    const level = this.post.fxLevel;
-    if (!this.fxCheck || this.safeMode || level >= FX_PLAIN || !this.post.chainBuilt) return;
-    if (!this.fxCheckAuto && !forced) return;
-    let res: FxCheckResult | null = null;
-    try {
-      res = this.fxCheck.run(level, (on) => { this.inFxCheck = on; applyFxBreak(level, on); });
-    } catch (e) {
-      console.warn('[MOONSHOTS] FX self-check could not run.', e);
-    } finally {
-      this.inFxCheck = false;
-      applyFxBreak(level);
+  /** Forward-render the scene to the canvas. A throw skips the frame and is
+   *  reported once, so one bad frame never stops the loop. */
+  private drawScene(): boolean {
+    const fault = drawFrame(this.renderer, this.scene, this.camera);
+    if (fault === null) return true;
+    if (!this.sceneFaults.has(fault)) {
+      this.sceneFaults.add(fault);
+      if (this.state) { alert(this.state, `RENDER — a frame failed to draw (${fault})`, 'warn'); this.publish(); }
     }
-    pollGlErrors(this.renderer.getContext(), 'FX self-check');
-    if (!res) return;
-    const m = res.metrics;
-    const summary = `lost ${m.lost}, gained ${m.gained}, flat ${m.flat}, mean ×${m.meanRatio}, hist ${m.hist}`
-      + `${res.hdr ? `, NaN ${res.hdr.nan}, max ${res.hdr.max}` : ''}, ${res.ms} ms`;
-    if (res.verdict === 'unknown') {
-      if (++this.fxCheckTries < 20) { this.fxCheckDue = true; this.fxCheckAt = this.playFrames + 120; }
-      return;
-    }
-    this.fxCheckTries = 0;
-    if (res.verdict === 'pass') {
-      console.log(`[MOONSHOTS] FX self-check: level ${level} passed (${summary})`);
-      logRender('fx', `self-check passed at FX ${level}: ${summary}`);
-      return;
-    }
-    const why = res.reasons.join('; ');
-    console.warn(`[MOONSHOTS] FX self-check: level ${level} failed (${why}; ${summary})`);
-    this.renderFailed(`FX self-check: ${why}`);
+    return false;
   }
 
   /** Black-screen sentinel: some drivers fail shaders silently instead of
    *  throwing. The frame just drawn is read wherever the ground cannot
-   *  legitimately be black — under a risen sun, at night where the landscape
-   *  patch lays its earthshine floor (FX 0–2, ~30 r+g+b on open ground), and
-   *  at any hour in safe mode (unlit). Dusk and dawn, FX 3 nights and views
-   *  with too little ground are inconclusive: checked again soon. A black
-   *  frame first drops the post chain (a raise on trial goes straight back),
-   *  then escalates to safe mode; in safe mode it can at most keep the
-   *  effects off. */
+   *  legitimately be black — under a risen sun, at night (the earthshine key
+   *  holds open ground well off black), and at any hour in safe mode (unlit).
+   *  Dusk and dawn and views with too little ground are inconclusive:
+   *  checked again soon. A black frame switches safe mode on; in safe mode it
+   *  can do no more. */
   private probeFrame() {
     const day = currentDay(this.state, SITES[this.state.siteId]);
-    // classic nights hold open ground well off black (the earthshine key)
-    const readable = this.safeMode || this.lighting.sunLight >= 0.75
-      || (day.nightFactor >= 0.9 && (this.classic || materials.patched('terrain')));
-    const verdict = readable ? this.post.probe((u, v) => this.groundAt(u, v)) : 'unknown';
+    const readable = this.safeMode || this.lighting.sunLight >= 0.75 || day.nightFactor >= 0.9;
+    const verdict = readable ? probeGround(this.renderer, (u, v) => this.groundAt(u, v)) : 'unknown';
     this.probes[verdict]++;
     if (verdict === 'unknown') {
       this.nextProbe = this.playFrames + 120;
@@ -1751,48 +1590,31 @@ export class Game {
       this.renderVerified();
       this.nextProbe = this.playFrames + 900;      // healthy — routine re-check
     } else {
-      this.nextProbe = this.playFrames + 40;       // verify the next rung quickly
+      this.nextProbe = this.playFrames + 40;       // verify quickly
       this.renderFailed('black frame detected');
     }
     if (this.probeHeld) this.nextProbe = Number.POSITIVE_INFINITY;
   }
 
-  /** A probe passed: a raise on trial is kept, and so is leaving safe mode. */
+  /** A probe passed: leaving safe mode is kept. */
   private renderVerified() {
     if (this.safeMode) return;
-    this.post.confirm();
     if (this.safeTrial) {
       this.safeTrial = false;
-      saveSettings({ safe: false, safeAuto: false });
+      saveSettings({ safe: false });
     }
-    // the remembered failures are the High detail ladder's
-    if (!this.classic && this.fxFailed.delete(this.post.fxLevel)) this.saveFailed();
   }
 
-  /** The frame is black, or a program failed to compile. */
-  private renderFailed(reason: string) {
+  /** The frame is black, or a program failed to compile: safe mode. */
+  private renderFailed(_reason: string) {
     if (this.safeMode) {
       // nothing simpler to fall back to than safe mode itself
-      this.post.forceFallback(`${reason} in safe mode`);
       this.nextProbe = this.playFrames + 900;
       return;
     }
-    if (this.safeTrial) {
-      // leaving safe mode did not draw: straight back to it
-      this.safeTrial = false;
-      if (!this.classic) {
-        this.fxFailed.add(this.post.fxLevel);
-        this.fxReason = reason;
-        this.saveFailed();
-      }
-      this.enableSafeMode();
-      return;
-    }
-    if (!this.post.fail(reason)) this.enableSafeMode();
-  }
-
-  private saveFailed() {
-    saveSettings({ fxFailed: [...this.fxFailed].sort() });
+    // leaving safe mode did not draw: straight back to it
+    this.safeTrial = false;
+    this.enableSafeMode();
   }
 
   /** CSS-pixel position of a world point under the live camera. */
@@ -1816,44 +1638,35 @@ export class Game {
     return this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 1500) !== null;
   }
 
-  /** A shader failed to compile this frame. A patched scene shader is the
-   *  likely culprit and the cheapest to lose: strip the patches first. Any
-   *  other program steps the post ladder down (then safe mode). */
+  /** A shader failed to compile this frame. The cel building program is the
+   *  likely culprit and the cheapest to lose: stock Lambert in the same
+   *  palette takes its place (the glow and the print reveal go). Any other
+   *  program means safe mode. */
   private recoverFromShaderFault() {
     const fault = this.shaderFault;
     this.shaderFault = null;
-    // the classic building shader is the classic style's only custom program
-    if (fault === 'classic' && materials.replaceClassic('building', celFallbackMaterial(), this.scene)) {
-      console.warn('[MOONSHOTS] Classic building shader failed to compile — stock Lambert.');
+    if (fault === 'cel' && materials.replace('building', celFallbackMaterial(), this.scene)) {
+      console.warn('[MOONSHOTS] Cel building shader failed to compile — stock Lambert.');
       if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
-      return;
-    }
-    if (fault === 'patch' && materials.stripPatches()) {
-      console.warn('[MOONSHOTS] Detail shaders failed to compile — stock materials.');
-      if (this.state) { alert(this.state, 'RENDER — detail shaders disabled (GPU limitation)', 'warn'); this.publish(); }
       return;
     }
     this.renderFailed('shader compile error');
   }
 
-  /** Last-resort rendering: unlit vertex-color materials, no shadows, no
-   *  effects — the plain forward path, no composer. Renders on anything that
-   *  can draw a triangle — including meshes created later, which take their
-   *  material from the registry. `auto`: the render checks turned it on (and
-   *  say so), not the player. `persist`: remember it for the next launch
-   *  (not for a boot flag or a re-apply). */
+  /** Last-resort rendering: unlit vertex-color materials — the plain forward
+   *  path on anything that can draw a triangle, including meshes created
+   *  later, which take their material from the registry. `auto`: the render
+   *  check turned it on (and says so), not the player. `persist`: remember it
+   *  for the next launch (not for a boot flag or a re-apply). */
   enableSafeMode(auto = true, persist = true) {
     if (this.safeMode) return;
     this.safeMode = true;
     this.safeAuto = auto;
     this.safeTrial = false;
-    console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no shadows, no effects.');
-    this.post.setSafe(true);
-    this.renderer.shadowMap.enabled = false;
+    console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no effects.');
     materials.enableSafe(this.scene);
     this.rocks?.setSafe(true);
-    this.sky.setSafe(true);
-    if (persist) saveSettings(auto ? { safeAuto: true } : { safe: true, safeAuto: false });
+    if (persist) saveSettings({ safe: true });
     if (this.state && auto) {
       alert(this.state, 'SAFE RENDER MODE — simplified visuals (GPU issue detected)', 'warn');
       this.publish();
@@ -1861,36 +1674,21 @@ export class Game {
     this.reprobe();
   }
 
-  /** Lit rendering again — only ever on the player's word — at the ladder's
-   *  level, as a checked raise: kept (in settings) once a probe passes, and
-   *  straight back to safe mode if the frame comes out black. */
+  /** Lit rendering again — only ever on the player's word — as a checked
+   *  step: kept (in settings) once a probe passes, and straight back to safe
+   *  mode if the frame comes out black. */
   disableSafeMode() {
     if (!this.safeMode) return;
     this.safeMode = false;
     this.safeAuto = false;
     this.safeTrial = true;
-    console.warn('[MOONSHOTS] Safe render mode off — lit materials and shadows.');
-    this.renderer.shadowMap.enabled = !this.classic;
+    console.warn('[MOONSHOTS] Safe render mode off — lit materials.');
     materials.disableSafe(this.scene);
     this.rocks?.setSafe(false);
-    this.sky.setSafe(false);
-    this.post.setSafe(false);
-    this.lighting.requestShadowUpdate();
     this.reprobe(2);
-    this.scheduleFxCheck();
   }
 
   get safeModeOn(): boolean { return this.safeMode; }
-  get fxLevel(): number { return this.post.fxLevel; }
-
-  /** The player's FX pick (the menu). Lowering is always safe; raising is
-   *  theirs to ask for — even to a level that failed before — and is a
-   *  trial: the black-frame check reads the next frames that can tell, the
-   *  level is stored once one passes, and a black one goes straight back. In
-   *  safe mode the pick is the level leaving it returns to. */
-  setFxLevel(n: number) {
-    this.post.setLevel(n);
-  }
 
   /** The tech tree covers the world (the UI calls this). */
   setTechOpen(open: boolean) {
@@ -1898,114 +1696,14 @@ export class Game {
   }
 
   renderStatus(): RenderStatus {
-    return {
-      level: this.post.fxLevel, ladder: this.post.ladderLevel, failed: [...this.fxFailed].sort(),
-      reason: this.fxReason, checking: !this.safeMode && (this.post.onTrial || this.safeTrial),
-      safe: this.safeMode, safeAuto: this.safeAuto, floor: this.opts.lowfx ? 2 : 0,
-    };
+    return { checking: !this.safeMode && this.safeTrial, safe: this.safeMode, safeAuto: this.safeAuto };
   }
 
-  /** The render report (menu → Copy render report): what this GPU and
-   *  browser are, what the ladder did and why, the self-check's numbers and
-   *  the render log. Plain data, JSON-ready. */
-  renderReport() {
-    const gl = this.renderer.getContext();
-    pollGlErrors(gl, 'report');
-    const caps = this.post.caps;
-    const supported = new Set(gl.getSupportedExtensions() ?? []);
-    const s = loadSettings();
-    const attrs = gl.getContextAttributes();
-    return {
-      report: 'Moonshots Base Builder render report',
-      generated: new Date().toISOString(),
-      page: location.pathname + location.search,
-      userAgent: navigator.userAgent,
-      devicePixelRatio: window.devicePixelRatio,
-      gpu: gpuStrings(this.renderer),
-      webgl: {
-        webgl2: caps?.webgl2 ?? (typeof WebGL2RenderingContext !== 'undefined' && gl instanceof WebGL2RenderingContext),
-        extensions: caps?.extensions ?? Object.fromEntries(REPORT_EXTENSIONS.map((e) => [e, supported.has(e)])),
-        supportedCount: supported.size,
-        precision: caps?.precision ?? null,
-        maxTextureSize: gl.getParameter(gl.MAX_TEXTURE_SIZE) as number,
-        maxSamples: this.renderer.capabilities.maxSamples,
-        context: { antialias: attrs?.antialias ?? null, alpha: attrs?.alpha ?? null, powerPreference: attrs?.powerPreference ?? null },
-        drawingBuffer: [gl.drawingBufferWidth, gl.drawingBufferHeight],
-        pixelRatio: this.renderer.getPixelRatio(),
-      },
-      style: this.opts.style,
-      fx: {
-        level: this.post.fxLevel,
-        ladder: this.post.ladderLevel,
-        stored: this.post.storedLevel,
-        choice: s.fx,
-        failed: [...this.fxFailed].sort(),
-        reason: this.fxReason,
-        onTrial: this.post.onTrial,
-        chainBuilt: this.post.chainBuilt,
-        sanitizer: this.post.sanitizer,
-        lowfx: this.opts.lowfx,
-        capFloor: caps?.floor ?? null,
-        capFloorReason: caps?.floorReason ?? '',
-        capHeld: this.post.capHeld,
-        halfFloatProbe: caps?.halfFloat ?? null,
-        debugBreak: fxBreak(),
-      },
-      safe: { on: this.safeMode, auto: this.safeAuto, stored: s.safe, storedAuto: s.safeAuto },
-      patches: materials.variants(),
-      patchFault: materials.patchesFaulted,
-      selfCheck: this.fxCheck ? this.fxCheck.history.map((r) => ({ ...r })) : [],
-      probes: { ...this.probes },
-      framesDrawn: this.framesDrawn,
-      log: renderLog(),
-    };
-  }
-
-  /** Copy the report to the clipboard and print it; false when the browser
-   *  refused the clipboard (it is in the console either way). */
-  async copyRenderReport(): Promise<boolean> {
-    const text = JSON.stringify(this.renderReport(), null, 2);
-    console.log(`[MOONSHOTS] Render report\n${text}`);
-    return copyText(text);
-  }
-
-  /** Run the FX self-check on the next drawn frame (tests, probes). */
-  debugFxCheckNext() {
-    this.fxCheckForced = true;
-    this.fxCheckDue = true;
-    this.fxCheckTries = 0;
-    this.fxCheckAt = this.playFrames + 1;
-  }
-
-  /** The self-check's results so far, newest last. */
-  debugFxChecks(): FxCheckResult[] {
-    return this.fxCheck ? this.fxCheck.history.map((r) => JSON.parse(JSON.stringify(r))) : [];
-  }
-
-  /** The last self-check's two images (display luminance, bottom row first). */
-  debugFxCheckImages() {
-    const im = this.fxCheck?.lastImages;
-    return im ? { W: im.W, H: im.H, chain: [...im.chain].map((v) => Math.round(v)), plain: [...im.plain].map((v) => Math.round(v)) } : null;
-  }
-
-  /** Hold the black-frame sentinel off (a test of what only the self-check sees). */
+  /** Hold the black-frame sentinel off (a test of what only a probe sees). */
   debugHoldProbe(on: boolean) {
     this.probeHeld = on;
     this.nextProbe = on ? Number.POSITIVE_INFINITY : this.playFrames + 40;
   }
-
-  /** Automatic self-checks on or off (an explicit debugFxCheckNext still runs). */
-  debugSetFxCheckAuto(on: boolean) { this.fxCheckAuto = on; }
-
-  /** Make FX `level` draw wrong the way a faulty GPU would (null: mend it). */
-  debugBreakFx(level: number | null, mode: FxBreak = 'player') { setFxBreak(level, mode); }
-
-  /** The HDR sanitiser on or off (a test that shows what it stops). */
-  debugSetSanitize(on: boolean) { sanitizeUniform.value = on; }
-
-  /** The whole hardening (N8AO composite + sanitiser) on or off: off draws
-   *  what the stock chain drew (a test that the look did not change). */
-  debugSetHardening(on: boolean) { setHardening(on); }
 
   /** check `frames` from now (unless a probe is holding the check off) */
   private reprobe(frames = 40) {
@@ -2099,41 +1797,24 @@ export class Game {
     this.updateHubLight(dt);
     this.updateDepositMarkers();
 
-    // sun follows the clock; the shadow window hugs the ground in view
+    // the sun follows the clock
     const day = currentDay(this.state, SITES[this.state.siteId]);
-    const focus = this.buildCam.target;
     this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
     this.camera.updateMatrixWorld();
-    this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
-      this.groundAnywhere);
-    // the isometric view never looks above the horizon: no sky to draw
-    if (this.classic) this.sky.group.visible = false;
     // the isometric view stands hundreds of metres off: small rocks round its
     // focus, and none once they would be specks
-    if (this.buildCam instanceof IsoCam) {
-      this.rocks.update(this.camera, this.buildCam.distance <= 350 ? this.buildCam.target : null);
-    } else {
-      this.rocks.update(this.camera);
-    }
+    this.rocks.update(this.camera, this.buildCam.distance <= 350 ? this.buildCam.target : null);
     this.syncTerrain(dt);
-    // the sun step grows with game speed; the wings turn first, so their
-    // re-aim joins this frame's shadow render instead of forcing another
+    // the sun step grows with game speed: the solar wings turn once per step
     const step = sunStep(this.state.paused ? 1 : this.state.speed);
     // the lights fade on wall time (up to 0.5 s a frame, as the clock runs), so
-    // a slow GPU does not stretch a one-second fade over many seconds
+    // a slow GPU does not stretch a one-second fade over many seconds.
+    // Wherever a structure stands dark it carries its own light: window glow
+    // and flood pools at its darkness (instances.ts)
     this.darkness.update(simDt, day.nightFactor, day.sunElev, this.lighting.sunLight);
     this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
-    this.lighting.fitShadow(this.camera, focus,
-      Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
-    // wherever it stands dark the base carries its own light: window glow and
-    // floods in the shader patches, or (stock path) ground discs and work
-    // lights over the dark structures nearest the camera (hull glow at night);
-    // classic keys its windows and pools on the same darkness (instances.ts)
-    const stockLights = !this.classic && !this.instances.shaderLights;
-    this.lighting.useWorkLights(stockLights);
-    this.lighting.setWorkLights(stockLights ? this.instances.nearestDark(focus, this.lighting.workSpots) : 0);
     this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
-      $selection.get(), this.lighting.sunDirection);
+      $selection.get());
     this.life.update({
       dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
       sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight,
@@ -2829,7 +2510,7 @@ export class Game {
     const base = held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held };
     return {
       state: base.zones?.some((z) => z.kind === 'pit') ? { ...base, zones: base.zones.filter((z) => z.kind !== 'pit') } : base,
-      ...(this.buildCam.preset ? { camera: this.buildCam.preset() } : {}),
+      camera: this.buildCam.preset(),
       savedAt: Date.now(),
     };
   }
@@ -2887,7 +2568,6 @@ export class Game {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.post.setSize(window.innerWidth, window.innerHeight);
   }
 
   /** Remove a building for the usual refund (½, or all of an untouched site). */
@@ -3212,19 +2892,22 @@ export class Game {
     this.buildCam.view(pos, target);
   }
 
-  /** Render-path state for tests and probes. */
+  /** Render-path state for tests and probes. `style` is 'cel' (the one
+   *  renderer); `outlines` and `ramp` are the look constants S1a and S1b
+   *  replace (stubs until then: no ink pass yet, a 3-step ramp). */
   debugRenderInfo() {
     const gl = this.renderer.getContext();
+    const iso = this.buildCam.info();
     return {
-      /** 'classic' (the default) or 'detailed' (High detail) */
-      style: this.opts.style,
-      /** the last drawn frame, summed over every pass */
+      style: 'cel' as const,
+      safe: this.safeMode,
+      drawCalls: this.frameStats.calls,
+      triangles: this.frameStats.triangles,
+      camera: { rot: iso.rot, tilt: iso.tilt, zoom: iso.zoom },
+      outlines: 0,
+      ramp: 3,
+      /** the last drawn frame */
       frame: { ...this.frameStats },
-      /** texture types of the render targets bound so far; any float or half-float? */
-      targets: {
-        types: [...this.targetTypes].sort(),
-        float: [...this.targetTypes].some((t) => t === THREE.FloatType || t === THREE.HalfFloatType),
-      },
       context: {
         antialias: gl.getContextAttributes()?.antialias ?? false,
         samples: gl.getParameter(gl.SAMPLES) as number,
@@ -3232,28 +2915,17 @@ export class Game {
         toneMapping: this.renderer.toneMapping,
         shadowMap: this.renderer.shadowMap.enabled,
       },
-      fxLevel: this.post.fxLevel,
-      /** the ladder level stored for the next launch (a raise on trial is not) */
-      fxStored: this.post.storedLevel,
-      postChain: this.post.chainBuilt,
       safeMode: this.safeMode,
-      /** scene renders and drawn frames so far (renders per frame = passes over the scene) */
-      sceneRenders: this.sceneRenders,
       framesDrawn: this.framesDrawn,
       probes: { ...this.probes },
       /** the render path the very first frame drew with */
       firstFrame: this.firstFrame,
-      shadowTexel: this.lighting.shadowTexel,
-      shadowRenders: this.lighting.shadowRenders,
-      patches: materials.variants(),
-      patchFault: materials.patchesFaulted,
       buildingMaterials: this.instances.materialTypes(),
       terrainMaterial: this.chunks.materialType,
       terrain: this.chunks.info(),
       horizonMaterial: (this.horizon.mesh.material as THREE.Material).type,
       horizonSeam: this.horizon.seamError(),
       rocks: this.rocks.stats(),
-      sky: this.sky.info(),
       base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
       life: this.life.info(),
       lens: { fov: this.camera.fov, near: this.camera.near },
@@ -3292,8 +2964,8 @@ export class Game {
       dist: p.distanceTo(t),
       azimuth: Math.atan2(p.z - t.z, p.x - t.x),
       fov: this.camera.fov,
-      /** the classic isometric view's steps (null in High detail) */
-      iso: this.buildCam instanceof IsoCam ? this.buildCam.info() : null,
+      /** the isometric view's state: rot, tilt, zoom and the older aliases */
+      iso: this.buildCam.info(),
     };
   }
 

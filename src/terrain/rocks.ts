@@ -68,8 +68,6 @@ export class Rocks {
   private large: RockSet;
   private safe = false;
   private refillAt = new THREE.Vector3(Infinity, 0, 0);
-  /** fired when large rocks were cleared (they cast shadows) */
-  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {
     const rng = mulberry32(hf.seed ^ 0x60c45);
@@ -133,19 +131,14 @@ export class Rocks {
       });
       set.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       set.mesh.setColorAt(0, new THREE.Color(0, 0, 0)); // allocates instanceColor
-      set.mesh.receiveShadow = true;
       set.mesh.count = 0;
       this.group.add(set.mesh);
       return set;
     };
     this.small = make(list.filter((r) => r.d < LARGE_D), rockGeometry(new THREE.DodecahedronGeometry(1, 0), 0x5a11));
     this.large = make(list.filter((r) => r.d >= LARGE_D), rockGeometry(new THREE.IcosahedronGeometry(1, 1), 0xb16));
-    this.large.mesh.castShadow = true;
     this.fill(this.large, null);
   }
-
-  /** @deprecated no FX ladder any more; removed with the game.ts pass. */
-  setFxLevel(_level: number) { /* one density */ }
 
   setSafe(safe: boolean) {
     this.safe = safe;
@@ -198,7 +191,6 @@ export class Rocks {
     const x0 = gx0 * CELL_M - HALF, x1 = gx1 * CELL_M - HALF;
     const z0 = gz0 * CELL_M - HALF, z1 = gz1 * CELL_M - HALF;
     const skirt = 2 * CELL_M + 1;
-    let largeChanged = false;
     for (const set of [this.small, this.large]) {
       let changed = false;
       for (let i = 0; i < set.x.length; i++) {
@@ -215,17 +207,15 @@ export class Rocks {
         }
       }
       if (!changed) continue;
-      if (set === this.large) { largeChanged = true; this.fill(set, null); }
+      if (set === this.large) this.fill(set, null);
       else this.refillAt.set(Infinity, 0, 0);
     }
-    if (largeChanged) this.onShadowCastersChanged?.();
   }
 
   /** Pits and heaps changed cells [gx0..gx1] × [gz0..gz1] (docs/17 §11.2): a rock
    *  on a cut or heaped cell goes (the excavators took it, or buried it); the
-   *  rest there settle onto the ground. Returns whether large rocks (shadow
-   *  casters) changed; the caller asks for shadows, throttled. */
-  clearPits(gx0: number, gz0: number, gx1: number, gz1: number): boolean {
+   *  rest there settle onto the ground. */
+  clearPits(gx0: number, gz0: number, gx1: number, gz1: number) {
     const x0 = gx0 * CELL_M - HALF - CELL_M, x1 = (gx1 + 1) * CELL_M - HALF + CELL_M;
     const z0 = gz0 * CELL_M - HALF - CELL_M, z1 = (gz1 + 1) * CELL_M - HALF + CELL_M;
     const S = MAP_CELLS_1;
@@ -238,7 +228,6 @@ export class Rocks {
       }
       return false;
     };
-    let largeChanged = false;
     for (const set of [this.small, this.large]) {
       let changed = false;
       for (let i = 0; i < set.x.length; i++) {
@@ -254,10 +243,9 @@ export class Rocks {
         }
       }
       if (!changed) continue;
-      if (set === this.large) { largeChanged = true; this.fill(set, null); }
+      if (set === this.large) this.fill(set, null);
       else this.refillAt.set(Infinity, 0, 0);
     }
-    return largeChanged;
   }
 
   /** Rocks still standing with centers in the world rect (tests, probes). */
@@ -276,7 +264,6 @@ export class Rocks {
       small: this.small.x.length, large: this.large.x.length,
       smallDrawn: this.small.mesh.count, largeDrawn: this.large.mesh.count,
       smallDensity: this.smallDensity,
-      largeCastShadow: this.large.mesh.castShadow,
       material: (this.large.mesh.material as THREE.Material).type,
     };
   }

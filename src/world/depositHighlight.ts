@@ -43,7 +43,7 @@ export class DepositHighlight {
     faint: THREE.LineBasicMaterial; spent: THREE.LineBasicMaterial; rim: THREE.LineBasicMaterial;
   };
 
-  constructor(private hf: Heightfield, _classic?: boolean /* deprecated: dropped with the game.ts pass */) {
+  constructor(private hf: Heightfield) {
     const pal = HIGHLIGHT_PALETTE;
     const surf = (color: number, opacity: number) => new THREE.MeshBasicMaterial({
       color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide,

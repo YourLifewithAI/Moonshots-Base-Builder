@@ -50,13 +50,9 @@ export class Berms {
   private sig = '';
   /** structures bermed at the last rebuild */
   count = 0;
-  /** fired after a rebuild (berms cast shadows) */
-  onShadowCastersChanged?: () => void;
 
   constructor(private hf: Heightfield) {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), materials.get('terrain'));
-    this.mesh.castShadow = true;
-    this.mesh.receiveShadow = true;
     this.mesh.visible = false;
   }
 
@@ -70,7 +66,6 @@ export class Berms {
     this.mesh.geometry = this.build(list);
     this.mesh.visible = list.length > 0;
     this.count = list.length;
-    this.onShadowCastersChanged?.();
   }
 
   private build(list: readonly BuildingState[]): THREE.BufferGeometry {

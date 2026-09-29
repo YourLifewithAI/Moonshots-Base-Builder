@@ -16,8 +16,7 @@
  *  is random: every motion is a function of the game clock and each unit's
  *  id, so pause freezes it and 3× / 10× run it at game speed. There is no
  *  bloom: the sparks are a bright unlit colour and a scale pulse. Safe mode
- *  and ?lowfx keep the motion and the glow but drop the particles (clods,
- *  plume).
+ *  keeps the motion and the glow but drops the particles (clods, plume).
  *
  *  Hooks. rovers.ts and haulers.ts report each drawn unit (roverBody,
  *  droneAt, diggerAt) as they draw it, and ask a rover's work offset (the
@@ -232,8 +231,6 @@ export class WorkAnim {
   readonly fx: THREE.InstancedMesh;
   /** how a unit works (the hook): see workModeOf */
   modeOf: WorkModeFn = workModeOf;
-  /** ?lowfx: the particles drop (the motion and the glow stay) */
-  lowFx = false;
   private clock = 0;
   private dt = 0;
   private frame = 0;
@@ -350,8 +347,8 @@ export class WorkAnim {
 
   private tintOf(f: Finish): THREE.Color { return f === TRIM ? this.tint.trim : f === PLATE ? this.tint.plate : this.tint.body; }
 
-  /** The particles (spoil clods, the print plume) are drawn: not in safe mode or ?lowfx. */
-  get particles(): boolean { return !this.lowFx && !materials.safeMode; }
+  /** The particles (spoil clods, the print plume) are drawn: not in safe mode. */
+  get particles(): boolean { return !materials.safeMode; }
 
   // ───────────────────────────── the frame ─────────────────────────────
 
