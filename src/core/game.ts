@@ -1334,7 +1334,7 @@ export class Game {
     this.revealedIds.add(d.id);
     this.rebuildDepositOverlay();
     alert(s, `PROSPECT STRUCK — ${BUILDINGS[b.type].name} #${b.id} is on ${DEPOSIT_INFO[d.kind].name} ` +
-      `(${strikeEffect(d.kind, this.mods)})`, 'info', { select: b.id });
+      `(${strikeEffect(d.kind, this.mods)})`, 'info', { select: b.id }, 'field');
   }
 
   /** After a tick, a tech or a load: completed masts map their ground, and
@@ -1353,7 +1353,7 @@ export class Game {
     const count = new Map<DepositKind, number>();
     for (const d of fresh) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
     const list = [...count].map(([k, n]) => `${DEPOSIT_INFO[k].name}${n > 1 ? ` ×${n}` : ''}`).join(' · ');
-    alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info');
+    alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info', undefined, 'field');
   }
 
   /** The extraction zones are the deposits the player sees (core/zones.ts):

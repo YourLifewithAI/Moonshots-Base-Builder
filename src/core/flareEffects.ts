@@ -31,7 +31,7 @@ import {
 import type { SiteDef } from '../data/sites';
 import type { AlertCounter, BuildingState, FlareLogEntry, GameState, Hauler, RoverUnit } from './state';
 import { effectiveDef, effectiveRates, type Mods } from './mods';
-import { alert, condition } from './economy';
+import { alertIn, condition } from './economy';
 import { fmtClock } from './daynight';
 import { mulberry32 } from './rng';
 import { attachCounters, occupancy, pressurizedTypes } from './hazards';
@@ -43,6 +43,9 @@ import { hubName, hubOf, jobCost, jobTime, recallUnit, targetOf, tripTo, unitTag
 import { HUB } from '../data/hubs';
 import { centerOf } from '../buildings/instances';
 import { WEATHER_STUB, flareStorm } from './spaceWeather';
+
+/** every alert here belongs to one notification family (docs/19 S7) */
+const alert = alertIn('weather');
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
