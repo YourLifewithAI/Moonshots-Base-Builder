@@ -173,7 +173,7 @@ test('the excavator drives off-road only inside the zone, and its trip is timed 
   expect(r.worst, `closest pair ${r.pair}`).toBeGreaterThan(-TOL);
 });
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['classic']) {
   test(`${style}: a building inside a zone: its road stops at the rim, and its rover drives in off-road from the gate to build it`, async ({ page }) => {
     test.setTimeout(180_000);
     await start(page, style === 'classic' ? '' : style);

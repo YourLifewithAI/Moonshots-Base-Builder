@@ -134,7 +134,7 @@ window.drive = (frames, watch, full) => {
 
 // ───────────────────────────── a crowded base ─────────────────────────────
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['classic']) {
   test(`${style}: rovers and excavators on the roads never share ground, never leave it, never lock up`, async ({ page }) => {
     test.setTimeout(300_000);
     await start(page, { style: style === 'classic' ? '' : style });

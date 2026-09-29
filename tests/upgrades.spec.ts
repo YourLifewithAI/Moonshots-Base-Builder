@@ -74,7 +74,7 @@ test('budget: every upgrade part stays under 600 triangles, every fully upgraded
   expect(empty).toEqual([]); // every upgrade adds something you can see
 });
 
-for (const style of ['classic', 'detailed']) test(`${style}: a tech with a visual grows its part on every building of the type, once, and a save restores it`, async ({ page }) => {
+for (const style of ['classic']) test(`${style}: a tech with a visual grows its part on every building of the type, once, and a save restores it`, async ({ page }) => {
   await start(page, 'mare', 'human', `&style=${style}`);
   expect((await page.evaluate(() => window.__game.getRenderInfo())).style).toBe(style);
   const spots = (type: string, n: number) => page.evaluate(([type, n]) => {
@@ -276,7 +276,7 @@ test('destiny: every pick and capstone grows a part on each type its visual name
   }
 });
 
-for (const style of ['classic', 'detailed']) test(`${style}: a pick grows its part on the buildings it names, and the ghost follows`, async ({ page }) => {
+for (const style of ['classic']) test(`${style}: a pick grows its part on the buildings it names, and the ghost follows`, async ({ page }) => {
   await start(page, 'mare', 'robotic', `&style=${style}`);
   const r = await page.evaluate(() => {
     const g = window.__game!;

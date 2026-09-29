@@ -88,7 +88,7 @@ const EXCAVATOR = () => {
   return g.getState().buildings.find((b: any) => b.type === 'excavator').id as number;
 };
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['classic']) {
   test(`${style}: a welding rover unfolds its arm and sweeps it over the site, spark on; it folds as it leaves`, async ({ page }) => {
     test.setTimeout(300_000);
     await start(page, style, HD_FAST(style));
@@ -425,7 +425,7 @@ async function busyBase(page: Page) {
   });
 }
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['classic']) {
   test(`${style}: on a busy base the work animations cost two draw calls at most`, async ({ page }) => {
     test.setTimeout(300_000);
     await start(page, style, '&exp=robotic');

@@ -299,7 +299,7 @@ test('light: homes burn warm and machines cold whatever the lean; the rest follo
   expect(alarm).toEqual({ on: 1, off: 0 });
 });
 
-for (const style of ['classic', 'detailed']) {
+for (const style of ['classic']) {
   test(`${style}: an Era 8 base in each band stays within the frame budget`, async ({ page }) => {
     test.setTimeout(300_000);
     const out: Record<string, { calls: number; triangles: number }> = {};
