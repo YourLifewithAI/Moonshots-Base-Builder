@@ -1116,7 +1116,11 @@ export function spotSignature(s: GameState): string {
   let k = `${s.roadRev ?? 0}|`;
   for (const b of s.buildings) k += `${b.id}:${b.type}:${b.gx},${b.gz},${b.rot}:${(b.construction ?? 0) > 0 ? 1 : 0};`;
   k += '|';
-  for (const r of s.rovers ?? []) k += `${r.id}:${r.home}:${r.site}:${r.road ?? ''};`;
+  // a rover's job is part of what its slot depends on: a road, a deposit's core, a grading job
+  for (const r of s.rovers ?? []) k += `${r.id}:${r.home}:${r.site}:${r.road ?? ''}:${r.core ?? ''}:${r.grade ?? ''};`;
+  // a grading job's stand moves with each cell it levels
+  k += '|';
+  for (const j of s.gradeJobs ?? []) k += `${j.id}:${j.done};`;
   return `${k}|${s.survey?.active?.rover ?? ''}`;
 }
 
@@ -1175,6 +1179,16 @@ function droneGeometry(key = ''): THREE.BufferGeometry {
   g.scale(DRONE_SCALE, DRONE_SCALE, DRONE_SCALE);
   g.computeBoundingBox();
   g.computeBoundingSphere();
+  return g;
+}
+
+/** The survey drone (docs/19 S6, world/surveyFlight.ts draws it): for now the
+ *  hive drone's quadcopter, its trim the survey teal (the palette override
+ *  `surveyDrone`). Contract stream W0d; S2a replaces it with the flat delta
+ *  wing, this function's name and signature stay. */
+export function surveyDroneGeometry(key = ''): THREE.BufferGeometry {
+  const g = droneGeometry(key);
+  g.userData.recipe = 'surveyDrone';
   return g;
 }
 

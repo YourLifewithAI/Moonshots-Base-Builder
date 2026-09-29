@@ -303,7 +303,8 @@ export const ATLAS = { minTier: 4, surveys: 12, extraSlots: 1, streamMult: 1.25,
  *  one that stops being raised lingers lingerTicks economy ticks (so a
  *  threshold hovered over does not strobe); events fade after REAL seconds
  *  (info fadeInfoS, warn fadeWarnS — crit waits for the player), and at most
- *  maxEvents are kept, the least severe and oldest dropped first */
+ *  maxEvents are kept, the least severe and oldest dropped first; the
+ *  saved notification log (GameState.log) keeps the last logMax events */
 export const ALERTS = {
   snoozeS: 120,
   lingerTicks: 3,
@@ -311,6 +312,7 @@ export const ALERTS = {
   fadeWarnS: 60,
   maxEvents: 8,
   shown: 4,
+  logMax: 200,
 };
 
 /** game-seconds before dusk that the night-runway warning goes up */

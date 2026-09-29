@@ -24,6 +24,7 @@
  *  Pure: plain data in, the grid out. No Three.js, no randomness; scratch
  *  buffers are reused, never allocated per call once grown. */
 import { CELL_M, MAP_CELLS, MAP_M, PIT } from '../data/balance';
+import type { BufferGeometry } from 'three';
 import type { Heightfield } from './heightfield';
 
 const N = MAP_CELLS + 1;
@@ -803,6 +804,16 @@ export function cutTone(hf: Heightfield, ix: number, iz: number): number {
   const depth = -d / 10;
   const band = Math.floor(depth / PIT.bench + 0.5) % 2 === 1 ? PIT.benchBand : 0;
   return 1 + PIT.cutBright * Math.min(1, depth / 2) + band;
+}
+
+/** The chunk-geometry hook (docs/19; terrain/chunks.ts calls it last in
+ *  buildGeometry, once per chunk `(cx, cz)` rebuild): whatever a pit adds to
+ *  the ground's own geometry — S2b's baked bench contours — is added here, so
+ *  the ground's shading (S1a) and the pit's contours never share a function.
+ *  It returns the chunk's geometry, appended to or replaced.
+ *  Contract stream W0d, a functional stub: the geometry unchanged. */
+export function decorate(geo: BufferGeometry, _cx: number, _cz: number, _hf: Heightfield): BufferGeometry {
+  return geo;
 }
 
 // ───────────────────────────── saving ─────────────────────────────
