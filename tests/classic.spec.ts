@@ -508,12 +508,12 @@ test('palette: LEAF maps to its own key; the destiny buildings take their overri
   test.setTimeout(150_000);
   await boot(page, 'mare', '&exp=robotic');
   const r = await page.evaluate(async () => {
-    const C = await import('/src/buildings/classicBuilding.ts');
+    const C = await import('/src/buildings/celBuilding.ts');
     const K = await import('/src/buildings/meshKit.ts');
     const R = await import('/src/buildings/recipes.ts');
-    const Color = C.CLASSIC_COLD.constructor as any;
+    const Color = C.CEL_COLD.constructor as any;
     const has = (type: string, hex: number) => {
-      const col = C.classicColors(R.recipeGeometry(type as any)).array as Float32Array;
+      const col = C.celColors(R.recipeGeometry(type as any)).array as Float32Array;
       const c = new Color(hex);
       for (let i = 0; i < col.length; i += 3) {
         if (Math.abs(col[i] - c.r) < 1e-4 && Math.abs(col[i + 1] - c.g) < 1e-4 && Math.abs(col[i + 2] - c.b) < 1e-4) return true;
@@ -533,7 +533,7 @@ test('palette: LEAF maps to its own key; the destiny buildings take their overri
     g.advanceGameSeconds(1);
     return {
       leaf: C.finishKey(K.LEAF.v, K.LEAF.rough, K.LEAF.metal, K.LEAF.emit ?? 0),
-      leafHex: C.CLASSIC_PALETTE.leaf,
+      leafHex: C.CEL_PALETTE.leaf,
       // the old fallback would have read LEAF's value as dark blue cells
       others: [K.GLASS, K.TRIM, K.PLATE].map((f) => C.finishKey(f.v, f.rough, f.metal, f.emit ?? 0)),
       ringLeaf: has('greenhouseRing', 0x5f8f3f), domeLeaf: has('gardenDome', 0x5f8f3f),

@@ -3,7 +3,7 @@
  *  tabs carry, and the units wear. `FAMILY_OF` matches the palette tabs
  *  (`BuildingDef.category`); `logistics` is reserved for roads, rovers and
  *  the fleet (no building is filed under it yet). Colours are sRGB as
- *  authored, as CLASSIC_PALETTE's are; `FAMILY_CSS` is the same as CSS hex.
+ *  authored, as CEL_PALETTE's are; `FAMILY_CSS` is the same as CSS hex.
  *
  *  Contract stream W0d: read-only for the look (S1a) and the models (S2a). */
 import type { BuildingId } from './buildings';

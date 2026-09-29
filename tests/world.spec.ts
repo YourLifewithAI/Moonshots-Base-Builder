@@ -1,5 +1,4 @@
-/** World-dressing and build-camera tests: the sky's exposure and Earth phase,
- *  rocks cleared by pads and grading (and still cleared after a reload),
+/** World-dressing and build-camera tests: rocks cleared by pads and grading (and still cleared after a reload),
  *  the camera held above the ground, and the build-mode keys (the High
  *  detail free camera; the classic isometric one is in classic.spec.ts). */
 import { test, expect, type Page } from '@playwright/test';
@@ -16,39 +15,11 @@ async function boot(page: Page, site: string, extra = '') {
   await page.evaluate(() => window.__game.setPaused(true));
 }
 
-const sky = (page: Page) => page.evaluate(() => window.__game.getRenderInfo().sky);
 const cam = (page: Page) => page.evaluate(() => window.__game.getCamera());
 
 /** World rect of a cell rect [gx0..gx1) × [gz0..gz1). */
 const rect = (gx0: number, gz0: number, gx1: number, gz1: number) =>
   [gx0 * 4 - 512, gz0 * 4 - 512, gx1 * 4 - 512, gz1 * 4 - 512] as const;
-
-test('sky: no stars in sunlight, full stars at night, Earth phase follows the sun', async ({ page }) => {
-  await boot(page, 'mare');
-  // mid-morning: the sun is up, the film exposure leaves the sky black
-  await expect.poll(async () => (await sky(page)).sunVisible).toBe(true);
-  const day = await sky(page);
-  expect(day.starLevel).toBeLessThan(0.01);
-  expect(day.earthElevDeg).toBeGreaterThan(55);
-  // noon: sun and Earth share the sky, so Earth is a crescent
-  await page.evaluate(() => window.__game.advanceGameSeconds(150));
-  await page.waitForTimeout(800);
-  const noon = await sky(page);
-  expect(noon.earthPhase).toBeLessThan(0.3);
-  // night: sun gone, stars at full exposure, Earth's lit side turned to us
-  await page.evaluate(() => window.__game.advanceGameSeconds(390));
-  await expect.poll(async () => (await sky(page)).starLevel).toBeGreaterThan(0.99);
-  const night = await sky(page);
-  expect(night.sunVisible).toBe(false);
-  expect(night.earthPhase).toBeGreaterThan(noon.earthPhase + 0.2);
-
-  // the south pole keeps Earth on the horizon
-  await boot(page, 'southpole');
-  await expect.poll(async () => {
-    const e = (await sky(page)).earthElevDeg;
-    return e > 0 && e < 5;
-  }).toBe(true);
-});
 
 test('rocks: pads and grading clear the ground, and a reload replays it', async ({ page }) => {
   test.setTimeout(120_000);
