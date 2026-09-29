@@ -1,7 +1,7 @@
 /** Procedural sound: WebAudio nodes only, no files. Vacuum carries no sound,
  *  so everything is suit radio and telemetry: alerts arrive band-passed
  *  between Quindar tones, and the control-room hum carries the grid's margin
- *  (it sags and beats as a brownout nears). On foot the suit breathes. The
+ *  (it sags and beats as a brownout nears). The
  *  rovers are heard through the suit's contact mics (audio/roverVoices.ts),
  *  and a generative ambient score plays under it all (audio/music.ts).
  *
@@ -49,7 +49,6 @@ const HUM_HZ = 55;
 export interface Ambience {
   /** grid health −1 (brownout) … 0 (bank draining toward empty) … 1 (surplus); null = no hum */
   margin: number | null;
-  walking: boolean;
   /** the lunar night: the score turns darker at its next chord */
   night?: boolean;
 }
@@ -63,7 +62,7 @@ export type { RoverSound } from './roverVoices';
 class Sfx {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  /** effects bus: cues, radio, hum, breath, rovers */
+  /** effects bus: cues, radio, hum, rovers */
   private fx: GainNode | null = null;
   private musicBus: GainNode | null = null;
   /** a tap after the limiter, read only by info() */
@@ -82,11 +81,10 @@ class Sfx {
   private last = new Map<Cue, number>();
   private radioFree = 0;          // ctx time the current transmission ends
   private played = Object.fromEntries(CUES.map((c) => [c, 0])) as Record<Cue, number>;
-  private amb: Ambience = { margin: null, walking: false };
-  /** the sim is paused (or the menu is up): the hum drops low, the suit stops breathing */
+  private amb: Ambience = { margin: null };
+  /** the sim is paused (or the menu is up): the hum drops low */
   private ducked = false;
   private hum: { gain: GainNode; oscs: OscillatorNode[]; beat: OscillatorNode } | null = null;
-  private breath: { gain: GainNode } | null = null;
   private warned = false;
   /** the destiny's layers: the rotor hum, the greenhouse air, the walkers' squelch clock */
   private life: Life = { rotor: 0, walkers: 0, garden: 0 };
@@ -223,7 +221,6 @@ class Sfx {
       musicVolume: this.musicVolume, effectsVolume: this.fxVolume,
       played: { ...this.played },
       hum: this.hum ? { margin: this.amb.margin, detune: this.hum.oscs[0].detune.value } : null,
-      breathing: !!this.breath && this.amb.walking && !this.ducked,
       ducked: this.ducked,
       music: this.music?.info() ?? null,
       rovers: this.rovers?.info() ?? null,
@@ -469,26 +466,23 @@ class Sfx {
     }
   }
 
-  /** The hum and the suit's breath follow `amb`; built on first need. */
+  /** The hum follows `amb`; built on first need. */
   private applyAmbience() {
     const ctx = this.ctx;
     if (!ctx || this.dead || !this.master) return;
     const now = ctx.currentTime;
     const on = this.amb.margin !== null;
     if (on && !this.hum) this.hum = this.buildHum();
-    if (this.amb.walking && !this.breath) this.breath = this.buildBreath();
     if (this.hum) {
       const h = Math.max(-1, Math.min(1, this.amb.margin ?? 1));
       const strain = Math.max(0, 0.3 - h) / 1.3; // 0 healthy … 1 brownout
       const cents = h < 0 ? h * 80 : h * 6;
       for (const o of this.hum.oscs) o.detune.setTargetAtTime(cents, now, 0.8);
       this.hum.beat.frequency.setTargetAtTime(HUM_HZ * 2 + 0.3 + strain * 4.7, now, 0.8);
-      const level = on ? (this.amb.walking ? 0.018 : 0.035) * (1 + 0.7 * strain) * (this.ducked ? 0.15 : 1) : 0;
+      const level = on ? 0.035 * (1 + 0.7 * strain) * (this.ducked ? 0.15 : 1) : 0;
       this.hum.gain.gain.setTargetAtTime(level, now, this.ducked ? 0.15 : 0.6);
     }
-    if (this.breath) this.breath.gain.gain.setTargetAtTime(this.amb.walking && !this.ducked ? 1 : 0, now, this.ducked ? 0.15 : 0.4);
     this.music?.setMood(this.amb.night ? 'night' : 'day');
-    this.music?.setWalking(this.amb.walking);
   }
 
   private buildHum() {
@@ -575,33 +569,6 @@ class Sfx {
     lfo.connect(depth).connect(amp.gain);
     src.connect(hp).connect(lp).connect(amp).connect(gain).connect(this.fx!);
     src.start(); lfo.start();
-    return { gain };
-  }
-
-  /** band-passed noise swelling on a slow LFO: one breath every ~4 s, the
-   *  filter higher on the inhale than on the exhale */
-  private buildBreath() {
-    const ctx = this.ctx!;
-    const gain = ctx.createGain();
-    gain.gain.value = 0;
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass'; bp.frequency.value = 700; bp.Q.value = 1.3;
-    const amp = ctx.createGain();
-    amp.gain.value = 0;
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.125;
-    const depth = ctx.createGain();
-    depth.gain.value = 0.05;
-    const sweep = ctx.createGain();
-    sweep.gain.value = 240;
-    lfo.connect(depth).connect(amp.gain);
-    lfo.connect(sweep).connect(bp.frequency);
-    src.connect(bp).connect(amp).connect(gain).connect(this.fx!);
-    src.start();
-    lfo.start();
     return { gain };
   }
 }

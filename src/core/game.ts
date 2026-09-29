@@ -7,7 +7,7 @@ import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES, milestoneHint } from '../data/milestones';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, EYE_HEIGHT, GRADE_CELLS, GRADE_COST_ENERGY,
+  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, GRADE_CELLS, GRADE_COST_ENERGY,
   GRADE_REGOLITH_YIELD, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
@@ -93,9 +93,7 @@ import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
 import { materials, PATCH_MARKER } from '../world/materials';
 import { BuildCam, HOME_DIST, commandKey, type CommandCam } from '../player/buildCam';
-import { ISO_FOV, IsoCam } from '../player/isoCam';
-import { WalkController } from '../player/walk';
-import { ModeManager } from '../player/modes';
+import { IsoCam } from '../player/isoCam';
 import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
 import { loadSettings, saveSettings, type RenderStyle } from './settings';
@@ -103,8 +101,8 @@ import { autoTouch, type TouchChoice } from './touch';
 import { RESUME_KEY, setActiveStyle } from './style';
 import { sfx } from '../audio/sfx';
 import {
-  $alerts, $autoMarkers, $automation, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel, $feed, $hasSave, $ice,
-  $iceOverlay, $lookAt, $lander, $lostMission, $lunar, $menuOpen, $milestones, $mode, $phase, $placeFlash,
+  modalUp, $alerts, $autoMarkers, $automation, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel, $feed, $hasSave, $ice,
+  $iceOverlay, $lander, $lostMission, $lunar, $menuOpen, $milestones, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
   $fleet, $fleetTarget, $roverSel, $unitSel,
@@ -113,7 +111,6 @@ import {
 } from '../ui/stores';
 
 export interface GameOptions {
-  nolock: boolean;
   lowfx: boolean;
   safe: boolean;
   /** the safe mode at boot came from the render check, not the player */
@@ -186,8 +183,6 @@ export class Game {
   private life!: BaseLife;
   /** the command view: the free camera (High detail) or the isometric one (classic) */
   private buildCam: CommandCam;
-  private walk!: WalkController;
-  private modes!: ModeManager;
   /** Send to… / Dig at… (player/fleetTarget.ts) */
   private fleetTarget!: FleetTarget;
   /** the road tool (player/roadTool.ts) */
@@ -202,8 +197,6 @@ export class Game {
   private playing = false;
   private econAcc = 0;
   private autosaveAcc = 0;
-  private lookAcc = 0;
-  private lookId: number | null = null;   // the building under the walk-mode reticle
   private mouse = new THREE.Vector2();      // NDC
   private mousePx = { x: 0, y: 0 };
   private downPos = { x: 0, y: 0 };
@@ -244,8 +237,7 @@ export class Game {
     this.camera = createCamera();
     this.lighting = this.classic ? new ClassicLighting(this.scene) : new Lighting(this.scene);
     this.sky = new Sky(this.scene);
-    this.lighting.attachHeadlamp(this.scene, this.camera);
-    this.post = new PostFX(this.renderer, this.scene, this.camera, {
+        this.post = new PostFX(this.renderer, this.scene, this.camera, {
       lowFx: opts.lowfx, fxOverride: opts.fx, fxChoice: opts.fxChoice, safe: opts.safe, classic: this.classic,
     });
     this.post.onIssue = (msg) => {
@@ -383,18 +375,11 @@ export class Game {
     syncPitZones(this.state, this.hf, undefined, false);
     if (this.state.flattens.length || carved) this.chunks.rebuildAround(0, 0, 255, 255);
     this.chunks.clearQueue();
-    if (carved) { this.rocks.clearPits(0, 0, 255, 255); this.walk.boulders = this.rocks.colliders(); }
+    if (carved) this.rocks.clearPits(0, 0, 255, 255);
     this.hf.carved.length = 0;
     this.instances.rebuild(this.state);
+    // (a save made on foot, from before walk mode was removed, loads here like any other)
     this.homeCamera(false);
-    this.walk.colliders = this.instances.colliders(this.state);
-    // touch mode has no walk mode: a desktop save made on foot loads in the command view
-    if (blob.player.mode === 'walk' && !this.opts.touch) {
-      this.walk.pos.set(blob.player.x, blob.player.y, blob.player.z);
-      this.walk.yaw = blob.player.yaw;
-      this.walk.pitch = blob.player.pitch;
-      this.modes.set('walk');
-    }
     this.publish();
     if (missionLost(this.state)) $defeat.set(true);
   }
@@ -449,17 +434,9 @@ export class Game {
       state: () => this.state, hf: this.hf,
       ray: () => { this.raycaster.setFromCamera(this.mouse, this.camera); return this.raycaster.ray; },
       push: (a) => this.actions.push(a),
-      holdCamera: (on) => { this.buildCam.enabled = !on && this.modes?.mode === 'build'; },
+      holdCamera: (on) => { this.buildCam.enabled = !on; },
     }, this.scene);
     $roverSel.set(null);
-    this.walk = new WalkController(this.hf);
-    this.walk.boulders = this.rocks.colliders();
-    this.modes = new ModeManager(this.camera, this.buildCam, this.walk, (m) => {
-      $mode.set(m);
-      this.buildCam.clearKeys();
-      if (m === 'walk' && !this.opts.nolock) this.canvas.requestPointerLock();
-      if (m === 'build' && document.pointerLockElement) document.exitPointerLock();
-    }, this.classic ? { fov: ISO_FOV, near: 20, far: 5000 } : undefined);
     this.worldGroup = new THREE.Group();
     this.highlight?.dispose();
     this.highlight = new DepositHighlight(this.hf, this.classic);
@@ -524,16 +501,13 @@ export class Game {
       if (this.touchCtl?.compatMouse()) return;
       this.mousePx = { x: e.clientX, y: e.clientY };
       this.mouse.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-      if (document.pointerLockElement === this.canvas && this.modes?.mode === 'walk') {
-        this.walk.look(e.movementX, e.movementY);
-      }
     });
     this.canvas.addEventListener('mousedown', (e) => {
       this.downPos = { x: e.clientX, y: e.clientY };
-      if (e.button === 0 && this.roadTool?.active && this.modes.mode === 'build') this.roadTool.down(e.altKey);
+      if (e.button === 0 && this.roadTool?.active) this.roadTool.down(e.altKey);
     });
     this.canvas.addEventListener('mouseup', (e) => {
-      if (!this.playing || this.modes.mode !== 'build' || this.modes.transitioning) return;
+      if (!this.playing) return;
       // the road tool takes the left button's drags and clicks
       if (this.roadTool?.active) {
         if (e.button === 0) this.roadTool.up();
@@ -547,12 +521,6 @@ export class Game {
       if (e.button === 2 && this.fleetTarget.active) this.fleetTarget.cancel();
     });
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    this.canvas.addEventListener('click', () => {
-      if (this.playing && this.modes.mode === 'walk' && !this.opts.nolock &&
-          document.pointerLockElement !== this.canvas) {
-        this.canvas.requestPointerLock();
-      }
-    });
     window.addEventListener('keydown', (e) => {
       if (!this.playing) return;
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
@@ -565,34 +533,27 @@ export class Game {
       }
       switch (e.code) {
         case 'Tab':
+          // Tab is inert: no focus walk onto the HUD, where a Space would press a button
           e.preventDefault();
-          // touch mode has no walk mode, even with a keyboard attached (docs/07 §13.9)
-          if (this.opts.touch) break;
-          this.cancelPlacement();
-          this.modes.toggle();
           break;
         case 'Space':
-          // Space never presses a focused HUD button: it pauses, or it jumps
+          // Space never presses a focused HUD button: it pauses
           e.preventDefault();
-          if (this.modes.mode === 'build') {
-            this.actions.push({ kind: 'setPaused', paused: !this.state.paused });
-          } else {
-            this.walk.keyDown(e.code);
-          }
+          this.actions.push({ kind: 'setPaused', paused: !this.state.paused });
           break;
-        case 'Digit1': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[0] }); break;
-        case 'Digit2': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[1] }); break;
-        case 'Digit3': this.actions.push({ kind: 'setSpeed', speed: SPEEDS[2] }); break;
+        case 'Digit1': this.chooseSpeed(SPEEDS[0]); break;
+        case 'Digit2': this.chooseSpeed(SPEEDS[1]); break;
+        case 'Digit3': this.chooseSpeed(SPEEDS[2]); break;
         case 'KeyR': if (this.placement.active) this.placement.rotate(); break;
-        case 'KeyN': if (this.modes.mode === 'build') { if (this.roadTool.active) this.roadTool.cancel(); else this.beginRoadTool(); } break;
+        case 'KeyN': if (this.roadTool.active) this.roadTool.cancel(); else this.beginRoadTool(); break;
         case 'KeyI': $depositOverlay.set(!$depositOverlay.get()); break;
         case 'KeyB':
           // the Builder: orders and standing rules (one panel at a time, like the resource panels)
-          if (this.modes.mode === 'build') $resourcePanel.set($resourcePanel.get() === 'builder' ? null : 'builder');
+          $resourcePanel.set($resourcePanel.get() === 'builder' ? null : 'builder');
           break;
         case 'KeyG':
           // the Hazards panel (docs/14 §3.8): risks, counters, the network
-          if (this.modes.mode === 'build') $resourcePanel.set($resourcePanel.get() === 'hazards' ? null : 'hazards');
+          $resourcePanel.set($resourcePanel.get() === 'hazards' ? null : 'hazards');
           break;
         case 'Enter': case 'NumpadEnter':
           // while placing: let the rovers choose the site for this one
@@ -603,18 +564,9 @@ export class Game {
           }
           break;
         case 'KeyE':
-          // on foot: inspect what the reticle rests on (back to command view,
-          // selected); in command view E orbits with Q
-          if (this.modes.mode === 'walk') {
-            if (this.lookId !== null && !this.modes.transitioning) {
-              const id = this.lookId;
-              this.modes.toggle();
-              this.select(id);
-            }
-          } else {
-            e.preventDefault();
-            this.buildCam.keyDown(e.code);
-          }
+          // E orbits with Q
+          e.preventDefault();
+          this.buildCam.keyDown(e.code);
           break;
         case 'Escape':
           // one thing at a time: placement, the inspector, a resource panel —
@@ -634,7 +586,7 @@ export class Game {
           const sel = $selection.get();
           const rover = $roverSel.get();
           const unit = $unitSel.get();
-          if (this.modes.mode !== 'build' || (!sel && rover === null && unit === null)) break;
+          if (!sel && rover === null && unit === null) break;
           const at = sel ? this.life.haulers.pose(sel.id) : unit !== null ? this.life.haulers.pose(UNIT_VID + unit) : this.life.rovers.pose(rover!);
           const [x, z] = at ? [at.x, at.z] : sel ? centerOf(sel) : [0, 0];
           this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
@@ -642,41 +594,28 @@ export class Game {
         }
         case 'KeyH':
         case 'Home':
-          if (this.modes.mode === 'build') this.homeCamera(true);
+          this.homeCamera(true);
           break;
         default:
-          if (this.modes.mode === 'walk') this.walk.keyDown(e.code);
-          else if (commandKey(e.code)) {
+          if (commandKey(e.code)) {
             e.preventDefault();
             this.buildCam.keyDown(e.code);
           }
       }
     });
     window.addEventListener('keyup', (e) => {
-      this.walk?.keyUp(e.code);
       this.buildCam.keyUp(e.code);
     });
     window.addEventListener('blur', () => {
-      this.walk?.clearKeys();
       this.buildCam.clearKeys();
     });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.playing) void this.doSave(!!this.opts.touch);
     });
-    // a victory or defeat overlay takes the screen: back to the command view
-    // with the pointer free and nothing half-placed underneath
-    const toCommandView = (up: boolean) => {
-      if (!up || !this.playing || !this.modes) return;
-      this.cancelPlacement();
-      if (this.modes.mode !== 'build' || this.modes.transitioning) {
-        this.modes.set('build'); // exits pointer lock (onModeChange)
-        this.homeCamera(false);
-      } else if (document.pointerLockElement) {
-        document.exitPointerLock();
-      }
-    };
-    $victory.subscribe(toCommandView);
-    $defeat.subscribe(toCommandView);
+    // a victory or defeat overlay takes the screen: nothing half-placed underneath
+    const overlayShown = (up: boolean) => { if (up && this.playing) this.cancelPlacement(); };
+    $victory.subscribe(overlayShown);
+    $defeat.subscribe(overlayShown);
   }
 
   /** `keep` (Shift held): stay in placing mode after this building */
@@ -762,7 +701,6 @@ export class Game {
 
   /** Send to… (a rover) or Dig at… (an excavator): the next click picks the target. */
   beginFleetTarget(mode: FleetMode) {
-    if (this.modes.mode !== 'build') return;
     this.cancelPlacement();
     this.roadTool.cancel();
     this.fleetTarget.begin(mode);
@@ -770,9 +708,17 @@ export class Game {
 
   cancelFleetTarget() { this.fleetTarget?.cancel(); }
 
+  /** A speed button or key 1/2/3: set the speed and, when the game is paused, resume. The
+   *  core `setSpeed` action stays a plain set (a test holds the pause and sets a speed). No
+   *  resume under a victory or defeat overlay or an era or hazard banner: those wait for their
+   *  own Continue. */
+  chooseSpeed(speed: number) {
+    this.actions.push({ kind: 'setSpeed', speed });
+    if (this.state?.paused && !missionLost(this.state) && !modalUp()) this.actions.push({ kind: 'setPaused', paused: false });
+  }
+
   /** The road tool (N, the palette's ROAD button). */
   beginRoadTool() {
-    if (this.modes.mode !== 'build') return;
     this.cancelPlacement();
     this.fleetTarget.cancel();
     $selection.set(null);
@@ -782,7 +728,6 @@ export class Game {
   debugRoadTool() { return this.roadTool.info(); }
 
   beginPlacement(type: PlaceableType) {
-    if (this.modes.mode !== 'build') return;
     if (type === 'grade' && !this.mods.grading) return;
     this.fleetTarget.cancel();
     this.roadTool.cancel();
@@ -805,7 +750,7 @@ export class Game {
    *  (iOS kills a background tab without warning). */
   private bindTouch() {
     const host: TouchHost = {
-      ready: () => this.playing && this.commandView && !overlayUp() && !$menuOpen.get(),
+      ready: () => this.playing && !overlayUp() && !$menuOpen.get(),
       mode: () => (this.placement?.active ? 'place' : this.roadTool?.active ? 'road'
         : this.fleetTarget?.active ? 'target' : 'select'),
       tap: (x, y) => this.touchTap(x, y),
@@ -902,7 +847,7 @@ export class Game {
   /** ✓ in the placement bar: place at the ghost, as a click would (a
    *  blocked spot flashes its reason; a stranding one asks twice). */
   confirmPlacement(keep = false) {
-    if (this.placement?.active && this.commandView) this.onWorldClick(keep);
+    if (this.placement?.active && this.playing) this.onWorldClick(keep);
   }
 
   /** R, or ⟳ in the placement bar. */
@@ -922,17 +867,17 @@ export class Game {
 
   /** ⟲ ⟳ (and Q/E's step in the isometric view): turn the command view. */
   turnView(dir: -1 | 1) {
-    if (this.commandView) this.buildCam.turnStep(dir);
+    if (this.playing) this.buildCam.turnStep(dir);
   }
 
   /** H: glide home to the Lander. F: glide to the selection. */
   cameraHome() {
-    if (this.commandView) this.homeCamera(true);
+    if (this.playing) this.homeCamera(true);
   }
   focusSelection() {
     const sel = $selection.get();
     const rover = $roverSel.get();
-    if (!this.commandView || (!sel && rover === null)) return;
+    if (!this.playing || (!sel && rover === null)) return;
     const at = sel ? this.life.haulers.pose(sel.id) : this.life.rovers.pose(rover!);
     const [x, z] = at ? [at.x, at.z] : sel ? centerOf(sel) : [0, 0];
     this.buildCam.focus(x, this.hf.sample(x, z), z, 60);
@@ -951,7 +896,6 @@ export class Game {
   /** Frame the Lander from the home direction (a glide unless `glide` is false). */
   /** Glide the command camera over a ground point (a deposit card's buttons). */
   focusGround(x: number, z: number) {
-    if (this.modes.mode !== 'build') return;
     this.buildCam.focus(x, this.hf.sample(x, z), z, 70, true);
   }
 
@@ -988,7 +932,6 @@ export class Game {
       this.chunks.markDirty(gx0, gz0, gx1, gz1);
       this.rocks.clearPits(gx0, gz0, gx1, gz1);
     });
-    this.walk.boulders = this.rocks.colliders();
     this.overlayOwed = true;
   }
 
@@ -996,7 +939,6 @@ export class Game {
    *  keep the horizon's shared edge in step with the grid. */
   private onFlattened(x0: number, z0: number, x1: number, z1: number) {
     this.rocks.clearRect(x0, z0, x1, z1);
-    this.walk.boulders = this.rocks.colliders();
     this.horizon.onFlatten(x0, z0, x1, z1);
   }
 
@@ -1388,7 +1330,6 @@ export class Game {
     }
     if (isHubType(type) && !free) this.hubPlaced(b);
     this.instances.rebuild(s);
-    this.walk.colliders = this.instances.colliders(s);
     // deadlock early-warning: metals gone before your first smelter exists
     if (!free && !s.buildings.some((b) => b.type === 'smelter')) {
       const smelterCost = Math.ceil((BUILDINGS.smelter.buildCost.metals ?? 40) * SITES[s.siteId].buildCostMult);
@@ -2065,7 +2006,7 @@ export class Game {
     }
   }
 
-  /** One frame of play. Camera, walk physics and effects step at most 0.1 s,
+  /** One frame of play. Camera and effects step at most 0.1 s,
    *  but game time takes up to 0.5 s of it, so a slow GPU still runs the clock
    *  at full speed (the tick loop's guard bounds the catch-up). */
   private step(realDt: number) {
@@ -2079,31 +2020,21 @@ export class Game {
     for (const a of acts) this.applyAction(a);
     if (counts) this.cueRefusals(counts);
 
-    const tweening = this.modes.update(dt);
-    if (!tweening) {
-      if (this.modes.mode === 'build') {
-        this.buildCam.update(dt);
-        if (this.fleetTarget.active) this.fleetTarget.update();
-        if (this.roadTool.active) this.roadTool.update();
-        if (this.placement.active) {
-          this.raycaster.setFromCamera(this.mouse, this.camera);
-          this.placement.update(this.state, this.mods.unlocked,
-            this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
-          const p = this.placement.probe!;
-          const block = p.valid && p.type !== 'grade' && isHubType(p.type)
-            ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : null;
-          $placing.set({
-            type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
-            road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
-            hub: block?.headline || undefined, hubBlock: block?.lines.length ? block.lines : undefined,
-          });
-        }
-      } else {
-        this.walk.update(dt);
-        this.walk.applyToCamera(this.camera);
-        this.lookAcc += dt;
-        if (this.lookAcc > 0.12) { this.lookAcc = 0; this.updateLookAt(); }
-      }
+    this.buildCam.update(dt);
+    if (this.fleetTarget.active) this.fleetTarget.update();
+    if (this.roadTool.active) this.roadTool.update();
+    if (this.placement.active) {
+      this.raycaster.setFromCamera(this.mouse, this.camera);
+      this.placement.update(this.state, this.mods.unlocked,
+        this.raycaster.ray.origin, this.raycaster.ray.direction, this.mods.surveyTier);
+      const p = this.placement.probe!;
+      const block = p.valid && p.type !== 'grade' && isHubType(p.type)
+        ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : null;
+      $placing.set({
+        type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
+        road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
+        hub: block?.headline || undefined, hubBlock: block?.lines.length ? block.lines : undefined,
+      });
     }
 
     // game time + economy at fixed 1 Hz (of game time)
@@ -2152,28 +2083,26 @@ export class Game {
       this.updateAutoMarkers();
       this.updateHazardMarkers();
       sfx.setAmbience({
-        margin: this.gridMargin(), walking: this.modes.mode === 'walk' && !tweening,
+        margin: this.gridMargin(),
         night: currentDay(this.state, SITES[this.state.siteId]).nightFactor > 0.5,
       });
-      this.cueDestiny(tweening);
+      this.cueDestiny();
     }
     this.updateHubLight(dt);
     this.updateDepositMarkers();
 
     // sun follows the clock; the shadow window hugs the ground in view
     const day = currentDay(this.state, SITES[this.state.siteId]);
-    const walking = this.modes.mode === 'walk';
-    const focus = walking ? this.walk.pos : this.buildCam.target;
+    const focus = this.buildCam.target;
     this.lighting.setSun(day.sunElev, day.sunAzim, day.nightFactor);
     this.camera.updateMatrixWorld();
     this.sky.update(this.camera, day.sunElev, day.sunAzim, this.lighting.sunLight, day.tCycle, dt,
       this.groundAnywhere);
-    // the isometric view never looks above the horizon: the sky only draws
-    // on foot and on the way down
-    if (this.classic) this.sky.group.visible = walking || tweening;
+    // the isometric view never looks above the horizon: no sky to draw
+    if (this.classic) this.sky.group.visible = false;
     // the isometric view stands hundreds of metres off: small rocks round its
     // focus, and none once they would be specks
-    if (this.buildCam instanceof IsoCam && !walking) {
+    if (this.buildCam instanceof IsoCam) {
       this.rocks.update(this.camera, this.buildCam.distance <= 350 ? this.buildCam.target : null);
     } else {
       this.rocks.update(this.camera);
@@ -2186,8 +2115,8 @@ export class Game {
     // a slow GPU does not stretch a one-second fade over many seconds
     this.darkness.update(simDt, day.nightFactor, day.sunElev, this.lighting.sunLight);
     this.instances.update(dt, day.nightFactor, this.lighting.sunDirection, step);
-    this.lighting.fitShadow(this.camera, focus, walking ? 160
-      : Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
+    this.lighting.fitShadow(this.camera, focus,
+      Math.min(900, Math.max(140, 2.2 * this.camera.position.distanceTo(focus))), dt, step);
     // wherever it stands dark the base carries its own light: window glow and
     // floods in the shader patches, or (stock path) ground discs and work
     // lights over the dark structures nearest the camera (hull glow at night);
@@ -2197,15 +2126,13 @@ export class Game {
     this.lighting.setWorkLights(stockLights ? this.instances.nearestDark(focus, this.lighting.workSpots) : 0);
     this.overlays.update(this.state, this.placement.probe, this.placement.ghost?.visible ?? false,
       $selection.get(), this.lighting.sunDirection);
-    const onFoot = walking && !tweening;
-    this.lighting.setHeadlamp(onFoot ? day.nightFactor : 0);
     this.life.update({
       dt, paused: this.state.paused, speed: this.state.speed, state: this.state, camera: this.camera,
-      sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight, walker: onFoot ? this.walk : null,
+      sunDir: this.lighting.sunDirection, sunLight: this.lighting.sunLight,
       tickFrac: this.econAcc,
     });
     this.life.rovers.selected = $roverSel.get();
-    sfx.setRovers(this.life.rovers.sounds(this.camera, onFoot ? null : this.buildCam.target));
+    sfx.setRovers(this.life.rovers.sounds(this.camera, this.buildCam.target));
 
     // autosave (real time)
     this.autosaveAcc += dt;
@@ -2219,12 +2146,11 @@ export class Game {
   /** The destiny's sound (docs/14 §4.6), twice a second: the score follows
    *  the lean from $destiny; rotors, walkers' radios and greenhouse air by
    *  what is near the listener; a data chirp as a drone takes a job. */
-  private cueDestiny(tweening: boolean) {
+  private cueDestiny() {
     const d = $destiny.get();
     sfx.setDestiny(leanFrom(d.c, d.a, d.band));
-    const onFoot = this.modes.mode === 'walk' && !tweening;
-    const at = onFoot ? this.walk.pos : this.buildCam.target;
-    const lift = onFoot ? 0 : 0.3 * this.camera.position.distanceTo(this.buildCam.target);
+    const at = this.buildCam.target;
+    const lift = 0.3 * this.camera.position.distanceTo(at);
     const life = this.life.soundscape(this.state, at.x, at.z, lift);
     sfx.setLife(life);
     if (this.droneLaunches >= 0 && life.launches > this.droneLaunches) sfx.play('modem');
@@ -2399,7 +2325,7 @@ export class Game {
    *  and over any whose rover is on its way, when it gets there
    *  ('EN ROUTE 0:24', core/transit.ts) */
   private updateAutoMarkers() {
-    if (!this.playing || this.modes.mode !== 'build') { if ($autoMarkers.get().length) $autoMarkers.set([]); return; }
+    if (!this.playing) { if ($autoMarkers.get().length) $autoMarkers.set([]); return; }
     const v = new THREE.Vector3();
     const out: { id: number; x: number; y: number; auto: boolean; text: string }[] = [];
     for (const b of this.state.buildings) {
@@ -2427,7 +2353,7 @@ export class Game {
   /** DOM markers over hazard targets (docs/14 §3.8): the hiss with who is aboard, blight, ⚠ NET, the strip bar */
   private updateHazardMarkers() {
     const ms = $hazards.get()?.markers ?? [];
-    if (!this.playing || this.modes.mode !== 'build' || !ms.length) { if ($hazardMarkers.get().length) $hazardMarkers.set([]); return; }
+    if (!this.playing || !ms.length) { if ($hazardMarkers.get().length) $hazardMarkers.set([]); return; }
     const v = new THREE.Vector3();
     const out: { id: number; x: number; y: number; glyph: string; text: string; frac?: number }[] = [];
     for (const m of ms) {
@@ -2443,7 +2369,7 @@ export class Game {
   }
 
   private updateWearMarkers() {
-    if (!this.playing || this.modes.mode !== 'build') { $wearMarkers.set([]); return; }
+    if (!this.playing) { $wearMarkers.set([]); return; }
     const v = new THREE.Vector3();
     const out: { id: number; x: number; y: number; frac: number }[] = [];
     for (const b of this.state.buildings) {
@@ -2470,7 +2396,7 @@ export class Game {
    *  ghost's stake join them, overlay on or off. */
   private updateDepositMarkers() {
     const light = this.light;
-    if (!this.playing || this.modes.mode !== 'build' || (!$depositOverlay.get() && !light)) {
+    if (!this.playing || (!$depositOverlay.get() && !light)) {
       if (this.markerSig) { this.markerSig = ''; $depositMarkers.set([]); }
       return;
     }
@@ -2511,7 +2437,7 @@ export class Game {
   /** What lights: a hub's ghost, else a selected hub, else a hub's palette
    *  card (hover, or the touch info card). Build mode only. */
   private lightSource(): LightSource | null {
-    if (!this.playing || this.modes.mode !== 'build') return null;
+    if (!this.playing) return null;
     const p = this.placement?.active ? this.placement.probe : null;
     if (p) return p.type !== 'grade' && isHubType(p.type) ? { kind: 'ghost', type: p.type, gx: p.gx, gz: p.gz, rot: p.rot } : null;
     const sel = $selection.get();
@@ -2591,18 +2517,6 @@ export class Game {
   /** The highlight as drawn (tests). */
   debugHighlight() {
     return { drawn: this.highlight?.info() ?? null, light: this.light };
-  }
-
-  private updateLookAt() {
-    this.raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);
-    this.raycaster.far = 60;
-    const id = this.instances.pick(this.raycaster);
-    this.raycaster.far = Infinity;
-    this.lookId = id;
-    if (id === null) { $lookAt.set(null); return; }
-    const b = this.state.buildings.find((x) => x.id === id);
-    if (!b) { this.lookId = null; $lookAt.set(null); return; }
-    $lookAt.set({ name: BUILDINGS[b.type].name, x: window.innerWidth / 2, y: window.innerHeight / 2 - 40 });
   }
 
   // ─────────────────────────── publish ───────────────────────────
@@ -2816,7 +2730,7 @@ export class Game {
     const lethal = fresh.some((a) => a.deadly) || [...clocks].some((c) => !seen.clocks.has(c));
     if (!s.paused && ((set.pauseHazards && fresh.length) || (set.pauseLethal && lethal))) {
       this.actions.push({ kind: 'setPaused', paused: true });
-      alert(s, `PAUSED — ${fresh[0] ? `${HAZARD_NAME[fresh[0].kind]}: ${fresh[0].targetName}` : 'a lethal warning'} · Space resumes (the menu sets when hazards pause)`, 'info');
+      alert(s, `PAUSED — ${fresh[0] ? `${HAZARD_NAME[fresh[0].kind]}: ${fresh[0].targetName}` : 'a lethal warning'} · Space or a speed resumes (the menu sets when hazards pause)`, 'info');
     }
   }
 
@@ -2907,11 +2821,6 @@ export class Game {
     const base = held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held };
     return {
       state: base.zones?.some((z) => z.kind === 'pit') ? { ...base, zones: base.zones.filter((z) => z.kind !== 'pit') } : base,
-      player: {
-        mode: this.modes.mode,
-        x: this.walk.pos.x, y: this.walk.pos.y, z: this.walk.pos.z,
-        yaw: this.walk.yaw, pitch: this.walk.pitch,
-      },
       savedAt: Date.now(),
     };
   }
@@ -2984,7 +2893,6 @@ export class Game {
     }
     s.buildings.splice(i, 1);
     this.instances.rebuild(s);
-    this.walk.colliders = this.instances.colliders(s);
     if ($selection.get()?.id === id) $selection.set(null);
   }
 
@@ -3146,7 +3054,6 @@ export class Game {
     if (ev.modsChanged) this.mods = modsFor(this.state);
     // a hazard wrecked something (docs/14 §3.10): the world forgets it
     if (ev.wrecked?.length) {
-      this.walk.colliders = this.instances.colliders(this.state);
       if (ev.wrecked.includes($selection.get()?.id ?? -1)) $selection.set(null);
     }
     if (ev.build.length) this.resolveBuild(ev.build);
@@ -3291,26 +3198,8 @@ export class Game {
     }
   }
 
-  setModeInstant(m: 'build' | 'walk') {
-    if (m === 'walk' && this.modes.mode !== 'walk') {
-      const t = this.buildCam.target;
-      this.walk.spawnAt(t.x, t.z, 0);
-    }
-    this.modes.set(m);
-  }
-
-  /** Frame the camera deterministically (screenshots / probes). In walk mode
-   *  the astronaut stands at pos (x, z) and faces the target. */
+  /** Frame the camera deterministically (screenshots / probes). */
   debugSetView(pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }) {
-    if (this.modes.mode === 'walk') {
-      this.walk.spawnAt(pos.x, pos.z, 0);
-      const eyeY = this.walk.pos.y + EYE_HEIGHT;
-      const dx = target.x - pos.x, dz = target.z - pos.z;
-      this.walk.yaw = Math.atan2(-dx, -dz);
-      this.walk.pitch = Math.atan2(target.y - eyeY, Math.hypot(dx, dz));
-      this.walk.applyToCamera(this.camera);
-      return;
-    }
     this.buildCam.view(pos, target);
   }
 
@@ -3359,7 +3248,6 @@ export class Game {
       base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
       life: this.life.info(),
       lens: { fov: this.camera.fov, near: this.camera.near },
-      headlamp: this.lighting.headlamp.intensity,
     };
   }
 
@@ -3422,9 +3310,8 @@ export class Game {
     this.nextProbe = this.playFrames + 1;
   }
 
-  get walkController() { return this.walk; }
-  /** settled in command view: not walking, not flying between the two */
-  get commandView() { return this.modes.mode === 'build' && !this.modes.transitioning; }
+  /** a world is up and the command view has the screen (the only view there is) */
+  get commandView() { return this.playing; }
   get iceDepositList() { return this.hf.iceDeposits; }
 
   debugCheckPlace(type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) {

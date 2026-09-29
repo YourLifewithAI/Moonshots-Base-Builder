@@ -3,7 +3,7 @@
  *  excavators and what they do at work (world/workAnim.ts), regolith
  *  dust, launch and resupply events, research made visible (berms, the
  *  swarm's glints, cleaner panels), the destiny's links and EVA walkers
- *  (docs/14 §4.3), and the astronaut's bootprints.
+ *  (docs/14 §4.3).
  *
  *  Each part fails soft: an exception disables that part (its objects are
  *  hidden) and the game carries on. */
@@ -14,7 +14,6 @@ import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
 import { Berms } from '../buildings/berms';
-import { Footprints, type Walker } from '../player/footprints';
 import { DUST_SLOTS, DustField, type DustEmitter } from './dust';
 import { LaunchFx, ResupplyFx } from './events';
 import { RoverFleet, syncGround } from './rovers';
@@ -36,8 +35,6 @@ export interface LifeFrame {
   sunDir: THREE.Vector3;
   /** the sun's light as a fraction of full */
   sunLight: number;
-  /** the astronaut, while walking */
-  walker: Walker | null;
   /** the part of the next economy second already gone (the haulers and rovers glide on it) */
   tickFrac?: number;
 }
@@ -51,7 +48,7 @@ const FILM_TAU_MITIGATED = 60;             // electrostatic curtains
 const NEAR_M = 45;
 const EMPTY: ReadonlySet<number> = new Set();
 
-type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'prints' | 'film'
+type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'film'
   | 'links' | 'settlers' | 'work';
 
 export class BaseLife {
@@ -67,7 +64,6 @@ export class BaseLife {
   readonly resupply: ResupplyFx;
   readonly berms: Berms;
   readonly swarm = new SwarmGlints();
-  readonly prints: Footprints;
   /** the destiny's links: walkways and conveyor spines (docs/14 §4.3) */
   readonly links: Links;
   /** the Colony's EVA walkers (docs/14 §4.3) */
@@ -92,7 +88,6 @@ export class BaseLife {
     this.launch = new LaunchFx(hf);
     this.resupply = new ResupplyFx(hf);
     this.berms = new Berms(hf);
-    this.prints = new Footprints(hf);
     this.links = new Links(hf);
     this.settlers = new Settlers(hf);
     this.work = new WorkAnim(hf);
@@ -101,7 +96,7 @@ export class BaseLife {
     this.resupply.onShadowCastersChanged = this.berms.onShadowCastersChanged = this.links.onShadowCastersChanged = requestShadowUpdate;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
-      this.berms.mesh, this.swarm.group, this.prints.mesh, this.links.group, this.settlers.group, this.work.group);
+      this.berms.mesh, this.swarm.group, this.links.group, this.settlers.group, this.work.group);
   }
 
   update(f: LifeFrame) {
@@ -127,7 +122,6 @@ export class BaseLife {
     this.run('links', () => this.links.update(s));
     this.run('settlers', () => this.settlers.update(gdt, s, this.failed.has('links') ? EMPTY : this.links.ground, f.sunDir, f.sunLight));
     this.run('swarm', () => this.swarm.update(f.camera, f.sunDir, s.swarmPct, f.dt));
-    if (f.walker) this.run('prints', () => this.prints.update(f.walker!));
     this.run('film', () => this.updateFilm(s, gdt));
     this.run('dust', () => {
       const list: DustEmitter[] = [];
@@ -224,7 +218,7 @@ export class BaseLife {
       console.warn(`[MOONSHOTS] ${part} visuals disabled after an error.`, e);
       const objects: Partial<Record<Part, THREE.Object3D>> = {
         rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
-        resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group, prints: this.prints.mesh,
+        resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group,
         links: this.links.group, settlers: this.settlers.group, work: this.work.group,
       };
       const o = objects[part];
@@ -271,7 +265,6 @@ export class BaseLife {
       resupply: this.resupply.info(),
       berms: this.berms.count,
       swarmGlints: this.swarm.count,
-      footprints: this.prints.count,
       plumes: this.plumes.map((p) => ({ id: p.id, vent: p.vent })),
       links: this.links.info(),
       settlers: this.settlers.info(),

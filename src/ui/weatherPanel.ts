@@ -16,7 +16,7 @@ import { FLARE_EFFECTS, SPACE_WEATHER } from '../data/spaceWeather';
 const SPACE_WEATHER_ALERT = FLARE_EFFECTS.alertAt;
 import { fmtClock } from '../core/daynight';
 import { el } from './hud';
-import { $hazards, $resourcePanel, $weather, $placing, $mode } from './stores';
+import { $hazards, $resourcePanel, $weather, $placing } from './stores';
 import { counterButton, counterClick } from './hazardsPanel';
 import { capabilityView } from '../core/flareEffects';
 import { SITES } from '../data/sites';
@@ -245,7 +245,7 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
   window.addEventListener('keydown', (e) => {
     const tag = (e.target as HTMLElement)?.tagName;
     if (tag === 'INPUT' && (e.target as HTMLInputElement).type !== 'range') return;
-    if (e.code === 'KeyO' && $mode.get() !== 'walk' && !e.repeat) { togglePanel(); return; }
+    if (e.code === 'KeyO' && !e.repeat) { togglePanel(); return; }
     const open = pop.style.display !== 'none' && !pop.classList.contains('compact');
     if (!open) return;
     if ((e.code === 'Enter' || e.code === 'NumpadEnter') && !$placing.get()) {

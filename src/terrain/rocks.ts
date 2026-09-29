@@ -277,19 +277,6 @@ export class Rocks {
     return largeChanged;
   }
 
-  /** Boulders big enough to walk into, as upright cylinders (walk mode). */
-  colliders(): { x: number; z: number; r: number; top: number }[] {
-    const out: { x: number; z: number; r: number; top: number }[] = [];
-    const set = this.large;
-    for (let i = 0; i < set.x.length; i++) {
-      if (set.removed[i] || set.d[i] < 1.2) continue;
-      const o = i * 16;
-      const sy = Math.hypot(set.matrices[o + 4], set.matrices[o + 5], set.matrices[o + 6]);
-      out.push({ x: set.x[i], z: set.z[i], r: 0.4 * set.d[i], top: set.matrices[o + 13] + 1.2 * sy });
-    }
-    return out;
-  }
-
   /** Rocks still standing with centers in the world rect (tests, probes). */
   countIn(x0: number, z0: number, x1: number, z1: number): number {
     let n = 0;

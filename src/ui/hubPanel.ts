@@ -11,7 +11,7 @@ import type { HubPolicy } from '../core/state';
 import type { TechId } from '../data/techs';
 import { openTechTreeAt } from './techTree';
 import { el } from './hud';
-import { $fleet, $mode, $roverSel, $selection, $unitSel, type HubView, type UnitView } from './stores';
+import { $fleet, $roverSel, $selection, $unitSel, type HubView, type UnitView } from './stores';
 
 const G = RESOURCES.regolith.glyph;
 const NOTE = 'class="goal-hint" style="font-size:12px; margin-top:4px; color:rgba(245,247,249,0.68)"';
@@ -149,7 +149,7 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
   const render = () => {
     const id = $unitSel.get();
     const u = id === null ? undefined : $fleet.get().units.find((x) => x.id === id);
-    if (!u || $mode.get() === 'walk') { insp.style.display = 'none'; sig = ''; return; }
+    if (!u) { insp.style.display = 'none'; sig = ''; return; }
     const next = `${u.id}|${u.pinned}|${u.parked}|${u.hub}|${u.reprint}|${u.planner}|${u.feedPlanOff}`;
     if (next !== sig) {
       sig = next;
@@ -194,7 +194,6 @@ export function mountUnitPanel(root: HTMLElement, game: Game) {
   };
   $unitSel.subscribe(render);
   $fleet.subscribe(render);
-  $mode.subscribe(render);
   $selection.subscribe((b) => { if (b && $unitSel.get() !== null) $unitSel.set(null); });
   $roverSel.subscribe((r) => { if (r !== null && $unitSel.get() !== null) $unitSel.set(null); });
   insp.addEventListener('click', (e) => {
