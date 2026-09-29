@@ -33,6 +33,7 @@
 import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
 import type { BuildingId } from '../data/buildings';
+import { UNIT_ACCENT } from '../data/families';
 import { materials } from '../world/materials';
 import { classicLightUniforms } from '../world/classicLighting';
 import { CUT_NONE, buildingUniforms } from './buildingShader';
@@ -75,7 +76,9 @@ export const CLASSIC_PALETTE: Readonly<Palette> = {
 
 const SILVER: Partial<Palette> = { trim: 0xc4c8ce, panel: 0xaeb2b8 };
 /** per structure (or moving part) */
-export const PALETTE_OVERRIDES: Partial<Record<BuildingId | PartId, Partial<Palette>>> = {
+export const PALETTE_OVERRIDES: Partial<Record<BuildingId | PartId | 'surveyDrone', Partial<Palette>>> = {
+  // the survey drone (docs/19 S6, world/rovers.ts surveyDroneGeometry): teal trim
+  surveyDrone: { trim: UNIT_ACCENT.surveyDrone },
   wing: SILVER,
   wingXL: SILVER, // Wing Extensions: the same wing, a row longer
   solar: { trim: 0xb7bbc1 },
@@ -116,7 +119,7 @@ export function classicColors(src: THREE.BufferGeometry): THREE.BufferAttribute 
   if (attr) return attr;
   const col = src.getAttribute('color');
   const mat = src.getAttribute('mat');
-  const id = (src.userData.recipe ?? src.userData.part) as BuildingId | PartId | undefined;
+  const id = (src.userData.recipe ?? src.userData.part) as BuildingId | PartId | 'surveyDrone' | undefined;
   const pal: Palette = { ...CLASSIC_PALETTE, ...(id ? PALETTE_OVERRIDES[id] : undefined) };
   const lin = new Map<PaletteKey, THREE.Color>();
   for (const k of Object.keys(pal) as PaletteKey[]) lin.set(k, new THREE.Color(pal[k]));
