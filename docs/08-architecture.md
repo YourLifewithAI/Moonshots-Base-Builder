@@ -150,7 +150,8 @@ src/
   player/
     buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys;
                           the CommandCam interface both command views implement
-    isoCam.ts             classic isometric camera: 20° lens, 32° pitch, 90° yaw steps, 5 zoom levels
+    isoCam.ts             classic isometric camera: 20° lens, 90° yaw steps (Q/E), two tilts 32°/55° (V), continuous zoom 100–830 m;
+                          its preset (step, tilt, dist) is saved as SaveBlob.camera; owns commandKey and CommandCam
     roadTool.ts           the road tool [N]: drag out a road from the network, Alt-drag removes
   audio/
     sfx.ts                procedural cues, suit radio, hum; buses, limiter, meter; the destiny's

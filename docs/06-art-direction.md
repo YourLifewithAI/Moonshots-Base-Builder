@@ -1053,9 +1053,9 @@ horizon, so classic draws none.
 | | |
 |---|---|
 | Lens | perspective, **20°** vertical — near-orthographic, so picking, `screenOf` and the overlays work unchanged |
-| Pitch | fixed **32°** below the horizon (the top of the frame looks 22° down: never the sky) |
+| Tilt | two fixed tilts, **32°** (low, the default framing: the top of the frame looks 22° down, never the sky) and **55°** (high); V flips them in a 0.35 s ease-in-out |
 | Yaw | **45° + k·90°**; Q / E turn one step in a 0.35 s ease-in-out; presses queue, a held key turns once |
-| Zoom | the wheel steps through **5 levels** — 100, 170 (home), 290, 490, 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view), eased; a trackpad's trickle adds up to a step |
+| Zoom | the wheel and a pinch zoom **continuously** between 100 m and 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view at the low tilt), eased; a mouse notch is ×1.7; home is 170 m, F closes to 100 m |
 | Pan | W A S D / arrows at 1.1 view heights a second; right- or middle-drag, the ground following the pointer. The left button stays select / place / target |
 | F / H | F glides to the selection (0.6 s) and closes to the nearest level; H glides home to the Lander at the home level |
 | Limits | the target rides the terrain and stays 40 m inside the map; the camera never sits under 4 m of clearance; the clip planes track the zoom (near 0.2 d, far 6 d + 800 m) |

@@ -382,6 +382,8 @@ export class Game {
     this.instances.rebuild(this.state);
     // (a save made on foot, from before walk mode was removed, loads here like any other)
     this.homeCamera(false);
+    // the view the player left (turn, tilt, zoom); an older save has none and keeps the default
+    if (blob.camera) this.buildCam.setPreset?.(blob.camera);
     this.publish();
     if (missionLost(this.state)) $defeat.set(true);
   }
@@ -870,6 +872,11 @@ export class Game {
   /** ⟲ ⟳ (and Q/E's step in the isometric view): turn the command view. */
   turnView(dir: -1 | 1) {
     if (this.playing) this.buildCam.turnStep(dir);
+  }
+
+  /** ▱ (and V's flip in the isometric view): tilt the command view, low ↔ high. */
+  tiltView() {
+    if (this.commandView) this.buildCam.tiltStep?.();
   }
 
   /** H: glide home to the Lander. F: glide to the selection. */
@@ -2823,6 +2830,7 @@ export class Game {
     const base = held === null || missionLost(this.state) ? this.state : { ...this.state, paused: held };
     return {
       state: base.zones?.some((z) => z.kind === 'pit') ? { ...base, zones: base.zones.filter((z) => z.kind !== 'pit') } : base,
+      ...(this.buildCam.preset ? { camera: this.buildCam.preset() } : {}),
       savedAt: Date.now(),
     };
   }

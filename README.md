@@ -24,7 +24,7 @@ themselves on a phone (Menu → Touch controls: Auto · On · Off):
 
 | Touch | Action |
 |---|---|
-| Drag · pinch · twist | Pan · zoom (five steps) · turn the view 90° (or ⟲ ⟳) |
+| Drag · pinch · twist | Pan · zoom · turn the view 90° (or ⟲ ⟳) · **▱** tilts it, low or high |
 | Tap · hold | Select · what is this? (a building's or a deposit's card) |
 | **Build** → tap a card | Its ghost appears mid-view: drag it, ⟳ rotate, ✓ place, ✕ cancel |
 | Hold a card · **Order** | The rovers choose the site |
