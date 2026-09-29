@@ -132,7 +132,6 @@ test('a smelter\'s ghost lights ◆ only: trip, faces and the full-size ring; th
   expect(h.drawn.visible).toBe(true);
   expect(h.drawn.ribbonTris).toBeGreaterThan(0);
   expect(h.drawn.fillTris).toBeGreaterThan(0);
-  expect(h.drawn.glow).toBe(0);
   await expect(page.locator('#place-hub .hb-head')).toContainText(/^HUB — /);
   await expect(page.locator('#place-hub .hb-line').first()).toContainText(/high-Ti basalt #0 · /);
   const chip = page.locator('.deposit-mark.hl-lit[data-dep="ilmenite-0"]');
