@@ -55,7 +55,6 @@ export class Trackers {
     const make = (part: PartId) => {
       const mesh = new THREE.InstancedMesh(withInstanceState(partGeometry(part), MAX[part]),
         materials.get('building'), MAX[part]);
-      mesh.customDepthMaterial = materials.get('buildingDepth');
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       mesh.count = 0;

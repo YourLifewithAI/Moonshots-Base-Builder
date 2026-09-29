@@ -3,33 +3,26 @@
  *
  *  - Two noise-displaced polyhedra (small: a 36-facet dodecahedron, large:
  *    an 80-facet icosahedron), varied by per-instance rotation, squash and
- *    albedo — flat-shaded, stock material from the registry plus the night
- *    floods (safe mode gets its unlit twin).
+ *    albedo — flat-shaded, the registry's stock Lambert (safe mode gets its
+ *    unlit twin), tinted a little lighter than the cel ground they sit on.
  *  - Sizes follow power laws (N(>D) ∝ D^−α); a sparse background field
  *    thins toward the landing site (the descent engine swept it), and the
  *    blocks crowd crater rims and ejecta, largest on the biggest craters.
  *  - Small rocks (< 1 m) are one InstancedMesh refilled with those within
- *    range of the camera; large rocks are one static mesh and the only ones
- *    that cast shadows. Two draw calls, plus one in the shadow pass.
+ *    range of the view's focus (the isometric camera stands hundreds of
+ *    metres off) and not at all once they would be specks; large rocks are
+ *    one static mesh. Two draw calls.
  *  - Building pads and graded patches clear what they cover (and resettle
  *    the rocks on their feathered skirts); load replays the same flattens.
- *  - Density by FX level: 0–1 full, 2 half the small rocks, 3 and safe
- *    mode a quarter. Large rocks stay at every level.
- *  - Classic style: stock flat Lambert (the facets are the geometry's),
- *    tinted a little lighter than the classic ground they sit on; half the
- *    small rocks, drawn round the view's focus (the isometric camera stands
- *    hundreds of metres off) and not at all once they would be specks. */
+ *  - Density: half the small rocks, a quarter in safe mode; large rocks stay
+ *    in both. */
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
 import { mulberry32, type Rng } from '../core/rng';
 import { materials } from '../world/materials';
-import { floodPatch } from '../world/floodlights';
 import type { Heightfield } from './heightfield';
-import { classicActive } from '../core/style';
 import { celGround } from './celGround';
-
-materials.define('rock', new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), floodPatch);
 
 const HALF = MAP_M / 2;
 /** heightfield samples per side */
@@ -37,7 +30,7 @@ const MAP_CELLS_1 = MAP_CELLS + 1;
 const LARGE_D = 1.0;          // m: rocks this size and up cast shadows
 const SMALL_RANGE = 300;      // m from the camera
 const REFILL_M = 20;          // camera travel before the small set refills
-const SMALL_DENSITY = [1, 1, 0.5, 0.25];
+const SMALL_DENSITY = 0.5, SMALL_DENSITY_SAFE = 0.25;
 
 /** D from a truncated power law, cumulative N(>D) ∝ D^−alpha. */
 function powerLaw(rng: Rng, dMin: number, dMax: number, alpha: number): number {
@@ -73,7 +66,6 @@ export class Rocks {
   readonly group = new THREE.Group();
   private small: RockSet;
   private large: RockSet;
-  private level = 0;
   private safe = false;
   private refillAt = new THREE.Vector3(Infinity, 0, 0);
   /** fired when large rocks were cleared (they cast shadows) */
@@ -107,8 +99,7 @@ export class Rocks {
       }
     }
 
-    const albedo = t.albedo;
-    const ground = classicActive() ? celGround(hf) : null;
+    const ground = celGround(hf);
     const gc = [0, 0, 0];
     const make = (items: typeof list, geo: THREE.BufferGeometry): RockSet => {
       const n = items.length;
@@ -135,15 +126,10 @@ export class Rocks {
         m.toArray(set.matrices, i * 16);
         // unweathered rock outshines the gardened regolith; fresh ejecta most
         const k = it.fresh ? 1.5 + 0.7 * rng() : 1.2 + 0.5 * rng();
-        if (ground) {
-          // classic: the ground's own colour, lifted and a little greyer
-          ground.color(it.x, it.z, p.y, 1, gc, 0);
-          const lift = 0.85 + 0.25 * k, grey = (gc[0] + gc[1] + gc[2]) / 3;
-          for (let c = 0; c < 3; c++) set.colors[i * 3 + c] = Math.min(0.9, (gc[c] * 0.7 + grey * 0.3) * lift);
-        } else {
-          const v = albedo * k;
-          set.colors[i * 3] = v; set.colors[i * 3 + 1] = v; set.colors[i * 3 + 2] = v * 1.01;
-        }
+        // the ground's own colour, lifted and a little greyer
+        ground.color(it.x, it.z, p.y, 1, gc, 0);
+        const lift = 0.85 + 0.25 * k, grey = (gc[0] + gc[1] + gc[2]) / 3;
+        for (let c = 0; c < 3; c++) set.colors[i * 3 + c] = Math.min(0.9, (gc[c] * 0.7 + grey * 0.3) * lift);
       });
       set.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       set.mesh.setColorAt(0, new THREE.Color(0, 0, 0)); // allocates instanceColor
@@ -158,11 +144,8 @@ export class Rocks {
     this.fill(this.large, null);
   }
 
-  /** Scene shaders ride the FX ladder; rocks thin with it. */
-  setFxLevel(level: number) {
-    this.level = level;
-    this.refillAt.set(Infinity, 0, 0);
-  }
+  /** @deprecated no FX ladder any more; removed with the game.ts pass. */
+  setFxLevel(_level: number) { /* one density */ }
 
   setSafe(safe: boolean) {
     this.safe = safe;
@@ -170,12 +153,12 @@ export class Rocks {
   }
 
   private get smallDensity(): number {
-    return this.safe ? SMALL_DENSITY[3] : SMALL_DENSITY[Math.min(3, this.level)];
+    return this.safe ? SMALL_DENSITY_SAFE : SMALL_DENSITY;
   }
 
-  /** Per frame: refill the small set once the camera has moved on. The
-   *  classic isometric view passes its focus on the ground instead of the
-   *  camera, and null when it stands too far off for small rocks at all. */
+  /** Per frame: refill the small set once the view has moved on. The
+   *  isometric view passes its focus on the ground instead of the camera,
+   *  and null when it stands too far off for small rocks at all. */
   update(camera: THREE.Camera, focus?: THREE.Vector3 | null) {
     if (focus === null) {
       if (this.small.mesh.count) { this.small.mesh.count = 0; this.refillAt.set(Infinity, 0, 0); }

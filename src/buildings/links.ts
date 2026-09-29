@@ -333,7 +333,6 @@ export class Links {
     m.setMatrixAt(0, new THREE.Matrix4());
     m.castShadow = true;
     m.receiveShadow = true;
-    m.customDepthMaterial = materials.get('buildingDepth');
     m.computeBoundingSphere();
     m.userData.links = layer;
     this.meshes[layer] = m;

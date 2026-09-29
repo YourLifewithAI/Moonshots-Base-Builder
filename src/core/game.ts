@@ -76,7 +76,6 @@ import { BuildingDarkness } from '../buildings/darkness';
 import {
   PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, gradeCost, untouchedSite, type PlaceableType,
 } from '../buildings/placement';
-import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
 import { Lighting } from '../world/lighting';

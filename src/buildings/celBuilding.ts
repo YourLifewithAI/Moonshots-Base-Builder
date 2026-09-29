@@ -1,9 +1,9 @@
-/** The classic style's buildings (and everything else on the building
- *  material: solar wings and dishes, rovers, the cargo lander).
+/** The cel style's buildings (and everything else on the building material:
+ *  solar wings and dishes, rovers, hub units, the cargo lander, the work kit).
  *
  *  Palette. The kit bakes each part's finish into its vertices (a gray
- *  value in `color`, roughness / metalness / emissive id in `mat`); classic
- *  maps each finish to a colour, per structure where it helps identity:
+ *  value in `color`, roughness / metalness / emissive id in `mat`); the cel
+ *  palette maps each finish to a colour, per structure where it helps identity:
  *    hull (BODY)       warm white       radiators   white
  *    panels (PLATE)    mid gray         trim        orange accent
  *    PV cells (GLASS)  dark blue        windows     dark blue glass
@@ -15,8 +15,9 @@
  *    foliage (LEAF)    greenhouse green
  *  with the solar wings' and arrays' frames silver, the Foil Factory's trim
  *  gold, the Server Monolith near-black with teal glass, the Drone Hive dark
- *  and the Garden Dome's ribs silver. The colours go into the instanced view's own `color`
- *  attribute, so the shared recipe buffers stay High detail's.
+ *  and the Garden Dome's ribs silver. The colours go into the instanced view's
+ *  own `color` attribute (celColors), so the shared recipe buffers stay the
+ *  kit's grays.
  *
  *  Shader. One small ShaderMaterial, no patches, no loops, no derivatives,
  *  no extensions: Lambert from the key light plus the hemisphere fill,
@@ -71,7 +72,7 @@ export const EMISSIVE = {
 };
 
 /** How brightly a structure's own lights burn, 0 (off) … 1 (full): the one
- *  place the classic windows and flood discs key on. A complete, enabled,
+ *  place the cel windows and flood pools key on. A complete, enabled,
  *  powered structure lights as dark as it stands (`dark`: the structure's
  *  darkness from darkness.ts — night, a set or grazing sun, terrain shadow). */
 export function lightLevel(b: BuildingState, dark: number): number {
@@ -83,7 +84,7 @@ export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell
   | 'leaf' | 'road' | 'roadMark';
 type Palette = Record<PaletteKey, number>;
 
-/** sRGB, as authored (the classic renderer does no tone mapping) */
+/** sRGB, as authored (the renderer does no tone mapping) */
 export const CEL_PALETTE: Readonly<Palette> = {
   hull: 0xebe6dc,
   radiator: 0xf3f2ed,
@@ -139,7 +140,7 @@ export function finishKey(v: number, rough: number, metal: number, emit: number)
 
 const colors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute>();
 
-/** The classic colour attribute for a baked geometry (cached per source). */
+/** The cel colour attribute for a baked geometry (cached per source). */
 export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
   let attr = colors.get(src);
   if (attr) return attr;
@@ -250,8 +251,8 @@ void main() {
 }
 `;
 
-/** Marks the classic building program: a compile error in it is the classic
- *  shader's own fault (game.ts swaps in stock Lambert). */
+/** Marks the cel building program: a compile error in it is that shader's
+ *  own fault (game.ts swaps in stock Lambert). */
 export const CEL_MARKER = 'MBB_CEL';
 
 export const CEL_BUILDING = new THREE.ShaderMaterial({
@@ -265,16 +266,16 @@ export const CEL_BUILDING = new THREE.ShaderMaterial({
     uBldTime: buildingUniforms.uBldTime,
   },
 });
-materials.defineClassic('building', CEL_BUILDING);
+materials.define('building', CEL_BUILDING);
 
-/** Stock Lambert in the classic palette: the fallback when the classic
+/** Stock Lambert in the cel palette: the fallback when the cel building
  *  shader does not compile on a GPU. */
 export function celFallbackMaterial(): THREE.Material {
   return new THREE.MeshLambertMaterial({ vertexColors: true });
 }
 
-/** Install the classic palette and light level on every instanced view
- *  made from here on (call once at boot, classic style only). */
+/** Install the cel palette and light level on every instanced view
+ *  made from here on (call once at boot). */
 export function installCelBuildings() {
   setInstanceHook((view, src, max) => {
     if (src.getAttribute('color')) view.setAttribute('color', celColors(src));

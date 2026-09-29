@@ -16,21 +16,15 @@
  *    dimmer kinds     the ring at the overlay's own weight
  *
  *  Never colour alone (docs/07 §6a): weight, pattern, fill and hatch carry
- *  every state, and the labels (the overlay's DOM markers) say it. Classic
- *  and High detail share the geometry; High adds an emissive rim line on
- *  lit rings, bright enough for the bloom. Nothing depends on hover. */
+ *  every state, and the labels (the overlay's DOM markers) say it. Nothing
+ *  depends on hover. */
 import * as THREE from 'three';
 import { DEPOSIT_INFO } from '../data/deposits';
 import type { Heightfield } from '../terrain/heightfield';
 import type { HubLight, LitEntry } from '../core/hubPreview';
 
-/** The overlay's tones (monochrome, docs/06): the Classic palette keys and High detail's. */
-export const HIGHLIGHT_PALETTE = {
-  classic: { depositLit: 0xf4f7fb, depositFull: 0xd9e0e8, depositSpent: 0xa4acb6, pitRim: 0xffffff },
-  high: { depositLit: 0xe6eef7, depositFull: 0xc8d2de, depositSpent: 0x98a2ae, pitRim: 0xf6f9fc },
-} as const;
-/** High detail's rim line: past the bloom's luminance threshold (world/post.ts, 2.0) */
-const GLOW = 2.6;
+/** The overlay's tones (monochrome, docs/06). */
+export const HIGHLIGHT_PALETTE = { depositLit: 0xf4f7fb, depositFull: 0xd9e0e8, depositSpent: 0xa4acb6, pitRim: 0xffffff } as const;
 
 const LIFT = 0.5;
 const RIBBON_W = 1.2;
@@ -43,14 +37,14 @@ export class DepositHighlight {
   readonly group = new THREE.Group();
   private sig = '';
   private light: HubLight | null = null;
-  private stats = { entries: 0, ribbonTris: 0, fillTris: 0, lines: 0, hatch: 0, glow: 0 };
+  private stats = { entries: 0, ribbonTris: 0, fillTris: 0, lines: 0, hatch: 0 };
   private mats: {
     ribbon: THREE.MeshBasicMaterial; fill: THREE.MeshBasicMaterial; line: THREE.LineBasicMaterial;
-    faint: THREE.LineBasicMaterial; spent: THREE.LineBasicMaterial; rim: THREE.LineBasicMaterial; glow: THREE.LineBasicMaterial | null;
+    faint: THREE.LineBasicMaterial; spent: THREE.LineBasicMaterial; rim: THREE.LineBasicMaterial;
   };
 
-  constructor(private hf: Heightfield, private classic: boolean) {
-    const pal = classic ? HIGHLIGHT_PALETTE.classic : HIGHLIGHT_PALETTE.high;
+  constructor(private hf: Heightfield, _classic?: boolean /* deprecated: dropped with the game.ts pass */) {
+    const pal = HIGHLIGHT_PALETTE;
     const surf = (color: number, opacity: number) => new THREE.MeshBasicMaterial({
       color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide,
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
@@ -58,14 +52,11 @@ export class DepositHighlight {
     const line = (color: number, opacity: number) => new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false });
     this.mats = {
       ribbon: surf(pal.depositLit, 0.88),
-      fill: surf(pal.depositLit, classic ? 0.08 : 0.06),
+      fill: surf(pal.depositLit, 0.08),
       line: line(pal.depositLit, 0.8),
       faint: line(pal.depositFull, 0.42),
       spent: line(pal.depositSpent, 0.7),
       rim: line(pal.pitRim, 0.95),
-      glow: classic ? null : new THREE.LineBasicMaterial({
-        color: new THREE.Color(pal.pitRim).multiplyScalar(GLOW), transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false,
-      }),
     };
     this.group.name = 'hub-highlight';
     this.group.renderOrder = 3;
@@ -87,14 +78,14 @@ export class DepositHighlight {
     if (this.light) this.build();
   }
 
-  /** What is drawn (tests, the render report). */
+  /** What is drawn (tests). */
   info() {
-    return { visible: this.group.visible, classic: this.classic, ...this.stats, sig: this.sig };
+    return { visible: this.group.visible, ...this.stats, sig: this.sig };
   }
 
   dispose() {
     this.clear();
-    for (const m of Object.values(this.mats)) m?.dispose();
+    for (const m of Object.values(this.mats)) m.dispose();
   }
 
   private clear() {
@@ -110,7 +101,7 @@ export class DepositHighlight {
     this.clear();
     const L = this.light;
     const tris = { ribbon: [] as number[], fill: [] as number[] };
-    const lines = { line: [] as number[], faint: [] as number[], spent: [] as number[], rim: [] as number[], glow: [] as number[] };
+    const lines = { line: [] as number[], faint: [] as number[], spent: [] as number[], rim: [] as number[] };
     if (L) for (const e of L.entries) this.entry(e, tris, lines);
     const add = (pts: number[], mat: THREE.Material | null, mesh: boolean) => {
       if (!pts.length || !mat) return;
@@ -127,18 +118,16 @@ export class DepositHighlight {
     add(lines.line, this.mats.line, false);
     add(lines.spent, this.mats.spent, false);
     add(lines.rim, this.mats.rim, false);
-    add(lines.glow, this.mats.glow, false);
     this.stats = {
       entries: L?.entries.length ?? 0, ribbonTris: tris.ribbon.length / 9, fillTris: tris.fill.length / 9,
       lines: (lines.line.length + lines.faint.length + lines.rim.length) / 6, hatch: lines.spent.length / 6,
-      glow: this.mats.glow ? lines.glow.length / 6 : 0,
     };
   }
 
   private entry(
     e: LitEntry,
     tris: { ribbon: number[]; fill: number[] },
-    lines: { line: number[]; faint: number[]; spent: number[]; rim: number[]; glow: number[] },
+    lines: { line: number[]; faint: number[]; spent: number[]; rim: number[] },
   ) {
     const pat: Pat = e.kind ? PATTERN[DEPOSIT_INFO[e.kind].pattern] : [1, 0];
     const dbl = e.kind ? DEPOSIT_INFO[e.kind].pattern === 'double' : false;
@@ -160,7 +149,6 @@ export class DepositHighlight {
         this.ribbon(tris.ribbon, e.cx, e.cz, e.r, RIBBON_W, p);
         if (dbl) this.ribbon(tris.ribbon, e.cx, e.cz, e.r - 2.5, RIBBON_W * 0.6, p);
         this.fill(tris.fill, e.cx, e.cz, e.r);
-        if (this.mats.glow) this.ring(lines.glow, e.cx, e.cz, e.r, p);
         this.ring(lines.faint, e.cx, e.cz, e.fullR, [3, 3]);
         pitRim();
         if (e.pit && e.pit.R < e.fullR - 1) this.band(lines.faint, e);
@@ -180,7 +168,6 @@ export class DepositHighlight {
       case 'plain':
         if (e.pit && e.pit.R >= 1) pitRim();
         else this.ring(lines.rim, e.cx, e.cz, e.r, [1, 0]);
-        if (this.mats.glow) this.ring(lines.glow, e.pit?.cx ?? e.cx, e.pit?.cz ?? e.cz, e.pit && e.pit.R >= 1 ? e.pit.R : e.r, [1, 0]);
         this.ring(lines.faint, e.cx, e.cz, e.fullR, [3, 3]);
         break;
       case 'stake':

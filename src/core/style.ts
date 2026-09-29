@@ -20,6 +20,5 @@ export function classicActive(): boolean {
   return active === 'classic';
 }
 
-/** sessionStorage flag: a style switch saved the game and reloaded, so the
- *  next boot continues it (main.ts) instead of showing the title screen. */
-export const RESUME_KEY = 'mbb-resume';
+/** @deprecated moved to core/settings.ts (this file goes with the game.ts pass) */
+export { RESUME_KEY } from './settings';

@@ -1,6 +1,6 @@
 /** Work animations (docs/06 §7): what the machines do while they work, big
  *  enough to read at the isometric zooms (170–290 m), cheap enough for the
- *  old laptop Classic is made for.
+ *  old laptop the cel style is made for.
  *
  *  | Unit | Working | Otherwise |
  *  |---|---|---|
@@ -14,10 +14,10 @@
  *  clods) and the **glow** (one additive quad: sparks, beams, sinter
  *  patches, pools, plume puffs). Nothing is allocated per frame and nothing
  *  is random: every motion is a function of the game clock and each unit's
- *  id, so pause freezes it and 3× / 10× run it at game speed. Classic has
- *  no bloom: its sparks are a bright unlit colour and a scale pulse; High
- *  detail's are HDR (they bloom). Safe mode and ?lowfx keep the motion and
- *  the glow but drop the particles (clods, plume).
+ *  id, so pause freezes it and 3× / 10× run it at game speed. There is no
+ *  bloom: the sparks are a bright unlit colour and a scale pulse. Safe mode
+ *  and ?lowfx keep the motion and the glow but drop the particles (clods,
+ *  plume).
  *
  *  Hooks. rovers.ts and haulers.ts report each drawn unit (roverBody,
  *  droneAt, diggerAt) as they draw it, and ask a rover's work offset (the
@@ -41,7 +41,6 @@ import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { CEL_PALETTE, CUT_NONE } from '../buildings/celBuilding';
 import { SITE_GROUND } from '../terrain/celGround';
-import { classicActive } from '../core/style';
 import { materials } from './materials';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
@@ -235,7 +234,6 @@ export class WorkAnim {
   modeOf: WorkModeFn = workModeOf;
   /** ?lowfx: the particles drop (the motion and the glow stay) */
   lowFx = false;
-  private readonly classic = classicActive();
   private clock = 0;
   private dt = 0;
   private frame = 0;
@@ -339,25 +337,18 @@ export class WorkAnim {
     this.tint = this.tints();
   }
 
-  /** Kit tints: the colour each finish draws in this style, over the kit's BODY. */
+  /** Kit tints: the colour each finish draws, over the kit's BODY. */
   private tints() {
     const rel = (c: THREE.Color, base: THREE.Color) => new THREE.Color(c.r / base.r, c.g / base.g, c.b / base.b);
-    if (this.classic) {
-      const hull = new THREE.Color(CEL_PALETTE.hull);
-      const soil = (SITE_GROUND[this.hf.site.id] ?? SITE_GROUND.mare).clone().multiplyScalar(0.72);
-      return {
-        body: new THREE.Color(1, 1, 1), trim: rel(new THREE.Color(CEL_PALETTE.trim), hull),
-        plate: rel(new THREE.Color(CEL_PALETTE.panel), hull), soil: rel(soil, hull),
-      };
-    }
-    const k = (f: Finish) => new THREE.Color().setScalar(f.v / BODY.v);
-    return { body: k(BODY), trim: k(TRIM), plate: k(PLATE), soil: new THREE.Color().setScalar(this.hf.site.terrain.albedo * 0.9 / BODY.v) };
+    const hull = new THREE.Color(CEL_PALETTE.hull);
+    const soil = (SITE_GROUND[this.hf.site.id] ?? SITE_GROUND.mare).clone().multiplyScalar(0.72);
+    return {
+      body: new THREE.Color(1, 1, 1), trim: rel(new THREE.Color(CEL_PALETTE.trim), hull),
+      plate: rel(new THREE.Color(CEL_PALETTE.panel), hull), soil: rel(soil, hull),
+    };
   }
 
   private tintOf(f: Finish): THREE.Color { return f === TRIM ? this.tint.trim : f === PLATE ? this.tint.plate : this.tint.body; }
-
-  /** spoil clods: chunky for Classic's zooms, finer in High detail's close views */
-  private readonly clodScale = this.classic ? 1 : 0.85;
 
   /** The particles (spoil clods, the print plume) are drawn: not in safe mode or ?lowfx. */
   get particles(): boolean { return !this.lowFx && !materials.safeMode; }
@@ -528,8 +519,8 @@ export class WorkAnim {
         const x = a.tip.x - ux * d, z = a.tip.z - uz * d;
         this.patch(x, z, hy, 1.5, 1.3, heat, 0.14 + j * 0.004);
       }
-      this.bill(this.v0.copy(a.tip).addScaledVector(UP, 0.05), 0.5 * (0.8 + 0.4 * fl.s), 1.0, 0.7, 0.4, 0.8 * k * this.hot);
-      if (night > 0) this.ground(a.tip.x, a.tip.z, hy, 5, 5, 1.0, 0.45, 0.15, 0.3 * night * this.warm);
+      this.bill(this.v0.copy(a.tip).addScaledVector(UP, 0.05), 0.5 * (0.8 + 0.4 * fl.s), 1.0, 0.7, 0.4, 0.8 * k);
+      if (night > 0) this.ground(a.tip.x, a.tip.z, hy, 5, 5, 1.0, 0.45, 0.15, 0.3 * night);
       if (u) this.frontier(s, a, u);
     }
   }
@@ -582,13 +573,13 @@ export class WorkAnim {
       // the beam down to the print, a spark where it lands
       const bottom = Math.max(g + 0.3, p.y - 2.7);
       const k = 0.65 + 0.35 * fl.k;
-      this.beam(p.x, bottom, noz.y, p.z, 0.34, 1.0, 0.78, 0.45, 0.5 * k * this.warm);
-      this.bill(noz, 0.55 * (0.8 + 0.4 * fl.s), 1.0, 0.9, 0.7, 0.8 * k * this.hot);
+      this.beam(p.x, bottom, noz.y, p.z, 0.34, 1.0, 0.78, 0.45, 0.5 * k);
+      this.bill(noz, 0.55 * (0.8 + 0.4 * fl.s), 1.0, 0.9, 0.7, 0.8 * k);
       this.spark(this.v2.set(p.x, bottom, p.z), fl, 0.9, night, sun, false);
     } else {
       // a road job: an orange beam to the frontier, the cell glowing
       const k = 0.7 + 0.3 * fl.k;
-      this.beam(p.x, g + 0.1, noz.y, p.z, 0.3, 1.0, 0.5, 0.15, 0.55 * k * this.warm);
+      this.beam(p.x, g + 0.1, noz.y, p.z, 0.3, 1.0, 0.5, 0.15, 0.55 * k);
       this.patch(p.x, p.z, 0, 1.8, 1.8, k, 0.15);
       if (u) this.frontier(s, a, u);
     }
@@ -603,7 +594,7 @@ export class WorkAnim {
       this.wheel = diggerWheel(this.digKey);
       this.digTop = recipeGeometry('excavator', this.digKey).boundingBox?.max.y ?? 4;
     }
-    const reveal = materials.patched('building') || materials.classicCustom('building');
+    const reveal = materials.custom('building');
     const dt = this.dt;
     // hub units (docs/17): drawn by the haulers under UNIT_VID + id, their rig on the body reported there
     for (const u of s.haulers ?? []) {
@@ -723,7 +714,7 @@ export class WorkAnim {
       const y = this.v2.y + Math.sin(ang) * r + vy * tau - 0.5 * GRAVITY * tau * tau;
       const z = this.v2.z + (h3 - 0.5) * 0.4 + vz * tau;
       if (y < -0.1) continue; // landed: it lies in the spoil until its next throw
-      const sz = (0.22 + 0.2 * h3) * this.clodScale;
+      const sz = 0.22 + 0.2 * h3;
       this.e0.set(tau * (2 + 3 * h1), tau * (1 + 2 * h2), tau * 1.3);
       this.q0.setFromEuler(this.e0);
       this.v3.set(sz, sz * 0.8, sz * 0.9);
@@ -776,10 +767,6 @@ export class WorkAnim {
 
   // ───────────────────────────── writers ─────────────────────────────
 
-  /** gains: sparks are HDR in High detail (they bloom), glows a little over */
-  private get hot() { return this.classic ? 1 : 6; }
-  private get warm() { return this.classic ? 1 : 1.8; }
-
   /** the arc's flicker: a level and a size pulse, with a stutter now and then */
   private flicker(t: number, id: number): { k: number; s: number } {
     const q = Math.floor(t * 17);
@@ -794,18 +781,16 @@ export class WorkAnim {
    *  nozzle), a halo, a warm pool on the ground at night, and the plume. */
   private spark(p: THREE.Vector3, fl: { k: number; s: number }, scale: number, night: number, sun: number, plume: boolean) {
     const k = fl.k;
-    // High detail's wider lens draws it smaller at the same framing: a bigger core there
-    scale *= this.classic ? 1 : 1.5;
     p = this.sp.copy(p);
     this.sc.subVectors(this.camP, p).normalize().multiplyScalar(0.35).add(p);
     // the arc: a hot core, a four-point glint that turns as it flickers, a halo
-    this.bill(this.sc, 1.2 * scale * (0.7 + 0.6 * fl.s), 1.0, 0.9, 0.62, k * this.hot);
+    this.bill(this.sc, 1.2 * scale * (0.7 + 0.6 * fl.s), 1.0, 0.9, 0.62, k);
     const len = 3.0 * scale * (0.6 + 0.5 * k), rot = fl.s * PI;
-    this.streak(this.sc, 0.2 * scale, len, rot, 1.0, 0.78, 0.4, 0.8 * k * this.hot);
-    this.streak(this.sc, 0.2 * scale, len * 0.7, rot + PI / 2, 1.0, 0.78, 0.4, 0.8 * k * this.hot);
-    this.bill(this.sc, 3.4 * scale, 1.0, 0.5, 0.15, 0.34 * k * this.warm);
-    const pool = this.classic ? 11 * scale : 11;
-    if (night > 0) this.ground(p.x, p.z, 0, pool, pool, 1.0, 0.6, 0.28, 0.65 * night * (0.8 + 0.2 * k) * this.warm);
+    this.streak(this.sc, 0.2 * scale, len, rot, 1.0, 0.78, 0.4, 0.8 * k);
+    this.streak(this.sc, 0.2 * scale, len * 0.7, rot + PI / 2, 1.0, 0.78, 0.4, 0.8 * k);
+    this.bill(this.sc, 3.4 * scale, 1.0, 0.5, 0.15, 0.34 * k);
+    const pool = 11 * scale;
+    if (night > 0) this.ground(p.x, p.z, 0, pool, pool, 1.0, 0.6, 0.28, 0.65 * night * (0.8 + 0.2 * k));
     if (plume && this.particles) {
       const P = 1.8;
       const lit = 0.12 + 0.88 * sun;
@@ -814,7 +799,7 @@ export class WorkAnim {
         const fade = Math.sin(PI * u) * 0.45 * lit;
         const dx = (hash(j * 3.1 + Math.floor(this.clock / P + j / 3)) - 0.5) * 0.8 * u;
         this.v0.set(p.x + dx, p.y - 0.15 + 1.7 * u, p.z - dx * 0.5);
-        this.bill(this.v0, 0.5 + 1.6 * u, 0.42, 0.4, 0.37, fade * this.warm);
+        this.bill(this.v0, 0.5 + 1.6 * u, 0.42, 0.4, 0.37, fade);
       }
     }
   }
@@ -823,7 +808,7 @@ export class WorkAnim {
   private patch(x: number, z: number, yaw: number, w: number, l: number, heat: number, lift: number) {
     const h = clamp(heat, 0, 1);
     const r = 0.45 + 0.55 * h, g = 0.05 + 0.37 * h * h, b = 0.015 + 0.065 * h * h * h;
-    this.ground(x, z, yaw, -w, l, r, g, b, 0.85 * h ** 0.6 * this.warm, lift);
+    this.ground(x, z, yaw, -w, l, r, g, b, 0.85 * h ** 0.6, lift);
   }
 
   private fxPut(m: THREE.Matrix4, r: number, g: number, b: number, k: number) {

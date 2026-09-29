@@ -249,7 +249,6 @@ export class ResupplyFx {
 
   constructor(private hf: Heightfield) {
     this.lander = new THREE.InstancedMesh(withInstanceState(cargoLanderGeometry(), 1), materials.get('building'), 1);
-    this.lander.customDepthMaterial = materials.get('buildingDepth');
     this.lander.receiveShadow = true;
     this.lander.castShadow = false;
     this.lander.frustumCulled = false;

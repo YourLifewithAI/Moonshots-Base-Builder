@@ -8,6 +8,11 @@ import { isTouchChoice, type TouchChoice } from './touch';
 
 const KEY = 'mbb-settings';
 
+/** sessionStorage flag: a touch-mode switch or a service-worker update saved
+ *  the game and reloaded, so the next boot continues it (main.ts) instead of
+ *  showing the title screen. */
+export const RESUME_KEY = 'mbb-resume';
+
 export interface Settings {
   /** the player's own FX level (0 full … 3 plain); null = never chosen */
   fx: number | null;

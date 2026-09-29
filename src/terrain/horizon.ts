@@ -4,8 +4,8 @@
  *
  *  - Its inner row IS the map edge: the same grid samples, heights, normals
  *    and albedo as the border chunk vertices, so the seam is watertight and
- *    nothing overlaps (no z-fighting, no discard shader — it draws the same
- *    at every FX level, and safe mode takes the terrain material's twin).
+ *    nothing overlaps (no z-fighting, no discard shader; safe mode takes the
+ *    terrain material's twin).
  *  - Rows step outward geometrically (4 m at the edge, ~0.8 km at the rim,
  *    never more than twice a cell's width) and thin from 1024 to 256
  *    around: one draw call, ~43 k triangles. Octaves and mottle finer than
@@ -13,16 +13,14 @@
  *  - Past the edge the ground drops by d²/2R with R = 50 km — the Moon's
  *    curvature compressed ~35×, so the horizon "curves away too soon" and
  *    the ring's own rim always sits below it.
- *  - Classic style: coloured by the classic ground (its inner row by the
- *    very function and samples the border chunks use), then faceted like
- *    the chunks — every triangle its own vertices and face normal. */
+ *  - Coloured by the cel ground (its inner row by the very function and
+ *    samples the border chunks use), then faceted like the chunks — every
+ *    triangle its own vertices and face normal. */
 import * as THREE from 'three';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
-import { regolithAlbedo } from './chunks';
 import type { Crater, Heightfield } from './heightfield';
-import { classicActive } from '../core/style';
 import { celGround, facet } from './celGround';
 
 const HALF = MAP_M / 2;
@@ -126,8 +124,6 @@ export class Horizon {
     for (const row of rows) verts += row.n;
     const pos = new Float32Array(verts * 3);
     const col = new Float32Array(verts * 3);
-    const albedo = this.hf.site.terrain.albedo;
-    const classic = classicActive();
     const fps = new Float32Array(verts);
     const bases: number[] = [];
     let v = 0;
@@ -146,10 +142,7 @@ export class Horizon {
           pos[o + 2] = (gz * CELL_M - HALF) * s;
           pos[o + 1] = this.farHeight(pos[o], pos[o + 2], fp);
         }
-        fps[v] = fp;
-        if (classic) continue; // coloured once the normals are known
-        const a = regolithAlbedo(albedo, this.allCraters, pos[o], pos[o + 2], fp);
-        col[o] = a; col[o + 1] = a; col[o + 2] = a * 1.005;
+        fps[v] = fp; // coloured once the normals are known
       }
     }
 
@@ -191,15 +184,11 @@ export class Horizon {
       this.hf.gridNormal(gx, gz, nrm, p * 3);
     }
     this.seam = this.measureSeam(pos);
-    if (classic) {
-      const ground = celGround(this.hf);
-      for (let i = 0; i < verts; i++) {
-        ground.color(pos[i * 3], pos[i * 3 + 2], pos[i * 3 + 1], nrm[i * 3 + 1], col, i * 3, fps[i], this.allCraters);
-      }
-      return facet(geo);
+    const ground = celGround(this.hf);
+    for (let i = 0; i < verts; i++) {
+      ground.color(pos[i * 3], pos[i * 3 + 2], pos[i * 3 + 1], nrm[i * 3 + 1], col, i * 3, fps[i], this.allCraters);
     }
-    geo.computeBoundingSphere();
-    return geo;
+    return facet(geo);
   }
 }
 

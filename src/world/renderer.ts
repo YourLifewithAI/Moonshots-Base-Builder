@@ -1,30 +1,21 @@
-/** WebGL renderer + camera.
- *
- *  High detail: AgX tonemapping and physically-lit units give the
- *  Apollo-photograph contrast the art direction calls for; no MSAA (SMAA
- *  runs in the post chain), PCF sun shadows.
- *
- *  Classic: the canvas is the only target — MSAA on the context, no shadow
- *  map, no tone mapping (the palette is authored as the colours you see),
- *  the pixel ratio held to 1.5 so a HiDPI laptop does not quadruple the
- *  fill. Context attributes are fixed at creation, hence the reload on a
- *  style change. */
+/** WebGL renderer + camera. The one path: the canvas is the only target — MSAA
+ *  on the context, no shadow map, no tone mapping (the palette is authored as
+ *  the colours you see), sRGB output, and the pixel ratio held to 1.5 so a
+ *  HiDPI laptop does not quadruple the fill. There is no post chain, no
+ *  render target and no float buffer. */
 import * as THREE from 'three';
 
-export function createRenderer(canvas: HTMLCanvasElement, classic = false): THREE.WebGLRenderer {
+export function createRenderer(canvas: HTMLCanvasElement, _classic?: boolean /* deprecated: dropped with the game.ts pass */): THREE.WebGLRenderer {
   const renderer = new THREE.WebGLRenderer({
     canvas,
-    antialias: classic, // detailed: SMAA in the post chain
+    antialias: true,
     powerPreference: 'high-performance',
     stencil: false,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, classic ? 1.5 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = !classic;
-  // hard-edged PCF (radius set on the sun): no atmosphere, razor shadows
-  renderer.shadowMap.type = THREE.PCFShadowMap;
-  renderer.toneMapping = classic ? THREE.NoToneMapping : THREE.AgXToneMapping;
-  renderer.toneMappingExposure = classic ? 1 : 1.1;
+  renderer.shadowMap.enabled = false;
+  renderer.toneMapping = THREE.NoToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   // per-frame counts summed over every pass (game.ts resets them each frame)
   renderer.info.autoReset = false;

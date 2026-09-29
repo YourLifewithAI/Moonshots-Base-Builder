@@ -12,14 +12,13 @@
  *  queue, rebuilt at most one a frame and two a second of frame time, and the
  *  shadow map is asked again at most every 2 s. The cut and its heap are a
  *  fresher, brighter regolith in both styles (terrain/pitCarve.ts cutTone),
- *  multiplied into the vertex colours the regolith patch and classic's
- *  Lambert both read — no shader change. */
+ *  multiplied into the vertex colours the terrain material reads — no shader
+ *  change. */
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
-import { regolithPatch } from './terrainShader';
 import type { Crater, Heightfield } from './heightfield';
 import { classicActive } from '../core/style';
 import { celGround, facet } from './celGround';
@@ -28,12 +27,6 @@ import { cutTone } from './pitCarve';
 /** the pits' rebuild queue: seconds between rebuilds (two a second), and between shadow refreshes */
 const REBUILD_GAP_S = 0.5;
 const SHADOW_GAP_S = 2;
-
-materials.define('terrain', new THREE.MeshStandardMaterial({
-  vertexColors: true,
-  roughness: 0.96,
-  metalness: 0.0,
-}), regolithPatch);
 
 const colorNoise = createNoise2D(mulberry32(0xc0ffee));
 

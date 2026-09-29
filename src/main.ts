@@ -3,10 +3,8 @@
  *  ?seed=42                       deterministic world + events
  *  ?debug                         expose window.__game
  *  ?nolock                        walk mode without pointer lock (headless tests)
- *  ?lowfx                         drop AO for weak GPUs
  *  ?safe                          safe render mode (also a menu setting)
- *  ?style=classic|detailed        render style for this launch (the menu's
- *                                 setting otherwise; classic by default)
+ *  (?style, ?fx and ?lowfx are ignored: there is one renderer, the cel style)
  *  ?touch  (?touch=0)             touch mode on (off) for this launch (the
  *                                 menu's setting otherwise: Auto = a coarse
  *                                 pointer and no fine one; core/touch.ts)
@@ -20,10 +18,9 @@ import { Game } from './core/game';
 import { mountUI } from './ui/mount';
 import { attachDebug } from './debug';
 import { SITES, type SiteId } from './data/sites';
-import { isRenderStyle, loadSettings, storedStyle, storedTouch } from './core/settings';
+import { RESUME_KEY, loadSettings, storedTouch } from './core/settings';
 import { detectTouch, setTouchMode } from './core/touch';
 import { registerPwa } from './pwa';
-import { RESUME_KEY } from './core/style';
 import { installAudio, sfx } from './audio/sfx';
 
 const params = new URLSearchParams(location.search);
@@ -68,7 +65,7 @@ function showFatal(title: string, lines: string[]) {
   document.body.appendChild(box);
 }
 
-/** Set by the menu's style switch just before its reload (session only). */
+/** Set by a save-and-reload (the touch switch, a service-worker update) just before its reload (session only). */
 function takeResume(): boolean {
   try {
     const v = sessionStorage.getItem(RESUME_KEY);
@@ -83,12 +80,13 @@ let game: Game | null = null;
 try {
   game = new Game(canvas, {
     nolock: params.has('nolock'),
-    lowfx: params.has('lowfx'),
+    // ?lowfx, ?fx and ?style are ignored (the fixed values below go with GameOptions' fields)
+    lowfx: false,
     safe: params.has('safe') || settings.safe || settings.safeAuto,
     safeAuto: !params.has('safe') && !settings.safe && settings.safeAuto,
-    fx: params.has('fx') ? Number(params.get('fx')) : undefined,
-    fxChoice: settings.fx ?? 0,
-    style: isRenderStyle(params.get('style')) ? params.get('style') as 'classic' | 'detailed' : storedStyle(),
+    fx: undefined,
+    fxChoice: 0,
+    style: 'classic',
     seed: Number(params.get('seed') ?? Math.floor(Math.random() * 1e9)),
     touch,
   });
@@ -121,7 +119,7 @@ if (game) {
   if (siteParam && siteParam in SITES) {
     game.startNew(siteParam as SiteId, params.get('exp') === 'robotic' ? 'robotic' : 'human');
   } else if (takeResume()) {
-    // a render-style switch saved the game and reloaded: pick it straight up
+    // a save-and-reload (touch switch, update): pick it straight up
     void game.continueSave();
   }
 }
