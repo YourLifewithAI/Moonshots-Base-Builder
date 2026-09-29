@@ -529,9 +529,10 @@ two command views move differently (06 §9, §12.6):
 |---|---|---|
 | Left button | select · place (never the camera) | select · place; drag pans |
 | Right / middle drag | pan — the ground follows the pointer | orbit |
-| Wheel | five zoom steps, eased | zoom toward the cursor |
+| Wheel | continuous zoom, eased, clamped to the near and far levels | zoom toward the cursor |
 | W A S D · arrows | pan | pan |
 | Q · E | turn the view 90°, eased; a held key turns once | orbit while held |
+| V | tilt the view, low (32°) ↔ high (55°), eased over 0.35 s | — |
 | F · H | glide to the selection (closer) · home to the Lander | the same |
 
 Everything else — R, Shift-click, Ctrl-click (order), Enter while placing,
@@ -624,7 +625,7 @@ desktop game is unchanged.
 | Tap | select (buildings, rovers, sites); empty ground clears; with the overlay on, a deposit's card | the ghost goes there | start or end a road |
 | One-finger drag | pan | drag the ghost | draw the road |
 | Hold (0.5 s) | info: a building's card, a deposit's card | — | — |
-| Pinch | zoom; it settles on the nearest of the five steps | the same | the same |
+| Pinch | zoom; it stays where the fingers leave it, inside the near and far clamps | the same | the same |
 | Twist | past ~40° the view turns 90° with the fingers | the same | the same |
 | Two-finger drag | pan | the same | the same |
 
@@ -642,6 +643,7 @@ desktop game is unchanged.
 | Esc | ☰ (menu); each sheet and bar has its own ✕ |
 | Space · 1 2 3 | ❚❚ · the speed button |
 | Q · E | twist, or ⟲ ⟳ |
+| V | ▱ Tilt |
 | H · F · I | ⌂ Home · ⊙ Focus · ◌ Ore |
 | Click a card | tap: its ghost appears mid-view |
 | R · Shift-click | ⟳ Rotate · Keep (toggle) in the bar |

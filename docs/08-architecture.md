@@ -150,7 +150,8 @@ src/
   player/
     buildCam.ts           MapControls overhead camera: terrain-riding target, ground clearance, keys;
                           the CommandCam interface both command views implement
-    isoCam.ts             classic isometric camera: 20° lens, 32° pitch, 90° yaw steps, 5 zoom levels
+    isoCam.ts             classic isometric camera: 20° lens, 90° yaw steps (Q/E), two tilts 32°/55° (V), continuous zoom 100–830 m;
+                          its preset (step, tilt, dist) is saved as SaveBlob.camera; owns commandKey and CommandCam
     walk.ts               first-person controller: lunar gravity, capsule vs AABBs, lope bob, landing dip
     modes.ts              build ⇄ walk single-camera tween (1.2 s ease-out) + lens (55° or 20° iso / 70°)
     footprints.ts         instanced bootprint ring buffer

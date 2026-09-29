@@ -6,10 +6,10 @@
  *   ┌ top bar ─ swarm · resources (scrolls) ──────── clock ▶ 1× ☰ ┐
  *   │ Build │ objectives                      alerts │ side sheet │ ⟲ │
  *   │ Tree  │                                        │ (inspector,│ ⟳ │
- *   │ Map   │               the world                │  panels,   │ ◎ │
- *   │ Rules │                                        │  cards)    │ ⌂ │
- *   │ Risks │                                        │            │ ⊙ │
- *   │ Road  │ palette sheet  ·  or the placement / road / target bar │   │
+ *   │ Map   │               the world                │  panels,   │ ▱ │
+ *   │ Rules │                                        │  cards)    │ ◌ │
+ *   │ Risks │                                        │            │ ⌂ │
+ *   │ Road  │ palette sheet  ·  or the placement / road / target bar │ ⊙ │
  *   └───────┴────────────────────────────────────────────────────┴───┘
  *
  *  One side sheet at a time. Every target is 44 px or more; the safe-area
@@ -102,10 +102,11 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   railR.id = 'touch-rail-r';
   const rLeft = btn('t-turn-l', '⟲', '', 'Turn the ground anticlockwise');
   const rRight = btn('t-turn-r', '⟳', '', 'Turn the ground clockwise');
+  const rTilt = btn('t-tilt', '▱', '', 'Tilt the view — low or high');
   const rDeps = btn('t-deposits', '◌', 'Ore', 'Deposit overlay');
   const rHome = btn('t-home', '⌂', 'Home', 'Back to the Lander');
   const rFocus = btn('t-focus', '⊙', 'Focus', 'Focus the selection');
-  railR.append(rLeft, rRight, rDeps, rHome, rFocus);
+  railR.append(rLeft, rRight, rTilt, rDeps, rHome, rFocus);
   layer.appendChild(railR);
 
   // the palette sheet: open at the start of a mission; Build toggles it
@@ -140,6 +141,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   // the ground turns the way the arrow points (a twist turns it with the fingers)
   rLeft.addEventListener('click', () => game.turnView(1));
   rRight.addEventListener('click', () => game.turnView(-1));
+  rTilt.addEventListener('click', () => game.tiltView());
   rDeps.addEventListener('click', () => $depositOverlay.set(!$depositOverlay.get()));
   rHome.addEventListener('click', () => game.cameraHome());
   rFocus.addEventListener('click', () => game.focusSelection());

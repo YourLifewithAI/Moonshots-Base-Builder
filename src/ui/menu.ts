@@ -44,9 +44,10 @@ const STYLES = [
 const CAMERA_KEYS: Record<'classic' | 'detailed', [string, string][]> = {
   classic: [
     ['Right-drag · middle-drag', 'pan'],
-    ['Wheel', 'zoom — five steps'],
+    ['Wheel', 'zoom'],
     ['W A S D · arrows', 'pan the camera'],
     ['Q · E', 'turn the view 90°'],
+    ['V', 'tilt the view — low or high'],
   ],
   detailed: [
     ['Drag · right-drag · wheel', 'pan · orbit · zoom'],
@@ -87,8 +88,9 @@ export const TOUCH_CONTROLS: [string, string][] = [
   ['Tap', 'select a building, rover or site · empty ground clears'],
   ['Hold', 'what is it: a building’s card · a deposit’s card'],
   ['Drag', 'pan the view (a drag never selects)'],
-  ['Pinch', 'zoom — it settles on the nearest of five steps'],
+  ['Pinch', 'zoom'],
   ['Twist · ⟲ ⟳', 'turn the view 90°'],
+  ['▱ Tilt', 'tilt the view — low or high'],
   ['⌂ Home · ⊙ Focus', 'back to the Lander · to the selection'],
   ['◌ Ore', 'deposit overlay'],
   ['Build', 'the palette · tap a card: its ghost in the middle'],

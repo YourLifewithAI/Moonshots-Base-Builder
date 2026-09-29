@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { MAP_M } from '../data/balance';
+import { commandKey, type CommandCam } from './isoCam';
 
 export const HOME_DIST = 90;
 /** target → camera, ~22° above the horizon: the landing site with its horizon */
@@ -25,42 +26,10 @@ const PAN_KEYS: Record<string, [number, number]> = {
 };
 const UP = new THREE.Vector3(0, 1, 0);
 
-/** What the game and the mode manager need from a command-view camera:
- *  this free one (High detail) or the classic isometric one (isoCam.ts). */
-export interface CommandCam {
-  /** the ground point the view is centred on (it rides the terrain) */
-  readonly target: THREE.Vector3;
-  enabled: boolean;
-  groundAt: (x: number, z: number) => number;
-  keyDown(code: string): void;
-  keyUp(code: string): void;
-  clearKeys(): void;
-  /** frame (x, y, z) from home, instantly */
-  home(x: number, y: number, z: number): void;
-  /** glide to (x, y, z); `exact` = at the home framing (H), else closer (F) */
-  focus(x: number, y: number, z: number, dist: number, exact?: boolean): void;
-  /** place the view exactly (debug views; the isometric view keeps its pitch) */
-  view(pos: { x: number; y: number; z: number }, target: { x: number; y: number; z: number }): void;
-  update(dt: number): void;
-  /** metres from the camera down to the ground beneath it */
-  readonly clearance: number;
-  // ── touch (player/touch.ts) ──
-  /** drag the ground by a screen delta (CSS px); `stopGlide`: take over from a glide */
-  panPx(dx: number, dy: number, stopGlide?: boolean): void;
-  /** a pinch: 'start' holds the zoom, 'move' scales it by the finger spread
-   *  (÷ its start), 'end' settles (the isometric view on its nearest level) */
-  pinch(phase: 'start' | 'move' | 'end', scale?: number): void;
-  /** a two-finger twist by `rad` (screen angle, clockwise +) since the last call */
-  twist(rad: number): void;
-  twistReset(): void;
-  /** ⟲ ⟳: one step round the target (−1 or +1) */
-  turnStep(dir: -1 | 1): void;
-}
-
-/** Keys a command camera consumes (build mode only; walk mode owns WASD). */
-export function commandKey(code: string): boolean {
-  return code in PAN_KEYS || code === 'KeyQ' || code === 'KeyE';
-}
+// The interface and the key test now live in isoCam.ts (the fixed isometric
+// view is the command camera); this file keeps the free camera and forwards
+// the two, until the renderer collapse deletes it.
+export { commandKey, type CommandCam } from './isoCam';
 
 export class BuildCam implements CommandCam {
   readonly controls: MapControls;

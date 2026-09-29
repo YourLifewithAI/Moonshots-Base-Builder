@@ -387,6 +387,8 @@ export class Game {
     this.hf.carved.length = 0;
     this.instances.rebuild(this.state);
     this.homeCamera(false);
+    // the view the player left (turn, tilt, zoom); an older save has none and keeps the default
+    if (blob.camera) this.buildCam.setPreset?.(blob.camera);
     this.walk.colliders = this.instances.colliders(this.state);
     // touch mode has no walk mode: a desktop save made on foot loads in the command view
     if (blob.player.mode === 'walk' && !this.opts.touch) {
@@ -923,6 +925,11 @@ export class Game {
   /** ⟲ ⟳ (and Q/E's step in the isometric view): turn the command view. */
   turnView(dir: -1 | 1) {
     if (this.commandView) this.buildCam.turnStep(dir);
+  }
+
+  /** ▱ (and V's flip in the isometric view): tilt the command view, low ↔ high. */
+  tiltView() {
+    if (this.commandView) this.buildCam.tiltStep?.();
   }
 
   /** H: glide home to the Lander. F: glide to the selection. */
@@ -2912,6 +2919,7 @@ export class Game {
         x: this.walk.pos.x, y: this.walk.pos.y, z: this.walk.pos.z,
         yaw: this.walk.yaw, pitch: this.walk.pitch,
       },
+      ...(this.buildCam.preset ? { camera: this.buildCam.preset() } : {}),
       savedAt: Date.now(),
     };
   }
