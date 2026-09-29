@@ -415,7 +415,7 @@ export function freeReach(
   const v = roverSpeed(mods, night);
   let best = Infinity;
   for (const r of s.rovers ?? []) {
-    if (r.pinned || r.site !== null || r.road !== undefined || r.core !== undefined || r.id === away || roverDown(s, r)) continue;
+    if (r.pinned || r.site !== null || r.road !== undefined || r.core !== undefined || r.grade !== undefined || r.id === away || roverDown(s, r)) continue;
     const [x, z] = whereIs(s, r);
     if (isDrone(s, r)) { best = Math.min(best, travelTime(Math.hypot(at[0] - x, at[1] - z), DRONE.speed, DRONE.accel)); continue; }
     if (!to || !hasRoads(s)) { best = Math.min(best, travelTime(Math.hypot(at[0] - x, at[1] - z), v, ROVER.accel)); continue; }
