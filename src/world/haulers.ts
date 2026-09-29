@@ -2,8 +2,10 @@
  *
  *  Parked square on its pad, an excavator is drawn by the building
  *  instances like any structure (shadow, print reveal, floods). Anywhere
- *  else it is drawn here: one instance per digger away from its pad, the
- *  same recipe mesh and building material, chasing the sim's position (the
+ *  else it is drawn here: one instance per digger away from its pad, in
+ *  the mesh of its (unit type, hub kind) — one InstancedMesh each, so the
+ *  hubs' diggers can differ in shape and livery (docs/19, S2a) — the
+ *  building material, chasing the sim's position (the
  *  sim moves it once a game-second; this glides after it with a heavy
  *  machine's turn rate), pitched and rolled to the ground, with a soft
  *  contact decal instead of a shadow-map shadow (a moving caster would
@@ -13,6 +15,8 @@
  *  freezes it. */
 import * as THREE from 'three';
 import { HAUL } from '../data/balance';
+import { UNIT_KEYS, unitKey, type UnitKey } from '../data/families';
+import type { BuildingId } from '../data/buildings';
 import { digsHome, haulSpeed } from '../core/haul';
 import type { GameState, HaulState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
@@ -24,7 +28,7 @@ import { litChannel } from '../buildings/celBuilding';
 import { pathLength } from '../core/paths';
 import { cellAt, frontDir, groundWay, roadRoute, routePoints } from '../core/roads';
 import { bayPoint } from '../core/hubs';
-import { UNIT_DEFS, UNIT_VID } from '../data/hubs';
+import { UNIT_DEFS, UNIT_VID, type UnitType } from '../data/hubs';
 import { materials } from './materials';
 import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
@@ -37,8 +41,38 @@ const CATCH = 1.6;         // × haul speed: the most a digger drives to catch u
 const GAIN = 1.5;          // 1/s: how hard it closes the gap
 const LAG_S = 12;          // s of driving a digger may trail the sim (held up in traffic) before it is set down there
 const PI = Math.PI;
-/** the body: 3.8 m wide, from 1.9 m behind its origin to the wheel 4.3 m ahead */
-export const DIGGER_BODY = { hw: 1.9, front: 4.3, back: 1.9 };
+/** each unit type's body, for the traffic agent: today 3.8 m wide, from 1.9 m
+ *  behind its origin to the wheel 4.3 m ahead (S4b narrows the excavator) */
+export const UNIT_BODY: Record<UnitType, { hw: number; front: number; back: number }> = {
+  excavator: { hw: 1.9, front: 4.3, back: 1.9 },
+  iceMiner: { hw: 1.9, front: 4.3, back: 1.9 },
+};
+
+/** The recipe each mesh is built from. Every hub's digger is the excavator's
+ *  recipe (and its upgrades) for now; S2a gives each (unit type, hub kind)
+ *  its own geometry here and in `unitGeometry`. */
+const UNIT_RECIPE: Record<UnitKey, BuildingId> = {
+  'excavator:pad': 'excavator',
+  'excavator:smelter': 'excavator',
+  'excavator:refinery': 'excavator',
+  'excavator:waterPlant': 'excavator',
+  'iceMiner:waterPlant': 'excavator',
+};
+
+/** A mesh's geometry with per-instance state, for the upgrades in `key` (a swap keeps the instances' attributes). */
+function unitGeometry(mk: UnitKey, key: string, prev?: THREE.BufferGeometry): THREE.BufferGeometry {
+  return withInstanceState(recipeGeometry(UNIT_RECIPE[mk], key), MAX, prev);
+}
+
+/** One (unit type, hub kind)'s instanced diggers. */
+interface UnitMesh {
+  mk: UnitKey;
+  mesh: THREE.InstancedMesh;
+  /** the recipe's upgrade key the mesh was built with (the same parts as the pad's) */
+  key: string;
+  /** the diggers drawn in it this frame, in instance order */
+  drawn: Digger[];
+}
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
 
@@ -47,6 +81,11 @@ interface Digger {
   id: number;
   /** a hub unit (docs/17): no pad, always drawn here; `pad` is its bay */
   unit: boolean;
+  /** what it is, and the mesh it is drawn in (its type and its hub's kind; a legacy pad: 'pad') */
+  type: UnitType;
+  mk: UnitKey;
+  /** its instance in that mesh, this frame */
+  slot: number;
   /** complete, enabled, powered: its lamps and windows may light */
   powered: boolean;
   x: number; z: number;
@@ -90,7 +129,9 @@ const legKey = (h: HaulState) => {
 
 export class Haulers implements Driver {
   readonly group = new THREE.Group();
-  private mesh: THREE.InstancedMesh;
+  /** one mesh per (unit type, hub kind), in UNIT_KEYS order */
+  private meshes: UnitMesh[] = [];
+  private byKey = new Map<UnitKey, UnitMesh>();
   private decals: THREE.InstancedMesh;
   private decalMat: THREE.MeshBasicMaterial;
   private all = new Map<number, Digger>();
@@ -111,8 +152,6 @@ export class Haulers implements Driver {
   /** the work animations (life.ts sets them): the boom and bucket wheel on
    *  each digger drawn here (world/workAnim.ts; on its pad it draws them itself) */
   work: WorkAnim | null = null;
-  /** the recipe's upgrade key the mesh was built with (the same parts as the pad's) */
-  private key = '';
   /** the sim clock at the last frame: time the visuals missed is caught up, or jumped */
   private lastSim: number | null = null;
   private speed = HAUL.speed;
@@ -120,12 +159,18 @@ export class Haulers implements Driver {
   private lagMax = 0;
 
   constructor(private hf: Heightfield, private traffic?: Traffic) {
-    this.mesh = new THREE.InstancedMesh(withInstanceState(recipeGeometry('excavator'), MAX),
-      materials.get('building'), MAX);
-    this.mesh.receiveShadow = true;
-    this.mesh.castShadow = false;
-    this.mesh.count = 0;
-    this.mesh.frustumCulled = false;
+    for (const mk of UNIT_KEYS) {
+      const mesh = new THREE.InstancedMesh(unitGeometry(mk, ''), materials.get('building'), MAX);
+      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.count = 0;
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      const um: UnitMesh = { mk, mesh, key: '', drawn: [] };
+      this.meshes.push(um);
+      this.byKey.set(mk, um);
+      this.group.add(mesh);
+    }
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({
@@ -136,8 +181,11 @@ export class Haulers implements Driver {
     this.decals.count = 0;
     this.decals.frustumCulled = false;
     this.decals.renderOrder = 1;
-    this.group.add(this.mesh, this.decals);
+    this.group.add(this.decals);
   }
+
+  /** The mesh a digger is drawn in. */
+  private meshOf(v: Digger): UnitMesh { return this.byKey.get(v.mk) ?? this.meshes[0]; }
 
   /** Per frame: `dt` game seconds (0 while paused); `frac` the part of the
    *  next economy second already gone, so a driving digger heads for where
@@ -154,12 +202,13 @@ export class Haulers implements Driver {
   sync(dt: number, state: GameState, frac = 0, night = false) {
     // research grows parts on the excavator: the digger wears them too (a
     // swap keeps the per-instance attributes, as the building instances do)
-    const key = upgradeKey('excavator', state.techsDone);
-    if (key !== this.key) {
-      const old = this.mesh.geometry;
-      this.mesh.geometry = withInstanceState(recipeGeometry('excavator', key), MAX, old);
+    for (const um of this.meshes) {
+      const key = upgradeKey(UNIT_RECIPE[um.mk], state.techsDone);
+      if (key === um.key) continue;
+      const old = um.mesh.geometry;
+      um.mesh.geometry = unitGeometry(um.mk, key, old);
       old.dispose();
-      this.key = key;
+      um.key = key;
     }
     this.state = state;
     const simDelta = this.lastSim === null ? Infinity : state.simTime - this.lastSim;
@@ -172,12 +221,12 @@ export class Haulers implements Driver {
     const road = roadSpeedFor(state.techsDone, night, true);
     const speed = this.speed = haulSpeed(state.techsDone) * road;
     // the diggers: legacy pads (a building each) and hub units (docs/17: drawn here always, parked in their bays)
-    const srcs: { id: number; h: HaulState; pad: [number, number]; padYaw: number; active: boolean; powered: boolean; homeDig: boolean; unit: boolean; v: number }[] = [];
+    const srcs: { id: number; h: HaulState; pad: [number, number]; padYaw: number; active: boolean; powered: boolean; homeDig: boolean; unit: boolean; v: number; type: UnitType; mk: UnitKey }[] = [];
     for (const b of state.buildings) {
       const h = b.haul;
       if (b.type !== 'excavator' || !h || (b.construction ?? 0) > 0) continue;
       srcs.push({ id: b.id, h, pad: centerOf(b), padYaw: -b.rot * PI / 2, active: b.active, powered: b.enabled && b.idleReason !== 'power',
-        homeDig: h.phase === 'dig' && digsHome(b), unit: false, v: speed });
+        homeDig: h.phase === 'dig' && digsHome(b), unit: false, v: speed, type: 'excavator', mk: unitKey('excavator', 'pad') });
     }
     for (const u of state.haulers ?? []) {
       const hub = state.buildings.find((b) => b.id === u.hub);
@@ -186,7 +235,7 @@ export class Haulers implements Driver {
       const h = u.haul;
       srcs.push({ id: UNIT_VID + u.id, h, pad: bayPoint(state, hub, u.bay), padYaw: Math.atan2(fz, -fx), active: h.src !== 'flat',
         powered: hub.enabled && h.src !== 'flat', homeDig: h.phase === 'park', unit: true,
-        v: speed * (UNIT_DEFS[u.type].speed / HAUL.speed) });
+        v: speed * (UNIT_DEFS[u.type].speed / HAUL.speed), type: u.type, mk: unitKey(u.type, hub.type) });
     }
     this.hauls = new Map(srcs.map((x) => [x.id, x.h]));
     for (const src of srcs) {
@@ -202,12 +251,12 @@ export class Haulers implements Driver {
       let v = this.all.get(b.id);
       if (!v) {
         v = {
-          id: b.id, unit: src.unit, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: src.unit, digging: false,
+          id: b.id, unit: src.unit, type: src.type, mk: src.mk, slot: 0, powered: false, x: h.x, z: h.z, yaw: padYaw, v: 0, away: src.unit, digging: false,
           target: 0, leg: '', simV: 0, pace: 1, padYaw, homeDig: false, pad, simX: h.x, simZ: h.z, aim: padYaw, yieldUntil: 0, agent: null!,
         };
         v.agent = {
           kind: 'digger', id: b.id, key: b.id, x: h.x, z: h.z, fx: Math.cos(padYaw), fz: -Math.sin(padYaw),
-          hw: DIGGER_BODY.hw, front: DIGGER_BODY.front, back: DIGGER_BODY.back, wide: true, cls: 2,
+          hw: UNIT_BODY[src.type].hw, front: UNIT_BODY[src.type].front, back: UNIT_BODY[src.type].back, wide: true, cls: 2,
           pts: [], arcs: [], spans: [], s: 0, v: 0, vmax: 0, stop: 0, accel: 4, decel: 8,
           standMode: WHOLE, held: new Map(), blocker: null, waited: 0, drv: this,
         };
@@ -459,13 +508,16 @@ export class Haulers implements Driver {
 
   private draw(sunLight: number) {
     const n = this.drawn.length;
-    this.mesh.count = n;
+    for (const um of this.meshes) um.drawn.length = 0;
     this.decals.count = n;
     this.decalMat.opacity = 0.45 * sunLight;
     this.decals.visible = sunLight > 0.02 && n > 0;
     const hf = this.hf;
     for (let i = 0; i < n; i++) {
       const v = this.drawn[i];
+      const um = this.meshOf(v);
+      v.slot = um.drawn.length;
+      um.drawn.push(v);
       const fx = Math.cos(v.yaw), fz = -Math.sin(v.yaw);   // forward (the wheel)
       const sx = Math.sin(v.yaw), sz = Math.cos(v.yaw);    // local +z
       const front = hf.sample(v.x + fx * 2.6, v.z + fz * 2.6), back = hf.sample(v.x - fx * 2.6, v.z - fz * 2.6);
@@ -477,35 +529,43 @@ export class Haulers implements Driver {
       this.by.crossVectors(this.bz, this.bx).normalize();
       this.bz.crossVectors(this.bx, this.by).normalize();
       this.m.makeBasis(this.bx, this.by, this.bz).setPosition(v.x, y, v.z);
-      this.mesh.setMatrixAt(i, this.m);
+      um.mesh.setMatrixAt(v.slot, this.m);
       this.work?.diggerAt(v.id, this.m, v.v);
       this.q.setFromAxisAngle(this.by.set(0, 1, 0), v.yaw);
       this.m.compose(this.p.set(v.x, hf.sample(v.x, v.z) + 0.05, v.z), this.q, this.sc.set(9, 1, 5.2));
       this.decals.setMatrixAt(i, this.m);
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
     this.decals.instanceMatrix.needsUpdate = true;
-    this.mesh.boundingSphere = null;
-    // its lights as the pad's would be: the lit channel 0 / 2 + k, and classic's window level
-    const g = this.mesh.geometry;
-    const st = g.getAttribute('iState') as THREE.InstancedBufferAttribute;
-    const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
-    for (let i = 0; i < n; i++) {
-      const v = this.drawn[i];
-      const k = this.darkOf?.(v.id) ?? 0;
-      st.setX(i, this.darkOf ? litChannel(v.powered, k) : v.powered ? 1 : 0);
-      glow?.setX(i, v.powered ? (this.darkOf ? k : -1) : 0);
+    for (const um of this.meshes) {
+      um.mesh.count = um.drawn.length;
+      um.mesh.visible = um.drawn.length > 0;
+      um.mesh.instanceMatrix.needsUpdate = true;
+      um.mesh.boundingSphere = null;
+      // its lights as the pad's would be: the lit channel 0 / 2 + k, and classic's window level
+      const g = um.mesh.geometry;
+      const st = g.getAttribute('iState') as THREE.InstancedBufferAttribute;
+      const glow = g.getAttribute('iGlow') as THREE.InstancedBufferAttribute | undefined;
+      for (let i = 0; i < um.drawn.length; i++) {
+        const v = um.drawn[i];
+        const k = this.darkOf?.(v.id) ?? 0;
+        st.setX(i, this.darkOf ? litChannel(v.powered, k) : v.powered ? 1 : 0);
+        glow?.setX(i, v.powered ? (this.darkOf ? k : -1) : 0);
+      }
+      st.needsUpdate = true;
+      if (glow) glow.needsUpdate = true;
     }
-    st.needsUpdate = true;
-    if (glow) glow.needsUpdate = true;
   }
 
   /** The digger under a ray (its building id) and how far along the ray. */
   pick(raycaster: THREE.Raycaster): { id: number; d: number } | null {
-    if (!this.drawn.length) return null;
-    const hit = raycaster.intersectObject(this.mesh, false).find((h) => h.instanceId !== undefined);
-    const v = hit ? this.drawn[hit.instanceId!] : undefined;
-    return v ? { id: v.id, d: hit!.distance } : null;
+    let best: { id: number; d: number } | null = null;
+    for (const um of this.meshes) {
+      if (!um.drawn.length) continue;
+      const hit = raycaster.intersectObject(um.mesh, false).find((h) => h.instanceId !== undefined);
+      const v = hit ? um.drawn[hit.instanceId!] : undefined;
+      if (v && (!best || hit!.distance < best.d)) best = { id: v.id, d: hit!.distance };
+    }
+    return best;
   }
 
   /** Where an excavator is drawn (world), wherever it is. */
@@ -540,14 +600,24 @@ export class Haulers implements Driver {
   private takeLag() { const l = this.lagMax; this.lagMax = 0; return l; }
 
   info() {
+    const tris = (g: THREE.BufferGeometry) => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+    const first = this.meshes[0];
     return {
       count: this.all.size,
       away: this.drawn.map((v) => v.id),
-      key: this.key,
-      triangles: (this.mesh.geometry.index ? this.mesh.geometry.index.count : this.mesh.geometry.getAttribute('position').count) / 3,
-      lit: this.drawn.map((_, i) => (this.mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute).getX(i)),
+      /** the upgrade key and triangles of the first mesh (the legacy pad's excavator) */
+      key: first.key,
+      triangles: tris(first.mesh.geometry),
+      /** each mesh by its key ('excavator:smelter'…): what it draws, its triangles and its size (m) */
+      meshes: Object.fromEntries(this.meshes.map((um) => {
+        const g = um.mesh.geometry;
+        if (!g.boundingBox) g.computeBoundingBox();
+        const sz = g.boundingBox!.getSize(new THREE.Vector3());
+        return [um.mk, { count: um.drawn.length, triangles: tris(g), size: [sz.x, sz.y, sz.z].map((x) => Math.round(x * 100) / 100), key: um.key }];
+      })),
+      lit: this.drawn.map((v) => (this.meshOf(v).mesh.geometry.getAttribute('iState') as THREE.InstancedBufferAttribute).getX(v.slot)),
       dark: this.drawn.map((v) => this.darkOf?.(v.id) ?? null),
-      material: (this.mesh.material as THREE.Material).type,
+      material: (first.mesh.material as THREE.Material).type,
       poses: [...this.all.values()].map((v) => ({
         id: v.id, x: Math.round(v.x * 10) / 10, z: Math.round(v.z * 10) / 10, yaw: Math.round(v.yaw * 1000) / 1000, digging: v.digging, away: v.away,
         /** m the digger trails the sim along its track */

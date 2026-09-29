@@ -1,12 +1,9 @@
 /** Terrain render meshes: 8×8 chunks over the shared heightfield (shared edge
- *  samples → no cracks). Vertex colors carry the regolith look: noise mottling,
- *  slope darkening, crater-floor basalt, bright rims — all relative to the
- *  site's albedo. Rebuilt per-chunk when a building pad flattens the field.
- *
- *  Cel style: the same grid samples (so the surface is the one
- *  hf.sample describes), each triangle its own vertices with a face normal
- *  — faceted Lambert with no derivative shading — coloured by the cel
- *  ground (terrain/celGround.ts: site tint, relief, craters, deposits).
+ *  samples → no cracks). The grid samples are the surface hf.sample
+ *  describes; each triangle gets its own vertices and a face normal —
+ *  faceted Lambert with no derivative shading — coloured by the cel ground
+ *  (terrain/celGround.ts: site tint, relief, craters, deposits). Rebuilt
+ *  per-chunk when a building pad flattens the field.
  *
  *  Pits (docs/17 §11.6): a carve marks its box; the chunks it overlaps join a
  *  queue, rebuilt at most one a frame and two a second of frame time, and the
@@ -15,37 +12,16 @@
  *  multiplied into the vertex colours the terrain material reads — no shader
  *  change. */
 import * as THREE from 'three';
-import { createNoise2D } from 'simplex-noise';
 import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
-import type { Crater, Heightfield } from './heightfield';
-import { classicActive } from '../core/style';
+import type { Heightfield } from './heightfield';
 import { celGround, facet } from './celGround';
-import { cutTone } from './pitCarve';
+import { cutTone, decorate } from './pitCarve';
 
 /** the pits' rebuild queue: seconds between rebuilds (two a second), and between shadow refreshes */
 const REBUILD_GAP_S = 0.5;
 const SHADOW_GAP_S = 2;
-
-const colorNoise = createNoise2D(mulberry32(0xc0ffee));
-
-/** Regolith albedo at (x, z): mottled, darker in crater bowls, brighter on
- *  fresh rims, kept inside the site's band. Shared by the chunks and the
- *  horizon ring so the two agree at the map edge; `footprint` (m, the
- *  caller's sample spacing) fades mottle too fine for it to hold. */
-export function regolithAlbedo(albedo: number, craters: readonly Crater[], x: number, z: number, footprint = 0): number {
-  const fade = (period: number) => (footprint > 0 ? Math.min(1, Math.max(0, period / footprint - 1)) : 1);
-  let v = 1;
-  v += colorNoise(x / 55, z / 55) * 0.08 * fade(55);
-  v += colorNoise(x / 11, z / 11) * 0.054 * fade(11);
-  for (const c of craters) {
-    const d = Math.hypot(x - c.cx, z - c.cz) / c.r;
-    if (d < 0.9) v -= 0.134 * (1 - d);              // basalt floor
-    else if (d < 1.35) v += 0.18 * (1.35 - d);      // fresh bright rim/ejecta
-  }
-  return albedo * Math.min(1.29, Math.max(0.54, v));
-}
 
 export class TerrainChunks {
   readonly group = new THREE.Group();
@@ -87,8 +63,7 @@ export class TerrainChunks {
     const nrm = new Float32Array(n * n * 3);
     const gx0 = cx * CHUNK_CELLS;
     const gz0 = cz * CHUNK_CELLS;
-    const albedo = this.hf.site.terrain.albedo;
-    const classic = classicActive() ? celGround(this.hf) : null;
+    const ground = celGround(this.hf);
     let p = 0;
     for (let iz = 0; iz < n; iz++) {
       for (let ix = 0; ix < n; ix++) {
@@ -98,12 +73,7 @@ export class TerrainChunks {
         const y = this.hf.sampleGrid(gx, gz);
         pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
         this.hf.gridNormal(gx, gz, nrm, p);
-        if (classic) {
-          classic.color(x, z, y, nrm[p + 1], col, p);
-        } else {
-          const v = regolithAlbedo(albedo, this.hf.craters, x, z);
-          col[p] = v; col[p + 1] = v; col[p + 2] = v * 1.005; // whisper of cool
-        }
+        ground.color(x, z, y, nrm[p + 1], col, p);
         // a pit's cut and its heap: fresh, immature regolith (docs/17 §20)
         const tone = cutTone(this.hf, gx, gz);
         if (tone !== 1) { col[p] *= tone; col[p + 1] *= tone; col[p + 2] *= tone; }
@@ -123,7 +93,8 @@ export class TerrainChunks {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
-    return classic ? facet(geo) : geo;
+    // the pits' additions to the ground's geometry (a hook: terrain/pitCarve.ts decorate)
+    return decorate(facet(geo), cx, cz, this.hf);
   }
 
   /** Rebuild the (≤4) chunks covering a cell rect after a flatten. */
