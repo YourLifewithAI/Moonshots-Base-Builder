@@ -56,16 +56,15 @@ export const UNIT_ACCENT: Record<UnitClass, number> = {
   crew: FAMILY_ACCENT.life,
 };
 
-/** Which hub a unit is printed at: a legacy excavator pad has no hub. */
-export type HubKind = 'pad' | 'smelter' | 'refinery' | 'waterPlant';
-/** A hub unit's mesh: its type and its hub's kind (world/haulers.ts draws one InstancedMesh per key). */
-export type UnitKey = `${UnitType}:${HubKind}`;
-
-/** Every mesh key, in the order the haulers create them. */
-export const UNIT_KEYS: readonly UnitKey[] = [
+/** A hub unit's mesh key: its type and its hub's kind (a legacy excavator building: 'pad').
+ *  world/haulers.ts draws one InstancedMesh per key, in this order. A water
+ *  plant prints ice miners on the ice and excavators elsewhere. */
+export const UNIT_KEYS = [
   'excavator:pad', 'excavator:smelter', 'excavator:refinery', 'excavator:waterPlant', 'iceMiner:waterPlant',
-];
+] as const;
+export type UnitKey = typeof UNIT_KEYS[number];
 
+/** The key of a unit printed at a hub (`'pad'`: a legacy excavator building). */
 export const unitKey = (type: UnitType, hub: BuildingId | 'pad'): UnitKey => `${type}:${hub}` as UnitKey;
 
 /** A digger's livery: its body and the band that carries the accent. */
