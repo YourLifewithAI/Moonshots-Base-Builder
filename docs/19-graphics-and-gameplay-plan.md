@@ -1,0 +1,354 @@
+# 19 — Graphics and gameplay plan
+
+*Simpler stylized graphics, more robust gameplay.*
+
+> **Status (2026-09-29): planned, not started.** The player approved the plan and asked to hold off on coding until they say go. **Concurrency cap: 5 agents at a time** (the player's choice). Written against main at 6728e54. Related: [17-extraction-hubs.md](17-extraction-hubs.md), [18-follow-ups.md](18-follow-ups.md). `$SP` below means the session scratchpad directory.
+
+## Context
+
+After the extraction-hub and space-weather work (PRs #39–#47, main at 6728e54) the player's verdict is: the graphics are neither good nor stable, and several systems feel janky. Decisions taken in planning (the player's picks in **bold**):
+
+- **One art style: cel-shaded with ink outlines.** Both current render styles (Classic, and High detail with its FX ladder 0–3, N8AO, bloom, half-float buffers, self-check, render report) are replaced by one stable look with no post chain. Nintendo principle: clear silhouettes, one accent colour per family, every item readable at every zoom.
+- **Fixed isometric camera:** 4 rotations × 2 tilts, snap-rotated, free zoom. Each building gets a designed "best side".
+- **Walk mode is removed.**
+- **Survey drones become a real fleet** with tangible, distinct rewards.
+- Gameplay fixes the player named: roads to extraction sites, excavators that "teleport" through each other, box-drag grading done by rovers over time, unpause by clicking a speed, distinct hub models, muted pits, surveys and outposts made legible, pop-ups that blend together.
+- **Verification stays light per piece** (tsc, docs:check, the piece's own spec) with one full diagnostic wave at the end. Pacing is not a target.
+
+## The improvements (14)
+
+| # | Improvement | Stream |
+|---|---|---|
+| 1 | One cel-shaded renderer: 3-step light ramp, ink outlines, flat family accents, blob shadows, no post chain; the FX ladder, N8AO, bloom, self-check and render report are deleted | W0b1, S1a, S1b |
+| 2 | Walk mode removed (player/*, visor, walk HUD, headlamp, bootprints, colliders, its tests and docs) | W0a |
+| 3 | Fixed isometric camera: 4 rotations × 2 tilts, snap-rotate, free zoom, building fronts designed for it | W0b2, S2a |
+| 4 | One accent colour per building family (matching the palette tabs) and a glyph beside it, so colour is never the only signal | W0d, S1a, S2a |
+| 5 | Distinct silhouettes: the Water Management Plant and Ice Miner get their own models; the smelter's, refinery's and water plant's diggers differ in shape and livery; every recipe gets one tall identifier readable from far away | S2a |
+| 6 | Pits that stand out: inked bench contours, a bold cut palette, hatched heaps, a ramp arrow, visible EXHAUSTED / BOXED IN / RECLAIMED states | S2b |
+| 7 | Roads to extraction sites that make sense: straight trunks, gates on the hub's side, ramps that face the gate, passing and holding bays, a preview before commit, waypoints in the road tool | S3 |
+| 8 | Units that pass each other: the sim reserves road and zone cells, units wait in bays, no more teleports; queues at gates and ramps | S4a, S4b |
+| 9 | Box-drag grading as a rover job: drag a rectangle, rovers drive there and flatten it cell by cell over time; cancelable; costs energy | S5 |
+| 10 | Time controls: clicking any speed unpauses (unless a modal is up); keys 1/2/3 do the same | W0a |
+| 11 | Survey drones as a fleet: a Prospecting Bay prints drones, each is one parallel survey; research adds drones, range and an AUTO SURVEY rule; the first outpost slot arrives in Era 1 | S6 |
+| 12 | Field reports: every survey ends in a distinct card that lists each reward with a button (data, sample cache, breakthrough, outpost site, insight); the tech tree marks exploration-locked techs with a compass and names the real prospects that unlock them | S6 |
+| 13 | One notification system with five families (research, field, era, weather, hazard): own shape, colour rule, position, sound and pause behaviour, plus a log; alerts can open the map, the tree or a building | S7 |
+| 14 | Outposts made legible: what each gives, a HUD chip, producer lines in the resource panels | S8 |
+
+## How the work is organised
+
+Each **stream** is one agent in its own git worktree (`$SP/wt/<name>`, branch `work/<name>`, own Vite port and Playwright cache, WIP commit ≤ every 20 min, resume note `$SP/notes/<name>.md`). `$SP` is the session scratchpad. Rules that make the parallelism safe:
+
+1. **Strict waves, at most 5 agents at a time.** A wave starts when the previous checkpoint has merged. Wave 1 is two sub-waves (1A, 1B) so that no more than 5 run at once; the coordinator may start a stream early only if its "needs" column is already merged.
+2. **Owned files** are the stream's to restructure. Any other file it touches is **shared**: additive edits only (new exports, cases, fields), never reshaped. Conflicts are resolved as unions.
+3. **Contracts first (W0d).** Interfaces two streams share exist before either stream starts, as *functional* stubs (they forward, draw, return a placeholder), so every stream's spec passes alone.
+4. **Internal milestones (M1…Mn).** Every stream lists them; each ends in a WIP commit with `tsc` and the stream's spec green. They are the safe pause points inside a wave: a stream interrupted by a usage limit resumes from its last milestone via its note.
+5. **Light checks only:** `npx tsc --noEmit`, `npm run docs:check`, the stream's own spec alone. No full suite or pacing probes until Wave 3.
+6. **Generated docs (03, 04, 05) are never hand-merged.** On conflict take either side and run `npm run docs`; the coordinator regenerates once per checkpoint.
+7. **No stream edits spec base URLs.** The boot code ignores `nolock`, `lowfx`, `style`, `fx` (only `safe` stays, as the shader-fault fallback). Wave 3 tidies the leftovers. This avoids 30 guaranteed one-line conflicts.
+8. **Screenshots are deliverables:** seed 42, the home preset, day and night, saved under `$SP/shots/<stream>/` and sent to the player at the checkpoint.
+9. **Save migrations live in `Game.loadFrom`** (`game.ts:332-399`); `save.ts` is only I/O and the blob type.
+10. **Pause protocol:** the coordinator keeps `$SP/RESUME.md` (agents, ids, ports, statuses, merge order); a safe pause is any checkpoint, or mid-wave with every stream at a committed milestone; check-in triggers resume stopped agents after a limit reset.
+11. **Agent brief:** every launch uses the template at the end.
+
+## Streams, sizes and dependencies
+
+| Stream | What | Size · agent-h | Needs merged first | Port |
+|---|---|---|---|---|
+| **W0d** | Contracts and mechanical refactors | S · 3–4 | — | 5801 |
+| **W0a** | Walk-mode removal + time controls | S · 5 | W0d | 5811 |
+| **W0b2** | Fixed isometric camera | S · 4–5 | W0d | 5831 |
+| **W0b1** | Renderer collapse | L · 10–12 | W0d; its `game.ts` pass after W0a and W0b2 | 5821 |
+| **S1a** | Cel look: ramp, palette, night | M · 8–10 | CP0 | 5841 |
+| **S1b** | Ink outlines | M · 8–10 | CP0 | 5842 |
+| **S3** | Roads that make sense | L · 12–16 | CP0 | 5861 |
+| **S4a** | Sim reservations, bays, queues | M · 10–12 | CP0 | 5871 |
+| **S7** | One notification system | M · 6–8 | CP0 | 5891 |
+| **S2a** | Silhouettes and units | M · 8–10 | CP1a | 5851 |
+| **S2b** | Pit look | M · 6–8 | CP1a | 5852 |
+| **S4b** | Driver simplification and motion | M · 8–10 | S4a, S3 (CP1a) | 5872 |
+| **S5** | Box-drag grading job | M · 8–12 | S4a (CP1a) | 5876 |
+| **S6** | Survey-drone fleet | L · 12–16 | S7 (CP1a) | 5881 |
+| **S8** | Outposts made legible | M · 5–6 | CP1b | 5901 |
+| **S9** | Touch and menu pass | M · 5–6 | CP1b | 5911 |
+| **S10** | Docs and art bible | M · 5–6 | CP1b | 5921 |
+| **D1–D4** | Spec repair by group | M · 6–10 each | CP2 | 5931–5961 |
+| **D5** | Full suite | S · 3–4 | D1–D4 | 5971 |
+
+Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about a day and a half: several days of agent time given limits.
+
+## Checkpoints
+
+| CP | After | Merge order | Gate | The player sees |
+|---|---|---|---|---|
+| **CP0** | Wave 0 | W0d → W0a → W0b2 → W0b1 | tsc, docs:check, `npm run build`; `render`, `world`, `ui` specs; `smoke` "parts loop" alone; determinism guard | Playable build, old Classic look, fixed camera (Q/E turn, V tilt), no walk mode, unpause fix; day/night "before" shots; the four rotations; both tilts; far zoom; a placement ghost; the HUD paused and after a speed click |
+| **CP1a** | Sub-wave 1A | S7 → S1a → S1b → S3 → S4a | + `look`, `roads`, `notify` and hub-unit traffic specs | The **variant bake-off** (A/B/C, day/night/far; sent as soon as S1a and S1b reach M3, so the pick can arrive mid-wave); the new look; straight roads with gates and bays; the five notification families |
+| **CP1b** | Sub-wave 1B | S2a → S2b → S4b → S5 → S6, then one docs regeneration | + `silhouettes`, `pits`, `traffic`, `grading`, `survey` specs | A pit at three growth stages; two excavators passing at a bay (three-frame strip); a grading job mid-way; a field report; the tree's compass badge; the 29-recipe contact sheet at far zoom |
+| **CP2** | Wave 2 | S8 → S9 → S10 | `lunarmap`, `touch`, `notify`, `survey` specs | The map with outposts, touch at 667×375 and 932×430, the art bible |
+| **CP3** | Wave 3 | D1–D4 in parallel, then D5 | full suite green (known flakes re-run alone), `npm run build` | A final report |
+
+**Cut line if limits bind:** every checkpoint leaves main playable. After CP1b every named complaint is fixed; S8–S10 can wait. Wave 3 must not be skipped: main already carries about 20 stale specs (docs/18 §1).
+
+---
+
+## Wave 0 · Foundations (4 streams, then CP0)
+
+### W0d · Contracts and mechanical refactors (port 5801) — merges first
+
+Everything later streams code against. All *functional* stubs.
+- `src/data/families.ts`: `Family = 'power'|'extraction'|'industry'|'life'|'science'|'export'|'logistics'`; `FAMILY_OF: Record<BuildingId, Family>` (matching the palette tabs); `FAMILY_ACCENT` (initial palette: power amber `#e8b422`, extraction ochre `#d9772b`, industry violet `#7a5cc7`, life green `#5f9f3f`, science blue `#2f7fd0`, export red `#c9302c`, logistics slate `#8e9197`); `UNIT_ACCENT`; `HUB_LIVERY` keyed `excavator:smelter`, `excavator:refinery`, `iceMiner:waterPlant`.
+- `src/world/celStyle.ts`: `CEL_VARIANT = 'B'` and the `INK` / `RAMP` presets A/B/C (ramp steps, ink px, day/night ink colours, soft edge). Both S1a and S1b read it, so the bake-off is one constant.
+- `src/world/ink.ts`: `outlineMesh(source)` (returns an empty Group; S1b fills it) and `drapedLine(points, kind: 'bench'|'rim'|'grade'|'road')` (draws a real 1 px line).
+- `src/ui/notify.ts`: `notify(family, card)` forwarding to `alert()`, which gains `family`, writes a capped, saved `s.log` (200 entries), and accepts the action kinds `{map}`, `{tech}`, `{building}` (types only).
+- `src/core/state.ts` (additive types): `RoadCell.gate?: number` (zone id), `pass?: true`, `hold?: number`, `sacrificial?: true` (**plain open cells; never `bay: true`**, which routing excludes); `GradeJob` and `GameState.gradeJobs?`; `SurveyDrone`, `SurveyState.surveyDrones?` and `flights?` (`active` stays, deprecated); `RoverTrip.kind` += `'grade'`, `RoverTrip.held?`, `RoverUnit.grade?`.
+- `src/core/traffic.ts`: `reserve(s, unit, cells)`/`release`, always true. `src/core/fleet.ts`: `'grade'` counts as busy in `borrowable()` and `freeReach`; a dispatch stub.
+- `src/terrain/chunks.ts`: a `decorate(geo, cx, cz)` hook at the end of `buildGeometry` (stub in `pitCarve.ts`), so S1a's shading and S2b's contours never share a function.
+- `src/world/haulers.ts`: one `InstancedMesh` per (unit type, hub kind), restructuring `sync/draw/pick/info` mechanically, and a `UNIT_BODY` table replacing `DIGGER_BODY`. S2a supplies geometries, S4b the driver; neither reshapes this file's structure.
+- A placeholder survey-drone recipe (the quadcopter with teal trim). `spotSignature` (`rovers.ts:1115`) gains `r.core` (a latent bug: a rover on a core job keeps a stale parking slot) and the new job fields.
+
+Milestones: M1 the files and `tsc`; M2 the haulers split and `decorate`; M3 log, notify and `spotSignature`, with `hubs`, `pits` and `transit` specs run alone.
+
+### W0a · Walk-mode removal and time controls (port 5811)
+
+**Delete outright:** `src/player/walk.ts`, `modes.ts`, `footprints.ts`; `src/ui/visor.ts`, `visor.css`.
+
+**Unhook** (deletions in shared files; about 104 lines of `game.ts` plus 152 references):
+- `game.ts`: `walk`, `modes`, `lookId`, `lookAcc`, `updateLookAt()`; the `bindInput` Tab / Space-jump / E-inspect / mouse-look / pointer-lock branches; `toCommandView`; the `loadFrom` walk restore (l.385-396); `setModeInstant`; the walk branch of `debugSetView`; every `modes.mode === 'build'` guard. The iso lens `{fov 20, near 20, far 5000}` that `ModeManager` sets moves into `IsoCam`. `commandView` reduces to `playing`.
+- `save.ts`: `SaveBlob.player` (old saves still load). `stores.ts`: `$mode`, `$lookAt`. `hud.ts:407-457` (`#walk-hud`, the Tab/T capture). The `.mode-walk` CSS in ui, weather, lunarMap and touch; the `$mode` guards in fleetPanel, hubPanel, depositCard, weatherPanel, techTree, lunarMap; the "Tab / On foot" menu lines.
+- `classicLighting.ts` headlamp and `ADAPT`; `life.ts` `LifeFrame.walker` and `BaseLife.prints`; `rocks.colliders()`, `instances.colliders()`; `balance.ts` `EYE_HEIGHT`, `WALK_SPEED`, `JUMP_V`, `PLAYER_RADIUS` (keep `GRAVITY`); `paths.ts` `UNIT.walker`; `sfx.ts` walking ambience and breath, `music.setWalking`; `GameOptions.nolock`; debug `setMode`, `getPlayer`. Keep the EVA crew figures (`settlers.ts`): they are third-person, not walk mode.
+
+**Time controls.** The HUD speed buttons (`hud.ts:240-257`) and keys 1/2/3 (`game.ts:582-584`) push only `setSpeed`, so while paused a click changes the speed invisibly (the touch button already resumes). Fix in the HUD and key handlers, not in the core action (`look.spec:177` relies on `setPaused(true)` then `setSpeed(3)` staying paused): a speed click or key pushes `setSpeed` then `setPaused(false)` when paused and the mission isn't lost, **guarded by `overlayUp()`** so a speed click never unpauses under an era banner (`discovery.ts:280`). The hazard alert's "Space resumes" becomes "Space or a speed resumes".
+
+**Tests and docs.** Delete the walk tests (inventory in the appendix). Leave `&nolock` in spec URLs. Remove walk text from docs 06 (§9 on-foot, headlamp and bootprint rows), 07 (§8), 08 (§8 "Walk collision" and mentions), 01, 09, 10, 00, 13, 16, 17, 18 and the README.
+
+Spec: `world.spec.ts` keeps the build-camera test; new: Tab does nothing, no `#walk-hud`, an old save with `player.mode='walk'` loads in the command view; three speed tests in `ui.spec.ts` (click 3× while paused; key 2 while paused; a click under a banner stays paused).
+
+Milestones: M1 delete and unhook, `tsc` green; M2 tests and docs; M3 time controls and specs.
+
+### W0b2 · Fixed isometric camera (port 5831)
+
+`src/player/isoCam.ts` (318 lines) already is the fixed view: a 20° lens at a 32° pitch, snap yaw (Q/E, eased), drag-pan, WASD, F/H glides, touch pinch and twist. It changes as follows:
+- Add a `tilt` state, **32° (today's, keeps all framing) and 55°**, toggled by **V** (R rotates the ghost, T opens the tech tree), eased over 0.35 s; it replaces `ISO_PITCH_DEG` in `place()`, `panPx` and `metresPerPx`. A tilt button joins the touch bar's turn buttons.
+- Make `dist` continuous under the wheel (drop the five stepped levels but keep the clamps, and keep the near/far tracking); `pinch('end')` no longer snaps. F and H keep their glide levels.
+- The preset (`step`, `tilt`, `dist`) is saved as `SaveBlob.camera` and restored on load.
+- `info()` gains `rot`, `tilt`, `zoom` and **keeps `yawStep`, `pitchDeg`, `levels` as aliases** (`classic.spec` reads them about 16 times, `touch` 8, `render` 8) until D4.
+- `commandKey` and the `CommandCam` interface are copied into `isoCam.ts`; `buildCam.ts` becomes a re-export shim that W0b1 deletes.
+
+Spec: `world.spec.ts` (Q/E turn, V tilt, continuous zoom, the preset survives save/load).
+Milestones: M1 tilt and continuous zoom; M2 preset saved and `info()` aliases; M3 touch tilt button and spec.
+
+### W0b1 · Renderer collapse (port 5821)
+
+Keep the Classic path as the base (MSAA, no shadow map, `NoToneMapping`, contact decals, key + hemisphere light, draped flood pools, faceted terrain) and delete everything High-detail-only.
+- **M1 "move exports"** (before any deletion; `tsc` green, both styles still run): `buildingShader.ts`'s shared exports (`CUT_NONE`, `buildingUniforms`, `litChannel`, `channelDark`, `EMISSIVE`) move into `classicBuilding.ts`; `sunStep()` and `WorkSpot` from `lighting.ts` into `classicLighting.ts`; `skyDirection()` from `sky.ts` into `daynight.ts`. Then one mechanical rename commit: `classic*` → `cel*` (`celBuilding`, `celLighting`, `celGround` in `src/terrain/`, `celFloods`, `world/classic.ts` → `world/cel.ts`, the collapsed material registry), so Wave 1 works on final names.
+- **M2 delete:** `post.ts`, `fxcaps.ts`, `fxcheck.ts`, `fxguard.ts`, `lighting.ts`, `floodlights.ts`, `renderReport.ts`, `sky.ts`, `terrain/terrainShader.ts`, `buildings/buildingShader.ts`, `types/n8ao.d.ts`; npm deps `postprocessing` and `n8ao`. Collapse `materials.ts` (`define` replaces `defineClassic`; drop `patched`, `setFxLevel`, `stripPatches`, `clearFault`, `PATCH_MARKER`, `injectAll`, `hasAnchors`), `renderer.ts` (one path, pixel ratio ≤ 1.5, sRGB out), `settings.ts` (`RenderStyle` → `'cel'`; drop `fx`, `safeAuto`, `fxFailed`, `mbb-fx-level`, `mbb-patch-fault`; keep `safe` and the automatic unlit fallback as the only safety net, one menu row), `menu.ts` (no style, FX or render-report rows; one controls table), `main.ts` (drop `?style ?fx ?lowfx`; ignore them).
+- **M3 game.ts / menu.ts / save.ts pass — after W0a and W0b2 have merged:** remove `classic`, `switchStyle()` and its reload, the ladder / self-check / report block (l.1604-2045), `BuildCam`, `buildCam.ts`, the sky group, the FX branches (`rocks.setFxLevel`, `DepositHighlight(hf, classic)`, `stockLights`, `probeFrame`'s style test). **Keep a slimmed shader-fault recovery** (`recoverFromShaderFault` l.1852, `renderFailed`, `enableSafeMode`): it has three branches today (`'classic'` → stock Lambert via `classicFallbackMaterial()`, `'patch'` → strip patches, anything else → safe mode); it becomes `'cel'` (the building or terrain program → stock Lambert, renamed `celFallbackMaterial`), `'ink'` (S1b adds: hide outlines) and `'other'` (safe mode), with the `post`, `sky` and shadow-map lines dropped. `core/style.ts` goes. Classic branches in `chunks`, `horizon`, `rocks`, `berms`, `roads`, `workAnim`, `instances`, `depositHighlight`, `dust` and `ghost` become the only branch. `instances.ts` loses the discs, floods and shader lights (about 150 lines).
+- **M4 tests and docs:** delete `fxcheck.spec.ts`; reduce `render.spec.ts` to the WebGL2 test plus "one renderer, no post chain, the safe fallback works"; fold `classic.spec`'s iso camera and menu tests into it (the Style-switch test goes); collapse every `for (const style of ['classic','detailed'])` loop (anim ×3, zones, avoidance, transit, pits, fleet ×2, upgrades ×2, destiny, look) to one run; drop the High detail runs in world, hubview, techtree and playability. Remove the debug `setFxLevel`, `degradeFx`, `debugBreakFx`, `fxCheckNext`; keep `enableSafeMode`, `buildingGlow`, `getCamera()`. `getRenderInfo()` becomes `{style:'cel', safe, drawCalls, triangles, camera:{rot,tilt,zoom}, outlines, ramp}` with stub constants for fields old specs still read. docs/06 and 07 §12 get a "superseded by the cel style" marker (S10 rewrites them).
+
+**CP0 gate** as in the checkpoint table.
+
+---
+
+## Wave 1A · Look, roads, sim traffic, notifications (5 streams, then CP1a)
+
+### S1a · The cel look: ramp, palette, night (port 5841)
+Owns `celBuilding.ts`, `celLighting.ts`, `celGround.ts`, `celFloods.ts`, `contactDecals.ts`, the shading of `terrain/chunks.ts`, `horizon.ts`, `rocks.ts` colours, `dust.ts`, `buildings/ghost.ts`, `celStyle.ts` presets. Shared: `families.ts` (read only).
+- **Ramp.** The building program's per-vertex Lambert (`celBuilding.ts`, was `classicBuilding.ts:193`, `max(dot(n, uLightDir), 0)`) becomes a 3-step ramp (1.0 / 0.72 / 0.5 of the accent, 0.02 soft edge). Terrain, rocks, berms, roads and the horizon ring share a small ShaderMaterial that keeps vertex colours and faceting and quantises the light to 2 steps, so slopes and crater walls read as bands.
+- **Colour.** `celColors()` maps `trim` → `FAMILY_ACCENT[FAMILY_OF[recipe]]`, `hull` → warm paper `#efeae0`, `panel`/`deck` → cool slate, `window` → the lit channel's warm/cold glow. Deposit tints saturate ×1.4.
+- **Light and night.** Key + hemisphere stay. Blob shadows: contact decals (exist), unit blobs (exist), a soft radial under rocks. Night: earthshine key, windows and floods as flat glows (`iGlow`, draped pools), ink lerps to night ink. `probeFrame`'s black threshold rises to `r+g+b ≤ 12`. Clear colour is the sky. Dust points take the digging unit's accent.
+- **Bake-off variants:** A 2-step ramp + 2 px ink · B 3-step + 1.5 px (default) · C 3-step + tinted ink (the accent darkened 60%). Screenshots `$SP/shots/s1/{A,B,C}-{day,night,far}.png` go to the player as soon as S1b reaches M3; the pick is one constant.
+- Spec: `look.spec.ts` rewritten: ≤ 3 luminance clusters on a building's lit faces; median ground luminance ≥ 18/255 at night; no post chain; ≤ 80 draw calls and ≤ 300k triangles on the seed-42 base; a smelter's trim equals `FAMILY_ACCENT.extraction`.
+- Milestones: M1 building ramp + palette; M2 terrain ramp, ground and night; M3 variants, screenshots, spec.
+
+### S1b · Ink outlines (port 5842)
+Owns `world/ink.ts`; shared (additive): `instances.ts` (`meshFor` l.267-292 and the count mirror in `rebuildType`), `haulers.ts`, `rovers.ts`, `settlers.ts`, `events.ts`, `workAnim.ts`, `trackers.ts`, `links.ts`. **Inverted hull, no screen-space pass**: no render target, MSAA kept.
+- The outline is a second `InstancedMesh` sharing the source's geometry (per-instance state `iState/iWarm/iAlarm/iGlow` lives on the geometry) and `instanceMatrix`; mirror `count`, set `frustumCulled = false`, and re-point the geometry whenever `meshFor` swaps it for an upgrade (`instances.ts:269-278`, `haulers.ts:157-163`, `rovers.ts:358-362`).
+- The camera is a 20° **perspective**, so width is depth-based: `w = uPx · (−mvPosition.z) · 2·tan(10°) / uViewportH` (about 0.10 m at the 170 m home distance, 0.49 m at 830 m).
+- The kit bakes split face normals, so pushing along `normal` opens gaps at box corners: `outlineMesh` computes a smoothed `oNormal` by position hash once per recipe. The vertex shader reads `iState.w` and discards above the print cut, so half-printed buildings don't grow full-height outlines. Parts under 0.4 m² (`partArea`) get half width. Ink is `#141618` by day and lerps to the night ink with `buildingUniforms.uBldNight`.
+- Applies to every instanced class: buildings, rovers, drones, survey drones, hub units (per type and hub), walkers, the cargo lander, the work kit, trackers (`trackers.ts:56`) and links (`links.ts:332`). An `MBB_INK` marker plus a new `'ink'` branch in the slimmed shader-fault recovery (`recoverFromShaderFault`, `game.ts:1852`, which reads the marker in the compile-error handler at l.287): one compile fault hides outlines, never the game.
+- Spec (in `look.spec.ts`): ink-coloured pixel runs along a silhouette at two zooms; no outline above the print cut; the fallback hides outlines; draw calls within budget.
+- Milestones: M1 building outlines; M2 units, trackers, links, kit, walkers, lander; M3 fallback, variants, spec.
+
+### S3 · Roads that make sense (port 5861)
+Owns `core/roads.ts`, `world/roads.ts`, `player/roadTool.ts`, `core/roadActions.ts`, `data/roads.ts`. Shared: `hubs.ts` (`askRoad` l.457), `pits.ts` (staking l.365, `blockersOf` l.204, `carve`/`pitsStep` for `regate`), `hubPreview.ts`, `game.ts` (`hubPlaced` l.1388).
+
+Root causes: the A* (`search` l.233) is 4-connected with **no turn cost**, so Manhattan-equal staircases tie and zig-zag; every zone cell is a wall for auto roads (l.767, l.1028) so spurs detour round every deposit ring; a haul road is planned from the **whole open network** (`planLink(…, null, …)`), so it starts wherever building is cheapest, not at the hub; the gate is whichever rim cell the network touches first (`gatesOf` l.395 returns every rim road cell in key order); the ramp faces the deposit centre or Lander, never the gate, so gate → ramp-top can cross the pit; spurs are never re-planned; the mesh draws kerbs on every neighbourless side so staircases look saw-toothed; docs/17 §5.3 (soft cost in full-size rings) and §11.4 (the gate steps back as the pit eats its road) were never built.
+
+- **Straight roads:** a turn penalty (0.35 per direction change) and a straight-first tie-break, so a route is a trunk with a couple of bends.
+- **Trunk from the hub:** `askRoad` and `hubPlaced` plan from the hub's door (`accessCell`) and merge into the network at 0.05 per cell, so the road leaves the hub and the estimated trip is the trip units drive. `haulSeed` (l.671, legacy only) goes.
+- **Gates on the hub's side:** rim targets add 0.5 per 90° between the candidate and the hub; the gate is explicit (`RoadCell.gate = zoneId`) and `gatesOf` returns only those (contract cells; **`pass` and `hold` are plain open cells, never `bay`; `gatesOf` and `rimTargets` skip them**). A `hold` cell sits beside each gate, a `pass` cell beside every 10th cell of a haul road and beside the gate approach.
+- **Ramp faces the gate:** staking (`pits.ts:365`) takes the gate direction; a later carve re-aims to the nearest gate. The last cells of a haul road inside the full-size ring are `sacrificial`: `blockersOf` skips them, the pit consumes them and `regate`s one cell back, so a road never hems its own pit in. §5.3's +2 soft cost inside full-size rings goes into `search` for zones no hub wants.
+- **Preview and tool:** the hub ghost's HUB block draws the planned road as a dashed `CellPreview` (via `hubPreview.ts`) before placing. The road tool gains waypoints (click, click, Enter or double-click to lay; drag and Alt-drag removal still work).
+- **Mesh:** continuous centre line through bends, inner fillets, kerbs only on outer edges, passing and holding bays as a widened shoulder with a dashed edge; ink from `drapedLine(…, 'road')`.
+- Spec `roads.spec.ts` (new): ≤ 2 bends between two flat points; a haul road starts at the hub's door; the gate is on the hub's side (< 60° from the pit centre); the ramp faces the gate; the pit consumes sacrificial cells and the gate steps back; a two-waypoint route; an auto road never enters a wanted zone; a `pass` cell at least every 12 cells and a `hold` cell at each gate.
+- Milestones: M1 turn cost and hub-door planning; M2 gates, bays, ramp facing, sacrificial cells; M3 preview, waypoints, mesh; M4 spec.
+
+### S4a · Sim reservations, bays and queues (port 5871)
+Owns `core/traffic.ts` (implements the W0d stub), `haul.ts` `drive()` (l.287). Shared: `hubs.ts` (`goDig(face −1)` l.746-776, `unitTick` l.889, `facePoint`), `transit.ts` (`transitArrive` l.338-369), `spots.ts`.
+
+Root causes: the **sim has no collisions** (`drive()` just moves along waypoints), so only the visual layer avoids overlaps and drifts from the sim; an excavator holds whole cells (a 3.8 m body on 4 m cells) so nothing can pass it; a second unit on a one-face pit parks **on the gate cell**, the dead end, so the returning loaded unit meets it head-on; the excavator driver cannot reroute and can only reverse along its own way, which fails inside the other unit's claims; after 8 s (`RESCUE_S`) or 12 s lag (`LAG_S`) it is set down at the sim's position — the teleport.
+
+- **Two-phase tick** (intents → grants by class then id → moves) so a unit early in the roster can't take a run a loaded unit should have had; `drive()` checks the next waypoint's cell before each step and on refusal returns the remaining time and sets `h.wait = 'traffic'`. A unit reserves the run ahead to the next `pass`/`hold` bay, junction or gate; an opposing unit waits at the bay it is in. Loaded before empty before rover, ties by id. Bypassed under `TRANSIT.instant` and `instantTravel`. A bounded wait (20 s) falls back to a step-aside with a counter in `getRenderInfo().life.traffic`. Deterministic; nothing extra is saved (reservations rebuild each tick).
+- **Holding bays:** `goDig(face −1)` parks in the gate's `hold` cell, never on the gate; units queue behind it. One unit at a time on a pit ramp; the others hold at the top or foot.
+- **Rovers (stretch, M2):** in `transitArrive` take `tripPoint(t, dt)`'s cell run, and if refused skip the `t.t` advance; `dur`/`t` stay, ETA stretches in real time, `RoverTrip.held` feeds the inspector only. The rovers' visual lane passing stays.
+- Spec `traffic.spec.ts` (new, sim half): no two units share a reserved cell; a loaded unit has priority; a second unit waits in the holding bay, not on the gate; determinism (`advanceGameMinutes(60)` twice, identical unit positions).
+- Milestones: M1 hub-unit reservations and two-phase tick; M2 holding bays, queues, rover stretch; M3 spec and determinism.
+
+### S7 · One notification system (port 5891)
+Owns `ui/notify.ts` + `notify.css`, `ui/discovery.ts`, the alerts block of `ui/hud.ts` (l.263), the LOG of `weatherPanel.ts` (moves into the shared log). Shared: `economy.ts` (`alert()`), `menu.ts` (pause rows), `settings.ts`.
+
+Today the tech-finished card (`#discovery-card`, titled "Discovered"), the flare pop-up and everything else share the same top-centre slot and `.panel` look; every exploration result is a plain `info` alert line with no icon or sound; alert actions are only `{panel}|{select}|{deposit}`.
+
+| Family | What | Where and shape | Pauses |
+|---|---|---|---|
+| research | tech finished (now RESEARCH COMPLETE), insight | top-centre card, lane glyph | never |
+| field | survey report, breakthrough, outposts, atlas, deposit survey | a "dispatch" card sliding in lower-left above the milestones, ◎ glyph, torn top edge, chirp | never |
+| era | era explainer, era-ending milestones, victory/defeat | full-screen banner as now | until Continue |
+| weather | flare warning and decision, blackout | the flare pop-up, ☉ glyph | M and X (setting) |
+| hazard | drills, live hazards, crit alerts | the drill card; crit alerts inverted | drills (setting) |
+
+- One 3 px family rule per card (research blue, field teal, era paper, weather amber, hazard red) is the single colour exception to docs/07's greyscale rule; the glyph carries the meaning for colour-blind players. A "Pause on…" block in the menu lists the pausable families.
+- A **log** (Log button in the alert stack): every notification of every family, newest first, with glyph and click action; the weather panel's LOG becomes a filtered view. Alert actions grow to `{map: ProspectId}`, `{tech: TechId}`, `{building: id}`; the map and tree headers echo only their own family.
+- Spec `notify.spec.ts` (new): each family renders in its own container; the pause policy and menu rows; the log lists all five and survives reload; a `{map}` action opens the map at the prospect; the era banner still blocks input.
+- Milestones: M1 containers, families, log; M2 pause policy and menu rows; M3 spec.
+
+**CP1a gate and bake-off** as in the checkpoint table. The player's variant pick is recorded in `CEL_VARIANT` before 1B starts.
+
+---
+
+## Wave 1B · Silhouettes, pits, drivers, grading, survey fleet (5 streams, then CP1b)
+
+### S2a · Silhouettes, family accents on models, and units (port 5851)
+Owns `buildings/recipes.ts`, `upgrades.ts`, `destinyParts.ts`, `rigs.ts`, the geometry of `world/haulers.ts` and `world/rovers.ts` (`roverGeometry` l.107-131, `droneGeometry` l.1157-1179). Shared: `palette.ts`, `infoPanel.ts` (family glyphs).
+- **Best side:** the door side faces −z (the spur side), and every recipe gets one tall identifier readable at far zoom (smelter twin stacks, refinery three domed columns, water plant a cold-trap dome and one condenser tower, lab a dish, battery a stacked block, reactor a cooling tower, mass driver a rail, relay mast a mast, solar observatory a slit dome, and so on for the 29). Each identifier carries `TRIM` (a band, roof stripe or door surround) so the family accent from S1a reads at far zoom.
+- **Distinct hubs and units.** The refinery and smelter models already differ (`refinery()` l.298, `smelter()` l.164). What is identical: `waterPlant()` (l.212) reuses the smelter's hall box, rail, door, window strip and radiators, and both hubs print the same `excavator` mesh. So: rewrite `waterPlant()`; `iceMiner` gets its own recipe (an auger drum and an insulated tank) and rig; and three unit meshes by hub type: **smelter digger** (open bucket, ochre band), **refinery digger** (covered hopper, quartz-white body, violet band), **ice miner** (cyan, tank). W0d's per-(type, hub) meshes and `UNIT_BODY` receive them.
+- The survey drone gets its recipe (a flat delta wing, teal underside) replacing W0d's placeholder. Each palette button and inspector title shows its family glyph.
+- Spec `silhouettes.spec.ts` (new): each of the 29 recipes has a distinct bounding box and its accent equals its family's; the water plant's triangle set ≠ the smelter's; the three unit meshes differ (triangles and bounds); hubs.spec asserts an ice miner ≠ an excavator.
+- Milestones: M1 water plant, ice miner and unit variants; M2 the best-side pass; M3 spec and the contact sheet.
+
+### S2b · The pit look (port 5852)
+Owns `data/balance.ts` `PIT` keys, `pitCarve.ts` `cutTone` and its `decorate` implementation, `world/depositHighlight.ts`. Shared: `chunks.ts` (through the W0d hook only).
+- **Cut palette:** benches alternate ochre `#c9a06a` / dark ochre `#a7833f`, floor `#8f7a5a`, heap `#6f665c` with a cross-hatch tint, the ramp a lighter tread with an inked arrow decal pointing down (replacing `cutBright .2`, `heapBright .16`, `benchBand .08`).
+- **Contours are baked into chunk geometry:** `bench()` (`pitCarve.ts:324`) is a pure function of `−delta/10`; where `floor(depth/PIT.bench + 0.5)` differs between neighbouring samples, `decorate` appends a 0.25 m ink ribbon lifted about 0.05 m (chunk geometry is non-indexed after `facet()`). Zero extra draw calls, and it rides the existing rebuild queue (`markDirty/pump/flushQueue`). Caveat: the baked width is world-constant (about 3.7 px at home, under 1 px at 830 m), so the cut palette carries far zoom. `drapedLine` stays for the rim and state ring in `depositHighlight.ts`, and the real cut contour replaces the `(cx, cz, R)` circle.
+- **States:** an EXHAUSTED / BOXED IN / RECLAIMED flag decal at the rim and a dashed ring; the label chip (exists) recoloured by state.
+- Spec: `pits.spec.ts` extended: contour ribbons equal the bench count; the cut differs from open ground by ≥ 40/255 in one channel; the state decals appear.
+- Milestones: M1 cut palette and contours; M2 heap hatch, ramp arrow, rim; M3 states and spec.
+
+### S4b · Driver simplification and motion (port 5872)
+Owns `world/traffic.ts`, the drivers in `world/haulers.ts` (l.225-441) and `world/rovers.ts` (l.498-919), `DIGGER_BODY` → `UNIT_BODY` values. **Needs S4a and S3 merged.**
+- Hub units follow the sim position exactly (light smoothing): delete `rescue`, `yieldTo` reversal and the `LAG_S` set-down in `haulers.ts`; because the sim itself waits, the visuals cannot lag. Rovers keep their lane passing and `reroute`; only their `LAG_S`/`rescue` set-down is removed once M1 is green.
+- **Motion:** turn-in-place at bends (≤ 90°/s), accel/decel ramps for haul units (rovers keep `ROVER.accel`), rigs spin only when moving or digging, a 0.3 s settle on arrival, and no pose ever moves more than 1 m between frames at 1× (asserted). Body width `UNIT_BODY.excavator.hw` 1.9 → 1.5 so two units offset ±1.5 m inside a zone clear each other (lane by id parity; a unit that meets another head-on steps to its right shoulder).
+- **Path variety:** `roadRoute` keeps its cache but ties within 5% break by unit id parity, so two units use both trunks when there are two.
+- Spec `traffic.spec.ts` (integration half): two excavators head-on on one haul road pass at a bay with `rescues 0`, `setDowns 0`, `lagMaxS < 3`; three units on one pit keep ≥ 2.5 m apart; the largest frame-to-frame pose jump ≤ 1 m. The old `avoidance.spec` crowd budgets are repaired in D2 against these numbers.
+- Milestones: M1 hub-unit driver follows the sim; M2 motion and offsets; M3 rovers' set-down removed and the integration spec.
+
+### S5 · Box-drag grading as a rover job (port 5876)
+Owns `core/grading.ts` (new), `player/gradeTool.ts` (new), the grade parts of `buildings/placement.ts` (`checkGrade` l.255, the ghost l.124), `pits.ts` (`gradeEnergy` l.547, `gradePitRefusal` l.534). Shared: `terrain/heightfield.ts` (`flatten` l.273), `state.ts`, `game.ts` (`applyAction` l.1183, `takeTerrain` l.984), `fleet.ts` (`assignRovers` l.188), `spots.ts`, `transit.ts`, `economy.ts` (a step 2.7), `workAnim.ts`, `fleetView.ts`, `debug.ts`, `techs.ts` (`siteGrading` l.271). **Needs S4a merged** (grade trips obey reservations).
+
+Today "Grade Site" is a click-per-16 m-square mode applied at once in `applyAction` (energy paid, `hf.flatten`, `s.flattens` appended, spoil to a hopper); drags pan the camera; no rover takes part; the tech exists only at the pole and lava tube.
+- **The tool:** press-drag a rectangle (reuse the road tool's `box()` l.121, `holdCamera`, `CellPreview`); the preview shows cells, rover-seconds and energy; release pushes `gradeBox{cells}`, which makes a `GradeJob` (target height = the rectangle's mean; `total` = Σ 4 s × (1 + relief ÷ 2 m) per cell; energy 2.5 per cell, paid when queued like a survey core). A stake decal and a dashed ink outline (`drapedLine(…, 'grade')`) mark the site; Cancel refunds the undone cells. **Grading is available from landing on every site**; Site Grading (E1, now at all sites) doubles the rate and lets rovers level spoil heaps.
+- **Rovers do it:** `assignRovers` takes grade jobs after core surveys (one rover per job, two above 32 cells); the trip kind is `'grade'` to a stand on the next cell (like the `cores` block, `spots.ts:257-271`); economy step 2.7 advances the job with power per rover via `PackTick`, `r.task = 'grade'`, a blade pose in `workAnim` and a dust puff. Each cell completes in turn: `hf.flatten(gx, gz, gx+1, gz+1, h, false)` (`flatten(gx0, gz0, gx1, gz1, forcedH?)` in `heightfield.ts:273` gains a sixth parameter `skirt = true`), a 1-cell `s.flattens` entry `{x0, z0, x1, z1, h, noSkirt: true}` (`state.ts:973` gains the optional field; the loader at `game.ts:368-371` passes `!e.noSkirt` and replays them in order), 1.5▲ of spoil to the nearest hopper, `hf.carved` pushed (chunk rebuild and `rocks.clearRect`). **On completion, one ordinary whole-rectangle entry** is appended (an idempotent interior with the skirt feathered exactly once). `padMask` accrues per cell, so pits and `noRoad` see graded ground at once.
+- **Building pads keep flattening at placement** (unchanged); only the Grade tool becomes a rover job.
+- Debug: `gradeAt(gx, gz)` stays for old specs ("queue a 16 m job and finish it"); `gradeBox(cells)` and `finishGrading()` are new.
+- Spec `grading.spec.ts` (new): a box makes a job with the right cells and cost; the ground is unchanged until a rover arrives; cells flatten one by one and the pad ends level (relief < 0.05 m); cancel refunds the rest; save and load mid-job continue; a spoil heap levels at the pole; a building placed on the finished pad is valid.
+- Milestones: M1 job, tool, preview; M2 rover dispatch, economy step and per-cell flatten; M3 the tech change, save/cancel, spec.
+
+### S6 · The survey-drone fleet (port 5881)
+Owns `core/exploration.ts`, new `core/surveyDrones.ts`, new `world/surveyFlight.ts`, the survey parts of `ui/lunarMap.ts`. Shared (additive): `data/buildings.ts`, `data/techs.ts`, `data/lunarMap.ts`, `data/balance.ts` (`SURVEY_TIERS` l.293-299), `state.ts`, `Game.loadFrom` (migration), `automation.ts`, `fleetPanel.ts`, `techTree.ts`, `techPage.ts`, `research.ts` (`hiddenReason` l.77). **Needs S7 merged** (`notify()` is real) and uses S2a's drone recipe when merged (W0d's placeholder otherwise).
+
+Today a map survey borrows a construction rover, one runs at a time (`s.survey.active`), nothing adds drones or automates surveys, and the whole Moon pays about 850–910≡ (less than one late tech). Only three exploration-gated techs exist (the breakthroughs `btLavaTubeCaverns`, `btVolcanicGlass`, `btColdTrapChemistry`); docs/16 F5 designs four more, so the reward pipeline stays data-driven (`ProspectDef.bt`) and F5 drops in.
+- **Drones, not rovers.** The Lander carries one survey drone from landing. A new **Prospecting Bay** (2×2, science family, off-road like a mast, 30◆ 10⚙, −1.5 kW) prints more (15◆ 5⚙, 45 s; Level I has 2 bays). Map surveys never borrow rovers again; `borrowable()` stays for other uses. Each docked, charged drone is one parallel survey: the new `s.survey.flights[]` (one per drone) carries them; `active` stays deprecated and null after migration, and S6 removes its readers (`spots.ts:102`, `fleet.ts:161-172`, `transit.ts`, `exploration.ts:236`) in its own commits. The map function is renamed `prospectRefusal` so it stops sharing a name with the deposit `surveyRefusal` in `pits.ts`. Survey cost and time tables stay.
+- **Research ladder** (display names change; ids do not): Prospecting Rovers → **Prospecting Drones** (E1: T1 + the Bay). Neutron Spectrometry (E2) unchanged. **Site Survey AI** (E3) gains the Builder rule **AUTO SURVEY**: idle drones survey the nearest unsurveyed prospect in coverage while stored energy stays above the reserve. Orbital Prospector (E4): T2, Bay Level II (4 bays), range ×1.5. Far-Side Relay (E6): T3, Level III (6 bays). Deep Sounding (E7): T4. **T1 gains one outpost slot** (moved here from S8) so the first outpost is an Era-1 goal and the field report says so.
+- **Flight in the world:** a drone lifts from its bay, flies on the prospect's bearing to the map edge and vanishes, and returns `HOPPER.time` later (instanced like `DroneFlight`); the fleet panel gains SURVEY DRONES ("2/3 docked · 1 out → Marius Hills 2:10").
+- **Field reports (via `notify('field', …)`):** the real prospect name (`ProspectDef.name`, never `prettyProspect` ids), its geology line, and one line per reward with a button: `+N≡ data`; `SAMPLES: +40○ glass` (new: the first survey of each resource kind delivers a one-time cache of about a minute of a hub's output); `BREAKTHROUGH: Volcanic Glass — researchable now / in Era 4` [In the tree]; `OUTPOST SITE: ice 0.20≈/s · claim 60◆ 20⚙ 5▣` [Claim] or "needs Orbital Prospector"; `INSIGHT: Orbital Prospector −40%`; `ATLAS n/12`.
+- **Tree compass:** exploration-locked techs show a ◎ badge and read "Survey Marius Hills (regional) or Ingenii Pit (far side)" with the hosts' real names and classes (today "survey an anomaly" is wrong for glass and ice hosts); once found: "Found at Marius Hills". The era explainer's "Research opens" count includes breakthroughs (`discovery.ts:226`). Insights get a ◎, not ⚡ (the HUD's power glyph).
+- **Migration** `surveySchema` 0 → 1 in `Game.loadFrom`: the Lander gets its drone; an in-flight rover survey completes as if a drone flew it.
+- Spec `survey.spec.ts` (new): parallel surveys equal docked drones; no rover is borrowed; the report lists its reward lines and the buttons open the map and tree; AUTO SURVEY picks the nearest prospect and respects the energy reserve; the compass text names real hosts; T1 has one outpost slot; an old save loads with one Lander drone.
+- Milestones: M1 drones, bay, parallel flights; M2 field reports, alert actions, tree compass; M3 AUTO SURVEY, migration, spec.
+
+**CP1b gate** as in the checkpoint table.
+
+---
+
+## Wave 2 · Polish and legibility (3 streams, then CP2)
+
+### S8 · Outposts made legible (port 5901)
+Owns the outpost parts of `ui/lunarMap.ts`. Shared: `infoPanel.ts`, `exploration.ts`. Every resource panel lists outposts under "Produced by" (`infoPanel.ts:230`), and the ≡ panel (l.195) lists surveys, outposts, the observatory and flares. An OUTPOSTS HUD chip ("2 live · 1 worn") opens the map's strip; outpost alerts carry `{map}`; the prospect sheet states the stream in the same words as the field report; "What this site lacks" becomes "Outposts cover: …". Spec: `lunarmap.spec.ts` extended (the chip, the producer lines). Milestones: M1 producer lines; M2 chip and alerts; M3 spec.
+
+### S9 · Touch and menu pass (port 5911)
+Owns `ui/touchUi.ts`, `touch.css`, the controls table in `menu.ts`. Touch tilt and turn buttons; a two-finger rectangle for the grading box; survey queue and field reports on the side sheet; the notification families at 667×375; the menu's controls table for the single style. Spec: `touch.spec.ts` extended. Milestones: M1 camera and grading gestures; M2 sheets and families; M3 spec.
+
+### S10 · Docs and the art bible (port 5921)
+Owns `docs/06-art-direction.md`, `docs/07-ui-design.md` (§2–3, §12), `docs/11-research-and-map-spec.md`, `docs/15-roads.md`, `docs/17-extraction-hubs.md` §20, `docs/18-follow-ups.md`, the README. docs/06 becomes the cel bible (family palette, ramp and ink constants, silhouettes and best sides, the pit palette, night rules, camera presets, cost budget; the ladder and Classic sections go); docs/07 gets the notification families and the colour exception; docs/11 the drone fleet; docs/18 is refreshed with what remains (F4–F6, extraction Phases 6–8, F5's four breakthroughs).
+
+---
+
+## Wave 3 · Diagnostic (4 parallel repair streams, then the full suite)
+
+Main already carries about 20 stale specs (docs/18 §1) and every wave above changes more. D-streams repair specs to the new model, never the feature to the old spec; a behaviour bug found is reported (or fixed if one line). They also drop the leftover `&nolock`, `&lowfx`, `&style=` from spec URLs, and retire the camera `info()` aliases.
+
+| Stream | Specs | Port |
+|---|---|---|
+| D1 | smoke (serial), playability, guidance | 5931 |
+| D2 | automation, avoidance, fleet, zones, transit, roads, traffic | 5941 |
+| D3 | techtree, research, upgrades, destiny, crew, hazards, flares, forecast | 5951 |
+| D4 | anim, render, look, silhouettes, map, lunarmap, survey, notify, touch, ui, unitpower, hubs, hubview, pits, reserves, grading | 5961 |
+
+**D5** runs `npx playwright test` once on the merged tree, re-runs the known load flakes alone (docs/18 §4), and reports. Order if limits bind: D1 first (the core loop).
+
+---
+
+## Verification, end to end
+
+- **Per stream (before reporting):** `npx tsc --noEmit`; `npm run docs:check`; its spec alone with `PORT=<port> PWTEST_CACHE_DIR=$SP/pwcache-<name> npx playwright test tests/<spec>.spec.ts --timeout=300000`; the screenshot set for a visual stream.
+- **Per checkpoint (coordinator, merged tree, main checkout):** the gate column above, then a play session on seed 42 (mare, robotic): CP0 10 min (rotate, tilt, Tab does nothing, click 3× while paused); CP1a 15 min (place a smelter and watch its road and gates; read a notification of each family); CP1b 20 min (two diggers pass; drag a grading box and watch a rover level it; let a flare hit; run two surveys at once and read the field reports); CP2 the map and touch; CP3 30 min on each site.
+- **Determinism guard at every checkpoint:** `terrainHash()` and the hub and pit state after `advanceGameMinutes(60)` on seed 42 are identical across two runs.
+
+## The agent brief (template every stream launch uses)
+
+```
+Stream <name> · plan section <name> · branch work/<name> · worktree $SP/wt/<name> · port <port>
+Scope: <the stream's bullets, verbatim>. No new scope.
+Owned files: <list>. Shared files (additive only, never reshaped): <list>.
+Needs merged first: <list>. Contracts to code against: <W0d files>.
+Setup: git worktree add $SP/wt/<name> -b work/<name> origin/main; ln -s /home/user/Moonshots-Base-Builder/node_modules $SP/wt/<name>/node_modules;
+       copy $SP/vite-hubunits.config.mjs → $SP/vite-<name>.config.mjs with ROOT, cacheDir and port; run vite from the worktree.
+Checks (only these): npx tsc --noEmit; npm run docs:check; tests/<spec>.spec.ts alone. No full suite, no pacing probes.
+Do not edit spec base URLs. Do not hand-merge docs/03–05 (npm run docs).
+Milestones: <M1…Mn>; commit WIP at each and every ≤20 min; write $SP/notes/<name>.md (state, decisions, next).
+Screenshots: $SP/shots/<name>/<view>-{day,night}.png on seed 42 at the home preset (visual streams).
+Commit trailers: the two attribution lines; no model names elsewhere. Never push. Never git stash.
+Report: final SHA, what shipped, deviations, the spec's count, screenshot paths.
+```
+
+## Decisions taken in planning (not to re-open)
+
+- Cel-shaded with ink outlines; fixed isometric camera; walk mode removed; survey drones as a fleet (the player's picks).
+- Outlines by inverted hull, not a screen-space pass: no render target, no post chain, MSAA kept.
+- The Classic path is the base of the new renderer; High detail is deleted whole; the automatic unlit safe fallback stays as the only safety net.
+- One colour exception to the greyscale UI (the 3 px family rule on notification cards); colour is never the only signal.
+- Grading is available from landing on every site as a rover job; Site Grading speeds it and allows spoil. Building pads still flatten at placement.
+- Map surveys never borrow rovers again; deposit surveys still do.
+- Tilt key is **V** (R rotates the ghost, T opens the tree); 32° and 55° tilts; continuous zoom.
+- Pacing is not a target; no pacing probes run in any wave.
+
+## Risks and mitigations
+
+1. **Deleting High detail breaks something Classic silently used** (`buildingShader` exports, `floodlights` via `rocks`' `floodPatch`, `sky.skyDirection`, `lighting.sunStep`). Mitigation: W0b1's M1 "move exports" commit keeps `tsc` green before any deletion; `world/cel.ts` is the single registry.
+2. **Reservation determinism and stalls.** Single-phase grants invert priority; two units can wait on each other. Mitigation: the two-phase tick, a 20 s bounded wait falling back to a step-aside, a counter in `getRenderInfo().life.traffic`, and `traffic.spec`'s `rescues 0` gate; rovers are a stretch goal, not a dependency.
+3. **Test churn.** CP0 gates `render/world/ui`, which W0b1 rewrites; camera field renames ripple through classic/touch/render specs. Mitigation: `getRenderInfo().camera` names are frozen at W0b2, `info()` keeps its old keys as aliases until D4, and no stream edits spec URLs.
+4. **Outline cost or a compile fault.** A second pass over every instanced class, and one shader fault could hide everything. Mitigation: the `MBB_INK` marker and hide-outlines fallback; `look.spec`'s budgets (≤ 80 calls, ≤ 300k triangles); half-width for thin parts.
+5. **Stub-to-implementation drift** (S6↔S2a/S7, S4↔S3, S5↔S1, S2↔S1). Mitigation: every W0d stub does something real (forwards, draws a line, returns the quadcopter or an empty outline), so each stream's spec passes alone before its checkpoint.
+
+## Not in this plan (next)
+
+Space weather F4–F6 (shielding, benefits, look and audio) and extraction Phases 6–8 (research reshuffle, Builder, look and migration) stay in docs/18. **F5 matters most for surveys:** it adds four more exploration-gated breakthroughs, the richest "tangible reward" for exploring; S6's pipeline is built so they drop in. Enabling GitHub Pages remains the player's to-do.
+
+---
+
+## Appendix · Inventories for W0a and W0b1
+
+- **Walk-mode tests to delete or trim:** `smoke.spec` l.219 ('walk mode: WASD moves the astronaut…') and l.1080-1084; `ui.spec` l.66, l.204 (`#walk-hud` assertion), l.364-367 (the Tab part of 'held keys…'), l.477; `render.spec` l.506; `classic.spec` l.353; `world.spec` l.182-189; `pits.spec` l.595-618 ("walk mode stands on the pit's floor"); `playability.spec` l.210 and l.250 (breathing); `touch.spec` l.156-171.
+- **Tests assuming two styles (about 62 runs):** `render` 16 (15 High detail), `fxcheck` 6 (all High detail), `classic` 9, `playability` 2 (FX-level persistence, safe toggle), `world` 2, `hubview` 1, `techtree` 1, and 13 per-style loop bodies (anim ×3, zones, avoidance, transit, pits, fleet ×2, upgrades ×2, destiny, look). They read `getRenderInfo()` fields `style, postChain, fxLevel, patches, shadowTexel, headlamp, lens, targets, context` and call `setFxLevel, degradeFx, enableSafeMode, debugBreakFx, fxCheckNext, buildingGlow, getCamera().iso`.
+- **Sizes:** High-detail-only files about 2,390 lines; Classic-only about 1,080; walk mode about 463 lines in its own files plus about 104 lines of `game.ts` hooks.
+- **Docs mentioning walk mode:** `docs/06` §9 and the §2/§3/§4/§10/§12 rows; `docs/07` §8, §3 note, §12, §13.9-13.10; `docs/08` l.18, 125, 154-155, 168, 214, 275, §8 "Walk collision", l.543-561, l.581; docs 00, 01, 09, 10, 13, 16, 17, 18 and the README.
+- **Where things are:** style chosen in `settings.ts:94-106` and the `mbb-settings` key, `main.ts:91`, `menu.ts` (`STYLES` l.38-41, `renderStyle()` l.227-243, `FX_LEVELS` l.31-36, `controlsFor` l.44-83), `Game.switchStyle()` (`game.ts:1646-1657`), boot wiring `game.ts:236-302`; material registry keys `building | buildingDepth | terrain | rock | ghost | dust | road` in `materials.ts`; per-vertex kit data `mat` and `partArea` in `meshKit.ts`; pit shading `pitCarve.ts:798-806`; the height grid's `delta`/`padMask` in `heightfield.ts`.
