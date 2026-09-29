@@ -1,5 +1,5 @@
 /** HUD components: resource strip, swarm meter, time controls, alerts,
- *  milestone goals, pause veil, walk-mode helmet HUD, floating deltas. */
+ *  milestone goals, pause veil, floating deltas. */
 import { RESOURCE_ORDER, RESOURCES, type ResourceId } from '../data/resources';
 import { BUILDINGS } from '../data/buildings';
 import { MILESTONES, type MilestoneDef } from '../data/milestones';
@@ -8,8 +8,8 @@ import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
 import {
-  $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $lookAt, $menuOpen,
-  $milestones, $mode, $phase,
+  $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $menuOpen,
+  $milestones,
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
   $hazards, $hazardMarkers, $placing,
 } from './stores';
@@ -238,9 +238,10 @@ export function mountHud(root: HTMLElement, game: Game) {
     return b;
   };
   const bPause = mkBtn('❚❚', 'Pause (Space)', () => game.actions.push({ kind: 'setPaused', paused: !$time.get().paused }));
-  const bS1 = mkBtn('1×', 'Speed 1 (key 1)', () => game.actions.push({ kind: 'setSpeed', speed: 1 }));
-  const bS3 = mkBtn('3×', 'Speed 3 (key 2)', () => game.actions.push({ kind: 'setSpeed', speed: 3 }));
-  const bS10 = mkBtn('10×', 'Speed 10 (key 3)', () => game.actions.push({ kind: 'setSpeed', speed: 10 }));
+  // a speed button also resumes a paused game (unless a banner or overlay holds the pause)
+  const bS1 = mkBtn('1×', 'Speed 1 (key 1)', () => game.chooseSpeed(1));
+  const bS3 = mkBtn('3×', 'Speed 3 (key 2)', () => game.chooseSpeed(3));
+  const bS10 = mkBtn('10×', 'Speed 10 (key 3)', () => game.chooseSpeed(10));
   mkBtn('☰', 'Menu — save, graphics, audio, controls (Esc)', () => $menuOpen.set(true)).id = 'btn-menu';
   let clockHtml = '';
   const renderTime = () => {
@@ -270,7 +271,7 @@ export function mountHud(root: HTMLElement, game: Game) {
   const RANK = { crit: 0, warn: 1, info: 2 } as const;
   /** rows the stack keeps while a building is inspected (see $selection below) */
   let inspRows = ALERTS.shown;
-  const inspecting = () => $selection.get() !== null && $mode.get() !== 'walk';
+  const inspecting = () => $selection.get() !== null;
   const renderAlerts = () => {
     const list = $alerts.get().filter((a) => !a.quiet)
       // conditions keep their places; the newest event leads its severity
@@ -327,7 +328,6 @@ export function mountHud(root: HTMLElement, game: Game) {
     }
     renderAlerts();
   });
-  $mode.subscribe(renderAlerts);
   alerts.addEventListener('click', (e) => {
     const target = e.target as HTMLElement;
     if (counterClick(game, target)) return; // a counter button runs the counter
@@ -404,58 +404,6 @@ export function mountHud(root: HTMLElement, game: Game) {
   veil.style.display = 'none';
   root.appendChild(veil);
   $time.subscribe((t) => { veil.style.display = t.paused ? 'block' : 'none'; });
-
-  // ── walk-mode HUD ──
-  const walkHud = el('div', '');
-  walkHud.id = 'walk-hud';
-  walkHud.style.display = 'none';
-  walkHud.innerHTML = `
-    <div id="reticle"></div>
-    <div id="walk-exit" class="panel">TAB — return to command view · WASD move · Space jump · E inspect</div>
-    <div id="helmet"></div>
-    <div id="nameplate" class="panel" style="display:none"></div>`;
-  root.appendChild(walkHud);
-  const helmet = walkHud.querySelector('#helmet') as HTMLElement;
-  const nameplate = walkHud.querySelector('#nameplate') as HTMLElement;
-  const renderHelmet = () => {
-    if ($mode.get() !== 'walk') return;
-    const r = $resources.get();
-    const p = $power.get();
-    const v = $vitals.get();
-    // as on the strip: an uncrewed robotic base has no morale to read
-    const crewAboard = v.expedition !== 'robotic' || v.crew > 0;
-    helmet.innerHTML = `
-      <div class="chip panel"><span class="glyph">○</span><span class="val mono">${fmt(r.oxygen)}</span><span class="cap">O₂</span></div>
-      <div class="chip panel"><span class="glyph">▮</span><span class="val mono">${fmt(p.stored)}</span><span class="cap">PWR</span></div>
-      ${crewAboard ? `<div class="chip panel" data-slot="morale"><span class="glyph">◐</span><span class="val mono">${v.morale}%</span></div>` : ''}`;
-  };
-  $mode.subscribe((m) => {
-    walkHud.style.display = m === 'walk' ? 'block' : 'none';
-    root.classList.toggle('mode-walk', m === 'walk');
-    // a HUD button left focused would take the next Space (jump, pause) as a press
-    (document.activeElement as HTMLElement | null)?.blur?.();
-    renderHelmet();
-  });
-  $resources.subscribe(renderHelmet);
-  // the tech tree is a command-view screen: T does not open it on foot or on
-  // the way there (pointer lock would leave it unclickable), but always closes
-  // an open one; Tab does not leave for walk mode while it is open. The tree's
-  // own T handler is also a window capture listener, so only
-  // stopImmediatePropagation holds it off. No world before play: no modes to ask
-  window.addEventListener('keydown', (e) => {
-    if ($phase.get() !== 'playing') return;
-    const tree = document.getElementById('tech-screen');
-    const treeOpen = !!tree && tree.style.display !== 'none';
-    if (e.code === 'KeyT' && !treeOpen && !game.commandView) e.stopImmediatePropagation();
-    if (e.code === 'Tab' && treeOpen) { e.preventDefault(); e.stopPropagation(); }
-  }, { capture: true });
-  $lookAt.subscribe((la) => {
-    if (!la) { nameplate.style.display = 'none'; return; }
-    nameplate.style.display = 'block';
-    nameplate.textContent = `${la.name} · E inspect`;
-    nameplate.style.left = `${la.x}px`;
-    nameplate.style.top = `${la.y}px`;
-  });
 
   // ── condition bars over damaged buildings ──
   const wearLayer = el('div', '');

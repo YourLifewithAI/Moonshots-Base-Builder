@@ -59,7 +59,6 @@ hue, ever.
 Notes against the original research spec: the design called for self-hosted
 Inter + IBM Plex Mono woff2; the slice ships **system font stacks** instead
 (Inter remains in the fallback chain) to honor the zero-binary-asset budget.
-The camera's build⇄walk dolly runs 1.2 s in-engine (`player/modes.ts`) —
 `--dur-mode` covers DOM-side transitions only.
 
 Shared primitives built from tokens: `.panel`, `.label`, `.mono`, `.btn`
@@ -74,7 +73,7 @@ Build mode lays five persistent regions over the canvas, 24 px from each edge:
 |---|---|---|
 | **Top-left** | `#resource-strip` | Chip row, mono digits: ⚡ supply`/`demand kW · ▮ stored`/`capacity · the nine stockpiles (▲◆◇≈○✳⚙▰↑) · ◈ crew`/`housing · ◐ morale · ≡ data. Foils/launch chips stay hidden until first production (progressive disclosure). Warn state = brighter value + stronger border — never a color |
 | **Top-center** | `#swarm-meter` | The game's spine: "Dyson Swarm · 0.0000%" with a 4 px progress bar, volley count, and — once Swarm Protocol is researched — the inverted **▲ Launch collectors** button with what a volley still lacks (`foils 6/10 ✗ · launch 3/3↑ ✓ · stored 400/400 ✓`) |
-| **Top-right** | `#time-controls` + `#alerts` | Mono clock (`DAY n · ☀ 62%` / `☾ NIGHT`; a flare rides the ☉ chip), pause + 1×/3×/10× buttons (Space, 1/2/3), and the alert stack beneath: last 4, click to dismiss, `crit` alerts inverted |
+| **Top-right** | `#time-controls` + `#alerts` | Mono clock (`DAY n · ☀ 62%` / `☾ NIGHT`; a flare rides the ☉ chip), pause + 1×/3×/10× buttons (Space, 1/2/3; a speed pick also resumes a paused game, but never under a victory or defeat overlay, an era or hazard banner or the menu), and the alert stack beneath: last 4, click to dismiss, `crit` alerts inverted |
 | **Bottom-left** | `#milestones` | "Objectives n/10" + the single next milestone (title + hint). **This panel is the entire tutorial** (§9) |
 | **Bottom-center** | `#palette` | Category tabs (Power / Extraction / Industry / Life / Science / Export) over building cards: glyph icon, name, cost in resource glyphs. Locked cards are dashed at 38% opacity — visible futures, not hidden menus |
 
@@ -143,8 +142,8 @@ whatever the [I] toggle says.
 - The Lunar Map's SITE view draws the same states.
 
 **The Builder** (`ui/builderPanel.ts`; design in 13 §5). **[B]** opens
-`#builder-panel` in the left column (it replaces an open resource panel and
-hides in walk mode). Top to bottom:
+`#builder-panel` in the left column (it replaces an open resource panel).
+Top to bottom:
 
 - the builder's rules, one line at a time (it never founds a type, holds
   when more would not help, keeps a reserve, obeys a cancel);
@@ -364,24 +363,11 @@ difficulty tagline (`BRUTAL NIGHTS · EXPORT POWERHOUSE`). The Land button
 stays disabled until a card is selected; a saved base adds Continue. The
 rotatable 3D moon globe from the full design is deferred (09).
 
-## 8. Walk mode: strip the console, keep the suit
+## 8. (retired)
 
-Tab toggles build ⇄ walk (one camera, no cut — see 08; in Classic the dolly
-runs from the isometric lens down to the suit's and back). On entering walk,
-`#hud-layer.mode-walk` CSS **hides every build region** and shows:
-
-- **Helmet chips** (bottom-center): O₂ stock, stored power, morale — the
-  three numbers an astronaut on EVA would actually watch.
-- **Reticle**: a 4 px dot with a soft halo ring.
-- **Nameplate**: raycast from the reticle (every 0.12 s, 60 m range) names
-  the building you're looking at.
-- An exit hint strip (top-center): `TAB — return to command view`.
-
-**No placement in walk mode, by design.** Walking is for inhabiting the base
-you planned, feeling the scale of the mass driver, watching the sun set on
-your solar field. Building is a command-view act (`beginPlacement` guards
-`mode === 'build'`). Look-at inspect and walk-mode toggles beyond the
-nameplate are roadmap items.
+This section described walk mode (Tab, first person), which was removed
+(docs/19 W0a). The command view is the only view. The number stays so the
+references to §9 onward hold.
 
 ## 9. Onboarding: the milestone panel is the tutorial
 
@@ -544,8 +530,7 @@ nodes only: a switch click on every control, a thunk on placement, a blip on
 a refused action, chimes for a finished site or tech, warn and crit alerts
 band-passed between Quindar tones (2525 Hz in, 2475 Hz out), a swell at
 nightfall, a sweep per launch. A low control-room hum detunes and beats as
-the grid's margin shrinks, so a brownout is audible before it lands; on
-foot the suit breathes. The sim stays silent: `game.publish()` diffs alert
+the grid's margin shrinks, so a brownout is audible before it lands. The sim stays silent: `game.publish()` diffs alert
 ids and state and plays the cues, each rate-limited in real time.
 
 **Rovers** are heard the way the suit hears them, through contact mics and
@@ -561,10 +546,9 @@ sawtooth pads drift through a small pool of chords (D Lydian by day, D
 Dorian at night), coming home to the tonic every few changes, over a soft
 drone. Sparse FM bells fall through an echo into one long synthetic hall.
 Notes are scheduled ahead on the audio clock, so a slow frame never
-stutters it. The score turns darker at the first chord after nightfall and
-drops a little on foot, so the suit's breath sits on top.
+stutters it. The score turns darker at the first chord after nightfall.
 
-**The mix.** Effects (cues, radio, hum, breath, rovers) and music have their
+**The mix.** Effects (cues, radio, hum, rovers) and music have their
 own buses and volumes (Esc menu: Master · Music · Effects, kept in settings).
 Both feed the master volume, and a limiter guards the output. Cues keep
 most of their energy above 150 Hz, where laptop speakers work; the sub
@@ -654,7 +638,6 @@ desktop game is unchanged.
 | Hover (a tech) | the first tap shows it in the sheet; the second queues (or cancels) |
 | Shift-click (a tech) | hold the card, or Queue path in the sheet |
 | Right-click | ✕ in the bar |
-| Tab (walk mode) | none: touch mode has no walk mode (§13.9) |
 
 ### 13.6 The full screens
 
@@ -705,7 +688,6 @@ phone's GPU gets.
 
 ### 13.9 Hidden or deferred in touch mode
 
-- **Walk mode** (Tab, first person) is hidden: a virtual stick is not cheap and good enough. Tab does nothing, even with a keyboard attached. A desktop save made on foot loads in the command view.
 - The era chip and the map chip: the Tree and Map rail buttons carry their state (research progress, the map's pulse).
 - The Deposits chip in the resource strip and the palette's Road button: ◌ Ore and Road on the rails replace them.
 - Ordering three at once (Ctrl+Shift-click a card): a hold orders one; hold again for more.
@@ -723,7 +705,7 @@ production and serves it with `vite preview`.
 
 | Test | Checks |
 |---|---|
-| detection | Auto and `?touch` on; the desktop off, with no touch DOM; Tab walks on the desktop only; the menu's Off reloads into the base |
+| detection | Auto and `?touch` on; the desktop off, with no touch DOM; the menu's Off reloads into the base |
 | key hints | a module's `[B]` reads as Builder; the Builder and Hazards panels and the map show no key |
 | portrait | the overlay, the pause, the resume |
 | gestures | pan; pinch steps the zoom; twist turns 90°; a tap selects; empty ground clears; a hold shows info; a drag never selects |

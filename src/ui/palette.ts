@@ -719,7 +719,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       inspSig = sig;
       buildInspector(sel);
     }
-    insp.style.display = ''; // the stylesheet decides: walk mode hides it
+    insp.style.display = ''; // the stylesheet decides
     refreshInspector(sel);
   });
   // one listener for every inspector button, acting on the live selection

@@ -10,7 +10,7 @@ import { crewRate } from '../core/fleet';
 import { roverFlareView } from '../core/flareEffects';
 import { fmtClock } from '../core/daynight';
 import { el } from './hud';
-import { $fleet, $fleetFlash, $fleetTarget, $mode, $roverSel, $selection, type SiteCrewView } from './stores';
+import { $fleet, $fleetFlash, $fleetTarget, $roverSel, $selection, type SiteCrewView } from './stores';
 
 const G = RESOURCES.regolith.glyph;
 const perMin = (r: number) => `${Math.round(r * 60)}${G}/min`;
@@ -137,7 +137,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
   const render = () => {
     const id = $roverSel.get();
     const r = id === null ? undefined : $fleet.get().rovers.find((x) => x.id === id);
-    if (!r || $mode.get() === 'walk') { insp.style.display = 'none'; sig = ''; return; }
+    if (!r) { insp.style.display = 'none'; sig = ''; return; }
     const fl = roverFlareView(game.state, r.id);
     const next = `${r.id}|${r.pinned}|${r.survey}|${r.home}|${!!fl && fl.cap < 0.9995 && !fl.reprintS}`;
     if (next !== sig) {
@@ -180,7 +180,6 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
   };
   $roverSel.subscribe(render);
   $fleet.subscribe(render);
-  $mode.subscribe(render);
   // one inspector at a time
   $selection.subscribe((b) => { if (b && $roverSel.get() !== null) $roverSel.set(null); });
   insp.addEventListener('click', (e) => {

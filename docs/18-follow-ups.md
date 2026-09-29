@@ -113,7 +113,7 @@ When the features are complete, do these in order:
 2. Fix the specs in §1 against the new model.
 3. Run the full suite with `npx playwright test`. The smoke spec is serial.
    Known load-sensitive tests: re-run each alone with `--timeout=300000` before treating it as a real failure.
-   - walk/build-camera WASD and easing;
+   - build-camera WASD and easing;
    - clicks at 10×;
    - WebAudio stubs;
    - menu Esc;

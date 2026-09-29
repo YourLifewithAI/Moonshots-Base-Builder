@@ -569,7 +569,7 @@ The builder speaks through the existing stack.
 
 ### 5.5 In the world
 
-`$autoMarkers` puts an **AUTO** tag in DOM over each pending auto site, using the same mechanism as `$wearMarkers`. Clicking a tag selects the site. Tags are hidden in walk mode.
+`$autoMarkers` puts an **AUTO** tag in DOM over each pending auto site, using the same mechanism as `$wearMarkers`. Clicking a tag selects the site.
 
 ### 5.6 Controls and docs
 

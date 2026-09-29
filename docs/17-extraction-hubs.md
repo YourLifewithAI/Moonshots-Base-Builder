@@ -943,7 +943,6 @@ So on load: **base → deltas → flattens**, and the result is exact.
 | Zones and gates (`src/core/zones.ts`) | a pit's zone is its deposit's ring or its rim + 4 m, whichever is bigger; plain pits are zones | `zonesFrom` gains pits; a zone that grows bumps `roadRev` |
 | Transit and traffic | 2D, as now; the ramp is a lane with a junction at its top | the sim adds the ramp to off-road legs (§8.3) |
 | Unit and rover visuals | height from `hf.sample` | none: they follow the ground |
-| Walk mode | the same | none |
 | Shadows | terrain chunks cast them | `onShadowCastersChanged` after a rebuild, throttled (§11.6) |
 | Rocks (`src/terrain/rocks.ts`) | none inside a pit or heap | re-scatter the affected chunk, skipping carved samples |
 | The deposit overlay, road mesh and decals | draped on the ground | re-drape rings and rims after a carve; roads are never carved, so they don't move |

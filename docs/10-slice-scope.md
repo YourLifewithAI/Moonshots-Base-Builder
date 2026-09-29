@@ -1,6 +1,6 @@
 # 10 · Vertical Slice — Scope, Cuts, Pacing, Verification
 
-> One long session, the whole loop: choose a site, build, walk your base,
+> One long session, the whole loop: choose a site, build,
 > research through six eras, survive the nights, and launch the first
 > collectors of a Dyson swarm.
 
@@ -16,7 +16,7 @@ from `src/data`; the code wins.
 The slice is not a demo of one system — it is the **full loop, thin**:
 
 ```
-site select → land → build → (walk) → research → survive nights → export → LAUNCH
+site select → land → build → research → survive nights → export → LAUNCH
 ```
 
 Every pillar of the full design must be *playable*, even if shallow:
@@ -26,7 +26,6 @@ Every pillar of the full design must be *playable*, even if shallow:
   night is the villain, and Parts is the universal maintenance sink.
 - A **six-era tech tree** — compressed to 18 techs, but reaching all the way
   from FIRST LANDING to DYSON SWARM so the capstone is visible from turn one.
-- **Walking your base** in first person at real lunar gravity.
 - At least one **telegraphed external threat** (the solar flare).
 - A **victory that is a beginning**: FIRST LIGHT moves the swarm meter to
   0.0001% and hands the game back to you.
@@ -47,7 +46,7 @@ but does not teach.)
 | Sites | **3 of 5** | Shackleton Rim (85% night solar + ice, launch ×0.6, build ×1.25) · Ilmenite Plains (ISRU ×1.25, launch ×1.5, build ×0.8, full night, no ice) · Marius Hills Tube (flare-immune, upkeep ×0.85, morale 72, solar ×0.7, 220 m footprint) |
 | Milestones | **10, ordered** | Power Up → … → FIRST LIGHT; the sequence is the tutorial (07 §9) |
 | Events | **1 type** | The solar flare: telegraph 60 s → active 45 s (solar = 0, −10 morale), first at day 2.4, then every 2.0 ± 0.8 days, seeded |
-| Modes | 2 + transition | Overhead build (MapControls) ⇄ first-person walk, one-camera 1.2 s tween |
+| Modes | 1 | The overhead command view (a first-person walk mode shipped in the slice and was removed, docs/19 W0a) |
 | Victory | First launch | 10 Foils + 1 Launch + 400 stored kWh → FIRST LIGHT overlay → continue playing |
 
 ## 3. The cut list, with rationale
@@ -71,8 +70,8 @@ Everything cut is designed (docs 02–05) and scheduled ([09-roadmap.md](09-road
 | **~14 of 28 buildings, ~12 of 30 techs** | Follow directly from the resource/system cuts above |
 | **Audio** | Nothing ships; silence is at least coherent with vacuum (roadmap Phase 7) |
 | **Terrain worker, LOD, mobile tiers, save slots/migration** | Engine scale work; 1,024 m map and one save slot fit a one-session game (roadmap Phase 8) |
-| **Edge-outline pass, blue-noise dither, helmet reflections** | Art polish; AO + SMAA carry legibility (06 §11; the visor has since shipped, 06 §9) |
-| **Minimap, coach marks, 3D moon site globe, walk-mode inspect/flag** | UI depth beyond the five regions; each has a designed home (07) |
+| **Edge-outline pass, blue-noise dither** | Art polish; AO + SMAA carry legibility (06 §11) |
+| **Minimap, coach marks, 3D moon site globe** | UI depth beyond the five regions; each has a designed home (07) |
 
 ## 4. Pacing targets
 
@@ -128,9 +127,9 @@ Three gates, run before any change lands (see 08 §10–11 for the machinery):
    `vite build`. The data files are fully typed — a mistyped resource id or
    building field fails here, not at runtime.
 2. **The 6-test Playwright suite** (`npm test`): serial full-loop smoke —
-   site select → landing → economy + night brownout → walk displacement →
+   site select → landing → economy + night brownout →
    tech gating → endgame launch/victory/save-reload. Driven through
-   `window.__game` (`?debug&seed=42&nolock&lowfx`) plus real DOM clicks, so
+   `window.__game` (`?debug&seed=42&lowfx`) plus real DOM clicks, so
    it exercises the same validity checks and action queue as play. The suite
    is the slice's definition of "the loop works."
 3. **Screenshot review**: the suite writes `test-results/01-site-select.png`

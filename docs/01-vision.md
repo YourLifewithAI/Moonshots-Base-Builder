@@ -12,9 +12,8 @@ driver, launching thin-film solar collectors toward the Sun. The victory meter a
 the top of the screen reads **Swarm 0.0000%** from the first minute. Everything
 you ever build is, ultimately, in service of moving that number.
 
-It runs in a browser at ~300 kB, in elegant procedural grayscale, and you can
-drop out of the command view at any moment and *walk around* the base you built,
-in one-sixth gravity, under a black sky.
+It runs in a browser at ~300 kB, in elegant procedural grayscale, and you watch
+the base you built from above, under a black sky.
 
 ## The player fantasy
 

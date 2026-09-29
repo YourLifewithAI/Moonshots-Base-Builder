@@ -17,7 +17,6 @@ import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
 import { mountMenu } from './menu';
 import { $phase } from './stores';
-import { mountVisor } from './visor';
 import { sfx } from '../audio/sfx';
 import { touchOn } from '../core/touch';
 import { mountTouchUi } from './touchUi';
@@ -37,7 +36,6 @@ export function mountUI(game: Game) {
   root.appendChild(hudLayer);
 
   mountHud(hudLayer, game);
-  mountVisor(hudLayer);
   mountInfoPanel(hudLayer, game);
   mountBuilderPanel(hudLayer, game);
   mountPalette(hudLayer, game);
