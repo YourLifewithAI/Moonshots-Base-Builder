@@ -205,7 +205,7 @@ test('portrait: "rotate your phone" covers the game and pauses it until it turns
 
 // ───────────────────────────── gestures ─────────────────────────────
 
-test('gestures: one finger pans, a pinch changes the zoom step, a twist turns 90°, a tap selects, a hold shows info', async ({ page }) => {
+test('gestures: one finger pans, a pinch zooms freely, a twist turns 90°, ▱ tilts, a tap selects, a hold shows info', async ({ page }) => {
   await boot(page);
   const f = await fingers(page);
   const cam = () => g(page, 'getCamera');
@@ -220,13 +220,19 @@ test('gestures: one finger pans, a pinch changes the zoom step, a twist turns 90
   expect(log).toContain('drag:pan');
   expect(log).not.toContain('tap');
 
-  // pinch out: closer by a step; pinch in: farther, settled on a level
+  // pinch out: closer (eased back inside the near clamp); pinch in: farther, and it
+  // stays where the fingers left it — no snapping to a level
   expect(c1.iso.level).toBe(1);
   await f.pair([360, 200], 40, 140);
   await expect.poll(async () => (await cam()).iso.level).toBe(0);
+  await expect.poll(async () => Math.abs((await cam()).iso.dist - 100)).toBeLessThan(0.5);
   await f.pair([360, 200], 140, 30);
   await expect.poll(async () => (await cam()).iso.level).toBeGreaterThanOrEqual(2);
-  await expect.poll(async () => { const c = await cam(); return c.iso.levels.includes(Math.round(c.iso.dist)); }).toBe(true);
+  await expect.poll(async () => { const c = (await cam()).iso; return Math.abs(c.dist - c.zoomTo) < 0.05; }).toBe(true);
+  const pinched = (await cam()).iso;
+  expect(pinched.dist).toBeGreaterThanOrEqual(100);
+  expect(pinched.dist).toBeLessThanOrEqual(830);
+  for (const l of pinched.levels) expect(Math.abs(pinched.dist - l), `not snapped to ${l}`).toBeGreaterThan(3);
 
   // twist: past 40° the view turns a step with the fingers
   const yaw = (await cam()).iso.yawStep;
@@ -235,6 +241,12 @@ test('gestures: one finger pans, a pinch changes the zoom step, a twist turns 90
   // ⟲ turns it back
   await page.locator('#t-turn-l').tap();
   await expect.poll(async () => (await cam()).iso.yawStep).toBe(yaw);
+  // ▱ tilts the view, low ↔ high, and back
+  expect((await cam()).iso).toMatchObject({ tilt: 0, pitchDeg: 32 });
+  await page.locator('#t-tilt').tap();
+  await expect.poll(async () => (await cam()).iso).toMatchObject({ tilt: 1, pitchDeg: 55, tilting: false });
+  await page.locator('#t-tilt').tap();
+  await expect.poll(async () => (await cam()).iso).toMatchObject({ tilt: 0, pitchDeg: 32, tilting: false });
 
   // home, then a tap on the Lander selects it; a tap on empty ground clears
   await page.locator('#t-home').tap();

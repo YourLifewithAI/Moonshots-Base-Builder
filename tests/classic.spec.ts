@@ -38,7 +38,7 @@ const cam = (page: Page) => g(page, 'getCamera') as Promise<any>;
 async function settled(page: Page) {
   await expect.poll(async () => {
     const c = await cam(page);
-    return !c.iso.turning && Math.abs(c.iso.dist - c.iso.levels[c.iso.level]) < 0.05;
+    return !c.iso.turning && !c.iso.tilting && Math.abs(c.iso.dist - c.iso.zoomTo) < 0.05;
   }, { timeout: 30_000 }).toBe(true);
   return cam(page);
 }
@@ -237,7 +237,7 @@ test('windows: dark by day in the sun, warm at night, dark when the structure is
   expect(await warmPixels(page, rect), 'an unpowered structure stays dark').toBeLessThan(5);
 });
 
-test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD and right-drag pan, F and H', async ({ page }) => {
+test('isometric camera: Q/E turn exactly 90°, the wheel zooms continuously, WASD and right-drag pan, F and H', async ({ page }) => {
   test.setTimeout(150_000);
   await boot(page, 'mare');
   await g(page, 'setPaused', true);
@@ -273,7 +273,7 @@ test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD an
   // turning never moves the target
   expect(Math.hypot(c.target.x - home.x, c.target.z - home.z)).toBeLessThan(0.5);
 
-  // the wheel: one notch, one level (eased), clamped at both ends
+  // the wheel zooms continuously (a notch is about one old level step, eased), clamped at both ends
   await page.mouse.move(720, 450);
   const dists: number[] = [];
   for (let i = 0; i < 5; i++) {
@@ -281,7 +281,9 @@ test('isometric camera: Q/E turn exactly 90°, the wheel steps the zoom, WASD an
     c = await settled(page);
     dists.push(c.dist);
   }
-  expect(dists.map((d) => Math.round(d))).toEqual([290, 490, 830, 830, 830]);
+  expect(dists[0]).toBeGreaterThan(250);
+  expect(dists[1]).toBeGreaterThan(dists[0] * 1.5);
+  expect(dists.slice(2).map((d) => Math.round(d))).toEqual([830, 830, 830]);
   for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await frames(page, 2); }
   c = await settled(page);
   expect(c.iso.level).toBe(0);
