@@ -21,7 +21,20 @@
  *  direction still drives the sky, the solar wings and the rover decals. */
 import * as THREE from 'three';
 import type { SiteDef } from '../data/sites';
-import { skyDirection } from './sky';
+import { skyDirection } from '../core/daynight';
+
+/** A stock-path work light's spot: a structure's ground point, how dark it
+ *  stands (0..1) and its squared distance from the camera focus. */
+export interface WorkSpot { x: number; y: number; z: number; k: number; d: number }
+
+const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-render once the sun turns 0.1° (up to 3×)
+
+/** The sun turn (as a cosine) that re-renders the map and re-aims the solar
+ *  wings: 0.1° up to 3× speed, growing with speed past that — so the sweep
+ *  costs about as many shadow renders a second at 10× as at 3×. */
+export function sunStep(speed: number): number {
+  return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
+}
 
 /** the key and fill as the classic building shader sees them */
 export const classicLightUniforms = {
@@ -140,5 +153,5 @@ export class ClassicLighting {
   useWorkLights(_on: boolean) { /* flood discs instead (buildings/instances.ts) */ }
   setWorkLights(..._args: unknown[]) { /* flood discs instead */ }
   /** the stock path's work-light spots; classic has none to fill */
-  readonly workSpots: import('./lighting').WorkSpot[] = [];
+  readonly workSpots: WorkSpot[] = [];
 }

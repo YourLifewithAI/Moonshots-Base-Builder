@@ -27,7 +27,7 @@ import type { Heightfield } from '../terrain/heightfield';
 import { mountsFor, recipeGeometry } from './recipes';
 import { upgradeKey } from './upgrades';
 import { BUILDING_MATERIAL, withInstanceState } from './meshKit';
-import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, litChannel } from './buildingShader';
+import './buildingShader'; // registers the High detail building material (until W0b1 M2)
 import { DARK_LIVE, type BuildingDarkness } from './darkness';
 import { Trackers, type Placed } from './trackers';
 import { scaffoldGeometry, type ScaffoldSite } from './scaffold';
@@ -37,10 +37,10 @@ import {
   type FloodSource,
 } from '../world/floodlights';
 import { classicActive } from '../core/style';
-import { lightLevel } from './classicBuilding';
+import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, lightLevel, litChannel } from './classicBuilding';
 import { ContactDecals } from './contactDecals';
 import { ClassicFloods } from './classicFloods';
-import type { WorkSpot } from '../world/lighting';
+import type { WorkSpot } from '../world/classicLighting';
 import { leanOf, warmthOf } from './look';
 
 const MAX_PER_TYPE = 96;

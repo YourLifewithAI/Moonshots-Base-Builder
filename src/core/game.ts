@@ -79,8 +79,8 @@ import {
 import { BUILDING_MATERIAL } from '../buildings/meshKit';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera } from '../world/renderer';
-import { Lighting, sunStep } from '../world/lighting';
-import { ClassicLighting } from '../world/classicLighting';
+import { Lighting } from '../world/lighting';
+import { ClassicLighting, sunStep } from '../world/classicLighting';
 import { installClassic } from '../world/classic';
 import { CLASSIC_MARKER, classicFallbackMaterial } from '../buildings/classicBuilding';
 import { Sky } from '../world/sky';

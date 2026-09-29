@@ -20,7 +20,7 @@ import { centerOf } from '../buildings/instances';
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
-import { litChannel } from '../buildings/buildingShader';
+import { litChannel } from '../buildings/classicBuilding';
 import { pathLength } from '../core/paths';
 import { cellAt, frontDir, groundWay, roadRoute, routePoints } from '../core/roads';
 import { bayPoint } from '../core/hubs';

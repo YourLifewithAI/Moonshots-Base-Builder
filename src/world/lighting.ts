@@ -12,6 +12,7 @@
  *  never leaves the scene (a light joining or leaving recompiles every lit
  *  program); it simply sits at intensity 0 except on foot at night. */
 import * as THREE from 'three';
+import { sunStep, type WorkSpot } from './classicLighting';
 
 const WORK_LIGHTS = 8; // stock-path floods over the buildings nearest the camera
 const HEADLAMP = 16;    // cd at full night
@@ -27,24 +28,12 @@ const SHADOW_MARGIN = 6;        // m of slack around the fitted ground…
 const MARGIN_FRAC = 0.03;       // …or this share of its extent, if more (pans stay inside longer)
 const RECEIVER_H = 20;          // m: walls and roofs above the fitted ground still receive
 const SHADOW_MIN = 48, SHADOW_MAX = 1600;
-const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-render once the sun turns 0.1° (up to 3×)
 const MIN_RENDER_S = 0.1;       // real seconds between shadow renders, whatever asks
 const FAR_SLACK = 60;           // m of depth past the lowest receiver at the last render
 const BIAS_M = 0.04;            // depth bias in metres (back faces fill the map)
 const BOUNCE = 0.6;             // fraction of the ground's exitance reaching shaded walls
 const UP = new THREE.Vector3(0, 1, 0);
 const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const;
-
-/** A stock-path work light's spot: a structure's ground point, how dark it
- *  stands (0..1) and its squared distance from the camera focus. */
-export interface WorkSpot { x: number; y: number; z: number; k: number; d: number }
-
-/** The sun turn (as a cosine) that re-renders the map and re-aims the solar
- *  wings: 0.1° up to 3× speed, growing with speed past that — so the sweep
- *  costs about as many shadow renders a second at 10× as at 3×. */
-export function sunStep(speed: number): number {
-  return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
-}
 
 /** The ground in view, in the light-space basis of one sun direction. */
 interface ViewBox { minX: number; maxX: number; minY: number; maxY: number; minZ: number }

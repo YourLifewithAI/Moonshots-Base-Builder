@@ -35,11 +35,40 @@ import type { BuildingState } from '../core/state';
 import type { BuildingId } from '../data/buildings';
 import { materials } from '../world/materials';
 import { classicLightUniforms } from '../world/classicLighting';
-import { CUT_NONE, buildingUniforms } from './buildingShader';
 import {
-  BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
+  BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
 } from './meshKit';
 import type { PartId } from './recipes';
+
+/** Cut height meaning "fully built" (no discard, no band); defined in
+ *  meshKit.ts (the kit's own instance state needs it) and shared from here. */
+export { CUT_NONE };
+
+/** The per-frame uniforms the building program reads (night level, blink clock). */
+export const buildingUniforms = {
+  uBldNight: { value: 0 },
+  uBldTime: { value: 0 },
+};
+
+/** The lit channel, iState.x: 0 unlit · 1 lit at the night's darkness (parts
+ *  that carry only the flag: rovers, the cargo lander, dishes and wings) ·
+ *  2 + k lit at the structure's own darkness k (buildings/darkness.ts). */
+export function litChannel(powered: boolean, k: number): number {
+  return powered ? 2 + Math.min(1, Math.max(0, k)) : 0;
+}
+
+/** The darkness a lit channel value lights at (as the shader reads it). */
+export function channelDark(x: number, night: number): number {
+  return x >= 1.5 ? Math.min(1, Math.max(0, x - 2)) : x >= 0.5 ? night : 0;
+}
+
+/** Emissive gains, all × lit: windows `window × max(k, windowDay)`, lamps
+ *  `lamp × k`, beacons `beaconDay + beaconDark × k + beaconNight × night`
+ *  while their flash is on (k = the structure's darkness). */
+export const EMISSIVE = {
+  window: 1.6, windowDay: 0.1, lamp: 2.6,
+  beaconDay: 1.0, beaconDark: 3.0, beaconNight: 2.0,
+};
 
 /** How brightly a structure's own lights burn, 0 (off) … 1 (full): the one
  *  place the classic windows and flood discs key on. A complete, enabled,

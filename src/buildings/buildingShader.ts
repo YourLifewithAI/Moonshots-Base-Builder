@@ -21,16 +21,10 @@
  *  Variant by FX level: 0–1 seams + 32 floods, 2 no seams + 16 floods,
  *  3 stock (squash-rise fallback, whole-hull glow, discs + PointLights). */
 import * as THREE from 'three';
-import { PATCH_MARKER, hasAnchors, injectAll, type ShaderPatch } from '../world/materials';
+import { PATCH_MARKER, hasAnchors, injectAll, materials, type ShaderPatch } from '../world/materials';
+import { CUT_NONE, EMISSIVE, buildingUniforms } from './classicBuilding';
+import { BUILDING_DEPTH_MATERIAL, BUILDING_MATERIAL } from './meshKit';
 import { FLOOD_COLOR, WORLD_NORMAL, bindFloodUniforms, floodPars, floodSlots } from '../world/floodlights';
-
-/** Cut height meaning "fully built" (no discard, no band). */
-export const CUT_NONE = 1e4;
-
-export const buildingUniforms = {
-  uBldNight: { value: 0 },
-  uBldTime: { value: 0 },
-};
 
 const warm = `vec3( ${FLOOD_COLOR.r.toFixed(3)}, ${FLOOD_COLOR.g.toFixed(3)}, ${FLOOD_COLOR.b.toFixed(3)} )`;
 /** the machines' light: a cold white (docs/14 §4.4), mixed with the warm
@@ -120,25 +114,6 @@ const FRAG_METAL = /* glsl */`
 	metalnessFactor = vBldMat.y * ( 1.0 - bldDust );
 `;
 
-/** The lit channel, iState.x: 0 unlit · 1 lit at the night's darkness (parts
- *  that carry only the flag: rovers, the cargo lander, dishes and wings) ·
- *  2 + k lit at the structure's own darkness k (buildings/darkness.ts). */
-export function litChannel(powered: boolean, k: number): number {
-  return powered ? 2 + Math.min(1, Math.max(0, k)) : 0;
-}
-
-/** The darkness a lit channel value lights at (as the shader reads it). */
-export function channelDark(x: number, night: number): number {
-  return x >= 1.5 ? Math.min(1, Math.max(0, x - 2)) : x >= 0.5 ? night : 0;
-}
-
-/** Emissive gains, all × lit: windows `window × max(k, windowDay)`, lamps
- *  `lamp × k`, beacons `beaconDay + beaconDark × k + beaconNight × night`
- *  while their flash is on (k = the structure's darkness). */
-export const EMISSIVE = {
-  window: 1.6, windowDay: 0.1, lamp: 2.6,
-  beaconDay: 1.0, beaconDark: 3.0, beaconNight: 2.0,
-};
 const f = (v: number) => v.toFixed(3);
 
 const FRAG_EMISSIVE = /* glsl */`
@@ -253,3 +228,8 @@ export const buildingDepthPatch: ShaderPatch<THREE.MeshDepthMaterial> = (mat, le
   };
   return 'bldg-depth';
 };
+
+// The registry entries live here (not in meshKit.ts) so the kit stays free of
+// this file's imports; instances.ts imports this module for the side effect.
+materials.define('building', BUILDING_MATERIAL, buildingPatch);
+materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);

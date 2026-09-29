@@ -8,9 +8,9 @@ import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
 import { partGeometry, type Mount, type PartId } from './recipes';
 import { withInstanceState } from './meshKit';
-import { CUT_NONE } from './buildingShader';
+import { CUT_NONE } from './classicBuilding';
 import { materials } from '../world/materials';
-import { skyDirection } from '../world/sky';
+import { skyDirection } from '../core/daynight';
 import type { SiteDef } from '../data/sites';
 
 const MAX: Record<PartId, number> = { wing: 96, wingXL: 96, dish: 256 };

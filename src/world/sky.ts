@@ -23,6 +23,7 @@
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
 import { mulberry32, type Rng } from '../core/rng';
+import { skyDirection } from '../core/daynight';
 import type { SiteDef } from '../data/sites';
 
 const SKY_R = 2900;
@@ -70,11 +71,6 @@ function radialTexture(size: number, fn: (r: number) => number): THREE.DataTextu
   tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
   return tex;
-}
-
-/** Unit direction for (elevation, azimuth) in the scene's sun convention. */
-export function skyDirection(elev: number, azim: number, out = new THREE.Vector3()): THREE.Vector3 {
-  return out.set(Math.cos(azim) * Math.cos(elev), Math.sin(elev), Math.sin(azim) * Math.cos(elev));
 }
 
 export class Sky {

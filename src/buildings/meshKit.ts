@@ -8,8 +8,10 @@
  *  merged parts must carry identical attribute sets. */
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { materials } from '../world/materials';
-import { CUT_NONE, buildingDepthPatch, buildingPatch } from './buildingShader';
+/** Cut height meaning "fully built" (no discard, no band). Lives here, at the
+ *  bottom of the import graph, and is re-exported by celBuilding.ts (which
+ *  imports this file), so the two never import each other's values cyclically. */
+export const CUT_NONE = 1e4;
 
 export interface Finish {
   /** linear gray value */
@@ -364,11 +366,9 @@ export const BUILDING_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 0.55,
   metalness: 0.15,
 });
-materials.define('building', BUILDING_MATERIAL, buildingPatch);
 /** Shadow-pass twin of the building patch: the same print-reveal cut, so a
  *  half-printed structure casts a half-height shadow. */
 export const BUILDING_DEPTH_MATERIAL = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-materials.define('buildingDepth', BUILDING_DEPTH_MATERIAL, buildingDepthPatch);
 
 /** Style-specific extras for every instanced view (the classic palette and
  *  its per-instance light level — buildings/classicBuilding.ts installs it). */
