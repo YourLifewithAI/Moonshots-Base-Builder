@@ -217,6 +217,8 @@ export const LAB_DATA = {
   humanAgent: 1.0,                     // agent-run lab on a crewed mission
   crewedMoraleExp: 1.5,                // crewed labs scale with workMult^1.5
 };
+/** the Skunkworks (docs/20 §1) is a lab variant: a Research Lab's data ×dataMult (mods.effectiveRates) */
+export const SKUNKWORKS = { dataMult: 2 };
 export const DC_DATA_PER_S = 1.0;
 
 /** agent-run crewed stations draw ×(1 + agentTax); Rad-Hard multiplies the tax */

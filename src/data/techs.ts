@@ -84,7 +84,14 @@ export type TechId =
   | 'pressureHalls' | 'dispatchMesh' | 'crewCharter' | 'droneHives' | 'hydroCommons' | 'lightsOutFabs'
   | 'greenhouseRings' | 'fleetOS' | 'settlerCharter' | 'lightsOutCharter' | 'gardenDomes' | 'replicatorStacks'
   | 'missionControl' | 'autoCadence'
-  | 'commonwealth' | 'selenicMind' | 'concord';
+  | 'commonwealth' | 'selenicMind' | 'concord'
+  // the faction branches (docs/20 §3): 8 techs per faction, each in its lane and era (drawn in the page's ⚑ FACTION row)
+  | 'nightVaultDocks' | 'faradaySheds' | 'hardenedFirmware' | 'isotopeWarmers' | 'bankTrenches' | 'selfRepairCells'
+  | 'lightsOutFoundry' | 'swarmRelayUplink'
+  | 'pressCorps' | 'crunchCulture' | 'hazardWaivers' | 'skunkworksLabs' | 'hearingPrep' | 'ventureFoils' | 'launchFever'
+  | 'mediaBlitz'
+  | 'commonsCharter' | 'mutualAidDrills' | 'slowBuildDoctrine' | 'regolithTerraces' | 'consensusCouncil'
+  | 'cooperativeSwarm' | 'guardianship' | 'longNightGardens';
 
 /** the two destinies (docs/14 §2): ⌂ humans settle the Moon, ◉ the Moon runs itself */
 export type Side = 'colony' | 'automation';
@@ -110,7 +117,9 @@ export interface RecipeOverride {
 
 export type TechEffect = EffectFilter & (
   | { kind: 'unlock'; building: BuildingId }
-  | { kind: 'outputMult'; buildings: BuildingId[]; mult: number; crewedOnly?: true }
+  | { kind: 'outputMult'; buildings: BuildingId[]; mult: number; crewedOnly?: true;
+      /** only while the station runs on agents (an unmanned base, or the Autonomous toggle): mods.agentOutputMult (docs/20, Lights-Out Foundry) */
+      agentOnly?: true }
   | { kind: 'inputMult'; buildings: BuildingId[]; mult: number }
   | { kind: 'powerMult'; buildings: BuildingId[]; mult: number }
   | { kind: 'upkeepMult'; buildings: BuildingId[] | 'all'; mult: number }
@@ -213,13 +222,23 @@ export type TechEffect = EffectFilter & (
   | { kind: 'pickCost'; side: Side; mult: number }
   /** flare damage: solar arrays ×arrayHard (mods.arrayHardMult), machine reboot / latch / burn ×machine (mods.machineFlareMult) */
   | { kind: 'flareVuln'; arrayHard?: number; machine?: number }
-  /** the long night: stations and units' output ×output, standby draw ×standby, bank charge efficiency
-   *  chargeEff (absolute: the worse of it and the grid's), bank discharge ×discharge */
-  | { kind: 'nightMode'; output?: number; standby?: number; chargeEff?: number; discharge?: number }
+  /** the long night: stations and units' output ×output (ABSOLUTE: several nightMode effects take the best output, so a
+   *  later relief such as Isotope Warmers' 0.5 replaces the landing's 0.25 rather than multiplying it), standby draw ×standby,
+   *  bank charge efficiency chargeEff (absolute: the worse of it and the grid's), bank discharge ×discharge.
+   *  `relief`: the effect eases the faction's own night penalty (the card reads it as a pro: `×0.25 → ×0.5`) */
+  | { kind: 'nightMode'; output?: number; standby?: number; chargeEff?: number; discharge?: number; relief?: true }
   /** morale falls ×fallMult as fast (the rise is untouched) */
   | { kind: 'moraleDynamics'; fallMult: number }
-  /** the scrutiny meter is live (core/scrutiny.ts, stream S2) */
-  | { kind: 'scrutiny'; on: true }
+  /** the scrutiny meter (core/scrutiny.ts, stream S2): `on` makes it live (the Vanguard's landing); the rest tunes it:
+   *  it fades ×decay as fast (mods.scrutinyDecayMult), a HEARING recalls ×recall as many crew (scrutinyRecallMult),
+   *  and FIRST LIGHT clears the meter and lifts morale for a lunar day (firstLightClearsScrutiny, firstLightMorale) */
+  | { kind: 'scrutiny'; on?: true; decay?: number; recall?: number; firstLight?: { clear?: true; morale?: number } }
+  /** a volley's foils ×mult (mods.volleyFoilsMult; economy's volleyTerms) */
+  | { kind: 'volleyFoils'; mult: number }
+  /** another program's disaster grants this much data (mods.rivalAidData; the rival events of streams S4/S6 read it) */
+  | { kind: 'rivalAid'; data: number }
+  /** these buildings' output ×mult at night (mods.nightBuildingMult; effectiveRates reads it with `isNight`) */
+  | { kind: 'nightOutput'; buildings: BuildingId[]; mult: number }
   /** a one-time grant when the tech completes (research.onTechComplete; the landing tech's is applied at landing) */
   | { kind: 'grant'; data?: number }
 );
@@ -247,6 +266,8 @@ export interface TechDef {
   robotic?: { era?: Era; costData?: number };
   /** faction-locked (docs/20 §3): visible only to these factions, never in a solo game (techVisible) */
   factions?: FactionId[];
+  /** an ethos lock (docs/20 §3): visible to a solo game and to every faction EXCEPT these (`⚑ not open to The Commons`) */
+  notFactions?: FactionId[];
   /** per-faction overrides, merged by resolveTech(faction) after `robotic` */
   factionOverride?: Partial<Record<FactionId, { era?: Era; costData?: number; name?: string; short?: string; desc?: string }>>;
   /** hidden until one of its hosts is surveyed; fixed Exploration-lane slot */
@@ -380,6 +401,34 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'A roof turret reads the ground around the lab while the bench reads the samples.',
     visual: 'Research Labs bolt a spectrometer turret onto the roof.',
     tradeoff: 'Every instrument is another load.',
+  },
+
+  // ─── the faction branches (docs/20 §3) ───
+  // Each faction's eight techs sit in their lane and era like any tech (lane costs and prerequisites follow the lane), are
+  // `factions`-locked (visible only to their faction, never solo) and are drawn in their era page's ⚑ FACTION row. Their
+  // prerequisites are never site-locked, doctrine or crew techs, so a branch is reachable on every site and expedition.
+  // The Vanguard's Era 1 and the Commons' Era 1:
+  pressCorps: {
+    id: 'pressCorps', era: 1, lane: 'compute', name: 'Press Corps', short: 'Press Corps',
+    costData: 90, requires: [], factions: ['accelerationists'],
+    effects: [
+      { kind: 'unlock', building: 'missionOps' },
+      { kind: 'scrutiny', decay: 1.5 },
+    ],
+    desc: 'Reporters on the same link as the engineers: every stumble is published, and so is every correction. A Mission Ops console runs the story.',
+    visual: 'Mission Ops can rise: a glass control room under a press dish, cobalt-trimmed.',
+    tradeoff: 'The world reads the log, including the lines you would rather it did not.',
+  },
+  commonsCharter: {
+    id: 'commonsCharter', era: 1, lane: 'habitat', name: 'Commons Charter', short: 'Commons Charter',
+    costData: 100, requires: [], factions: ['solarpunks'],
+    effects: [
+      { kind: 'unlock', building: 'commonsHall' },
+      { kind: 'moraleBase', delta: 6 },
+    ],
+    desc: 'A charter every settler signs: no one eats alone on the Moon. Commons Halls gather the crew, and the crew is glad of it.',
+    visual: 'Commons Halls can rise: a long timber-roofed hall with a green banner and one long table.',
+    tradeoff: 'Consensus takes time, and a hall is metal that was not a solar array.',
   },
 
   // ─── ERA 2 · EARLY CONSTRUCTION ───
@@ -605,6 +654,38 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'A heavier rover rolls harder.',
   },
 
+  // ── faction branches, Era 2 ──
+  nightVaultDocks: {
+    id: 'nightVaultDocks', era: 2, lane: 'power', name: 'Night Vault', short: 'Night Vault',
+    costData: 130, requires: ['batteryStorage'], factions: ['robots'],
+    effects: [{ kind: 'unlock', building: 'nightVault' }],
+    desc: 'A berthing hall under the berm: units dock, hibernate and sip their heaters through the fourteen-day night.',
+    visual: 'Night Vaults can rise: a low berthing hall under a regolith roof, its charging bays lit orange.',
+    tradeoff: 'A hall for machines that do nothing is still a hall to power, pay for and keep dust out of.',
+  },
+  crunchCulture: {
+    id: 'crunchCulture', era: 2, lane: 'compute', name: 'Crunch Culture', short: 'Crunch Culture',
+    costData: 120, requires: ['fieldSpectrometers'], factions: ['accelerationists'],
+    effects: [
+      { kind: 'outputMult', buildings: ['lab', 'dataCenter'], mult: 1.15 },
+      { kind: 'moraleBase', delta: -5 },
+    ],
+    desc: 'Labs on two shifts, publishing every Friday: data flows faster, and nobody goes home.',
+    visual: 'Research Labs and Data Centers string a banner of status lights along the roof.',
+    tradeoff: 'Nobody sleeps, and the morale meter notices.',
+  },
+  mutualAidDrills: {
+    id: 'mutualAidDrills', era: 2, lane: 'habitat', name: 'Mutual Aid Drills', short: 'Mutual Aid Drills',
+    costData: 130, requires: ['regolithShielding'], factions: ['solarpunks'],
+    effects: [
+      { kind: 'hazardRate', mult: 0.8 },
+      { kind: 'outputMult', buildings: ['smelter', 'refinery', 'partsFab', 'lab'], mult: 0.95, crewedOnly: true },
+    ],
+    desc: 'Everyone learns everyone’s job: when a window opens, whoever is nearest is already suited up.',
+    visual: 'Airlocks gain a leaf-green drill bell and a rescue-sled rack.',
+    tradeoff: 'An hour of drill is an hour off the line.',
+  },
+
   // ─── ERA 3 · ROBOTIC FABRICATION ───
   waterReclamation: {
     id: 'waterReclamation', era: 3, lane: 'habitat', name: 'Water Reclamation', short: 'Water Reclamation',
@@ -775,6 +856,49 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Cast basalt pavers, poured from the smelter’s slag, give the rovers a hard running surface.',
     visual: 'The roads turn to dark basalt pavers with a pale centre line.',
     tradeoff: 'Every new cell is cast, not just sintered.',
+  },
+
+  // ── faction branches, Era 3 ──
+  faradaySheds: {
+    id: 'faradaySheds', era: 3, lane: 'robotics', name: 'Faraday Sheds', short: 'Faraday Sheds',
+    costData: 150, requires: ['constructionRobotics'], factions: ['robots'],
+    effects: [{ kind: 'unlock', building: 'faradayShed' }],
+    desc: 'A steel-mesh hangar that shunts a flare around whatever is parked inside, and a little beyond its walls.',
+    visual: 'Faraday Sheds can rise: a mesh-roofed hangar on grounded stilts, its ribs banded orange.',
+    tradeoff: 'It saves what stands under it; everything outside is as bare as before.',
+  },
+  hardenedFirmware: {
+    id: 'hardenedFirmware', era: 3, lane: 'compute', name: 'Hardened Firmware', short: 'Hardened Firmware',
+    costData: 160, requires: ['siliconRefining'], factions: ['robots'],
+    effects: [
+      { kind: 'flareVuln', machine: 0.5 },
+      { kind: 'powerMult', buildings: ['roboticsBay', 'partsFab'], mult: 1.15 },
+    ],
+    desc: 'Triple-voted controllers and a watchdog on every bus: a flare that used to reboot a machine now barely flips a bit.',
+    visual: 'Robotics Bays and Parts Fabricators mount a shielded controller cabinet on the side wall.',
+    tradeoff: 'Voting takes power and time: every controller is three.',
+  },
+  hazardWaivers: {
+    id: 'hazardWaivers', era: 3, lane: 'robotics', name: 'Hazard Waivers', short: 'Hazard Waivers',
+    costData: 150, requires: ['constructionRobotics'], factions: ['accelerationists'],
+    effects: [
+      { kind: 'buildSpeed', mult: 0.85 },
+      { kind: 'hazardRate', mult: 1.2 },
+    ],
+    desc: 'Sign here: a crew that accepts the risk gets built for faster, and the schedule stops asking questions.',
+    visual: 'Construction rovers wear a cobalt chevron and work under a striped gantry.',
+    tradeoff: 'A waiver does not make the hazard any less real.',
+  },
+  slowBuildDoctrine: {
+    id: 'slowBuildDoctrine', era: 3, lane: 'materials', name: 'Slow Build Doctrine', short: 'Slow Build',
+    costData: 150, requires: ['basaltPaving'], factions: ['solarpunks'],
+    effects: [
+      { kind: 'buildSpeed', mult: 1.15 },
+      { kind: 'upkeepMult', buildings: 'all', mult: 0.7 },
+    ],
+    desc: 'Build it once, build it to last: every structure rises slower and costs less to keep.',
+    visual: 'New structures rise behind a leaf-green scaffold and a hand-laid regolith plinth.',
+    tradeoff: 'Every foundation waits on the doctrine, and the Sun does not wait.',
   },
 
   // ─── ERA 4 · CHIP FABRICATION ───
@@ -1000,6 +1124,46 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'The monitors never sleep, and neither does their draw.',
   },
 
+  // ── faction branches, Era 4 ──
+  isotopeWarmers: {
+    id: 'isotopeWarmers', era: 4, lane: 'power', name: 'Isotope Warmers', short: 'Isotope Warmers',
+    costData: 240, requires: ['roverPowerPacks'], factions: ['robots'],
+    effects: [
+      { kind: 'nightMode', output: 0.5, relief: true },
+      { kind: 'unitPower', packMult: 0.9 },
+    ],
+    desc: 'A radioisotope heater tucked into every gearbox: the machines keep their joints warm and work through the night instead of crawling.',
+    visual: 'Rovers, excavators and drones carry a finned radioisotope heater block on their decks.',
+    tradeoff: 'A heater is mass that could have been battery.',
+  },
+  skunkworksLabs: {
+    id: 'skunkworksLabs', era: 4, lane: 'compute', name: 'Skunkworks', short: 'Skunkworks',
+    costData: 260, requires: ['crunchCulture', 'cryoSampleStore'], factions: ['accelerationists'],
+    effects: [{ kind: 'unlock', building: 'skunkworks' }],
+    desc: 'A lab off the books: twice the data of a Research Lab from a hall that answers to no one, and trusts nobody’s shielding.',
+    visual: 'Skunkworks can rise: a windowless, cobalt-trimmed research hall under a screened roof.',
+    tradeoff: 'A secret lab is an exposed one: what strikes it strikes it hard.',
+  },
+  hearingPrep: {
+    id: 'hearingPrep', era: 4, lane: 'habitat', name: 'Hearing Prep', short: 'Hearing Prep',
+    costData: 230, requires: ['regolithShielding', 'pressCorps'], factions: ['accelerationists'],
+    effects: [
+      { kind: 'scrutiny', recall: 0.5 },
+      { kind: 'outputMult', buildings: ['lab'], mult: 0.92 },
+    ],
+    desc: 'Counsel on retainer and a script for every mistake: when the hearings come, half as many people go home.',
+    visual: 'Research Labs set a briefing alcove behind a cobalt-lit window.',
+    tradeoff: 'Every hour of prep is an hour a lab was not running.',
+  },
+  regolithTerraces: {
+    id: 'regolithTerraces', era: 4, lane: 'habitat', name: 'Regolith Terraces', short: 'Regolith Terraces',
+    costData: 230, requires: ['growLights', 'commonsCharter'], factions: ['solarpunks'],
+    effects: [{ kind: 'unlock', building: 'regolithTerrace' }],
+    desc: 'Stepped beds cut into the berm: slow, sun-warmed soil farms that want no power through the night.',
+    visual: 'Regolith Terraces can rise: stepped, leaf-green planting beds cut into a sintered berm.',
+    tradeoff: 'Slow: a third of a farm’s food from the same ground, and it still drinks.',
+  },
+
   // ─── ERA 5 · LUNAR COMPUTE ───
   depotHalls: {
     id: 'depotHalls', era: 5, lane: 'robotics', name: 'Depot Halls', short: 'Depot Halls',
@@ -1196,6 +1360,53 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Retroreflector posts and radio pips along the kerbs: the rovers drive them faster, and faster still after dark.',
     visual: 'Beacon posts line the road edges and light up at night.',
     tradeoff: 'Every cell gets its posts.',
+  },
+
+  // ── faction branches, Era 5 ──
+  bankTrenches: {
+    id: 'bankTrenches', era: 5, lane: 'power', name: 'Bank Trenches', short: 'Bank Trenches',
+    costData: 420, requires: ['isotopeWarmers'], factions: ['robots'],
+    effects: [
+      { kind: 'storage', efficiency: 0.85 },
+      { kind: 'buildTime', buildings: ['battery'], mult: 1.3 },
+      { kind: 'upkeepMult', buildings: ['battery'], mult: 1.2 },
+    ],
+    desc: 'Battery banks set in sintered trenches under the berm: the cells stay at the temperature they like, and the round trip comes back.',
+    visual: 'Battery Banks sit in sintered trenches banked with regolith.',
+    tradeoff: 'Every bank is now a dig, and a trench is upkeep.',
+  },
+  selfRepairCells: {
+    id: 'selfRepairCells', era: 5, lane: 'robotics', name: 'Self-Repair Cells', short: 'Self-Repair Cells',
+    costData: 400, requires: ['toolChangers'], factions: ['robots'],
+    effects: [
+      { kind: 'repair', mult: 1.3 },
+      { kind: 'upkeepMult', buildings: ['partsFab'], mult: 1.3 },
+    ],
+    desc: 'Spare actuators and a swap arm in every bay: a worn machine heals itself before anyone notices the wear.',
+    visual: 'Robotics Bays grow a spare-parts carousel beside the door.',
+    tradeoff: 'The carousel is stocked by the parts fab, and the parts fab eats what it is given.',
+  },
+  ventureFoils: {
+    id: 'ventureFoils', era: 5, lane: 'materials', name: 'Venture Foils', short: 'Venture Foils',
+    costData: 420, requires: ['waferPolishing'], factions: ['accelerationists'],
+    effects: [
+      { kind: 'outputMult', buildings: ['foilFactory'], mult: 1.25 },
+      { kind: 'upkeepMult', buildings: ['foilFactory'], mult: 1.5 },
+    ],
+    desc: 'Backed by the launch-window investors: a foil line pushed hard, for as long as the tooling lasts.',
+    visual: 'Foil Factories run an extra, cobalt-railed casting line.',
+    tradeoff: 'Investors want output, not maintenance: the tooling wears half again as fast.',
+  },
+  consensusCouncil: {
+    id: 'consensusCouncil', era: 5, lane: 'compute', name: 'Consensus Council', short: 'Consensus Council',
+    costData: 400, requires: ['budgetGovernor'], factions: ['solarpunks'],
+    effects: [
+      { kind: 'builder', dwellMult: 0.8 },
+      { kind: 'crewDelta', buildings: ['lab'], delta: 1 },
+    ],
+    desc: 'Everyone has a vote on the standing rules, so the Builder need not wait to be sure: its rules act in four-fifths the time.',
+    visual: 'Research Labs seat a round table behind a green-lit window.',
+    tradeoff: 'Every lab seats a councillor, and councillors are not researchers.',
   },
 
   // ─── ERA 6 · HUMAN HABITATION ───
@@ -1406,6 +1617,41 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'Rails are laid, not poured.',
   },
 
+  // ── faction branches, Era 6 ──
+  lightsOutFoundry: {
+    id: 'lightsOutFoundry', era: 6, lane: 'materials', name: 'Lights-Out Foundry', short: 'Lights-Out Foundry',
+    costData: 1050, requires: ['autoSmelting'], factions: ['robots'],
+    effects: [
+      { kind: 'outputMult', buildings: ['foilFactory'], mult: 1.2, agentOnly: true },
+      { kind: 'upkeepMult', buildings: ['foilFactory'], mult: 1.25 },
+    ],
+    desc: 'A foil line with no lights and no one in it: run by agents, the rolls come off cooler, cleaner and faster.',
+    visual: 'Foil Factories black out their windows and hang an orange stack light above the line.',
+    tradeoff: 'Nobody watching the line means nobody noticing it wear.',
+  },
+  launchFever: {
+    id: 'launchFever', era: 6, lane: 'export', name: 'Launch Fever', short: 'Launch Fever',
+    costData: 950, requires: ['launchSiteSurvey'], factions: ['accelerationists'],
+    effects: [
+      { kind: 'volley', launchCap: 2 },
+      { kind: 'moraleBase', delta: -5 },
+    ],
+    desc: 'Launch day is a national holiday: a volley leaves needing one less unit of launch capacity.',
+    visual: 'The Lander, Mass Drivers and Propellant Plants fly cobalt pennants.',
+    tradeoff: 'The crew was promised a launch every day, and the mood sags when it does not come.',
+  },
+  cooperativeSwarm: {
+    id: 'cooperativeSwarm', era: 6, lane: 'export', name: 'Cooperative Swarm', short: 'Cooperative Swarm',
+    costData: 1000, requires: ['launchSiteSurvey'], factions: ['solarpunks'],
+    effects: [
+      { kind: 'volleyFoils', mult: 0.9 },
+      { kind: 'upkeepMult', buildings: ['foilFactory', 'massDriver', 'propellantPlant'], mult: 1.15 },
+    ],
+    desc: 'Every program lends the others its tooling, and a shared sky needs fewer foils to fill: a volley flies with a tenth fewer.',
+    visual: 'Foil Factories and Mass Drivers hang shared tooling racks painted leaf-green.',
+    tradeoff: 'Shared tooling is shared wear.',
+  },
+
   // ─── ERA 7 · SWARM INDUSTRY ───
   foilManufacturing: {
     id: 'foilManufacturing', era: 7, lane: 'materials', name: 'Thin-Film Foils', short: 'Thin-Film Foils',
@@ -1573,6 +1819,52 @@ export const TECHS: Record<TechId, TechDef> = {
     desc: 'Superconducting coils under the pavers lift the loads: nothing touches the ground, nothing kicks up dust.',
     visual: 'A glowing coil strip runs down the centre of the roads.',
     tradeoff: 'Coils take their time to bury.',
+  },
+
+  // ── faction branches, Era 7 ──
+  swarmRelayUplink: {
+    id: 'swarmRelayUplink', era: 7, lane: 'export', name: 'Swarm Relay Uplink', short: 'Swarm Relay Uplink',
+    costData: 1400, requires: ['launchSiteSurvey'], factions: ['robots'],
+    effects: [
+      { kind: 'volley', launchCap: 2 },
+      { kind: 'powerDelta', building: 'lander', kw: -3 },
+    ],
+    desc: 'A relay dish on every launcher, tied to the swarm itself: a volley leaves needing one less unit of launch capacity.',
+    visual: 'The Lander raises a second relay dish, pointed at the swarm.',
+    tradeoff: 'The dish never sleeps, and it draws on the Lander’s bus.',
+  },
+  mediaBlitz: {
+    id: 'mediaBlitz', era: 7, lane: 'compute', name: 'Media Blitz', short: 'Media Blitz',
+    costData: 1150, requires: ['pressCorps', 'scienceCrews'], factions: ['accelerationists'],
+    effects: [
+      { kind: 'scrutiny', firstLight: { clear: true, morale: 10 } },
+      { kind: 'powerMult', buildings: ['lab', 'dataCenter'], mult: 1.15 },
+    ],
+    desc: 'First light is a broadcast: it clears every black mark on the meter, and for a lunar day nobody is tired.',
+    visual: 'Mission Ops raise a second press dish and a media mast.',
+    tradeoff: 'Broadcast-quality uplinks draw power the labs could have used.',
+  },
+  guardianship: {
+    id: 'guardianship', era: 7, lane: 'exploration', name: 'Guardianship', short: 'Guardianship',
+    costData: 1250, requires: ['farSideRelay'], factions: ['solarpunks'],
+    effects: [
+      { kind: 'rivalAid', data: 120 },
+      { kind: 'powerDelta', building: 'lander', kw: -3 },
+    ],
+    desc: 'Someone has to watch the Moon: when another program suffers a disaster, the Commons sits the watch and the data comes to you.',
+    visual: 'The Lander raises a beacon mast with a green watch lamp.',
+    tradeoff: 'The watch never ends, and it runs on the Lander’s bus.',
+  },
+  longNightGardens: {
+    id: 'longNightGardens', era: 7, lane: 'habitat', name: 'Long Night Gardens', short: 'Long Night Gardens',
+    costData: 1000, requires: ['galleyGarden'], factions: ['solarpunks'],
+    effects: [
+      { kind: 'nightOutput', buildings: ['greenhouseRing'], mult: 1.2 },
+      { kind: 'powerMult', buildings: ['greenhouseRing'], mult: 1.15 },
+    ],
+    desc: 'Banked soil, stored heat and lamps on a timer: the rings are at their best while everything else sleeps.',
+    visual: 'Greenhouse Rings glow green through the night under thermal curtains.',
+    tradeoff: 'Lamps in the dark are kilowatts, and the night is long.',
   },
 
   // ─── ERA 8 · DYSON SWARM (capstone column) ───
@@ -1854,7 +2146,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   lightsOutCharter: {
     id: 'lightsOutCharter', era: 6, name: 'Lights-Out Charter', short: 'Lights-Out Charter',
-    costData: 1000, costGoods: { chips: 20 }, requires: [], track: { era: 6, side: 'automation' },
+    costData: 1000, costGoods: { chips: 20 }, requires: [], track: { era: 6, side: 'automation' }, notFactions: ['solarpunks'],
     effects: [
       { kind: 'waive', tech: 'humanCohabitation', expeditions: ['robotic'] },
       { kind: 'agentTax', mult: 0.8 },
@@ -1882,7 +2174,7 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   replicatorStacks: {
     id: 'replicatorStacks', era: 7, name: 'Replicator Stacks', short: 'Replicator Stacks',
-    costData: 1125, costGoods: { chips: 20, parts: 30 }, requires: [], track: { era: 7, side: 'automation' },
+    costData: 1125, costGoods: { chips: 20, parts: 30 }, requires: [], track: { era: 7, side: 'automation' }, notFactions: ['solarpunks'],
     effects: [
       { kind: 'hubPrint', timeMult: 0.5 },
       { kind: 'outputMult', buildings: ['partsFab', 'foilFactory'], mult: 1.2 },
@@ -2265,12 +2557,24 @@ function recipeLines(fx: { building: BuildingId } & RecipeOverride): EffectLine[
   return out;
 }
 
+/** What a faction's landing does to the bank's charge efficiency (the Foundry's 75%); the grid's BATTERY_EFF otherwise
+ *  (and in a solo game). Bank Trenches reads `from → 85%` off it. */
+function factionChargeEff(faction?: FactionId): number {
+  const fx = faction ? TECHS[LANDING_TECH_FOR[faction]]?.effects.find((e) => e.kind === 'nightMode' && e.chargeEff !== undefined) : undefined;
+  return fx && fx.kind === 'nightMode' ? Math.min(BATTERY_EFF, fx.chargeEff!) : BATTERY_EFF;
+}
+/** The night output a faction's landing sets (the Foundry's ×0.25); ×1 otherwise. The Isotope Warmers card reads `was ×0.25`. */
+function factionNightOutput(faction?: FactionId): number {
+  const fx = TECHS[LANDING_TECH_FOR[faction ?? 'robots']]?.effects.find((e) => e.kind === 'nightMode' && e.output !== undefined);
+  return fx && fx.kind === 'nightMode' ? fx.output! : 1;
+}
+
 /** The generated +/− lines of one effect, driven by a polarity table per kind. */
 export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLine[] {
   switch (fx.kind) {
     case 'unlock': return buildingLines(fx.building, ctx);
     case 'outputMult': {
-      const text = `${pctDelta(fx.mult)} output: ${names(fx.buildings)}${fx.crewedOnly ? ' (crewed only)' : ''}`;
+      const text = `${pctDelta(fx.mult)} output: ${names(fx.buildings)}${fx.crewedOnly ? ' (crewed only)' : fx.agentOnly ? ' (agent-run only)' : ''}`;
       return [fx.mult >= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
     }
     case 'inputMult': {
@@ -2363,9 +2667,11 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
         out.push(fx.capacityMult >= 1 ? pro(text, mag(fx.capacityMult), 'mult') : con(text, mag(fx.capacityMult), 'mult'));
       }
       if (fx.efficiency !== undefined) {
-        const text = `grid round-trip ${Math.round(BATTERY_EFF * 100)}% → ${Math.round(fx.efficiency * 100)}%`;
-        const m = mag(fx.efficiency / BATTERY_EFF);
-        out.push(fx.efficiency >= BATTERY_EFF ? pro(text, m, 'mult') : con(text, m, 'mult'));
+        // a faction whose landing taxes the bank (the Foundry's 75%) starts from its own figure
+        const from = factionChargeEff(ctx.faction);
+        const text = `grid round-trip ${Math.round(from * 100)}% → ${Math.round(fx.efficiency * 100)}%`;
+        const m = mag(fx.efficiency / from);
+        out.push(fx.efficiency >= from ? pro(text, m, 'mult') : con(text, m, 'mult'));
       }
       return out;
     }
@@ -2679,7 +2985,12 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       const out: EffectLine[] = [];
       const line = (text: string, m: number, good: boolean) =>
         out.push(good ? pro(text, mag(m), 'mult') : con(text, mag(m), 'mult'));
-      if (fx.output !== undefined && fx.output !== 1) line(`stations and units run at ×${num(fx.output)} output at night`, fx.output, fx.output >= 1);
+      if (fx.output !== undefined && fx.output !== 1) {
+        // a relief (Isotope Warmers) eases the landing's own penalty: its card reads from → to
+        const from = factionNightOutput(ctx.faction);
+        if (fx.relief) line(`stations and units run at ×${num(fx.output)} output at night (was ×${num(from)})`, fx.output / from, fx.output >= from);
+        else line(`stations and units run at ×${num(fx.output)} output at night`, fx.output, fx.output >= 1);
+      }
       if (fx.standby !== undefined && fx.standby !== 1) line(`standby draw ×${num(fx.standby)} at night`, fx.standby, fx.standby <= 1);
       if (fx.chargeEff !== undefined) line(`the bank charges at ${Math.round(fx.chargeEff * 100)}%`, fx.chargeEff / BATTERY_EFF, fx.chargeEff >= BATTERY_EFF);
       if (fx.discharge !== undefined && fx.discharge !== 1) line(`the bank discharges ×${num(fx.discharge)} as fast`, fx.discharge, fx.discharge <= 1);
@@ -2689,8 +3000,31 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       const text = `morale falls ×${num(fx.fallMult)} as fast`;
       return [fx.fallMult <= 1 ? pro(text, mag(fx.fallMult), 'mult') : con(text, mag(fx.fallMult), 'mult')];
     }
-    case 'scrutiny':
-      return [con('SCRUTINY: a death, wreck or accident raises a meter; high, it cuts crewed output and research, and hearings recall crew', 1, 'use')];
+    case 'scrutiny': {
+      const out: EffectLine[] = [];
+      if (fx.on) out.push(con('SCRUTINY: a death, wreck or accident raises a meter; high, it cuts crewed output and research, and hearings recall crew', 1, 'use'));
+      if (fx.decay !== undefined) {
+        const text = `scrutiny fades ×${num(fx.decay)} as fast`;
+        out.push(fx.decay >= 1 ? pro(text, mag(fx.decay), 'mult') : con(text, mag(fx.decay), 'mult'));
+      }
+      if (fx.recall !== undefined) {
+        const text = `a hearing recalls ×${num(fx.recall)} as many crew`;
+        out.push(fx.recall <= 1 ? pro(text, mag(fx.recall), 'mult') : con(text, mag(fx.recall), 'mult'));
+      }
+      if (fx.firstLight?.clear) out.push(pro('FIRST LIGHT clears the scrutiny meter', 1, 'flag'));
+      if (fx.firstLight?.morale) out.push(pro(`FIRST LIGHT: +${fx.firstLight.morale} morale for a lunar day`, fx.firstLight.morale, 'morale'));
+      return out;
+    }
+    case 'volleyFoils': {
+      const text = `a volley flies with ${Math.round(LAUNCH_COST_FOILS * fx.mult * 100) / 100}▰ instead of ${LAUNCH_COST_FOILS}▰`;
+      return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
+    }
+    case 'rivalAid':
+      return [pro(`another program’s disaster grants +${num(fx.data)}≡ data`, fx.data, 'count')];
+    case 'nightOutput': {
+      const text = `${pctDelta(fx.mult)} output at night: ${names(fx.buildings)}`;
+      return [fx.mult >= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
+    }
     case 'grant':
       return fx.data ? [pro(`+${num(fx.data)}≡ data on landing`, fx.data, 'count')] : [];
     case 'feedBonus': {
@@ -2772,7 +3106,8 @@ export function techRelevance(def: TechDef, siteId: SiteId, exp: Expedition): bo
  *  The landing picks are exempt: their lines are the expedition card's own. */
 export function auditTechs(ctx: DescribeCtx = {}): { id: TechId; pros: number; cons: number; minConMagnitude: number; lines: EffectLine[] }[] {
   return TECH_ORDER.filter((id) => !TECHS[id].track?.landing).map((id) => {
-    const lines = describeTech(TECHS[id], ctx);
+    // a faction tech is read on its own faction's base (the card a player of that faction sees)
+    const lines = describeTech(TECHS[id], TECHS[id].factions && !ctx.faction ? { ...ctx, faction: TECHS[id].factions![0] } : ctx);
     const cons = lines.filter((l) => l.sign === 'con');
     return {
       id,

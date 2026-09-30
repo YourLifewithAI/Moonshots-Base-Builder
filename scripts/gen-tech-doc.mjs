@@ -38,6 +38,7 @@ try {
         export { SURVEY_TIERS } from './src/data/balance';
         export { SITE_ORDER } from './src/data/sites';
         export { BUILDINGS, BUILD_ORDER } from './src/data/buildings';
+        export { FACTIONS } from './src/data/factions';
         export { UPGRADES } from './src/buildings/upgrades';
         export { upgradeTriangles } from './src/buildings/recipes';`,
       resolveDir: root, loader: 'ts',
@@ -83,6 +84,8 @@ function renderTechs(T) {
   L('(no site filter, human crew). ✎ = an insight discount can be earned in-base; ◈ = doctrine pick;');
   L('⌂ / ◉ = the era\'s destiny pick (docs/14), ★ in the Lane column = a pick or the Era 8 capstone column.');
   L('Hazard hooks (`exposure`, `guard`) carry no card line until the hazards ship.');
+  L('⚑ = a faction\'s own tech (docs/20 §3): in the tree it is drawn in its era page\'s ⚑ FACTION row, keeps the');
+  L('lane and price of its Lane column, and is visible to that faction only; ⚑ not open to = an ethos lock.');
   L();
   for (let era = 1; era <= 8; era++) {
     const ids = TECH_ORDER.filter((id) => TECHS[id].era === era);
@@ -115,7 +118,8 @@ function renderTechs(T) {
       }
       if (d.sites) tags.push(`sites: ${d.sites.map((s) => SITES[s].name).join(', ')}`);
       if (d.expeditions) tags.push(`${d.expeditions.join('/')} only`);
-      if (d.factions) tags.push(`⚑ faction-locked: ${d.factions.join(' / ')}`);
+      if (d.factions) tags.push(`⚑ ${d.factions.map((f) => T.FACTIONS[f].name).join(' / ')} only`);
+      if (d.notFactions) tags.push(`⚑ not open to ${d.notFactions.map((f) => T.FACTIONS[f].name).join(' / ')}`);
       if (d.crewTech) tags.push('crew tech (robotic: after Cohabitation)');
       if (d.track) tags.push(`${d.track.side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'} · the Era ${d.track.era} destiny${d.track.landing ? ' (the landing)' : ''}`);
       if (d.band) tags.push(`destiny capstone · the ${d.band === 'concord' ? 'Concord' : d.band === 'colony' ? '⌂ Colony' : '◉ Automation'} band only`);
@@ -133,7 +137,8 @@ function renderTechs(T) {
         ...d.requires.map(name),
         ...(d.requiresAny?.length ? [`any of ${d.requiresAny.map(name).join(' / ')}`] : []),
       ].join(', ') || '—';
-      const fx = describeTech(d, {});
+      // a faction's own tech is read on its own base (a bank that starts at the Foundry's 75%, not the grid's 85%)
+      const fx = describeTech(d, d.factions ? { faction: d.factions[0] } : {});
       const pros = fx.filter((l) => l.sign === 'pro').map((l) => esc(l.text)).join('<br>') || '—';
       const cons = fx.filter((l) => l.sign === 'con').map((l) => esc(l.text)).join('<br>') || '—';
       L(`| ${nm} | ${d.lane ? laneOf[d.lane] : '★'} | ${data} | ${goods} | ${esc(req)} | ${pros} | ${cons} | ${esc(d.visual ?? '—')} |`);
@@ -158,8 +163,10 @@ function renderTechs(T) {
   const tracks = TECH_ORDER.filter((id) => TECHS[id].track).length;
   const caps = TECH_ORDER.filter((id) => TECHS[id].band).length;
   const landings = TECH_ORDER.filter((id) => TECHS[id].track?.landing).length;
+  const branch = TECH_ORDER.filter((id) => TECHS[id].factions && !TECHS[id].track?.landing).length;
   L(`${total} techs: ${total - bts - caps} researchable from the start of their era (${tracks} of them destiny picks, the ${landings} landings`);
-  L(`among them), ${bts} breakthroughs, ${caps} destiny capstones; ${Object.keys(DOCTRINES).length} doctrines, ${INSIGHTS.length} insights.`);
+  L(`among them), ${bts} breakthroughs, ${caps} destiny capstones; ${Object.keys(DOCTRINES).length} doctrines, ${INSIGHTS.length} insights;`);
+  L(`${branch} faction branch techs (8 a faction, none of them shown to another faction or to a solo game).`);
   L();
   return lines.join('\n');
 }

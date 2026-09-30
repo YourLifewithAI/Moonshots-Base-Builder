@@ -61,6 +61,7 @@ const PROD_ORDER: BuildingId[] = [
   'foilFactory', 'massDriver', 'propellantPlant', // export
   'lab', 'dataCenter',                    // science
   'greenhouseRing', 'gardenDome', 'serverMonolith', // destiny buildings (docs/14 §2.8)
+  'skunkworks', 'regolithTerrace',        // the factions' producers (docs/20 §1): a lab variant, a slow farm
 ];
 
 export interface EconEvents {

@@ -2359,6 +2359,10 @@ export class Game {
 
   debugCompleteTech(id: TechId) {
     if (!TECHS[id] || this.state.techsDone.includes(id)) return;
+    // a branch tech of another faction (or of no one's: a solo game) stays unresearched, as it does in play (docs/20 S3):
+    // the specs that complete the whole tree keep reading the solo tree. A landing tech is exempt (a solo game may read its numbers).
+    const only = TECHS[id].factions;
+    if (only && !TECHS[id].track?.landing && !(this.state.faction && only.includes(this.state.faction))) return;
     this.state.techsDone.push(id);
     onTechComplete(this.state, id);
     this.sim.mods = refreshDerived(this.state);

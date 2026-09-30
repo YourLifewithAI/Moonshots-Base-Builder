@@ -49,8 +49,9 @@ function gateRows(g: GateProgress, landingNote: boolean): string {
   const prev = g.era - 1;
   let html = '';
   if (g.destiny) html += row('ck-destiny', `<span data-g="destiny">${esc(destinyText(g.destiny.tid))}</span>`);
+  // the faction's own techs of that era count toward the charter like any (docs/20 §3): `data-g="fac"` says how many
   html += row('ck-techs', `<span class="gl-pips mono" data-g="pips"></span> <span data-g="techs"></span> of ${g.techsNeed} Era-${prev} techs` +
-    (g.destiny ? ' (the destiny counts)' : ''));
+    (g.destiny ? ' (the destiny counts)' : '') + '<span class="gl-fac" data-g="fac"></span>');
   const deedText = g.destiny ? `the destiny, ${g.deedTechsNeed - 1} more + ${g.deed}` : `${g.deedTechsNeed} + ${g.deed}`;
   // a requires row below (robotic Era 7) keeps the deed to one line: the column holds 112 px
   html += `<div class="gl-row gl-deed${g.requires ? ' one' : ''}" title="${esc(`or ${deedText}`)}"><span class="gl-ck" data-g="ck-deed">◻</span>` +
@@ -133,15 +134,17 @@ export function updateGoals(root: HTMLElement, page: Era, v: ResearchView, sw: S
     return;
   }
   if (kind === 'past') {
-    let n = 0, done = 0, left = 0;
+    let n = 0, done = 0, left = 0, fac = 0, facDone = 0;
     for (const t of TECH_ORDER) {
       const c = v.cards[t];
       if (c.era !== page || c.state === 'hidden' || c.track) continue;
       n++;
+      if (TECHS[t].factions) { fac++; if (c.state === 'done') facDone++; }
       if (c.state === 'done') done++;
       else if (['available', 'full', 'requires', 'requiresAny'].includes(c.state)) left++;
     }
-    set(root, 'page-count', `${done} of ${n} Era-${page} techs researched${left ? ` · ${left} left` : ''}`);
+    set(root, 'page-count', `${done} of ${n} Era-${page} techs researched${left ? ` · ${left} left` : ''}` +
+      (fac ? ` · ⚑ ${facDone} of ${fac} faction` : ''));
     return;
   }
   const g = v.gates.find((x) => x.era === (kind === 'future' ? page : page + 1));
@@ -149,6 +152,13 @@ export function updateGoals(root: HTMLElement, page: Era, v: ResearchView, sw: S
   const n = Math.min(g.techs, g.techsNeed);
   set(root, 'pips', `${'◼'.repeat(n)}${'◻'.repeat(Math.max(0, g.techsNeed - n))}`);
   set(root, 'techs', String(g.techs));
+  // how many of those are the faction's own (they count like any tech)
+  let facDone = 0;
+  for (const t of TECH_ORDER) {
+    const c = v.cards[t];
+    if (TECHS[t].factions && c.state === 'done' && c.era === g.era - 1 && !c.track) facDone++;
+  }
+  set(root, 'fac', facDone ? ` (⚑ ${facDone} faction)` : '');
   check(root, 'ck-techs', g.techs >= g.techsNeed);
   check(root, 'ck-deed', g.techs >= g.deedTechsNeed && g.deedMet);
   set(root, 'deed', deedValue(g));
