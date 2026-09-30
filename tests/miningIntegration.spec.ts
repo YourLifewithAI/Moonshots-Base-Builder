@@ -8,7 +8,7 @@ declare global {
 }
 
 async function start(page: Page) {
-  await page.goto('/?debug&seed=42&site=mare&exp=robotic&nolock&lowfx&style=classic');
+  await page.goto('/?debug&seed=42&site=mare&exp=robotic');
   await page.waitForFunction(() => window.__game?.getState() != null);
   await page.evaluate(() => {
     window.__game.setPaused(true);

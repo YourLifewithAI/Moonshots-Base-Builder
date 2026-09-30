@@ -14,7 +14,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function boot(page: Page, site: string, exp: 'human' | 'robotic', viewport = { width: 1280, height: 720 }, extra = '') {
   await page.setViewportSize(viewport);
@@ -224,7 +224,7 @@ test('T opens on the current era; tabs carry their states; the E1 destiny is the
   await expect(tab(page, 1)).toHaveClass(/\bpast\b/);
   await expect(tab(page, 1).locator('.et-g')).toHaveText('✓');
   const left = (await g(page, 'getResearch')).cards;
-  const n = ['teleoperation', 'regolithVolatiles', 'sampleCaches'].filter((t) => ['available', 'full', 'requires', 'requiresAny'].includes(left[t].state)).length;
+  const n = ['teleoperation', 'regolithVolatiles', 'sampleCaches', 'siteGrading'].filter((t) => ['available', 'full', 'requires', 'requiresAny'].includes(left[t].state)).length;
   await expect(tab(page, 1).locator('.et-left')).toHaveText(`·${n}`);
   await expect(tab(page, 1).locator('.et-q')).toHaveText('#1');
   // Era 2's destiny column: its ⌂ / ◉ pick (doctrine pairs stay on the board)
@@ -370,7 +370,7 @@ test('the goals column follows the sim: charter techs and the deed update in pla
   // the page stays on E1, now past: what it opened
   await onPage(page, 1);
   await expect(goals).toContainText('✓opened Era 2');
-  await expect(goals).toContainText('2 of 8 Era-1 techs researched · 6 left');
+  await expect(goals).toContainText('2 of 9 Era-1 techs researched · 7 left');
   // E2 is the current page: its goals are Era 3's charter
   await page.keyboard.press('Home');
   await expect(page.locator('.ph-goals')).toContainText('ERA GOALS → Era 3 ROBOTIC FABRICATION');
@@ -413,34 +413,33 @@ test('Era 8 goals: the FIRST LIGHT checklist reads the launch as the sim does', 
 
 test('stubs jump between eras and select: ◂E1 to the prerequisite, E2▸ to the dependent', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
-  // Era 2 without Regolith Smelting: Parts Fabrication's E1 prerequisite is undone
+  // Era 2 without Sample-Return Caches: Neutron Spectrometry's E1 prerequisite is undone
+  // (nothing in Era 2 needs Pit Mapping any more; the smelter is known from landing)
   for (const t of ['teleoperation', 'prospectingRovers', ...E1_EXTRA]) await g(page, 'completeTech', t);
   await openTree(page);
   await onPage(page, 2);
-  const stub = card(page, 'partsFabrication').locator('.stub-in');
+  const stub = card(page, 'neutronSpectrometry').locator('.stub-in');
   await expect(stub).toHaveText('◂E1');
   await expect(stub).toHaveClass(/\bpend\b/);
-  await expect(stub).toHaveAttribute('title', /Needs from other eras: ◻ E1 Regolith Smelting/);
+  await expect(stub).toHaveAttribute('title', /Needs from other eras: ◻ E1 Sample-Return Caches/);
   const borderStyle = await stub.evaluate((e) => getComputedStyle(e).borderRightStyle);
   expect(borderStyle).toBe('dashed');
   await stub.locator('.st-e').click();
   await onPage(page, 1);
-  await expect(card(page, 'regolithProcessing')).toHaveClass(/\bsel\b/);
-  await expect(card(page, 'regolithProcessing')).toHaveClass(/pulse/);
+  await expect(card(page, 'sampleCaches')).toHaveClass(/\bsel\b/);
+  await expect(card(page, 'sampleCaches')).toHaveClass(/pulse/);
   await page.mouse.move(4, 716);
-  await expect(page.locator('#tech-sheet-body')).toContainText('Regolith Smelting');
+  await expect(page.locator('#tech-sheet-body')).toContainText('Sample-Return Caches');
   // and forward: its E2▸ stub lands on the first undone Era-2 dependent
-  const out = card(page, 'regolithProcessing').locator('.stub-out');
+  const out = card(page, 'sampleCaches').locator('.stub-out');
   await expect(out).toContainText('E2▸');
   await out.locator('.st-e').first().click();
   await onPage(page, 2);
-  const sel = await page.locator('.tech-card.sel').getAttribute('data-tech');
-  const deps = ['siliconRefining', 'partsFabrication', 'moltenElectrolysis', 'ilmeniteBeneficiation', 'heatRecoveryJackets'];
-  expect(deps).toContain(sel);
+  await expect(page.locator('.tech-card.sel')).toHaveAttribute('data-tech', 'neutronSpectrometry');
   // done, the stub turns solid
-  await g(page, 'completeTech', 'regolithProcessing');
-  await expect(card(page, 'partsFabrication').locator('.stub-in')).toHaveClass(/\bdone\b/);
-  expect(await card(page, 'partsFabrication').locator('.stub-in').evaluate((e) => getComputedStyle(e).borderRightStyle)).toBe('solid');
+  await g(page, 'completeTech', 'sampleCaches');
+  await expect(card(page, 'neutronSpectrometry').locator('.stub-in')).toHaveClass(/\bdone\b/);
+  expect(await card(page, 'neutronSpectrometry').locator('.stub-in').evaluate((e) => getComputedStyle(e).borderRightStyle)).toBe('solid');
 });
 
 test('the queue strip is global: era tags, and a click jumps to the item’s page', async ({ page }) => {
@@ -546,7 +545,7 @@ test('hover links: none by default; the hovered card draws its page’s links an
   await expect(sheet).toContainText('ERA LOCKED — opens with Era 4');
   await expect(sheet).toContainText('Leads to');
   await expect(sheet.locator('.lnk[data-jump="siliconRefining"]')).toContainText('E2');
-  await expect(sheet).toContainText('⚡ Insight: 150◇ in stock');
+  await expect(sheet).toContainText('◎ Insight: 150◇ in stock');
   // a goods link: Orbital Prospector's chips come from the Chip Fab Wafer Fabrication unlocks
   await page.hover('[data-tech="orbitalProspector"]');
   await expect(page.locator('#tech-links path.goods[data-goods="chips"]')).toHaveCount(1);
@@ -652,17 +651,17 @@ test('Shift-click queues the whole path across eras; the queue strip reorders an
   await openTree(page);
   await onPage(page, 2);
   // a plain click on a card that needs a prerequisite explains itself
-  await card(page, 'partsFabrication').click();
-  await expect(page.locator('#tech-alerts')).toContainText('NEEDS PREREQUISITE — Parts Fabrication needs Regolith Smelting · Shift-click queues the whole path');
+  await card(page, 'neutronSpectrometry').click();
+  await expect(page.locator('#tech-alerts')).toContainText('NEEDS PREREQUISITE — Neutron Spectrometry needs Sample-Return Caches · Shift-click queues the whole path');
   expect(await queue(page)).toEqual([]);
 
-  // the path reaches back to the E1 page's Regolith Smelting
-  await card(page, 'partsFabrication').click({ modifiers: ['Shift'] });
-  await expect.poll(() => queue(page)).toEqual(['regolithProcessing', 'partsFabrication']);
-  // an OR group takes its cheapest visible member (Site Grading is hidden on the mare)
+  // the path reaches back to the E1 page's Sample-Return Caches
+  await card(page, 'neutronSpectrometry').click({ modifiers: ['Shift'] });
+  await expect.poll(() => queue(page)).toEqual(['sampleCaches', 'neutronSpectrometry']);
+  // an OR group takes its cheapest visible member (Site Grading, 90, now shows on every site and beats Construction Robotics, 130)
   await card(page, 'regolithShielding').click({ modifiers: ['Shift'] });
   await expect.poll(() => queue(page))
-    .toEqual(['regolithProcessing', 'partsFabrication', 'constructionRobotics', 'regolithShielding']);
+    .toEqual(['sampleCaches', 'neutronSpectrometry', 'siteGrading', 'regolithShielding']);
   await expect(card(page, 'regolithShielding')).toHaveClass(/queued/);
   await expect(card(page, 'regolithShielding')).toContainText('#4');
 
@@ -671,24 +670,24 @@ test('Shift-click queues the whole path across eras; the queue strip reorders an
   await expect(strip.locator('.q-item')).toHaveCount(4);
   await expect(strip.locator('.q-item').first()).toContainText('E1');
   await expect(strip.locator('.q-item').first()).toContainText('ETA');
-  await expect(tab(page, 1).locator('.et-q')).toHaveText('#1');
-  await expect(tab(page, 2).locator('.et-q')).toHaveText('#3');
-  // ↑ moves Construction Robotics ahead of Parts Fabrication
-  await strip.locator('button[data-act="up"][data-tech="constructionRobotics"]').click();
+  await expect(tab(page, 1).locator('.et-q')).toHaveText('#2');
+  await expect(tab(page, 2).locator('.et-q')).toHaveText('#2');
+  // ↑ moves Site Grading ahead of Neutron Spectrometry
+  await strip.locator('button[data-act="up"][data-tech="siteGrading"]').click();
   await expect.poll(() => queue(page))
-    .toEqual(['regolithProcessing', 'constructionRobotics', 'partsFabrication', 'regolithShielding']);
+    .toEqual(['sampleCaches', 'siteGrading', 'neutronSpectrometry', 'regolithShielding']);
   // × is transitive: Regolith Shielding drops with its prerequisite
-  await strip.locator('button[data-act="cancel"][data-tech="constructionRobotics"]').click();
-  await expect.poll(() => queue(page)).toEqual(['regolithProcessing', 'partsFabrication']);
+  await strip.locator('button[data-act="cancel"][data-tech="siteGrading"]').click();
+  await expect.poll(() => queue(page)).toEqual(['sampleCaches', 'neutronSpectrometry']);
   await expect(page.locator('#tech-alerts')).toContainText('RESEARCH DROPPED — Regolith Shielding');
   // right-click cancels a queued card
-  await card(page, 'partsFabrication').click({ button: 'right' });
-  await expect.poll(() => queue(page)).toEqual(['regolithProcessing']);
+  await card(page, 'neutronSpectrometry').click({ button: 'right' });
+  await expect.poll(() => queue(page)).toEqual(['sampleCaches']);
   // a past page's leftover queues at its own era's price
   await page.keyboard.press('BracketLeft');
   await onPage(page, 1);
   await card(page, 'bifacialCells').click();
-  await expect.poll(() => queue(page)).toEqual(['regolithProcessing', 'bifacialCells']);
+  await expect.poll(() => queue(page)).toEqual(['sampleCaches', 'bifacialCells']);
 });
 
 test('queue full: cards show ⊘ and a click explains QUEUE FULL', async ({ page }) => {
@@ -737,7 +736,7 @@ test('keys and live updates: T toggles, arrows move within the page, Enter queue
   await page.keyboard.press('Enter');
   await page.waitForTimeout(500);
   expect(await queue(page)).toEqual([first]);
-  // Shift+Enter queues a path: Sample Caches needs Prospecting Rovers
+  // Shift+Enter queues a path: Sample Caches needs Prospecting Drones
   const sc = await g(page, 'getResearch');
   expect(sc.cards.sampleCaches.state).toBe('requires');
   await card(page, 'sampleCaches').click();

@@ -18,7 +18,7 @@ declare global {
   interface Window { __game?: any; fx?: any }
 }
 
-const URL_DEBUG = '/?debug&nolock&lowfx';
+const URL_DEBUG = '/?debug';
 
 async function pauseAtAttach(page: Page) {
   await page.addInitScript(() => {
@@ -946,7 +946,8 @@ test('hub units: their hub recalls them on M and X by itself and sends them back
     g.advanceGameSeconds(2);
     const job = g.getHubs().hubs[hub].queue[0];
     const paid = m0 - g.getState().resources.metals;
-    for (let i = 0; i < 120 && g.getHubs().hubs[hub].queue.length; i++) g.advanceGameSeconds(1);
+    // the smelter and its unit draw about 34 kW against the night's 6: the bank is kept full so the print is not starved
+    for (let i = 0; i < 120 && g.getHubs().hubs[hub].queue.length; i++) { g.grantPower(20000); g.advanceGameSeconds(1); }
     const reprinted = fx.unit(id);
     // lost at its deadline: latched, with its hub shut down (no re-flash)
     g.setFlareIndex(fx.indexFor({ [700 + id]: 'latch' }, 2000));
@@ -1122,7 +1123,7 @@ test('research: labs make half at an M; the head tech loses 3% of its cost at th
   expect(r.inM / r.quiet).toBeLessThan(0.55);
   expect(r.setBack).toBeGreaterThan(0.03 * r.cost - 1);
   expect(r.setBack).toBeLessThan(0.03 * r.cost + 1);
-  expect(r.alert).toMatch(/^RESEARCH SET BACK — the flare corrupted \d+≡ of Prospecting Rovers \(3%\) · Checkpoint next time/);
+  expect(r.alert).toMatch(/^RESEARCH SET BACK — the flare corrupted \d+≡ of Prospecting Drones \(3%\) · Checkpoint next time/);
   expect(r.q1).toBeCloseTo(r.q0, 6);                             // held through the protons
   expect(r.q2).toBeGreaterThan(r.q1);                            // and resumed
   expect(r.log.checkpoint).toBe(true);

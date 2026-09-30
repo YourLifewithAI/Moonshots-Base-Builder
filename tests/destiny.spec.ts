@@ -4,7 +4,7 @@
  *  brought forward or waived; the new effects (settlers, volleys, the
  *  autonomous cadence, EVA crews); the destiny column's commit flow, the
  *  meter and the pips; CREW HOME, the victory text per band, and the
- *  techSchema 3 → 4 migration. Every test pauses the game and drives time
+ *  techSchema 3 → 5 migration. Every test pauses the game and drives time
  *  with advanceGameSeconds. */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
 
@@ -14,7 +14,7 @@ declare global {
   interface Window { __game?: any; climb?: (picks: string, upTo: number) => void }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, site: string, exp: 'human' | 'robotic', extra = '') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
@@ -95,7 +95,7 @@ test('data: a pick pair per era, 16 track techs and 3 capstones, each honest and
       blurb8: Object.keys(T.ERA_BLURB_8),
     };
   });
-  expect(r.n).toBe(135); // main's 110 (with the 4 road tiers), the 19 destiny techs, docs/02's 3 on-board power techs, and docs/16's 3 forecasting techs
+  expect(r.n).toBe(141); // main's 110 (with the 4 road tiers), the 19 destiny techs, docs/02's 3 on-board power techs, docs/16's 3 forecasting techs, and the 6 extraction/water techs
   expect(r.track).toBe(16);
   expect(r.caps).toBe(3);
   for (const [e, c, a] of r.pairs) {
@@ -123,7 +123,7 @@ test('landing: the expedition is the Era 1 pick, done at landing, and it never c
   await start(page, 'mare', 'robotic');
   const robotic = await g(page, 'getState');
   expect(robotic.techsDone).toEqual(['landingRobotic']);
-  expect(robotic.techSchema).toBe(4);
+  expect(robotic.techSchema).toBe(5);
   const r = await page.evaluate(() => {
     const g = window.__game!;
     for (const t of ['regolithProcessing', 'teleoperation', 'grizzlyScreens']) g.completeTech(t);
@@ -690,7 +690,7 @@ test('migration: a techSchema-3 save in Era 5 gains its landing pick, keeps its 
   await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 0);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   const r = await page.evaluate(() => ({ s: window.__game.getState(), v: window.__game.getResearch() }));
-  expect(r.s.techSchema).toBe(4);
+  expect(r.s.techSchema).toBe(5);
   expect(r.s.era).toBe(5);
   expect(r.s.techsDone).toEqual(['landingRobotic', ...old]);
   expect(r.s.forwarded).toEqual([]);
@@ -714,66 +714,63 @@ test('migration: a techSchema-3 save in Era 5 gains its landing pick, keeps its 
 
 // ───────────────────────────── the four buildings ─────────────────────────────
 
-for (const style of ['cel']) {
-  test(`${style}: the four destiny buildings stand and render, on budget; a hive docks four rovers, a monolith counts as a Data Center`, async ({ page }) => {
-    await start(page, 'mare', 'robotic', `&style=${style}`);
-    expect((await g(page, 'getRenderInfo')).style).toBe(style);
-    const r = await page.evaluate(() => {
-      const g = window.__game!;
-      for (const t of ['droneHives', 'greenhouseRings', 'gardenDomes', 'fleetOS', 'lunarDataCenter']) g.completeTech(t);
-      g.grantResources({ metals: 900, silicon: 200, parts: 300, chips: 100 });
-      const placed: Record<string, boolean> = {};
-      for (const type of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
-        placed[type] = false;
-        for (let r = 5; r < 30 && !placed[type]; r++) {
-          for (let dx = -r; dx <= r && !placed[type]; dx += 2) {
-            if (g.placeBuilding(type, 127 + dx, 127 - r) || g.placeBuilding(type, 127 + dx, 127 + r)) placed[type] = true;
-          }
+test('the four destiny buildings stand and render, on budget; a hive docks four rovers, a monolith counts as a Data Center', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    for (const t of ['droneHives', 'greenhouseRings', 'gardenDomes', 'fleetOS', 'lunarDataCenter']) g.completeTech(t);
+    g.grantResources({ metals: 900, silicon: 200, parts: 300, chips: 100 });
+    const placed: Record<string, boolean> = {};
+    for (const type of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+      placed[type] = false;
+      for (let r = 5; r < 30 && !placed[type]; r++) {
+        for (let dx = -r; dx <= r && !placed[type]; dx += 2) {
+          if (g.placeBuilding(type, 127 + dx, 127 - r) || g.placeBuilding(type, 127 + dx, 127 + r)) placed[type] = true;
         }
       }
-      const bots0 = g.getState().bots.total;
-      g.finishConstruction();
-      g.grantPower(5000);
-      g.advanceGameSeconds(2);
-      const s = g.getState();
-      const rates = g.getResearch();
-      // roads (docs/15): the hive is a dock, with parking bays beside its door;
-      // the ring, the dome and the monolith take a plain door and a spur
-      const access = Object.fromEntries(g.roadAccess()
-        .filter((a: any) => ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith'].includes(a.type))
-        .map((a: any) => [a.type, a]));
-      const d = access.droneHive.door;
-      const hiveBays = (s.roads ?? []).filter((c: any) => c.bay && Math.abs(c.gx - d[0]) + Math.abs(c.gz - d[1]) === 1).length;
-      const up = g.getUpgrades(); // before a Data Center tech re-keys the Monolith
-      // a Data Center tech changes the Monolith too: Rack Densification, output ×1.12
-      g.completeTech('rackDensification');
-      const dense = g.getResearch().production;
-      return {
-        placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: up.meshes, want: up.want,
-        rates, dense, mono: s.buildings.find((b: any) => b.type === 'serverMonolith'), access, hiveBays,
-      };
-    });
-    expect(r.placed).toEqual({ droneHive: true, greenhouseRing: true, gardenDome: true, serverMonolith: true });
-    for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
-      expect(r.tris[t], t).toBeGreaterThan(100);
-      expect(r.tris[t], t).toBeLessThanOrEqual(3500);
-      // drawn with the parts its techs done add (docs/14 §4: the Ring's bulkheads with Garden Domes)
-      expect(r.meshes[t]?.key, t).toBe(r.want[t]);
-      expect(r.meshes[t]?.triangles, t).toBeGreaterThanOrEqual(r.tris[t]);
     }
-    expect(r.bots - r.bots0).toBe(4); // the hive's dock
-    expect(r.mono.active).toBe(true);
-    expect(r.rates.dcsActive).toBe(1); // counted with the Data Centers
-    expect(r.rates.cap).toBeCloseTo(0.4 * r.rates.labsActive + 2.2, 6);
-    expect(r.dense - r.rates.production).toBeGreaterThan(0.9 * 0.12 * 0.9);
-    for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
-      expect(r.access[t].door, t).not.toBeNull(); // a door at its front middle, none a field type
-      expect(r.access[t].linked, t).toBe(true);   // and road from it to the Lander
-    }
-    // the hive is a dock: parking bays beside its door (its spur may come in along one side)
-    expect(r.hiveBays).toBeGreaterThanOrEqual(1);
+    const bots0 = g.getState().bots.total;
+    g.finishConstruction();
+    g.grantPower(5000);
+    g.advanceGameSeconds(2);
+    const s = g.getState();
+    const rates = g.getResearch();
+    // roads (docs/15): the hive is a dock, with parking bays beside its door;
+    // the ring, the dome and the monolith take a plain door and a spur
+    const access = Object.fromEntries(g.roadAccess()
+      .filter((a: any) => ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith'].includes(a.type))
+      .map((a: any) => [a.type, a]));
+    const d = access.droneHive.door;
+    const hiveBays = (s.roads ?? []).filter((c: any) => c.bay && Math.abs(c.gx - d[0]) + Math.abs(c.gz - d[1]) === 1).length;
+    const up = g.getUpgrades(); // before a Data Center tech re-keys the Monolith
+    // a Data Center tech changes the Monolith too: Rack Densification, output ×1.12
+    g.completeTech('rackDensification');
+    const dense = g.getResearch().production;
+    return {
+      placed, bots0, bots: s.bots.total, tris: g.recipeTriangles(), meshes: up.meshes, want: up.want,
+      rates, dense, mono: s.buildings.find((b: any) => b.type === 'serverMonolith'), access, hiveBays,
+    };
   });
-}
+  expect(r.placed).toEqual({ droneHive: true, greenhouseRing: true, gardenDome: true, serverMonolith: true });
+  for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+    expect(r.tris[t], t).toBeGreaterThan(100);
+    expect(r.tris[t], t).toBeLessThanOrEqual(3500);
+    // drawn with the parts its techs done add (docs/14 §4: the Ring's bulkheads with Garden Domes)
+    expect(r.meshes[t]?.key, t).toBe(r.want[t]);
+    expect(r.meshes[t]?.triangles, t).toBeGreaterThanOrEqual(r.tris[t]);
+  }
+  expect(r.bots - r.bots0).toBe(4); // the hive's dock
+  expect(r.mono.active).toBe(true);
+  expect(r.rates.dcsActive).toBe(1); // counted with the Data Centers
+  expect(r.rates.cap).toBeCloseTo(0.4 * r.rates.labsActive + 2.2, 6);
+  expect(r.dense - r.rates.production).toBeGreaterThan(0.9 * 0.12 * 0.9);
+  for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) {
+    expect(r.access[t].door, t).not.toBeNull(); // a door at its front middle, none a field type
+    expect(r.access[t].linked, t).toBe(true);   // and road from it to the Lander
+  }
+  // the hive is a dock: parking bays beside its door (its spur may come in along one side)
+  expect(r.hiveBays).toBeGreaterThanOrEqual(1);
+});
 
 test('keys: ↑ from the top lane row reaches the destiny cards, ←/→ switch sides, Enter focuses Commit and never commits', async ({ page }) => {
   await start(page, 'mare', 'robotic');

@@ -10,13 +10,12 @@ declare global {
 }
 
 async function start(page: Page) {
-  await page.goto('/?debug&seed=42&nolock&lowfx&site=mare');
+  await page.goto('/?debug&seed=42&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => {
     const G = window.__game;
     G.setPaused(true);
     G.advanceGameSeconds(0);
-    G.completeTech('regolithProcessing');
     G.grantResources({ metals: 2000, parts: 800, silicon: 200, water: 2000, oxygen: 2000, food: 2000 });
     const w = window as any;
     w.place = (t: string, n: number) => {

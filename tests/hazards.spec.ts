@@ -14,7 +14,7 @@ declare global {
   interface Window { __game?: any; climb?: (picks: string, upTo: number) => void; hz?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 /** pause the moment the debug API attaches, so every run starts on the same game-second (determinism) */
 async function pauseAtAttach(page: Page) {
@@ -212,7 +212,7 @@ test('scheduler: tiers by picks, the side round-robin, the 240 s spacing and the
 test('determinism: the same seed and actions give the same hazards; seed 7 differs', async ({ page }) => {
   await pauseAtAttach(page);
   const runOnce = async (seed: number) => {
-    await page.goto(`/?debug&seed=${seed}&nolock&lowfx&site=mare&exp=robotic`);
+    await page.goto(`/?debug&seed=${seed}&site=mare&exp=robotic`);
     await page.waitForFunction(() => window.__game !== undefined);
     await page.evaluate(() => { window.__game.openRoads(true); window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
     await page.evaluate(HELPERS);
@@ -394,8 +394,7 @@ test('cascade: the dusk forecast warns with Shed loads, and shedding keeps the h
     window.climb('CC', 3);
     const habs = [window.hz.place('habitat'), window.hz.place('habitat')];
     for (let i = 0; i < 3; i++) window.hz.place('solar');
-    window.hz.place('smelter');
-    window.hz.place('lab');
+    window.hz.place('lab'); // the load shedding takes (no smelter: its free excavator would dig and charge through the night at priority 1, which a shed leaves on)
     g.finishConstruction();
     g.grantCrew(9); // every bed taken: the Lander's 8 and the habitats' 8
     g.setHazardClock(99999);
@@ -825,10 +824,11 @@ test('runaway rule: Freeze rules answers it; ignored, junk sites weld and half t
   const r = await page.evaluate(() => {
     const g = window.__game;
     window.climb('AAAA', 5);
-    g.completeTech('autoExcavation');
-    window.hz.place('excavator', 3);
+    // the Smelting rule: the Excavation rule prints hub units now, and a junk site cannot be one (core/automation.ts runawaySite)
+    g.completeTech('autoSmelting');
+    window.hz.place('smelter', 3);
     g.finishConstruction();
-    g.setRule('excavator', { on: true });
+    g.setRule('smelter', { on: true });
     g.advanceGameSeconds(2);
     const id1 = g.forceHazard('runaway', undefined, { drill: false, tier: 1 });
     g.advanceGameSeconds(1);
@@ -854,7 +854,7 @@ test('runaway rule: Freeze rules answers it; ignored, junk sites weld and half t
       wasted: g.getHazards().losses.filter((l: any) => l.what === 'stock'), cost: 30,
     };
   });
-  expect(r.tele.text).toMatch(/RULE DRIFT — the Excavation rule’s cap reads \d+, not \d+: it orders in \d:\d\d/);
+  expect(r.tele.text).toMatch(/RULE DRIFT — the Smelting rule’s cap reads \d+, not \d+: it orders in \d:\d\d/);
   expect(r.tele.counters.map((c: any) => c.counter)).toEqual(['freezeRules']);
   expect(r.frozen.live).toBeUndefined();
   expect(r.frozen.log.outcome).toBe('answered: Freeze rules');
@@ -1072,14 +1072,20 @@ test('cabin fever: at 70 the warning carries Commons night and Call home; at 100
   expect(r.deaths).toBe(0); // people quit, they do not die
 });
 
+// BUG: (report, docs/19 D3) dustTick's sources are still `b.type === 'excavator'` buildings, which no longer exist: hub units
+// digging (s.haulers, phase 'dig') add no dust, and with the pits' 12 m setback the faces stand 30–50 m from a habitat, outside
+// HZ.dust.radiusM (30 m) anyway. The digging source is dead, so only construction sites and EVA crews fill the filters, and this
+// test (written for three excavator pads) cannot reach its warning. Needs a design call (count a hub unit by its pit's edge, or
+// widen the radius); left red until then.
 test('dust: airlock filters fill near the digging; the warning carries Clean; clogged, upkeep doubles and the hull wears', async ({ page }) => {
   await start(page, 'mare', 'human');
   const r = await page.evaluate(() => {
     const g = window.__game;
     window.climb('CC', 3);
     const hab = window.hz.place('habitat', 3);
-    for (let i = 0; i < 3; i++) window.hz.place('excavator', 4);
+    const smelter = window.hz.place('smelter', 4); // each smelter commissions with its own excavator
     g.finishConstruction();
+    for (let i = 0; i < 2; i++) g.queueUnit(smelter);
     g.setHazardClock(99999);
     const keep = () => g.grantResources({ oxygen: 300, food: 200, water: 150, parts: 100 });
     let warn: any = null;
@@ -1093,7 +1099,7 @@ test('dust: airlock filters fill near the digging; the warning carries Clean; cl
     for (let t = 0; t < 1440; t += 60) { g.advanceGameSeconds(60); keep(); }
     return { warn, dust, cleaned, clogged: window.hz.b(hab).airlockDust, w: [w0, window.hz.b(hab).wear], alert: window.hz.alert('FILTERS CLOGGED') };
   });
-  expect(r.warn.text).toMatch(/DUST IN THE AIRLOCKS — Habitat Module #\d+ filters \d+%: Regolith Excavator #\d+ digs \d+ m away/);
+  expect(r.warn.text).toMatch(/DUST IN THE AIRLOCKS — Habitat Module #\d+ filters \d+%: Regolith Excavator #\d+ digs \d+ m away/); // hub units, as the pads' excavators did
   expect(r.warn.counters.map((c: any) => c.label)).toEqual(['Clean 5⚙']);
   expect(r.dust).toBeGreaterThanOrEqual(0.7);
   expect(r.cleaned).toBeLessThan(0.01);
@@ -1124,7 +1130,7 @@ test('lost mission: the last settler dies in an ignored breach; the screen and t
   expect(s.deaths[0]).toMatchObject({ hazard: 'breach' });
   // the title screen, from the lost save
   await page.waitForTimeout(500);
-  await page.goto('/?debug&nolock&lowfx');
+  await page.goto('/?debug');
   await expect(page.locator('#lost-mission')).toContainText('Mission lost — ');
   await expect(page.locator('#lost-mission')).toContainText(': Habitat Module #2 decompressed.');
 });
@@ -1255,10 +1261,11 @@ test('guards ◉: Signed firmware holds the rollout, Intrusion detection doubles
     g.advanceGameSeconds(90);
     // the drift: attested, it orders one site and stops
     g.completeTech('replicatorStacks');
-    g.completeTech('autoExcavation');
-    window.hz.place('excavator', 3);
+    // the Smelting rule: the Excavation rule prints hub units now, and a junk site cannot be one (core/automation.ts runawaySite)
+    g.completeTech('autoSmelting');
+    window.hz.place('smelter', 3);
     g.finishConstruction();
-    g.setRule('excavator', { on: true });
+    g.setRule('smelter', { on: true });
     g.advanceGameSeconds(2);
     g.grantResources({ metals: 600, parts: 300 });
     g.forceHazard('runaway', undefined, { drill: false, tier: 2 });
