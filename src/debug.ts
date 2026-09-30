@@ -10,6 +10,7 @@ import { destinyOf, gateProgress, onTechComplete, researchView } from './core/re
 import { GRID, missionLost, refreshDerived, volleyTerms } from './core/economy';
 import { FACTIONS, FACTION_ORDER, type FactionId } from './data/factions';
 import { isHubType } from './data/hubs';
+import { SWARM_PCT_PER_LAUNCH } from './data/balance';
 import type { Action } from './core/actions';
 import { RivalProgram } from './core/rival';
 import { pushFeed, type FeedKind } from './core/moon';
@@ -317,6 +318,18 @@ function api(game: Game) {
     raceSet: (faction: FactionId, patch: Partial<{ launches: number; swarmPct: number; firstLaunchAt: number | null; era: number }>) => {
       Object.assign(game.moon.race[faction], patch);
       game.publish();
+    },
+    /** lower (or raise) the combined volleys that close the race (`moon.race.closeAt`, default RACE.closeAt) so a spec reaches a verdict
+     *  without simulating hours; a solo game has none to set */
+    setCloseAt: (n: number) => { if (game.moon && game.moon.player !== null) game.moon.race.closeAt = Math.max(1, Math.floor(n)); game.publish(); },
+    /** set a landed rival's volley count on its own base (`launches`, and `swarmPct` at the game's rate per volley); the next Moon second's
+     *  report writes its line of the race and the feed (first light, every fifth volley) exactly as a real volley would */
+    rivalLaunches: (faction: FactionId, n: number) => {
+      const r = game.rivals.find((x) => x.faction === faction);
+      if (!r) return false;
+      r.state.launches = n;
+      r.state.swarmPct = n * SWARM_PCT_PER_LAUNCH;
+      return true;
     },
     /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
     getSpaceWeather: (slider?: number) => {

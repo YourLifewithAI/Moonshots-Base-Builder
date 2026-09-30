@@ -15,7 +15,7 @@ import { mountWeatherPanel } from './weatherPanel';
 import { mountDepositCard } from './depositCard';
 import { mountDiscovery } from './discovery';
 import { mountNotify } from './notifyUi';
-import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
+import { mountDefeat, mountSiteSelect, mountVerdict, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
 import { mountMenu } from './menu';
 import { $phase } from './stores';
@@ -51,6 +51,7 @@ export function mountUI(game: Game) {
   mountHazardsPanel(hudLayer, game);
   mountWeatherPanel(hudLayer, game);
   mountVictory(root, game);
+  mountVerdict(root, game);
   mountDefeat(root);
   mountSiteSelect(root, game);
   // touch mode: last, so it can re-home what the desktop modules built
