@@ -104,7 +104,7 @@ export const CEL_PALETTE: Readonly<Palette> = {
   beacon: 0xb02a22,
   foil: 0xd8a53a,
   /** foliage under glass (LEAF): the Colony's green (docs/14 §4.4) */
-  leaf: 0x5f8f3f,
+  leaf: 0x3f6f34,
   /** the roads (world/roads.ts): sintered regolith, and their kerb and centre marks */
   road: 0xa8a299,
   roadMark: 0xe9e4d8,

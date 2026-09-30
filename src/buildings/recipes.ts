@@ -27,6 +27,10 @@ export type { Mount, PartId } from './upgrades';
 type Parts = (BufferGeometry | BufferGeometry[])[];
 const PI = Math.PI;
 
+/** An accent ring round a vertical tower or stack (BAND: the family accent at any size). */
+const ring = (r: number, y: number, x = 0, z = 0, h = 0.3, seg = 14): BufferGeometry =>
+  cyl(r + 0.04, r + 0.04, h, BAND, x, y, z, 0, 0, seg, true);
+
 /** Rectangle corners for a deck rail, inset from ±hx/±hz. */
 const rect = (hx: number, hz: number, cx = 0, cz = 0): [number, number][] =>
   [[cx - hx, cz - hz], [cx + hx, cz - hz], [cx + hx, cz + hz], [cx - hx, cz + hz]];
@@ -38,8 +42,8 @@ function lander(): Parts {
     cyl(r(1.7) + 0.05, r(2.9) + 0.05, 1.2, FOIL, 0, 2.3, 0, 0, 0, 28, true),
     dome(2.2, BODY, 0, 8.7, 0, 28),
     cyl(1.1, 1.7, 1.8, TRIM, 0, 0.9, 0, 0, 0, 20),
-    bands(r(6.1), 0, 0, [6.1], TRIM, 0.16, 28),
-    bands(r(8.5), 0, 0, [8.5], TRIM, 0.16, 28),
+    bands(r(6.1), 0, 0, [6.1], BAND, 0.16, 28),
+    bands(r(8.5), 0, 0, [8.5], BAND, 0.16, 28),
     windowRing(r(7.4) + 0.02, 7.4, 0.46, 6, 0.5, PI * 0.62, PI * 2.38),
     door(0, r(3.9) - 0.02, 0, 0.9, 1.5, 3.1),
     box(1.5, 0.1, 1.0, PLATE, 0, 3.05, r(3.1) + 0.45),
@@ -76,6 +80,12 @@ function solar(): Parts {
     box(0.22, 0.1, 0.04, WINDOW, 1.0, 0.75, 1.27),
     cableTray([1.0, 1.3], [1.0, 3.5]),
     junction(1.0, 3.7, 0),
+    // the identifier: a sun-sensor mast clear of the wing's sweep, an amber pennant and rings
+    cyl(0.07, 0.1, 5.4, TRIM, -3.2, 2.7, 2.9, 0, 0, 6),
+    box(0.05, 0.8, 1.1, BAND, -3.2, 4.9, 3.5),
+    ring(0.1, 1.2, -3.2, 2.9, 0.3, 6), ring(0.09, 2.4, -3.2, 2.9, 0.3, 6),
+    dome(0.12, BEACON, -3.2, 5.45, 2.9, 8),
+    box(0.7, 0.14, 0.7, TRIM, -3.2, 0.07, 2.9),
   ];
 }
 
@@ -214,7 +224,7 @@ function iceMiner(): Parts {
     box(0.24, 0.12, 0.1, LAMP, 1.47, 2.05, -1.1, PI / 2),
     // the mast the stay hangs from, and a whip antenna
     bar([0.2, 1.6, 0.7], [0.2, 3.6, 0.7], 0.2, TRIM),
-    antenna(-1.7, 3.2, 0.7, 1.2),
+    antenna(-1.7, 3.2, 0.7, 2.0),
     pipe([-1.2, 1.9, 0.62], [0.1, 1.75, 0.68], 0.07, PLATE),
   ];
   for (const side of [-1, 1]) {
@@ -238,6 +248,12 @@ function habitat(): Parts {
     antenna(1.5, 3.85, -1.0, 2.2),
     cableTray([2.4, -2.9], [3.7, -2.9]),
     junction(3.8, -2.9, PI / 2),
+    // the identifier: a lamp spire at the dome's flank, green rings and a beacon
+    cyl(0.1, 0.16, 9.0, TRIM, 3.9, 4.5, -0.4, 0, 0, 8),
+    ring(0.16, 2.6, 3.9, -0.4, 0.34, 8), ring(0.14, 5.0, 3.9, -0.4, 0.34, 8), ring(0.12, 7.4, 3.9, -0.4, 0.34, 8),
+    box(0.4, 0.22, 0.4, LAMP, 3.9, 8.6, -0.4),
+    dome(0.16, BEACON, 3.9, 9.1, -0.4, 8),
+    box(0.9, 0.16, 0.9, TRIM, 3.9, 0.08, -0.4),
   ];
   for (let k = 0; k < 4; k++) {
     p.push(domeBand(3.12, 0.62, 0.86, WINDOW, 0, 1.4, 0, 4, k * PI / 2 + 0.5, 0.55));
@@ -275,8 +291,9 @@ function iceHarvester(): Parts {
     box(4.4, 1.4, 4.4, BODY, 0, 0.7, 0),
     rail(rect(2.1, 2.1), 1.4, true),
     lattice(4.8, 1.2, 0.35, 0, 0, 1.4, 4, 1.2),
-    box(0.8, 0.4, 0.8, TRIM, 0, 6.35, 0),
+    box(0.8, 0.4, 0.8, BAND, 0, 6.35, 0),
     dome(0.14, BEACON, 0, 6.6, 0, 8),
+    ring(0.98, 3.0, 0, 0, 0.22, 12), ring(0.74, 4.6, 0, 0, 0.22, 12),
     cyl(0.2, 0.2, 5.2, PLATE, 0, 3.6, 0, 0, 0, 10),
     bands(0.2, 0, 0, [1.8, 2.6, 3.4, 4.2, 5.0]),
     cyl(0.45, 0.45, 1.8, FOIL, 1.1, 1.9, -1.25, 0, PI / 2, 16),
@@ -300,10 +317,10 @@ function waterPlant(): Parts {
   const dx = -2.4, dz = -0.3, R = 3.0;       // the dome
   const tx = 3.4, tz = -1.2;                 // the tower
   const p: Parts = [
-    cyl(R + 0.15, R + 0.25, 1.0, TRIM, dx, 0.5, dz, 0, 0, 28),
-    dome(R, RADIATOR, dx, 1.0, dz, 28),
-    domeBand(R + 0.04, 0.62, 0.7, FOIL, dx, 1.0, dz, 28),
-    domeBand(R + 0.05, 1.0, 1.08, BAND, dx, 1.0, dz, 28),
+    cyl(R + 0.15, R + 0.25, 1.0, TRIM, dx, 0.5, dz, 0, 0, 20),
+    dome(R, RADIATOR, dx, 1.0, dz, 20),
+    domeBand(R + 0.04, 0.62, 0.7, FOIL, dx, 1.0, dz, 20),
+    domeBand(R + 0.05, 1.0, 1.08, BAND, dx, 1.0, dz, 20),
     windowRing(R + 0.22, 0.55, 0.4, 5, 0.85, PI / 2 + 0.85, PI * 2.5 - 0.85).map((g) => g.translate(dx, 0, dz)),
     // the airlock at +z
     box(1.9, 1.9, 1.5, BODY, dx, 0.95, 3.05),
@@ -346,6 +363,11 @@ function hydroponics(): Parts {
     cableTray([-2.9, -3.0], [-3.8, -3.0]),
     junction(-3.9, -3.0, -PI / 2),
     pipe([3.35, 1.7, -3.2], [3.35, 1.7, 3.2], 0.08, PLATE),
+    // the identifier: a nutrient silo at the back corner (8 m), green rings, a domed head
+    cyl(0.95, 1.0, 7.4, BODY, 3.5, 3.9, -5.0, 0, 0, 14),
+    dome(0.95, TRIM, 3.5, 7.6, -5.0, 12),
+    ring(1.0, 2.0, 3.5, -5.0, 0.3, 14), ring(1.0, 4.2, 3.5, -5.0, 0.3, 14), ring(1.0, 6.4, 3.5, -5.0, 0.3, 14),
+    ladder(3.5, -4.03, 0.2, 7.0, 0),
   ];
   for (const z of [-2.2, 0, 2.2]) {
     p.push(
@@ -385,6 +407,15 @@ function battery(): Parts {
     for (let k = 0; k < 5; k++) p.push(box(1.6, 0.35, 0.05, RADIATOR, x, 2.88, -0.8 + k * 0.4));
     if (x < 2) p.push(pipe([x + 0.9, 1.0, -0.8], [x + 1.3, 1.0, -0.8], 0.09, TRIM));
   }
+  // the identifier: the middle cabinet stacks into a tower of three blocks (6.4 m),
+  // amber joints between the tiers and a bus stripe up the front
+  p.push(
+    box(1.6, 1.5, 2.0, BODY, 0, 3.8, 0), box(1.4, 1.4, 1.8, BODY, 0, 5.25, 0),
+    box(1.75, 0.14, 2.15, BAND, 0, 4.58, 0), box(1.55, 0.14, 1.95, BAND, 0, 5.98, 0),
+    box(0.3, 2.9, 0.05, BAND, 0, 4.5, 1.03),
+    box(0.5, 0.08, 0.05, WINDOW, 0, 5.6, 0.93),
+    dome(0.14, BEACON, 0.4, 6.1, 0.3, 8),
+  );
   return p;
 }
 
@@ -410,7 +441,7 @@ function refinery(): Parts {
     p.push(
       cyl(r, r, h, BODY, x, 1 + h / 2, -0.4, 0, 0, 20),
       dome(r, TRIM, x, 1 + h, -0.4, 16),
-      bands(r, x, -0.4, [2.2, 3.4, 4.6].filter((y) => y < 1 + h - 0.3), TRIM, 0.14, 20),
+      bands(r, x, -0.4, [2.2, 3.4, 4.6].filter((y) => y < 1 + h - 0.3), BAND, 0.14, 20),
     );
   }
   for (const x of [-2.5, 0, 2.5]) p.push(box(0.1, 0.9, 0.1, TRIM, x, 1.45, 1.4));
@@ -425,8 +456,12 @@ function lab(): Parts {
     windowStrip(4.0, 5, 0.7, 0, 1.9, 2.72, 0),
     windowStrip(4.0, 5, 0.7, 2.72, 1.9, 0, PI / 2),
     door(-2.72, 0.6, -PI / 2, 1.1, 2.0),
-    cyl(0.3, 0.4, 1.3, TRIM, 1.4, 3.95, 1.4, 0, 0, 12),
-    box(0.5, 0.3, 0.3, PLATE, 1.4, 4.7, 1.4),
+    // the identifier: the dish on a lattice tower over the roof (MOUNTS.lab), a blue rim and rings
+    cyl(0.5, 0.6, 0.3, TRIM, 1.4, 3.45, 1.4, 0, 0, 10),
+    lattice(3.7, 0.5, 0.24, 1.4, 1.4, 3.6, 3, 1.25),
+    box(0.9, 0.16, 0.9, TRIM, 1.4, 7.4, 1.4),
+    box(0.5, 0.3, 0.3, PLATE, 1.4, 7.6, 1.4),
+    ring(0.45, 5.0, 1.4, 1.4, 0.22, 8), ring(0.34, 6.2, 1.4, 1.4, 0.22, 8),
     box(0.8, 0.5, 0.6, TRIM, -1.4, 3.55, -1.2),
     box(0.5, 0.4, 0.5, PLATE, -0.4, 3.5, -1.6),
     antenna(-1.8, 3.3, 1.8, 2.4),
@@ -478,6 +513,15 @@ function storageYard(): Parts {
     bar([-3.3, 0.4, 3.0], [-3.3, 3.2, 3.0], 0.14, TRIM),
     bar([-3.3, 3.2, -3.0], [-3.3, 3.2, 3.0], 0.18, TRIM),
     box(0.5, 0.35, 0.5, PLATE, -3.3, 2.95, -0.8),
+    // the identifier: a tower crane at the back corner, its jib over the racks, a violet counterweight
+    lattice(8.4, 0.42, 0.3, 3.2, -3.2, 0.4, 4, 1.4),
+    box(0.9, 0.5, 0.9, PLATE, 3.2, 8.95, -3.2),
+    bar([3.2, 9.1, -3.2], [-3.6, 9.1, -3.2], 0.2, TRIM),
+    bar([3.2, 9.1, -3.2], [4.6, 9.1, -3.2], 0.24, TRIM),
+    box(0.8, 0.7, 0.8, BAND, 4.6, 8.6, -3.2),
+    box(0.4, 0.3, 0.4, BAND, -1.4, 8.85, -3.2),
+    bar([-1.4, 8.7, -3.2], [-1.4, 4.0, -3.2], 0.03, PLATE),
+    ring(0.4, 3.2, 3.2, -3.2, 0.22, 8),
   );
   return p;
 }
@@ -502,6 +546,13 @@ function roboticsBay(): Parts {
     rail(rect(3.35, 2.75), 3.1, true),
     radiator(2.2, 0.9, 1.4, 3.1, -2.0, PI),
     junction(-3.6, -1.8, -PI / 2),
+    // the identifier: a print-arm tower on the roof, its arm reaching over the door, violet rings
+    lattice(5.2, 0.5, 0.26, 2.9, -0.5, 3.1, 3, 1.3),
+    box(0.8, 0.5, 0.8, PLATE, 2.9, 8.5, -0.5),
+    bar([2.9, 8.6, -0.5], [0.4, 8.0, 1.6], 0.2, TRIM),
+    bar([0.4, 8.0, 1.6], [-1.6, 7.0, 2.6], 0.14, TRIM),
+    box(0.4, 0.34, 0.4, BAND, -1.6, 6.8, 2.6),
+    ring(0.44, 5.0, 2.9, -0.5, 0.24, 8), ring(0.36, 6.7, 2.9, -0.5, 0.24, 8),
     // a second rover on charge at the side door
     box(1.4, 0.45, 0.9, BODY, -3.7, 0.72, 0.6, PI / 2),
     box(0.8, 0.04, 1.1, GLASS, -3.7, 0.97, 0.6),
@@ -536,6 +587,10 @@ function partsFab(): Parts {
     bar([-2.6, 1.6, 3.5], [-2.0, 2.6, 3.34], 0.3, TRIM),
     pipe([3.45, 2.6, -3.0], [3.45, 2.6, 3.0], 0.1, PLATE),
     pipe([3.45, 2.8, -3.0], [3.45, 2.8, 3.0], 0.1, PLATE),
+    // the identifier: a tall exhaust stack up the back corner, violet rings, a beacon
+    cyl(0.5, 0.65, 6.6, BODY, -3.0, 6.5, -3.0, 0, 0, 12),
+    ring(0.6, 5.2, -3.0, -3.0, 0.3, 12), ring(0.55, 7.2, -3.0, -3.0, 0.3, 12), ring(0.5, 9.2, -3.0, -3.0, 0.3, 12),
+    dome(0.14, BEACON, -3.0, 9.9, -3.0, 8),
   ];
   for (const x of [-2.2, 0, 2.2]) {
     p.push(
@@ -557,7 +612,10 @@ function reactor(): Parts {
     dome(3.2, TRIM, 0, 5.5, 0, 28),
     cyl(0.8, 0.8, 0.4, PLATE, 0, 8.75, 0, 0, 0, 14),
     dome(0.16, BEACON, 0, 8.95, 0, 8),
-    cyl(0.9, 0.9, 2.4, TRIM, 5.0, 1.2, -1.9, 0, 0, 14),
+    // the identifier: a hyperbolic cooling tower (12 m) with an amber rim and a white plume
+    lathe([[1.4, 0], [1.05, 2.6], [0.78, 6], [0.74, 8], [0.95, 11]], BODY, 16).translate(5.0, 0, -1.9),
+    ring(0.95, 10.9, 5.0, -1.9, 0.4, 16), ring(1.15, 1.2, 5.0, -1.9, 0.3, 16),
+    dome(0.8, RADIATOR, 5.0, 11.0, -1.9, 10),
     pipe([3.4, 1.8, -1.2], [4.2, 1.8, -1.6], 0.16, PLATE),
     box(1.8, 1.6, 1.4, BODY, -1.0, 0.8, 5.2),
     pane(0.8, 0.4, -1.3, 1.1, 5.9, 0),
@@ -591,6 +649,11 @@ function recDome(): Parts {
     antenna(2.4, 5.65, 0, 2.6),
     cableTray([-2.0, 5.0], [-2.0, 5.8]),
     junction(-2.6, 5.8, 0),
+    // the identifier: a flag mast on the crown, a green pennant and rings
+    cyl(0.1, 0.17, 7.4, TRIM, 0, 10.0, 0, 0, 0, 8),
+    box(0.06, 1.0, 2.0, BAND, 0, 13.4, 1.1),
+    ring(0.16, 7.6, 0, 0, 0.36, 8), ring(0.13, 10.0, 0, 0, 0.36, 8),
+    dome(0.16, BEACON, 0, 13.8, 0, 8),
   ];
   for (let k = 0; k < 10; k++) p.push(domeBand(5.22, 1.02, 1.32, WINDOW, 0, 1.1, 0, 3, (k * PI * 2) / 10, 0.5));
   return p;
@@ -604,10 +667,13 @@ function chipFab(): Parts {
     box(3.6, 1.6, 3.2, BODY, -2.2, 3.8, 0),
     cyl(0.6, 0.6, 0.15, PLATE, -3.1, 4.68, 0, 0, 0, 16),
     cyl(0.6, 0.6, 0.15, PLATE, -1.3, 4.68, 0, 0, 0, 16),
-    cyl(0.35, 0.45, 2.6, TRIM, 2.6, 4.3, -1.8, 0, 0, 12),
+    // the identifier: the two exhaust stacks rise to 9 m, violet rings
+    cyl(0.35, 0.45, 6.0, BODY, 2.6, 6.0, -1.8, 0, 0, 12),
     bands(0.4, 2.6, -1.8, [3.8, 4.8]),
-    dome(0.14, BEACON, 2.6, 5.65, -1.8, 8),
-    cyl(0.35, 0.45, 2.2, TRIM, 3.8, 4.1, -1.8, 0, 0, 12),
+    ring(0.42, 6.4, 2.6, -1.8, 0.3, 12), ring(0.4, 8.0, 2.6, -1.8, 0.3, 12),
+    dome(0.14, BEACON, 2.6, 9.05, -1.8, 8),
+    cyl(0.35, 0.45, 4.2, BODY, 3.8, 5.1, -1.8, 0, 0, 12),
+    ring(0.4, 6.2, 3.8, -1.8, 0.3, 12),
     windowStrip(5.0, 6, 0.4, -1.8, 1.9, 3.32, 0),
     door(2.4, 3.32, 0, 1.6, 1.8),
     pipe([-4.5, 2.0, -3.45], [4.5, 2.0, -3.45], 0.1, PLATE),
@@ -630,6 +696,11 @@ function dataCenter(): Parts {
     windowStrip(3.0, 6, 0.18, 1.6, 2.6, 4.32, 0),
     antenna(3.6, 3.7, 3.6, 2.8),
     cyl(0.2, 0.3, 0.8, TRIM, -3.4, 4.1, 3.4, 0, 0, 10),
+    // the identifier: a chiller tower at the back corner, blue rings, a lit head
+    cyl(0.75, 0.85, 6.4, BODY, -3.4, 6.7, -3.4, 0, 0, 14),
+    ring(0.85, 4.8, -3.4, -3.4, 0.3, 14), ring(0.8, 6.8, -3.4, -3.4, 0.3, 14), ring(0.75, 8.8, -3.4, -3.4, 0.3, 14),
+    dome(0.75, TRIM, -3.4, 9.9, -3.4, 10),
+    dome(0.14, BEACON, -3.4, 10.7, -3.4, 8),
     cableTray([-4.4, 2.0], [-5.8, 2.0], 0.9),
     junction(-5.9, 3.0, -PI / 2),
   ];
@@ -650,9 +721,11 @@ function foilFactory(): Parts {
     box(9.8, 0.6, 8.8, TRIM, 0, 4.5, 0),
     box(9.7, 1.1, 1.4, TRIM, 0, 3.3, 0),
     rail(rect(4.85, 4.35), 4.8, true),
-    cyl(0.5, 0.5, 3.2, TRIM, -3.6, 6.4, -3.0, 0, 0, 14),
-    bands(0.5, -3.6, -3.0, [5.6, 6.8]),
-    dome(0.14, BEACON, -3.6, 8.05, -3.0, 8),
+    // the identifier: the foil-drawing tower, red rings and a gold spool at its head (12 m)
+    cyl(0.55, 0.65, 7.2, BODY, -3.6, 8.4, -3.0, 0, 0, 14),
+    ring(0.66, 6.2, -3.6, -3.0, 0.3, 14), ring(0.6, 8.2, -3.6, -3.0, 0.3, 14), ring(0.56, 10.2, -3.6, -3.0, 0.3, 14),
+    cyl(0.95, 0.95, 0.9, FOIL, -3.6, 12.3, -3.0, 0, PI / 2, 14),
+    dome(0.14, BEACON, -3.6, 13.1, -3.0, 8),
     box(1.2, 0.2, 3.6, TRIM, 5.3, 0.8, 0),
     [-1.2, 0, 1.2].map((z) => cyl(0.3, 0.3, 1.1, PLATE, 5.3, 1.1, z, 0, PI / 2, 12)),
     cyl(0.55, 0.55, 2.4, FOIL, 5.3, 1.5, 0, PI / 2, 0, 16),
@@ -689,7 +762,8 @@ function massDriver(): Parts {
     p.push(bar([-7.4, railY(-7.4) + 0.95, z], [10.4, railY(10.4) + 0.95, z], 0.08, PLATE));
   }
   p.push(
-    cyl(1.5, 1.5, 0.4, TRIM, 10.5, railY(10.5) + 0.2, 0, 0, tilt - PI / 2, 20, true),
+    cyl(1.5, 1.5, 0.4, BAND, 10.5, railY(10.5) + 0.2, 0, 0, tilt - PI / 2, 20, true),
+    ...[-5.5, -1.5, 2.5, 6.5].map((x) => box(0.45, 0.06, 3.1, BAND, x, railY(x) + 0.8, 0, 0, tilt)),
     radiator(3.0, 1.0, -9, 3.3, -1.4, PI),
     pipe([-2.2, 1.0, -2.7], [-0.5, 2.4, -0.9], 0.08, TRIM),
     pipe([-3.8, 1.0, -2.7], [-5.5, 1.8, -0.9], 0.08, TRIM),
@@ -712,6 +786,7 @@ function relayMast(): Parts {
   return [
     box(1.6, 0.4, 1.6, TRIM, 0, 0.2, 0),
     lattice(10.4, 0.55, 0.22, 0, 0, 0.4, 3, 1.3),
+    ring(0.52, 3.0, 0, 0, 0.3, 9), ring(0.44, 5.5, 0, 0, 0.3, 9), ring(0.36, 8.0, 0, 0, 0.3, 9),
     box(0.8, 1.1, 0.5, BODY, 1.1, 0.95, -1.1),
     box(0.2, 0.1, 0.05, LAMP, 1.1, 1.3, -0.83),
     cyl(0.5, 0.5, 0.1, PLATE, 0, 10.85, 0, 0, 0, 10),
@@ -729,13 +804,15 @@ function relayMast(): Parts {
 function solarObservatory(): Parts {
   const dx = -0.9, dz = -0.9;       // the dome's pier
   const cx = 1.9, cz = 1.9;         // the coronagraph's mount
-  const r = 1.55, y0 = 2.95;        // the dome
+  const r = 1.55, y0 = 5.35;        // the dome, raised on a tall pier (the identifier: 7 m)
   const p: Parts = [
     box(6.6, 0.3, 6.6, TRIM, 0, 0.15, 0),
-    cyl(1.05, 1.25, 2.5, BODY, dx, 1.55, dz, 0, 0, 16),
-    cyl(1.75, 1.75, 0.16, TRIM, dx, 2.86, dz, 0, 0, 20),
+    cyl(1.05, 1.25, 4.9, BODY, dx, 2.75, dz, 0, 0, 16),
+    cyl(1.75, 1.75, 0.16, TRIM, dx, y0 - 0.09, dz, 0, 0, 20),
+    ring(1.1, 3.4, dx, dz, 0.3, 16),
+    ladder(dx + 1.05, dz + 0.6, 0.3, 5.1, PI / 4),
     dome(r, BODY, dx, y0, dz, 20),
-    bands(r, dx, dz, [y0 + 0.05], TRIM, 0.12, 20),
+    bands(r, dx, dz, [y0 + 0.05], BAND, 0.12, 20),
     // the observing slit, meridian to horizon, facing the coronagraph's side
     [0, 1, 2].map((i) => domeBand(r + 0.02, (i * PI) / 7, ((i + 1) * PI) / 7, GLASS, dx, y0, dz, 3, PI / 4 - 0.16, 0.32)),
     box(0.5, 0.9, 0.12, WINDOW, dx + 0.95, 1.2, dz + 0.95, PI / 4),
@@ -770,6 +847,10 @@ function propellantPlant(): Parts {
     bar([3.2, 4.2, 0], [4.9, 1.0, 0], 0.14, TRIM),
     bar([4.9, 0, 0], [4.9, 1.1, 0], 0.18, TRIM),
     dome(0.14, BEACON, 2.2, 7.72, 1.8, 8),
+    // the identifier: a flare stack (11 m) with red rings and a lit tip
+    cyl(0.22, 0.32, 10.2, TRIM, 5.0, 5.1, -3.0, 0, 0, 8),
+    ring(0.32, 3.0, 5.0, -3.0, 0.3, 8), ring(0.27, 6.0, 5.0, -3.0, 0.3, 8), ring(0.24, 9.0, 5.0, -3.0, 0.3, 8),
+    box(0.5, 0.5, 0.5, LAMP, 5.0, 10.6, -3.0),
     cableTray([-5.5, -3.0], [-5.9, -3.0]),
     junction(-5.9, -2.2, -PI / 2),
   ];
@@ -800,6 +881,11 @@ function greenhouseRing(): Parts {
     domeBand(2.23, 0, 0.34, WINDOW, 0, 2.4, 0, 12),
     domeBand(2.24, 1.0, 1.08, TRIM, 0, 2.4, 0, 16),
     antenna(1.1, 4.1, -0.9, 1.6),
+    // the identifier: a sun tower over the hub dome, green rings, grow-light strips, a beacon (11 m)
+    cyl(0.5, 0.65, 6.4, BODY, 0, 7.7, 0, 0, 0, 12),
+    ring(0.66, 5.6, 0, 0, 0.3, 12), ring(0.6, 8.0, 0, 0, 0.3, 12), ring(0.52, 10.2, 0, 0, 0.3, 12),
+    box(0.12, 4.0, 0.12, LAMP, 0.52, 8.2, 0),
+    dome(0.16, BEACON, 0, 11.0, 0, 8),
     // the porch at +z (the ring's joint): an airlock box, its door and lamp
     box(1.9, 2.1, 1.6, BODY, 0, 1.05, 7.0),
     box(2.0, 0.14, 1.7, TRIM, 0, 2.17, 7.0),
@@ -842,7 +928,7 @@ function gardenDome(): Parts {
     cyl(9.78, 9.78, 0.64, WINDOW, 0, 0.62, 0, 0, 0, 36, true),
     cyl(9.08, 9.08, 0.6, WINDOW, 0, 1.76, 0, 0, 0, 36, true),
     cyl(8.43, 8.43, 0.56, WINDOW, 0, 2.86, 0, 0, 0, 36, true),
-    ...[0, 1, 2].map((k) => lathe([[9.82 - k * 0.68, 1.16 + k * 1.12], [9.1 - k * 0.66, 1.21 + k * 1.12]], TRIM, 36)),
+    ...[0, 1, 2].map((k) => lathe([[9.82 - k * 0.68, 1.16 + k * 1.12], [9.1 - k * 0.66, 1.21 + k * 1.12]], BAND, 36)),
     // the dome: canopy band below, glass crown above
     lathe([q(PI / 2), q(1.28), q(1.02)], LEAF, 32),
     lathe([q(1.02), q(0.74), q(0.46), q(0.2), [0.001, Y + R]], GLASS, 32),
@@ -891,6 +977,11 @@ function droneHive(): Parts {
     dome(0.18, BEACON, 0, 1.6, 5.0, 8),
     ...radiator(3.4, 1.4, 0, 1.2, -5.2, PI),
     antenna(-3.2, 5.0, -3.9, 1.6),
+    // the identifier: a landing-guidance mast at the back corner, violet rings, a strobe (9 m)
+    cyl(0.1, 0.17, 8.0, TRIM, 4.9, 4.3, -4.9, 0, 0, 8),
+    ring(0.17, 2.6, 4.9, -4.9, 0.34, 8), ring(0.14, 5.0, 4.9, -4.9, 0.34, 8), ring(0.12, 7.4, 4.9, -4.9, 0.34, 8),
+    box(0.6, 0.16, 0.6, PLATE, 4.9, 8.4, -4.9),
+    dome(0.2, BEACON, 4.9, 8.6, -4.9, 8),
   ];
   // the honeycomb: hex prisms along z, staggered rows
   for (let row = 0; row < 3; row++) {
@@ -918,9 +1009,9 @@ function serverMonolith(): Parts {
   const p: Parts = [
     box(4.2, 0.5, 6.8, TRIM, 0, 0.25, 0),
     box(3.0, 14.6, 5.2, GLASS, 0, 7.8, -0.2), // black glass: dark in both styles
-    box(3.1, 0.3, 5.3, TRIM, 0, 15.25, -0.2),
-    box(3.06, 0.12, 5.26, PLATE, 0, 5.0, -0.2),
-    box(3.06, 0.12, 5.26, PLATE, 0, 10.0, -0.2),
+    box(3.1, 0.3, 5.3, BAND, 0, 15.25, -0.2),
+    box(3.06, 0.12, 5.26, BAND, 0, 5.0, -0.2),
+    box(3.06, 0.12, 5.26, BAND, 0, 10.0, -0.2),
     box(0.2, 12.6, 0.06, LAMP, 0, 7.8, 2.42),
     ...[-0.9, -0.55, 0.55, 0.9].map((x) => box(0.07, 9.6, 0.05, WINDOW, x, 8.6, 2.42)),
     ...[-1.52, 1.52].map((x) => box(0.05, 9.6, 0.07, WINDOW, x, 8.6, 1.4)),
@@ -946,7 +1037,7 @@ const R: Record<BuildingId, () => Parts> = {
 export const MOUNTS: Partial<Record<BuildingId, Mount[]>> = {
   solar: [{ part: 'wing', p: [0, 2.45, 0], s: 1 }],
   lander: [{ part: 'dish', p: [0.6, 12.55, -0.4], s: 0.8 }],
-  lab: [{ part: 'dish', p: [1.4, 4.85, 1.4], s: 1.3 }],
+  lab: [{ part: 'dish', p: [1.4, 7.75, 1.4], s: 1.3 }],
   relayMast: [{ part: 'dish', p: [0.62, 9.8, 0], s: 0.9 }],
   dataCenter: [{ part: 'dish', p: [-3.4, 4.55, 3.4], s: 1.0 }],
 };

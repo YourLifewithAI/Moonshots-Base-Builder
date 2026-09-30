@@ -471,17 +471,17 @@ test('palette: LEAF maps to its own key; the destiny buildings take their overri
       leafHex: C.CEL_PALETTE.leaf,
       // the old fallback would have read LEAF's value as dark blue cells
       others: [K.GLASS, K.TRIM, K.PLATE].map((f) => C.finishKey(f.v, f.rough, f.metal, f.emit ?? 0)),
-      ringLeaf: has('greenhouseRing', 0x5f8f3f), domeLeaf: has('gardenDome', 0x5f8f3f),
+      ringLeaf: has('greenhouseRing', 0x3f6f34), domeLeaf: has('gardenDome', 0x3f6f34),
       monolithHull: has('serverMonolith', 0x23262b), monolithGlass: has('serverMonolith', 0x0f3a44),
       hiveHull: has('droneHive', 0x3a3f46),
       // one accent per family: the dome's ribs wear the life green, not silver (docs/19 S1a)
-      domeRibs: has('gardenDome', 0x5f9f3f),
-      habitatNoLeaf: !has('habitat', 0x5f8f3f),
+      domeRibs: has('gardenDome', 0x7cc242),
+      habitatNoLeaf: !has('habitat', 0x3f6f34),
       materials: g.getRenderInfo().buildingMaterials,
     };
   });
   expect(r.leaf).toBe('leaf');
-  expect(r.leafHex).toBe(0x5f8f3f);
+  expect(r.leafHex).toBe(0x3f6f34);
   expect(r.others).toEqual(['cell', 'trim', 'panel']);
   expect(r).toMatchObject({ ringLeaf: true, domeLeaf: true, monolithHull: true, monolithGlass: true, hiveHull: true, domeRibs: true, habitatNoLeaf: true });
   for (const t of ['droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith']) expect(r.materials[t], t).toBe('ShaderMaterial');
