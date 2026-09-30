@@ -2,15 +2,20 @@
 
 **Status:** shipped on `work/avoid`; rovers in transit, traffic yielding and
 extraction zones on `work/transit` (§5a, §6, §6a); Relay Masts off-road and
-the fleet on packs on `work/unitpower` (§5b, §6a).
-**Code:** `src/core/roads.ts` (the network, spurs, routes, gates, ground
+the fleet on packs on `work/unitpower` (§5b, §6a). Roads that make sense
+(straight trunks, gates on the hub's side, bays, sacrificial cells, the
+preview and waypoints, the new mesh: §3a, §4, §9) and the sim's own
+reservations (§6) are docs/19 S3 and S4a; the picture that replays them is S4b
+(§6b).
+**Code:** `src/core/roads.ts` (the network, spurs, routes, gates, bays, ground
 ways), `src/data/roads.ts` (tuning, the apron, field and dock types, the
 rover's speed), `src/core/spots.ts` (where rovers stand), `src/core/transit.ts`
-(rovers in the sim), `src/core/zones.ts` (extraction zones),
-`src/world/roads.ts` (the mesh), `src/world/traffic.ts` (units on the lanes),
-`src/world/rovers.ts` and `src/world/haulers.ts` (the drivers),
-`src/player/roadTool.ts` (the tool). Tests: `tests/avoidance.spec.ts`,
-`tests/transit.spec.ts`, `tests/zones.spec.ts`.
+(rovers in the sim), `src/core/traffic.ts` (the sim's reservations),
+`src/core/zones.ts` (extraction zones), `src/world/roads.ts` (the mesh),
+`src/world/traffic.ts` (the picture's lanes), `src/world/rovers.ts` and
+`src/world/haulers.ts` (the drivers), `src/player/roadTool.ts` (the tool).
+Tests: `tests/roads.spec.ts`, `tests/traffic.spec.ts`,
+`tests/avoidance.spec.ts`, `tests/transit.spec.ts`, `tests/zones.spec.ts`.
 If a number here disagrees with the code, the code wins.
 
 ## 1. What the player asked for
@@ -37,17 +42,19 @@ Chosen answers:
 
 Roads live on the build grid: one road cell is one 4 m grid cell.
 
-- **State.** `s.roads` is a list of cells `{ gx, gz, left, bay?, closed? }`
-  in the order they were laid. `left` is the sintering left (rover-seconds;
-  0 = open). `bay` marks a parking cell; `closed` a cell no new road joins
-  (the apron short of its stub's end). A structure's spur is `b.spur`, its
+- **State.** `s.roads` is a list of cells `{ gx, gz, left, bay?, closed?,
+  gate?, pass?, hold?, sacrificial? }` in the order they were laid. `left` is
+  the sintering left (rover-seconds; 0 = open). `bay` marks a parking cell;
+  `closed` a cell no new road joins (the apron short of its stub's end). The
+  four marks of §3a (`gate`, `pass`, `hold`, `sacrificial`) sit on ordinary
+  open cells: none of them is `bay`, so routing runs through them. A structure's spur is `b.spur`, its
   cells in order from the network; drawn roads and haul roads are jobs in
   `s.roadJobs` (`{ id, kind: 'draw' | 'haul', cells, by? }`). `s.roadRev`
   counts changes: routes and meshes cache on it.
 - **Graph.** Open cells that share an edge are joined. No diagonals.
-- **Landing.** Every base lands with an apron at the Lander's door: a run of
-  three cells straight out from the door, a parking bay either side of the
-  first, then the stub's end. All open. New roads join only at the stub's
+- **Landing.** Every base lands with an apron at the Lander's door: the door
+  cell and three cells straight out from it (the last is the stub's end), a
+  parking bay either side of the second. All open. New roads join only at the stub's
   end, so nothing drives through the apron, and an excavator unloading at the
   door (nose to the wall, 6 m long) passes the bays by.
 - **Footprints.** Nothing is built on a road cell. A road never crosses a footprint.
@@ -79,12 +86,17 @@ door (for a field type: to any cell within reach).
 | A new cell | 1 |
 | An open road cell | 0.05 (reusing road is nearly free) |
 | A road cell still being sintered | 0.5 |
+| A change of direction on a new cell (`ROAD.turn`) | +0.35 |
+| A new cell inside another wanted pit's full-size ring (`ROAD.ringSoft`) | +2 (haul roads only; §3a) |
 | Height step between cell centres | +0.6 per metre |
 | Step steeper than `ROAD.maxStep` (1.6 m per cell) | forbidden |
 | Footprints, the new building included | forbidden |
 | Doors, bays and closed apron cells | forbidden (only a door's own spur ends there) |
 
-- Every open road cell is a start.
+- Every open road cell is a start (a haul road starts at its hub's door: §3a).
+- The search runs over (cell, heading): each turn costs, and among equal
+  routes the walk nearer its target goes first, so a route between two flat
+  points is a **trunk with a couple of bends**, not a staircase.
 - The ghost previews the spur and its cost: `ROAD 4 cells · 8 rover-s to
   sinter, before it rises`, its cells drawn on the ground.
 - No route: the spot is refused with the reason, e.g. `NO ROAD ROUTE — its
@@ -95,6 +107,27 @@ door (for a field type: to any cell within reach).
   first six valid pads it takes the one whose score plus 1.5 m a new road
   cell is least, so its bases do not sprawl roads. Its `why` names a road it
   lays: `nearest free pad to the base centre · 23 m · a 9-cell road to it`.
+
+### 3a. Haul roads: the trunk, the gate and the bays (docs/19 S3)
+
+A hub's haul road (docs/17 §5.3) is planned like a spur, with the extraction
+zone in mind.
+
+| Rule | How |
+|---|---|
+| From the hub's door | `askRoad` and `Game.hubPlaced` plan the road from the hub's **door** (`accessCell`), facing the door's front, and merge into the network at 0.05 a cell. The road leaves the hub, and the estimated trip is the trip units drive. A plan that ends on a gate laid already only adds the missing bays. Legacy pad excavators' spurs are planned like any other |
+| The gate is on the hub's side | rim targets add `ROAD.hubSide` (0.5) per 90° between the rim cell and the hub, seen from the zone's centre, and include gates laid already. The gate is explicit: **`RoadCell.gate`** is the zone's id (`ZoneState.id`, a string such as `plain:3`) on the last cell of an auto road into that zone (a hub's haul road, a spur that ends at the rim, a road the player drew that stops on one) |
+| `gatesOf(s, zone)` | the open cells marked with the zone's id, in cell-key order. With none marked (an old save, a road with no mark) every open road cell on the rim, minus `bay`, `closed`, `pass` and `hold` cells. A zone may have several gates (several hubs); a pit's own zone (`pit-<id>`) has none marked and uses the fallback. A gate is never a door and never a bay |
+| Holding bay: `hold` | the open cell of that zone (`RoadCell.hold` is the zone's id) beside each gate (4-neighbour; with no room there, beside the road cell before it; with no free ground at all, a passing bay beside the gate is flagged `hold` too). Units queue here, never on the gate. `holdOf(s, zone, gate)` finds it |
+| Passing bay: `pass` | a cell beside the road, across its direction on a straight stretch. A haul road's route (door to gate) has one beside about every 10th cell (`ROAD.passEvery`, slid at most `ROAD.passSlide` 2 cells to find room, so at most 12 apart) and one beside the gate's approach (the far side from the hold); bays already beside the route count. They are dead-end pockets: routes may run through one, so a driver that reserves "the run to the next bay" reads the flag off the cell |
+| Sacrificial cells: `sacrificial` | the tail of a haul road inside the target's full-size ring plus 12 m (the pit's road setback): the contiguous tail of the route (new cells, and cells laid before that are a dead end leading only there: never a door, a branch or another site's spur) and any hold or pass cell in that reach. The pit consumes them, so a road never hems its own pit in |
+| The pit eats the road: `regate` | `blockersOf` (`core/pits.ts`) leaves sacrificial cells out (a heap still keeps off them). After each carve `regate(s, hf)` (called from `pitsStep` before the zones sync) removes the cells the cut reached, steps each gate back to the road cell before it (the neighbour farthest from the zone), re-lays a holding bay beside it (open at once) and drops bays left with no road beside them. The pit reaches a cell only when it is more than about 4 cells short of the first cell that is not sacrificial, so a shorter tail is never consumed |
+| The ramp faces the gate | `stake` aims a pit's ramp from its centre at the nearest gate of its zone (none: the old direction). While the cut is shallower than one bench, a carve re-aims it if the nearest gate is more than 25° off. Gate to ramp top never crosses the pit |
+| Preview | the hub ghost's HUB block draws the road the hub would plan (`GhostBlock.road`, from its door to the gate with its bays) as dashed cells (every other cell, a cool tint). It is the road the hub then lays, and no road cell stands in a zone |
+
+A hub placed hard by its deposit (its zone a few cells from the hub's walls)
+can get a gate more than 60° off the hub's side, when the rim cells on its
+side are the hub's own walls.
 
 ### Refusals: the reason and the way out
 
@@ -160,8 +193,16 @@ roads a base lays, are what the pole takes away.
 | **N** or the palette's ROAD button | start the tool |
 | drag from a road cell | preview a road (the same A\*) and its cost |
 | release | lay it (a job for free rovers) |
+| click on the start, then click again | **waypoints**: each click adds one; the whole route is previewed (waypoints drawn dark) |
+| Enter · double-click on the last waypoint · touch ✓ Lay | lay the road through its waypoints (each leg planned from the end of the one before; a leg may run over the legs before it) |
+| Backspace | take the last waypoint back (with none left, the start) |
 | Alt-drag | mark road cells to remove; release removes them |
 | right-click · Esc | stop |
+
+A drag from a road cell lays at once, as before; the second click of a
+click-click no longer lays a road: it adds a waypoint. The hint counts them:
+`ROAD 9 cells · 18 rover-s to sinter · 2 waypoints · Enter or double-click
+lays it`.
 
 While you drag a removal, the hint warns when the box holds a structure's
 door (`strands Research Lab #9: no road to its door`), and the alert says so
@@ -179,8 +220,8 @@ Management Plant) are **docks**:
 |---|---|
 | Bays | a hub's units park in the spur's bay cells beside its door (Level I: 2) |
 | Tipping | a unit tips at the hub's door cell, nose a pace short of the wall |
-| Haul road | placing a hub plans a haul road to the zone of the deposit it will dig, laid with its spur; a plain pit's (below) too |
-| The way in | road → the zone's gate (its pit's zone's gates count too) → off-road → once its pit is cut, down the ramp to a face on the floor |
+| Haul road | placing a hub plans a haul road from its door to the zone of the deposit it will dig (§3a), laid with its spur; a plain pit's (below) too |
+| The way in | road → the zone's gate (its pit's zone's gates count too) → off-road → once its pit is cut, down the ramp to a face on the floor. A second unit on a pit waits in the gate's holding bay, never on the gate; one unit at a time on a ramp |
 | Plain pits | a hub with no wanted deposit in reach stakes a **plain pit**: a zone of kind `plain` (r 12 m), 20–60 m from its door. Its zone keeps 12 m from structures' walls and 8 m from roads (the pits' setbacks) |
 | Zone order | deposits, then plain pits, then carved pits: a cell in two stays the first's |
 
@@ -215,14 +256,14 @@ the ring the [I] overlay draws. A cell is in a zone when its centre is.
 
 | Rule | How |
 |---|---|
-| Auto roads stop at the rim | door spurs, haul roads and the Builder's roads never run inside a zone. For a structure or a dig inside one, the A\* ends at a **gate**: a free cell on the rim, the one nearest the network by road cost (the off-road distance on counts 0.9 a cell, a tie-breaker; a new road cell costs 1) |
+| Auto roads stop at the rim | door spurs, haul roads and the Builder's roads never run inside a zone. For a structure or a dig inside one, the A\* ends at a **gate** (`RoadCell.gate`, §3a): a free cell on the rim, on the hub's side, the one nearest the network by road cost (the off-road distance on counts 0.9 a cell, a tie-breaker; a new road cell costs 1) |
 | The road tool may | the player can still draw a road inside a zone |
 | Off-road inside | excavators and rovers drive straight over the regolith between a gate and their work in that zone, at `ROAD.offroad` (0.5) of road speed; nowhere else |
 | Timing | a trip or haul leg is road metres / road speed + off-road metres / (road speed × 0.5) |
 | Construction | a structure inside a zone gets its spur to the gate; its rovers then drive off-road to its door (a field structure's wall nearest the gate) and weld from there, side by side. Its door needs no road |
 | Fields | the same: an array inside a zone is served by the zone's gate |
 | Docks | refused inside a zone (`IN AN EXTRACTION ZONE — a dock parks its rovers on the road; …`): a Robotics Bay's or Drone Hive's rovers park in bays, on the road. A dock with no room for a single bay beside its door (a zone's ring there, a structure, its own road along its front) is refused too: `NO ROOM FOR ITS PARKING BAYS — …; R rotates` |
-| Traffic | zone cells are traffic ground: the same holds keep units apart inside, and they queue at the gate |
+| Traffic | ground off the road inside a zone is not reserved by the sim (the picture's lanes keep units apart there); units queue in the gate's holding bay (§6) |
 | The Builder | a pad inside a zone costs 1 m of score per metre of off-road drive from the gate, on top of its road |
 | The ghost | `ROAD 3 cells · 6 rover-s to sinter, before it rises · to its zone's rim, then 12 m off-road` |
 | Gates | a striped line across the gate's edge facing into the zone |
@@ -259,37 +300,88 @@ The gate and stand are memoised on the network: a road opening nearer a
 mast moves its gate. A unit stopped on the way out (a flat pack) sets off
 again from the nearest road cell.
 
-## 6. Traffic on the lanes
+## 6. Traffic: the sim reserves the ground (docs/19 S4a; `core/traffic.ts`)
 
-Visual only: the sim never waits on traffic. The visuals follow the sim
-(§6a), and the traffic is the local adjustment. Every rule is cell-keyed (no
-pair tests), in a fixed order, with no randomness.
+The sim has collisions of its own: it reserves ground, and a unit that cannot
+have the next stretch waits. (The picture, §6b, replays what the sim did.) The
+model is in `core/traffic.ts`'s header; in short:
+
+| Rule | How |
+|---|---|
+| What is reserved | road cells, **one unit a cell, and the cell it just left** (a 3.8 m body on a 4 m cell), plus each cut pit's **ramp as one key** (one unit at a time). A dock's `bay` cells are soft: parking never blocks. Off-road ground inside a zone is not reserved. A unit digging, tipping or parked holds no ramp: only a unit driving on it does |
+| Runs | a unit holds the **run ahead**: its path's road cells up to the next *boundary*, a road cell beside a `pass`, `hold` or dock bay, or a ramp, or the end of its path. On a road with no bay in reach the run is 48 m (`HORIZON_M`), so before bays exist two units on one haul road do not serialise the whole road and head-on is sorted out on the ground beside it. All of a run is granted or none of it, except that a unit behind another going the same way gets the cells behind it (a convoy). A unit standing in a bay holds nothing ahead until it can have its whole next run. So two units never meet head-on in the middle of a stretch; an opposing unit waits at the boundary it is at, in the bay if it has one |
+| Priority | a loaded digger (cargo, `toDrop`, `unload`) before an empty one before a rover; ties by id |
+| The tick | two phases, so a unit early in the roster cannot take a run a loaded unit should have had: `planTraffic` (economy step 0, before `transitArrive`) plans every digger's claim in priority order, then the hub units move in id order (`go`, from `unitTick`); a leg that begins mid-tick asks again on the spot. Nothing is reserved under `TRANSIT.instant` (debug `instantTravel` also sets `TRAFFIC.bypass`) |
+| Waiting | a unit refused a cell stops at the centre of the cell before it (`h.held` counts seconds); the sim never overshoots. `h.wait` stays `'gate'` (waiting for a face) |
+| Stepping aside | a lower-priority unit standing on a cell a higher one needs, and not moving, pulls into a `pass` or `hold` cell or a free dock bay beside it at once, else after 3 s onto the free ground (or a free road cell off the other's way): the way there and back is put in front of `h.path`; the `route` the picture follows is untouched. Held 20 s a unit lets go of the ground ahead and steps aside; held 60 s (12 s for a unit asked to give way that has nowhere to step) it drives through, counted in `forced`. A rover: 20 s |
+| Holding bays | `goDig(face -1)` parks in a `hold` cell of the target's zone (or its pit's zone: `RoadCell.hold` is the zone's id), else a `pass` cell within 6 cells of a gate, else the gate as before; another waiting unit's spot is skipped. Units queue behind it |
+| Rovers | **a rover holds no ground.** `roverStep` (called by `transitArrive`) makes it wait for a digger's claim on the stretch its next second covers: its clock stands still, `RoverTrip.held` counts the seconds in a row, the ETA stretches in real time, and it drives through after 20 s. A digger is never held up by a rover. The fleet panel says `held up by a digger` after 2 s (a unit's inspector: `HELD UP`) |
+| Faces | with more than one face a pit's faces sit on a ring of at least 3.6 m between neighbours (`FACE_GAP_M`), spread at least 100° round the far side of the ramp (`facePoint`); a unit already digging keeps its point until its next trip |
+
+The claims are kept on the unit (`HaulState.claim`, a few cell keys, ordered
+tail, current cell, run ahead; a ramp is key −1000 − pit id) and are saved; the
+table of holders is rebuilt every tick. Deterministic: units in priority order,
+cells in path order, fixed tie-breaks. Its counters are in
+`getRenderInfo().life.traffic.sim`: `heldS`, `maxHeldS`, `pullIns`,
+`stepAsides`, `forced`, `overlaps` (road cells held by two units at the end of
+a plan). Measured (two hubs, four units, 30 game-minutes, seed 42): 2% of the
+time held up on S3's roads, the longest 17 s, no forced pass, the same regolith
+as with the reservations off (6,656 against 6,636). `tests/traffic.spec.ts` holds
+it: no two units share a reserved cell, a loaded unit has priority, a second
+unit waits in the holding bay and never on the gate, a rover waits for a
+digger, determinism, and a save made mid-traffic loads with its claims.
+
+## 6b. Traffic on the lanes: the picture (`world/traffic.ts`)
+
+The sim keeps the units apart (§6); the picture replays it and adds lanes.
+Every rule is cell-keyed (no pair tests), in a fixed order, with no randomness.
+
+**A hub unit as drawn is a *free* agent** of the picture's traffic: nothing
+holds it up, backs it off or sets it down, because the sim itself waits, and
+the way it drives is the sim's own path (its position plus `h.path`, including
+a step aside into a bay). The picture drives to the sim's position one game
+second late with no prediction (the arc between the last two economy ticks,
+plus the tick fraction, never backwards), so a unit the sim holds stands where
+the sim stopped it. It still holds the cells its body covers, so a rover keeps
+clear of it, and **a rover whose body lies in its way ahead is asked to make
+way** (`courtesies`, once per 4 s each). Motion: yaw at most 90°/s (a hairpin
+over 120° is a stop, a road corner is taken on the move, the speed falling to
+nothing as the heading falls 50° behind the way's), ramps 6 m/s² up and 10 m/s²
+down, a 0.3 s settle on arrival before the dig or the dump shows, at most 1.6 ×
+cruise to catch up, no pose more than 1 m in a frame at 1×. Body width `hw`
+1.5 m: off the open road each unit keeps ±1.5 m off its way by id parity, a
+head-on pair both take their right shoulder, and a unit that passes one the
+sim has standing or standing aside in a bay goes 3.4 m wide of it (1.1 m on a
+ramp). `roadRoute(s, a, b, 1)` (an odd unit id) leans away from the shortest
+road if it is within 5% (+1 cell) of its length, so two units use both trunks
+when a base has two. `getRenderInfo().life.haulers`: `lagMaxS` (how far the
+picture trails the sim, its tick included), `replayLagMaxS`, `setDowns` and
+`snaps` (both 0 for a hub unit).
+
+The rest of the picture's rules are the lanes, for rovers and the legacy pad
+diggers (`unit: false`: old saves, and the first excavator before a smelter
+stands), which the sim gives no reservations:
 
 | Rule | How |
 |---|---|
 | Two lanes | a rover drives 1 m right of the road's centre line; leaving a cell where another stands, it keeps to its half |
 | Holds | a unit holds every road cell its body covers, plus its braking distance, whole or in one half |
-| Sharing a cell | two rovers in opposite halves, standing or passing — never two driving the same way (nobody overtakes) or two turning on the spot |
+| Sharing a cell | two rovers in opposite halves, standing or passing; never two driving the same way (nobody overtakes) or two turning on the spot |
 | Wide loads | an excavator (3.8 m wide) holds cells whole, and every cell its box overhangs on a corner |
-| Excavator gates | before an excavator enters a junction (or comes onto the road) it takes the whole run to the next junction, or to its way's end, at once; anyone in it, and it waits short of the junction |
+| Legacy excavator gates | before a legacy digger enters a junction (or comes onto the road) it takes the whole run to the next junction, or to its way's end, at once; anyone in it, and it waits short of the junction |
 | Queues | a unit that cannot take the next cell stops 0.25 m short of it; short of a junction, if it is not in it yet |
-| Turning on the spot | a rover whose way sets off more than 1 rad from its heading turns on the spot first, and squares up along its road at its slot the same way; it holds its own half (a turn there stays clear of a rover in the other half). A turn needs every road cell its body sweeps, but one standing still in such a cell does not stop it if its body is 0.1 m clear of the turn's circle (an excavator's turn at a corner reaches into the diagonal cells, where rovers may stand parked) |
-| Parking | bays, nose in, two a bay cell, each rover its own slot by its place in its dock's roster — so one leaving moves nobody; it backs out into the opening, and comes in by it |
+| Turning on the spot | a rover whose way sets off more than 1 rad from its heading turns on the spot first, and squares up along its road at its slot the same way; it holds its own half. A turn needs every road cell its body sweeps, but one standing still in such a cell does not stop it if its body is 0.1 m clear of the turn's circle |
+| Parking | bays, nose in, two a bay cell, each rover its own slot by its place in its dock's roster, so one leaving moves nobody; it backs out into the opening, and comes in by it |
 | Right of way | loaded excavator > empty excavator > rover; then the lower id |
 | Corners | a rover's corners where its way leaves the lane (a diagonal, a turn) claim the cells they reach, and an exact check keeps any two bodies 0.1 m apart under the cell holds |
-| Deadlock breaker | a wait cycle held 1 s: its lowest unit gives way — a rover over into the other half of its cell if the others' ways keep to this half, else back (reversing, if it lies behind) to the nearest free cell off their ways, through free cells only, and out of a cell it shares in its own half; an excavator back along its way until it is clear. A unit standing in another's way 3 s steps aside, **with every standing unit in the cells just ahead** (two parked in one bay cell otherwise take turns). Nothing for 8 s: the lowest is set down — a rover where the sim has it (else inside its dock), an excavator where the sim has it, if that ground is clear |
-| Detours | a unit held up 2 s by one that is not moving takes another road to its slot if the network has one, no more than 3 × the way it had left (+40 m); a rover that must turn first backs up to its cell's centre. The player's side roads work as a detour. A unit giving way keeps to its refuge until its time there is up: no detour back to its slot |
-| Catching up | an excavator's visual drives up to 1.6 × haul speed to close on the sim; held up more than 12 s of driving, it is set down where the sim has it, if that ground is clear. A rover's: §6a. A unit set down holds the half of the cell it stands in, not its slot's |
+| Deadlock breaker | a wait cycle held 1 s: its lowest unit gives way, a rover over into the other half of its cell if the others' ways keep to this half, else back (reversing, if it lies behind) to the nearest free cell off their ways, through free cells only. A unit standing in another's way 3 s steps aside, with every standing unit in the cells just ahead. Nothing for 8 s: the lowest legacy digger is set down where the sim has it, if that ground is clear; a rover is only put back inside its dock (it rolls out again where the sim has it) |
+| Detours | a unit held up 2 s by one that is not moving takes another road to its slot if the network has one, no more than 3 × the way it had left (+40 m); a rover that must turn first backs up to its cell's centre. A unit giving way keeps to its refuge until its time there is up |
+| Catching up | a legacy digger's picture drives up to 1.6 × haul speed to close on the sim; held up more than 12 s of driving (`LAG_S`), it is set down where the sim has it. A rover's: §6a |
 
-On the crowded base of `avoidance.spec` (8 rovers, 2 excavators, 5 sites,
-600 s at 10×; one Robotics Bay's parking cell diagonal to an excavator's
-corner): closest pair 0.09–0.10 m (the box check's lower bound), 57–59
-wait cycles broken, no detour needed, no last-resort rescue, 6–7 rovers
-set down, no overlap, nobody off the ground, everyone home at the end, on
-eight runs in each style. (Without the turn and refuge rules above, the
-excavator's turn at that corner sent both parked rovers out of their bay on
-every pass, and one's refuge crossed the other's half, so neither got
-home.)
+`avoidance.spec` is the crowd budget for the lanes (rovers and legacy pads):
+it reads `life.haulers.lagMaxS` and `life.traffic.rescues`, and hub units add
+nothing to `rescues`. Its budgets are repaired against this model in the test
+rounds (docs/18).
 
 ## 6a. Rovers in transit
 
@@ -300,14 +392,16 @@ way between.
 
 | | Rule |
 |---|---|
-| A trip | a new goal (an assignment, Send, Summon, a survey loan, the frontier's next cell, a new slot, home) plans one trip from where the unit is now: the road route (`roadRoute`, cached on the network), off-road inside a zone; a drone straight |
+| A trip | a new goal (an assignment, Send, Summon, a grading stand, the frontier's next cell, a new slot, home) plans one trip from where the unit is now: the road route (`roadRoute`, cached on the network), off-road inside a zone; a drone straight |
 | Speed | `ROVER.speed` 4.5 m/s (`data/roads.ts`) × the roadway tiers (× the beacons at night); a drone `DRONE.speed` 6 m/s |
 | Time | L / v + v / a rest to rest (a = 3 m/s²; 2·√(L/a) when too short to reach v): the route ÷ cruise, plus a 1.5 s start-and-stop allowance. A speed change on the way waits for the next trip |
 | The tick | step 0 advances every trip a second and counts arrivals; the tick's end plans new trips, which set off that second. No search per tick |
 | Work | a site draws power and builds only with the units that have arrived; n^0.85 counts only them. A cell sinters only with one behind its frontier |
 | Reassigned mid-trip | it replans from where it is |
 | Who goes | an auto site, and Summon, take the unit soonest there by road from where it is now (a drone by the straight line), not the lowest id |
-| Survey | the lent rover drives to the Lander and leaves by its door; it comes back there |
+| Grading | a trip to a grading box has kind `'grade'`: to a stand on the next cell of the job (off the road, one half of the cell, facing along the row; the second rover on the one after). A rover counts as at work when it has arrived at its stand, or is on a `local` hop to it within 6 m (`GRADE_REACH_M`): the blade works as the rover creeps on cell to cell, and a long drive out to the box counts nothing. A grading rover's next hop is `local` even before the last one ended, at twice the acceleration. The way to the box is its own off-road area (`gradeArea`, one gate: the road cell nearest the box) unless the stand is in a zone that has a gate. It never takes a drone (docs/19 S5) |
+| Surveys | map surveys are flown by survey drones (docs/11 §5c): no rover is lent and no trip is planned |
+| Diggers | a rover waits for a digger's claim on the stretch its next second covers: its trip's clock stands still and its ETA stretches (§6) |
 | Hazards | a unit held or bricked goes home (a drone sets down where it is) |
 | Power | a unit drives on its trip's clock at the share of the tick its pack carries (docs/02, On-board power): 1 on the grid or a charged pack, 0 flat (it waits where it stands; a drone sets down), ¼ on an RPU's trickle alone. `trip.rate` carries the share to the visuals |
 | Off-road | inside a zone (§5a), or out to a Relay Mast (§5b): the leg's metres count ×2 |
@@ -326,19 +420,19 @@ way between.
 **The visuals follow the sim.** Each visual rover's progress along its own
 lane way is matched to the sim's along the route (real metres, with the tick
 fraction added). It drives the sim's pace, chases up to 1.6 × cruise when
-the traffic held it back, and never runs ahead of the sim. It is set down
-where the sim has it (never onto another unit) when it trails more than 6 s
-of driving on a trip, or when the sim has it at work and it is not at its
-stand after a second (or after 6 s while it visibly drives up). Sim time the
-visuals never showed (a debug advance, a load) sets every unit down where
-the sim has it. A drone chases the sim's point on the straight line the same
-way. The visual rover exposes `mode: 'weld' | 'sinter' | null` (what the sim
+the traffic held it back, and never runs ahead of the sim. A rover
+that trails is **never set down for lag**: it drives on, catches up at up to
+1.6 × cruise and works once it is at its stand. Sim time the visuals never
+showed (a debug advance, a load) sets every unit down where the sim has it. A
+drone chases the sim's point on the straight line the same way (and keeps its
+6 s lag set-down: it flies, it does not drive). The visual rover exposes `mode: 'weld' | 'sinter' | null` (what the sim
 has it doing at its stand), read by the work animations.
 
 **Tests** use `instantTravel(true)` where the drive is not the point: every
 trip ends as it starts, and a new goal is reached in the tick that sets it
-(the timing from before transit). The smoke spec sets it for all its tests,
-as it opens roads as they are laid.
+(the timing from before transit), and the sim's reservations are bypassed
+(`TRAFFIC.bypass`). The smoke spec sets it for all its tests, as it opens roads
+as they are laid.
 
 ## 7. Research: the roadway ladder
 
@@ -369,13 +463,34 @@ whose E7 has room, so no lane grows.
   excavator haul: `charge`, `pw`, `src`, `chg`, `flatT`, and `trip.rate`.
   A save from before starts every unit fully charged.
 - An excavator's haul keeps `full` (waiting at its dig) and `w` (off-road
-  weights).
+  weights), and its reservations: `claim` (the cell keys it holds, a ramp as
+  −1000 − pit id) and `held` (seconds held up). A save from before has no
+  claims and takes them on its first tick.
+- The marks on a road cell (`gate`, `pass`, `hold`, `sacrificial`) are saved
+  with the cell. A save from before has none: `gatesOf` falls back to the rim
+  rule (§3a), so its roads keep working.
 - `s.zones` is rebuilt from the heightfield and the reveals on every load.
 
 ## 9. Looks and cost
 
-- One merged, draped mesh for open cells, one for cells being sintered
-  (outlined, filling as they open). Rebuilt on change only.
-- Classic palette keys: `road`, `roadMark`.
-- Beacon posts are one instanced mesh, lit at night from Guidance Beacons.
-- Routes are cached per network version; spurs are planned on placement only.
+The roads are drawn by `world/roads.ts`, on the cel ground program with vertex
+colours (docs/06 §2.3: `road` `#a8a299`, `roadMark` `#e9e4d8`).
+
+- **Carriageway.** One merged, draped mesh for open cells: the inner corner of
+  a bend is filleted (radius 1.4 m) and the **centre line runs on
+  continuously through bends** as a quarter circle. **Kerbs stand only on the
+  outer edges** (dashed on sintered roads, trimmed short of a fillet), so a
+  staircase of cells does not read as saw-toothed.
+- **Bays.** Passing and holding bays are widened shoulders with a dashed edge
+  and no kerb; parking bays keep their stripes; a **gate** keeps a striped
+  line across its edge facing into the zone, on the `RoadCell.gate` cell.
+- **Ink.** The road's edge is inked with `drapedLine(…, 'road')`, one line a
+  loop of the network's boundary (`getRenderInfo().life.roads.ink` counts
+  them).
+- One more merged mesh for cells being sintered (an outline, filling as they
+  open). Both are rebuilt on change only.
+- The roadway tier changes the look (§7): pavers, a pale centre line, beacon
+  posts, twin rails, a coil strip. Beacon posts are one instanced mesh, lit at
+  night from Guidance Beacons.
+- Routes are cached per network version; spurs and haul roads are planned on
+  placement only, and after that only `regate` changes a haul road (§3a).

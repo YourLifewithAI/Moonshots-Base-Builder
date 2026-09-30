@@ -38,8 +38,8 @@ Anything below that touches a core-fixes file is listed in §2 S12, **Coordinati
 | Lunar Map framing | Local first. The map opens on the 1 km SITE view with a Moon thumbnail reading "orbital imagery only". Each Exploration tier animates the viewBox outward: site → vicinity → region → near side → far side → whole Moon. | 3/3 graft |
 | Deposit effects | They act through **excavator feed grade**: "excavators dig the ground they sit on". The feed grade is an **instant, unsmoothed** share of what was dug last tick, so there is no lagged global mix. Only ice (harvester), ridge (solar), KREEP (no habitats) and the digging excavator's own wear stay location-based. | J1 must-fix (realism); J2/J3 cut B's *lagged* feedMix |
 | Breakthroughs | **3** hidden techs, each revealed by surveying a real anomaly. Each has a **fixed era and a reserved Exploration-lane slot**, and uses **existing effect kinds only**. They replace anomaly→insight discounts. | J1, J2 graft (2–1); J3's overflow concern answered by the fixed slots |
-| Survey costs | Stored energy, plus O₂ and water that scale with distance (hopper propellant), plus 1 borrowed robot for the trip. KSP-style novelty decay (×1, ×0.5, ×0.25) applies per geology kind. | J1, J3 graft; J2 must-fix ("borrow 1 robot") |
-| Outposts | The first slot arrives at T2 (Near Side, Era 4). Claims cost chips. Six kinds, with a single cost/deploy table by distance class. Streams are continuous, with a first-delivery alert and a visible hopper-fuel line that raises HOPPER GROUNDED when it runs dry. | J3 graft; J2 cut; J2 must-fix |
+| Survey costs | Stored energy, plus O₂ and water that scale with distance (hopper propellant), plus parts. A survey is one **survey drone's flight** (§5c), so several run at once and no rover is borrowed. KSP-style novelty decay (×1, ×0.5, ×0.25) applies per geology kind. | J1, J3 graft; J2 must-fix ("borrow 1 robot") |
+| Outposts | The first slot arrives at T1 (Prospecting Drones, Era 1: the first outpost is an Era-1 goal), the second at T3, the third at T4, the fourth with ATLAS COMPLETE (§5c). Claims cost chips. Six kinds, with a single cost/deploy table by distance class. Streams are continuous, with a first-delivery alert and a visible hopper-fuel line that raises HOPPER GROUNDED when it runs dry. | J3 graft; J2 cut; J2 must-fix |
 | Comms and survey loads | Charged as `powerDelta` on the Lander (real kW in the power UI). No virtual consumer. | J1 cut, J3 graft |
 | Humans | Research, safety **and** optimizing conditions, all non-exclusive: Science Crews, Safety Protocols, Condition Optimization. Crew Wellness is Era 5 on human runs and Era 7 on robotic runs. Cohabitation brings a 2-settler crew rotation after 240 s. | J1, J3 must-fix; 3/3 cut B's exclusive charter |
 | Lab diminishing returns | A shared **uplink share** that applies to agent-run labs only. It is computed from the active count and shown on the palette card, the placement ghost, the inspector and the info panel. | J1, J2, J3 must-fix |
@@ -192,7 +192,7 @@ The deeds teach the loop of each era: smelt, then fab parts, refine, fab chips, 
 - **Discovery.** Surveying any host adds the tech to `s.discoveries` and alerts `BREAKTHROUGH — Lava-Tube Caverns found at Mare Tranquillitatis pit (researchable in Era 3)`.
 - **Fixed era and cost.** A breakthrough found early waits for its era; one found late is researchable at once.
 - **Fixed slot.** Each has a reserved Exploration-lane slot: E3 slot 1, E4 slot 2, E6 slot 2. The lane never overflows.
-- **Placeholder.** Before discovery the slot renders as `✦ ? Breakthrough`, with a hint once a host pin is visible: `survey an anomaly: Tranquillitatis pit (regional)`.
+- **Placeholder and compass.** Before discovery the slot renders as a dotted `◎ ? Breakthrough` placeholder wearing the compass (§5c): the nearest host and `+n` for the others, and its sheet names every host by its real name and class. Once found it reads `◎ Found at <host>`.
 - **Effects use existing kinds only.**
 - Every site can reach at least 2 of its 3 breakthroughs by T1 (checked with `prospects.py`):
 
@@ -356,10 +356,11 @@ ETA is `remaining / s.researchRateAvg`, a 30 s exponential moving average of the
 
 | Building | Unlock | Footprint / height | Build time / cost | Crew / power | I/O | Upkeep / prio | Pro | Con |
 |---|---|---|---|---|---|---|---|---|
-| `relayMast` | Prospecting Rovers | 1×1 / 12 m | 40 s / 20◆ 5⚙ | 0 / −1.5 kW | — | 0.5⚙/day / 1 | `buildRadiusM 45`. The network radius extends from any completed mast, so masts chain. Reveals deposits within 45 m on completion. | Produces nothing and needs power |
+| `relayMast` | Prospecting Drones | 1×1 / 12 m | 40 s / 20◆ 5⚙ | 0 / −1.5 kW | — | 0.5⚙/day / 1 | `buildRadiusM 45`. The network radius extends from any completed mast, so masts chain. Reveals deposits within 45 m on completion. | Produces nothing and needs power |
+| `prospectingBay` | Prospecting Drones | 2×2 / 10.5 m | 50 s / 30◆ 10⚙ | 0 / −1.5 kW | — | 0.5⚙/day / 1 | Prints and docks survey drones (15◆ 5⚙, 45 s each): every drone flown at once is another survey under way. Two bays a level (§5c). Off-road, like a Relay Mast: its drones fly | Produces nothing and needs power |
 | `propellantPlant` | Propellant Depot | 3×2 / 7 m | 240 s / 90◆ 30⚙ 20◇ | 1 / −18 kW | 0.30≈ + 0.05○ → 0.01↑/s; `ignoresLaunchMult` | 2⚙/day / 2 | Launch from any latitude | Drinks the crew's water |
 
-Meshes: mast = cylinder + dish; plant = 2 tanks + a box.
+Meshes: mast = cylinder + dish; plant = 2 tanks + a box; the Prospecting Bay is a mast with a radar array over a drone dock. Every recipe is described in docs/06 §5.
 
 **`buildRadiusM` per building:** lander 60, habitat 60, relayMast 45. It replaces the lander/habitat check at `placement.ts:171/221`.
 
@@ -369,7 +370,7 @@ This is the M workstream (§5).
 - `explorationTick(s, mods, site, dt)` runs as economy step 8.7: survey timers, outpost streams, hopper fuel, outpost upkeep, atlas check and `stats.outpostOpS`.
 - `surveyTier(mods)`, `outpostSlots(mods, s)`, `prospectClass(site, pid)`.
 - `revealDeposits(s, hf, tier)` runs on tier change, on building completion and on load.
-- Step 0 subtracts the borrowed robot: `botsTotal -= s.survey.active ? 1 : 0`, minimum 0. The robot chip reads `2/4 · 1 surveying`.
+- A map survey borrows no robot: it is a survey drone's flight (§5c), so step 0 subtracts nothing and the robot chip counts construction rovers only. `s.survey.active` is deprecated and null after migration; `s.survey.flights[]` holds the parallel flights.
 
 ### S12 · Coordination with core-fixes (shared files)
 
@@ -392,7 +393,7 @@ This spec adds the following, which must be merged with core-fixes:
 
 | Step | Changes |
 |---|---|
-| 0 robots | Survey borrows 1 robot; `waitingSitesPeak` |
+| 0 robots | `waitingSitesPeak` (map surveys are drones: no robot is borrowed) |
 | 1 supply | `effectiveDef`; `shadeImmune`; ridge solar ×1.2 and unshaded; generator staffing (`staffedPrev`); `powerBeam` is 0 while a flare is active; `shadedMaxS` |
 | 2 demand | `1 + agentTax`; `nightDraw`; overclock ×1.5; `construction.kwMult`; negative-kW Lander as a priority-0 draw; `nightCritDark`, `darkNightMaxS`, `dayBrownouts` |
 | 2.5 construction | `rateMult`, `partsMult`; `built++` |
@@ -458,12 +459,12 @@ New kinds are defined in §4: `recipe`, `agentTax`, `construction`, `storage`, `
 - **Flavour:** *Ops video and science share one antenna.*
 - **Insight:** —
 
-**`prospectingRovers`** · EXPLORATION · Prospecting Rovers
-- **Gating:** 120 · Req — · Any — · Excl — · Sites/Exp: all
-- **Effects (pro):** survey{tier 1}: local reveal 120 → 320 m; Moon map REGIONAL (≤27°); hopper surveys; ⊕relayMast
-- **Con:** powerDelta[lander] −1 kW (rover charging); every survey borrows 1 robot for its duration
-- **Desc:** Neutron and X-ray spectrometers on wheels, and a hopper for anything past driving range.
-- **Flavour:** *Every kilometre surveyed is a robot not building.*
+**`prospectingRovers`** · EXPLORATION · Prospecting Drones (the id keeps its old name)
+- **Gating:** 100 · Req — · Any — · Excl — · Sites/Exp: all
+- **Effects (pro):** survey{tier 1}: local reveal 120 → 320 m; Moon map REGIONAL (≤27°); the first outpost slot; deposit surveys in half the time; ⊕prospectingBay, ⊕relayMast
+- **Con:** powerDelta[lander] −1 kW (drone charging); every sortie spends stored energy, propellant and parts
+- **Desc:** Neutron and X-ray spectrometers on a delta-wing drone: print more at a Prospecting Bay, and every drone flies its own survey of the Moon.
+- **Flavour:** *Every drone in the air is another survey, not another robot off the build.*
 - **Insight:** —
 
 **`siteGrading`** · ROBOTS & FAB · Site Grading
@@ -936,7 +937,7 @@ All other existing kinds are unchanged. There is no `launch` kind and no `buildC
 
 **Reveal: automatic and tier-driven**
 - **T0:** 120 m from the lander.
-- **T1** (Prospecting Rovers): 320 m.
+- **T1** (Prospecting Drones): 320 m.
 - **T2** (Orbital Prospector): the whole 1 km map.
 
 **Leads**
@@ -947,7 +948,7 @@ All other existing kinds are unchanged. There is no `launch` kind and no `buildC
 **Other reveals**
 - A completed Relay Mast reveals everything within 45 m.
 - Placing a building on an unrevealed deposit reveals it on placement (`s.survey.struck`): `PROSPECT STRUCK — Excavator #9 is on ilmenite-rich basalt (smelter feed +30%)`.
-- An Ice Harvester needs **revealed** ice: `ICE UNCONFIRMED — extend your survey (Prospecting Rovers) or place a Relay Mast nearby`.
+- An Ice Harvester needs **revealed** ice: `ICE UNCONFIRMED — extend your survey (Prospecting Drones) or place a Relay Mast nearby`.
 
 **Legibility**
 - **Placement ghost line**, one per kind:
@@ -992,11 +993,13 @@ All other existing kinds are unchanged. There is no `launch` kind and no `buildC
 | Tier | Tech (era) | Views unlocked; the viewBox animates outward on unlock | Prospects visible (M / P / L) | Local reveal | Outpost slots |
 |---|---|---|---|---|---|
 | T0 Landing site | start | SITE (1 km top-down) and VICINITY (±3° orthographic around home) | 2 / 2 / 2 | 120 m | 0 |
-| T1 Regional | Prospecting Rovers (E1) | REGION (±30° orthographic, centred on home) | 8 / 6 / 6 | 320 m | 0 |
+| T1 Regional | Prospecting Drones (E1) | REGION (±30° orthographic, centred on home) | 8 / 6 / 6 | 320 m | 1 |
 | T2 Near side | Orbital Prospector (E4) | NEAR (full Earth-facing disc) | 23 / 24 / 23 | whole map | 1 |
 | T3 Far side | Far-Side Relay (E6) | FAR (near/far toggle) | 30 / 30 / 30 | — | 2 |
 | T4 Subsurface | Deep Sounding (E7) | MOON (both hemispheres side by side) | 34 / 34 / 34 | — | 3 |
 | ATLAS COMPLETE | T4 + 12 prospects surveyed | — | — | — | 4 |
+
+The slot counts are `SURVEY_TIERS.slots` (0, 1, 1, 2, 3), and T2 adds none: the first outpost is an Era-1 goal, and a refusal names the next tier that adds one (§5c).
 
 **What the player sees as it grows**
 - **Minute 0.** The SITE view: lander, the 120 m reveal ring, the 60 m network ring, revealed deposits, '?' leads and buildings. A 120 px corner thumbnail shows a dark Moon with one pin, labelled `orbital imagery only — no ground truth`. The zoom-out control to VICINITY shows the 2 local prospects, 15–60 km away.
@@ -1060,8 +1063,8 @@ All other existing kinds are unchanged. There is no `launch` kind and no `buildC
 - Re-render only on a structural signature change (tier, view, surveyed set, outposts, discoveries). Timers update in place.
 
 **Survey** (action `surveyProspect{id}`)
-- One survey at a time. It borrows 1 robot for its duration.
-- It is paid when started. Every shortfall alerts, for example `SURVEY NEEDS 33○ — have 21` or `SURVEY IN PROGRESS — Maskelyne 0:40`. `d` is the great-circle distance in degrees, and every formula result is rounded to the nearest whole unit.
+- **Parallel:** each docked, charged survey drone flies one survey; a survey borrows no rover (§5c). The lander's drone flies the local ones; the *Method* column below is how the cost is paid, not who flies.
+- It is paid when started. Every shortfall alerts, for example `SURVEY NEEDS 33○ — have 21`, `SURVEY IN PROGRESS — Maskelyne 0:40` or `ALL 2 DRONES ARE OUT — the next is home in 1:12`. `d` is the great-circle distance in degrees, and every formula result is rounded to the nearest whole unit.
 
 | Class | Needs | Method | Stored energy | O₂ | Water | Parts | Time | Base data |
 |---|---|---|---|---|---|---|---|---|
@@ -1073,7 +1076,7 @@ All other existing kinds are unchanged. There is no `launch` kind and no `buildC
 
 - **Payout** = base × novelty, where novelty is ×1 / ×0.5 / ×0.25 for the 1st / 2nd / 3rd-and-later surveyed prospect of the same `kind`. Anomalies without a breakthrough add +20 before novelty. The total is × `surveyDataMult` (Science Crews, 1.5 while ≥2 crew are aboard).
 - **Worked examples:** mare → Tranquillitatis pit (12.7°) costs 33○ 7≈ 5⚙ and takes 98 s. Mare → Cabeus (89°) costs 109○ 22≈ and takes 327 s. Mare → Daedalus (156°) costs 176○ 35≈ and takes 420 s.
-- **Completion alert:** `SURVEY COMPLETE — Maskelyne high-Ti basalt · +30≡ · ilmenite outpost possible`, plus `BREAKTHROUGH …` if the prospect hosts one.
+- **Completion:** a **field report** (§5c): the card lists each reward with a button, and the alert line `SURVEY COMPLETE — Maskelyne high-Ti basalt · +30≡ · ilmenite outpost possible` (plus `BREAKTHROUGH …` if the prospect hosts one) goes to the log.
 - The O₂ and water cost gives the robotic O₂ glut (1,200–5,800 in the probe) a use, and makes water matter from Era 1 on every site.
 
 **Outposts** (actions `claimOutpost{id}` and `abandonOutpost{id}`)
@@ -1176,12 +1179,58 @@ The map header shows `9/34 surveyed · ATLAS needs T4 + 12`.
 ```ts
 $lunar = { tier, view, maxView, justExpanded, slots, used, surveyedCount, atlas,
            prospects: [{id, cls, dist, visible, surveyed, kind, bt, claimable, reason}],
-           active: {id, remaining} | null,
+           flights: [{id, drone, remaining, total, short}], drones, active: soonest flight | null,
            outposts: [{id, kind, readyAt, fuelOk, upkeepOk, stream}] }
 $deposits = [{id, kind, x, z, r, revealed, lead: {x, z} | null, inNetwork}]
 ```
 
-**HUD chip** (under the era chip): `◎ MAP [M] · T2 NEAR SIDE · survey 1:20`.
+**HUD chip** (under the era chip): `◎ MAP [M] · T2 NEAR SIDE · survey 1:20 +1` (the soonest flight, and how many more are out).
+
+### 5c · The survey-drone fleet, field reports and the compass (as shipped: docs/19 S6)
+
+`src/core/surveyDrones.ts` (the fleet's bookkeeping), `src/core/exploration.ts` (prices, launches and resolves a survey, pays its rewards), `src/world/surveyFlight.ts` (the flight in the world). The map's survey was a construction rover's trip, one at a time; it is now a **fleet of survey drones**, and every survey ends in a report that lists what it paid.
+
+**Drones and the Prospecting Bay**
+
+- The Lander carries **one survey drone** (`id 1`) from landing. A new **Prospecting Bay** (`prospectingBay`, §S10; science family, 2×2, 30◆ 10⚙, −1.5 kW, off-road like a Relay Mast, unlocked by Prospecting Drones with the Relay Mast) holds `SURVEY_DRONE.baysByLevel[level − 1]` drone bays: **Level I 2, Level II 4, Level III 6** (`mods.surveyBayLevel`, set by `survey { bayLevel }` on Orbital Prospector and Far-Side Relay).
+- A Bay **prints one drone at a time by itself** (15◆ 5⚙ paid at the start, 45 s; nothing is queued by hand) until its bays are full (`SurveyState.prints[] { bay, startedAt, endsAt }`). A drone whose Bay is gone moves to a free bay or is lost (a flying one lands first).
+- A drone home from a flight **recharges 20 s** (`SURVEY_DRONE.rechargeS`, `SurveyDrone.charge` 0..1) before it flies again. **Ready = docked and charged.**
+- Orbital Prospector's range (`survey { range: 1.5 }`, `mods.droneRange`) shortens every flight to 1/range, a third shorter (`flightS()`); the map sheet shows the shortened time. The costs and the class times of §5b are untouched. A comms blackout pauses every flight's clock.
+
+**Parallel flights.** `s.survey.flights[]` has one `SurveyFlight { drone, id, startedAt, endsAt }` per drone in the air, so surveys run in parallel, up to the number of docked, charged drones. `startSurvey(s, mods, pid, by)` pays as before (stored energy, hopper O₂ and water, parts), takes the lowest-id ready drone, pushes a flight and raises `SURVEY LAUNCHED — Maskelyne: drone 2 out, back in 1:38 · 2/3 flying`. A survey borrows no rover; `borrowable()` stays for other uses, and the deposit surveys of docs/17 §13 still take rovers. The map's refusal function is `prospectRefusal` (the deposit one is `surveyRefusal` in `core/pits.ts`). Its refusals name the drones:
+
+| Situation | Text |
+|---|---|
+| that prospect is flying | `SURVEY IN PROGRESS — Maskelyne 0:40` |
+| every drone is out | `ALL 2 DRONES ARE OUT — the next is home in 1:12` |
+| the rest are recharging | `DRONES CHARGING — the next flies in 0:14` |
+| no drone at all | `SURVEY NEEDS A DRONE — none is aboard: the Lander carries one, a Prospecting Bay prints more` |
+| a flare's blackout | `SURVEY WAITS — the flare's comms blackout: the drone flies once the link returns` |
+
+`SurveyState.active` stays in the type, deprecated and null after migration; `surveySchema` 0 → 1 (`migrateSurveySchema` in `Game.loadFrom`) gives the Lander its drone, turns a rover survey in flight into a flight of that drone on the same clock, and lets the lent rover rejoin the roster.
+
+**In the world and the panels.** A docked drone perches on its Lander or Bay; one on a flight lifts, flies on its prospect's bearing to the map's edge, vanishes, and is seen again at the edge as it flies back, the flight's length later (`getRenderInfo().life.survey`). The fleet panel's **SURVEY DRONES** section reads `2/3 docked · 1 out → Marius tube 2:10` (docs/07 §4); the Lunar Map's header, list, sheet, markers and chip follow the flights.
+
+**AUTO SURVEY.** Site Survey AI (Era 3) unlocks a Builder family `survey` and its rule `autoSurvey` (unit: share; the threshold T is the reserve kept in the bank, default 60%, range 20–95%; no cap; on by default). It builds nothing and runs in economy step 8.7 (`autoSurvey(s, mods)`, `core/exploration.ts`): every idle, ready drone flies the **nearest** (great-circle) unsurveyed prospect in coverage that `prospectRefusal` passes and whose energy leaves the bank at or above the reserve. The launch line ends `· AUTO SURVEY`, and the rule's status reads `→ flew 1 · 1/1 drones out`, `holding · the bank keeps 60%: 412 stored, 528 needed for tranquility base`, `frozen`, `off` or `locked — Site Survey AI`.
+
+**Tiers and outpost slots.** `SURVEY_TIERS.slots` is 0, 1, 1, 2, 3 for T0…T4 and ATLAS COMPLETE adds one: **T1 (Prospecting Drones) gains the first slot**, T2 adds none, T3 the second, T4 the third. `claimRefusal` says what a shortfall waits for: `NO OUTPOST SLOT — Prospecting Drones (Era 1)` at T0, `NO OUTPOST SLOT — 1/1 in use · Far-Side Relay (Era 6) adds one` after. The map's outposts strip says T1 opens the first slot.
+
+**Field reports.** `resolveSurvey` raises one field-family notification per survey with a `report` (`{ title, geology, rewards[] }`; docs/07 §4a is the card). The title is the prospect's real name (`ProspectDef.name`), the geology line is its own, and the lines come in this order:
+
+| Tag | Line | Button |
+|---|---|---|
+| `DATA` | `+N≡ banked` (novelty and Science Crews applied) | — |
+| `SAMPLES` | `+40○ glass`: the **first survey of each outpost kind** delivers a one-time cache of about a minute of a hub's output (`SAMPLE_CACHE`: ilmenite 30◆, volatiles 24≈, silica 30◇, glass 40○, ice 24≈, KREEP 3▣, radio 20≡), clamped to store room; derived from "no other prospect of that kind surveyed", nothing saved | — |
+| `BREAKTHROUGH` | `Volcanic Glass Reduction — researchable now` or `in Era 4` | **In the tree** (`{tech}`) |
+| `OUTPOST SITE` | `glass +0.20○ +0.02≈/s · claim 60◆ 20⚙ 5▣`, or what it waits for (`needs Far-Side Relay (Era 6)`) | **Claim** when claimable, else **Open the map** (both `{map: pid}`) |
+| `INSIGHT` | `Orbital Prospector −40%`: an exploration-lane insight that fired on this survey | **In the tree** |
+| `ATLAS` | `n/12`, shown from T3 on | — |
+
+Heritage sites and anomalies get no cache and no outpost line. The one-line alerts (`SURVEY COMPLETE — …`, `BREAKTHROUGH — …`) still go to the stack and the log.
+
+**The tree compass ◎.** An exploration-locked tech (a breakthrough) carries `ResearchCard.compass` (`compassOf` in `core/research.ts`): `{ text, short, found, hosts[] }`, the hosts sorted by distance from the landing site with their real short names and class labels. Undiscovered: `Survey Tranquillitatis pit (regional), Marius tube (near side) or Ingenii pit (far side)`; found: `Found at Tranquillitatis pit`. `hiddenReason` reads `◎ undiscovered — <text>`. The tree's placeholder card wears `◎` and the nearest host with `+n`; its sheet says `UNDISCOVERED — <text>` and names hosts beyond the coverage; a discovered breakthrough gets a `◎` mark and a `◎ Found at …` badge (docs/07 §6a). The era explainer's *Research opens* count includes the era's breakthroughs (`· n found by survey ◎`). Insights get a ◎ hint (`◎ Insight:`), not ⚡, the HUD's power glyph.
+
+**Names.** The tech id stays `prospectingRovers`; its display name is **Prospecting Drones**. Orbital Prospector (E4) is tier 2, Bay Level II and range ×1.5; Far-Side Relay (E6) tier 3 and Level III; Deep Sounding (E7) tier 4.
 
 ---
 
@@ -1329,7 +1378,7 @@ $deposits = [{id, kind, x, z, r, revealed, lead: {x, z} | null, inNetwork}]
 - **Transfer cap** = 0.4 × labs + 2.5 × DCs, with no constant term.
 - **Queue:** 5 items taken from a "reasonable player" priority list in `pace.py`, with the pass 1 / pass 2 goods skip.
 - **Insights:** a 50% expected capture (cost × (1 − 0.5 × discount)). The no-insight bound is reported below.
-- **Surveys:** one at a time, class by class with breakthrough hosts first, with the §5b data, novelty decay and cooldowns (duration + 150 s). Appetite per tier: T0 2, T1 all regional, T2 6, T3 3, T4 2.
+- **Surveys (design-time model):** one at a time, class by class with breakthrough hosts first, with the §5b data, novelty decay and cooldowns (duration + 150 s). Appetite per tier: T0 2, T1 all regional, T2 6, T3 3, T4 2.
 - **Charters:** both routes are modelled with the §S2 deeds.
 - **FIRST LIGHT:** Swarm Protocol done, ≥10▰ in stock and ≥3↑ banked.
 
@@ -1349,7 +1398,7 @@ $deposits = [{id, kind, x, z, r, revealed, lead: {x, z} | null, inNetwork}]
 **Result.** Swarm Protocol completes at 101.9 min and **FIRST LIGHT comes at 103.1 game-min, or 34.4 min at 3×.** Era durations are 9.4 / 10.4 / 11.3 / 14.4 / 15.7 / 12.5 / 16.1 / 11.7, so the longest era is **1.7×** the shortest. Before the redesign that ratio was up to 3× in P1b-flat and 17× in the expert baseline.
 
 **Arithmetic checks**
-- **E1.** The labs produce 110 data and the two T0 local surveys add 40, for 150. The gate pair is Regolith Smelting 30 + Prospecting Rovers 120 = 150. The T0 survey lumps close the gap, and each site has the same 40 (§5b).
+- **E1.** The labs produce 110 data and the two T0 local surveys add 40, for 150. The gate pair is Regolith Smelting 30 + Prospecting Drones 120 = 150. The T0 survey lumps close the gap, and each site has the same 40 (§5b).
 - **E2.** 238 + 90 = 328 produced against 318 paid; the remainder is spent on the next era's queue.
 - **E5 rate.** 7 agent labs: E(7) = 5.8, × 0.225 × 0.9 × ~0.9 ≈ 1.06/s, plus the first DC for its last 0.5 min, averaging 1.12/s.
 - **E7 rate.** At full strength: labs 6.4 × 0.2025 × 0.93 ≈ 1.2, plus 3 DCs × 1.5 × ~0.93 ≈ 4.2, plus radio 0.35, gives ≈ 5.75/s. DC#3 arrives at 82.2 min and radio at about 83, so the era average is 5.2/s ✓. The cap is 0.4 × 8 + 2.5 × 3 = 10.7, so it never binds after the DCs.
@@ -1396,7 +1445,7 @@ Every case stays within 130, except lava tube with a single DC at 133.8, which i
 
 | Minute | What I decide | What I wait for | What surprises me | My map |
 |---|---|---|---|---|
-| 0–5 | Solar ×3, an excavator on the guaranteed high-Ti patch (ghost: `On high-Ti basalt — smelter feed ↑`), 2 labs. Queue Smelting, then Rovers. Survey Tranquility Base with the micro-rover (one robot lent for 60 s). | Smelting (4.2) | '?' leads at 150–400 m | SITE view; thumbnail "orbital imagery only"; VICINITY shows 2 pins |
+| 0–5 | Solar ×3, an excavator on the guaranteed high-Ti patch (ghost: `On high-Ti basalt — smelter feed ↑`), 2 labs. Queue Smelting, then Rovers. Survey Tranquility Base with the Lander's drone (a 60 s flight). | Smelting (4.2) | '?' leads at 150–400 m | SITE view; thumbnail "orbital imagery only"; VICINITY shows 2 pins |
 | 5–11 | Smelter (online 6.3). Survey Moltke (6.0). Ride out the first night, 8.0–12.0. | Rovers (10.9) → Era 2 | Night brownout → `INSIGHT — Battery Banks −40%` | **Zooms out to REGION**: 6 pins, hopper arcs |
 | 11–21 | Parts first (14.3; fab online 16.4). Masts toward a '?' lead. See the smelt doctrine side by side. | Silicon (21.3) → Era 3 | Tranquillitatis pit survey (12.6) → `BREAKTHROUGH — Lava-Tube Caverns`; Taurus–Littrow (17.1) → Volcanic Glass | Leads resolve into volatiles soil |
 | 21–33 | Batteries (26.2), bays. Doctrines: thorium vs fuel cells, swarm vs heavy. | 150◇ deed → Era 4 (32.6) | Maskelyne pays only 15 (novelty ×0.5) | Region fully pinned |

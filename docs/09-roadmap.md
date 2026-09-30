@@ -143,9 +143,8 @@ Quindar-framed alerts, the grid hum); this phase finishes
 it — a habitat-interior room tone and telegraph/alarm tones for events
 (vacuum outside: sound only via conduction — the audio *is* an art
 direction). Plus the deferred render
-work from 06 §11: the **hairline edge/outline post pass**, **blue-noise
-dither** replacing white-noise grain, rover tracks, and a second shadow map
-for moving casters.
+work from 06 §15: **rover tracks** and a **raked look for graded ground**
+(the ink outlines shipped as an inverted hull, with no post chain and no shadow map).
 
 **Why next:** Pure polish multipliers — they touch nothing mechanical, so
 they slot after systems stabilize but before any public milestone build.
