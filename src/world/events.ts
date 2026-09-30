@@ -22,6 +22,7 @@ import {
   BEACON, BODY, FOIL, PLATE, TRIM, antenna, bar, box, cyl, merge, withInstanceState,
 } from '../buildings/meshKit';
 import { materials } from './materials';
+import { inked } from './ink';
 import type { DustEmitter } from './dust';
 
 const PI = Math.PI;
@@ -248,6 +249,7 @@ export class ResupplyFx {
     this.lander = new THREE.InstancedMesh(withInstanceState(cargoLanderGeometry(), 1), materials.get('building'), 1);
     this.lander.frustumCulled = false;
     this.lander.visible = false;
+    inked(this.lander);
     // a faint frustum from the bell's lip, widening and fading downward
     const cone = new THREE.CylinderGeometry(0.75, 1.9, 1, 20, 6, true);
     cone.translate(0, -0.5, 0);

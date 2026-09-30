@@ -25,6 +25,7 @@ import { cellAt, cellCentre, cellKey, footprintCells, roadMap } from '../core/ro
 import { footprintRect } from '../buildings/instances';
 import { BODY, GLASS, LAMP, PLATE, box, merge, withInstanceState } from '../buildings/meshKit';
 import { materials } from './materials';
+import { inked } from './ink';
 import { blobTexture } from './rovers';
 import { mixHash } from '../buildings/links';
 import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
@@ -106,6 +107,7 @@ export class Settlers {
     this.mesh.receiveShadow = true;
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
+    inked(this.mesh);
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({

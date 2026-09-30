@@ -38,6 +38,7 @@ import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { cellAt, cellCentre, cellKey, doorCell, footprintCells, roadMap } from '../core/roads';
 import { materials } from '../world/materials';
+import { inked } from '../world/ink';
 import { footprintRect } from './instances';
 import { BODY, LAMP, PLATE, TRIM, WINDOW, bar, box, merge, pipe, withInstanceState } from './meshKit';
 
@@ -331,7 +332,7 @@ export class Links {
     m.computeBoundingSphere();
     m.userData.links = layer;
     this.meshes[layer] = m;
-    this.group.add(m);
+    this.group.add(inked(m));
   }
 
   /** A wall point: the middle of the edge a cell shares with the footprint, pushed `inset` m into it. */

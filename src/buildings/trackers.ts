@@ -10,6 +10,7 @@ import { partGeometry, type Mount, type PartId } from './recipes';
 import { withInstanceState } from './meshKit';
 import { CUT_NONE } from './celBuilding';
 import { materials } from '../world/materials';
+import { inked } from '../world/ink';
 import { skyDirection } from '../core/daynight';
 import type { SiteDef } from '../data/sites';
 
@@ -57,7 +58,7 @@ export class Trackers {
         materials.get('building'), MAX[part]);
       mesh.count = 0;
       mesh.userData.part = part;
-      this.group.add(mesh);
+      this.group.add(inked(mesh));
       return mesh;
     };
     this.meshes = { wing: make('wing'), wingXL: make('wingXL'), dish: make('dish') };
