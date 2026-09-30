@@ -422,7 +422,7 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       const held = mods.launchArmed && s.resources.launch >= v.launch && s.resources.foils < v.foils;
       return { past: held, rearmed: !held, text: held ? `a volley waits on foils (${Math.floor(s.resources.foils)}/${v.foils}▰)` : 'foils keep up' };
     }
-    case 'hubUnit': case 'replace': case 'flareStance':
+    case 'hubUnit': case 'replace': case 'flareStance': case 'autoSurvey':
       return { past: false, rearmed: true, text: '' };
   }
 }
@@ -614,6 +614,7 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const r = ruleState(s, id);
     if (id === 'replace') return; // maintenance runs below
     if (id === 'flareStance') return; // it decides flares, not builds (core/spaceWeather.ts)
+    if (id === 'autoSurvey') return; // it flies drones, builds nothing (core/exploration.ts, core/surveyDrones.ts)
     if (!mods.autoFamilies.has(d.family)) { unitWatch.delete(r); setPhase(s, id, r, 'locked', `locked — ${familyTech(d.family)}`, dt); r.dwell = 0; return; }
     if (!r.on) { unitWatch.delete(r); setPhase(s, id, r, 'off', 'off', dt); r.dwell = 0; return; }
     if (id === 'iceHarvester' && !site.hasIce) { setPhase(s, id, r, 'locked', 'no polar ice at this site', dt); return; }

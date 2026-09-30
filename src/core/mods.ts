@@ -59,6 +59,10 @@ export interface Mods {
   surveyMinCrew: number;
   /** from the tier; ATLAS adds its extra slot at runtime */
   outpostSlots: number;
+  /** the survey-drone fleet (docs/19 S6): the level a Prospecting Bay reaches (bays a Bay: SURVEY_DRONE.baysByLevel)
+   *  and the drones' range ×, which shortens every flight to 1/range */
+  surveyBayLevel: 1 | 2 | 3;
+  droneRange: number;
   /** flat kW added to powerKW before powerMult (a negative Lander becomes a draw) */
   powerDelta: Record<BuildingId, number>;
   nightDrawMult: number;
@@ -196,7 +200,7 @@ export function computeMods(
     solarShadeImmune: false,
     buildTimeMult: fill(1),
     actions: new Set(),
-    surveyTier: 0, surveyDataMult: 1, surveyCrewDataMult: 1, surveyMinCrew: 0,
+    surveyTier: 0, surveyDataMult: 1, surveyCrewDataMult: 1, surveyMinCrew: 0, surveyBayLevel: 1, droneRange: 1,
     outpostSlots: 0,
     powerDelta: fill(0),
     nightDrawMult: 1, dayDrawMult: 1,
@@ -278,6 +282,8 @@ export function computeMods(
         case 'action': m.actions.add(fx.id); break;
         case 'survey':
           if (fx.tier && fx.tier > m.surveyTier) m.surveyTier = fx.tier;
+          if (fx.bayLevel && fx.bayLevel > m.surveyBayLevel) m.surveyBayLevel = fx.bayLevel;
+          if (fx.range) m.droneRange *= fx.range;
           if (fx.dataMult !== undefined && fx.minCrew) {
             m.surveyCrewDataMult *= fx.dataMult;
             m.surveyMinCrew = Math.max(m.surveyMinCrew, fx.minCrew);

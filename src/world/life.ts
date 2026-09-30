@@ -17,6 +17,7 @@ import { Berms } from '../buildings/berms';
 import { DUST_SLOTS, DustField, type DustEmitter } from './dust';
 import { LaunchFx, ResupplyFx } from './events';
 import { RoverFleet, syncGround } from './rovers';
+import { SurveyFlights } from './surveyFlight';
 import { Haulers } from './haulers';
 import { Traffic } from './traffic';
 import { RoadMesh } from './roads';
@@ -49,7 +50,7 @@ const NEAR_M = 45;
 const EMPTY: ReadonlySet<number> = new Set();
 
 type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'film'
-  | 'links' | 'settlers' | 'work';
+  | 'links' | 'settlers' | 'work' | 'survey';
 
 export class BaseLife {
   readonly group = new THREE.Group();
@@ -57,6 +58,8 @@ export class BaseLife {
   readonly traffic = new Traffic();
   readonly rovers: RoverFleet;
   readonly haulers: Haulers;
+  /** the survey drones: perched at their docks, or out on a flight to the map's edge (docs/19 S6) */
+  readonly survey: SurveyFlights;
   /** the road network, drawn */
   readonly roads: RoadMesh;
   readonly dust = new DustField();
@@ -84,6 +87,7 @@ export class BaseLife {
   constructor(private hf: Heightfield) {
     this.rovers = new RoverFleet(hf, this.traffic);
     this.haulers = new Haulers(hf, this.traffic);
+    this.survey = new SurveyFlights(hf);
     this.roads = new RoadMesh(hf);
     this.launch = new LaunchFx(hf);
     this.resupply = new ResupplyFx(hf);
@@ -95,7 +99,7 @@ export class BaseLife {
     this.haulers.work = this.work;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
-      this.berms.mesh, this.swarm.group, this.links.group, this.settlers.group, this.work.group);
+      this.berms.mesh, this.swarm.group, this.links.group, this.settlers.group, this.work.group, this.survey.group);
   }
 
   update(f: LifeFrame) {
@@ -115,6 +119,7 @@ export class BaseLife {
     this.run('rovers', () => this.rovers.draw(gdt, f.sunDir, f.sunLight));
     this.run('haulers', () => this.haulers.finish(gdt, f.sunLight));
     this.run('work', () => this.work.end(f.camera, f.sunLight));
+    this.run('survey', () => { this.survey.update(s, f.tickFrac ?? 0); this.survey.draw(); });
     this.run('resupply', () => this.resupply.update(s, this.earthAzim, vdt));
     this.run('launch', () => this.launch.update(vdt));
     this.run('berms', () => this.berms.update(s));
@@ -218,7 +223,7 @@ export class BaseLife {
       const objects: Partial<Record<Part, THREE.Object3D>> = {
         rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
         resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group,
-        links: this.links.group, settlers: this.settlers.group, work: this.work.group,
+        links: this.links.group, settlers: this.settlers.group, work: this.work.group, survey: this.survey.group,
       };
       const o = objects[part];
       if (o) o.visible = false;
@@ -268,6 +273,7 @@ export class BaseLife {
       links: this.links.info(),
       settlers: this.settlers.info(),
       work: this.work.info(),
+      survey: this.survey.info(),
       panelFilm: Math.round(film * 1000) / 1000,
       failed: [...this.failed],
     };

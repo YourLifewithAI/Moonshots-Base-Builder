@@ -664,6 +664,9 @@ export interface SurveyFlight {
   endsAt: number;
 }
 
+/** A survey drone being printed at a Prospecting Bay (docs/19 S6): one a Bay at a time. */
+export interface SurveyPrint { bay: number; startedAt: number; endsAt: number }
+
 export interface SurveyState {
   /** deposit ids revealed outside the tier radius (placement strike, relay mast, legacy ice survey) */
   struck: string[];
@@ -675,6 +678,7 @@ export interface SurveyState {
   /** docs/19 S6: the survey-drone fleet, and its flights (one per drone away) */
   surveyDrones?: SurveyDrone[];
   flights?: SurveyFlight[];
+  prints?: SurveyPrint[];
   nextSurveyDrone?: number;
   /** 1: surveys are flown by drones (an older save migrates in Game.loadFrom) */
   surveySchema?: number;
@@ -1038,7 +1042,7 @@ export interface GameState {
    *  − upkeep − spillage; deliveries and research goods are not flow) */
   rates: Partial<Record<ResourceId, number>>;
   /** construction-rover fleet, derived from `rovers` each tick: total = the
-   *  roster less one lent to a survey, busy = rovers at construction sites */
+   *  roster, busy = rovers at construction sites */
   bots: { total: number; busy: number };
   /** the construction rovers, one per dock slot (core/fleet.ts) */
   rovers: RoverUnit[];

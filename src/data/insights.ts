@@ -11,7 +11,7 @@ export interface InsightDef {
   tech: TechId;
   /** fraction off the data cost (capped at INSIGHT_MAX) */
   discount: number;
-  /** the deed, shown before it fires: `⚡ Insight: a night brownout (−40%)` */
+  /** the deed, shown before it fires: `◎ Insight: a night brownout (−40%)` */
   hint: string;
   /** the alert's second half: `INSIGHT — Battery Banks 40% cheaper: <lesson>` */
   lesson: string;

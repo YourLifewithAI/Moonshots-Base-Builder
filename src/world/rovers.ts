@@ -1,7 +1,6 @@
 /** The construction-rover fleet made visible: one instanced rover per unit
  *  in the sim's roster (`state.rovers`, core/fleet.ts), docked at the
- *  structures that supply them (the Lander, Robotics Bays); the one lent to
- *  a survey is away. Rovers live on the roads (docs/15-roads.md): each has a
+ *  structures that supply them (the Lander, Robotics Bays). Rovers live on the roads (docs/15-roads.md): each has a
  *  slot on a road cell from core/spots.ts — a parking bay by its dock, the
  *  frontier of a road it sinters, a site's door — and drives there along
  *  the open road in the right-hand lane when its slot changes. The ground
@@ -188,8 +187,6 @@ interface Rover {
   /** where the sim has it along its way (arc, m), and the sim's cruise while it drives */
   target: number;
   vSim: number;
-  /** lent to a survey (it leaves by the Lander) */
-  survey: boolean;
   /** what it does at its stand, from the sim (core/transit.ts, RoverUnit.task): welding a
    *  building, sintering a road cell, or nothing (driving, parked, waiting) */
   mode: 'weld' | 'sinter' | null;
@@ -197,7 +194,7 @@ interface Rover {
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v));
-const spotKey = (p: RoverSpot) => `${p.site ?? 'p'}:${p.road ?? ''}@${p.gx},${p.gz},${p.side}${p.inside ? 'in' : ''}${p.survey ? 's' : ''}`;
+const spotKey = (p: RoverSpot) => `${p.site ?? 'p'}:${p.road ?? ''}@${p.gx},${p.gz},${p.side}${p.inside ? 'in' : ''}`;
 /** a sim trip's identity: a new one (a replan) rebuilds the way */
 const tripKey = (t: RoverUnit['trip']) => (t ? `${t.goal}#${t.len.toFixed(2)}#${t.pts[0][0].toFixed(2)},${t.pts[0][1].toFixed(2)}${t.stuck ? '!' : ''}` : '');
 /** the sim's progress along a trip, 0..1 of its real metres, `ahead` s on from its last tick */
@@ -377,7 +374,6 @@ export class RoverFleet implements Driver {
     this.lastSim = state.simTime;
     const jumped = loaded || simDelta < 0 || (dt <= 0 ? simDelta > 1e-6 : simDelta - dt > 3);
     this.pace = dt > 0 ? clamp(simDelta / dt, 1, 5) : 1;
-    const away = state.survey?.active?.rover;
     const all = state.rovers ?? [];
     if (fresh) {
       this.spotSig = sig;
@@ -385,8 +381,7 @@ export class RoverFleet implements Driver {
       this.hiveUnits = new Set(all.filter((u) => unitKind(state, u) === 'drone').map((u) => u.id));
       this.spots = groundSpots(state);
     }
-    // a drone lent to a survey flies to the Lander, then is away
-    this.droneUnits = all.filter((u) => this.hiveUnits.has(u.id) && (u.id !== away || !arrived(u.trip)));
+    this.droneUnits = all.filter((u) => this.hiveUnits.has(u.id));
     this.drones.sync(dt, state, this.droneUnits, fresh, this.frac, jumped, this.pace);
     const roster = all.filter((u) => !this.hiveUnits.has(u.id)).slice(0, MAX_ROVERS);
     const next: Rover[] = [];
@@ -400,7 +395,6 @@ export class RoverFleet implements Driver {
       } else if (jumped) jump.push(r);
       r.home = spot.dock;
       r.unit = u;
-      r.survey = !!spot.survey;
       next.push(r);
     }
     // the jump: everyone off their cells, then each set down where the sim has it (if clear)
@@ -445,7 +439,7 @@ export class RoverFleet implements Driver {
       id: u.id, unit: u, x, z, yaw, v: 0, home: spot.dock, site: spot.site, spot: onSlot ? spot : null,
       key: onSlot ? spotKey(spot) : '', inside, working: false, phase: u.id * 2.399, yieldUntil: 0,
       revUntil: -Infinity, turning: false, aim: yaw, agent: null!,
-      goal: '', tripId: '', p0: 0, s0: 0, dueAt: null, follow: 'free', target: 0, vSim: 0, survey: !!spot.survey, mode: null,
+      goal: '', tripId: '', p0: 0, s0: 0, dueAt: null, follow: 'free', target: 0, vSim: 0, mode: null,
     };
     r.agent = {
       kind: 'rover', id: u.id, key: 1e6 + u.id, x, z, fx: Math.sin(yaw), fz: Math.cos(yaw),
@@ -566,7 +560,7 @@ export class RoverFleet implements Driver {
     const grace = yielding ? YIELD_S + LAG_S : !r.inside && a.v > 0.3 ? LAG_S : 1;
     const due = r.dueAt !== null && now - r.dueAt >= grace - 1e-6;
     // (parked at its dock in the sim, its drive back after giving way is its own: no work waits on it)
-    const trailing = lag > LAG_S && !(arrived(t) && (t.kind === 'dock' || t.kind === 'survey'));
+    const trailing = lag > LAG_S && !(arrived(t) && t.kind === 'dock');
     if ((trailing || due) && this.setDown(r, spot)) {
       r.dueAt = null;
       this.downLog.push(`${r.id}:${due ? 'due' : `lag${lag.toFixed(1)}`}@${Math.round(now)}`);
@@ -1076,8 +1070,8 @@ export class RoverFleet implements Driver {
     const lag = this.lagMax;
     this.lagMax = 0;
     return {
-      /** the ground rovers in the fleet (the one lent to a survey is not) */
-      count: this.rovers.filter((r) => !r.survey).length,
+      /** the ground rovers in the fleet */
+      count: this.rovers.length,
       moving: this.rovers.filter((r) => r.v > 0.1).length,
       working: this.rovers.filter((r) => r.working).length,
       assigned: this.rovers.filter((r) => r.site !== null).length,
@@ -1124,7 +1118,7 @@ export function spotSignature(s: GameState): string {
   // a grading job's stand moves with each cell it levels
   k += '|';
   for (const j of s.gradeJobs ?? []) k += `${j.id}:${j.done};`;
-  return `${k}|${s.survey?.active?.rover ?? ''}`;
+  return k;
 }
 
 /** The traffic's ground from the state (on change only): the open road
@@ -1386,9 +1380,6 @@ export class DroneFlight {
       case 'front': case 'behind':
         d.gy = this.hf.sample(g.x, g.z) + 3.2;
         d.job = true;
-        return;
-      case 'survey':
-        d.gy = this.hf.sample(g.x, g.z) + BUILDINGS.lander.height + 2;
         return;
       case 'down':
         d.gy = this.hf.sample(g.x, g.z);

@@ -10,7 +10,7 @@ import { ATLAS, CELL_M, CYCLE_S, INSIGHT_MAX, MAP_M, SURVEY_TIERS } from '../dat
 import { DEPOSIT_INFO, LEAD_RANGE_M } from '../data/deposits';
 import {
   ANOMALY_BONUS_DATA, HOPPER, NOVELTY, OUTPOST_CLASS, OUTPOST_KINDS, OUTPOST_LINK_KW, PROSPECTS, PROSPECT_IDS,
-  SURVEY_CLASS, TIER_TECH, TIER_VIEW, MAP_VIEWS,
+  SAMPLE_CACHE, SURVEY_CLASS, TIER_TECH, TIER_VIEW, MAP_VIEWS,
   type MapView, type OutpostKind, type ProspectClass, type ProspectId,
 } from '../data/lunarMap';
 import type { Deposit } from '../terrain/heightfield';
@@ -19,8 +19,9 @@ import { centerOf, footprintRect } from '../buildings/instances';
 import type { FieldReward, GameState, OutpostState } from './state';
 import type { Mods, SurveyTier } from './mods';
 import { alert, condition, crewReserve } from './economy';
-import { resolveTech } from './research';
-import { borrowable } from './fleet';
+import { insightTick, resolveTech } from './research';
+import { fleetCount, fleetLists, fleetTick, flightTo, landFlight, launchFlight, nextReadyIn, readyDrone } from './surveyDrones';
+import { ruleState } from './automation';
 import { fmtClock } from './daynight';
 import { recordSpend } from './flowBook';
 import { commsDark, holdStream } from './flareEffects';
@@ -164,6 +165,16 @@ export function greatCircleDeg(a: { lat: number; lon: number }, b: { lat: number
   return 2 * Math.asin(Math.min(1, Math.sqrt(h))) / RAD;
 }
 
+/** The initial bearing from the home site to a prospect, degrees clockwise from north (0..360): the
+ *  way its drone flies out of the map (world/surveyFlight.ts). */
+export function prospectBearing(siteId: SiteId, pid: ProspectId): number {
+  const a = SITES[siteId].home, b = PROSPECTS[pid];
+  const dLon = (b.lon - a.lon) * RAD;
+  const y = Math.sin(dLon) * Math.cos(b.lat * RAD);
+  const x = Math.cos(a.lat * RAD) * Math.sin(b.lat * RAD) - Math.sin(a.lat * RAD) * Math.cos(b.lat * RAD) * Math.cos(dLon);
+  return ((Math.atan2(y, x) / RAD) + 360) % 360;
+}
+
 export function prospectDist(siteId: SiteId, pid: ProspectId): number {
   return greatCircleDeg(SITES[siteId].home, PROSPECTS[pid]);
 }
@@ -179,7 +190,7 @@ export function prospectClass(siteId: SiteId, pid: ProspectId): ProspectClass {
   return Math.abs(p.lon) <= 90 || Math.abs(p.lat) >= 80 ? 'near' : 'far';
 }
 
-const CLASS_LABEL: Record<ProspectClass, string> = {
+export const CLASS_LABEL: Record<ProspectClass, string> = {
   local: 'local', regional: 'regional', near: 'near side', far: 'far side', subsurface: 'subsurface',
 };
 
@@ -212,6 +223,10 @@ export function surveyCost(siteId: SiteId, pid: ProspectId): SurveyCost {
   };
 }
 
+/** A flight's length under the drones' range (Orbital Prospector: ×1.5 = a third shorter); ×1 leaves the table's seconds. */
+export const flightS = (timeS: number, mods: Pick<Mods, 'droneRange'>) =>
+  mods.droneRange === 1 ? timeS : Math.max(1, Math.round(timeS / mods.droneRange));
+
 /** Data a survey of pid pays if it completes now: base × novelty (1st, 2nd,
  *  3rd+ of its kind), anomalies without a breakthrough +20 first, × Science
  *  Crews while enough crew are aboard. */
@@ -229,20 +244,27 @@ export function surveyPayout(s: GameState, mods: Mods, pid: ProspectId): number 
 /** What is left of a resource above the crew's reserve (surveys and hoppers leave it). */
 const spare = (s: GameState, mods: Mods, rid: ResourceId) => Math.max(0, s.resources[rid] - crewReserve(s, mods, rid));
 
-/** Why a survey of pid cannot start now ('' = it can). */
-export function surveyRefusal(s: GameState, mods: Mods, pid: ProspectId): string {
+/** Why a survey of pid cannot start now ('' = it can). A map survey is a drone's flight (docs/19 S6):
+ *  it takes a docked, charged drone and never borrows a rover. (The deposit survey's own refusal is
+ *  core/pits.ts surveyRefusal.) */
+export function prospectRefusal(s: GameState, mods: Mods, pid: ProspectId): string {
   const p = PROSPECTS[pid];
   if (!p) return 'UNKNOWN PROSPECT';
   if (s.survey.prospects[pid]) return `ALREADY SURVEYED — ${p.name}`;
-  const a = s.survey.active;
-  if (a) return `SURVEY IN PROGRESS — ${PROSPECTS[a.id].short} ${fmtClock(secsLeft(s, a.endsAt))}`;
-  if (commsDark(s)) return 'SURVEY WAITS — the flare’s comms blackout: the hopper flies once the link returns';
+  const under = flightTo(s, pid);
+  if (under) return `SURVEY IN PROGRESS — ${p.short} ${fmtClock(secsLeft(s, under.endsAt))}`;
+  if (commsDark(s)) return 'SURVEY WAITS — the flare’s comms blackout: the drone flies once the link returns';
   const c = surveyCost(s.siteId, pid);
   if (mods.surveyTier < c.tier) {
     return `OUT OF RANGE — ${p.short} is ${CLASS_LABEL[c.cls]}: needs T${c.tier} ${tierTech(c.tier, s)}`;
   }
-  if ((s.bots?.total ?? 0) < 1) return 'SURVEY NEEDS A ROBOT — the construction fleet is empty';
-  if (s.rovers?.length && !borrowable(s)) return 'SURVEY NEEDS A FREE ROVER — every rover is pinned to a site; release one';
+  if (!readyDrone(s)) {
+    const n = fleetCount(s, mods);
+    if (n.total < 1) return 'SURVEY NEEDS A DRONE — none is aboard: the Lander carries one, a Prospecting Bay prints more';
+    return n.out >= n.total
+      ? `ALL ${n.total} DRONE${n.total === 1 ? ' IS' : 'S ARE'} OUT — the next is home in ${fmtClock(Math.ceil(nextReadyIn(s)))}`
+      : `DRONES CHARGING — the next flies in ${fmtClock(Math.ceil(nextReadyIn(s)))}`;
+  }
   if (s.powerStored < c.energy) return `SURVEY NEEDS ${c.energy} STORED ENERGY — have ${Math.floor(s.powerStored)}`;
   for (const [rid, need] of [['oxygen', c.oxygen], ['water', c.water], ['parts', c.parts]] as [ResourceId, number][]) {
     const have = rid === 'parts' ? s.resources.parts : spare(s, mods, rid);
@@ -254,9 +276,9 @@ export function surveyRefusal(s: GameState, mods: Mods, pid: ProspectId): string
   return '';
 }
 
-/** Pay for a survey and send the borrowed robot out. */
-export function startSurvey(s: GameState, mods: Mods, pid: ProspectId): ActionResult {
-  const why = surveyRefusal(s, mods, pid);
+/** Pay for a survey and launch a drone: its flight runs on its own clock, in parallel with the others. */
+export function startSurvey(s: GameState, mods: Mods, pid: ProspectId, by: 'player' | 'auto' = 'player'): ActionResult {
+  const why = prospectRefusal(s, mods, pid);
   if (why) return no(why);
   const c = surveyCost(s.siteId, pid);
   s.powerStored -= c.energy;
@@ -264,15 +286,14 @@ export function startSurvey(s: GameState, mods: Mods, pid: ProspectId): ActionRe
   s.resources.water -= c.water;
   s.resources.parts -= c.parts;
   recordSpend(s, { oxygen: c.oxygen, water: c.water, parts: c.parts });
-  // the rover it borrows is never a pinned one (core/fleet.ts)
-  const rover = borrowable(s)?.id;
-  s.survey.active = { id: pid, startedAt: s.simTime, endsAt: s.simTime + c.timeS, ...(rover !== undefined ? { rover } : {}) };
-  if (rover !== undefined) {
-    const r = s.rovers.find((x) => x.id === rover)!;
-    r.site = null;
-    r.pinned = false;
-  }
-  notify(s, 'field', { text: `SURVEY LAUNCHED — ${PROSPECTS[pid].short} by ${c.method}, back in ${fmtClock(c.timeS)} · 1 robot lent`, action: { map: pid } });
+  const drone = readyDrone(s)!;
+  const timeS = flightS(c.timeS, mods);
+  launchFlight(s, drone, pid, timeS);
+  const n = fleetCount(s, mods);
+  notify(s, 'field', {
+    text: `SURVEY LAUNCHED — ${PROSPECTS[pid].short}: drone ${drone.id} out, back in ${fmtClock(timeS)} · ${n.out}/${n.total} flying${by === 'auto' ? ' · AUTO SURVEY' : ''}`,
+    action: { map: pid },
+  });
   return OK;
 }
 
@@ -318,9 +339,11 @@ export function claimRefusal(s: GameState, mods: Mods, pid: ProspectId): string 
   if (s.survey.outposts.some((o) => o.id === pid)) return `OUTPOST ALREADY CLAIMED — ${p.short}`;
   const slots = outpostSlots(mods, s);
   const used = s.survey.outposts.length;
-  if (slots === 0) return `NO OUTPOST SLOT — ${tierTech(2, s)}`;
+  if (slots === 0) return `NO OUTPOST SLOT — ${tierTech(1, s)}`;
   if (used >= slots) {
-    const next = mods.surveyTier < 4 ? `${tierTech(mods.surveyTier + 1, s)} adds one`
+    // the next tier that adds a slot (T1 has the first: docs/19 S6)
+    const grow = [2, 3, 4].find((t) => t > mods.surveyTier && SURVEY_TIERS[t].slots > SURVEY_TIERS[mods.surveyTier].slots);
+    const next = grow !== undefined ? `${tierTech(grow, s)} adds one`
       : !s.survey.atlas ? `ATLAS COMPLETE adds one (T4 + ${ATLAS.surveys} surveyed)`
       : 'abandon one to free it';
     return `NO OUTPOST SLOT — ${used}/${slots} in use · ${next}`;
@@ -374,6 +397,130 @@ export function forceOutposts(s: GameState, n: number) {
 
 // ─────────────────────────── economy step 8.7 ───────────────────────────
 
+// ─────────────────────────── the field report ───────────────────────────
+
+const costText = (cost: Partial<Record<ResourceId, number>>) =>
+  Object.entries(cost).map(([r, v]) => `${v}${glyph(r as ResourceId)}`).join(' ');
+
+/** A drone is home: the survey's data, sample cache, breakthrough, outpost site, insight and atlas
+ *  progress, in one field report (a card with a line and a button for each: docs/19 S6, S7). */
+function resolveSurvey(s: GameState, mods: Mods, pid: ProspectId) {
+  const p = PROSPECTS[pid];
+  const data = surveyPayout(s, mods, pid);
+  const firstOfKind = !PROSPECT_IDS.some((id) => id !== pid && s.survey.prospects[id] && PROSPECTS[id].kind === p.kind);
+  s.survey.prospects[pid] = { surveyedAt: s.simTime, cls: prospectClass(s.siteId, pid), data };
+  s.data += data;
+  const extractable = p.kind !== 'heritage' && p.kind !== 'anomaly';
+  const tail = p.kind === 'heritage' ? 'protected heritage site'
+    : p.kind === 'anomaly' ? (p.bt ? 'an anomaly worth a breakthrough' : 'nothing to extract')
+    : `${KIND_LABEL[p.kind as OutpostKind]} outpost possible`;
+  const rewards: FieldReward[] = [{ tag: 'DATA', text: `+${data}≡ banked` }];
+
+  // SAMPLES: the first survey of each kind of ground brings home a one-time cache
+  const cache = extractable && firstOfKind ? SAMPLE_CACHE[p.kind as OutpostKind] : undefined;
+  if (cache) {
+    let got = cache.amount;
+    if (cache.res === 'data') s.data += got;
+    else {
+      const room = s.storageCaps?.[cache.res] !== undefined ? Math.max(0, s.storageCaps[cache.res]! - s.resources[cache.res]) : Infinity;
+      got = Math.min(got, Math.floor(room));
+      s.resources[cache.res] += got;
+    }
+    if (got > 0) rewards.push({ tag: 'SAMPLES', text: `+${got}${cache.res === 'data' ? '≡' : glyph(cache.res)} ${KIND_LABEL[p.kind as OutpostKind]}` });
+  }
+
+  // BREAKTHROUGH: a host reveals its tech, researchable now or in its era
+  const firstFind = !!p.bt && !s.discoveries.includes(p.bt);
+  if (p.bt && firstFind) {
+    s.discoveries.push(p.bt);
+    const era = resolveTech(TECHS[p.bt], s.expedition).era;
+    const when = s.era >= era ? 'researchable now' : `researchable in Era ${era}`;
+    rewards.push({ tag: 'BREAKTHROUGH', text: `${TECHS[p.bt].name} — ${when}`, button: { label: 'In the tree', action: { tech: p.bt } } });
+  }
+
+  // OUTPOST SITE: what it would stream and what claiming costs, or what a claim waits for
+  if (extractable) {
+    const cls = prospectClass(s.siteId, pid);
+    const why = claimRefusal(s, mods, pid);
+    const stream = streamText(pid);
+    const claim = `claim ${costText(OUTPOST_CLASS[cls].cost)}`;
+    const line = `${KIND_LABEL[p.kind as OutpostKind]} ${stream} · ${claim}`;
+    if (!why) rewards.push({ tag: 'OUTPOST SITE', text: line, button: { label: 'Claim', action: { map: pid } } });
+    else {
+      const slotWait = why.startsWith('NO OUTPOST SLOT');
+      rewards.push({
+        tag: 'OUTPOST SITE',
+        text: slotWait ? `${line} · needs ${why.replace(/^NO OUTPOST SLOT — /, '').replace(/^\d+\/\d+ in use · /, '')}` : `${line} · ${why.toLowerCase()}`,
+        button: { label: 'Open the map', action: { map: pid } },
+      });
+    }
+  }
+
+  notify(s, 'field', {
+    text: `SURVEY COMPLETE — ${p.name} · +${data}≡ · ${tail}`, action: { map: pid },
+    // the report is filled in below: the insight and atlas lines need the tick's other results
+    report: { title: p.name, geology: p.geology, rewards },
+  });
+  if (p.bt && firstFind) {
+    const era = resolveTech(TECHS[p.bt], s.expedition).era;
+    notify(s, 'field', {
+      text: `BREAKTHROUGH — ${TECHS[p.bt].name} found at ${p.name} ` +
+        `(${s.era >= era ? 'researchable now' : `researchable in Era ${era}`})`, action: { tech: p.bt },
+    });
+  }
+
+  // INSIGHT: a survey deed that just paid its discount (the exploration lane's insights)
+  for (const t of insightTick(s)) {
+    if (TECHS[t].lane !== 'exploration') continue;
+    rewards.push({
+      tag: 'INSIGHT', text: `${TECHS[t].name} −${Math.round((s.insights[t] ?? 0) * 100)}%`,
+      button: { label: 'In the tree', action: { tech: t } },
+    });
+  }
+  // ATLAS: progress toward the survey net's completion, once the far tiers are near (T3 and up)
+  const surveyed = Object.keys(s.survey.prospects).length;
+  if (!s.survey.atlas && mods.surveyTier >= ATLAS.minTier - 1) {
+    rewards.push({
+      tag: 'ATLAS', text: `${Math.min(surveyed, ATLAS.surveys)}/${ATLAS.surveys}` +
+        (mods.surveyTier < ATLAS.minTier ? ` · needs T${ATLAS.minTier} ${tierTech(ATLAS.minTier, s)}` : ''),
+    });
+  }
+}
+
+/** AUTO SURVEY (Site Survey AI's Builder rule): every idle drone flies the nearest unsurveyed prospect
+ *  in coverage that it can pay for, while the bank keeps the rule's reserve (T of its capacity). */
+export function autoSurvey(s: GameState, mods: Mods) {
+  if (!s.auto?.rules) return;
+  const r = ruleState(s, 'autoSurvey');
+  if (!mods.autoFamilies.has('survey')) { r.phase = 'locked'; r.why = 'locked — Site Survey AI'; return; }
+  if (!r.on) { r.phase = 'off'; r.why = 'off'; return; }
+  const now = s.simTime;
+  const frozen = Math.max(s.auto.frozenUntil, r.frozenUntil ?? 0);
+  if (frozen > now) { r.phase = 'frozen'; r.why = `frozen · resumes in ${fmtClock(frozen - now)}`; return; }
+  const reserve = r.threshold * (s.power?.capacity ?? 0);
+  const near = PROSPECT_IDS.filter((id) => !s.survey.prospects[id] && !flightTo(s, id) && mods.surveyTier >= surveyCost(s.siteId, id).tier)
+    .sort((a, b) => prospectDist(s.siteId, a) - prospectDist(s.siteId, b) || PROSPECT_IDS.indexOf(a) - PROSPECT_IDS.indexOf(b));
+  if (!near.length) { r.phase = 'ok'; r.why = 'ok · every prospect in coverage is surveyed or flying'; return; }
+  let flown = 0, held = '';
+  while (readyDrone(s)) {
+    const pid = near.find((id) => !prospectRefusal(s, mods, id));
+    if (!pid) { held = prospectRefusal(s, mods, near[0]); break; }
+    const c = surveyCost(s.siteId, pid);
+    if (s.powerStored - c.energy < reserve) {
+      held = `the bank keeps ${Math.round(r.threshold * 100)}%: ${Math.floor(s.powerStored)} stored, ${Math.ceil(reserve + c.energy)} needed for ${PROSPECTS[pid].short}`;
+      break;
+    }
+    startSurvey(s, mods, pid, 'auto');
+    near.splice(near.indexOf(pid), 1);
+    flown++;
+    if (!near.length) break;
+  }
+  const c = fleetCount(s, mods);
+  if (held) { r.phase = 'holding'; r.why = `holding · ${held.toLowerCase()}`; }
+  else { r.phase = 'ok'; r.why = flown ? `→ flew ${flown} · ${c.out}/${c.total} drones out` : `ok · ${c.out}/${c.total} drones out`; }
+  if (flown) r.built += flown;
+}
+
 export interface ExplorationTick {
   modsChanged: boolean;
   /** net resource flow this tick (per second): streams in, fuel and upkeep out */
@@ -390,45 +537,17 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     flow[rid] = (flow[rid] ?? 0) + amt / dt;
   };
 
-  // surveys: the robot comes home with the data
-  const a = s.survey.active;
-  // a comms blackout holds the hopper's hop: its clock pauses (docs/16 §4.8)
-  if (a && commsDark(s)) a.endsAt += dt;
-  if (a && s.simTime >= a.endsAt) {
-    const p = PROSPECTS[a.id];
-    const data = surveyPayout(s, mods, a.id);
-    s.survey.prospects[a.id] = { surveyedAt: s.simTime, cls: prospectClass(s.siteId, a.id), data };
-    s.survey.active = null;
-    s.data += data;
-    const tail = p.kind === 'heritage' ? 'protected heritage site'
-      : p.kind === 'anomaly' ? (p.bt ? 'an anomaly worth a breakthrough' : 'nothing to extract')
-      : `${KIND_LABEL[p.kind as OutpostKind]} outpost possible`;
-    // the field report (docs/19 S7): a card that names the place, what the ground is, and each reward
-    const rewards: FieldReward[] = [{ tag: 'DATA', text: `+${data}≡ banked` }];
-    if (p.kind !== 'heritage' && p.kind !== 'anomaly') {
-      rewards.push({ tag: 'OUTPOST SITE', text: tail, button: { label: 'Open the map', action: { map: a.id } } });
-    }
-    const firstFind = !!p.bt && !s.discoveries.includes(p.bt);
-    if (p.bt && firstFind) {
-      const era = resolveTech(TECHS[p.bt], s.expedition).era;
-      rewards.push({
-        tag: 'BREAKTHROUGH', text: `${TECHS[p.bt].name} — ${s.era >= era ? 'researchable now' : `researchable in Era ${era}`}`,
-        button: { label: 'In the tree', action: { tech: p.bt } },
-      });
-    }
-    notify(s, 'field', {
-      text: `SURVEY COMPLETE — ${p.name} · +${data}≡ · ${tail}`, action: { map: a.id },
-      report: { title: p.name, geology: p.geology, rewards },
-    });
-    if (p.bt && firstFind) {
-      s.discoveries.push(p.bt);
-      const era = resolveTech(TECHS[p.bt], s.expedition).era;
-      notify(s, 'field', {
-        text: `BREAKTHROUGH — ${TECHS[p.bt].name} found at ${p.name} ` +
-          `(${s.era >= era ? 'researchable now' : `researchable in Era ${era}`})`, action: { tech: p.bt },
-      });
-    }
+  // the drone fleet: prints, recharging, then the flights that end now (docs/19 S6)
+  fleetTick(s, mods, dt);
+  const flights = fleetLists(s).flights;
+  // a comms blackout holds every drone's hop: the clocks pause (docs/16 §4.8)
+  if (commsDark(s)) for (const f of flights) f.endsAt += dt;
+  for (const f of [...flights]) {
+    if (s.simTime < f.endsAt) continue;
+    landFlight(s, f);
+    resolveSurvey(s, mods, f.id);
   }
+  autoSurvey(s, mods);
 
   // outposts: deploy, upkeep, hopper fuel, streams
   const caps = s.storageCaps ?? {};
@@ -524,12 +643,13 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
   const slots = outpostSlots(mods, s);
   const prospects: LunarProspectView[] = PROSPECT_IDS.map((id) => {
     const p = PROSPECTS[id];
-    const cost = surveyCost(s.siteId, id);
+    const cost0 = surveyCost(s.siteId, id);
+    const cost = { ...cost0, timeS: flightS(cost0.timeS, mods) };
     const rec = s.survey.prospects[id];
     const visible = tier >= cost.tier;
     const outpost = s.survey.outposts.some((o) => o.id === id);
     const claimWhy = claimRefusal(s, mods, id);
-    const surveyWhy = rec ? '' : surveyRefusal(s, mods, id);
+    const surveyWhy = rec ? '' : prospectRefusal(s, mods, id);
     const reason = !visible ? `beyond coverage — T${cost.tier} ${tierTech(cost.tier, s)}`
       : !rec ? surveyWhy
       : outpost ? 'outpost claimed'
@@ -563,7 +683,8 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
       fuel: fuelText(o.cls), upkeep: `${oc.upkeepPerDay}⚙/day`, linkKW: OUTPOST_LINK_KW[o.cls],
     };
   });
-  const a = s.survey.active;
+  const flights = [...fleetLists(s).flights].sort((x, y) => x.endsAt - y.endsAt)
+    .map((f) => ({ id: f.id, drone: f.drone, remaining: secsLeft(s, f.endsAt), total: Math.round(f.endsAt - f.startedAt), short: PROSPECTS[f.id].short }));
   const maxView = TIER_VIEW[tier];
   const [lx, lz] = landerXZ(s);
   return {
@@ -576,7 +697,10 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
     surveyedCount: Object.keys(s.survey.prospects).length,
     atlas: s.survey.atlas,
     prospects,
-    active: a ? { id: a.id, remaining: secsLeft(s, a.endsAt) } : null,
+    // the soonest flight (the map's header and busy line); `flights` is every drone out
+    active: flights[0] ? { id: flights[0].id, remaining: flights[0].remaining } : null,
+    flights,
+    drones: fleetCount(s, mods),
     outposts,
     tierLabel: SURVEY_TIERS[tier].label,
     site: {
