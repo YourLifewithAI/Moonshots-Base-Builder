@@ -4,7 +4,8 @@
  *  frontier (the hook) and the cells glow and cool; a printing drone sparks; the
  *  excavator's wheel turns and its boom dips while it digs, home or away,
  *  and holds while it drives. Pause freezes all of it, 3× and 10× run it at
- *  game speed, and it costs two draw calls at most. */
+ *  game speed, and it costs three draw calls at most (the kit, its ink
+ *  outline, the glow). */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -413,7 +414,7 @@ async function busyBase(page: Page) {
 }
 
 for (const style of ['cel']) {
-  test(`${style}: on a busy base the work animations cost two draw calls at most`, async ({ page }) => {
+  test(`${style}: on a busy base the work animations cost three draw calls at most`, async ({ page }) => {
     test.setTimeout(300_000);
     await start(page, style, '&exp=robotic');
     await busyBase(page);
@@ -434,7 +435,8 @@ for (const style of ['cel']) {
     const info = await work(page);
     test.info().annotations.push({ type: 'work anim cost', description: JSON.stringify({ off, on, kit: info.kit, fx: info.fx }) });
     console.log(`[work anim cost · ${style}]`, JSON.stringify({ off, on, kit: info.kit, fx: info.fx }));
-    expect(on.calls - off.calls, 'draw calls').toBeLessThanOrEqual(2);
+    // the kit, its ink outline (world/ink.ts, docs/19 S1b) and the glow quads
+    expect(on.calls - off.calls, 'draw calls').toBeLessThanOrEqual(3);
     expect(on.calls - off.calls).toBeGreaterThanOrEqual(1);
     expect(on.triangles - off.triangles, 'triangles').toBeLessThan(30_000);
     expect(info.kit, 'kit boxes in use').toBeGreaterThan(40);

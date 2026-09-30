@@ -682,3 +682,326 @@ test('hazard looks: infected flicker, a cascade goes dark, blight tints, a breac
   expect(d.after.down).toEqual(expect.arrayContaining([d.ids[0], d.ids[1]]));
   expect(d.dark, 'a bricked ground rover sits dark').toContain(d.rover);
 });
+
+// ─────────────────────────── ink outlines (docs/19, S1b) ───────────────────────────
+// The cel style's outlines are an inverted hull (world/ink.ts): every instanced
+// class draws a twin that shares its geometry, matrices and count, pushed out
+// along the mitre of its faces by a constant width on screen, in flat ink.
+
+test.describe('ink outlines', () => {
+  const INK_URL = '/?debug&seed=42&nolock&lowfx&site=mare&exp=robotic';
+
+  /** day ink, #141618 */
+  const INK_RGB = [20, 22, 24] as const;
+
+  async function inkStart(page: Page) {
+    await page.goto(INK_URL);
+    await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
+    // the HUD is not the scene: only the canvas is measured
+    await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
+    await page.evaluate(() => { window.__game.setPaused(true); window.__game.holdHazards?.(true); });
+  }
+
+  const inkFrames = (page: Page, n = 4) => page.evaluate((k) => new Promise<void>((done) => {
+    let left = k;
+    const step = () => (--left <= 0 ? done() : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  }), n);
+
+  /** the isometric view has finished turning and zooming */
+  async function inkSettled(page: Page) {
+    await expect.poll(async () => {
+      const c = await g(page, 'getCamera') as any;
+      return !c.iso.turning && !c.iso.tilting && Math.abs(c.iso.dist - c.iso.zoomTo) < 0.05;
+    }, { timeout: 30_000 }).toBe(true);
+    await inkFrames(page, 3);
+  }
+
+  /** zoom to a glide level (H the home distance, F the near one, to `focus`, a
+   *  structure) and settle; the selection is dropped again */
+  async function inkZoom(page: Page, key: 'KeyH' | 'KeyF', focus?: number) {
+    if (focus !== undefined) await g(page, 'select', focus);
+    await page.keyboard.press(key);
+    await page.waitForTimeout(300);
+    await inkSettled(page);
+    if (focus !== undefined) await g(page, 'select', null);
+    await inkFrames(page, 3);
+    return ((await g(page, 'getCamera')) as any).iso.zoom as number;
+  }
+
+  interface Rect { x0: number; y0: number; x1: number; y1: number }
+
+  /** Ink-coloured pixels inside a screen rect: how many, and the largest run
+   *  (an 8-connected patch) — a line along a silhouette is one long run. */
+  async function inkPixels(page: Page, r: Rect) {
+    const png = await page.screenshot();
+    return page.evaluate(async ([b64, r, ink]) => {
+      const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+      const bmp = await createImageBitmap(blob);
+      const c = new OffscreenCanvas(bmp.width, bmp.height);
+      const ctx = c.getContext('2d')!;
+      ctx.drawImage(bmp, 0, 0);
+      const x0 = Math.max(0, Math.floor(r.x0)), y0 = Math.max(0, Math.floor(r.y0));
+      const w = Math.min(bmp.width, Math.ceil(r.x1)) - x0, h = Math.min(bmp.height, Math.ceil(r.y1)) - y0;
+      if (w <= 0 || h <= 0) return { n: 0, biggest: 0, w, h };
+      const { data } = ctx.getImageData(x0, y0, w, h);
+      const is = new Uint8Array(w * h);
+      let n = 0;
+      for (let i = 0; i < w * h; i++) {
+        if (Math.abs(data[i * 4] - ink[0]) <= 14 && Math.abs(data[i * 4 + 1] - ink[1]) <= 14 && Math.abs(data[i * 4 + 2] - ink[2]) <= 14) { is[i] = 1; n++; }
+      }
+      let biggest = 0;
+      const stack: number[] = [];
+      for (let s = 0; s < w * h; s++) {
+        if (is[s] !== 1) continue;
+        let size = 0;
+        is[s] = 2; stack.push(s);
+        while (stack.length) {
+          const p = stack.pop()!;
+          size++;
+          const px = p % w, py = (p - px) / w;
+          for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+            const qx = px + dx, qy = py + dy;
+            if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+            const q = qy * w + qx;
+            if (is[q] === 1) { is[q] = 2; stack.push(q); }
+          }
+        }
+        biggest = Math.max(biggest, size);
+      }
+      return { n, biggest, w, h };
+    }, [png.toString('base64'), r, INK_RGB] as const);
+  }
+
+  /** The screen rect of a structure's footprint from the ground up to `top` m, `pad` px around. */
+  const inkRectOf = (page: Page, id: number, top: number, pad = 10, from = 0) => page.evaluate(([id, top, pad, from]) => {
+    const G = window.__game!;
+    const f = G.footprintOf(id);
+    const pts = [];
+    for (const [x, z] of [[f.x0, f.z0], [f.x1, f.z0], [f.x0, f.z1], [f.x1, f.z1]]) {
+      pts.push(G.screenOf(x, z, from), G.screenOf(x, z, top));
+    }
+    return {
+      x0: Math.min(...pts.map((p: any) => p.x)) - pad, x1: Math.max(...pts.map((p: any) => p.x)) + pad,
+      y0: Math.min(...pts.map((p: any) => p.y)) - pad, y1: Math.max(...pts.map((p: any) => p.y)) + pad,
+    };
+  }, [id, top, pad, from] as const);
+
+  /** one Lab on its own, placed and finished */
+  async function inkLab(page: Page) {
+    return page.evaluate(() => {
+      const G = window.__game!;
+      G.grantResources({ metals: 3000, parts: 1000 });
+      G.placeBuilding('lab', 136, 134);
+      G.finishConstruction();
+      G.grantPower(100000);
+      G.advanceGameSeconds(5);
+      const lab = G.getState().buildings.find((b: any) => b.type === 'lab');
+      return { id: lab.id as number, top: G.getUpgrades().meshes.lab.top as number };
+    });
+  }
+
+  test('a structure is outlined in ink along its silhouette at both zooms; with the outlines off the ink is gone', async ({ page }) => {
+    test.setTimeout(240_000);
+    await inkStart(page);
+    const lab = await inkLab(page);
+    const on: Record<string, { n: number; biggest: number }> = {};
+    const off: Record<string, { n: number; biggest: number }> = {};
+    const zoom: Record<string, number> = {};
+    for (const key of ['KeyH', 'KeyF'] as const) {
+      zoom[key] = await inkZoom(page, key, lab.id);
+      // the Lab's footprint and height, on screen at this zoom
+      on[key] = await inkPixels(page, await inkRectOf(page, lab.id, lab.top));
+    }
+    expect(zoom.KeyF, 'the near zoom is closer').toBeLessThan(zoom.KeyH);
+    const info = (await g(page, 'getRenderInfo')) as any;
+    expect(info.outlines, 'outline meshes drawing').toBeGreaterThanOrEqual(2);
+    expect(info.ink.px).toBeGreaterThan(0);
+    for (const key of ['KeyH', 'KeyF']) {
+      expect(on[key].biggest, `${key}: one run of ink along the silhouette`).toBeGreaterThanOrEqual(100);
+      expect(on[key].n, `${key}: ink pixels`).toBeGreaterThanOrEqual(500);
+    }
+    // the same frames with the outlines hidden (a compile fault hides them): the ink is gone
+    await g(page, 'breakInk');
+    await inkFrames(page, 6);
+    expect((await g(page, 'getRenderInfo') as any).ink.faulted).toBe(true);
+    for (const key of ['KeyF', 'KeyH'] as const) {
+      zoom[key] = await inkZoom(page, key, lab.id);
+      off[key] = await inkPixels(page, await inkRectOf(page, lab.id, lab.top));
+      expect(off[key].n, `${key}: no ink without the outlines`).toBeLessThan(on[key].n / 5);
+      expect(off[key].biggest, `${key}: no run of ink`).toBeLessThan(on[key].biggest / 5);
+    }
+    test.info().annotations.push({ type: 'ink', description: JSON.stringify({ on, off, zoom }) });
+  });
+
+  test('the outline width is constant on screen: about 0.10 m at the home distance for 1.5 px, wider farther out', async ({ page }) => {
+    await inkStart(page);
+    await inkFrames(page, 4);
+    const info = (await g(page, 'getRenderInfo')) as any;
+    const vh = await page.evaluate(() => window.innerHeight);
+    // metres of push per metre of depth per pixel: 2·tan(fov/2) / viewport height
+    const expected = (2 * Math.tan((info.lens.fov * Math.PI) / 360)) / vh;
+    expect(info.ink.k).toBeCloseTo(expected, 6);
+    const cam = (await g(page, 'getCamera')) as any;
+    const w = info.ink.px * info.ink.k * cam.dist;
+    expect(w, 'metres at the home distance').toBeGreaterThan(0.06);
+    expect(w).toBeLessThan(0.15);
+    // the bake-off's variants change the width, one constant each
+    await g(page, 'setInkVariant', 'A');
+    await inkFrames(page, 2);
+    expect(((await g(page, 'getRenderInfo')) as any).ink).toMatchObject({ variant: 'A', px: 2, tinted: false });
+    await g(page, 'setInkVariant', 'C');
+    await inkFrames(page, 2);
+    expect(((await g(page, 'getRenderInfo')) as any).ink).toMatchObject({ variant: 'C', tinted: true });
+    await g(page, 'setInkVariant', null);
+  });
+
+  test('no outline above the print cut: a half-printed structure grows no full-height ink', async ({ page }) => {
+    test.setTimeout(240_000);
+    await inkStart(page);
+    await inkZoom(page, 'KeyH');
+    const r = await page.evaluate(() => {
+      const G = window.__game!;
+      G.grantResources({ metals: 3000, parts: 1000 });
+      G.grantPower(100000);
+      G.placeBuilding('lab', 136, 134);
+      const lab = G.getState().buildings.find((b: any) => b.type === 'lab');
+      // print about a third of it
+      let progress = 0;
+      for (let i = 0; i < 400 && progress < 0.3; i++) {
+        G.advanceGameSeconds(2);
+        const b = G.getState().buildings.find((x: any) => x.id === lab.id);
+        progress = b.construction > 0 && b.buildTotal ? 1 - b.construction / b.buildTotal : 1;
+      }
+      return { id: lab.id as number, top: G.getUpgrades().meshes.lab.top as number, progress };
+    });
+    expect(r.progress, 'part-printed').toBeGreaterThan(0.1);
+    expect(r.progress).toBeLessThan(0.9);
+    await inkFrames(page, 4);
+    const cut = r.top * r.progress;
+    // the rows above the printed part's rim (its far edge at the cut height), inside the footprint's columns
+    const rim = await inkRectOf(page, r.id, cut, 0, cut);
+    const full = await inkRectOf(page, r.id, r.top, 0, r.top);
+    const above: Rect = { x0: full.x0 - 8, x1: full.x1 + 8, y0: full.y0 - 8, y1: rim.y0 - 6 };
+    expect(above.y1 - above.y0, 'rows between the roof line and the print head').toBeGreaterThan(20);
+    const partial = await inkPixels(page, above);
+    expect(partial.n, 'no ink above the cut').toBe(0);
+    // finished, the same rows carry the roof's outline
+    await page.evaluate(() => window.__game!.finishConstruction());
+    await inkFrames(page, 4);
+    const done = await inkPixels(page, above);
+    expect(done.n, 'the finished roof is outlined there').toBeGreaterThan(30);
+    test.info().annotations.push({ type: 'ink cut', description: JSON.stringify({ cut, partial, done }) });
+  });
+
+  test('the ink fault fallback: a compile fault in the outline program hides the outlines, never the game', async ({ page }) => {
+    test.setTimeout(240_000);
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await inkStart(page);
+    await inkLab(page);
+    await inkFrames(page, 4);
+    const before = (await g(page, 'getRenderInfo')) as any;
+    expect(before.outlines).toBeGreaterThan(0);
+    expect(before.ink.on).toBe(true);
+    await g(page, 'breakInk');
+    await expect.poll(async () => ((await g(page, 'getRenderInfo')) as any).ink.faulted, { timeout: 20_000 }).toBe(true);
+    await inkFrames(page, 4);
+    const after = (await g(page, 'getRenderInfo')) as any;
+    expect(after.outlines, 'no outline draws').toBe(0);
+    expect(after.ink.on).toBe(false);
+    expect(after.safe, 'not safe mode: only the outlines went').toBe(false);
+    expect(after.buildingMaterials.lab, 'the building program is untouched').toBe('ShaderMaterial');
+    expect(after.frame.calls, 'their draw calls went with them').toBeLessThan(before.frame.calls);
+    const st = (await g(page, 'getState')) as any;
+    expect(st.alerts.some((a: any) => /outlines disabled/.test(a.text))).toBe(true);
+    // the game goes on drawing
+    const frames0 = after.framesDrawn;
+    await inkFrames(page, 6);
+    expect(((await g(page, 'getRenderInfo')) as any).framesDrawn).toBeGreaterThan(frames0);
+    expect(errors).toEqual([]);
+  });
+
+  test('safe mode draws no outlines, and turning it off brings them back', async ({ page }) => {
+    test.setTimeout(240_000);
+    await inkStart(page);
+    await inkLab(page);
+    await inkFrames(page, 4);
+    expect(((await g(page, 'getRenderInfo')) as any).outlines).toBeGreaterThan(0);
+    await g(page, 'enableSafeMode');
+    await inkFrames(page, 4);
+    const safe = (await g(page, 'getRenderInfo')) as any;
+    expect(safe.safe).toBe(true);
+    expect(safe.outlines).toBe(0);
+    await g(page, 'disableSafeMode');
+    await inkFrames(page, 4);
+    const back = (await g(page, 'getRenderInfo')) as any;
+    expect(back.safe).toBe(false);
+    expect(back.outlines).toBeGreaterThan(0);
+  });
+
+  test('draw calls and triangles stay within budget; every outline mirrors its source; the twin follows an upgrade', async ({ page }) => {
+    test.setTimeout(240_000);
+    await inkStart(page);
+    await page.evaluate(() => {
+      const G = window.__game!;
+      G.grantResources({ metals: 30000, parts: 10000, silicon: 5000, chips: 2000, regolith: 5000 });
+      for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['habitat', 126, 132], ['lab', 135, 133],
+        ['excavator', 120, 126], ['smelter', 121, 133], ['storageYard', 121, 140], ['relayMast', 128, 118]] as const) G.placeBuilding(t, x, z);
+      G.finishConstruction();
+      G.grantPower(100000);
+      G.advanceGameSeconds(20);
+    });
+    await inkZoom(page, 'KeyH');
+    const on = (await g(page, 'getRenderInfo')) as any;
+    expect(on.ink.drawn, 'a twin for each structure type, and the rovers').toBeGreaterThanOrEqual(4);
+    expect(on.frame.calls, 'draw calls on the seed-42 base').toBeLessThanOrEqual(80);
+    expect(on.frame.triangles, 'triangles').toBeLessThanOrEqual(300_000);
+    for (const o of on.ink.list) {
+      expect(o.count, `${o.of}: the twin's count is its source's`).toBe(o.sourceCount);
+      expect(o.sameGeometry, `${o.of}: the same geometry`).toBe(true);
+      expect(o.sameMatrices, `${o.of}: the same instance matrices`).toBe(true);
+      expect(o.dirs, `${o.of}: mitre directions`).not.toBeNull();
+      expect(o.material).toBe('ShaderMaterial');
+    }
+    // an upgrade swaps the source's geometry: the twin follows
+    await page.evaluate(async () => {
+      const T = await import('/src/data/techs.ts');
+      for (const t of T.TECH_ORDER.slice(0, 40)) { const d = T.TECHS[t]; if (!d.track && !d.band && !d.exclusive) window.__game!.completeTech(t); }
+      window.__game!.advanceGameSeconds(2);
+    });
+    await inkFrames(page, 4);
+    const up = (await g(page, 'getRenderInfo')) as any;
+    for (const o of up.ink.list) {
+      expect(o.sameGeometry, `${o.of}: the twin draws the upgraded geometry`).toBe(true);
+      expect(o.count).toBe(o.sourceCount);
+    }
+    // the calls the outlines add are exactly the meshes they draw
+    await inkFrames(page, 3);
+    const withInk = ((await g(page, 'getRenderInfo')) as any);
+    await g(page, 'breakInk');
+    await expect.poll(async () => ((await g(page, 'getRenderInfo')) as any).ink.faulted, { timeout: 20_000 }).toBe(true);
+    await inkFrames(page, 4);
+    const without = ((await g(page, 'getRenderInfo')) as any);
+    expect(withInk.frame.calls - without.frame.calls, 'one draw call per outline').toBe(withInk.outlines);
+    test.info().annotations.push({ type: 'ink cost', description: JSON.stringify({ with: withInk.frame, without: without.frame, outlines: withInk.outlines }) });
+  });
+
+  test('a rich base: every class is outlined (structures, wings and dishes, rovers, drones, walkers, links, hub units, the work kit)', async ({ page }) => {
+    test.setTimeout(300_000);
+    await inkStart(page);
+    await page.evaluate(() => window.__game!.setPaused(false));
+    await buildBase(page, 'colony', COLONY, CORE);
+    await inkFrames(page, 6);
+    const info = (await g(page, 'getRenderInfo')) as any;
+    const labels = new Set<string>(info.ink.list.map((o: any) => o.of));
+    for (const want of ['lander', 'solar', 'wing', 'dish', 'rover', 'walker', 'walkway']) {
+      expect(labels.has(want), `${want} has an outline twin`).toBe(true);
+    }
+    for (const o of info.ink.list) {
+      expect(o.count, o.of).toBe(o.sourceCount);
+      expect(o.sameGeometry, o.of).toBe(true);
+    }
+    test.info().annotations.push({ type: 'rich base', description: JSON.stringify({ labels: [...labels], frame: info.frame }) });
+  });
+});

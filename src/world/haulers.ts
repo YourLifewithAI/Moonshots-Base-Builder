@@ -30,6 +30,7 @@ import { cellAt, frontDir, groundWay, roadRoute, routePoints } from '../core/roa
 import { bayPoint } from '../core/hubs';
 import { UNIT_DEFS, UNIT_VID, type UnitType } from '../data/hubs';
 import { materials } from './materials';
+import { inked } from './ink';
 import { blobTexture, roadSpeedFor } from './rovers';
 import type { DustEmitter } from './dust';
 import { Traffic, WHOLE, pointAt, type Agent, type Driver } from './traffic';
@@ -169,7 +170,7 @@ export class Haulers implements Driver {
       const um: UnitMesh = { mk, mesh, key: '', drawn: [] };
       this.meshes.push(um);
       this.byKey.set(mk, um);
-      this.group.add(mesh);
+      this.group.add(inked(mesh, mk));
     }
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
