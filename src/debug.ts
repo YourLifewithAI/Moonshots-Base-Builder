@@ -139,6 +139,11 @@ function api(game: Game) {
     /** the player turning safe mode off in the menu (a checked raise) */
     disableSafeMode: () => game.disableSafeMode(),
     getRenderInfo: () => game.debugRenderInfo(),
+    /** the ink outlines (docs/19 S1b): make their program fail to compile, as a
+     *  bad GPU would (the game hides the outlines, never itself); pick the
+     *  bake-off variant A, B or C over the constant (null: the constant) */
+    breakInk: () => game.debugBreakInk(),
+    setInkVariant: (v: 'A' | 'B' | 'C' | null) => game.debugSetInkVariant(v),
     /** hold the black-frame sentinel off (true) or resume it */
     holdBlackFrameCheck: (on: boolean) => game.debugHoldProbe(on),
     /** the work animations (docs/06 §7): per rover its mode, arm (unfold, yaw,
