@@ -481,7 +481,10 @@ holds 8–16 cards instead of the ~100 of the old one-screen board.
   drone is docked and charged. A finished survey ends in a field report card
   (§4a).
 - **Outposts** list their live stream, hopper fuel, upkeep and link power,
-  and dim when grounded for fuel or parts.
+  and dim when grounded for fuel or parts; an **OUTPOSTS chip** under the map
+  chip (`▢ OUTPOSTS 2 live · 1 worn`, hidden in touch mode) opens this strip,
+  and every resource panel lists the standing outposts under "Produced by"
+  (docs/11 §5b, docs/19 S8).
 - The header carries the tier label, outpost slots, survey count and ATLAS
   progress. Nothing pauses; every refusal is the sim's own alert.
 
