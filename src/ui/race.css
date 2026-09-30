@@ -98,3 +98,47 @@ html.touch #race-chip { min-height: var(--tap, 44px); }
 #swarm-meter .sr-row.you .sr-bar { height: 7px; outline: 1px solid rgba(var(--paper-rgb), 0.85); outline-offset: 1px; }
 #swarm-meter .sr-row.you .sr-n, #swarm-meter .sr-row.you .sr-p { font-weight: 700; color: var(--paper); }
 html.touch #swarm-meter .swarm-race { display: none !important; }
+
+/* ── a rival's first light: the banner under the swarm meter (racePanel.ts, S6) ── */
+#race-banner {
+  position: absolute; left: 50%; transform: translateX(-50%); z-index: 36;
+  width: min(430px, calc(100vw - 32px)); padding: 10px 8px 10px 14px;
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--ink-900, #0e0f11); border: 1px solid rgba(var(--paper-rgb), 0.35); border-left: 4px solid var(--nf);
+  animation: rb-in 0.45s var(--ease);
+}
+@keyframes rb-in { from { opacity: 0; transform: translate(-50%, -10px); } to { opacity: 1; transform: translateX(-50%); } }
+#race-banner .rb-g { flex: none; font-size: 30px; line-height: 34px; width: 1.1em; text-align: center; }
+#race-banner .rb-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+#race-banner .rb-title { font-size: 14px; letter-spacing: 0.1em; color: var(--paper); }
+#race-banner .rb-text { font-size: 12px; line-height: 17px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#race-banner .rb-open { flex: none; font-size: 10px; padding: 2px 7px; align-self: center; }
+#race-banner .rc-x { flex: none; background: none; border: none; color: inherit; font: inherit; font-size: 11px; opacity: 0.55; cursor: pointer; padding: 0 4px; align-self: flex-start; }
+#race-banner .rc-x:hover { opacity: 1; }
+html.touch #race-banner { width: min(360px, 60vw); }
+html.touch #race-banner .rb-open, html.touch #race-banner .rc-x { min-height: var(--tap, 44px); }
+@media (prefers-reduced-motion: reduce) { #race-banner { animation: none; } }
+
+/* ── FIRST LIGHT's standing line (screens.ts mountVictory, a faction game) ── */
+#victory-standing { margin-top: 10px; max-width: 560px; font-size: 13px; line-height: 20px; letter-spacing: 0.04em; color: var(--ink-050); }
+#victory-standing b { letter-spacing: 0.12em; }
+#victory-standing .vs-g { color: var(--ft); margin-right: 4px; }
+
+/* ── the verdict (screens.ts mountVerdict): the race has closed ── */
+#verdict-screen { justify-content: center; text-align: center; }
+#verdict-screen h1 { letter-spacing: 0.06em; }
+#verdict-screen .stats { margin: 16px 0 22px; max-width: 560px; font-size: 13px; line-height: 21px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#verdict-table { border-collapse: collapse; margin: 0 0 26px; font-size: 13px; min-width: min(560px, 100%); }
+#verdict-table th { font-weight: 400; text-align: right; padding: 4px 12px; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--paper-rgb), var(--op-tertiary)); border-bottom: var(--hair); }
+#verdict-table th:nth-child(2) { text-align: left; }
+#verdict-table td { padding: 8px 12px; text-align: right; border-bottom: var(--hair); color: var(--ink-050); }
+#verdict-table td.vt-name { text-align: left; }
+#verdict-table .vt-row { border-left: 3px solid var(--ft); }
+#verdict-table .vt-row.you td { background: rgba(var(--paper-rgb), var(--op-fill)); font-weight: 600; }
+#verdict-table .vt-g { color: var(--ft); text-align: center; width: 1.6em; padding-right: 0; }
+#verdict-table .vt-rank { text-align: left; width: 3ch; color: rgba(var(--paper-rgb), var(--op-secondary)); font-size: 11px; }
+#verdict-table .vt-you { margin-left: 8px; padding: 0 5px; border: 1px solid rgba(var(--paper-rgb), 0.4); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 400; }
+#verdict-table .vt-none { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+html.touch #verdict-screen .stats { margin: 10px 0 12px; font-size: 12px; line-height: 18px; }
+html.touch #verdict-table { font-size: 12px; margin-bottom: 14px; }
+html.touch #verdict-table td { padding: 5px 8px; }

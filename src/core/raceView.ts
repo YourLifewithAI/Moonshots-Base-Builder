@@ -139,7 +139,7 @@ export function raceView(moon: MoonState, player: GameState | null, rivals: read
   };
 }
 
-function verdictView(moon: MoonState, final: NonNullable<MoonState['race']['final']>, kind: Verdict, winner: FactionId, me: FactionId): RaceVerdict {
+export function verdictView(moon: MoonState, final: NonNullable<MoonState['race']['final']>, kind: Verdict, winner: FactionId, me: FactionId): RaceVerdict {
   const total = FACTION_ORDER.reduce((n, f) => n + final[f].launches, 0);
   const order = standingsOrder(final);
   return {
@@ -154,4 +154,41 @@ function verdictView(moon: MoonState, final: NonNullable<MoonState['race']['fina
       };
     }),
   };
+}
+
+// ─────────────────────────── first light and the verdict's words (S6) ───────────────────────────
+
+/** The verdict screen's headline and the log's line for each way the race can end. */
+export const VERDICT_TITLE: Record<Verdict, string> = { yours: 'THE SWARM IS YOURS', shared: 'A SHARED SWARM', theirs: 'THE SWARM IS THEIRS' };
+
+const NUMBER_WORD = ['none', 'one', 'two', 'three'];
+const ORDINAL_WORD = ['', 'first', 'second', 'third'];
+export const ordinalWord = (n: number): string => ORDINAL_WORD[n] ?? `${n}th`;
+export const numberWord = (n: number): string => NUMBER_WORD[n] ?? String(n);
+
+/** Where the player's own first volley stands among the programs' first lights (the FIRST LIGHT screen's "second of three"):
+ *  its rank among those that have lit (earlier first light first, a tie to the earlier landing) and the rows that lit before
+ *  it, in the order they did. Null when the player has not lit (or in a solo game). */
+export function firstLightStanding(v: RaceView | null): { rank: number; of: number; before: RaceRow[] } | null {
+  if (!v) return null;
+  const lit = v.rows.filter((r) => r.firstLightAt !== null)
+    .sort((a, b) => a.firstLightAt! - b.firstLightAt! || FACTION_ORDER.indexOf(a.faction) - FACTION_ORDER.indexOf(b.faction));
+  const at = lit.findIndex((r) => r.player);
+  if (at < 0) return null;
+  return { rank: at + 1, of: v.rows.length, before: lit.slice(0, at) };
+}
+
+/** One plain sentence of how the race ended, for the log and the verdict screen: who held what. */
+export function verdictLine(v: RaceVerdict): string {
+  const pct = (x: number) => `${Math.round(x * 100)} %`;
+  const me = v.rows.find((r) => r.player)!;
+  const top = v.rows[0];
+  const second = v.rows[1];
+  switch (v.kind) {
+    case 'yours': return `${me.launches} of ${v.total} volleys (${pct(me.share)}): the largest share, ${me.launches - second.launches} ahead of ${second.short}.`;
+    case 'shared': return top.player
+      ? `you hold ${pct(me.share)} and ${second.short} ${pct(second.share)}: too close to give it to one program.`
+      : `${top.short} holds ${pct(top.share)} to your ${pct(me.share)}: too close to give it to one program.`;
+    default: return `${top.name} holds ${pct(top.share)} of the volleys; you hold ${pct(me.share)}.`;
+  }
 }

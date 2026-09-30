@@ -79,7 +79,7 @@ import {
   modalUp, $alerts, $autoMarkers, $automation, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel,
   $feed, $hasSave, $ice, $lander, $lostMission, $lunar, $menuOpen, $milestones, $phase, $placeFlash, $placing, $power, $rates,
   $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers, overlayUp,
-  spawnFloater, $announce, type Announcement, $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard, $race, $raceCards, type RaceCard,
+  spawnFloater, $announce, type Announcement, $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard, $race, $raceCards, type RaceCard, $raceBanner, $verdict,
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather, $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView, $descent,
 } from '../ui/stores';
 
@@ -512,6 +512,8 @@ export class Game {
     $siteId.set(state.siteId);
     $victory.set(false);
     $defeat.set(false);
+    $verdict.set(false);
+    $raceBanner.set(null);
   }
 
   // ─────────────────────────── input ───────────────────────────

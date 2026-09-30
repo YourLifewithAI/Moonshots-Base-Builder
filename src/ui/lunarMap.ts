@@ -27,7 +27,7 @@ import { factionColour, factionGlyph, outpostChip, outpostCover, rivalCountText,
 import { FACTIONS, type FactionId } from '../data/factions';
 import { openTechTreeAt } from './techTree';
 import {
-  $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $phase, $research, $siteId, $victory, overlayUp,
+  $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $phase, $research, $siteId, $verdict, $victory, overlayUp,
   type DepositView, type LunarOutpostView, type LunarProspectView, type LunarView,
   type HubLightView,
 } from './stores';
@@ -1599,5 +1599,5 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   $alerts.subscribe(() => { if (isOpen) renderAlert(); });
   $siteId.subscribe(() => { reset(); schedule(); });
   $phase.subscribe((p) => { if (p !== 'playing') toggle(false); });
-  for (const store of [$victory, $defeat]) store.subscribe((up) => { if (up) toggle(false); });
+  for (const store of [$victory, $defeat, $verdict]) store.subscribe((up) => { if (up) toggle(false); });
 }
