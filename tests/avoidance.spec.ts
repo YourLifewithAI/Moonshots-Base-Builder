@@ -152,10 +152,12 @@ window.drive = (frames, watch, full) => {
     }
     return best;
   };
-  // an extraction zone's cells are ground too: units drive off-road inside one (core/zones.ts)
-  const zc = new Set(g.getZones().flatMap((z) => z.cells.map(([x, k]) => k * 256 + x)));
+  // an extraction zone's cells are ground too: units drive off-road inside one (core/zones.ts); a pit's own
+  // zone grows as it is dug, so the cells are read again every second
+  let zc = new Set();
   for (; i < frames; i++) {
     if (i % 10 === 0) {
+      zc = new Set(g.getZones().flatMap((z) => z.cells.map(([x, k]) => k * 256 + x)));
       g.grantPower(50000);
       // (full: the store kept full instead)
       const reg = g.getState().resources.regolith;

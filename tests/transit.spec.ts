@@ -18,9 +18,9 @@ const V = 4.5, A = 3, DRONE_V = 6, DRONE_A = 3;
 /** a rest-to-rest move (core/transit.ts travelTime) */
 const travel = (len: number, v: number, a: number) => (len >= (v * v) / a ? len / v + v / a : 2 * Math.sqrt(len / a));
 
-async function start(page: Page, opts: { site?: string; exp?: 'human' | 'robotic'; style?: string } = {}) {
-  const { site = 'mare', exp = 'human', style = '' } = opts;
-  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${style ? `&style=${style}` : ''}`);
+async function start(page: Page, opts: { site?: string; exp?: 'human' | 'robotic' } = {}) {
+  const { site = 'mare', exp = 'human' } = opts;
+  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   await page.evaluate(HELPERS);
@@ -343,57 +343,55 @@ test('a drone lays its site\'s road from the air, over each frontier cell in tur
 
 // ───────────────────────────── the visuals ─────────────────────────────
 
-for (const style of ['cel']) {
-  test(`${style}: the rover is drawn at its stand when the building starts to rise, and never far behind the sim`, async ({ page }) => {
-    test.setTimeout(120_000);
-    await start(page, {});
-    const r = await page.evaluate(() => {
-      const g = window.__game!;
-      g.grantResources({ metals: 500, parts: 500 });
-      near('habitat', 36, 24);
-      g.finishRoads();
-      const b = byType('habitat');
-      g.setPaused(false);
-      g.setSpeed(3);
-      g.stepFrame(0);
-      g.getRenderInfo();
-      let lag = 0;
-      for (let i = 0; i < 1200; i++) {
-        g.stepFrame(0.05);
-        const life = g.getRenderInfo().life;
-        lag = Math.max(lag, life.rovers.lagMaxS);
-        const s = g.getState();
-        const site = s.buildings.find((x: any) => x.id === b.id);
-        if (site.construction < site.buildTotal) {
-          const u = s.rovers.find((x: any) => x.site === b.id);
-          const k = life.rovers.ids.indexOf(u.id);
-          g.setPaused(true);
-          g.stepFrame(0);
-          return {
-            frame: i, pos: life.rovers.positions[k], spot: life.rovers.spots[k], legs: life.rovers.legs[k],
-            mode: life.rovers.modes[k], follow: life.rovers.follow[k], lag, setDowns: life.rovers.setDowns, sim: [u.x, u.z],
-          };
-        }
+test('the rover is drawn at its stand when the building starts to rise, and never far behind the sim', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page, {});
+  const r = await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 500, parts: 500 });
+    near('habitat', 36, 24);
+    g.finishRoads();
+    const b = byType('habitat');
+    g.setPaused(false);
+    g.setSpeed(3);
+    g.stepFrame(0);
+    g.getRenderInfo();
+    let lag = 0;
+    for (let i = 0; i < 1200; i++) {
+      g.stepFrame(0.05);
+      const life = g.getRenderInfo().life;
+      lag = Math.max(lag, life.rovers.lagMaxS);
+      const s = g.getState();
+      const site = s.buildings.find((x: any) => x.id === b.id);
+      if (site.construction < site.buildTotal) {
+        const u = s.rovers.find((x: any) => x.site === b.id);
+        const k = life.rovers.ids.indexOf(u.id);
+        g.setPaused(true);
+        g.stepFrame(0);
+        return {
+          frame: i, pos: life.rovers.positions[k], spot: life.rovers.spots[k], legs: life.rovers.legs[k],
+          mode: life.rovers.modes[k], follow: life.rovers.follow[k], lag, setDowns: life.rovers.setDowns, sim: [u.x, u.z],
+        };
       }
-      return null;
-    });
-    expect(r, 'the building started').not.toBeNull();
-    expect(r!.frame).toBeGreaterThan(20);
-    // there, squared up at its stand, welding — where the sim has it
-    expect(r!.legs).toBeLessThan(0.3);
-    expect(Math.hypot(r!.pos[0] - r!.spot[0], r!.pos[1] - r!.spot[1])).toBeLessThan(0.5);
-    expect(Math.hypot(r!.pos[0] - r!.sim[0], r!.pos[1] - r!.sim[1])).toBeLessThan(0.5);
-    expect(r!.follow).toBe('sim');
-    // it drove there in step with the sim: never more than a couple of seconds behind, never set down
-    expect(r!.lag).toBeLessThan(2.5);
-    expect(r!.setDowns).toBe(0);
-    await expect.poll(async () => page.evaluate(() => {
-      window.__game.stepFrame(0.05);
-      const life = window.__game.getRenderInfo().life;
-      return life.rovers.modes.includes('weld');
-    }), { timeout: 10_000 }).toBe(true);
+    }
+    return null;
   });
-}
+  expect(r, 'the building started').not.toBeNull();
+  expect(r!.frame).toBeGreaterThan(20);
+  // there, squared up at its stand, welding — where the sim has it
+  expect(r!.legs).toBeLessThan(0.3);
+  expect(Math.hypot(r!.pos[0] - r!.spot[0], r!.pos[1] - r!.spot[1])).toBeLessThan(0.5);
+  expect(Math.hypot(r!.pos[0] - r!.sim[0], r!.pos[1] - r!.sim[1])).toBeLessThan(0.5);
+  expect(r!.follow).toBe('sim');
+  // it drove there in step with the sim: never more than a couple of seconds behind, never set down
+  expect(r!.lag).toBeLessThan(2.5);
+  expect(r!.setDowns).toBe(0);
+  await expect.poll(async () => page.evaluate(() => {
+    window.__game.stepFrame(0.05);
+    const life = window.__game.getRenderInfo().life;
+    return life.rovers.modes.includes('weld');
+  }), { timeout: 10_000 }).toBe(true);
+});
 
 // ───────────────────────────── the words ─────────────────────────────
 
