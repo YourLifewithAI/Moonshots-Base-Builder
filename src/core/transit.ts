@@ -29,7 +29,7 @@ import {
 import { centerOf } from '../buildings/instances';
 import { roverStep } from './traffic';
 import { GRADE_HOP_ACCEL, GRADE_REACH_M, gradeArea, onGradeGround, standOf } from './grading';
-import { instantOf, straightOf } from './simMode';
+import { STRAIGHT_DETOUR, instantOf, straightOf } from './simMode';
 
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
@@ -272,8 +272,9 @@ export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
  *  slot (straight for a drone, or a base with no roads); off-road inside a
  *  zone to and from its gate (core/roads.ts groundWay). Null: no road there. */
 function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: number[] } | null {
-  // (a headless base's units drive the straight line, its length charged at their speed: core/simMode.ts)
-  if (!g.cell || !hasRoads(s) || straightOf(s)) return { pts: [[x, z], [g.x, g.z]] };
+  if (!g.cell || !hasRoads(s)) return { pts: [[x, z], [g.x, g.z]] };
+  // a headless base's rovers drive the straight line, no road search; the road grid's extra metres are charged (core/simMode.ts)
+  if (straightOf(s)) return { pts: [[x, z], [g.x, g.z]], w: [STRAIGHT_DETOUR] };
   // a slot on a road cell is reached by it; an off-road one (inside a zone,
   // or a Relay Mast's stand) by a gate; a unit stopped out on open ground
   // (its pack flat on a mast's way out) sets off again from the nearest road,

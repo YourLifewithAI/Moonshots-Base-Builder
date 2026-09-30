@@ -53,3 +53,8 @@ export const trafficOff = (s: GameState): boolean => TRAFFIC.bypass || !modeOf(s
 
 /** This base's legs are the straight line to the goal (no road search). */
 export const straightOf = (s: GameState): boolean => modeOf(s).straightLegs;
+
+/** A straight leg's stand-in for the road grid (4-connected cells, joined by bends): its metres over open ground
+ *  count this many times (the same 1.3 core/hubs.ts `tripTo` estimates a target no road reaches yet with). Inside an
+ *  extraction zone the game's own off-road weight applies. */
+export const STRAIGHT_DETOUR = 1.3;

@@ -504,6 +504,13 @@ function growDisc(box: PitState['box'], x: number, z: number, r: number) {
   grow(box, { ix0: lo(x - r), iz0: lo(z - r), ix1: hi(x + r), iz1: hi(z + r) });
 }
 
+/** A real carve's rim sits this far outside the free round pit of the volume it cut (the 2 m benches leave the wall's
+ *  outer metres uncut, and the grid cannot resolve a small floor): R − pitRadius(cut) measured 1.2–1.6 m on the seed-42
+ *  mare deposit from 90 to 2,100 m³ (docs/20 W0b). */
+const VIRTUAL_RIM_M = 1.3;
+/** how far from a virtual pit's centre its deepest sample is taken to lie (the grid's nearest sample, m) */
+const VIRTUAL_DEEP_M = 2.5;
+
 /** The m² a virtual pit scars: its cut disc and its heap's (a real pit counts its changed samples). */
 const virtualScar = (p: PitState) => Math.round(Math.PI * (p.R * p.R + (p.heap?.Rh ?? 0) ** 2));
 
@@ -596,10 +603,10 @@ function carveVirtual(s: GameState, hf: Heightfield, p: PitState, owe: number): 
     return true;
   }
   p.cutM3 += owe;
-  const R = Math.min(pitRadius(p.cutM3, L), virtualRing(s, hf, p));
+  const R = Math.min(pitRadius(p.cutM3, L) + VIRTUAL_RIM_M, virtualRing(s, hf, p));
   if (R > p.R) p.R = R;
   p.A = Math.max(0, p.R - PIT.bench);
-  const wall = PIT.bench * Math.floor(p.R / 2 / PIT.bench + 0.5);
+  const wall = PIT.bench * Math.floor(Math.max(0, p.R - VIRTUAL_DEEP_M) / 2 / PIT.bench + 0.5);
   p.deep = Math.max(p.deep, Math.min(Math.round(wall * 10), Math.round(L * 10)) / 10);
   p.free = 1;
   p.state = p.spent ? 'exhausted' : 'open';
