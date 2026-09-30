@@ -186,9 +186,15 @@ window.drive = (frames, watch, full) => {
     lagMaxS = Math.max(lagMaxS, life.haulers.lagMaxS);
     const st = g.getState();
     const open = new Set(st.roads.filter((x) => x.left <= 0).map((x) => x.gz * 256 + x.gx));
+    const gates = st.roads.filter((x) => x.gate && x.left <= 0);
+    /** the hop from a gate into its zone: the way runs straight from the gate's centre to a stand inside, and a
+     *  gate is a rim cell (core/zones.ts), so it may graze the cell between the gate and the zone's cells:
+     *  a cell next to an open gate and next to a zone cell is ground too */
+    const hop = (gx, gz) => gates.some((c) => Math.abs(c.gx - gx) <= 1 && Math.abs(c.gz - gz) <= 1)
+      && [-1, 0, 1].some((dz) => [-1, 0, 1].some((dx) => zc.has((gz + dz) * 256 + gx + dx)));
     for (const u of T.units) {
       const gx = Math.floor((u.x + 512) / 4), gz = Math.floor((u.z + 512) / 4);
-      if (open.has(gz * 256 + gx) || zc.has(gz * 256 + gx)) continue;
+      if (open.has(gz * 256 + gx) || zc.has(gz * 256 + gx) || hop(gx, gz)) continue;
       if (u.kind === 'digger') {
         const fp = g.footprintOf(u.id);
         if (fp && u.x >= fp.x0 - 0.01 && u.x <= fp.x1 + 0.01 && u.z >= fp.z0 - 0.01 && u.z <= fp.z1 + 0.01) continue;
