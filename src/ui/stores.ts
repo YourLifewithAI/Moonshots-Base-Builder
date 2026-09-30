@@ -23,6 +23,8 @@ export type Phase = 'title' | 'site' | 'playing';
 
 export const $phase = atom<Phase>('title');
 export const $hasSave = atom<boolean>(false);
+/** the descent screen's line while a late landing plays the days before it (core/game.ts startNewChunked): 'THE MOON IS 3 DAYS IN', '' otherwise */
+export const $descent = atom<string>('');
 /** the saved mission was lost (human crew gone): the title shows it instead of 'Continue';
  *  cause = how the last settler died, if a hazard's warning went unanswered (docs/14 §3.10) */
 export const $lostMission = atom<{ siteId: SiteId; day: number; cause?: string } | null>(null);

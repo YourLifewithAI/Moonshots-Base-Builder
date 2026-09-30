@@ -78,8 +78,11 @@ import {
   $feed, $hasSave, $ice, $lander, $lostMission, $lunar, $menuOpen, $milestones, $phase, $placeFlash, $placing, $power, $rates,
   $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers, overlayUp,
   spawnFloater, $announce, type Announcement, $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard,
-  $destiny, $hazards, $hazardMarkers, $lossStory, $weather, $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView,
+  $destiny, $hazards, $hazardMarkers, $lossStory, $weather, $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView, $descent,
 } from '../ui/stores';
+
+/** the rivals' cost per Moon second is averaged over this many seconds (`getRenderInfo().rivals.msPerTick`: a placement is a spike, the average must see a few) */
+const RIVAL_EMA_TICKS = 300;
 
 export interface GameOptions {
   /** safe render mode from the very first frame (?safe, or the stored setting) */
@@ -122,7 +125,7 @@ export class Game {
   /** debug (`setRivalsEnabled`): rivals tick with the player's base (default) or are frozen, for specs that time the player's loop */
   rivalsOn = true;
   /** the rivals' step counters (docs/20 §4.5): whole Moon seconds stepped, the last one's cost and its moving average (ms) */
-  private rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
+  private rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0, sumMs: 0 };
   get state(): GameState { return this.sim?.state; }
   get mods(): Mods { return this.sim?.mods; }
   private get hf(): Heightfield { return this.sim.hf; }
@@ -254,21 +257,49 @@ export class Game {
    *  other two take the sites left in their own order, and the ones that land before the player are already on the Moon
    *  (created at their landing day and stepped, passive, up to the player's landing second: the pre-roll). */
   startNew(siteId: SiteId, expedition: 'human' | 'robotic' = 'human', faction?: FactionId) {
-    const seed = this.opts.seed;
-    const moon = createMoon(seed, { player: faction ?? null, siteId });
-    let sim: BaseSim;
+    const c = this.beginNew(siteId, faction);
+    if (c) for (const _ of this.preRollSteps(c.moon, c.until)) { /* all at once */ }
+    this.finishNew(siteId, expedition, faction, c);
+  }
+
+  /** The same new game with the pre-roll spread over frames (the descent screen's path: a late landing plays up to four days of
+   *  two programs, seconds of work that would freeze the page): it yields to the browser every ~40 ms of work and reports how far the
+   *  Moon has come (`onDay`: the Moon's day). What it builds is exactly what `startNew` builds. */
+  async startNewChunked(
+    siteId: SiteId, expedition: 'human' | 'robotic' = 'human', faction?: FactionId, onDay?: (day: number) => void,
+  ) {
+    const c = this.beginNew(siteId, faction);
+    if (c) {
+      for (const _ of this.preRollSteps(c.moon, c.until, 40)) {
+        onDay?.(Math.floor(c.moon.clock / CYCLE_S) + 1);
+        await new Promise<void>((done) => requestAnimationFrame(() => done()));
+      }
+    }
+    this.finishNew(siteId, expedition, faction, c);
+  }
+
+  /** The Moon and the schedule of a new game (a faction's: the landings planned, the clock at the first landing); null for a solo game. */
+  private beginNew(siteId: SiteId, faction?: FactionId): { moon: MoonState; until: number } | null {
+    const moon = createMoon(this.opts.seed, { player: faction ?? null, siteId });
     this.moon = moon;
     this.rivals = [];
     this.feedCursor = 0;
-    this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
+    this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0, sumMs: 0 };
+    if (!faction) return null;
+    scheduleLandings(moon, assignSites(faction, siteId));
+    // the Moon's clock starts when the first faction lands (the Foundry, day 0, mid-morning)
+    moon.clock = Math.min(...FACTION_ORDER.map((f) => moon.factions[f].landedAt)) + 90;
+    return { moon, until: moon.factions[faction].landedAt + 90 };
+  }
+
+  /** The player's landing once the Moon stands at it: the rivals that landed before are on the Moon (the pre-roll). */
+  private finishNew(siteId: SiteId, expedition: 'human' | 'robotic', faction: FactionId | undefined, c: { moon: MoonState; until: number } | null) {
+    const seed = this.opts.seed;
+    const moon = this.moon;
+    let sim: BaseSim;
     if (faction) {
       const def = FACTIONS[faction];
-      scheduleLandings(moon, assignSites(faction, siteId));
       const landedAt = moon.factions[faction].landedAt;
-      // the Moon's clock starts when the first faction lands (the Foundry, day 0, mid-morning)
-      moon.clock = Math.min(...FACTION_ORDER.map((f) => moon.factions[f].landedAt)) + 90;
-      // the rivals that land before the player are on the Moon, and it stands at the player's landing second, when the player lands
-      this.preRoll(moon, landedAt + 90);
       this.feedCursor = moon.feedSeq ?? 0; // (the landings before the player's are history, not news)
       // the Lander pre-placed at the map heart with its pad, rovers and drone, and the TOUCHDOWN alert
       sim = BaseSim.create({ siteId, seed, expedition: def.expedition, faction, landedAt, mode: this.playerMode(), moon });
@@ -285,13 +316,17 @@ export class Game {
   }
 
   /** The Moon before the player lands: every rival whose landing second comes before `until` is created at its landing
-   *  and all of them tick, passive, one Moon second at a time up to it (the order the live loop keeps: a rival that lands
-   *  on day 2 feels the flares of day 2, not the clock's end). Whoever ticks drives the Moon's clock (core/moon.ts). */
-  private preRoll(moon: MoonState, until: number) {
+   *  and all of them tick, one Moon second at a time up to it (the order the live loop keeps: a rival that lands
+   *  on day 2 feels the flares of day 2, not the clock's end), each playing its policy (core/rival.ts). Whoever ticks drives the
+   *  Moon's clock (core/moon.ts). A generator: it yields every `chunkMs` of wall time when given one (the caller yields the page
+   *  between steps), and runs to the end without yielding when not. */
+  private *preRollSteps(moon: MoonState, until: number, chunkMs = 0): Generator<void> {
     const t0 = performance.now();
+    let mark = t0;
     for (let t = moon.clock; t < until; t++) {
       this.landDue(t, false);
       for (const r of this.rivals) r.step();
+      if (chunkMs > 0 && (t & 15) === 15 && performance.now() - mark >= chunkMs) { yield; mark = performance.now(); }
     }
     this.preRollMs = performance.now() - t0;
   }
@@ -337,7 +372,8 @@ export class Game {
     const p = this.rivalPerf;
     p.ticks++;
     p.msLast = ms;
-    p.msPerTick += (ms - p.msPerTick) / Math.min(p.ticks, 60);
+    p.sumMs += ms;
+    p.msPerTick += (ms - p.msPerTick) / Math.min(p.ticks, RIVAL_EMA_TICKS);
   }
 
   loadFrom(file: SaveFile) {
@@ -347,7 +383,7 @@ export class Game {
     const sim = BaseSim.fromState(save.player, this.playerMode(), moon);
     // the rivals that had landed: each on its own stand-in ground, on the same Moon
     this.rivals = save.rivals.map((r) => RivalProgram.fromState(r.faction, r.state, moon));
-    this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
+    this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0, sumMs: 0 };
     this.moon = moon;
     this.feedCursor = moon.feedSeq ?? 0; // (a loaded game does not replay what the save already had)
     this.bootWorld(sim);
@@ -2240,7 +2276,8 @@ export class Game {
   async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human', faction?: FactionId) {
     await clearSave();
     this.publishSaveSlot(null);
-    this.startNew(siteId, expedition, faction);
+    await this.startNewChunked(siteId, expedition, faction, (day) => $descent.set(day > 1 ? `THE MOON IS ${day - 1} DAY${day === 2 ? '' : 'S'} IN` : ''));
+    $descent.set('');
   }
 
   private onResize() {
@@ -2451,7 +2488,10 @@ export class Game {
       lens: { fov: this.camera.fov, near: this.camera.near },
       /** the other programs' cost (docs/20 §4.5): rivals landed, Moon seconds they have stepped, the last second's cost and its
        *  moving average over 60 (ms; all rivals together), and how far they trail the player's clock (0: they tick in lockstep) */
-      rivals: { n: this.rivals.length, ticks: this.rivalPerf.ticks, msLast: this.rivalPerf.msLast, msPerTick: this.rivalPerf.msPerTick, behind: 0 },
+      rivals: {
+        n: this.rivals.length, ticks: this.rivalPerf.ticks, msLast: this.rivalPerf.msLast, msPerTick: this.rivalPerf.msPerTick,
+        msMean: this.rivalPerf.ticks ? this.rivalPerf.sumMs / this.rivalPerf.ticks : 0, behind: 0,
+      },
       /** the shared Moon: its clock and the flare schedule in brief */
       moon: {
         clock: this.moon?.clock ?? 0,

@@ -4,7 +4,7 @@ import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
 import type { Game } from '../core/game';
 import { el, PERSON_SVG } from './hud';
 import { $siteId as $siteIdAtom } from './stores';
-import { $counts, $defeat, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
+import { $counts, $defeat, $descent, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
 import { DESTINY_SUBTITLE, expeditionCopy } from './expeditionCopy';
 import { BAND_ENDING, BAND_LABEL, type Band } from '../data/techs';
@@ -92,7 +92,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       </div>
       <div style="display:flex; gap:12px">
         <button class="btn" id="btn-back" ${landing ? 'disabled' : ''}>◂ Back</button>
-        <button class="btn primary" id="btn-launch-exp" ${landing ? 'disabled' : ''}>${landing ? 'DESCENDING…' : 'Land ▸'}</button>
+        <button class="btn primary" id="btn-launch-exp" ${landing ? 'disabled' : ''}>${landing ? `DESCENDING…${$descent.get() ? ` · ${$descent.get()}` : ''}` : 'Land ▸'}</button>
       </div>`;
     screen.querySelectorAll<HTMLElement>('[data-exp]').forEach((card) => {
       card.addEventListener('click', () => {
@@ -115,6 +115,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
   };
   render();
   $hasSave.subscribe(render);
+  $descent.subscribe(() => { if (landing) render(); }); // (a late landing plays the days before it: THE MOON IS 3 DAYS IN)
   $lostMission.subscribe(render);
   $phase.subscribe((p) => { screen.style.display = p === 'playing' ? 'none' : 'flex'; });
 }

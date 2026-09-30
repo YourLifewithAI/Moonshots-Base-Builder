@@ -24,20 +24,31 @@ import { missionLost } from './economy';
 import {
   enqueue, enqueuePath, goodsShortfall, isDoctrineHere, techAvailability, techCost, techVisible, resolveTech,
 } from './research';
-import { budgetShort, orderRefusal, ruleState } from './automation';
+import { budgetShort, orderRefusal, powerBook, ruleState } from './automation';
+import { chooseSite } from './siting';
 import { claimRefusal, prospectDist, KIND_LABEL, type RivalInfo } from './exploration';
 import { SITES, type SiteId } from '../data/sites';
 import type { ResourceId } from '../data/resources';
 import { FACTIONS, FACTION_NAME, FACTION_ORDER, type FactionId } from '../data/factions';
 import { DOCTRINES, DOCTRINE_ORDER, ERA_NAMES, TECHS, TECH_ORDER, TRACKS, type Era, type Side, type TechId } from '../data/techs';
-import { FAMILY_PRIORITY, RULE_ORDER, RULES } from '../data/automation';
+import { FAMILY_PRIORITY, RULE_ORDER, RULES, type AutoRuleId } from '../data/automation';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { PROSPECTS, PROSPECT_IDS, type ProspectId, type OutpostKind } from '../data/lunarMap';
-import { QUEUE_MAX } from '../data/balance';
+import { NIGHT_S, QUEUE_MAX } from '../data/balance';
 
 /** A rival's seed: the Moon's seed mixed with its faction (its ground's deposits, every base-local draw). The
  *  PLAYER's base keeps the game's own seed, so a faction game on a site has the terrain of the solo game on it. */
-export const rivalSeed = (moonSeed: number, faction: FactionId): number => (moonSeed ^ hashString(faction)) >>> 0;
+export const rivalSeed = (moonSeed: number, faction: FactionId, salt = 0): number =>
+  (moonSeed ^ hashString(faction) ^ (salt ? Math.imul(salt, 0x9e3779b1) : 0)) >>> 0;
+
+/** Can a base stand on the flat ground this seed draws at this site? A deposit zone now and then covers the end of the Lander's road
+ *  stub (the generator keeps them 15 m off the Lander, the stub runs 16 m), and no road can start: the base could place nothing
+ *  and would sit on its Lander for ever. A rival's seed is bumped (salt 1, 2, …: deterministic) until the first solar array finds a site. */
+function groundWorks(siteId: SiteId, seed: number): boolean {
+  const b = BaseSim.create({ siteId, seed, expedition: 'robotic', mode: HEADLESS_MODE, flat: true });
+  const pick = chooseSite(b.state, b.mods, SITES[siteId], b.hf, { type: 'solar', intent: { rule: 'order' }, survey: false, skip: [] });
+  return !('refusal' in pick);
+}
 
 /** How often a rival thinks, in Moon seconds (offsets keep the three from landing on one tick). */
 export const RIVAL_CADENCE = { research: 30, orders: 20, ordersAt: 5, claims: 60, claimsAt: 40, life: 30, lifeAt: 10 } as const;
@@ -84,9 +95,10 @@ export class RivalProgram {
   /** A faction lands: its base on `siteId`, its clock starting at `landedAt + 90` (mid-morning of its landing day). The Builder
    *  is on, at its caps, before the first step. */
   static land(faction: FactionId, moon: MoonState, siteId: SiteId, landedAt: number): RivalProgram {
+    let seed = rivalSeed(moon.seed, faction);
+    for (let salt = 1; salt <= 12 && !groundWorks(siteId, seed); salt++) seed = rivalSeed(moon.seed, faction, salt);
     const base = BaseSim.create({
-      siteId, seed: rivalSeed(moon.seed, faction), expedition: FACTIONS[faction].expedition, faction, landedAt,
-      mode: HEADLESS_MODE, flat: true, moon,
+      siteId, seed, expedition: FACTIONS[faction].expedition, faction, landedAt, mode: HEADLESS_MODE, flat: true, moon,
     });
     const r = new RivalProgram(faction, base, moon);
     switchOnRules(base.state, faction);
@@ -128,38 +140,26 @@ export class RivalProgram {
   private think() {
     const s = this.base.state;
     const t = Math.round(s.simTime - (s.landedAt ?? 0));
-    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.capHands(); }
+    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.capHands(); this.rationParts(); this.gate(); this.resupply(); }
     if (t % RIVAL_CADENCE.life === RIVAL_CADENCE.lifeAt) this.life();
     if (t % RIVAL_CADENCE.orders === RIVAL_CADENCE.ordersAt) this.orders();
     if (t % RIVAL_CADENCE.claims === RIVAL_CADENCE.claimsAt) this.claims();
   }
 
-  /** Fill the research queue: the decisions the gates need (a destiny pick per era, a doctrine per group), then the faction's
-   *  priority list, its own techs, and whatever is cheapest, in that order, until the queue is full. */
+  /** Keep the research queue full and in the faction's order. The order of wants: the era's destiny pick once three of its techs are in
+   *  hand (it gates the next era and is one of the four the gate counts), the faction's priority list, its own techs, a doctrine and a pick
+   *  the lists did not reach, then what is cheapest (this era's first). The queue is filled in that order, and the techs in it are kept
+   *  in it too (data flows down the queue: a priority tech that was queued last still goes first), never ahead of a tech it needs. */
   private research() {
     const s = this.base.state;
-    if (s.researchQueue.length >= QUEUE_MAX) return;
     const mods = this.base.mods;
     const pol = FACTIONS[this.faction].policy;
     const done = new Set<TechId>(s.techsDone);
-    const tried = new Set<TechId>();
-    const offer = (tid: TechId): boolean => {
-      if (tried.has(tid) || done.has(tid) || !TECHS[tid]) return false;
-      tried.add(tid);
-      if (s.researchQueue.length >= QUEUE_MAX) return false;
-      const a = techAvailability(tid, s, mods);
-      if (a.state === 'available') {
-        if (goodsHopeless(s, mods, tid)) return false;
-        return enqueue(s, tid).ok;
-      }
-      if (a.state === 'requires' || a.state === 'requiresAny') {
-        // the path's goods are checked one tech at a time as they come up; a path that does not fit the queue waits
-        return enqueuePath(s, tid).ok;
-      }
-      return false;
-    };
-    // 1 · the era's destiny pick once two of its techs are in hand (it gates the next era, and is one of the four the gate counts)
     const era = s.era;
+    const order: TechId[] = [];
+    const seen = new Set<TechId>();
+    const want = (tid: TechId) => { if (!seen.has(tid) && TECHS[tid] && !done.has(tid)) { seen.add(tid); order.push(tid); } };
+    // the era's pick, once three of the era's own techs are done or queued
     if (era >= 2) {
       let inHand = 0;
       for (const tid of TECH_ORDER) {
@@ -167,23 +167,42 @@ export class RivalProgram {
         if (d.track || !(done.has(tid) || s.researchQueue.includes(tid))) continue;
         if (eraOf(s, tid) === era && techVisible(resolveTech(d, s.expedition, this.faction), s)) inHand++;
       }
-      if (inHand >= 3) offer(this.destinyPick(era as Era));
+      if (inHand >= 3) want(this.destinyPick(era as Era));
     }
-    // 2 · the priority list, 3 · the faction's own techs
-    for (const tid of pol.research as TechId[]) { if (this.wanted(tid)) offer(tid); }
-    for (const tid of FACTIONS[this.faction].uniqueTechs) { if (this.wanted(tid)) offer(tid); }
-    // a doctrine and a pick the lists did not reach (the gates need the picks, the any-of techs need a doctrine)
-    for (let e = 2 as Era; e <= era; e = (e + 1) as Era) offer(this.destinyPick(e));
+    for (const tid of pol.research as TechId[]) if (this.wanted(tid)) want(tid);
+    for (const tid of FACTIONS[this.faction].uniqueTechs) if (this.wanted(tid)) want(tid);
+    for (let e = 2 as Era; e <= era; e = (e + 1) as Era) want(this.destinyPick(e));
     for (const g of DOCTRINE_ORDER) {
       if (DOCTRINES[g].era > era) continue;
       const pick = this.doctrinePick(g);
-      if (pick) offer(pick);
+      if (pick) want(pick);
     }
-    // 4 · the rest: this era's first, then the cheapest
-    if (s.researchQueue.length >= QUEUE_MAX) return;
-    const rest = TECH_ORDER.filter((tid) => !done.has(tid) && !tried.has(tid) && this.wanted(tid));
+    const rest = TECH_ORDER.filter((tid) => !seen.has(tid) && !done.has(tid) && this.wanted(tid));
     rest.sort((a, b) => eraOf(s, a) - eraOf(s, b) || techCost(a, s, mods).data - techCost(b, s, mods).data || TECH_ORDER.indexOf(a) - TECH_ORDER.indexOf(b));
-    for (const tid of rest) { if (s.researchQueue.length >= QUEUE_MAX) break; offer(tid); }
+    for (const tid of rest) want(tid);
+
+    // fill
+    for (const tid of order) {
+      if (s.researchQueue.length >= QUEUE_MAX) break;
+      if (s.researchQueue.includes(tid)) continue;
+      const a = techAvailability(tid, s, mods);
+      if (a.state === 'available') {
+        if (!goodsHopeless(s, mods, tid)) enqueue(s, tid);
+      } else if (a.state === 'requires' || a.state === 'requiresAny') {
+        // the path's goods are checked one tech at a time as they come up; a path that does not fit the queue waits
+        enqueuePath(s, tid);
+      }
+    }
+    // keep the queue in the order of wants: a tech moves up past any that it does not need (and never out of a prerequisite's way)
+    const q = s.researchQueue;
+    if (q.length > 1) {
+      const rank = new Map<TechId, number>();
+      order.forEach((tid, i) => rank.set(tid, i));
+      const at = (tid: TechId) => rank.get(tid) ?? order.length;
+      for (let i = 1; i < q.length; i++) {
+        for (let j = i; j > 0 && at(q[j - 1]) > at(q[j]) && !needs(q[j], q[j - 1]); j--) [q[j - 1], q[j]] = [q[j], q[j - 1]];
+      }
+    }
   }
 
   /** May this tech be queued on the faction's own account? A doctrine member only if it is the faction's pick of its group, a
@@ -216,17 +235,63 @@ export class RivalProgram {
     return [...members].sort((a, b) => techCost(a, s).data - techCost(b, s).data)[0];
   }
 
-  /** A crewed base with no Construction Robotics has only its own hands: its labs stop at the ones ordered (a lab rule that takes the
-   *  last two hands leaves no one for the second smelter or the water plant the life rules ask for). The cap opens with the agents. */
+  /** A crewed base with no Construction Robotics has only its own hands, and they are shared out by priority (life support first, the labs
+   *  last): a base that lets its rules add a second smelter, a second farm and a water plant on top has no hand left for the lab, so no
+   *  research, so no agents, for ever. Until the agents come, the rules that add crewed stations stop at what stands (the first of each
+   *  is the orders'; a lab's cap is the labs ordered); their caps open with Construction Robotics. */
   private capHands() {
     const s = this.base.state;
     if (s.expedition === 'robotic') return;
-    const r = ruleState(s, 'lab');
-    const cap = FACTIONS[this.faction].policy.ruleCaps.lab ?? RULES.lab.cap;
-    if (this.base.mods.automation) { r.cap = Math.min(RULES.lab.capRange[1], cap); return; }
-    let labs = 0;
-    for (const b of s.buildings) if (b.type === 'lab') labs++;
-    r.cap = Math.max(1, Math.min(cap, labs));
+    const caps = FACTIONS[this.faction].policy.ruleCaps;
+    const free = !!this.base.mods.automation;
+    for (const id of HAND_RULES) {
+      const r = ruleState(s, id);
+      const d = RULES[id];
+      const cap = Math.min(d.capRange[1], Math.max(d.capRange[0], Math.round(caps[id] ?? d.cap)));
+      if (free) { r.cap = cap; continue; }
+      let n = 0;
+      for (const b of s.buildings) if (b.type === RULE_TYPE[id]) n++;
+      r.cap = Math.max(1, Math.min(cap, n));
+    }
+  }
+
+  /** Is the base standing on its own feet? A crewed base's three life-support stocks would each last 40 minutes at their present rate (or are
+   *  not falling), and, until its parts fabricator stands, the parts cache holds 40. An unstable base builds what steadies it (power,
+   *  smelter, farm, water, parts, the first lab) and nothing else: growth on a base that is starving for parts, water or air is how a
+   *  rival built twenty solar arrays and a fifth lab and died of thirst. */
+  private stable(): boolean {
+    const s = this.base.state;
+    if (s.crew > 0 && s.expedition !== 'robotic') {
+      for (const res of ['oxygen', 'food', 'water'] as const) {
+        const net = s.rates[res] ?? 0;
+        if (net < -1e-6 && s.resources[res] / -net < STABLE_S) return false;
+      }
+    }
+    return s.resources.parts >= STABLE_PARTS || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0);
+  }
+
+  /** The Builder's growth rules wait while the base is unstable (they come back on with it). */
+  private gate() {
+    const s = this.base.state;
+    const ok = this.stable();
+    for (const id of GROWTH_RULES) ruleState(s, id).on = ok;
+  }
+
+  /** Earth sends 40 parts and 60 metals a lunar day after the order (the player's own Lander action): a base with no parts fabricator yet
+   *  and a cache under 70 orders it, twice at the most (each later order waits a day longer). */
+  private resupply() {
+    const s = this.base.state;
+    if (s.resupply?.pending || (s.resupply?.ordered ?? 0) >= 2) return;
+    if (s.resources.parts >= 70 || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
+    this.base.apply({ kind: 'orderResupply' });
+  }
+
+  /** The spare-parts cache is all a base has until its parts fabricator stands, and every hopper survey spends some of it: AUTO SURVEY
+   *  waits for the fabricator (or a cache that can pay for the flight and keep 60, as the pacing probe's player does). */
+  private rationParts() {
+    const s = this.base.state;
+    const fab = s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0);
+    ruleState(s, 'autoSurvey').on = fab || s.resources.parts >= SURVEY_PARTS_FLOOR;
   }
 
   /** Keeping the crew alive comes before everything (a crewed base only). When a life-support stock would run out within LIFE_RUNWAY_S
@@ -247,13 +312,49 @@ export class RivalProgram {
       if (!mods.unlocked.has(type)) continue;
       let have = 0, building = 0;
       for (const x of s.buildings) if (x.type === type) { have++; if ((x.construction ?? 0) > 0) building++; }
-      if (building > 0 || have >= (LIFE_MAX[type] ?? 0)) continue;
+      if (building > 0 || have >= (mods.automation ? (LIFE_MAX[type] ?? 0) : 1)) continue;
       if (have === 0 && s.simTime - (s.landedAt ?? 0) < 90) continue; // (the opening orders place the first ones)
       const crisis = s.resources[res] / -net < CRISIS_S;
       if (!handsFor(s, mods, type, crisis)) continue;
       if (orderRefusal(s, mods, site, type) || budgetShort(s, mods, site, type, { by: 'order' })) continue;
       b.apply({ kind: 'order', type, count: 1 });
     }
+  }
+
+  /** Power comes before growth: the day's supply stays ahead of what runs, what is being built and the bank's recharge (the pacing probe's
+   *  reasonable player does the same, from the same book as the Builder's solar rule; the rule itself waits to see a shortfall, dwells,
+   *  cools down and builds one array at a time, and a base that browns out cannot build the parts that would end it), and the bank
+   *  carries the night on a site with no night sun. Returns whether it placed something (one building a turn). */
+  private power(): boolean {
+    const b = this.base;
+    const s = b.state;
+    const mods = b.mods;
+    const site = SITES[s.siteId];
+    const pb = powerBook(s, mods);
+    let solar = 0, solarSites = 0, batteries = 0, batterySites = 0;
+    for (const x of s.buildings) {
+      const site0 = (x.construction ?? 0) > 0;
+      if (x.type === 'solar') { solar++; if (site0) solarSites++; } else if (x.type === 'battery') { batteries++; if (site0) batterySites++; }
+    }
+    const kw = 10 * mods.powerMult.solar * site.solarDayMult;
+    const capS = ruleState(s, 'solar').cap * mods.builderCapMult;
+    if (pb.full + solarSites * kw < (pb.load + pb.pending) * POWER_MARGIN + pb.recharge && solarSites < 2 && solar < capS) {
+      if (!orderRefusal(s, mods, site, 'solar') && !budgetShort(s, mods, site, 'solar', { by: 'order' })) {
+        b.apply({ kind: 'order', type: 'solar', count: 1 });
+        return true;
+      }
+    }
+    // the night: a site with no night sun runs it on the bank
+    if (site.nightSolarFraction < 0.5 && mods.unlocked.has('battery') && batterySites === 0) {
+      const per = (BUILDINGS.battery.storageKWh ?? 0) * mods.batteryCapMult;
+      const want = pb.nightShort * NIGHT_S * NIGHT_COVER;
+      const capB = ruleState(s, 'battery').cap * mods.builderCapMult;
+      if (s.power.capacity < want && batteries < capB && per > 0 && !orderRefusal(s, mods, site, 'battery') && !budgetShort(s, mods, site, 'battery', { by: 'order' })) {
+        b.apply({ kind: 'order', type: 'battery', count: 1 });
+        return true;
+      }
+    }
+    return false;
   }
 
   /** The buildings no rule places: each `policy.orders` entry asks for `count` of its type in all (built or building), through
@@ -263,8 +364,11 @@ export class RivalProgram {
     const s = b.state;
     const mods = b.mods;
     const site = SITES[s.siteId];
+    if (this.power()) return;
+    const stable = this.stable();
     for (const o of FACTIONS[this.faction].policy.orders) {
       if (!mods.unlocked.has(o.type)) continue;
+      if (!stable && !STEADYING.includes(o.type) && !(o.type === 'lab' && o.count === 1)) continue;
       if (o.when && !o.when(s, mods)) continue;
       if (!handsFor(s, mods, o.type)) continue;
       let have = 0;
@@ -337,9 +441,9 @@ export class RivalProgram {
 
 /** Crew to run a new station of the type. A crewed base with no Construction Robotics has only its own hands, and the economy
  *  shares them out by priority (life support first, the labs last): a base that spends them all on smelters, farms and water plants
- *  has no lab running, so no research, so no agents, and stays that way; one that spends them on labs has nobody left for the
- *  water plant. So a lab stands only while a hand stays spare for the farm or the water plant, and any other station only while
- *  a first lab's two seats stay free. `crisis`: a life-support stock about to run out takes the hands (the labs idle instead). */
+ *  has no lab running, so no research, so no agents, and stays that way. So a station other than a lab is ordered only while a first
+ *  lab's two seats stay free (the pacing probe's human runs two labs, a smelter and a farm on seven people, and the water plant
+ *  only where the ice makes it worth it). `crisis`: a life-support stock about to run out takes the hands (the labs idle instead). */
 function handsFor(s: GameState, mods: Mods, type: BuildingId, crisis = false): boolean {
   if (s.expedition === 'robotic' || mods.automation || crisis) return true;
   const seats = Math.max(0, BUILDINGS[type].crew + (mods.crewDelta[type] ?? 0));
@@ -352,22 +456,45 @@ function handsFor(s: GameState, mods: Mods, type: BuildingId, crisis = false): b
     used += Math.max(0, BUILDINGS[b.type].crew + (mods.crewDelta[b.type] ?? 0));
   }
   const free = s.crew - used - seats;
-  return free >= (type === 'lab' ? (labs > 0 ? 1 : 0) : (labs === 0 ? 2 : 0));
+  return free >= (type === 'lab' || labs > 0 ? 0 : 2);
 }
+
+/** the rules that add a crewed station, and the building each adds (life support's rules add whatever makes their resource here: a
+ *  smelter, a farm, a water plant) */
+const HAND_RULES: readonly AutoRuleId[] = ['lab', 'oxygen', 'food', 'water', 'partsFab', 'refinery', 'smelter', 'chipFab'];
+const RULE_TYPE: Partial<Record<AutoRuleId, BuildingId>> = {
+  lab: 'lab', oxygen: 'smelter', food: 'hydroponics', water: 'waterPlant', partsFab: 'partsFab', refinery: 'refinery', smelter: 'smelter', chipFab: 'chipFab',
+};
+
+/** the day's supply a rival keeps over its load, and the share of a night's deficit its bank covers */
+const POWER_MARGIN = 1.15;
+const SURVEY_PARTS_FLOOR = 70;
+const STABLE_S = 2400;
+const STABLE_PARTS = 40;
+/** the rules that only grow the base (labs past the first are the orders' business, and gated there) */
+const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 'chipFab', 'foilFactory', 'storageYard'];
+/** what an unstable base may still order */
+const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
+const NIGHT_COVER = 0.7;
 
 /** a life-support stock that would run out inside this many seconds at its present rate asks for another maker; inside CRISIS_S it may
  *  take the hands a lab needs */
 const LIFE_RUNWAY_S = 1500;
 const CRISIS_S = 600;
-const LIFE_MAX: Partial<Record<BuildingId, number>> = { smelter: 3, waterPlant: 2, hydroponics: 3 };
+const LIFE_MAX: Partial<Record<BuildingId, number>> = { smelter: 3, waterPlant: 2, hydroponics: 2 };
+
+/** Does `a` need `b` first (directly: a prerequisite or an any-of member)? */
+const needs = (a: TechId, b: TechId): boolean => TECHS[a].requires.includes(b) || !!TECHS[a].requiresAny?.includes(b);
 
 /** A tech's resolved era for this base's faction and expedition (what the gates count). */
 const eraOf = (s: GameState, tid: TechId): number => resolveTech(TECHS[tid], s.expedition, (s as { faction?: FactionId }).faction).era;
 
-/** A tech whose goods the base has none of and nothing is making would sit fully paid in the queue and hold a slot. */
+/** A tech whose goods the base has none of and nothing is making would sit fully paid in the queue and hold a slot. And chips are the
+ *  claim's price (5 a prospect): until the first outpost is held the techs that spend chips wait for a cache that can pay both. */
 function goodsHopeless(s: GameState, mods: Mods, tid: TechId): boolean {
-  const short = goodsShortfall(techCost(tid, s, mods).goods, s, mods);
-  for (const g of short) {
+  const goods = techCost(tid, s, mods).goods;
+  if ((goods.chips ?? 0) > 0 && s.survey.outposts.length === 0 && s.resources.chips < 5 + (goods.chips ?? 0)) return true;
+  for (const g of goodsShortfall(goods, s, mods)) {
     if (g.have >= g.need * 0.5) continue;
     if ((s.rates[g.res] ?? 0) > 1e-4) continue;
     if (g.res === 'foils' || g.res === 'chips') return true; // the late goods wait for their maker
