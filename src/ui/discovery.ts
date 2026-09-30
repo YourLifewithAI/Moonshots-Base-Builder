@@ -3,7 +3,13 @@
  *  when an era opens (what the era means, what it brings, how the next one
  *  opens). An era explainer pauses the game until Continue; tech cards never
  *  do. One setting turns both off (Esc menu, or the card's own switch) for
- *  players who know the road. The queue is filled by game.publish(). */
+ *  players who know the road. The queue is filled by game.publish().
+ *
+ *  Three of the notification families live here (docs/19 S7, notify.ts):
+ *  research (`#discovery-card`, RESEARCH COMPLETE, top centre), era
+ *  (`#era-banner`, full screen, until Continue) and hazard (`#hazard-card`,
+ *  the first-of-a-kind drill's card and HAZARDS ARE LIVE: it holds the game
+ *  paused unless the menu's "Pause on hazard drills" is off). */
 import { touchOn } from '../core/touch';
 import { BUILDINGS, CATEGORY_LABEL, type BuildingId } from '../data/buildings';
 import {
@@ -22,7 +28,8 @@ import type { Game } from '../core/game';
 import { sfx } from '../audio/sfx';
 import { el } from './hud';
 import { openTechTreeAt } from './techTree';
-import { $announce, $menuOpen, $phase, $time, type Announcement } from './stores';
+import { $announce, $menuOpen, $phase, $time, announceHolds, type Announcement } from './stores';
+import { FAMILY } from './notify';
 import {
   COUNTERS, HAZARDS, HAZARD_NAME, HAZARDS_LIVE, RISK_TEXT, TIER_LABEL, type HazardId, type HazardSide,
 } from '../data/hazards';
@@ -156,7 +163,7 @@ function riskLine(fx: TechEffect[]): string {
 function hazardsLiveHtml(side: HazardSide): string {
   const what = side === 'colony' ? 'colony can fail and people can die' : 'network can fail and machines can be lost';
   return `<div class="eb-panel">` +
-    `<div class="label eb-k">${side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'}</div>` +
+    `<div class="label eb-k"><span class="nf-g" aria-hidden="true">${FAMILY.hazard.glyph}</span> ${side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'}</div>` +
     `<h1 class="eb-name">HAZARDS ARE LIVE</h1>` +
     `<p class="eb-blurb">From Era 3 your ${what}. Every hazard is announced first, names its target and has a counter.</p>` +
     `<p class="eb-line">Open <b>[G]</b> to see the risks now. The first of each kind is a drill that cannot hurt anyone.</p>` +
@@ -169,7 +176,7 @@ function hazardHtml(kind: HazardId): string {
   const counters = [...d.counters.map((c) => `<b>${esc(COUNTERS[c].name)}</b> (${esc(COUNTERS[c].cost)}) — ${esc(COUNTERS[c].desc)}`),
     ...(d.free === 'airGap' ? ['<b>Air-gap</b> (free, in the node’s inspector) — no links: the worm cannot pass'] : [])];
   return `<div class="eb-panel">` +
-    `<div class="label eb-k">${d.side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'} · NEW HAZARD · ${TIER_LABEL[d.minTier]}</div>` +
+    `<div class="label eb-k"><span class="nf-g" aria-hidden="true">${FAMILY.hazard.glyph}</span> ${d.side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'} · NEW HAZARD · ${TIER_LABEL[d.minTier]}</div>` +
     `<h1 class="eb-name">${esc(HAZARD_NAME[kind])}</h1>` +
     `<p class="eb-blurb">${esc(d.ignored[2] === '—' ? d.ignored[1] : d.ignored[2]).replace(/^./, (c) => c.toUpperCase())} when ignored. Its alert names the target, counts down and carries the counter.</p>` +
     counters.map((c) => `<p class="eb-line">${c}</p>`).join('') +
@@ -178,16 +185,21 @@ function hazardHtml(kind: HazardId): string {
 }
 
 export function mountDiscovery(root: HTMLElement, game: Game) {
-  // ── tech cards: top centre, under the swarm meter, one at a time ──
-  const card = el('div', 'panel interactive');
+  // ── research family: tech cards, top centre, under the swarm meter, one at a time ──
+  const card = el('div', 'panel interactive nf nf-research');
   card.id = 'discovery-card';
   card.style.display = 'none';
   root.appendChild(card);
-  // ── era explainer: a centred banner over everything but the menu ──
-  const banner = el('div', 'interactive');
+  // ── era family: the explainer, a centred banner over everything but the menu ──
+  const banner = el('div', 'interactive nf nf-era');
   banner.id = 'era-banner';
   banner.style.display = 'none';
   root.appendChild(banner);
+  // ── hazard family: the drill's card (and HAZARDS ARE LIVE), centred; a scrim only while it holds the pause ──
+  const hazardCard = el('div', 'nf nf-hazard');
+  hazardCard.id = 'hazard-card';
+  hazardCard.style.display = 'none';
+  root.appendChild(hazardCard);
 
   let shownId = -1;
   /** the banner paused the game, and resumes it on Continue */
@@ -210,7 +222,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
     const track = def.track ? `${SIDE_GLYPH[def.track.side]} ${SIDE_LABEL[def.track.side]} · the Era ${def.track.era} destiny` : '';
     const pros = lines.filter((l) => l.sign === 'pro').slice(0, 3);
     const cons = lines.filter((l) => l.sign === 'con').slice(0, 2);
-    return `<div class="dsc-head"><span class="label">Discovered</span>` +
+    return `<div class="dsc-head"><span class="label"><span class="nf-g" aria-hidden="true">${FAMILY.research.glyph}</span> Research complete</span>` +
       `<span class="dsc-meta mono">E${def.era}${lane ? ` · ${esc(lane.label)}` : ''}${track ? ` · ${esc(track)}` : ''}${more ? ` · +${more} more` : ''}</span></div>` +
       `<div class="dsc-name">${esc(def.name)}</div>` +
       `<div class="dsc-desc">${esc(def.desc)}</div>` +
@@ -244,7 +256,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
         `${PURE_AT} on one side make it your destiny · <span class="mono">${destinyPips(dv)}</span></p>`;
     const blurb = era === 8 && dv.certain ? ERA_BLURB_8[dv.certain] : ERA_BLURB[era] ?? '';
     return `<div class="eb-panel">` +
-      `<div class="label eb-k">${intro ? 'Mission start' : 'A new era opens'}</div>` +
+      `<div class="label eb-k"><span class="nf-g" aria-hidden="true">${FAMILY.era.glyph}</span> ${intro ? 'Mission start' : 'A new era opens'}</div>` +
       `<div class="eb-era mono">ERA ${era}</div>` +
       `<h1 class="eb-name">${esc(ERA_NAMES[era] ?? '')}</h1>` +
       `<p class="eb-blurb">${esc(blurb)}</p>` +
@@ -266,6 +278,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
     if (!first || $phase.get() !== 'playing' || !loadSettings().tips) {
       card.style.display = 'none';
       banner.style.display = 'none';
+      hazardCard.style.display = 'none';
       shownId = -1;
       if (q.length && !loadSettings().tips) $announce.set([]);
       return;
@@ -274,19 +287,25 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
     shownId = first.id;
     if (first.kind === 'tech') {
       banner.style.display = 'none';
+      hazardCard.style.display = 'none';
       card.innerHTML = techHtml(first.tid, q.filter((a) => a.kind === 'tech').length - 1);
       card.style.display = '';
     } else {
       card.style.display = 'none';
-      banner.innerHTML = first.kind === 'era' ? eraHtml(first.era, first.intro)
+      // an era opens on the banner; a hazard's drill (or its side going live) on its own card
+      const host = first.kind === 'era' ? banner : hazardCard;
+      (host === banner ? hazardCard : banner).style.display = 'none';
+      host.innerHTML = first.kind === 'era' ? eraHtml(first.era, first.intro)
         : first.kind === 'hazardsLive' ? hazardsLiveHtml(first.side) : hazardHtml(first.hazard);
-      banner.style.display = 'flex';
-      sfx.play('era');
-      if (!$time.get().paused) {
+      const holds = announceHolds(first);
+      hazardCard.classList.toggle('holds', holds);
+      host.style.display = 'flex';
+      sfx.play(host === banner ? 'era' : 'warn');
+      if (holds && !$time.get().paused) {
         game.actions.push({ kind: 'setPaused', paused: true });
         pausedByBanner = true;
       }
-      banner.querySelector<HTMLButtonElement>('[data-dsc="ok"]')?.focus({ preventScroll: true });
+      host.querySelector<HTMLButtonElement>('[data-dsc="ok"]')?.focus({ preventScroll: true });
     }
   };
 
@@ -317,9 +336,10 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
   };
   card.addEventListener('click', onClick);
   banner.addEventListener('click', onClick);
-  // Enter or Esc takes the banner down (the menu's own keys win while it is open)
+  hazardCard.addEventListener('click', onClick);
+  // Enter or Esc takes the banner (or the hazard card) down (the menu's own keys win while it is open)
   window.addEventListener('keydown', (e) => {
-    if (banner.style.display === 'none' || $menuOpen.get()) return;
+    if ((banner.style.display === 'none' && hazardCard.style.display === 'none') || $menuOpen.get()) return;
     if (e.code === 'Enter' || e.code === 'Escape') {
       e.preventDefault();
       e.stopImmediatePropagation();

@@ -31,7 +31,7 @@ import {
 } from '../data/hazards';
 import type { AlertCounter, BuildingState, DeathRecord, GameState, LiveHazard, LossRecord, RoverUnit } from './state';
 import { effectiveDef, unmanned, type Mods } from './mods';
-import { alert, condition, landerAction } from './economy';
+import { alertIn, condition, landerAction } from './economy';
 import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 import { dropSpur } from './roads';
@@ -40,6 +40,9 @@ import { buildCostAt, freezeRules, logAuto, postIncidentAudit, ruleBuilding, run
 import { centerOf } from '../buildings/instances';
 import { nextActiveAt, startFlare } from './spaceWeather';
 import { commsDark } from './flareEffects';
+
+/** every alert here belongs to one notification family (docs/19 S7) */
+const alert = alertIn('hazard');
 
 // ─────────────────────────── helpers ───────────────────────────
 

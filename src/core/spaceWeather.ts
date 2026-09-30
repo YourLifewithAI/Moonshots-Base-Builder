@@ -27,7 +27,7 @@ import {
   defaultFlare, defaultWeather, type BuildingState, type FlareLogEntry, type FlareState, type GameState, type WeatherState,
 } from './state';
 import type { Mods } from './mods';
-import { alert, condition } from './economy';
+import { alertIn, condition } from './economy';
 import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 import { wreckBuilding } from './hazards';
@@ -36,6 +36,9 @@ import {
   drawMachines, effectsTick, effectsView, migrateScars, onActiveStart, onFlareEnd, replaceDone, resolveScars, type EffectsView,
 } from './flareEffects';
 import { applyAhead, firmAtOf, flareDataMult, forecastDusk, forecastTick, type ForecastView } from './forecast';
+
+/** every alert here belongs to one notification family (docs/19 S7) */
+const alert = alertIn('weather');
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;

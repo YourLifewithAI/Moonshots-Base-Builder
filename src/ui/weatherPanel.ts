@@ -16,7 +16,8 @@ import { FLARE_EFFECTS, SPACE_WEATHER } from '../data/spaceWeather';
 const SPACE_WEATHER_ALERT = FLARE_EFFECTS.alertAt;
 import { fmtClock } from '../core/daynight';
 import { el } from './hud';
-import { $hazards, $resourcePanel, $weather, $placing } from './stores';
+import { $hazards, $log, $logOpen, $resourcePanel, $weather, $placing } from './stores';
+import { logEntries, logRowHtml, runAlertAction } from './notify';
 import { counterButton, counterClick } from './hazardsPanel';
 import { capabilityView } from '../core/flareEffects';
 import { SITES } from '../data/sites';
@@ -71,8 +72,8 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
   const togglePanel = () => $resourcePanel.set($resourcePanel.get() === 'weather' ? null : 'weather');
   chip.addEventListener('click', () => { chip.blur(); togglePanel(); });
 
-  // ── the pop-up ──
-  const pop = el('div', 'panel interactive');
+  // ── the pop-up: the weather family's card (docs/19 S7: ☉, an amber rule, M and X pause by the menu's setting) ──
+  const pop = el('div', 'panel interactive nf nf-weather');
   pop.id = 'flare-popup';
   pop.style.display = 'none';
   root.appendChild(pop);
@@ -289,7 +290,15 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
         ${choices.map(([k, t]) => `<button class="btn wx-pc" data-cls="${c}" data-k="${k}">${t}</button>`).join('')}</div>`).join('')}
       <div class="goal-hint">Unset, the pop-up asks, and unanswered the safe default stows all but the critical feed. Set, the next ${'flare'} of that class opens small and does not pause.</div>
       <div class="wx-line"><label><input type="checkbox" class="wx-autorepair"> Repair stowed arrays after each flare</label></div></section>
-    <section><span class="label">Log — the last flares</span><div class="mono wx-log"></div></section>`;
+    <section><span class="label">Log — ☉ weather</span><div class="mono wx-log"></div>
+      <div class="wx-btns"><button class="btn" data-wx="open-log">The whole log</button></div></section>`;
+  /** the panel's LOG is a filtered view of the shared notification log: the weather family, newest first */
+  const refreshLog = () => {
+    const rows = logEntries($log.get(), 'weather').slice(0, 40);
+    setHtml(panel, '.wx-log', rows.length ? rows.map(logRowHtml).join('')
+      : '<div class="goal-hint">No flare yet. The first comes on day 3, a C-class drill.</div>');
+  };
+  $log.subscribe(() => { if (panel.style.display !== 'none') refreshLog(); });
   const refreshPanel = (v: WeatherView) => {
     const tier = v.forecast?.tierName ?? 'T0 · the flash and Earth’s bulletin';
     setText(panel, '.wx-band', `activity ${v.gauge} ${v.band} · ${v.rising ? 'rising' : 'falling'} · ${tier}`);
@@ -322,21 +331,21 @@ export function mountWeatherPanel(root: HTMLElement, game: Game) {
     }
     const ar = panel.querySelector<HTMLInputElement>('.wx-autorepair');
     if (ar) ar.checked = game.state.weather?.autoRepair ?? true;
-    const log = v.log.length ? v.log.map((l) => `<div>${CLASS_GLYPH[l.cls]} ${l.cls}${l.drill ? ' drill' : ''} · day ${Math.floor(l.at / 720) + 1} · ${esc(l.choice)}` +
-      ` (${l.decidedBy}) · stowed ${l.stowed}, ran ${l.running}${l.destroyed ? ` · ${l.destroyed} destroyed` : ''}` +
-      `${l.damaged ? ` · ${l.damaged} damaged (${l.repairParts}⚙)` : ''}${l.scarred ? ` · ${l.scarred} scarred −${(l.scar * 100).toFixed(1)}%` : ''}${l.night ? ' · night' : ''}` +
-      `${l.rebooted || l.latched || l.lost ? ` · machines ${[l.rebooted ? `${l.rebooted} rebooted` : '', l.latched ? `${l.latched} latched` : '', l.lost ? `${l.lost} lost` : ''].filter(Boolean).join(', ')}` : ''}` +
-      `${l.researchLost ? ` · −${l.researchLost}≡ ${esc(l.researchTech ?? '')}` : ''}${l.sick ? ` · ${l.sick} sick` : ''}` +
-      `${l.scarredB ? ` · ${l.scarredB} structures scarred −${((l.scarB ?? 0) * 100).toFixed(2)}%` : ''}${l.scarredM ? ` · ${l.scarredM} machines −${((l.scarM ?? 0) * 100).toFixed(2)}%` : ''}</div>`).join('')
-      : '<div class="goal-hint">No flare yet. The first comes on day 3, a C-class drill.</div>';
-    setHtml(panel, '.wx-log', log);
+    refreshLog();
   };
   panel.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     if (forecastClick(game, t)) return;
+    const row = t.closest<HTMLElement>('.nl-row.actionable');
+    if (row) {
+      const entry = $log.get().find((x) => x.id === Number(row.dataset.log));
+      if (entry?.action) runAlertAction(entry.action);
+      return;
+    }
     const b = t.closest<HTMLElement>('[data-wx]');
     if (b) {
       const a = b.dataset.wx!;
+      if (a === 'open-log') { $logOpen.set(true); return; }
       if (a === 'rebuild-all') game.actions.push({ kind: 'wreck', how: 'rebuild' });
       if (a === 'clear-all') game.actions.push({ kind: 'wreck', how: 'clear' });
       if (a === 'repair-all') game.actions.push({ kind: 'repairArrays' });

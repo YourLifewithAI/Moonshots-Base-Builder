@@ -23,6 +23,7 @@ import type { SurveyCost } from '../core/exploration';
 import type { Action } from '../core/actions';
 import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
+import { echoes } from './notify';
 import { openTechTreeAt } from './techTree';
 import {
   $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $phase, $research, $siteId, $victory, overlayUp,
@@ -1230,7 +1231,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
 
   // ── alert echo (the HUD stack sits under this opaque screen) ──
   function renderAlert() {
-    const a = $alerts.get().filter((x) => !x.quiet).slice(-1)[0];
+    // only its own family (field), plain refusals from this screen, and a critical alert
+    const a = $alerts.get().filter((x) => !x.quiet && echoes('field', x)).slice(-1)[0];
     const sig = a ? String(a.id) : '';
     if (alertEl.dataset.sig === sig) return;
     const fresh = !!a && alertEl.dataset.sig !== undefined && alertEl.dataset.sig !== sig;
@@ -1443,7 +1445,13 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     else if (canOpen()) toggle(true);
   });
   $('#map-close').addEventListener('click', () => toggle(false));
-  window.addEventListener('moonshots:open-map', () => { if (canOpen()) toggle(true); });
+  // an alert's {map: prospect} action opens the map with that prospect's sheet up (ui/notifyUi.ts)
+  window.addEventListener('moonshots:open-map', (e) => {
+    if (!canOpen()) return;
+    const pid = (e as CustomEvent<{ prospect?: ProspectId } | null>).detail?.prospect;
+    if (!isOpen) toggle(true);
+    if (pid) select(pid);
+  });
 
   // capture phase, after the menu's: while the map is open, Esc closes it and
   // goes no further (the game's Esc would open the menu underneath)

@@ -23,6 +23,7 @@ import {
 import type { Game } from '../core/game';
 import type { Action } from '../core/actions';
 import { el, fmt } from './hud';
+import { echoes } from './notify';
 import {
   $alerts, $counts, $defeat, $lunar, $phase, $research, $resources, $siteId, $swarm, $time, $victory, $vitals, overlayUp,
 } from './stores';
@@ -403,7 +404,8 @@ export function mountTechTree(root: HTMLElement, game: Game) {
 
   // the HUD's alert stack sits under this opaque screen, so the newest two are echoed here
   const renderAlerts = () => {
-    const list = $alerts.get().slice(-2).reverse();
+    // only its own family (research), plain refusals from this screen, and a critical alert
+    const list = $alerts.get().filter((a) => echoes('research', a)).slice(-2).reverse();
     const sig = list.map((a) => a.id).join(',');
     if (alertRail.dataset.sig === sig) return;
     const fresh = list.length && String(list[0].id) !== (alertRail.dataset.sig ?? '').split(',')[0];

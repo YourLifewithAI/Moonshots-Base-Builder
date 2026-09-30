@@ -52,8 +52,11 @@ import type { Mods } from './mods';
 import { footprintRect } from '../buildings/instances';
 import { bumpRoads, cellAt, cellCentre, cellKey, doorCell } from './roads';
 import { mulberry32 } from './rng';
-import { alert } from './economy';
+import { alert as rawAlert, alertIn } from './economy';
 import { depositRevealed, networkRadius } from './exploration';
+
+/** deposit surveys are field reports (docs/19 S7) */
+const alert = alertIn('field');
 
 const N = MAP_CELLS + 1;
 /** the heap's volume per m³ of pit: 70% of the mass, stacked loose */
@@ -928,7 +931,11 @@ export function oreSurveyStep(s: GameState, mods: Mods, dt: number) {
         if (!mods.mastSurveyKinds.has(d.kind) || sv.done[d.id] || Math.hypot(d.cx - mx, d.cz - mz) - d.r > r) continue;
         sv.done[d.id] = { at: s.simTime, precision: mods.surveyPrecision };
         sv.jobs = sv.jobs.filter((j) => j.id !== d.id);
-        alert(s, `SURVEYED BY RELAY MAST #${b.id} — ${pitName(s, { key: `dep:${d.id}`, id: 0, deposit: d.id })}: ${surveyLine(s, d.id)}`, 'info', { deposit: d.id });
+        const name = pitName(s, { key: `dep:${d.id}`, id: 0, deposit: d.id });
+        rawAlert(s, `SURVEYED BY RELAY MAST #${b.id} — ${name}: ${surveyLine(s, d.id)}`, 'info', { deposit: d.id }, 'field', {
+          title: `${name} · surveyed by Relay Mast #${b.id}`, geology: surveyLine(s, d.id),
+          rewards: [{ tag: 'DEPOSIT', text: 'ore, grade and faces are on its card', button: { label: 'Open the card', action: { deposit: d.id } } }],
+        });
       }
     }
   }
@@ -945,6 +952,13 @@ export function oreSurveyStep(s: GameState, mods: Mods, dt: number) {
     sv.jobs = sv.jobs.filter((x) => x !== j);
     delete r.core;
     s.data += DEP_SURVEY.data;
-    alert(s, `SURVEYED — ${pitName(s, { key: `dep:${j.id}`, id: 0, deposit: j.id })}: ${surveyLine(s, j.id)} · +${DEP_SURVEY.data}≡`, 'info', { deposit: j.id });
+    const name = pitName(s, { key: `dep:${j.id}`, id: 0, deposit: j.id });
+    rawAlert(s, `SURVEYED — ${name}: ${surveyLine(s, j.id)} · +${DEP_SURVEY.data}≡`, 'info', { deposit: j.id }, 'field', {
+      title: `${name} · surveyed`, geology: surveyLine(s, j.id),
+      rewards: [
+        { tag: 'DATA', text: `+${DEP_SURVEY.data}≡ banked` },
+        { tag: 'DEPOSIT', text: 'ore, grade and faces are on its card', button: { label: 'Open the card', action: { deposit: j.id } } },
+      ],
+    });
   }
 }
