@@ -92,7 +92,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     name: 'The Foundry', short: 'Foundry', glyph: '⚙',
     expedition: 'robotic', landsAtDay: 0,
     sites: ['mare', 'lavatube', 'southpole'],
-    livery: { hull: '#5b6068', trim: '#e8632b', suit: '#d9d4c8' },
+    livery: { hull: '#6f7580', trim: '#e8632b', suit: '#d9d4c8' },
     landingTech: 'landingFoundry',
     ethos: 'Machines first; people optional, later, if ever.',
     briefing: 'Nobody aboard: a lander full of machines that never tire, never eat and never ask to go home. ' +

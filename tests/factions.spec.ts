@@ -78,7 +78,7 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
     ['mare', 'lavatube', 'southpole'], ['southpole', 'mare', 'lavatube'], ['lavatube', 'southpole', 'mare'],
   ]);
   expect(r.rows.map((x: any) => x.livery)).toEqual([
-    { hull: '#5b6068', trim: '#e8632b', suit: '#d9d4c8' },
+    { hull: '#6f7580', trim: '#e8632b', suit: '#d9d4c8' },
     { hull: '#f2f3f5', trim: '#2f5fd0', suit: '#f2f3f5' },
     { hull: '#d9c9a3', trim: '#5f9f3f', suit: '#e8dcb8' },
   ]);
