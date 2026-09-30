@@ -10,7 +10,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function boot(page: Page, extra = '', site = 'mare') {
   await page.setViewportSize({ width: 1366, height: 768 });
@@ -31,8 +31,9 @@ test('deposit labels open a card: what the ground is, its numbers, and an action
   const card = page.locator('#deposit-card');
   await expect(card).toBeVisible();
   await expect(card).toContainText('High-Ti basalt');
-  await expect(card).toContainText(/Smelters: up to \+30% output/);
-  await expect(card).toContainText(/Silicon Refineries: up to −20%/);
+  // the card's lines quote the deposit's ore grade for each hub that would work it (docs/17 §9)
+  await expect(card).toContainText(/Smelters \(hydrogen reduction\): q [\d.]+(–[\d.]+)? at its centre/);
+  await expect(card).toContainText(/Silicon Refineries: q [\d.]+(–[\d.]+)? from it/);
   await expect(card).toContainText(/inside your build network/);
   // a second click on the same label closes it; Esc closes it too
   await mark.click();
@@ -52,7 +53,7 @@ test('deposit labels open a card: what the ground is, its numbers, and an action
   }
   await lead.click();
   await expect(card).toContainText(/Unconfirmed lead/);
-  await expect(card).toContainText(/T1 Prospecting Rovers maps 320 m/);
+  await expect(card).toContainText(/T1 Prospecting Drones maps 320 m/);
   await expect(card.locator('[data-dact="tree"]')).toBeVisible();
 
   // the action: focus the ground and start placing what uses it
@@ -62,7 +63,7 @@ test('deposit labels open a card: what the ground is, its numbers, and an action
   await expect.poll(async () => (await page.evaluate(() => {
     const el = document.querySelector('#place-hint');
     return el && getComputedStyle(el).display !== 'none' ? el.textContent ?? '' : '';
-  }))).toMatch(/REGOLITH EXCAVATOR/);
+  }))).toMatch(/REGOLITH SMELTER/);
 });
 
 test('the Lunar Map SITE view: a deposit click fills the side panel; Show in the world', async ({ page }) => {
@@ -96,9 +97,10 @@ test('discoveries: a finished tech pops a card with its gains and next step', as
   await g(page, 'completeTech', 'regolithProcessing');
   const card = page.locator('#discovery-card');
   await expect(card).toBeVisible();
-  await expect(card).toContainText('Regolith Smelting');
-  await expect(card).toContainText('UNLOCK Regolith Smelter');
-  await expect(card).toContainText('Build it: Industry tab → Regolith Smelter.');
+  // the first tech is Pit Mapping now (the smelter itself is known from landing): its gain and its next step
+  await expect(card).toContainText('Pit Mapping');
+  await expect(card).toContainText('+30% speed off-road, in pits and deposits');
+  await expect(card).toContainText('Your units cross pits and ramps faster');
   expect((await g(page, 'getState')).paused).toBe(false); // cards never pause
   await card.locator('[data-dsc="ok"]').click();
   await expect(card).toBeHidden();
