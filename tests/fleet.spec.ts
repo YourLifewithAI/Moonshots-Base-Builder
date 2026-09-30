@@ -10,7 +10,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 const RATE_EXP = 0.85;
 
 async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'human', style = '') {

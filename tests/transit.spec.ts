@@ -12,7 +12,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 /** data/roads.ts ROVER, core/fleet.ts DRONE */
 const V = 4.5, A = 3, DRONE_V = 6, DRONE_A = 3;
 /** a rest-to-rest move (core/transit.ts travelTime) */

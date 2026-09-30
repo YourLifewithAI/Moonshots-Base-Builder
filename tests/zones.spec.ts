@@ -10,7 +10,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 /** tolerance on "bodies never overlap", m */
 const TOL = 0.05;
 /** data/balance.ts HAUL.speed, data/roads.ts ROAD.offroad */
