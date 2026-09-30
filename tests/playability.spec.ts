@@ -178,7 +178,8 @@ test('audio: cues follow the state; the hum sags as the bank runs dry', async ({
   await expect.poll(async () => (await g(page, 'getAudio')).state).toBe('running');
   await expect.poll(async () => (await g(page, 'getAudio')).hum?.margin ?? -9).toBeGreaterThan(0);
   const before = (await g(page, 'getAudio')).played;
-  // (the smelter is known from landing and comes with its excavator: nothing to research)
+  await g(page, 'completeTech', 'regolithProcessing'); // Pit Mapping: a finished tech sounds the research cue
+  // (the smelter is known from landing and comes with its excavator)
   for (const [t, x, z] of [['solar', 132, 126], ['lab', 135, 133], ['smelter', 120, 132]] as const) {
     expect(await g(page, 'placeBuilding', t, x, z)).toBe(true);
   }
@@ -267,7 +268,8 @@ test('placement: Shift-click keeps placing; a plain click places once; the price
   const solars = async () => (await g(page, 'getState')).buildings.filter((b: any) => b.type === 'solar').length;
   const hint = page.locator('#place-hint');
   await page.locator('.bld-btn', { hasText: 'Solar Array' }).click();
-  const pads = [await padAt(page, 132, 126), await padAt(page, 132, 130), await padAt(page, 120, 126)];
+  // (three pads clear of every deposit's pit way: a spot in one carries a warning the first click asks about)
+  const pads = [await padAt(page, 132, 126), await padAt(page, 136, 126), await padAt(page, 120, 126)];
   const metals = Math.floor((await g(page, 'getState')).resources.metals);
 
   await page.mouse.move(pads[0].x, pads[0].y);
@@ -316,7 +318,7 @@ test('placement: a click on a blocked spot flashes the hint and blips', async ({
 test('locked palette card opens the tree on the tech that unlocks it', async ({ page }) => {
   await boot(page);
   // the smelter is no longer research-gated: it is known from landing, its card is open
-  await page.locator('#palette .cats .btn', { hasText: 'Industry' }).click();
+  await page.locator('#palette .cats .btn', { hasText: 'Extraction' }).click();
   await expect(page.locator('.bld-btn.locked', { hasText: 'Regolith Smelter' })).toHaveCount(0);
   await expect(page.locator('.bld-btn', { hasText: 'Regolith Smelter' })).toBeVisible();
   await page.locator('#palette .cats .btn', { hasText: 'Power' }).click();
