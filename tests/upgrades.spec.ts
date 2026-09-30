@@ -9,7 +9,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human', extra = '') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
@@ -74,9 +74,8 @@ test('budget: every upgrade part stays under 600 triangles, every fully upgraded
   expect(empty).toEqual([]); // every upgrade adds something you can see
 });
 
-for (const style of ['cel']) test(`${style}: a tech with a visual grows its part on every building of the type, once, and a save restores it`, async ({ page }) => {
-  await start(page, 'mare', 'human', `&style=${style}`);
-  expect((await page.evaluate(() => window.__game.getRenderInfo())).style).toBe(style);
+test('a tech with a visual grows its part on every building of the type, once, and a save restores it', async ({ page }) => {
+  await start(page, 'mare', 'human');
   const spots = (type: string, n: number) => page.evaluate(([type, n]) => {
     const g = window.__game!;
     let placed = 0;
@@ -137,7 +136,7 @@ for (const style of ['cel']) test(`${style}: a tech with a visual grows its part
 
   // save, reload, continue: the same key, the same geometry size, the same dishes
   await page.evaluate(() => window.__game.save());
-  await page.goto(`${URL_DEBUG}&style=${style}`);
+  await page.goto(URL_DEBUG);
   await expect(page.locator('#btn-continue')).toBeVisible();
   await page.locator('#btn-continue').click();
   await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 2);
@@ -276,8 +275,8 @@ test('destiny: every pick and capstone grows a part on each type its visual name
   }
 });
 
-for (const style of ['cel']) test(`${style}: a pick grows its part on the buildings it names, and the ghost follows`, async ({ page }) => {
-  await start(page, 'mare', 'robotic', `&style=${style}`);
+test('a pick grows its part on the buildings it names, and the ghost follows', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.openRoads(true);
