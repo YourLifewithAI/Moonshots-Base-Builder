@@ -1074,7 +1074,7 @@ export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell, opt
     const cells = path.filter((k) => !isOpen(map.get(k)));
     const fresh = cells.filter((k) => !map.has(k));
     const route = from >= 0 ? [from, ...path] : path.length ? path : [found.end];
-    const ex = haulExtras(s, hf, route, zone, blocked, opts.ring ?? null, new Set(fresh));
+    const ex = haulExtras(s, hf, route, zone, blocked, opts.ring ?? null, new Set(fresh), opts.hub);
     return {
       cells: [...cells, ...(ex.hold >= 0 ? [ex.hold] : []), ...ex.pass],
       fresh: [...fresh, ...(ex.hold >= 0 ? [ex.hold] : []), ...ex.pass],
@@ -1125,7 +1125,7 @@ export function planPath(s: GameState, hf: Heights, a: Cell, via: readonly Cell[
  *  approach; the tail of new cells inside the pit's full-size ring, which the
  *  pit consumes. Bays are plain open cells beside the road, never `bay`. */
 function haulExtras(
-  s: GameState, hf: Heights, route: number[], zone: ZoneState, blocked: Set<number>, ring: Ring | null, fresh: Set<number>,
+  s: GameState, hf: Heights, route: number[], zone: ZoneState, blocked: Set<number>, ring: Ring | null, fresh: Set<number>, self?: Placed,
 ): { hold: number; pass: number[]; sacrificial: number[] } {
   const map = roadMap(s);
   const onRoute = new Set(route);
@@ -1208,13 +1208,35 @@ function haulExtras(
       if (place(i + o)) { gap = Math.max(0, -o); break; }
     }
   }
-  // the new cells inside the pit's full-size ring: the pit eats them, the gate steps back
+  // the tail of the route inside the pit's full-size ring (and the pit's road setback past it): the pit
+  // eats it and the gate steps back. New cells, and cells laid before that are a dead end leading only here
+  // (the hub's own spur along the ring): never a door, a branch, or another site's road still to sinter.
   const sacrificial: number[] = [];
   if (ring) {
     const reach = ring.r + (PIT.roadRings + 1) * CELL_M;
     const inside = (k: number) => { const [x, z] = cellCentre(...keyCell(k)); return Math.hypot(x - ring.x, z - ring.z) < reach; };
-    for (let i = n - 1; i >= 0 && fresh.has(route[i]) && inside(route[i]); i--) sacrificial.push(route[i]);
-    for (const k of [...(hold >= 0 ? [hold] : []), ...pass]) if (inside(k)) sacrificial.push(k);
+    const doors = doorKeys(s);
+    const others = new Set<number>();
+    for (const b of s.buildings) {
+      if (self && b.type === self.type && b.gx === self.gx && b.gz === self.gz && b.rot === self.rot) continue;
+      for (const k of b.spur ?? []) others.add(k);
+    }
+    const extras = new Set<number>([...(hold >= 0 ? [hold] : []), ...pass]);
+    const deadEnd = (i: number) => {
+      const [x, z] = keyCell(route[i]);
+      return N4.every(([dx, dz]) => {
+        const q = cellKey(x + dx, z + dz);
+        if (q === route[i - 1] || q === route[i + 1] || extras.has(q)) return true;
+        const c = map.get(q);
+        return !c || !!c.pass || !!c.hold;
+      });
+    };
+    for (let i = n - 1; i >= 0 && inside(route[i]); i--) {
+      const k = route[i], c = map.get(k);
+      if (!fresh.has(k) && (!c || c.closed || c.bay || doors.has(k) || others.has(k) || !deadEnd(i))) break;
+      sacrificial.push(k);
+    }
+    for (const k of extras) if (inside(k)) sacrificial.push(k);
   }
   return { hold, pass, sacrificial };
 }
@@ -1234,8 +1256,10 @@ export function layPlan(s: GameState, plan: LinkPlan, open = false) {
     if (sac.has(k)) c.sacrificial = true;
     s.roads!.push(c);
   }
+  const map = roadMap(s);
+  for (const k of sac) { const c = map.get(k); if (c && !c.bay && !c.closed) c.sacrificial = true; }
   if (plan.gate) {
-    const c = roadMap(s).get(plan.gate.key);
+    const c = map.get(plan.gate.key);
     if (c && throughCell(c)) c.gate = plan.gate.zone;
   }
   bumpRoads(s);

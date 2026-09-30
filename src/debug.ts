@@ -16,9 +16,9 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, cellAt, doorCell, gatesOf, holdOf, mastStand, openAll, planLink, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
-import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { choicesFor, haulEnd, haulOpts, heightsOf, hubOf, plainPitRefusal, targetOf, unitsOf } from './core/hubs';
 import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
 import { $deposits, $hubCard, $hubLight } from './ui/stores';
 import { SITES } from './data/sites';
@@ -538,6 +538,26 @@ function api(game: Game) {
     /** a counter, as its button pushes it */
     counter: (counter: CounterId, id?: number) => game.actions.push({ kind: 'counter', counter, id }),
     airGap: (id: number, on = true) => game.actions.push({ kind: 'airGap', id, on }),
+    /** the haul road a hub would plan to a target now (docs/19 S3): its whole route from the door, the
+     *  gate, the holding bay, the passing bays and the sacrificial cells (cell [gx, gz] lists) */
+    planHaul: (hub: number, key: string) => {
+      const s = game.state, hf = heightsOf(s);
+      const b = s.buildings.find((x) => x.id === hub), t = targetOf(s, key);
+      if (!b || !t || !hf) return null;
+      const end = haulEnd(s, t);
+      const plan = planLink(s, hf, null, cellAt(end[0], end[1]), haulOpts(s, b, t));
+      const xy = (k: number): [number, number] => [k % 256, Math.floor(k / 256)];
+      return {
+        reason: plan.reason, end, route: (plan.route ?? []).map(xy), gate: plan.gate ? { cell: xy(plan.gate.key), zone: plan.gate.zone } : null,
+        hold: plan.hold !== undefined ? xy(plan.hold) : null, pass: (plan.pass ?? []).map(xy), sacrificial: (plan.sacrificial ?? []).map(xy),
+        cells: plan.cells.map(xy), fresh: plan.fresh.map(xy),
+      };
+    },
+    /** the holding bay of a zone's gate, [gx, gz] (or null) */
+    holdOf: (zone: string, gate: [number, number]) => {
+      const z = game.state.zones?.find((q) => q.id === zone);
+      return z ? holdOf(game.state, z, gate) : null;
+    },
     /** the road tool's actions: a road from an open road cell to a cell; remove cells */
     layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
     removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),
