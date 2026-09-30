@@ -299,9 +299,6 @@ function api(game: Game) {
     /** Raise a notification in a family (ui/notify.ts): a stack line, a log line and, for a field
      *  card with a `report`, the dispatch card. The state is published at once. */
     notify: (family: NotifyFamily, card: NotifyCard) => { notify(game.state, family, card); game.publish(); },
-    /** Record an event on the Moon's feed (core/moon.ts): the UI's handlers (ui/racePanel.ts) get it at the next Moon second
-     *  (`advanceGameSeconds(1)`), as they would one the rival runner pushed. Returns the event. */
-    feedPush: (e: { faction: FactionId; kind: FeedKind; text: string; era?: number; n?: number }) => clone(pushFeed(game.moon, e)),
     /** the Moon's feed so far (clone, newest last) */
     getFeed: () => clone(game.moon?.feed ?? []),
     /** set a faction's line of the race (`moon.race[faction]`: launches, swarmPct, firstLaunchAt, era) and publish, so a spec can stage
