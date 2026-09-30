@@ -18,9 +18,12 @@ import {
 } from '../data/balance';
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
 import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, waterReclaimFactor, type Mods } from './mods';
-import { alert, crewReserve, moraleWorkMult } from './economy';
+import { alert as rawAlert, alertIn, crewReserve, moraleWorkMult } from './economy';
 import { KIND_LABEL, baseStream, outpostSlots, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
+
+/** research's alerts belong to the research family; an era opening to the era family (docs/19 S7) */
+const alert = alertIn('research');
 
 export type TechState =
   | 'hidden' | 'done' | 'queued' | 'stalled' | 'foreclosed'
@@ -540,7 +543,7 @@ function completeTech(s: GameState, tid: TechId, cost: TechCost) {
   s.researchQueue = s.researchQueue.filter((t) => t !== tid);
   delete s.researchSpent[tid];
   if (!s.techsDone.includes(tid)) s.techsDone.push(tid);
-  alert(s, `RESEARCH COMPLETE — ${nameOf(tid)}`, 'info');
+  alert(s, `RESEARCH COMPLETE — ${nameOf(tid)}`, 'info', { tech: tid });
   onTechComplete(s, tid);
 }
 
@@ -622,7 +625,7 @@ export function insightTick(s: GameState): TechId[] {
     const d = Math.min(INSIGHT_MAX, ins.discount);
     if ((s.insights[ins.tech] ?? 0) >= d || !ins.check(s)) continue;
     s.insights[ins.tech] = d;
-    alert(s, `INSIGHT — ${def.name} ${Math.round(d * 100)}% cheaper: ${ins.lesson}`, 'info');
+    alert(s, `INSIGHT — ${def.name} ${Math.round(d * 100)}% cheaper: ${ins.lesson}`, 'info', { tech: ins.tech });
     fired.push(ins.tech);
   }
   return fired;
@@ -763,7 +766,7 @@ export function eraTick(s: GameState): Era[] {
     s.era += 1;
     const g = gateProgress(s, s.era as Era);
     const via = g.via === 'deed' ? `${g.techs} techs + ${g.deed}` : `${g.techs} techs`;
-    alert(s, `ERA ${s.era} OPENS — ${ERA_NAMES[s.era]} · via ${via}`, 'info');
+    rawAlert(s, `ERA ${s.era} OPENS — ${ERA_NAMES[s.era]} · via ${via}`, 'info', undefined, 'era');
     opened.push(s.era as Era);
   }
   return opened;

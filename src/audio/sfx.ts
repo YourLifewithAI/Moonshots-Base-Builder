@@ -20,16 +20,16 @@
 
 export type Cue =
   | 'tick' | 'place' | 'invalid' | 'built' | 'research' | 'warn' | 'crit' | 'nightfall' | 'launch' | 'era'
-  | 'modem' | 'squelch';
+  | 'modem' | 'squelch' | 'chirp' | 'flare';
 
 export const CUES: readonly Cue[] = ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'era',
-  'modem', 'squelch'];
+  'modem', 'squelch', 'chirp', 'flare'];
 
 /** real-time floor between two plays of one cue, so 10× speed never spams */
 const MIN_GAP_MS: Record<Cue, number> = {
   tick: 45, place: 70, invalid: 160, built: 1200, research: 1500,
   warn: 3500, crit: 5000, nightfall: 20_000, launch: 2000, era: 4000,
-  modem: 900, squelch: 2500,
+  modem: 900, squelch: 2500, chirp: 700, flare: 4000,
 };
 
 /** What lives near the listener (docs/14 §4.6), 0..1 each: the drones'
@@ -446,6 +446,17 @@ class Sfx {
         this.tone('sine', 2100, t + 0.2, 0.05, 0.02, m, 1400, 0.002);
         break;
       }
+      case 'chirp':
+        // a field report arrives (docs/19 S7): two quick rising pings, high and small
+        this.tone('triangle', 1568, t, 0.09, 0.09, m, 2093, 0.004);
+        this.tone('triangle', 2093, t + 0.1, 0.11, 0.08, m, 2637, 0.004);
+        break;
+      case 'flare':
+        // the sun's warning (docs/19 S7): a swelling wash of solar noise under two falling pings
+        this.hiss(t, 0.9, 0.11, 'lowpass', 500, 0.7, m, 1600, 0.3);
+        this.tone('sine', 880, t + 0.05, 0.5, 0.1, m, 660, 0.01);
+        this.tone('sine', 660, t + 0.36, 0.6, 0.1, m, 495, 0.01);
+        break;
       case 'squelch': {
         // a suit radio keying up: a burst of hiss through the radio band, a click
         this.hiss(t, 0.16, 0.05, 'bandpass', 2200, 0.7, radio, 1500, 0.004);

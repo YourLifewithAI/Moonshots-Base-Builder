@@ -35,17 +35,18 @@ import type { BuildingState, GameState, HaulState, Hauler, HubJob, HubState, Pit
 import { effectiveDef, effectiveRates, refineryFeed, smelterFeed, waterFeed, type EffectiveRates, type Mods } from './mods';
 import {
   bumpRoads, cellAt, cellCentre, cellKey, doorCell, frontDir, gatesOf, groundWay, hasRoads, isOpen, jobOpen, keyCell,
-  layJob, planLink, roadMap, type Heights, type OffArea,
+  layJob, planLink, roadMap, type Heights, type LinkOpts, type OffArea, type Ring,
 } from './roads';
 import {
-  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pitRefusal, pushFill, releasePit, reservesOf, targetGrade, terrainOf,
+  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pitRefusal, pushFill, releasePit, reservesOf, ringOf, targetGrade, terrainOf,
 } from './pits';
 import { GRADE } from '../data/ore';
 import { groundOf, plainQ, processOf } from './ore';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { HAUL } from '../data/balance';
 import { zoneAt, zoneOfCell } from './zones';
-import { creditFeed, drive, legLen, stopShort } from './haul';
+import { creditFeed, legLen, stopShort } from './haul';
+import { go, holdSpot, trafficPlan, yieldAside, type Ramp } from './traffic';
 import { centerOf, footprintRect } from '../buildings/instances';
 import { inside, worldRect } from './paths';
 import { groundMapped, landerXZ } from './exploration';
@@ -172,13 +173,19 @@ export function targetOf(s: GameState, key: string | null | undefined): Target |
 /** The pit a target is dug into, once cut (null: not yet). */
 export const pitAt = (s: GameState, t: Pick<Target, 'key'>): PitState | null => pitOf(s, t.key);
 
+/** m between two faces of one pit at least (a unit is 3.8 m across) */
+const FACE_GAP_M = 3.6;
+
 /** Face `i`'s point (world m). Once its pit is cut: on the pit's floor by
  *  the wall, spread round the far side from its ramp (1:2 walls: the floor
  *  is R − 2L across). Before: evenly round the target from a seeded angle. */
 export function facePoint(s: GameState, t: Target, i: number): Pt {
   const p = pitAt(s, t);
   if (p) {
-    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
+    let rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
+    // (docs/19 S4a) faces sit far enough apart for the bodies of the units that dig them (a deep cone's
+    // floor is a few metres across: its faces spread onto the wall's foot rather than pile up in the middle)
+    if (t.faces > 1) rf = Math.min(Math.max(rf, FACE_GAP_M / 2 / Math.sin(Math.PI * 0.6 / (t.faces - 1))), 0.8 * p.R);
     const back = Math.atan2(-p.uz, -p.ux);
     const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * Math.PI * 1.2 : 0);
     return [p.cx + Math.cos(a) * rf, p.cz + Math.sin(a) * rf];
@@ -455,8 +462,37 @@ function reachRefusal(s: GameState, mods: Mods, b: BuildingState, t: Target, sen
   return '';
 }
 
+/** Where a haul road to a target aims (docs/19 S3): its pit's ramp top once cut, else the zone's
+ *  centre. The road stops at a gate on the zone's rim, on the hub's side of it, and the pit's ramp
+ *  will face that gate; the drive on from the gate is short whichever face it is. */
+export function haulEnd(s: GameState, t: Target): Pt {
+  const via = wayIn(s, t).via[0];
+  if (via) return via;
+  const [gx, gz] = cellAt(t.cx, t.cz);
+  return !t.zone || zoneOfCell(s, gx, gz)?.id === t.zone.id ? [t.cx, t.cz] : facePoint(s, t, 0);
+}
+
+/** What a hub's haul road to `t` is planned with (core/roads.ts planLink): from the hub's door,
+ *  keeping out of the other wanted pits' full-size rings, the tail of it inside its own ring
+ *  sacrificial. */
+export function haulOpts(s: GameState, hub: Pick<BuildingState, 'type' | 'gx' | 'gz' | 'rot'>, t: Target): LinkOpts {
+  const site = SITES[s.siteId];
+  const wanted = new Set<DepositKind>();
+  for (const def of Object.values(HUB_DEFS)) for (const k of def!.wants(site)) wanted.add(k);
+  const rings: Ring[] = [];
+  for (const z of s.zones ?? []) {
+    if (z.kind === 'pit') continue;
+    const key = z.kind === 'plain' ? z.id : depKey(z.id);
+    if (key === t.key || (z.kind !== 'plain' && !wanted.has(z.kind))) continue;
+    const r = ringOf(s, key);
+    if (r) rings.push(r);
+  }
+  return { hub, rings, ring: ringOf(s, t.key) };
+}
+
 /** Lay the haul road to a target no road reaches yet (a free-rover job, once;
- *  a refused one is asked again a minute later). */
+ *  a refused one is asked again a minute later): planned from the hub's door,
+ *  merging into the network, to a gate on the hub's side of the target. */
 function askRoad(s: GameState, b: BuildingState, t: Target): string {
   const hf = heightsOf(s);
   const asks = (b.hub!.roads ??= {});
@@ -465,10 +501,10 @@ function askRoad(s: GameState, b: BuildingState, t: Target): string {
   if (a && a.job > 0) return '';
   if (a && s.simTime - a.at < 60) return a.why ?? '';
   if (!hf) return 'no heights';
-  const face = wayIn(s, t).via[0] ?? facePoint(s, t, 0);
-  const plan = planLink(s, hf, null, cellAt(face[0], face[1]));
+  const end = haulEnd(s, t);
+  const plan = planLink(s, hf, null, cellAt(end[0], end[1]), haulOpts(s, b, t));
   if (plan.reason) { asks[t.key] = { job: 0, at: s.simTime, why: `NO HAUL ROAD — ${plan.reason}` }; return asks[t.key].why!; }
-  const job = plan.cells.length ? layJob(s, plan, 'haul', b.id) : 0;
+  const job = layJob(s, plan, 'haul', b.id);
   asks[t.key] = { job, at: s.simTime };
   return '';
 }
@@ -789,6 +825,11 @@ function goDig(s: GameState, mods: Mods, u: Hauler, t: Target, face: number) {
       const d = Math.hypot(c[0] - h.x, c[1] - h.z);
       if (d < bd - 1e-9) { bd = d; gate = c; }
     }
+    // it waits in a holding bay beside the gate if there is one (docs/19 S4a), never on the
+    // gate itself, where the loaded unit coming back would meet it head on
+    const zones = [t.zone?.id, pitAt(s, t) ? `pit-${pitAt(s, t)!.id}` : undefined].filter((x): x is string => !!x);
+    const bay = gates.length ? holdSpot(s, u, zones, gates) : null;
+    if (bay) gate = bay;
     h.wait = 'gate';
     h.phase = 'toDig';
     h.t = 0;
@@ -882,6 +923,9 @@ export function unitTick(
   const out: UnitTickOut = { tipped: 0, credited: {}, flow: {}, dugS: 0, kind: h.kind };
   const hub = b.hub!;
   const v = unitSpeed(mods, u.type, night);
+  // held up in traffic only while it drives; a unit standing where a higher-priority one must pass gives way
+  if (h.phase !== 'toDig' && h.phase !== 'toBay' && h.phase !== 'toDrop') delete h.held;
+  yieldAside(s, u);
   // its rates on the ground it digs now (re-read if it changes target this tick)
   let rk = '', r: EffectiveRates = null!, spec: UnitSpec = null!;
   const at = (key: string | null) => {
@@ -919,7 +963,7 @@ export function unitTick(
         else if (h.phase === 'toDrop') setLeg(h, unitLeg(s, mods, u, standPoint(b), b));
         if (h.noRoad) break;
       }
-      t = drive(h, v, t);
+      t = go(s, u, v, t);
       if (h.path.length) continue;
       if (h.phase === 'toBay') { h.phase = 'park'; h.t = 0; continue; }
       if (h.phase === 'toDrop') { h.phase = 'unload'; h.t = 0; continue; }
@@ -1056,6 +1100,24 @@ function pickTarget(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Build
   }
   return chooseFor(s, mods, site, u, b);
 }
+
+// ───────────────────────────── traffic (core/traffic.ts) ─────────────────────────────
+
+/** Each cut pit's ramp as the units drive it: top on the rim, foot on the floor (one unit at a time). */
+export function rampsOf(s: GameState): Ramp[] {
+  const out: Ramp[] = [];
+  for (const p of s.pits ?? []) {
+    if (p.state === 'reclaimed' || p.state === 'new') continue;
+    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p));
+    const a: Pt = [p.ox + p.ux * p.A, p.oz + p.uz * p.A], b: Pt = [p.cx + p.ux * rf, p.cz + p.uz * rf];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 3) continue;
+    out.push({ pit: p.id, a, b });
+  }
+  return out;
+}
+
+/** Economy step 0: every unit's reservations planned, in priority order, before any moves. */
+export function planTraffic(s: GameState) { trafficPlan(s, rampsOf(s)); }
 
 // ───────────────────────────── the hub step (economy step 4.1) ─────────────────────────────
 

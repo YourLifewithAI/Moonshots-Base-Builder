@@ -41,12 +41,12 @@ import type { BuildingState, GameState, PitState } from './state';
 import { effectiveDef, smelterFeed, type Mods } from './mods';
 import {
   PIT_WALL_M, choicesFor, depKey, facePoint, facesUsed, groundQ, heightsOf, hubHunger, hubUnit, plainKey,
-  proposePlainPit, standPoint, targetOf, unitName, unitRates, unitSpec, unitSpeed, unitsOf, wayIn,
+  haulEnd, haulOpts, proposePlainPit, standPoint, targetOf, unitName, unitRates, unitSpec, unitSpeed, unitsOf, wayIn,
   type Target, type TripEst,
 } from './hubs';
 import { pitOf, looseLayer, faceCapacity, reservesOf as oreReserves, targetGrade } from './pits';
 import { CYCLE_S } from '../data/balance';
-import { cellCentre, cellKey, doorCell, hasRoads, joinCell, keyCell, planSpur, roadDistances, type SpurPlan } from './roads';
+import { cellAt, cellCentre, cellKey, doorCell, hasRoads, joinCell, keyCell, planLink, planSpur, roadDistances, type SpurPlan } from './roads';
 import { pitRadius } from '../terrain/pitCarve';
 import { footprintRect } from '../buildings/instances';
 import { fmtClock } from './daynight';
@@ -398,6 +398,9 @@ export interface GhostBlock {
   /** the plain pit it would stake (world m), or null */
   stake: Pt | null;
   light: HubLight | null;
+  /** the haul road its units would take on from the network, planned from its door to the gate of the
+   *  pit they would dig (cell keys, in order; the spur's are the placement's own): drawn dashed (docs/19 S3) */
+  road?: number[];
 }
 
 /** Would a hub placed here stake a plain pit? As Game.hubPlaced decides it:
@@ -430,7 +433,7 @@ function stakeFor(s: GameState, mods: Mods, site: SiteDef, stub: BuildingState, 
   }
 }
 
-const NO_BLOCK: GhostBlock = { headline: '', lines: [], warn: '', stake: null, light: null };
+const NO_BLOCK: GhostBlock = { headline: '', lines: [], warn: '', stake: null, light: null, road: [] };
 let blockMemo: { key: string; out: GhostBlock } = { key: '', out: NO_BLOCK };
 
 /** The HUB block under a hub ghost's headline (§5.2). Memoised on the spot,
@@ -444,6 +447,39 @@ export function ghostBlock(s: GameState, mods: Mods, site: SiteDef, g: { type: B
   const out = buildBlock(s, mods, site, g);
   blockMemo = { key, out };
   return out;
+}
+
+/** The haul road a hub placed here would plan to the target its units would dig (docs/19 S3): the
+ *  ghost stands up with its spur (the way stakeFor does), the road is planned from its door, and both
+ *  are taken away again. The cells beyond the spur's: the trunk on from the network, its gate,
+ *  holding bay and passing bays. Empty: none needed, or none possible. */
+function ghostRoad(s: GameState, stub: BuildingState, spur: SpurPlan | null, target: Target | null, stake: Pt | null): number[] {
+  const hf = heightsOf(s);
+  if (!hf || !spur || spur.reason || !hasRoads(s) || !target) return [];
+  const bs = s.buildings, rs = s.roads, zs = s.zones;
+  try {
+    s.buildings = [...bs, stub];
+    if (rs) {
+      const add = [...spur.fresh.map((k) => ({ k, bay: false })), ...spur.bays.map((k) => ({ k, bay: true }))];
+      if (add.length) s.roads = [...rs, ...add.map(({ k, bay }) => { const [gx, gz] = keyCell(k); return { gx, gz, left: ROAD.cellS, ...(bay ? { bay: true } : {}) }; })];
+    }
+    let t = target;
+    // the plain pit it would stake has no zone yet: a trial one, as the proposal makes
+    if (t.key === 'stake' && stake) {
+      const zone = { id: 'plain:?', kind: 'plain' as const, cx: stake[0], cz: stake[1], r: HUB.plainR };
+      s.zones = [...(zs ?? []), zone];
+      t = { ...t, zone };
+    }
+    const end = haulEnd(s, t);
+    const plan = planLink(s, hf, null, cellAt(end[0], end[1]), haulOpts(s, stub, t));
+    if (plan.reason) return [];
+    const own = new Set([...spur.cells, ...spur.bays]);
+    return plan.cells.filter((k) => !own.has(k));
+  } finally {
+    s.buildings = bs;
+    s.roads = rs;
+    s.zones = zs;
+  }
 }
 
 function buildBlock(s: GameState, mods: Mods, site: SiteDef, g: { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }): GhostBlock {
@@ -525,7 +561,9 @@ function buildBlock(s: GameState, mods: Mods, site: SiteDef, g: { type: Building
       ? `NO ICE IN REACH — the nearest mapped cold trap is ${etaText(ice)} away (reach ${fmtClock(HUB.reachS)}); map further or build nearer`
       : 'NO ICE IN REACH — no cold trap is mapped yet; map further (Prospecting Rovers, a Relay Mast) or build nearer';
   }
-  return { headline, lines, warn, stake, light };
+  const goal = best ?? light.entries.find((e) => e.tier === 'lit' && e.inReach && e.state !== 'exhausted') ?? null;
+  const road = goal ? ghostRoad(s, stub, spur, goal.state === 'stake' ? { key: 'stake', kind: undefined, name: 'plain pit', cx: goal.cx, cz: goal.cz, r: HUB.plainR, zone: null, faces: 1, plain: true } : targetOf(s, goal.key), stake) : [];
+  return { headline, lines, warn, stake, light, road };
 }
 
 /** The ghost's HUB line ('' for a type that is not a hub): the block's headline. */

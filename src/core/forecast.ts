@@ -26,13 +26,16 @@ import { CLASS_RANK, PORTIONS, SPACE_WEATHER as W, worse, type ArrayChoice, type
 import type { SiteDef } from '../data/sites';
 import { defaultWeather, type BuildingState, type GameState, type WeatherState } from './state';
 import type { Mods } from './mods';
-import { alert } from './economy';
+import { alertIn } from './economy';
 import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 import {
   activity, bandOf, builderDecides, choiceText, cycleOf, drawClass, feedMargin, flareSeconds, criticalKW, previewChoice,
   rangeOf, stanceChoice, telegraphOf, type ChoicePreview, type ClassCtx, type WeatherResult, type WeatherView,
 } from './spaceWeather';
+
+/** every alert here belongs to one notification family (docs/19 S7) */
+const alert = alertIn('weather');
 
 const OK: WeatherResult = { ok: true, reason: '' };
 const no = (reason: string): WeatherResult => ({ ok: false, reason });

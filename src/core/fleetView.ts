@@ -77,7 +77,8 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
   // on its way (core/transit.ts): where to, and when it gets there
   const t = r.trip;
   const going = !!t && !t.stuck && !arrived(t) && !t.local;
-  const left = going ? ` · ${fmtClock(Math.ceil(tripLeft(t)))}` : '';
+  // (held up by a digger's reservation, core/traffic.ts: its ETA stretches)
+  const left = going ? ` · ${fmtClock(Math.ceil(tripLeft(t)))}${(t!.held ?? 0) >= 2 ? ' · held up by a digger' : ''}` : '';
   if (!site && r.road !== undefined) {
     const j = s.roadJobs?.find((x) => x.id === r.road);
     const by = j?.by !== undefined ? s.buildings.find((b) => b.id === j.by) : undefined;

@@ -458,8 +458,8 @@ export interface RoverTrip {
   local?: boolean;
   /** no road there: it waits where it is and asks again each tick */
   stuck?: boolean;
-  /** game-seconds it has been held up on the way by another unit's reservation
-   *  (docs/19 S4a; the inspector reads it, the trip's own clock is unchanged) */
+  /** game-seconds in a row it has been held up on the way by a digger's reservation (docs/19 S4a,
+   *  core/traffic.ts roverStep): its clock waits, so the trip's ETA stretches; the inspector reads it */
   held?: number;
   /** the share of the clock it drives on now (core/unitPower.ts): 0 flat,
    *  between on an RPU's trickle; absent: 1 (the visuals read it too) */
@@ -584,6 +584,12 @@ export interface HaulState extends PackState {
   full?: boolean;
   /** a hub unit sent to a pit with every face working: it waits at the gate */
   wait?: 'gate';
+  // ── docs/19 S4a (core/traffic.ts): the sim's reservations ──
+  /** the road cells (and pit-ramp keys) it holds, in the order it drives them: the cell it just left,
+   *  the one it stands in, then the run granted ahead; rebuilt from the tick's plan, saved as it stands */
+  claim?: number[];
+  /** game-seconds it has been held up by another unit's reservation on this leg (the inspector reads it) */
+  held?: number;
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
@@ -850,6 +856,24 @@ export interface AlertMsg {
   counters?: AlertCounter[];
   /** docs/19: the notification family it belongs to (absent: not yet classed) */
   family?: NotifyFamily;
+  /** a field report's card body (docs/19 S7): a title, a geology line, one line per reward */
+  report?: FieldReport;
+}
+
+/** One reward line of a field report: what came back, and (optionally) a button that opens it. */
+export interface FieldReward {
+  text: string;
+  /** a short label in front ('DATA', 'BREAKTHROUGH', 'OUTPOST SITE'), shown as a tag */
+  tag?: string;
+  button?: { label: string; action: AlertAction };
+}
+
+/** The rich body of a field card (docs/19 S7): 'dispatch' cards render title, geology and rewards. */
+export interface FieldReport {
+  title: string;
+  /** what the ground is: one line under the title */
+  geology?: string;
+  rewards: FieldReward[];
 }
 
 /** One line of the notification log (docs/19 S7): every event raised, newest last, capped and saved. */
@@ -863,6 +887,8 @@ export interface LogEntry {
   action?: AlertAction;
   /** times raised (merged repeats) */
   count: number;
+  /** a field report's card body, kept so the log can show it again */
+  report?: FieldReport;
 }
 
 /** a counter button on an alert: the counter action it pushes */

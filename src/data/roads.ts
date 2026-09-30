@@ -17,6 +17,17 @@ export const ROAD = {
   bayCap: 2,
   /** inside an extraction zone units drive off-road (core/zones.ts): this share of road speed */
   offroad: 0.5,
+  // ── docs/19 S3: roads that make sense ──
+  /** the A* cost of each change of direction on a new road (a bend): a route is a trunk with a couple of bends */
+  turn: 0.35,
+  /** a gate off the hub's side: the A* cost per 90° between the rim cell and the hub, seen from the zone's centre */
+  hubSide: 0.5,
+  /** a soft cost per new cell inside another pit's full-size ring (docs/17 §5.3): a road there would box the pit in */
+  ringSoft: 2,
+  /** a haul road gets a passing bay beside about every this-many-th cell (never more than 12 apart) */
+  passEvery: 10,
+  /** the farthest a bay may slide along the road to find a straight cell with room beside it */
+  passSlide: 2,
 };
 
 /** A construction rover on the road (docs/15 §6): the sim times every trip

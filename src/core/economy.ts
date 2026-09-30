@@ -19,7 +19,7 @@ import {
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
-import { fillStateDefaults, type AlertAction, type AlertMsg, type GameState, type BuildingState, type NotifyFamily, type RoverUnit } from './state';
+import { fillStateDefaults, type AlertAction, type AlertMsg, type FieldReport, type GameState, type BuildingState, type NotifyFamily, type RoverUnit } from './state';
 import {
   canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, waterReclaimFactor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
@@ -31,7 +31,7 @@ import {
 } from './unitPower';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import {
-  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, pitNews, printTick, printing,
+  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, pitNews, planTraffic, printTick, printing,
   reconcileRegolith, targetOf, unitRates, unitTick, writeRegolith,
 } from './hubs';
 import { HUB, isHubType } from '../data/hubs';
@@ -78,11 +78,19 @@ const SEVERITY: Record<AlertKind, number> = { info: 0, warn: 1, crit: 2 };
  *  is out of reach (debug forceGridDark; a forced brownout). */
 export const GRID = { dark: false };
 
+/** Bumped whenever the notification log gains a line or a repeat counts on one
+ *  (the UI republishes `$log` when it changes: game.publish). */
+export const logStamp = { n: 0 };
+
 /** A one-shot event. Repeating one still listed merges into it (×N). It
- *  belongs to a notification `family` (docs/19 S7; absent: not yet classed)
- *  and is written to the saved log (`s.log`, the last ALERTS.logMax events). */
-export function alert(s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction, family?: NotifyFamily) {
+ *  belongs to a notification `family` (docs/19 S7; a crit alert with none is a
+ *  hazard) and is written to the saved log (`s.log`, the last ALERTS.logMax
+ *  events). `report` is a field card's body (title, geology, reward lines). */
+export function alert(
+  s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction, family?: NotifyFamily, report?: FieldReport,
+) {
   const i = s.alerts.findIndex((a) => !a.cond && a.key === text);
+  logStamp.n++;
   if (i >= 0) {
     const [a] = s.alerts.splice(i, 1);
     a.count += 1;
@@ -93,10 +101,11 @@ export function alert(s: GameState, text: string, kind: AlertKind = 'info', acti
     if (line) { line.count = a.count; line.at = s.simTime; }
     return;
   }
+  const fam = family ?? (kind === 'crit' ? 'hazard' : undefined);
   const id = s.nextAlertId++;
-  s.alerts.push({ id, text, kind, at: s.simTime, key: text, count: 1, action, ...(family ? { family } : {}) });
+  s.alerts.push({ id, text, kind, at: s.simTime, key: text, count: 1, action, ...(fam ? { family: fam } : {}), ...(report ? { report } : {}) });
   const log = (s.log ??= []);
-  log.push({ id, at: s.simTime, kind, text, count: 1, ...(action ? { action } : {}), ...(family ? { family } : {}) });
+  log.push({ id, at: s.simTime, kind, text, count: 1, ...(action ? { action } : {}), ...(fam ? { family: fam } : {}), ...(report ? { report } : {}) });
   if (log.length > ALERTS.logMax) log.splice(0, log.length - ALERTS.logMax);
   // bounded: the least severe, then the oldest, event makes room
   const events = s.alerts.filter((a) => !a.cond);
@@ -104,6 +113,13 @@ export function alert(s: GameState, text: string, kind: AlertKind = 'info', acti
     const out = events.reduce((m, a) => (SEVERITY[a.kind] < SEVERITY[m.kind] ? a : m));
     s.alerts.splice(s.alerts.indexOf(out), 1);
   }
+}
+
+/** `alert` bound to one notification family: a module whose every alert is one
+ *  family's writes `const alert = alertIn('hazard')` and its call sites stay as they are.
+ *  (A function declaration, so a module in an import cycle with this one may call it as it loads.) */
+export function alertIn(family: NotifyFamily) {
+  return (s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction) => alert(s, text, kind, action, family);
 }
 
 /** conditions raised during the economy tick in progress: key → times */
@@ -284,6 +300,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const crews = assignRovers(s);
   // (debug instant travel: a new goal is reached in the tick that sets it, as before transit)
   if (TRANSIT.instant) transitPlan(s, mods, false);
+  // (docs/19 S4a: every unit's reservations are planned, in priority order, before any of them moves)
+  planTraffic(s);
   const here: Arrivals = transitArrive(s, dt);
   /** a site's road is still to sinter: its crew works from the frontier */
   const roadFirst = (b: BuildingState) => !!b.spur?.length && spurLeft(s, b) > 0;
@@ -1244,7 +1262,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const m of MILESTONES) {
     if (s.milestonesDone.includes(m.id) || !m.check(s)) continue;
     s.milestonesDone.push(m.id);
-    alert(s, `MILESTONE — ${m.title}`, 'info');
+    alert(s, `MILESTONE — ${m.title}`, 'info', undefined, 'era');
     if (m.id === 'first-light') ev.victory = true;
   }
 

@@ -31,11 +31,13 @@ export interface Settings {
   pauseLethal: boolean;
   /** space weather (docs/16 §10.4): pause on flare warnings — M and X (default), all, or off */
   pauseFlares: 'mx' | 'all' | 'off';
+  /** notifications (docs/19 S7): a hazard's first-of-its-kind drill card holds the game paused until Continue */
+  pauseDrills: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   safe: false, volume: 0.7, music: 0.7, effects: 1, muted: false, tips: true,
-  pauseHazards: true, pauseLethal: false, pauseFlares: 'mx',
+  pauseHazards: true, pauseLethal: false, pauseFlares: 'mx', pauseDrills: true,
 };
 
 const clamp01 = (v: unknown, d: number) =>
@@ -56,6 +58,7 @@ function read(): Settings {
       pauseHazards: raw.pauseHazards !== false,
       pauseLethal: raw.pauseLethal === true,
       pauseFlares: raw.pauseFlares === 'all' || raw.pauseFlares === 'off' ? raw.pauseFlares : 'mx',
+      pauseDrills: raw.pauseDrills !== false,
       touch: isTouchChoice(raw.touch) ? raw.touch : undefined,
     };
   } catch {
