@@ -42,7 +42,7 @@ Each **stream** is one agent in its own git worktree (`$SP/wt/<name>`, branch `w
 2. **Owned files** are the stream's to restructure. Any other file it touches is **shared**: additive edits only (new exports, cases, fields), never reshaped. Conflicts are resolved as unions.
 3. **Contracts first (W0d).** Interfaces two streams share exist before either stream starts, as *functional* stubs (they forward, draw, return a placeholder), so every stream's spec passes alone.
 4. **Internal milestones (M1…Mn).** Every stream lists them; each ends in a WIP commit with `tsc` and the stream's spec green. They are the safe pause points inside a wave: a stream interrupted by a usage limit resumes from its last milestone via its note.
-5. **Light checks only:** `npx tsc --noEmit`, `npm run docs:check`, the stream's own spec alone. No full suite or pacing probes until Wave 3.
+5. **Working protocol: code through a few checkpoints, then one test round** (the player's rule, 2026-09-30). Streams and merges run only cheap checks: `npx tsc --noEmit` at milestones, the stream's own new spec once at the end, `npm run docs:check` once, and `--reporter=dot 2>&1 | tail -15` for every Playwright run (never `line` or `list`). A checkpoint's gate is `npm run build` plus one quick boot test. Broad regression testing is batched into **test rounds** every two or three checkpoints: **Test round 1 after CP1b** (a full-suite run, the stale-spec repair D1–D4, fixes for real regressions), then code on through Wave 2, then **Test round 2 after CP2** (a full-suite run and fixes). An extra targeted test is run at once only when a merge looks risky (main no longer boots, or an agent reports an unexplained regression). No pacing probes.
 6. **Generated docs (03, 04, 05) are never hand-merged.** On conflict take either side and run `npm run docs`; the coordinator regenerates once per checkpoint.
 7. **No stream edits spec base URLs.** The boot code ignores `nolock`, `lowfx`, `style`, `fx` (only `safe` stays, as the shader-fault fallback). Wave 3 tidies the leftovers. This avoids 30 guaranteed one-line conflicts.
 8. **Screenshots are deliverables:** seed 42, the home preset, day and night, saved under `$SP/shots/<stream>/` and sent to the player at the checkpoint.
@@ -71,8 +71,8 @@ Each **stream** is one agent in its own git worktree (`$SP/wt/<name>`, branch `w
 | **S8** | Outposts made legible | M · 5–6 | CP1b | 5901 |
 | **S9** | Touch and menu pass | M · 5–6 | CP1b | 5911 |
 | **S10** | Docs and art bible | M · 5–6 | CP1b | 5921 |
-| **D1–D4** | Spec repair by group | M · 6–10 each | CP2 | 5931–5961 |
-| **D5** | Full suite | S · 3–4 | D1–D4 | 5971 |
+| **D1–D4** | Spec repair by group (Test round 1) | M · 6–10 each | CP1b | 5931–5961 |
+| **D5** | Full suite (each test round) | S · 3–4 | D1–D4 (TR1); CP2 (TR2) | 5971 |
 
 Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about a day and a half: several days of agent time given limits.
 
@@ -83,10 +83,11 @@ Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about
 | **CP0** | Wave 0 | W0d → W0a → W0b2 → W0b1 | tsc, docs:check, `npm run build`; `render`, `world`, `ui` specs; `smoke` "parts loop" alone; determinism guard | Playable build, old Classic look, fixed camera (Q/E turn, V tilt), no walk mode, unpause fix; day/night "before" shots; the four rotations; both tilts; far zoom; a placement ghost; the HUD paused and after a speed click |
 | **CP1a** | Sub-wave 1A | S7 → S1a → S1b → S3 → S4a | + `look`, `roads`, `notify` and hub-unit traffic specs | The **variant bake-off** (A/B/C, day/night/far; sent as soon as S1a and S1b reach M3, so the pick can arrive mid-wave); the new look; straight roads with gates and bays; the five notification families |
 | **CP1b** | Sub-wave 1B | S2a → S2b → S4b → S5 → S6, then one docs regeneration | + `silhouettes`, `pits`, `traffic`, `grading`, `survey` specs | A pit at three growth stages; two excavators passing at a bay (three-frame strip); a grading job mid-way; a field report; the tree's compass badge; the 29-recipe contact sheet at far zoom |
-| **CP2** | Wave 2 | S8 → S9 → S10 | `lunarmap`, `touch`, `notify`, `survey` specs | The map with outposts, touch at 667×375 and 932×430, the art bible |
-| **CP3** | Wave 3 | D1–D4 in parallel, then D5 | full suite green (known flakes re-run alone), `npm run build` | A final report |
+| **CP2** | Wave 2 | S8 → S9 → S10 | `npm run build` and one boot test (the specs run in Test round 2) | The map with outposts, touch at 667×375 and 932×430, the art bible |
+| **TR1** | after CP1b | D1–D4 in parallel, then D5 | full suite green after repairs (known flakes re-run alone), `npm run build` | A short report: what broke, what was fixed |
+| **TR2** | after CP2 | one D5 run, fixes by the responsible streams | full suite green (known flakes re-run alone), `npm run build` | A final report |
 
-**Cut line if limits bind:** every checkpoint leaves main playable. After CP1b every named complaint is fixed; S8–S10 can wait. Wave 3 must not be skipped: main already carries about 20 stale specs (docs/18 §1).
+**Cut line if limits bind:** every checkpoint leaves main playable. After CP1b every named complaint is fixed; S8–S10 can wait. The test rounds must not be skipped: main already carries about 20 stale specs (docs/18 §1).
 
 ---
 
@@ -372,9 +373,9 @@ Owns `docs/06-art-direction.md`, `docs/07-ui-design.md` (§2–3, §12), `docs/1
 
 ---
 
-## Wave 3 · Diagnostic (4 parallel repair streams, then the full suite)
+## Test rounds (Test round 1 after CP1b; Test round 2 after CP2)
 
-Main already carries about 20 stale specs (docs/18 §1) and every wave above changes more. D-streams repair specs to the new model, never the feature to the old spec; a behaviour bug found is reported (or fixed if one line). They also drop the leftover `&nolock`, `&lowfx`, `&style=` from spec URLs, and retire the camera `info()` aliases.
+Main already carries about 20 stale specs (docs/18 §1) and every wave changes more. **Test round 1** (after CP1b, before Wave 2 starts) is the big one: the D-streams repair specs to the new model, never the feature to the old spec; a behaviour bug found is reported (or fixed if one line). They also drop the leftover `&nolock`, `&lowfx`, `&style=` from spec URLs, and retire the camera `info()` aliases.
 
 | Stream | Specs | Port |
 |---|---|---|
@@ -383,14 +384,14 @@ Main already carries about 20 stale specs (docs/18 §1) and every wave above cha
 | D3 | techtree, research, upgrades, destiny, crew, hazards, flares, forecast | 5951 |
 | D4 | anim, render, look, silhouettes, map, lunarmap, survey, notify, touch, ui, unitpower, hubs, hubview, pits, reserves, grading | 5961 |
 
-**D5** runs `npx playwright test` once on the merged tree, re-runs the known load flakes alone (docs/18 §4), and reports. Order if limits bind: D1 first (the core loop).
+**D5** runs `npx playwright test --reporter=dot` once on the merged tree, re-runs only the failing files and the known load flakes alone (docs/18 §4), and reports. Order if limits bind: D1 first (the core loop). **Test round 2** (after CP2) is the same D5 run: real regressions go back to the responsible stream's agent (or a one-line fix by the coordinator), stale specs are repaired in place, and the round ends when the suite is green apart from re-run flakes.
 
 ---
 
 ## Verification, end to end
 
-- **Per stream (before reporting):** `npx tsc --noEmit`; `npm run docs:check`; its spec alone with `PORT=<port> PWTEST_CACHE_DIR=$SP/pwcache-<name> npx playwright test tests/<spec>.spec.ts --timeout=300000`; the screenshot set for a visual stream.
-- **Per checkpoint (coordinator, merged tree, main checkout):** the gate column above, then a play session on seed 42 (mare, robotic): CP0 10 min (rotate, tilt, Tab does nothing, click 3× while paused); CP1a 15 min (place a smelter and watch its road and gates; read a notification of each family); CP1b 20 min (two diggers pass; drag a grading box and watch a rover level it; let a flare hit; run two surveys at once and read the field reports); CP2 the map and touch; CP3 30 min on each site.
+- **Per stream (before reporting):** `npx tsc --noEmit`; `npm run docs:check` once; its own new spec once with `PORT=<port> PWTEST_CACHE_DIR=$SP/pwcache-<name> npx playwright test tests/<spec>.spec.ts --timeout=300000 --reporter=dot 2>&1 | tail -15`; the screenshot set for a visual stream.
+- **Per checkpoint (coordinator, merged tree, main checkout):** the gate column above (`npm run build` plus one boot test; the broad specs run in the test rounds), then a play session on seed 42 (mare, robotic): CP0 10 min (rotate, tilt, Tab does nothing, click 3× while paused); CP1a 15 min (place a smelter and watch its road and gates; read a notification of each family); CP1b 20 min (two diggers pass; drag a grading box and watch a rover level it; let a flare hit; run two surveys at once and read the field reports); CP2 the map and touch; CP3 30 min on each site.
 - **Determinism guard at every checkpoint:** `terrainHash()` and the hub and pit state after `advanceGameMinutes(60)` on seed 42 are identical across two runs.
 
 ## The agent brief (template every stream launch uses)
