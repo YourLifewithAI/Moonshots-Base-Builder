@@ -16,6 +16,7 @@ import type { WeatherView } from '../core/spaceWeather';
 import type { HazardId, HazardSide } from '../data/hazards';
 import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
 import type { SurveyCost } from '../core/exploration';
+import type { FactionId } from '../core/moon';
 import type { MapView, OutpostKind, ProspectClass, ProspectId, ProspectKind } from '../data/lunarMap';
 
 export type Phase = 'title' | 'site' | 'playing';
@@ -78,6 +79,11 @@ export const $wearMarkers = atom<{ id: number; x: number; y: number; frac: numbe
 /** phaseLeft = game-seconds to the next dusk (by day) or dawn (by night) */
 export const $time = atom({
   dayIndex: 0, tCycle: 0, isNight: false, sunFactor: 1, phaseLeft: 0,
+  /** the MISSION day (1-based, counted from this base's own landing: docs/20 §4.4); `dayIndex` is the absolute
+   *  Moon day, which is what day and night and every deadline read. A solo game lands on day 0: they agree. */
+  missionDay: 1,
+  /** the Moon clock this base landed at (0 in a solo game): turns an alert's absolute time into a mission day */
+  landedAt: 0,
   speed: 1, paused: false,
   flare: 'idle' as 'idle' | 'telegraph' | 'active' | 'tail', flareTimer: 0,
 });
@@ -114,6 +120,8 @@ export interface LunarProspectView {
   survey: SurveyCost;
   /** an outpost stands (or is deploying) here */
   outpost: boolean;
+  /** another faction's outpost holds it (docs/20 §5): the claim is refused, the sheet names the holder; null otherwise */
+  rival: { faction: FactionId; name: string } | null;
   /** claim terms; null for heritage and anomaly prospects (survey only) */
   claim: {
     cost: Partial<Record<ResourceId, number>>; deployS: number; upkeepPerDay: number;
@@ -147,6 +155,22 @@ export interface LunarOutpostView {
   /** a KREEP outpost's modifier line, else '' */
   modifier: string;
 }
+/** A rival program on the shared Moon (docs/20 §4.4), as the map and the race panel read it. */
+export interface LunarRivalView {
+  faction: FactionId;
+  /** display name, e.g. 'The Foundry' */
+  name: string;
+  siteId: SiteId;
+  /** the landing site's home on the globe */
+  home: { lat: number; lon: number };
+  /** it has landed (a faction that lands later is listed, not yet landed) and the Moon clock it lands at */
+  landed: boolean;
+  landedAt: number;
+  /** the prospects its outposts hold */
+  outposts: ProspectId[];
+  launches: number;
+  era: number;
+}
 export interface LunarView {
   tier: 0 | 1 | 2 | 3 | 4;
   view: MapView;
@@ -158,6 +182,8 @@ export interface LunarView {
   surveyedCount: number;
   atlas: boolean;
   prospects: LunarProspectView[];
+  /** the other programs on this Moon (empty in a solo game) */
+  rivals: LunarRivalView[];
   /** the soonest flight home (null: no drone out); `flights` lists every drone away, soonest first */
   active: { id: ProspectId; remaining: number } | null;
   flights: { id: ProspectId; drone: number; remaining: number; total: number; short: string }[];

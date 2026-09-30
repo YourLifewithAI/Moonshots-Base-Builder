@@ -12,7 +12,7 @@ import {
 } from '../data/balance';
 import { DEPOSIT_INFO, type DepositKind } from '../data/deposits';
 import { TIER_VIEW, type MapView, type ProspectId } from '../data/lunarMap';
-import { createInitialState, type AlertMsg, type BuildingState, type GameState } from './state';
+import { createInitialState, missionDay, missionDayAt, type AlertMsg, type BuildingState, type GameState } from './state';
 import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveDef, effectiveRates, waterReclaimFactor } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
@@ -2419,7 +2419,8 @@ export class Game {
     });
     $time.set({
       dayIndex: day.dayIndex, tCycle: day.tCycle, isNight: day.isNight, sunFactor: day.sunFactor,
-      phaseLeft: day.phaseLeft, speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
+      phaseLeft: day.phaseLeft, missionDay: missionDay(s), landedAt: s.landedAt ?? 0,
+      speed: s.speed, paused: s.paused, flare: s.flare.phase, flareTimer: Math.ceil(s.flare.timer),
     });
     $tech.set({
       era: s.era, done: [...s.techsDone], queue: [...s.researchQueue],
@@ -2720,7 +2721,7 @@ export class Game {
     $hasSave.set(blob !== null && !lost);
     const last = lost ? blob.state.deaths?.[blob.state.deaths.length - 1] : undefined;
     $lostMission.set(lost
-      ? { siteId: blob.state.siteId, day: Math.floor(blob.state.simTime / CYCLE_S) + 1, ...(last?.hazard ? { cause: deathClause(last.cause) } : {}) }
+      ? { siteId: blob.state.siteId, day: missionDay(blob.state), ...(last?.hazard ? { cause: deathClause(last.cause) } : {}) }
       : null);
   }
 
@@ -3279,7 +3280,7 @@ function lossStory(s: GameState): { lead: string; warning: string; earlier: stri
   const deaths = s.deaths ?? [];
   const last = deaths[deaths.length - 1];
   if (!last || !s.defeatShown) return null;
-  const day = (t: number) => Math.floor(t / CYCLE_S) + 1;
+  const day = (t: number) => missionDayAt(s, t);
   const warned = last.warnedAt !== null ? `The warning came ${fmtClock(Math.max(0, last.at - last.warnedAt))} before; nobody answered it in time.` : '';
   const before = deaths.slice(0, -1);
   const groups = new Map<string, { n: number; day: number }>();

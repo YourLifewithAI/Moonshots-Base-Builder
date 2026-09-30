@@ -11,6 +11,7 @@ import { CYCLE_S, START } from '../data/balance';
 import { RULES, RULE_ORDER, FAMILY_PRIORITY, type AutoFamily, type AutoRuleId } from '../data/automation';
 import type { CounterId, HazardId, HazardSide, Tier } from '../data/hazards';
 import type { ArrayChoice, FlareClass, FlareCounterId, FlareDecider } from '../data/spaceWeather';
+import type { FactionId } from './moon';
 
 export interface BuildingState {
   id: number;
@@ -809,6 +810,8 @@ export interface WeatherState {
   autoRepair: boolean;
   /** the player has answered a flare of this class in the pop-up (a C opens small once one has been) */
   answered: Partial<Record<FlareClass, boolean>>;
+  /** a faction's base has met a flare of this class (the FIRST FLARE card is per base on a Moon that flared before it landed) */
+  intro?: Partial<Record<FlareClass, boolean>>;
   /** the probe's baseline: today's flare (docs/16 §12.3) */
   legacy?: boolean;
   /** repair jobs, one per field: the damaged arrays in turn (the head is worked) */
@@ -1017,7 +1020,14 @@ export interface GameState {
   expedition: 'human' | 'robotic';
   /** agents run short-handed stations until settlers free up (unset = on) */
   agentCover?: boolean;
-  simTime: number;           // game-seconds since landing
+  /** the absolute Moon clock (docs/20 §4.4): game-seconds since the first landing (day 0). A solo
+   *  game lands at 0, so this is also the time since its own landing; `sinceLanding(s)` is the latter. */
+  simTime: number;
+  /** the Moon clock this base landed at (0 for a solo game; a later landing's `landsAtDay × CYCLE_S`):
+   *  the mission day counts from it, nothing else does */
+  landedAt: number;
+  /** which program this base is (docs/20 §1); absent in a solo game */
+  faction?: FactionId;
   speed: number;             // 1 | 3 | 10
   paused: boolean;
 
@@ -1184,17 +1194,29 @@ export interface GameState {
   defeatShown: boolean;
 }
 
+/** Game-seconds since this base landed (the Moon clock minus its landing): the low-parts check and the mission day read it. */
+export const sinceLanding = (s: Pick<GameState, 'simTime' | 'landedAt'>): number => s.simTime - (s.landedAt ?? 0);
+
+/** The mission day (1-based) at Moon time `t` for this base: a base that landed on day 2 counts its own day 1 there. */
+export const missionDayAt = (s: Pick<GameState, 'landedAt'>, t: number): number => Math.floor((t - (s.landedAt ?? 0)) / CYCLE_S) + 1;
+
+/** The mission day now. */
+export const missionDay = (s: Pick<GameState, 'simTime' | 'landedAt'>): number => missionDayAt(s, s.simTime);
+
 export function createInitialState(
   siteId: SiteId,
   seed: number,
   expedition: 'human' | 'robotic' = 'human',
+  /** the Moon clock at the landing's day start (docs/20: 0 · 2 · 4 days × CYCLE_S); a solo game lands at 0 */
+  landedAt = 0,
 ): GameState {
   return {
     version: 1,
     siteId,
     seed,
     expedition,
-    simTime: 90, // land mid-morning: the first thing you see is sunlit regolith
+    landedAt,
+    simTime: landedAt + 90, // land mid-morning: the first thing you see is sunlit regolith
     speed: 1,
     paused: false,
     // the cache buys the same opening everywhere: rough sites cost more to build on
@@ -1337,6 +1359,8 @@ function researchDefaults() {
 export function fillStateDefaults(s: GameState): GameState {
   const legacy = s as Partial<GameState> & GameState;
   const d = researchDefaults();
+  // saves from before the shared Moon (docs/20): landed on day 0, a solo game
+  legacy.landedAt ??= 0;
   legacy.insights ??= d.insights;
   legacy.discoveries ??= d.discoveries;
   legacy.researchStalled ??= d.researchStalled;
