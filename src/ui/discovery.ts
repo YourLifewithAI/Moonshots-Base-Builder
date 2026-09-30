@@ -45,6 +45,7 @@ const BUILDER_NEXT: Record<AutoFamily, string> = {
   life: 'The Builder now keeps oxygen, food and water ahead of the crew, and a bed free: tune it with [B].',
   maintenance: 'Worn machines are replaced by the Builder: tune it with [B].',
   network: 'The Builder now plants Relay Masts toward ground its rules need: tune it with [B].',
+  survey: 'Idle survey drones now fly the nearest unsurveyed prospect while the bank keeps its reserve: tune it with [B].',
   research: 'The Builder now adds labs when research waits on the transfer cap: tune it with [B].',
   export: 'The Builder now adds Foil Factories when foils hold a volley back: tune it with [B].',
 };

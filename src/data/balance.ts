@@ -288,11 +288,28 @@ export const PIT = {
 /** Exploration coverage tiers (index = tier) — reveal radius and outpost slots */
 export const SURVEY_TIERS = [
   { label: 'LANDING SITE', revealM: 120, slots: 0 },
-  { label: 'REGIONAL', revealM: 320, slots: 0 },
-  { label: 'NEAR SIDE', revealM: MAP_M, slots: 1 },
-  { label: 'FAR SIDE', revealM: MAP_M, slots: 2 },
-  { label: 'SUBSURFACE', revealM: MAP_M, slots: 3 },
+  { label: 'REGIONAL', revealM: 320, slots: 1 },
+  { label: 'NEAR SIDE', revealM: MAP_M, slots: 2 },
+  { label: 'FAR SIDE', revealM: MAP_M, slots: 3 },
+  { label: 'SUBSURFACE', revealM: MAP_M, slots: 4 },
 ] as const;
+
+/** The survey-drone fleet (docs/19 S6, core/surveyDrones.ts). The Lander carries one drone from landing;
+ *  a Prospecting Bay prints more into its bays (`baysByLevel[level - 1]` a Bay: Level I, II, III), one at a
+ *  time, each for `cost` and `printS` (game-seconds). A drone home from a flight recharges for `rechargeS`
+ *  before it flies again. */
+export const SURVEY_DRONE = {
+  baysByLevel: [2, 4, 6] as readonly number[],
+  cost: { metals: 15, parts: 5 } as Readonly<Record<'metals' | 'parts', number>>,
+  printS: 45,
+  rechargeS: 20,
+  /** a flight's launch, climb and vanish at the map edge (seconds of the world flight) */
+  outboundS: 6,
+};
+
+/** first-of-kind sample caches (docs/19 S6): the first survey of each outpost kind delivers about this many
+ *  seconds of a hub's output of the resource, once */
+export const SAMPLES = { seconds: 60 };
 export const ATLAS = { minTier: 4, surveys: 12, extraSlots: 1, streamMult: 1.25, insight: 0.25, lateData: 500 };
 
 /** the alert stack: a dismissed condition stays quiet snoozeS game-seconds;

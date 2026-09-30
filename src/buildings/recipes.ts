@@ -663,6 +663,39 @@ function solarObservatory(): Parts {
   return p;
 }
 
+/** docs/19 S6: the survey-drone fleet's base, 2×2 cells. A low hangar with
+ *  a rolled-back roof door and two dock cradles under it, a marked pad in
+ *  front, and a slender beacon mast with a crossbar (the one tall part, so
+ *  it reads at far zoom). The drones themselves are world/surveyFlight.ts. */
+function prospectingBay(): Parts {
+  const p: Parts = [
+    box(7.4, 0.3, 7.4, TRIM, 0, 0.15, 0),
+    box(6.4, 2.0, 3.6, BODY, 0, 1.3, -1.9),
+    box(6.6, 0.22, 3.8, TRIM, 0, 2.41, -1.9),
+    // the roll-back roof door, half open over the cradles
+    box(3.2, 0.16, 3.0, PLATE, -1.55, 2.62, -1.9),
+    box(2.6, 0.05, 2.8, GLASS, 1.9, 2.55, -1.9),
+    // two dock cradles and the drones' charging lamps
+    box(1.5, 0.3, 1.5, PLATE, -1.6, 2.6, -1.9),
+    box(1.5, 0.3, 1.5, PLATE, 1.6, 2.6, -1.9),
+    box(0.2, 0.1, 0.05, LAMP, -1.6, 2.2, -0.08),
+    box(0.2, 0.1, 0.05, LAMP, 1.6, 2.2, -0.08),
+    door(0, -0.1, 0, 1.6, 1.5),
+    // the launch pad: a ring and a chevron toward the map edge
+    cyl(1.7, 1.7, 0.08, PLATE, 0, 0.34, 2.0, 0, 0, 24),
+    cyl(1.35, 1.35, 0.1, TRIM, 0, 0.36, 2.0, 0, 0, 24),
+    box(0.16, 0.06, 1.9, LAMP, 0, 0.42, 2.0),
+    box(1.0, 0.06, 0.16, LAMP, 0, 0.42, 1.4),
+    // the beacon mast
+    cyl(0.1, 0.16, 6.4, TRIM, 3.1, 3.2, 2.9, 0, 0, 8),
+    box(1.5, 0.12, 0.12, TRIM, 3.1, 5.9, 2.9),
+    dome(0.2, BEACON, 3.1, 6.4, 2.9, 8),
+    cableTray([2.4, 2.9], [0, 1.0]),
+    junction(-3.1, 3.0, 0),
+  ];
+  return p;
+}
+
 function propellantPlant(): Parts {
   const p: Parts = [
     box(4.6, 2.4, 7.6, BODY, -3.2, 1.2, 0),
@@ -843,7 +876,7 @@ function serverMonolith(): Parts {
 const R: Record<BuildingId, () => Parts> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery,
   refinery, lab, storageYard, roboticsBay, partsFab, reactor, recDome, chipFab,
-  dataCenter, foilFactory, massDriver, relayMast, propellantPlant, solarObservatory,
+  dataCenter, foilFactory, massDriver, relayMast, propellantPlant, solarObservatory, prospectingBay,
   waterPlant, iceMiner,
   greenhouseRing, gardenDome, droneHive, serverMonolith,
 };

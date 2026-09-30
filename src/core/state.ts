@@ -664,6 +664,9 @@ export interface SurveyFlight {
   endsAt: number;
 }
 
+/** A survey drone being printed at a Prospecting Bay (docs/19 S6): one a Bay at a time. */
+export interface SurveyPrint { bay: number; startedAt: number; endsAt: number }
+
 export interface SurveyState {
   /** deposit ids revealed outside the tier radius (placement strike, relay mast, legacy ice survey) */
   struck: string[];
@@ -675,6 +678,7 @@ export interface SurveyState {
   /** docs/19 S6: the survey-drone fleet, and its flights (one per drone away) */
   surveyDrones?: SurveyDrone[];
   flights?: SurveyFlight[];
+  prints?: SurveyPrint[];
   nextSurveyDrone?: number;
   /** 1: surveys are flown by drones (an older save migrates in Game.loadFrom) */
   surveySchema?: number;

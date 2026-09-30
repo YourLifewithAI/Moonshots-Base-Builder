@@ -933,7 +933,7 @@ export function queueSurvey(s: GameState, mods: Mods, depId: string): string {
   s.powerStored -= DEP_SURVEY.energy;
   s.resources.parts -= DEP_SURVEY.parts;
   s.oreSurvey.jobs.push({ id: depId, t: 0 });
-  const free = s.rovers.some((r) => r.site === null && !r.pinned && r.core === undefined && r.id !== s.survey?.active?.rover);
+  const free = s.rovers.some((r) => r.site === null && !r.pinned && r.core === undefined);
   if (!free) alert(s, 'SURVEY NEEDS A FREE ROVER — it waits in the queue', 'info', { deposit: depId });
   return '';
 }
