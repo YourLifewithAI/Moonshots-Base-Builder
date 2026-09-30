@@ -54,7 +54,7 @@ import {
   attachCounters, evaHeld, growthHeld, hazardBedsOff, hazardDrawMult, hazardDuskLine, hazardMorale, hazardOff,
   hazardOutputMult, hazardTick, hazardUpkeepMult, killCrew, sickCrew, starveCause,
 } from './hazards';
-import { nightVaultStanding, scrutinyPenalty, scrutinyTick, uplinkBonus } from './scrutiny';
+import { nightVaultStanding, onFirstLight, scrutinyPenalty, scrutinyTick, uplinkBonus } from './scrutiny';
 
 const PROD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',            // extraction: legacy pads (docs/17 §19); hub units run after them (4.1)
@@ -1185,6 +1185,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // the destiny: a capstone's morale everywhere, and a launch day's lift
   target += mods.moraleBase;
   if (s.simTime < (s.launchDayUntil ?? 0)) target += mods.volleyMorale;
+  // FIRST LIGHT's morale for a lunar day (Media Blitz: core/scrutiny.onFirstLight; absent, and ×0, in every other game)
+  if (s.scrutiny?.moraleUntil && s.simTime < s.scrutiny.moraleUntil) target += mods.firstLightMorale;
   // grief, a cabin-fever crisis, a boil-water notice (docs/14 §3)
   target += hazardMorale(s);
   target = Math.max(0, Math.min(100, target));
@@ -1360,6 +1362,7 @@ export function launchVolley(s: GameState, mods: Mods): string {
   if (mods.guards.has('launchDays') && s.hazards) s.hazards.isolation = Math.max(0, s.hazards.isolation - HZ.cabinFever.launchDays);
   if (v.crewed && mods.volleyMorale > 0) s.launchDayUntil = s.simTime + CYCLE_S;
   alert(s, `COLLECTOR VOLLEY ${s.launches} AWAY — swarm ${(s.swarmPct).toFixed(4)}%${v.crewed ? ' · a launch day' : ''}`, 'info');
+  if (s.launches === 1) onFirstLight(s, mods);
   if (s.launches === 1) crewHome(s);
   return '';
 }

@@ -650,7 +650,7 @@ test('the UI half, race news: a rival landing during play raises a race-family l
   await expect(page.locator('#race-panel .rc-row[data-faction="accelerationists"]')).toContainText('landed day 2');
   await expect(page.locator('#race-panel .rc-row[data-faction="accelerationists"] .rc-last')).toContainText('THE VANGUARD LANDS');
 
-  // the feed's other two kinds S1 tells: a rival reaching an era, and a hearing (yours is a warning, a rival's is news); your own era is not news
+  // the feed's other two kinds S1 tells: a rival reaching an era, and a hearing (a rival's is news; yours is already the base's own hazard-family alert, so no second card); your own era is not news
   await page.evaluate(() => {
     const g = window.__game;
     g.feedPush({ faction: 'accelerationists', kind: 'era', text: 'TEST: THE VANGUARD REACHES ERA 9', era: 9 });
@@ -664,7 +664,6 @@ test('the UI half, race news: a rival landing during play raises a race-family l
     'accelerationists|info|THE VANGUARD LANDS — at SHACKLETON RIM',
     'accelerationists|info|TEST: THE VANGUARD REACHES ERA 9',
     'accelerationists|info|TEST: THE VANGUARD FACES A HEARING',
-    'robots|warn|TEST: HEARING — a quarter of the crew is recalled',
   ]);
   // the Commons land on day 4
   await page.evaluate(() => window.__game.advanceGameSeconds(1440));
