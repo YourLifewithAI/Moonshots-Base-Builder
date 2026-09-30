@@ -117,7 +117,7 @@ test('the service worker registers, precaches the build under its hash, and the 
   await page.reload();
   await expect(page.locator('#site-screen')).toBeVisible();
   await expect(page.locator('#site-screen h1')).toHaveText('MOONSHOTS');
-  await page.goto(`${ORIGIN}/?site=mare&exp=robotic&seed=42&lowfx`);
+  await page.goto(`${ORIGIN}/?site=mare&exp=robotic&seed=42`);
   await expect(page.locator('#resource-strip .chip').first()).toBeVisible();
   await expect(page.locator('#era-banner')).toContainText('FIRST LANDING');
   await context.setOffline(false);
@@ -125,7 +125,7 @@ test('the service worker registers, precaches the build under its hash, and the 
 
 test('a new version: it installs behind the running one, and the chip reloads into it', async ({ page }) => {
   test.setTimeout(120_000);
-  await page.goto(`${ORIGIN}/?site=mare&exp=robotic&seed=42&lowfx`);
+  await page.goto(`${ORIGIN}/?site=mare&exp=robotic&seed=42`);
   await controlled(page);
   await expect(page.locator('#update-chip')).toHaveCount(0);
   // a deploy: sw.js changes on the server; the page looks again
@@ -144,7 +144,7 @@ test('a new version: it installs behind the running one, and the chip reloads in
 });
 
 test('the dev server never registers a worker (every other spec runs there)', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&lowfx&site=mare&exp=robotic');
+  await page.goto('/?debug&seed=42&site=mare&exp=robotic');
   await page.waitForFunction(() => (window as unknown as { __game?: unknown }).__game !== undefined);
   await page.waitForTimeout(1500);
   expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);

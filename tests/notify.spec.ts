@@ -12,7 +12,7 @@ declare global {
   interface Window { __game?: any; climb?: (upTo: number) => void }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function boot(page: Page, extra = '', settings?: Record<string, unknown>, exp: 'human' | 'robotic' = 'robotic') {
   if (settings) await page.addInitScript((s) => localStorage.setItem('mbb-settings', JSON.stringify(s)), settings);
