@@ -18,7 +18,6 @@
 .fc-rival .fc-gap { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 #faction-sub { max-width: 640px; text-align: center; text-transform: none; letter-spacing: 0.04em; line-height: 18px; }
 html.touch #site-screen #faction-sub { display: none; }
-html.touch #site-screen .faction-card { width: 286px; }
 
 /* ── the era banners of a faction game: the Moon line, and a faction glyph in running text ── */
 .eb-fg { font-size: 1.05em; line-height: 1; }
@@ -53,7 +52,8 @@ html.touch #briefing .eb-panel { max-height: calc(var(--app-h) - var(--edge-t) -
 html.touch #briefing .eb-name { font-size: 22px; line-height: 26px; }
 html.touch #briefing .br-blurb { font-size: 12px; line-height: 17px; margin-bottom: 6px; }
 html.touch #briefing .br-sec { padding: 4px 0 3px; }
-html.touch #briefing .eb-foot { margin-top: 8px; }
+/* on a phone the panel scrolls, and Continue stays in view at its foot */
+html.touch #briefing .eb-foot { margin-top: 8px; position: sticky; bottom: -8px; padding: 6px 0 2px; background: var(--ink-900, #0e0f11); }
 
 /* ── the RACE chip (after the OUTPOSTS chip) and its panel (the hazards panel's pattern) ── */
 #race-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
@@ -66,7 +66,7 @@ html.touch #race-chip { min-height: var(--tap, 44px); }
   font-size: 12px; line-height: 17px;
 }
 #race-panel .rc-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
-#race-panel section { padding: 9px 13px; border-top: var(--hair); }
+#race-panel section { padding: 8px 13px; border-top: var(--hair); }
 #race-panel section:first-child { border-top: none; }
 #race-panel .actions { flex: 0 0 auto; display: flex; justify-content: flex-end; }
 #race-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }

@@ -49,8 +49,8 @@ function landedLine(r: RaceRow, moonDay: number): string {
 function rowHtml(r: RaceRow, v: RaceView): string {
   const stats = r.landed
     ? `<div class="rc-stats mono"><span class="rc-era">ERA ${r.era}</span> · <span class="rc-launches">${plural(r.launches, 'volley')}</span> · ` +
-      `<span class="rc-fl">first light ${r.firstLightDay === null ? '—' : `day ${r.firstLightDay}`}</span></div>` +
-      `<div class="rc-stats mono"><span class="rc-op">${plural(r.outposts, 'outpost')}</span> · <span class="rc-bld">${plural(r.buildings, 'building')}</span></div>`
+      `<span class="rc-fl">first light ${r.firstLightDay === null ? '—' : `day ${r.firstLightDay}`}</span> · ` +
+      `<span class="rc-op">${plural(r.outposts, 'outpost')}</span></div>`
     : `<div class="rc-stats mono"><span class="rc-era">not landed yet</span></div>`;
   const last = r.last
     ? `<span class="rc-ld">day ${dayOf(r.last.at)}</span> ${esc(r.last.text)}`

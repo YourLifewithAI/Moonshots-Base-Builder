@@ -12,6 +12,7 @@ import { FACTIONS, FACTION_ORDER, type FactionId } from './data/factions';
 import { isHubType } from './data/hubs';
 import type { Action } from './core/actions';
 import type { RivalProgram } from './core/rival';
+import { pushFeed, type FeedKind } from './core/moon';
 import { BaseSim } from './core/baseSim';
 import { HEADLESS_MODE } from './core/simMode';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
@@ -294,6 +295,17 @@ function api(game: Game) {
     /** Raise a notification in a family (ui/notify.ts): a stack line, a log line and, for a field
      *  card with a `report`, the dispatch card. The state is published at once. */
     notify: (family: NotifyFamily, card: NotifyCard) => { notify(game.state, family, card); game.publish(); },
+    /** Record an event on the Moon's feed (core/moon.ts): the UI's handlers (ui/racePanel.ts) get it at the next Moon second
+     *  (`advanceGameSeconds(1)`), as they would one the rival runner pushed. Returns the event. */
+    feedPush: (e: { faction: FactionId; kind: FeedKind; text: string; era?: number; n?: number }) => clone(pushFeed(game.moon, e)),
+    /** the Moon's feed so far (clone, newest last) */
+    getFeed: () => clone(game.moon?.feed ?? []),
+    /** set a faction's line of the race (`moon.race[faction]`: launches, swarmPct, firstLaunchAt, era) and publish, so a spec can stage
+     *  a standing; the next Moon second rewrites it from the base it belongs to */
+    raceSet: (faction: FactionId, patch: Partial<{ launches: number; swarmPct: number; firstLaunchAt: number | null; era: number }>) => {
+      Object.assign(game.moon.race[faction], patch);
+      game.publish();
+    },
     /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
     getSpaceWeather: (slider?: number) => {
       const s = game.state;
