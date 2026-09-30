@@ -135,23 +135,24 @@ test('a faction game: the player\'s volleys write the Moon\'s line, the first vo
   expect(await page.locator('#swarm-race .sr-row[data-faction="accelerationists"] .sr-bar i').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(TRIM.accelerationists);
   expect(await page.locator('#swarm-race .sr-row[data-faction="robots"] .sr-bar i').evaluate((e) => parseFloat(e.style.width))).toBeCloseTo(66.67, 1);
 
-  // seven more volleys of ours: the lead changes once (a beat of its own), combined 10 brings the next; nothing else is a beat
+  // seven more volleys of ours (the Foundry's two had taken the lead from our one): our second volley draws level and leads on the
+  // earlier first light, and combined 10 brings the beat; nothing else is a beat
   await volleys(page, 7);
   await tick(page);
   race = await g(page, 'getRace');
   expect(race.accelerationists.launches).toBe(8);
   const standing = await feedOf(page, 'standing');
-  expect(standing.filter((e) => /TAKES THE LEAD/.test(e.text))).toHaveLength(1);
+  expect(standing.filter((e) => /THE FOUNDRY TAKES THE LEAD/.test(e.text))).toHaveLength(1);
+  expect(standing.filter((e) => /THE VANGUARD DRAWS LEVEL WITH FOUNDRY AND LEADS ON THE EARLIER FIRST LIGHT/.test(e.text))).toHaveLength(1);
   expect(standing.filter((e) => /THE RACE AT 10 OF 100 VOLLEYS/.test(e.text))).toHaveLength(1);
-  expect(standing).toHaveLength(2);
-  expect(standing[0]).toMatchObject({ faction: 'accelerationists' });
-  expect(standing[1].text).toContain('LEADS BY 6');
+  expect(standing.map((e) => [e.faction, e.n])).toEqual([['robots', 3], ['accelerationists', 4], ['accelerationists', 10]]);
+  expect(standing[2].text).toContain('LEADS BY 6');
   // the beat is a race notification: the leader's glyph and colour, and where we stand
   const beat = page.locator('#alerts .alert', { hasText: 'THE RACE AT 10 OF 100 VOLLEYS' });
   await expect(beat).toHaveClass(/nf-race/);
   await expect(beat.locator('.alert-g')).toHaveText('▲');
   expect(await beat.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe(TRIM.accelerationists);
-  await expect(page.locator('#alerts .alert', { hasText: 'TAKES THE LEAD' })).toHaveClass(/nf-race/);
+  await expect(page.locator('#alerts .alert', { hasText: 'DRAWS LEVEL' })).toHaveClass(/nf-race/);
   // every fifth volley of ours is on the feed as a rival's are (the fifth)
   expect((await feedOf(page, 'launch')).filter((e) => e.faction === 'accelerationists').map((e) => e.n)).toEqual([5]);
   await expect(chip).toHaveText('⚑ RACE 1st · you 8 volleys · Foundry 2');

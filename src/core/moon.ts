@@ -480,7 +480,9 @@ export function raceStep(moon: MoonState): void {
   pushFeed(moon, {
     faction: leader, kind: 'standing', n: total,
     text: changed
-      ? `${name} TAKES THE LEAD — ${top} volleys to ${FACTIONS[order[1]].short}'s ${next} · ${total} of ${r.closeAt} combined`
+      ? (top > next
+        ? `${name} TAKES THE LEAD — ${top} volleys to ${FACTIONS[order[1]].short}'s ${next} · ${total} of ${r.closeAt} combined`
+        : `${name} DRAWS LEVEL WITH ${FACTIONS[order[1]].short.toUpperCase()} AND LEADS ON THE EARLIER FIRST LIGHT — ${top} volleys each · ${total} of ${r.closeAt} combined`)
       : `THE RACE AT ${total} OF ${r.closeAt} VOLLEYS — ${name} ${top > next ? `LEADS BY ${top - next}` : 'LEADS ON THE EARLIER FIRST LIGHT'} · ${standingsLine(moon.race, order)}`,
   });
 }
