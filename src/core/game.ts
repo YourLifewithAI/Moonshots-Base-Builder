@@ -39,6 +39,7 @@ import {
   revealRadiusM, startSurvey, strikeEffect, type LunarUi,
 } from './exploration';
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
+import { ensureFleet, migrateSurveySchema } from './surveyDrones';
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { TRAFFIC, trafficInfo, trafficStats } from './traffic';
 import { digAtHome, digRefusal, setDigSite } from './haul';
@@ -251,6 +252,7 @@ export class Game {
     const gx = 126, gz = 126;
     this.commitPlace('lander', gx, gz, 0, true);
     fleetRefresh(this.state, this.mods); // the Lander's rovers, before the first tick
+    ensureFleet(this.state, this.mods); // and its survey drone (docs/19 S6)
     transitPlan(this.state, this.mods, false); // parked in its bays
     this.syncDeposits(false);
     this.homeCamera(false);
@@ -293,6 +295,8 @@ export class Game {
     migrateTechSchema(blob.state);
     // saves from before classed flares (docs/16 §14.3, flareSchema 0 → 1)
     migrateFlareSchema(blob.state);
+    // saves from before the survey-drone fleet (docs/19 S6, surveySchema 0 → 1)
+    migrateSurveySchema(blob.state);
     this.bootWorld(blob.state);
     // the pits' height deltas onto the regenerated surface, then the flattens
     // replay over them, in order (base → deltas → flattens, docs/17 §11.1)
@@ -2292,7 +2296,7 @@ export class Game {
       boardingHold: settlersWelcome(s) ? boardingShortfall(s, this.mods.inputMult.habitat, waterReclaim) : '',
       lifeSupport: { oxygen: ls * CREW.oxygenPerCrew, food: ls * CREW.foodPerCrew, water: ls * CREW.waterPerCrew * waterReclaim },
       waterReclaim,
-      sites, welding, weldParts, upkeep, surveying: s.survey.active ? 1 : 0,
+      sites, welding, weldParts, upkeep,
       crewHome: !!s.crewHome,
       seats, crewIdle, covered,
       canCover: canToggleCrew(s.expedition, s.crew, this.mods), agentCover: s.agentCover !== false,

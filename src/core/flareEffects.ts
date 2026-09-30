@@ -90,12 +90,11 @@ const keyNow = (s: GameState): FlareKey => (s.flare.phase === 'tail' ? 'tail' : 
 
 const awayOf = (r: RoverUnit) => r.site !== null || r.road !== undefined;
 
-/** A rover or drone in the open (§4.5): out working, or still driving; the one lent to a survey is inside the Lander. */
+/** A rover or drone in the open (§4.5): out working, or still driving. */
 export function inOpen(s: GameState, r: RoverUnit): boolean {
-  if (r.id === s.survey?.active?.rover) return false;
   if (awayOf(r)) return true;
   const t = r.trip;
-  return !!t && t.kind !== 'survey' && (!!t.stuck || t.t < t.dur - 1e-9);
+  return !!t && (!!t.stuck || t.t < t.dur - 1e-9);
 }
 
 /** A reboot holds it where it stands: no driving, no work (core/transit.ts). */

@@ -51,7 +51,7 @@ export const FIELD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['solar'
 /** Structures reached off-road (docs/15 §5b): no door, no road, no spur. A
  *  rover drives out from the nearest road cell across open ground, at
  *  ROAD.offroad of road speed, and works from beside it. */
-export const OFFROAD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['relayMast', 'solarObservatory']);
+export const OFFROAD_TYPES: ReadonlySet<BuildingId> = new Set<BuildingId>(['relayMast', 'solarObservatory', 'prospectingBay']);
 
 /** Docks: rovers park in bays laid beside the door. A Drone Hive (docs/14
  *  §2.8) is one: its four rovers launch from it and park there. The other

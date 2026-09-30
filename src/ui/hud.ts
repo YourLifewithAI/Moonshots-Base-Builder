@@ -154,11 +154,9 @@ export function mountHud(root: HTMLElement, game: Game) {
     put('crew', `${v.crew}`, `/${v.housing}`, v.crew > v.housing || v.crewIdle > 0,
       `Crew aboard / beds — ${v.beds} beds built · ${v.housing} powered — crewed stations want ${v.seats}` +
       `${v.covered ? ` · agents cover ${v.covered}` : ''}${v.crewIdle ? ` · ${v.crewIdle} idle for want of crew` : ''} — click for details`);
-    // a survey's borrowed robot is told in the tooltip (and on the map chip), not
-    // appended to the chip: the strip never reflows when a survey starts
     put('bots', `${v.botsFree}`, `/${v.botsTotal}`,
       v.botsFree === 0 && v.botsTotal > 0,
-      `Construction rovers free / fleet${v.surveying ? ` — ${v.surveying} more lent to a survey` : ''} — click for details`);
+      'Construction rovers free / fleet — click for details');
     put('morale', `${v.morale}%`, '', v.morale < 40, 'Morale — click for details');
     put('data', fmt(v.data), '', false, 'Research data — click for details');
     put('deposits', 'DEPOSITS [I]', '', $depositOverlay.get(),

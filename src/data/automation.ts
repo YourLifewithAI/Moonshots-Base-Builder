@@ -12,7 +12,7 @@ import type { BuildingId } from './buildings';
 import type { ResourceId } from './resources';
 
 export type AutoFamily =
-  | 'excavation' | 'power' | 'smelting' | 'fabrication' | 'life' | 'maintenance' | 'network'
+  | 'excavation' | 'power' | 'smelting' | 'fabrication' | 'life' | 'maintenance' | 'network' | 'survey'
   // extension families: unlocked only through `builder { families }` effects
   | 'research' | 'export';
 
@@ -24,6 +24,7 @@ export type AutoRuleId =
   | 'oxygen' | 'food' | 'water' | 'habitat'
   | 'replace'
   | 'relayMast'
+  | 'autoSurvey'
   | 'lab' | 'foilFactory';
 
 /** rate: per game-second (shown per minute) · share: a fraction (shown in %) ·
@@ -158,6 +159,13 @@ export const RULES: Record<AutoRuleId, RuleDef> = {
     objective: 'REACH the ground the rules need', unit: 'none', threshold: 0, range: [0, 0], step: 0,
     dwellS: 60, cooldownS: 300, settleS: 60, cap: 4, capRange: [0, 20], onByDefault: true,
   }),
+  // docs/19 S6, Site Survey AI: idle survey drones fly the nearest unsurveyed prospect in coverage while
+  // the bank stays above T (the share of its capacity kept back). It builds nothing (core/exploration.ts decides).
+  autoSurvey: R({
+    id: 'autoSurvey', family: 'survey', building: 'prospectingBay',
+    objective: 'FLY idle drones to the nearest unsurveyed prospect while the bank keeps T', unit: 'share', threshold: 0.6, range: [0.2, 0.95], step: 0.05,
+    dwellS: 0, cooldownS: 0, settleS: 0, cap: 0, capRange: [0, 0], onByDefault: true,
+  }),
   // ── extension families (docs/14 extends the Builder with these) ──
   lab: R({
     id: 'lab', family: 'research', building: 'lab',
@@ -175,12 +183,12 @@ export const RULE_ORDER: AutoRuleId[] = (Object.keys(RULES) as AutoRuleId[]).fil
 
 export const FAMILY_LABEL: Record<AutoFamily, string> = {
   excavation: 'Excavation', power: 'Power', smelting: 'Smelting', fabrication: 'Fabrication',
-  life: 'Life support', maintenance: 'Maintenance', network: 'Network', research: 'Research', export: 'Export',
+  life: 'Life support', maintenance: 'Maintenance', network: 'Network', survey: 'Survey', research: 'Research', export: 'Export',
 };
 
 /** upstream first: the default order rules act in (the Budget Governor makes it the player's) */
 export const FAMILY_PRIORITY: AutoFamily[] = [
-  'life', 'power', 'excavation', 'smelting', 'fabrication', 'maintenance', 'network', 'research', 'export',
+  'life', 'power', 'excavation', 'smelting', 'fabrication', 'maintenance', 'network', 'survey', 'research', 'export',
 ];
 
 export const rulesOf = (f: AutoFamily): AutoRuleId[] => RULE_ORDER.filter((r) => RULES[r].family === f);
@@ -188,7 +196,7 @@ export const rulesOf = (f: AutoFamily): AutoRuleId[] => RULE_ORDER.filter((r) =>
 /** Buildings no standing rule builds — research pace, doctrine and the endgame
  *  stay the player's (the extension families lift labs and foil factories). */
 export const NEVER_RULE_BUILT: BuildingId[] = [
-  'lander', 'lab', 'dataCenter', 'recDome', 'foilFactory', 'massDriver', 'propellantPlant', 'relayMast',
+  'lander', 'lab', 'dataCenter', 'recDome', 'foilFactory', 'massDriver', 'propellantPlant', 'relayMast', 'prospectingBay',
   // the destiny buildings (docs/14 §2.8): orders place them; Selenic Mind lets the rules too
   'greenhouseRing', 'gardenDome', 'droneHive', 'serverMonolith',
 ];
@@ -253,6 +261,7 @@ export const RULE_TEXT: Record<AutoRuleId, string> = {
   habitat: '+1 Habitat Module when no bed is free for the next settler',
   replace: 'a new machine for one worn ≥40% for a lunar day (the old one demolished, ½ refunded)',
   relayMast: '+1 Relay Mast at the network edge when a rule finds no ground for 60 s',
+  autoSurvey: 'an idle survey drone flies the nearest unsurveyed prospect in coverage while the bank stays above 60%',
   lab: '+1 Research Lab when research waits on the transfer cap for 120 s',
   foilFactory: '+1 Foil Factory when foils hold a volley back for 120 s',
 };
