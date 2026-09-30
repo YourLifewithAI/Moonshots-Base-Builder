@@ -338,7 +338,8 @@ function api(game: Game) {
       game.publish();
     },
     /** the next flare's index (its seeded draws: the class, each machine's glitch; tests) */
-    setFlareIndex: (n: number) => { game.state.flare.n = n; game.publish(); },
+    // (the Moon's schedule is the truth a flare starts from: docs/20 W0c mirrors it into every base's `flare`)
+    setFlareIndex: (n: number) => { game.state.flare.n = n; if (game.moon) game.moon.weather.n = n; game.publish(); },
     /** the scarred, worst first (the panel's SCARRED line): kind 'b' a structure, 'r' a rover or drone, 'h' a hub unit */
     flareScarred: () => clone(scarredList(game.state)),
     /** a structure's capability line (σ, capability, scars, Replace's cost, time and payback) */

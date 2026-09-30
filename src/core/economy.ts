@@ -1385,7 +1385,8 @@ export function nightReserve(s: GameState, mods: Mods, burst: number, day: DayIn
   const nightLoad = !day.isNight && mods.dayDrawMult > 0 ? (load / mods.dayDrawMult) * mods.nightDrawMult : load;
   const short = Math.max(0, nightLoad - (p.supplyNight ?? p.supply));
   const left = day.isNight ? day.phaseLeft : NIGHT_S;
-  return Math.min(short * left, Math.max(0, p.capacity - burst));
+  // (a bank that discharges ×bankDischargeMult as fast needs that much more stored to carry the same night)
+  return Math.min(short * left * mods.bankDischargeMult, Math.max(0, p.capacity - burst));
 }
 
 function autoLaunchTick(s: GameState, mods: Mods, day: DayInfo) {
