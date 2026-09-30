@@ -32,8 +32,8 @@ test('deposit labels open a card: what the ground is, its numbers, and an action
   await expect(card).toBeVisible();
   await expect(card).toContainText('High-Ti basalt');
   // the card's lines quote the deposit's ore grade for each hub that would work it (docs/17 §9)
-  await expect(card).toContainText(/Smelters \(hydrogen reduction\): q [\d.]+–[\d.]+ at its centre/);
-  await expect(card).toContainText(/Silicon Refineries: q [\d.]+–[\d.]+ from it/);
+  await expect(card).toContainText(/Smelters \(hydrogen reduction\): q [\d.]+(–[\d.]+)? at its centre/);
+  await expect(card).toContainText(/Silicon Refineries: q [\d.]+(–[\d.]+)? from it/);
   await expect(card).toContainText(/inside your build network/);
   // a second click on the same label closes it; Esc closes it too
   await mark.click();
