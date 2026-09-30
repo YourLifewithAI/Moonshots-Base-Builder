@@ -71,6 +71,9 @@ export interface GradePlan {
 /** m from the middle of its cell a rover's blade still works it (it creeps on from cell to cell as it grades) */
 export const GRADE_REACH_M = 6;
 
+/** a rover's acceleration on the hop from one cell to the next, × a drive's (it creeps on across the ground it just levelled) */
+export const GRADE_HOP_ACCEL = 2;
+
 /** the rate every rover's work runs at: Site Grading doubles it */
 export const gradeRate = (mods: Pick<Mods, 'grading'>): number => (mods.grading ? GRADE_JOB.techMult : 1);
 

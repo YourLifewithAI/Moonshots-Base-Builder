@@ -28,7 +28,7 @@ import {
 } from './roads';
 import { centerOf } from '../buildings/instances';
 import { roverStep } from './traffic';
-import { GRADE_REACH_M, gradeArea, onGradeGround, standOf } from './grading';
+import { GRADE_HOP_ACCEL, GRADE_REACH_M, gradeArea, onGradeGround, standOf } from './grading';
 
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
@@ -292,6 +292,8 @@ function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: nu
     if (j && area) {
       to = area;
       if (onGradeGround(j, x, z) && !offAreaAt(s, x, z)) from = area;
+      // a hop on from cell to cell across ground the blade has just levelled: at road speed
+      if (from && from.id === area.id) return { pts: [[x, z], [g.x, g.z]] };
     }
   }
   const way = groundWay(s, [x, z], [g.x, g.z], null, null, from, to);
@@ -434,7 +436,8 @@ export function transitPlan(s: GameState, mods: Pick<Mods, 'roadSpeedMult' | 'ro
     // a step to the next stand at the same work (the frontier's next cell) is no new journey
     const local = !!t && !t.stuck && workOf(t) !== '' && workOf(t) === workOf(g)
       && (arrived(t) || (t.kind === 'grade' && g.kind === 'grade')); // a grading rover goes on from cell to cell as it works
-    r.trip = planTrip(s, r, g, sv, sa, local);
+    // (the blade's creep from cell to cell across the ground it has levelled: a brisker start and stop than a drive)
+    r.trip = planTrip(s, r, g, sv, local && g.kind === 'grade' ? sa * GRADE_HOP_ACCEL : sa, local);
     if (r.pw !== undefined) r.trip.rate = r.pw; // a new trip on a flat pack waits as the last did
   }
 }
