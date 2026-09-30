@@ -40,6 +40,7 @@ import {
 } from './exploration';
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
+import { TRAFFIC, trafficInfo, trafficStats } from './traffic';
 import { digAtHome, digRefusal, setDigSite } from './haul';
 import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, layApron, laySpur, migrateRoads, planLink, planSpur } from './roads';
 import { zonesFrom } from './zones';
@@ -2831,6 +2832,7 @@ export class Game {
   /** every trip ends as it starts (core/transit.ts TRANSIT.instant); on, the ones under way end now */
   debugInstantTravel(on: boolean) {
     TRANSIT.instant = on;
+    TRAFFIC.bypass = on;
     if (on) {
       for (const r of this.state.rovers ?? []) {
         const t = r.trip;
@@ -2841,6 +2843,12 @@ export class Game {
     }
     this.publish();
   }
+
+  /** the sim's reservations off (true: units drive through each other, as before docs/19 S4a) or on */
+  debugTrafficBypass(on: boolean) { TRAFFIC.bypass = on; }
+
+  /** who holds which road cell, and the sim's traffic counters (core/traffic.ts) */
+  debugTraffic() { return trafficInfo(this.state); }
 
   debugCompleteTech(id: TechId) {
     if (!TECHS[id] || this.state.techsDone.includes(id)) return;
@@ -2927,7 +2935,8 @@ export class Game {
       horizonSeam: this.horizon.seamError(),
       rocks: this.rocks.stats(),
       base: { ...this.instances.renderInfo(), sunDir: this.lighting.sunDirection.toArray() },
-      life: this.life.info(),
+      // (the sim's reservation counters ride with the visuals' traffic ones: core/traffic.ts)
+      life: (() => { const l = this.life.info(); return { ...l, traffic: { ...l.traffic, sim: trafficStats(this.state) } }; })(),
       lens: { fov: this.camera.fov, near: this.camera.near },
     };
   }

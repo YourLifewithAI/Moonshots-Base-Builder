@@ -584,6 +584,12 @@ export interface HaulState extends PackState {
   full?: boolean;
   /** a hub unit sent to a pit with every face working: it waits at the gate */
   wait?: 'gate';
+  // ── docs/19 S4a (core/traffic.ts): the sim's reservations ──
+  /** the road cells (and pit-ramp keys) it holds, in the order it drives them: the cell it just left,
+   *  the one it stands in, then the run granted ahead; rebuilt from the tick's plan, saved as it stands */
+  claim?: number[];
+  /** game-seconds it has been held up by another unit's reservation on this leg (the inspector reads it) */
+  held?: number;
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
