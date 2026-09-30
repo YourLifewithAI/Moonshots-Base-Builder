@@ -94,6 +94,7 @@ test('the day targets on seed 42: Era 2 by day 6, an outpost by day 8, every cre
   expect(perf.n, 'two rivals').toBe(2);
   expect(perf.ticks, 'ticked').toBeGreaterThanOrEqual(2900);
   expect(perf.msMean, `rivals cost ${perf.msMean.toFixed(2)} ms a second over ${perf.ticks} ticks`).toBeLessThan(2);
+  expect(perf.msPerTick, 'the moving average reads the same at 3000 s').toBeLessThan(2);
   await advanceTo(page, DAY(12));
   const r = await page.evaluate(() => {
     const g = window.__game;
@@ -260,7 +261,7 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
     expect(o.orders, `${f}: orders`).toBeGreaterThan(5);
     expect(o.badOrders, `${f}: orders name real buildings`).toEqual([]);
     expect(o.badSkip, `${f}: skipped techs exist`).toEqual([]);
-    expect(o.late, `${f}: late caps`).toEqual({ battery: 10, reactor: 4 });
+    expect(o.late, `${f}: late caps`).toEqual({ solar: 60, battery: 10, reactor: 4 });
   }
   // the Foundry's and the Vanguard's own techs are all in their lists (placed where they help) or deliberately skipped; the Commons leave
   // three cheap late ones (Slow Build, Guardianship, Long Night Gardens) to the tail, where the runner takes what is left

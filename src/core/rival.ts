@@ -310,6 +310,11 @@ export class RivalProgram {
       const pb = powerBook(s, this.base.mods);
       if (pb.nightShort > 0 && s.power.capacity < pb.nightShort * NIGHT_S * STABLE_NIGHT) return false;
     }
+    // a late base whose day's supply does not cover its load stops adding loads (labs, Data Centers, bays): it fills a bank before it grows
+    if (s.era >= LOADED_ERA) {
+      const pb = powerBook(s, this.base.mods);
+      if (pb.full < pb.load * LOADED_MARGIN) return false;
+    }
     return s.resources.parts >= STABLE_PARTS || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0);
   }
 
@@ -406,6 +411,9 @@ export class RivalProgram {
             const c = h.flare ? 'dockFleet' : 'holdRollout';
             if (h.used[c] === undefined) b.apply({ kind: 'counter', counter: c });
           }
+          break;
+        case 'runaway': // a hijacked rule orders junk: the Builder holds every rule for a minute or two
+          if (h.used.freezeRules === undefined) b.apply({ kind: 'counter', counter: 'freezeRules' });
           break;
         case 'rogueDrones':
           if (h.used.killSwitch === undefined) b.apply({ kind: 'counter', counter: 'killSwitch', id: h.id });
@@ -590,6 +598,9 @@ const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 
 /** what an unstable base may still order */
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
 const NIGHT_COVER = 0.9;
+/** from this era a base whose full-sun supply is under this share of its load adds no load (see `stable`) */
+const LOADED_ERA = 5;
+const LOADED_MARGIN = 0.9;
 /** the era from which `policy.lateCaps` apply */
 const RIVAL_LATE_ERA = 6;
 /** labs a base may run while it has no bank to carry the night (see `bankless`) */

@@ -204,7 +204,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       },
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
       ruleCaps: {},
-      lateCaps: { battery: 10, reactor: 4 },
+      lateCaps: { solar: 60, battery: 10, reactor: 4 },
       orders: orders(
         { type: 'nightVault', count: 1 },
         { type: 'faradayShed', count: 1 },
@@ -267,7 +267,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       },
       claimKinds: ['ice', 'ilmenite', 'radio'],
       ruleCaps: { food: 2 },
-      lateCaps: { battery: 10, reactor: 4 },
+      lateCaps: { solar: 60, battery: 10, reactor: 4 },
       // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
       skip: ['hazardWaivers'],
       orders: orders(
@@ -331,7 +331,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       },
       claimKinds: ['ice', 'volatiles', 'silica'],
       ruleCaps: { food: 2 },
-      lateCaps: { battery: 10, reactor: 4 },
+      lateCaps: { solar: 60, battery: 10, reactor: 4 },
       // the Consensus Council asks a second crew member at every lab
       skip: ['consensusCouncil'],
       orders: orders(

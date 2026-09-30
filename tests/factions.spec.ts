@@ -97,7 +97,7 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
     expect(Object.keys(x.policy.doctrines).length, x.id).toBeGreaterThan(3);
     expect(x.policy.claimKinds.length, x.id).toBeGreaterThan(0);
     expect(x.policy.ruleCaps, x.id).toEqual(expect.any(Object));
-    expect(x.policy.lateCaps, x.id).toEqual({ battery: 10, reactor: 4 });
+    expect(x.policy.lateCaps, x.id).toEqual({ solar: 60, battery: 10, reactor: 4 });
     expect(x.policy.orders.length, x.id).toBeGreaterThan(10);
     // the landing tech is the Era 1 faction pick, free, locked to its faction and its expedition
     expect(x.mapped).toBe(x.landingTech);

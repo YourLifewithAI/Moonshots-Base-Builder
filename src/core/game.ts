@@ -82,8 +82,9 @@ import {
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather, $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView, $descent,
 } from '../ui/stores';
 
-/** the rivals' cost per Moon second is averaged over this many seconds (`getRenderInfo().rivals.msPerTick`: a placement is a spike, the average must see a few) */
-const RIVAL_EMA_TICKS = 300;
+/** the rivals' cost per Moon second (`getRenderInfo().rivals.msPerTick`) is the mean of the game so far until this many seconds have passed, then a moving average over them
+ *  (a placement is a spike of 10-300 ms in a tick of 1-2: a short window swings by a millisecond around the mean; `msMean` is the mean of the whole game) */
+const RIVAL_EMA_TICKS = 3000;
 /** a start whose rivals must play more than this many Moon seconds before the player lands (the Commons: 4320) is spread over frames behind the descent line; a shorter one (the Vanguard: 1440, about a second) runs at once */
 const CHUNK_PREROLL_ABOVE = 3000;
 
@@ -2523,7 +2524,7 @@ export class Game {
       life: (() => { const l = this.life.info(); return { ...l, traffic: { ...l.traffic, sim: trafficStats(this.state) } }; })(),
       lens: { fov: this.camera.fov, near: this.camera.near },
       /** the other programs' cost (docs/20 §4.5): rivals landed, Moon seconds they have stepped, the last second's cost and its
-       *  moving average over 60 (ms; all rivals together), and how far they trail the player's clock (0: they tick in lockstep) */
+       *  moving average over 3000 (ms; all rivals together; `msMean`: the mean of the game so far), and how far they trail the player's clock (0: they tick in lockstep) */
       rivals: {
         n: this.rivals.length, ticks: this.rivalPerf.ticks, msLast: this.rivalPerf.msLast, msPerTick: this.rivalPerf.msPerTick,
         msMean: this.rivalPerf.ticks ? this.rivalPerf.sumMs / this.rivalPerf.ticks : 0, behind: 0,
