@@ -385,6 +385,8 @@ function api(game: Game) {
     hubLightOf: (src: number | BuildingId) =>
       hubLight(game.state, game.mods, SITES[game.state.siteId], typeof src === 'number' ? { kind: 'selected', id: src } : { kind: 'card', type: src })?.entries ?? null,
     /** the highlight up now: what is drawn, and its entries (docs/17 §6.1) */
+    /** the flags and dashed rings on the pits in an end state (EXHAUSTED, BOXED IN, RECLAIMED) */
+    getPitMarks: () => clone(game.debugPitMarks()),
     getHighlight: () => ({ ...game.debugHighlight(), view: $hubLight.get() }),
     /** R: turn the ghost a quarter */
     rotatePlacement: () => game.rotatePlacement(),
@@ -407,8 +409,8 @@ function api(game: Game) {
       }
       return k;
     },
-    /** view tests only: set the pit at `key`'s state ('boxed', 'exhausted', 'open') */
-    setPitState: (key: string, state: 'open' | 'boxed' | 'exhausted') => {
+    /** view tests only: set the pit at `key`'s state ('boxed', 'exhausted', 'reclaimed', 'open') */
+    setPitState: (key: string, state: 'open' | 'boxed' | 'exhausted' | 'reclaimed') => {
       const p = game.state.pits?.find((x) => x.key === key);
       if (p) p.state = state;
       return !!p;

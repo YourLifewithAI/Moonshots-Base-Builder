@@ -128,8 +128,9 @@ export function fullRadius(s: GameState, key: string, kind: DepositKind | null, 
 
 export type LitTier = 'lit' | 'dim';
 /** open: not dug · pit: dug, a face free · far: out of reach · full: every face working ·
- *  exhausted · boxed: it cannot widen · plain: a plain pit · stake: the plain pit a ghost would stake */
-export type LitState = 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'plain' | 'stake';
+ *  exhausted · boxed: it cannot widen · reclaimed: filled back (docs/19 S2b) · plain: a plain pit ·
+ *  stake: the plain pit a ghost would stake */
+export type LitState = 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'reclaimed' | 'plain' | 'stake';
 
 export interface LitEntry {
   /** the deposit's id ('ilmenite-0'); a plain pit's key ('plain:3'); 'stake' */
@@ -269,6 +270,7 @@ function labelOf(e: LitEntry, reachS: number): string {
     case 'full': return [`FULL ${faces}`, eta].filter(Boolean).join(' · ');
     case 'exhausted': return 'EXHAUSTED';
     case 'boxed': return 'BOXED IN';
+    case 'reclaimed': return 'RECLAIMED';
     case 'plain': return [e.name.replace('plain pit ', ''), `q ${e.q.toFixed(2)}`, faces, eta].filter(Boolean).join(' · ');
     case 'stake': return ['plain pit here', `q ${e.q.toFixed(2)}`, eta].filter(Boolean).join(' · ');
     default:
@@ -332,7 +334,7 @@ export function hubLight(s: GameState, mods: Mods, site: SiteDef, src: LightSour
     const eta = m ? m.trip.t : null;
     const inReach = eta === null || eta <= HUB.reachS;
     const state: LitState = state0 ?? (pit?.state === 'exhausted' ? 'exhausted' : pit?.state === 'boxed' ? 'boxed'
-      : !inReach ? 'far' : used >= t.faces ? 'full' : pit ? 'pit' : 'open');
+      : pit?.state === 'reclaimed' ? 'reclaimed' : !inReach ? 'far' : used >= t.faces ? 'full' : pit ? 'pit' : 'open');
     const kind = t.kind ?? null;
     const e: LitEntry = {
       id, key: t.key, kind, glyph: kind ? DEPOSIT_INFO[kind].glyph : '▭', name: t.name,
@@ -373,7 +375,7 @@ export function hubLight(s: GameState, mods: Mods, site: SiteDef, src: LightSour
   // where its units would go: the best in reach with a free face
   let best: LitEntry | null = null;
   for (const e of entries) {
-    if (e.tier !== 'lit' || !e.inReach || e.used >= e.faces || e.state === 'exhausted' || e.eta === null) continue;
+    if (e.tier !== 'lit' || !e.inReach || e.used >= e.faces || e.state === 'exhausted' || e.state === 'reclaimed' || e.eta === null) continue;
     if (!best || e.score > best.score + 1e-9 || (Math.abs(e.score - best.score) <= 1e-9 && (e.eta ?? 0) < (best.eta ?? 0))) best = e;
   }
   if (best) best.best = true;

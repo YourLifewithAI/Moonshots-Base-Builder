@@ -183,7 +183,7 @@ export interface DepositView {
 export interface DepositLit {
   /** 'lit': the hub wants it · 'dim': shown dimmer (a smelter's glass, KREEP) */
   tier: 'lit' | 'dim';
-  state: 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'plain' | 'stake';
+  state: 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'reclaimed' | 'plain' | 'stake';
   /** one way, game-s (null: no hub position — its palette card); approx: no road yet (≈) */
   eta: number | null;
   approx: boolean;
