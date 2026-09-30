@@ -19,7 +19,7 @@ import type { GameState } from '../core/state';
 import {
   AGENT_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, DOWNLINK, FEED,
   GRADE_JOB, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
-  MAX_SLOPE_LARGE, OVERCLOCK, SURVEY_TIERS,
+  MAX_SLOPE_LARGE, OVERCLOCK, SURVEY_DRONE, SURVEY_TIERS,
   CREW_ROTATION, EVA, PURE_AT, UNIT_POWER,
 } from './balance';
 
@@ -126,7 +126,10 @@ export type TechEffect = EffectFilter & (
   | { kind: 'survey'; tier?: 1 | 2 | 3 | 4; dataMult?: number; minCrew?: number;
       /** the deposit survey (docs/17 §13): its precision (±share), its rover-seconds ×, and
        *  the deposit kinds Relay Masts survey free in their radius */
-      precision?: number; depositTimeMult?: number; mastSurvey?: DepositKind[] }
+      precision?: number; depositTimeMult?: number; mastSurvey?: DepositKind[];
+      /** the survey-drone fleet (docs/19 S6): the level a Prospecting Bay reaches (2 bays a level),
+       *  and the drones' flight range ×range (their flights take 1/range as long) */
+      bayLevel?: 2 | 3; range?: number }
   /** ore grade (docs/17 §9.1): every load's q ×mult (process 'H2': hydrogen reduction's only) */
   | { kind: 'grade'; mult: number; process?: 'H2' }
   /** bedrock benches (docs/17 §8.5): every pit may cut this many 2 m benches below its loose layer */
@@ -267,17 +270,18 @@ export const TECHS: Record<TechId, TechDef> = {
     tradeoff: 'Ops video and science share one antenna.',
   },
   prospectingRovers: {
-    id: 'prospectingRovers', era: 1, lane: 'exploration', name: 'Prospecting Rovers', short: 'Prospecting Rovers',
+    id: 'prospectingRovers', era: 1, lane: 'exploration', name: 'Prospecting Drones', short: 'Prospecting Drones',
     costData: 100, requires: [],
     effects: [
       { kind: 'survey', tier: 1 },
       { kind: 'survey', depositTimeMult: 0.5 }, // docs/17 §14.4: deposit surveys in 20 rover-s
+      { kind: 'unlock', building: 'prospectingBay' },
       { kind: 'unlock', building: 'relayMast' },
       { kind: 'powerDelta', building: 'lander', kw: -1 },
     ],
-    desc: 'Neutron and X-ray spectrometers on wheels, and a hopper for anything past driving range.',
-    visual: 'A rover charging dock appears beside the Lander, and Relay Masts can rise.',
-    tradeoff: 'Every kilometre surveyed is a robot not building.',
+    desc: 'Neutron and X-ray spectrometers on a delta-wing drone: print more at a Prospecting Bay, and every drone flies its own survey of the Moon.',
+    visual: 'A Prospecting Bay can be built to print survey drones, and Relay Masts can rise.',
+    tradeoff: 'Every sortie spends stored energy, propellant and parts.',
   },
   siteGrading: {
     id: 'siteGrading', era: 1, lane: 'robotics', name: 'Site Grading', short: 'Site Grading',
@@ -727,9 +731,10 @@ export const TECHS: Record<TechId, TechDef> = {
     costData: 150, requires: ['buildOrders', 'prospectingRovers'],
     effects: [
       { kind: 'siting' },
+      { kind: 'autoRule', family: 'survey' },
       { kind: 'upkeepMult', buildings: ['roboticsBay'], mult: 1.2 },
     ],
-    desc: 'A survey drone flies every candidate pad first: the deposit under it, the light on it, the haul lanes across it.',
+    desc: 'A survey drone flies every candidate pad first: the deposit under it, the light on it, the haul lanes across it. Idle drones fly the map on their own, nearest first, while the bank holds its reserve.',
     visual: 'A survey drone rests on a pad on each Robotics Bay roof.',
     tradeoff: 'Drones that fly every pad wear like rovers.',
   },
@@ -835,10 +840,10 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'orbitalProspector', era: 4, lane: 'exploration', name: 'Orbital Prospector', short: 'Orbital Prospector',
     costData: 240, costGoods: { chips: 5 }, requires: ['prospectingRovers', 'waferFab'],
     effects: [
-      { kind: 'survey', tier: 2 },
+      { kind: 'survey', tier: 2, bayLevel: 2, range: 1.5 },
       { kind: 'powerDelta', building: 'lander', kw: -2 },
     ],
-    desc: 'A polar orbiter with a gamma-ray spectrometer: your chips, Earth’s rocket.',
+    desc: 'A polar orbiter with a gamma-ray spectrometer: your chips, Earth’s rocket. It steers the drones too: Prospecting Bays grow to four bays and every flight is a third shorter.',
     visual: 'The Lander adds a tracking dish for the polar orbiter.',
     tradeoff: 'Someone has to listen every pass.',
   },
@@ -1230,10 +1235,10 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'farSideRelay', era: 6, lane: 'exploration', name: 'Far-Side Relay', short: 'Far-Side Relay',
     costData: 1100, costGoods: { chips: 15, parts: 20 }, requires: ['orbitalProspector'],
     effects: [
-      { kind: 'survey', tier: 3 },
+      { kind: 'survey', tier: 3, bayLevel: 3 },
       { kind: 'powerDelta', building: 'lander', kw: -2 },
     ],
-    desc: 'A halo-orbit relay at Earth–Moon L2, like Queqiao.',
+    desc: 'A halo-orbit relay at Earth–Moon L2, like Queqiao: the far side answers, and Prospecting Bays grow to six bays.',
     visual: 'The Lander raises a lattice mast for the far-side relay link.',
     tradeoff: 'The whole far side through one antenna.',
   },
@@ -2302,12 +2307,18 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       const out: EffectLine[] = [];
       if (fx.tier) {
         const t = SURVEY_TIERS[fx.tier];
-        const detail = fx.tier === 1 ? 'local reveal 320 m, Moon map ≤27°, hopper surveys'
-          : fx.tier === 2 ? 'whole local map, near side, first outpost slot'
+        const detail = fx.tier === 1 ? 'local reveal 320 m, Moon map ≤27°, drone surveys, first outpost slot'
+          : fx.tier === 2 ? 'whole local map, near side'
           : fx.tier === 3 ? 'far side, +1 outpost slot'
           : 'subsurface prospects, +1 outpost slot, enables ATLAS';
         out.push(pro(`MAP T${fx.tier} ${t.label}: ${detail}`, fx.tier, 'count'));
-        if (fx.tier === 1) out.push(con('every survey borrows 1 rover (never a pinned one) for its duration', 1, 'use'));
+        if (fx.tier === 1) out.push(con('every survey spends stored energy, hopper propellant and parts, and holds a drone for its flight', 1, 'use'));
+      }
+      if (fx.bayLevel !== undefined) {
+        out.push(pro(`PROSPECTING BAY LEVEL ${fx.bayLevel === 2 ? 'II' : 'III'}: ${SURVEY_DRONE.baysByLevel[fx.bayLevel - 1]} drone bays a Bay`, fx.bayLevel, 'count'));
+      }
+      if (fx.range !== undefined) {
+        out.push(pro(`drone range ×${num(fx.range)}: survey flights take ${Math.round((1 - 1 / fx.range) * 100)}% less time`, mag(fx.range), 'mult'));
       }
       if (fx.dataMult !== undefined) {
         out.push(pro(`survey data ×${num(fx.dataMult)}${fx.minCrew ? ` while ≥${fx.minCrew} crew are aboard` : ''}`,
@@ -2436,6 +2447,12 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
         con('held orders take stock the moment it lands', 1, 'use'),
       ];
     case 'autoRule': {
+      if (fx.family === 'survey') {
+        return [
+          pro(`NEW RULE ${FAMILY_LABEL.survey}: ${RULE_TEXT.autoSurvey} (T ${Math.round(RULES.autoSurvey.threshold * 100)}% of the bank)`, 1, 'flag'),
+          con('an idle drone flies unasked: each sortie spends the survey’s stored energy, propellant and parts', 1, 'use'),
+        ];
+      }
       const rules = rulesOf(fx.family).filter((r) => !(r === 'iceHarvester' && ctx.siteId && !SITES[ctx.siteId].hasIce));
       const main = RULES[rules[0]].building;
       const out = rules.map((r) => pro(`NEW RULE ${FAMILY_LABEL[fx.family]}: ${RULE_TEXT[r]}${/\(cap /.test(RULE_TEXT[r]) || RULES[r].capRange[1] <= 1 ? '' : ` (cap ${RULES[r].cap})`}`, 1, 'flag'));

@@ -45,6 +45,7 @@ const BUILDER_NEXT: Record<AutoFamily, string> = {
   life: 'The Builder now keeps oxygen, food and water ahead of the crew, and a bed free: tune it with [B].',
   maintenance: 'Worn machines are replaced by the Builder: tune it with [B].',
   network: 'The Builder now plants Relay Masts toward ground its rules need: tune it with [B].',
+  survey: 'Idle survey drones now fly the nearest unsurveyed prospect while the bank keeps its reserve: tune it with [B].',
   research: 'The Builder now adds labs when research waits on the transfer cap: tune it with [B].',
   export: 'The Builder now adds Foil Factories when foils hold a volley back: tune it with [B].',
 };
@@ -243,6 +244,11 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       const d = resolveTech(TECHS[t], s.expedition);
       return d.era === era && !d.breakthrough && !d.track && techVisible(d, ctx);
     });
+    // breakthroughs open in the era too (docs/19 S6): they count, and each is found by a survey
+    const finds = TECH_ORDER.filter((t) => {
+      const d = resolveTech(TECHS[t], s.expedition);
+      return d.era === era && !!d.breakthrough && techVisible(d, { ...ctx, discoveries: TECH_ORDER });
+    });
     const next = ERA_GATES[(era + 1) as Era];
     const names = opens.slice(0, 4).map((t) => TECHS[t].short).join(', ');
     // the era's destiny (docs/14 §2): the pick that opens the next era, and the meter
@@ -260,7 +266,8 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `<div class="eb-era mono">ERA ${era}</div>` +
       `<h1 class="eb-name">${esc(ERA_NAMES[era] ?? '')}</h1>` +
       `<p class="eb-blurb">${esc(blurb)}</p>` +
-      (opens.length ? `<p class="eb-line"><span class="label">Research opens</span> ${opens.length} techs — ${esc(names)}${opens.length > 4 ? '…' : ''}</p>` : '') +
+      (opens.length + finds.length ? `<p class="eb-line"><span class="label">Research opens</span> ${opens.length + finds.length} techs — ${esc(names)}${opens.length > 4 ? '…' : ''}` +
+        `${finds.length ? ` · ${finds.length} found by survey ◎` : ''}</p>` : '') +
       destiny +
       (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> ${era >= 2
         ? `opens with this era’s destiny and ${CHARTER_TECHS - 1} more of its techs, or the destiny, ${CHARTER_DEED_TECHS - 1} more and: ${esc(next.deed)}`

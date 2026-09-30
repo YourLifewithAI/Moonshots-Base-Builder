@@ -45,7 +45,7 @@ const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
   iceHarvester: '❄', hydroponics: '❀', battery: '▮', refinery: '◫', lab: '◎', roboticsBay: '◉', storageYard: '▦',
   partsFab: '⚙', reactor: '☢', recDome: '◔', chipFab: '⊞', dataCenter: '⌗',
-  foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍',
+  foilFactory: '▰', massDriver: '⟶', relayMast: '⊥', propellantPlant: '◍', prospectingBay: '△',
   solarObservatory: '☉',
   waterPlant: '≋', iceMiner: '❄',
   // destiny buildings (docs/14 §2.8)

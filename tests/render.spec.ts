@@ -1,5 +1,5 @@
 /** The one renderer: the cel style. Forward rendering straight to an MSAA
- *  canvas (no post chain, no render targets, no shadow map), faceted Lambert
+ *  canvas (no post chain, no render targets, no shadow map), faceted stepped-light
  *  terrain whose vertex colours carry the site and its deposits, the cel
  *  building palette and lights, the fixed isometric camera, the menu's one
  *  Graphics row, no "RENDER —" alerts and a frame-cost sanity check. The
@@ -89,9 +89,10 @@ test('one renderer: forward rendering to an MSAA canvas, no post chain, no shado
   expect(info.context.toneMapping, 'the palette is the colour you see').toBe(0);
   expect(info.safe).toBe(false);
   expect(info.safeMode).toBe(false);
-  expect(info.terrain).toMatchObject({ material: 'MeshLambertMaterial', vertexColors: true, faceted: true });
-  expect(info.horizonMaterial).toBe('MeshLambertMaterial');
-  expect(info.rocks.material).toBe('MeshLambertMaterial');
+  // the cel ground program (world/celSurface.ts): one small ShaderMaterial for terrain, ring and boulders
+  expect(info.terrain).toMatchObject({ material: 'ShaderMaterial', vertexColors: true, faceted: true });
+  expect(info.horizonMaterial).toBe('ShaderMaterial');
+  expect(info.rocks.material).toBe('ShaderMaterial');
   expect(info.buildingMaterials).toEqual({ lander: 'ShaderMaterial', solar: 'ShaderMaterial' });
   expect(info.base.trackers.material).toBe('ShaderMaterial');
   expect(info.base.reveal, 'the print reveal, not the squash-rise').toBe(true);
@@ -109,7 +110,7 @@ test('one renderer: forward rendering to an MSAA canvas, no post chain, no shado
   expect(d.style).toBe('cel');
   expect(d.context.antialias).toBe(true);
   expect(d.context.shadowMap).toBe(false);
-  expect(d.terrainMaterial).toBe('MeshLambertMaterial');
+  expect(d.terrainMaterial).toBe('ShaderMaterial');
   expect((await cam(page)).iso).not.toBeNull();
 });
 
@@ -438,7 +439,7 @@ test('frame cost: draw calls, triangles and frame time stay small', async ({ pag
   expect(cost.median, 'median frame (ms)').toBeLessThan(250);
 });
 
-test('palette: LEAF maps to its own key; the destiny buildings take their overrides and render on the cel program', async ({ page }) => {
+test('palette: LEAF maps to its own key; the destiny buildings take their overrides and their family accent, and render on the cel program', async ({ page }) => {
   test.setTimeout(150_000);
   await boot(page, 'mare', '&exp=robotic');
   const r = await page.evaluate(async () => {
@@ -472,7 +473,9 @@ test('palette: LEAF maps to its own key; the destiny buildings take their overri
       others: [K.GLASS, K.TRIM, K.PLATE].map((f) => C.finishKey(f.v, f.rough, f.metal, f.emit ?? 0)),
       ringLeaf: has('greenhouseRing', 0x5f8f3f), domeLeaf: has('gardenDome', 0x5f8f3f),
       monolithHull: has('serverMonolith', 0x23262b), monolithGlass: has('serverMonolith', 0x0f3a44),
-      hiveHull: has('droneHive', 0x3a3f46), domeRibs: has('gardenDome', 0xc4c8ce),
+      hiveHull: has('droneHive', 0x3a3f46),
+      // one accent per family: the dome's ribs wear the life green, not silver (docs/19 S1a)
+      domeRibs: has('gardenDome', 0x5f9f3f),
       habitatNoLeaf: !has('habitat', 0x5f8f3f),
       materials: g.getRenderInfo().buildingMaterials,
     };

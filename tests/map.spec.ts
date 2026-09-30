@@ -171,7 +171,7 @@ test('deposit gating: ice must be confirmed, KREEP takes no habitat, a strike ma
   });
   expect(far.dist).toBeGreaterThan(120);
   expect(far.check.valid).toBe(false);
-  expect(far.check.reason).toBe('ICE UNCONFIRMED — extend your survey (Prospecting Rovers) or place a Relay Mast nearby');
+  expect(far.check.reason).toBe('ICE UNCONFIRMED — extend your survey (Prospecting Drones) or place a Relay Mast nearby');
   // unmapped ground reads the same with or without ice under it: no free hints
   const bare = await page.evaluate(() => {
     const g = window.__game!;
@@ -326,7 +326,7 @@ test('large pads: 9+ cells need ≤0.8 m of relief, and Site Grading makes one',
   expect(mare).toMatch(/^Too rough for a large pad \(\d\.\d m relief > 0\.8 m\) — grade it \(Grade Site\)$/);
 });
 
-test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty decays', async ({ page }) => {
+test('survey: pays data, flies a drone (no rover is lent), reveals a breakthrough, and novelty decays', async ({ page }) => {
   await start(page, 'mare', 'robotic');
   // out of range at the landing site
   const r0 = await page.evaluate(() => {
@@ -336,7 +336,7 @@ test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty de
     return g.getState();
   });
   expect(r0.survey.active).toBeNull();
-  expect(hasAlert(r0, /^OUT OF RANGE — Tranquillitatis pit is regional: needs T1 Prospecting Rovers \(Era 1\)$/)).toBe(true);
+  expect(hasAlert(r0, /^OUT OF RANGE — Tranquillitatis pit is regional: needs T1 Prospecting Drones \(Era 1\)$/)).toBe(true);
   await complete(page, ['prospectingRovers']);
   const r = await page.evaluate(() => {
     const g = window.__game!;
@@ -362,14 +362,16 @@ test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty de
   expect(r.before.resources.oxygen - r.paid.resources.oxygen).toBe(33);
   expect(r.before.resources.water - r.paid.resources.water).toBe(7);
   expect(r.before.resources.parts - r.paid.resources.parts).toBe(5);
-  expect(r.paid.survey.active.endsAt - r.paid.survey.active.startedAt).toBeCloseTo(98, 6);
+  expect(r.paid.survey.flights[0].endsAt - r.paid.survey.flights[0].startedAt).toBeCloseTo(98, 6);
+  expect(r.paid.survey.active).toBeNull();
   expect(r.before.bots.total).toBe(2);
-  expect(r.running.bots.total).toBe(1); // one robot lent to the hopper
+  expect(r.running.bots.total).toBe(2); // the drone flies it: no rover is lent
   expect(r.lunar.active).toEqual({ id: 'tranqPit', remaining: 97 });
-  expect(hasAlert(r.busy, /^SURVEY IN PROGRESS — Tranquillitatis pit 1:37$/)).toBe(true);
-  expect(r.almost.survey.active).not.toBeNull();
-  // 98 s later: the data, the breakthrough, and the robot home
-  expect(r.done.survey.active).toBeNull();
+  // the one drone is out: the next survey waits for it (and its 20 s recharge)
+  expect(hasAlert(r.busy, /^ALL 1 DRONE IS OUT — the next is home in 1:57$/)).toBe(true);
+  expect(r.almost.survey.flights.length).toBe(1);
+  // 98 s later: the data, the breakthrough, and the drone home
+  expect(r.done.survey.flights).toEqual([]);
   expect(r.done.data - r.before.data).toBe(30);
   expect(r.done.survey.prospects.tranqPit).toMatchObject({ cls: 'regional', data: 30 });
   expect(r.done.discoveries).toContain('btLavaTubeCaverns');
@@ -382,10 +384,12 @@ test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty de
   // novelty: Moltke is the first ilmenite (20), Maskelyne the second (30 × 0.5)
   const n = await page.evaluate(() => {
     const g = window.__game!;
+    g.advanceGameSeconds(20); // the drone recharges
     g.surveyProspect('moltke');
     g.advanceGameSeconds(61);
     const moltke = g.getState().survey.prospects.moltke;
     const cost = g.getLunar().prospects.find((p: any) => p.id === 'maskelyne');
+    g.advanceGameSeconds(20);
     g.surveyProspect('maskelyne');
     g.advanceGameSeconds(cost.survey.timeS + 1);
     return { moltke, maskelyne: g.getState().survey.prospects.maskelyne, cost };
@@ -397,12 +401,13 @@ test('survey: pays data, borrows a robot, reveals a breakthrough, and novelty de
   // a shortfall names the goods
   const short = await page.evaluate(() => {
     const g = window.__game!;
+    g.advanceGameSeconds(21); // the drone is home and charged
     g.grantResources({ oxygen: -g.getState().resources.oxygen });
     g.surveyProspect('descartes');
     g.advanceGameSeconds(0);
     return g.getState();
   });
-  expect(short.survey.active).toBeNull();
+  expect(short.survey.flights).toEqual([]);
   expect(hasAlert(short, /^SURVEY NEEDS \d+○ — have 0$/)).toBe(true);
 });
 
@@ -440,7 +445,7 @@ test('outposts: a slot from orbit, a claim in chips, a stream, a grounded hopper
   });
   expect(pre.survey.prospects.moltke.data).toBe(20);
   expect(pre.survey.outposts).toEqual([]);
-  expect(hasAlert(pre, /^NO OUTPOST SLOT — Orbital Prospector \(Era 4\)$/)).toBe(true);
+  expect(hasAlert(pre, /^NO OUTPOST SLOT — Prospecting Drones \(Era 1\)$/)).toBe(true);
   expect(hasAlert(pre, /^PROTECTED HERITAGE SITE — survey only$/)).toBe(true);
   expect(hasAlert(pre, /^NOTHING TO EXTRACT — anomaly$/)).toBe(true);
   await complete(page, ['prospectingRovers', 'orbitalProspector']);
@@ -450,6 +455,7 @@ test('outposts: a slot from orbit, a claim in chips, a stream, a grounded hopper
     g.claimOutpost('cabeus');           // not yet surveyed
     g.advanceGameSeconds(0);
     const unsurveyed = g.getState();
+    g.advanceGameSeconds(20);           // the drone is home and charged
     g.surveyProspect('cabeus');
     powered(328);
     const surveyed = g.getState();
@@ -588,16 +594,16 @@ test('fast-forward ticks as play does: the clock moves first, then the tick read
   await start(page, 'mare', 'robotic');
   const r = await page.evaluate(() => {
     const g = window.__game!;
-    g.surveyProspect('moltke'); // a 60 s micro-rover trip
+    g.surveyProspect('moltke'); // a 60 s drone flight
     g.advanceGameSeconds(0);
-    const trip = g.getState().survey.active;
+    const trip = g.getState().survey.flights[0];
     let n = 0;
-    while (g.getState().survey.active && n < 70) { g.advanceGameSeconds(1); n++; }
+    while (g.getState().survey.flights.length && n < 70) { g.advanceGameSeconds(1); n++; }
     const s = g.getState();
     return { trip, n, s, home: s.alerts.find((a: any) => a.text.startsWith('SURVEY COMPLETE')) };
   });
   expect(r.trip.endsAt - r.trip.startedAt).toBeCloseTo(60, 6);
-  // the tick that brings the rover home is stamped with the second it closes —
+  // the tick that brings the drone home is stamped with the second it closes —
   // the clock the fast-forward stops on, as in the live loop
   expect(r.home.at).toBe(r.s.simTime);
   expect(r.home.at).toBeGreaterThanOrEqual(r.trip.endsAt - 1e-6);

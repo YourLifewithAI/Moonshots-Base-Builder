@@ -232,7 +232,7 @@ Grading provides.
 | Tier | Coverage | Local reveal | Outpost slots | Unlocked by |
 |---|---|---|---|---|
 | T0 LANDING SITE | the landing site | 120 m | 0 | landing |
-| T1 REGIONAL | regional prospects (≤27°) | 320 m | 0 | Prospecting Rovers |
+| T1 REGIONAL | regional prospects (≤27°) | 320 m | 1 | Prospecting Drones |
 | T2 NEAR SIDE | the whole near side | whole map | 1 | Orbital Prospector |
 | T3 FAR SIDE | the far side | whole map | 2 | Far-Side Relay |
 | T4 SUBSURFACE | buried prospects | whole map | 3 | Deep Sounding Network |

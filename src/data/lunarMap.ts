@@ -155,6 +155,17 @@ export const HOPPER = {
   waterBase: 4, waterPerDeg: 0.2, waterMax: 40,
   timeBase: 60, timePerDeg: 3, timeMax: 420,
 };
+/** The one-time sample cache the FIRST survey of each outpost kind delivers (docs/19 S6): about a minute of
+ *  a hub's output of what that ground yields. `res` 'data' goes to the research bank. */
+export const SAMPLE_CACHE: Record<OutpostKind, { res: ResourceId | 'data'; amount: number }> = {
+  ilmenite: { res: 'metals', amount: 30 },
+  volatiles: { res: 'water', amount: 24 },
+  silica: { res: 'silicon', amount: 30 },
+  glass: { res: 'oxygen', amount: 40 },
+  ice: { res: 'water', amount: 24 },
+  kreep: { res: 'chips', amount: 3 },
+  radio: { res: 'data', amount: 20 },
+};
 /** survey data novelty: 1st, 2nd, 3rd-and-later surveyed prospect of a kind */
 export const NOVELTY = [1, 0.5, 0.25];
 /** anomalies that host no breakthrough pay this much extra, before novelty */

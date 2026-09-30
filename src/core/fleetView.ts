@@ -10,7 +10,7 @@ import type { Deposit } from '../terrain/heightfield';
 import type { DigOption, FleetView, HaulView, RoverView, SiteCrewView } from '../ui/stores';
 import type { BuildingState, GameState } from './state';
 import { effectiveRates, type Mods } from './mods';
-import { crewKW, crewRate, isDrone, roversAt, siteEta, summonPick, surveyRover } from './fleet';
+import { crewKW, crewRate, isDrone, roversAt, siteEta, summonPick } from './fleet';
 import { arrived, siteTransit, tripLeft } from './transit';
 import { fmtClock } from './daynight';
 import { digsHome, haulSpec, tripFor } from './haul';
@@ -21,6 +21,7 @@ import { PROSPECTS } from '../data/lunarMap';
 import { packLine } from './unitPower';
 import { hubViews } from './hubView';
 import { gradeView, jobRect } from './grading';
+import { surveyFleetView } from './surveyDrones';
 
 const G = RESOURCES.regolith.glyph;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -68,11 +69,7 @@ export function digSpotIn(s: GameState, b: BuildingState, d: Pick<Deposit, 'cx' 
   return null;
 }
 
-function roverState(s: GameState, r: GameState['rovers'][number], survey: boolean): string {
-  if (survey) {
-    const a = s.survey.active;
-    return a ? `OUT ON A SURVEY — ${PROSPECTS[a.id]?.short ?? a.id}` : 'OUT ON A SURVEY';
-  }
+function roverState(s: GameState, r: GameState['rovers'][number]): string {
   const site = r.site !== null ? s.buildings.find((b) => b.id === r.site) : undefined;
   const home = s.buildings.find((b) => b.id === r.home);
   // on its way (core/transit.ts): where to, and when it gets there
@@ -118,7 +115,6 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
 export function fleetView(
   s: GameState, mods: Mods, site: SiteDef, deposits: readonly Deposit[], revealed: (d: Deposit) => boolean,
 ): FleetView {
-  const away = surveyRover(s);
   const at = new Map(s.buildings.map((b) => [b.id, b]));
   const brown = !!s.power?.brownout;
   const rovers: RoverView[] = (s.rovers ?? []).map((r) => {
@@ -126,8 +122,8 @@ export function fleetView(
     const home = at.get(r.home);
     return {
       id: r.id, home: r.home, homeName: home ? label(home) : '—',
-      site: r.site, siteName: siteB ? label(siteB) : '', pinned: r.pinned, survey: r.id === away,
-      state: roverState(s, r, r.id === away),
+      site: r.site, siteName: siteB ? label(siteB) : '', pinned: r.pinned,
+      state: roverState(s, r),
       tripS: r.trip && !r.trip.stuck ? tripLeft(r.trip) : 0,
       pack: packLine(r, isDrone(s, r) ? 'drone' : 'rover', mods, brown), flat: r.src === 'flat',
     };
@@ -200,5 +196,5 @@ export function fleetView(
       rate: trip.rate, homeRate: homeTrip.rate, waiting, nearby, pack,
     };
   }
-  return { rovers, sites, hauls, grading: gradeView(s, mods), ...hubViews(s, mods, site) };
+  return { rovers, sites, hauls, grading: gradeView(s, mods), ...hubViews(s, mods, site), survey: surveyFleetView(s, mods) };
 }

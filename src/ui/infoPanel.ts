@@ -23,6 +23,7 @@ import { SPACE_WEATHER } from '../data/spaceWeather';
 import { FEED_KINDS, FEED_LABEL } from '../data/deposits';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { mountBuilderSection } from './builderPanel';
+import { surveyDronesHtml } from './fleetPanel';
 
 function techThatUnlocks(b: BuildingId): string | null {
   for (const tid of TECH_ORDER) {
@@ -168,10 +169,10 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
       <section><span class="label">Fleet sources</span>
         ${buildingLine('lander', 0, '+').replace('+0/min', `+${BUILDINGS.lander.bots ?? 0} rovers`)}
         ${buildingLine('roboticsBay', 0, '+').replace('+0/min', `+${(BUILDINGS.roboticsBay.bots ?? 0) + mods.botPerBay} rovers`)}
-        ${v.surveying ? `<div class="goal-hint">${v.surveying} more rover${v.surveying === 1 ? ' is' : 's are'} out on a survey — back when it ends.</div>` : ''}
         ${$power.get().flat ? `<div class="goal-hint">${$power.get().flat} unit${$power.get().flat === 1 ? '' : 's'} waiting for charge — out of charge in a brownout; ${TECHS.roverPowerPacks.name} and battery banks carry them through.</div>` : ''}
         <div class="goal-hint">Rovers take the construction queue one site each; each working rover draws ${siteKW} kW. More rovers = more parallel construction.</div>
-        <div class="goal-hint">To speed one build, select a rover and Send it there, or select the site and Summon one: rovers on one site build ×n^${FLEET.rateExp} (2 → ×${(2 ** FLEET.rateExp).toFixed(2)}), each drawing its own ${siteKW} kW, on the same weld parts.</div></section>`;
+        <div class="goal-hint">To speed one build, select a rover and Send it there, or select the site and Summon one: rovers on one site build ×n^${FLEET.rateExp} (2 → ×${(2 ** FLEET.rateExp).toFixed(2)}), each drawing its own ${siteKW} kW, on the same weld parts.</div></section>
+      ${surveyDronesHtml($fleet.get().survey)}`;
   }
   if (key === 'morale') {
     return `

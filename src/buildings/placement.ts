@@ -314,7 +314,7 @@ export function checkPlacement(
     // unmapped ground says nothing either way, so the ghost never hints at hidden ice
     return groundMapped(state, cx, cz, tier)
       ? { valid: false, reason: 'No ice beneath this spot — check the deposit overlay [I]' }
-      : { valid: false, reason: 'ICE UNCONFIRMED — extend your survey (Prospecting Rovers) or place a Relay Mast nearby' };
+      : { valid: false, reason: 'ICE UNCONFIRMED — extend your survey (Prospecting Drones) or place a Relay Mast nearby' };
   }
   if (type === 'habitat' && dep?.kind === 'kreep') {
     return { valid: false, reason: 'RADIATION — KREEP soil: no habitats here' };

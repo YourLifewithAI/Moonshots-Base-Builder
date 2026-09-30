@@ -10,7 +10,8 @@ import { crewRate } from '../core/fleet';
 import { roverFlareView } from '../core/flareEffects';
 import { fmtClock } from '../core/daynight';
 import { el } from './hud';
-import { $fleet, $fleetFlash, $fleetTarget, $roverSel, $selection, type SiteCrewView } from './stores';
+import { $fleet, $fleetFlash, $fleetTarget, $roverSel, $selection, type SiteCrewView, type SurveyDroneView, type SurveyFleetView } from './stores';
+import { SURVEY_DRONE } from '../data/balance';
 
 const G = RESOURCES.regolith.glyph;
 const perMin = (r: number) => `${Math.round(r * 60)}${G}/min`;
@@ -25,9 +26,46 @@ function crewLine(c: SiteCrewView): string {
     (c.flat ? ` · ${c.flat} out of charge` : '');
 }
 
+const escHtml = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
+/** one drone's line: docked and ready, charging (its pack), or out (where, and when it is home) */
+function droneLine(d: SurveyDroneView): string {
+  return d.state === 'out' ? `out → ${d.name} ${fmtClock(d.remaining)}`
+    : d.state === 'charging' ? `docked · charging ${Math.round(d.charge * 100)}%` : 'docked · ready';
+}
+
+/** SURVEY DRONES (docs/19 S6): the fleet in one line ('2/3 docked · 1 out → Marius Hills 2:10'), a row
+ *  per drone, and the prints under way. `home`: only the drones docked at that building (a Prospecting
+ *  Bay's inspector). Every value has an id: refreshSurveyDrones keeps them live. */
+export function surveyDronesHtml(v: SurveyFleetView, home?: number): string {
+  if (!v.total && !v.prints.length && !v.cap) return '';
+  const rows = v.drones.filter((d) => home === undefined || d.home === home)
+    .map((d) => `<div class="row"><span>△ Drone ${d.id}${home === undefined ? ` <span class="label">${escHtml(d.homeName)}</span>` : ''}</span>` +
+      `<span class="mono" id="sd-d${d.id}">${escHtml(droneLine(d))}</span></div>`).join('');
+  const prints = v.prints.filter((p) => home === undefined || p.bay === home)
+    .map((p) => `<div class="row"><span>Printing a drone${home === undefined ? ` <span class="label">${escHtml(p.name)}</span>` : ''}</span>` +
+      `<span class="mono" id="sd-p${p.bay}">${fmtClock(p.left)}</span></div>`).join('');
+  return `<section id="survey-drones"><div class="tt-name"><span>△ SURVEY DRONES</span>` +
+    `<span class="mono" id="sd-cap">${v.total}/${v.cap} bays</span></div>
+    <span class="label mono" id="sd-line">${escHtml(v.line)}</span>${rows}${prints}
+    <div ${NOTE}>Every docked, charged drone flies one survey of the Moon at once: more drones, more surveys in parallel. The Lander carries one; a Prospecting Bay prints more (${SURVEY_DRONE.cost.metals}◆ ${SURVEY_DRONE.cost.parts}⚙, ${SURVEY_DRONE.printS} s each) into ${v.baysEach} bays — Orbital Prospector makes them ${SURVEY_DRONE.baysByLevel[1]}, Far-Side Relay ${SURVEY_DRONE.baysByLevel[2]}. A drone home from a flight recharges for ${SURVEY_DRONE.rechargeS} s.</div>
+  </section>`;
+}
+
+/** live numbers of a SURVEY DRONES section */
+export function refreshSurveyDrones(root: HTMLElement, v: SurveyFleetView) {
+  setText(root, 'sd-cap', `${v.total}/${v.cap} bays`);
+  setText(root, 'sd-line', v.line);
+  for (const d of v.drones) setText(root, `sd-d${d.id}`, droneLine(d));
+  for (const p of v.prints) setText(root, `sd-p${p.bay}`, fmtClock(p.left));
+}
+
 /** What makes the building inspector rebuild (buttons appear or change). */
 export function fleetSig(sel: BuildingState): string {
   const f = $fleet.get();
+  if (sel.type === 'prospectingBay') {
+    return `bay:${f.survey.drones.filter((d) => d.home === sel.id).map((d) => d.id).join(',')}:${f.survey.prints.some((p) => p.bay === sel.id)}:${f.survey.baysEach}`;
+  }
   if (isSite(sel)) {
     const c = f.sites[sel.id];
     return c ? `site:${c.pinned > 0}:${c.summon === ''}` : 'site';
@@ -39,6 +77,7 @@ export function fleetSig(sel: BuildingState): string {
 /** Body sections: a site's crew arithmetic; an excavator's haul and the
  *  deposits it could dig. (The buttons are in the foot, always in view.) */
 export function fleetBodyHtml(sel: BuildingState): string {
+  if (sel.type === 'prospectingBay' && !isSite(sel)) return surveyDronesHtml($fleet.get().survey, sel.id);
   if (isSite(sel)) {
     return $fleet.get().sites[sel.id] ? `<section><span class="label">Construction rovers</span>
       <div ${NOTE} id="insp-crew-note"></div></section>` : '';
@@ -92,6 +131,7 @@ function setText(root: HTMLElement, id: string, text: string) {
 /** Live numbers in those sections (called on every publish). */
 export function refreshFleet(root: HTMLElement, sel: BuildingState) {
   const f = $fleet.get();
+  if (sel.type === 'prospectingBay' && !isSite(sel)) refreshSurveyDrones(root, f.survey);
   const c = f.sites[sel.id];
   if (c && isSite(sel)) {
     setText(root, 'insp-crew', crewLine(c));
@@ -139,7 +179,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
     const r = id === null ? undefined : $fleet.get().rovers.find((x) => x.id === id);
     if (!r) { insp.style.display = 'none'; sig = ''; return; }
     const fl = roverFlareView(game.state, r.id);
-    const next = `${r.id}|${r.pinned}|${r.survey}|${r.home}|${!!fl && fl.cap < 0.9995 && !fl.reprintS}`;
+    const next = `${r.id}|${r.pinned}|${r.home}|${!!fl && fl.cap < 0.9995 && !fl.reprintS}`;
     if (next !== sig) {
       sig = next;
       insp.innerHTML = `
@@ -158,7 +198,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
           <section><div ${NOTE}>Auto rovers take the construction queue one site each, in order. Send one to a site to pin it there — it stays until the site is built. Rovers on one site build ×n^${FLEET.rateExp} (2 → ×${crewRate(2).toFixed(2)}, 3 → ×${crewRate(3).toFixed(2)}); each draws its own kW, and the weld parts stay the same.</div></section>
         </div>
         <div class="insp-foot"><section class="actions">
-          ${r.survey ? '' : '<button class="btn" id="rv-send" title="Then click a construction site; Esc cancels">➚ Send to…</button>'}
+          <button class="btn" id="rv-send" title="Then click a construction site; Esc cancels">➚ Send to…</button>
           ${r.pinned ? '<button class="btn" id="rv-unpin" title="Back to the queue">Release to auto</button>' : ''}
           ${fl && fl.cap < 0.9995 && !fl.reprintS ? `<button class="btn" id="rv-reprint" title="Rad scars: its dock re-prints it new (capability 100%) in 1:12">Re-print ${fl.cost}</button>` : ''}
           <button class="btn" id="rv-dock" title="Inspect its dock">⌂ Dock</button>
@@ -169,10 +209,10 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
     setText(insp, 'rv-status', r.state);
     setText(insp, 'rv-home', r.homeName);
     setText(insp, 'rv-site', r.siteName || '—');
-    setText(insp, 'rv-mode', r.survey ? 'lent to a survey' : r.pinned ? 'pinned — stays until the site is built' : 'auto — the next site in the queue');
+    setText(insp, 'rv-mode', r.pinned ? 'pinned — stays until the site is built' : 'auto — the next site in the queue');
     const mods = game.mods;
     setText(insp, 'rv-work', `×${Math.round(mods.weldRateMult * 100) / 100} build rate · ${kw(CONSTRUCTION_KW * mods.constructionKWMult)} kW while welding`);
-    setText(insp, 'rv-pack', r.survey ? '—' : r.pack);
+    setText(insp, 'rv-pack', r.pack);
     // docs/16 §10.7: σ, the last flare, capability
     setText(insp, 'rv-flare', fl ? `σ ${fl.sigma} ${fl.open ? 'in the open' : 'docked'} · CAPABILITY ${Math.round(fl.cap * 100)}%` +
       `${fl.scars ? ` · rad scars from ${fl.scars} flare${fl.scars === 1 ? '' : 's'}` : ''}${fl.last ? ` · last flare: ${fl.last}` : ''}` +

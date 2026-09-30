@@ -19,7 +19,7 @@ import {
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
 import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, waterReclaimFactor, type Mods } from './mods';
 import { alert as rawAlert, alertIn, crewReserve, moraleWorkMult } from './economy';
-import { KIND_LABEL, baseStream, outpostSlots, surveyCost } from './exploration';
+import { CLASS_LABEL, KIND_LABEL, baseStream, outpostSlots, prospectClass, prospectDist, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
 
 /** research's alerts belong to the research family; an era opening to the era family (docs/19 S7) */
@@ -68,6 +68,35 @@ export function techVisible(def: TechDef, ctx: TechCtx): boolean {
   return true;
 }
 
+/** The compass of an exploration-locked tech (docs/19 S6): the real prospects that host it at this site,
+ *  nearest first, each with its real name and distance class — 'Survey Marius tube (regional) or Ingenii
+ *  pit (far side)'. Once found: 'Found at Marius tube'. `short` is the card's line (first host, and how
+ *  many more). */
+export interface Compass {
+  text: string;
+  short: string;
+  /** the host that revealed it (its real name), or null while undiscovered */
+  found: string | null;
+  hosts: { id: ProspectId; name: string; cls: string }[];
+}
+export function compassOf(def: TechDef, s: Pick<GameState, 'siteId' | 'survey' | 'discoveries'>): Compass | null {
+  const bt = def.breakthrough;
+  if (!bt) return null;
+  const hosts = [...bt.hosts].sort((a, b) => prospectDist(s.siteId, a) - prospectDist(s.siteId, b))
+    .map((id) => ({ id, name: PROSPECTS[id].short, cls: CLASS_LABEL[prospectClass(s.siteId, id)] }));
+  const label = (h: { name: string; cls: string }) => `${h.name} (${h.cls})`;
+  const list = hosts.length <= 1 ? hosts.map(label).join('')
+    : `${hosts.slice(0, -1).map(label).join(', ')} or ${label(hosts[hosts.length - 1])}`;
+  const seen = hosts.filter((h) => s.survey?.prospects?.[h.id])
+    .sort((a, b) => (s.survey.prospects[a.id]!.surveyedAt - s.survey.prospects[b.id]!.surveyedAt))[0];
+  const found = (s.discoveries ?? []).includes(def.id) ? (seen ? seen.name : hosts[0]?.name ?? null) : null;
+  return {
+    text: found ? `Found at ${found}` : `Survey ${list}`,
+    short: found ? `found at ${found}` : `${label(hosts[0])}${hosts.length > 1 ? ` +${hosts.length - 1}` : ''}`,
+    found, hosts,
+  };
+}
+
 function hiddenReason(def: TechDef, ctx: TechCtx): string {
   if (def.band && !(def.sites && !def.sites.includes(ctx.siteId))) {
     return 'a destiny capstone — the Era 8 pick settles which one opens';
@@ -78,7 +107,8 @@ function hiddenReason(def: TechDef, ctx: TechCtx): string {
   if (def.expeditions && !def.expeditions.includes(ctx.expedition)) {
     return def.expeditions.includes('robotic') ? 'robotic expeditions only' : 'crewed expeditions only';
   }
-  return '✦ undiscovered — survey an anomaly to reveal it';
+  const cp = compassOf(def, { siteId: ctx.siteId, survey: { prospects: {} } as GameState['survey'], discoveries: [] });
+  return cp ? `◎ undiscovered — ${cp.text}` : '◎ undiscovered — survey the Moon to reveal it';
 }
 
 /** Visible members of a doctrine group at this site (a lone member is no doctrine). */
@@ -887,6 +917,8 @@ export interface ResearchCard {
   /** set only where the doctrine really is a choice (≥2 visible members) */
   doctrine: DoctrineId | null;
   breakthrough: { slot: 1 | 2; hosts: ProspectId[] } | null;
+  /** an exploration-locked tech's compass: the real prospects that host it, and where it was found (docs/19 S6) */
+  compass: Compass | null;
   siteTech: boolean;
   /** a destiny pick (it lives in its era page's header, not on a lane) */
   track: { era: Era; side: Side; landing: boolean } | null;
@@ -943,6 +975,7 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
       insight: ins ? { discount: ins.discount, hint: ins.hint, earned: (s.insights[tid] ?? 0) > 0 } : null,
       doctrine: isDoctrineHere(def, s) ? def.exclusive! : null,
       breakthrough: def.breakthrough ? { slot: def.breakthrough.slot, hosts: [...def.breakthrough.hosts] } : null,
+      compass: compassOf(def, s),
       siteTech: !!def.sites,
       track: def.track ? { era: def.track.era, side: def.track.side, landing: !!def.track.landing } : null,
       band: def.band ?? null,

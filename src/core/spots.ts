@@ -12,8 +12,7 @@
  *   - welding a site: its door cell, then back along its road, then any road
  *     cell beside it; a field structure from the road cell that serves it;
  *     a Relay Mast from its stand beside it, off the road (and inside an
- *     extraction zone, off the road at its door);
- *   - lent to a survey: into the Lander by its door, and gone.
+ *     extraction zone, off the road at its door).
  *
  *  The sim drives every rover to its slot (core/transit.ts) and the visuals
  *  follow it there, so both read the same slots: groundSpots(). */
@@ -47,8 +46,6 @@ export interface RoverSpot {
   inside?: boolean;
   /** the cell it must come in from (a bay's opening), so the way in keeps to its half */
   via?: [number, number];
-  /** lent to a survey: it leaves by the Lander's door (inside) */
-  survey?: boolean;
   /** off the road inside an extraction zone (a site there): reached from a gate (core/zones.ts) */
   offroad?: boolean;
   /** a deposit it cores (docs/17 §13.2): off the road at the deposit's centre */
@@ -100,10 +97,9 @@ function neighbours(s: GameState, c: Cell): Cell[] {
 
 interface Stand { c: Cell; dir: Cell; face: Cell | null }
 
-/** Every rover's slot, by roster id (the one lent to a survey has none). */
+/** Every rover's slot, by roster id. */
 export function roverSpots(s: GameState): Map<number, RoverSpot> {
-  const away = s.survey?.active?.rover;
-  const roster = (s.rovers ?? []).filter((u) => u.id !== away);
+  const roster = s.rovers ?? [];
   const at = new Map(s.buildings.map((b) => [b.id, b]));
   const lander = s.buildings.find((b) => b.type === 'lander');
   const map = roadMap(s);
@@ -329,15 +325,6 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
       const [x, z] = cellCentre(...centreCell(dock));
       out.set(id, { gx: d[0], gz: d[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: dock.id, inside: true });
     }
-  }
-  // the one lent to a survey leaves by the Lander: in at its door, and gone
-  const lent = away !== undefined ? (s.rovers ?? []).find((u) => u.id === away) : undefined;
-  const ld = lander ? doorCell(lander) : null;
-  if (lent && lander && ld) {
-    const [x, z] = cellCentre(...centreCell(lander));
-    out.set(lent.id, {
-      gx: ld[0], gz: ld[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: lander.id, inside: true, survey: true,
-    });
   }
   return out;
 }

@@ -51,8 +51,6 @@ export const $vitals = atom({
   lifeSupport: { oxygen: 0, food: 0, water: 0 },
   waterReclaim: 1,
   sites: 0, welding: 0, weldParts: 0, upkeep: 0,
-  /** robots lent to a survey (not in botsTotal) */
-  surveying: 0,
   /** the last crew went home at FIRST LIGHT (docs/14 §5): the base runs unmanned */
   crewHome: false,
   /** workers the crewed stations want · stations idle for crew · stations
@@ -147,7 +145,11 @@ export interface LunarView {
   surveyedCount: number;
   atlas: boolean;
   prospects: LunarProspectView[];
+  /** the soonest flight home (null: no drone out); `flights` lists every drone away, soonest first */
   active: { id: ProspectId; remaining: number } | null;
+  flights: { id: ProspectId; drone: number; remaining: number; total: number; short: string }[];
+  /** the survey-drone fleet: total, ready (docked and charged), out, charging, bays, prints under way */
+  drones: { total: number; ready: number; out: number; charging: number; cap: number; printing: number };
   outposts: LunarOutpostView[];
   /** SURVEY_TIERS label, e.g. 'NEAR SIDE' */
   tierLabel: string;
@@ -357,8 +359,6 @@ export interface RoverView {
   site: number | null;
   siteName: string;
   pinned: boolean;
-  /** lent to a survey: not in the fleet until it returns */
-  survey: boolean;
   /** 'BUILDING Solar Array #7 · pinned', 'PARKED at the Lander', 'EN ROUTE to Habitat #5 · 0:24', … */
   state: string;
   /** on its way: game-seconds of its trip left (0: there, or parked) */
@@ -518,6 +518,41 @@ export interface HubView {
   /** the status line's tail: 'STARVED — …' ('' when fed) */
   status: string;
 }
+/** One survey drone (docs/19 S6, core/surveyDrones.ts): docked and charged (ready), charging, or out on a flight */
+export interface SurveyDroneView {
+  id: number;
+  home: number;
+  homeName: string;
+  state: 'ready' | 'charging' | 'out';
+  /** its pack, 0..1 */
+  charge: number;
+  /** out: the prospect it flies to (its real short name) and game-seconds left */
+  prospect: string | null;
+  name: string;
+  remaining: number;
+}
+/** The survey-drone fleet as the fleet panel and a Prospecting Bay's inspector show it */
+export interface SurveyFleetView {
+  total: number;
+  ready: number;
+  out: number;
+  charging: number;
+  /** drone bays the docks hold now (the Lander's one, and each Prospecting Bay's 2, 4 or 6) */
+  cap: number;
+  /** Prospecting Bays standing, and the level they have reached (bays a Bay: 2 · 4 · 6) */
+  bays: number;
+  level: 1 | 2 | 3;
+  baysEach: number;
+  drones: SurveyDroneView[];
+  /** drones being printed: the Bay and game-seconds left */
+  prints: { bay: number; name: string; left: number }[];
+  /** '2/3 docked · 1 out → Marius Hills 2:10' */
+  line: string;
+}
+export const EMPTY_SURVEY_FLEET: SurveyFleetView = {
+  total: 0, ready: 0, out: 0, charging: 0, cap: 0, bays: 0, level: 1, baysEach: 2, drones: [], prints: [], line: 'no drones',
+};
+
 export interface FleetView {
   rovers: RoverView[];
   sites: Record<number, SiteCrewView>;
@@ -527,8 +562,10 @@ export interface FleetView {
   units: UnitView[];
   /** box-drag grading jobs under way (docs/19 S5, core/grading.ts) */
   grading?: GradeView[];
+  /** the survey-drone fleet (docs/19 S6) */
+  survey: SurveyFleetView;
 }
-export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {}, hubs: {}, units: [], grading: [] });
+export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {}, hubs: {}, units: [], grading: [], survey: EMPTY_SURVEY_FLEET });
 /** the hub unit in its inspector (unit id); a building or rover selection clears it */
 export const $unitSel = atom<number | null>(null);
 /** the construction rover in the inspector (roster id); a building selection clears it */

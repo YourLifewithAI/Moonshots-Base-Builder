@@ -14,8 +14,9 @@
  *  site: the crew already there is pinned with it, so the auto layer never
  *  hands it back down the queue. n rovers build crewRate(n) = n^0.85 times as
  *  fast as one; each draws its own construction kW, and the build's weld
- *  parts stay the same (drawn faster). A survey borrows one unpinned rover.
- *  s.bots stays derived, for the HUD, surveys and milestones.
+ *  parts stay the same (drawn faster). Map surveys are survey drones' flights
+ *  (core/surveyDrones.ts) and never borrow a rover.
+ *  s.bots stays derived, for the HUD and milestones.
  *
  *  Rovers travel (core/transit.ts): an auto rover is chosen by who gets to
  *  the site soonest by road from where it is now, and so is Summon's; a
@@ -56,11 +57,6 @@ export function crewParts(mods: Pick<Mods, 'weldPartsMult'>, n: number): number 
 export function siteEta(mods: Pick<Mods, 'weldRateMult'> & Partial<Pick<Mods, 'roadCellMult'>>, b: BuildingState, n: number, roadS = 0): number {
   const rate = mods.weldRateMult * crewRate(n);
   return rate > 0 ? ((b.construction ?? 0) + roadS * (mods.roadCellMult ?? 1)) / rate : Infinity;
-}
-
-/** The rover lent to a survey (it is not in the fleet until it returns). */
-export function surveyRover(s: GameState): number | undefined {
-  return s.survey?.active?.rover;
 }
 
 /** One entry per rover the docks supply, in building order: the dock's id. */
@@ -127,16 +123,15 @@ function nearest(s: GameState, list: RoverUnit[], b: BuildingState): RoverUnit |
 
 /** Keep the roster the size the docks supply. Rovers keep their ids and
  *  their docks where the dock still has room; a shrinking fleet lets idle
- *  rovers go first and never the one out on a survey. */
+ *  rovers go first. */
 export function syncRoster(s: GameState, mods: Pick<Mods, 'botPerBay'>) {
   s.rovers ??= [];
   s.nextRoverId ??= 1;
   const need = new Map<number, number>();
   for (const h of dockSlots(s, mods)) need.set(h, (need.get(h) ?? 0) + 1);
-  const away = surveyRover(s);
-  // who stays when a dock has fewer slots than rovers: the surveyor, the
-  // pinned, the working, then the idle (roster order breaks ties)
-  const rank = (r: RoverUnit) => (r.id === away ? 0 : r.pinned ? 1 : r.site !== null ? 2 : 3);
+  // who stays when a dock has fewer slots than rovers: the pinned, the
+  // working, then the idle (roster order breaks ties)
+  const rank = (r: RoverUnit) => (r.pinned ? 1 : r.site !== null ? 2 : 3);
   const kept = new Set<RoverUnit>();
   const used = new Map<number, number>();
   const byRank = [...s.rovers].sort((a, b) => rank(a) - rank(b));
@@ -158,20 +153,14 @@ export function syncRoster(s: GameState, mods: Pick<Mods, 'botPerBay'>) {
     for (let i = used.get(h) ?? 0; i < n; i++) roster.push({ id: s.nextRoverId++, home: h, site: null, pinned: false });
   }
   s.rovers = roster;
-  const a = s.survey?.active;
-  if (a) {
-    // a survey from before the roster (or whose rover's dock went): lend one now
-    if (a.rover === undefined || !roster.some((r) => r.id === a.rover)) a.rover = borrowable(s)?.id;
-  }
 }
 
-/** The rover a survey would borrow: an idle unpinned one, else the auto
- *  rover furthest back in the queue (the site that would lose it anyway);
- *  never a pinned one. */
+/** The rover a job that needs one would borrow: an idle unpinned one, else the
+ *  auto rover furthest back in the queue (the site that would lose it anyway);
+ *  never a pinned one. (Map surveys no longer use it: docs/19 S6.) */
 export function borrowable(s: GameState): RoverUnit | null {
-  const away = surveyRover(s);
   // a rover levelling ground (docs/19 S5) is busy: it is never lent
-  const free = s.rovers.filter((r) => !r.pinned && r.id !== away && !roverDown(s, r) && r.grade === undefined);
+  const free = s.rovers.filter((r) => !r.pinned && !roverDown(s, r) && r.grade === undefined);
   const idle = free.find((r) => r.site === null);
   if (idle) return idle;
   const posOf = (r: RoverUnit) => {
@@ -189,26 +178,24 @@ export function borrowable(s: GameState): RoverUnit | null {
 export function assignRovers(s: GameState): Map<number, number> {
   const sites = s.buildings.filter(isSite).sort((a, b) => queue(a) - queue(b) || a.id - b.id);
   const siteIds = new Set(sites.map((b) => b.id));
-  const away = surveyRover(s);
   for (const r of s.rovers) {
     // the site is done (or gone): back to auto, pin and all
     if (r.site !== null && !siteIds.has(r.site)) { r.site = null; r.pinned = false; }
-    if (r.id === away) { r.site = null; r.pinned = false; }
     if (roverDown(s, r)) { r.site = null; r.pinned = false; delete r.road; }
   }
   // deposit surveys (docs/17 §13.2): a rover coring keeps to it until the job is done or gone
   const coreJobs = s.oreSurvey?.jobs ?? [];
   const coreLive = new Set(coreJobs.map((j) => j.id));
   for (const r of s.rovers) {
-    if (r.core !== undefined && (r.site !== null || r.pinned || r.id === away || roverDown(s, r) || !coreLive.has(r.core))) delete r.core;
+    if (r.core !== undefined && (r.site !== null || r.pinned || roverDown(s, r) || !coreLive.has(r.core))) delete r.core;
   }
   // grading (docs/19 S5): a rover on a job keeps to it until the job is done or gone
   const gradeLive = new Set((s.gradeJobs ?? []).map((j) => j.id));
   for (const r of s.rovers) {
-    if (r.grade !== undefined && (r.site !== null || r.pinned || r.id === away || roverDown(s, r) || !gradeLive.has(r.grade))) delete r.grade;
+    if (r.grade !== undefined && (r.site !== null || r.pinned || roverDown(s, r) || !gradeLive.has(r.grade))) delete r.grade;
   }
   const pinnedAt = new Set(s.rovers.filter((r) => r.pinned && r.site !== null).map((r) => r.site!));
-  const auto = s.rovers.filter((r) => !r.pinned && r.id !== away && !roverDown(s, r) && r.core === undefined && r.grade === undefined);
+  const auto = s.rovers.filter((r) => !r.pinned && !roverDown(s, r) && r.core === undefined && r.grade === undefined);
   const targets = sites.filter((b) => b.enabled && !pinnedAt.has(b.id)).slice(0, auto.length);
   const wanted = new Set(targets.map((b) => b.id));
   const served = new Set<number>();
@@ -232,23 +219,23 @@ export function assignRovers(s: GameState): Map<number, number> {
     const on = s.rovers.find((r) => r.core === j.id);
     if (on) { j.rover = on.id; continue; }
     delete j.rover;
-    const r = s.rovers.find((x) => x.site === null && !x.pinned && x.id !== away && x.core === undefined && x.grade === undefined && !roverDown(s, x));
+    const r = s.rovers.find((x) => x.site === null && !x.pinned && x.core === undefined && x.grade === undefined && !roverDown(s, x));
     if (!r) break;
     delete r.road;
     r.core = j.id;
     j.rover = r.id;
   }
   // grading jobs come after the deposit surveys, before the road jobs (docs/19 S5)
-  dispatchGrade(s, away);
+  dispatchGrade(s);
   // free rovers sinter the roads drawn and the haul roads: one a job, oldest
   // first, in roster order (core/roads.ts)
   const jobs = (s.roadJobs ?? []).map((j) => j.id);
   const live = new Set(jobs);
   for (const r of s.rovers) {
-    if (r.road !== undefined && (r.site !== null || r.pinned || r.id === away || r.core !== undefined || r.grade !== undefined || !live.has(r.road))) delete r.road;
+    if (r.road !== undefined && (r.site !== null || r.pinned || r.core !== undefined || r.grade !== undefined || !live.has(r.road))) delete r.road;
   }
   const onJob = new Set(s.rovers.filter((r) => r.road !== undefined).map((r) => r.road!));
-  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.id !== away && r.road === undefined && r.core === undefined && r.grade === undefined && !roverDown(s, r));
+  const idle = s.rovers.filter((r) => r.site === null && !r.pinned && r.road === undefined && r.core === undefined && r.grade === undefined && !roverDown(s, r));
   for (const id of jobs) {
     if (onJob.has(id)) continue;
     const r = idle.shift();
@@ -261,8 +248,7 @@ export function assignRovers(s: GameState): Map<number, number> {
   for (const r of s.rovers) {
     if (r.site !== null && enabled.has(r.site)) crews.set(r.site, (crews.get(r.site) ?? 0) + 1);
   }
-  const lent = away !== undefined && s.rovers.some((r) => r.id === away) ? 1 : 0;
-  s.bots = { total: s.rovers.length - lent, busy: s.rovers.filter((r) => r.site !== null || r.road !== undefined || r.core !== undefined || r.grade !== undefined).length };
+  s.bots = { total: s.rovers.length, busy: s.rovers.filter((r) => r.site !== null || r.road !== undefined || r.core !== undefined || r.grade !== undefined).length };
   return crews;
 }
 
@@ -271,13 +257,13 @@ export const GRADE_BIG_CELLS = 32;
 
 /** Free ground rovers take the queued grading jobs (core/grading.ts), oldest first: one a job, two on a
  *  big one. A drone has no blade: it never takes one. */
-function dispatchGrade(s: GameState, away: number | undefined) {
+function dispatchGrade(s: GameState) {
   for (const j of s.gradeJobs ?? []) {
     if (j.left <= 0) continue;
     const want = j.cells.length > GRADE_BIG_CELLS ? 2 : 1;
     const on = s.rovers.filter((r) => r.grade === j.id);
     for (let n = on.length; n < want; n++) {
-      const r = s.rovers.find((x) => x.site === null && !x.pinned && x.id !== away && x.core === undefined
+      const r = s.rovers.find((x) => x.site === null && !x.pinned && x.core === undefined
         && x.grade === undefined && !roverDown(s, x) && unitKind(s, x) !== 'drone');
       if (!r) break;
       delete r.road;
@@ -320,13 +306,11 @@ function pinTo(s: GameState, r: RoverUnit, site: BuildingState) {
 export function summonPick(s: GameState, siteId: number): { rover: RoverUnit | null; from: number | null; reason: string } {
   const site = siteFor(s, siteId);
   if (typeof site === 'string') return { rover: null, from: null, reason: site };
-  const away = surveyRover(s);
-  const cand = s.rovers.filter((r) => r.id !== away && r.site !== siteId);
+  const cand = s.rovers.filter((r) => r.site !== siteId);
   if (!cand.length) {
     return {
       rover: null, from: null,
       reason: !s.rovers.length ? 'NO ROVERS — the fleet is empty'
-        : s.rovers.every((r) => r.id === away) ? 'NO ROVER TO SUMMON — the only one is out on a survey'
         : 'NO ROVER TO SUMMON — the whole fleet is already here',
     };
   }
@@ -369,7 +353,6 @@ export function releaseRover(s: GameState, siteId: number): ActionResult & { rov
 export function sendRefusal(s: GameState, roverId: number, siteId: number): string {
   const r = s.rovers.find((x) => x.id === roverId);
   if (!r) return 'NO SUCH ROVER';
-  if (r.id === surveyRover(s)) return 'OUT ON A SURVEY — it comes back when the survey ends';
   const site = siteFor(s, siteId);
   if (typeof site === 'string') return site;
   if (r.site === siteId && r.pinned) return `ALREADY THERE — rover #${r.id} is pinned to ${label(site)}`;

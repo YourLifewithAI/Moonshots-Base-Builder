@@ -165,6 +165,8 @@ function api(game: Game) {
     getWorkAnim: () => clone((game as any).life.work.info()),
     /** hide or show the work animations' two meshes (the draw-call budget) */
     setWorkAnimVisible: (on: boolean) => { (game as any).life.work.group.visible = on; },
+    /** hide or show the road mesh (a screenshot that isolates the buildings' own tones) */
+    setRoadsVisible: (on: boolean) => { (game as any).life.roads.group.visible = on; },
     /** one structure's own light: its darkness k (and what makes it), the
      *  lit channel its instance carries, the emissive gains */
     getBuildingLight: (id: number) => clone((game as any).instances.lightInfo(id)),

@@ -571,7 +571,7 @@ export function plainPitRefusal(s: GameState, mods: Mods, site: SiteDef, x: numb
   const half = MAP_M / 2 - CELL_M * 3 - HUB.plainR;
   if (Math.abs(x) > half || Math.abs(z) > half) return 'OUTSIDE THE SURVEY AREA';
   if (site.buildableRadiusM > 0 && Math.hypot(x, z) > site.buildableRadiusM - HUB.plainR) return 'BEYOND THE LAVA TUBE FOOTPRINT';
-  if (!groundMapped(s, x, z, mods.surveyTier)) return 'UNMAPPED GROUND — map it first (Prospecting Rovers, a Relay Mast)';
+  if (!groundMapped(s, x, z, mods.surveyTier)) return 'UNMAPPED GROUND — map it first (Prospecting Drones, a Relay Mast)';
   for (const z0 of s.zones ?? []) {
     if (Math.hypot(z0.cx - x, z0.cz - z) < z0.r + HUB.plainR + 4) {
       return z0.kind === 'plain' || z0.kind === 'pit' ? 'ANOTHER PIT — too close to a pit' : 'A DEPOSIT — Assign it instead';
