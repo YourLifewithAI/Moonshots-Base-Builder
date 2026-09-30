@@ -84,7 +84,7 @@ The first sentence of each bullet in bold is its "one rule". The rules for the f
 | `researchTick(s, mods, dt)` | Replaces `economy.ts:423-455`.<br>**Pass 1:** every queued item whose data is fully paid tries its goods. It completes if they are affordable, otherwise it joins `s.researchStalled`.<br>**Pass 2:** `budget = min(s.data, cap × dt)` flows to queue items in order, skipping paid items and spilling any remainder to the next.<br>Stall alert, once per stall episode: `RESEARCH WAITING — Lunar Data Center needs 10▣ chips (have 3) · made by Chip Fab`. The producer comes from `BUILDINGS[*].outputs`.<br>If the cap is 0 and the queue is non-empty: `RESEARCH PAUSED — no operating lab or Data Center`, or `PAUSED — labs browned out` when every lab has `idleReason 'power'`.<br>On completion it calls `onTechComplete(s, tid)`, which sets `modsChanged` and handles the Cohabitation crew rotation (S8.7). |
 | `computeEra(s)`, `gateProgress(s, era)` | Charter rules (S2), moved from `mods.ts:69`. Evaluated **every** tick in economy step 11: `s.era = max(s.era, computeEra(s))`. On a change: `ERA 5 OPENS — via 1 tech + 20▣ chips fabbed`. |
 | `previewTech(tid, s)` | Diffs `computeMods` with and without the tech over the buildings that exist. Returns lines such as `Your 2 Data Centers: −21 kW` and `Your 3 excavators: +0.06≈/s · −9 kW`. Used by the detail sheet and by the `auditTechs` magnitude check. |
-| `techRelevance(def, siteId, exp)` | True if at least one **pro** effect, after site and expedition filtering, touches:<br>- a building placeable at that site on that expedition; or<br>- a global mod that means something there: dust always; grading when `site.terrain.roughness ≥ 0.8`; shadeImmune when `roughness ≥ 1.0`; nightDraw when `nightSolarFraction < 0.5`; survey, action and storage always; feedBonus only when `DEPOSIT_PLAN[site]` contains that kind.<br>This is a data invariant (test 3), not a runtime filter. |
+| `techRelevance(def, siteId, exp)` | True if at least one **pro** effect, after site and expedition filtering, touches:<br>- a building placeable at that site on that expedition; or<br>- a global mod that means something there: dust always; grading always (Site Grading is on every site since docs/19 S5); shadeImmune when `roughness ≥ 1.0`; nightDraw when `nightSolarFraction < 0.5`; survey, action and storage always; feedBonus only when `DEPOSIT_PLAN[site]` contains that kind.<br>This is a data invariant (test 3), not a runtime filter. |
 
 **Constants** (`src/data/balance.ts`)
 
@@ -307,7 +307,7 @@ ETA is `remaining / s.researchRateAvg`, a 30 s exponential moving average of the
    - It is the only data sink, and a relief valve for parts-starved or goods-stalled runs.
 3. **Survey, claim and abandon.** See §5b.
 4. **Grading gets a job**
-   - Footprints of 9 or more cells, plus the massDriver, need `maxDelta ≤ MAX_SLOPE_LARGE` (start at 1.2 m) in `placement.ts:216`, with the reason `Too rough for a large pad (1.8 m relief > 1.2 m) — grade it (Site Grading)`.
+   - Footprints of 9 or more cells, plus the massDriver, need `maxDelta ≤ MAX_SLOPE_LARGE` (start at 1.2 m) in `placement.ts:216`, with the reason `Too rough for a large pad (1.8 m relief > 1.2 m) — grade it (Grade Site)` (docs/19 S5: the box-drag tool; Site Grading doubles its rate and levels heaps).
    - Calibrate on 20 seeds so that, within 60 m and without grading, mare has ≥12 valid 3×3 pads, lava tube 3–8 and pole ≤3. The probe placed 0 grading passes in 21 runs, so this rule is what makes the tech matter.
 5. **Launch capacity binds**
    - `LAUNCH_CAP_PER_VOLLEY = 3`: a volley needs 10▰ + 3↑ + 400 stored energy.
@@ -1483,7 +1483,7 @@ Every case stays within 130, except lava tube with a single DC at 133.8, which i
    - the computed `--slot-h` is ≥ 28 px;
    - the robotic HABITAT lane at maximum occupancy (Cohab and Closed-Loop in E6, Wellness in E7) does not overlap.
 2. **Site filters.**
-   - Mare hides siteGrading, iceExtraction, peakLightMasts and skylightHeliostats, and the footer reads `4 techs belong to other landing sites`.
+   - Mare hides iceExtraction, peakLightMasts and skylightHeliostats (Site Grading joined every site in docs/19 S5), and the footer reads `5 techs belong to other landing sites` (the count follows the data).
    - Pole hides regolithVolatiles, thermalWadis, skylightHeliostats and ilmeniteBeneficiation, and MRE has no bracket.
    - Robotic mare's researchable count after doctrine picks is 37.
 3. **`techRelevance` invariant** (B's T22): for each site × expedition, every visible tech passes. For each site-filtered tech, the filter is needed: it fails relevance at the hidden sites, or its `sites` field names a site fact.
@@ -1502,7 +1502,7 @@ Every case stays within 130, except lava tube with a single DC at 133.8, which i
    - cancel → available again;
    - complete → permanently foreclosed;
    - clicking a doctrine card does not queue it; only `[Commit]` does.
-9. **requiresAny.** On mare, regolithShielding's lock reason is exactly `needs Construction Robotics` (the hidden Site Grading is not listed).
+9. **requiresAny.** On mare, regolithShielding's lock reason is exactly `needs Site Grading OR Construction Robotics` (Site Grading is on every site since docs/19 S5; a hidden member is still never listed).
 10. **Charter by deed.** With only regolithProcessing done and a smelter plus excavator placed, advance until `stats.produced.metals ≥ 100`. Then `era === 2` and an alert includes `via 1 tech + 100◆ smelted`.
 11. **Resolved-era charters and the robotic human gate.**
     - On robotic mare, complete humanCohabitation and crewWellness (resolved E7): the era stays 6.

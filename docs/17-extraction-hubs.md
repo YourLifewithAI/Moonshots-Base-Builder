@@ -237,7 +237,7 @@ nowhere else.
 - The Storage Yard keeps its other caps; its pro text loses "400 regolith".
 - `s.feed` (the kind-share EMA) stays, as the draw-weighted mean of the hub feeds.
   The KREEP reactor rule (15% of your digging) reads it.
-- Grading's 6▲ goes to the nearest smelter or refinery with room. There is no Lander
+- Grading's spoil (1.5▲ a levelled cell since docs/19 S5; 6▲ a 16 m pass before) goes to the nearest smelter or refinery with room. There is no Lander
   drop any more.
 
 ### 3.3 The Ice Harvester and the Propellant Plant
@@ -962,10 +962,13 @@ structure's walls, nor within 8 m of a road, door, bay or the apron. So a
 building placed 4 m from a rim stops that side of the pit, and the pit grows on
 its free side.
 
-**Site Grading** (the grade action, 40 stored energy a 16 m pass):
+**Grading** (docs/19 S5 replaced the one-click pass: the player drags a box and rovers level it
+cell by cell over time, 2.5 stored energy a cell, paid when the job is queued; the rules below
+still hold for every box, see docs/19 "As shipped: S5"):
 
-- **On a heap: allowed.** A pass levels the heap's samples in its square to their
-  mean, spreading the spoil. It costs 40 energy × (1 + the square's relief ÷ 2 m).
+- **On a heap: allowed with Site Grading** (`ON SPOIL — a tailings heap; Site Grading lets
+  rovers level it` without the tech). A job levels the heap's samples in its box to their
+  mean, spreading the spoil. A heap's cell costs 2.5 energy × (1 + its relief ÷ 2 m).
   Those samples are never dumped on again.
 - **On a pit: refused.** `CANNOT GRADE — a pit (4.5 m deep): grading cannot fill it;
   Reclaim it once it is worked out`. Filling a hole needs the spoil hauled back, which
@@ -1783,10 +1786,10 @@ repoint it without rewriting pits.
 - **Placement.** It refuses a footprint `ON A PIT — its benches go 5.0 m down; build 4
   m back from the rim` and `ON SPOIL — …`. It also refuses one within 4 m of a rim:
   `TOO CLOSE TO A PIT — nothing within 4 m of a rim; build 4 m back`.
-- **Site Grading.**
+- **Site Grading.** (Now a rover job: docs/19 S5.)
   - It refuses a pit, and its skirt: `CANNOT GRADE — a pit (5.0 m deep): …`. This
     check comes before the network check.
-  - It levels a heap, at 40 × (1 + relief ÷ 2 m).
+  - It levels a heap (with the tech), at 2.5 × (1 + relief ÷ 2 m) a cell.
   - Reclaim's hook is `raiseCut` in `src/terrain/pitCarve.ts`, the one writer that
     may raise a carved sample.
 - **Demolished pads.** A pad stays no-dig after demolition, since its flatten stays
