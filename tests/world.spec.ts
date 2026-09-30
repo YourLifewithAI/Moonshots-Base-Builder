@@ -417,3 +417,55 @@ test('isometric camera: the preset (turn, tilt, zoom) is saved and survives a re
   expect(c.iso).toMatchObject({ rot: 1, tilt: 0 });
   expect(c.iso.zoom).toBeCloseTo(170, 0);
 });
+
+test('BaseSim: two bases in one page run apart (per-state memos and log stamps), and a saved base loads to the same ground', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page, 'mare', '&exp=robotic');
+  const r = await page.evaluate(async () => {
+    const { BaseSim, PLAYER_MODE } = await import('/src/core/baseSim.ts');
+    const { logStampOf } = await import('/src/core/economy.ts');
+    const round = (_k: string, v: unknown) => (typeof v === 'number' && !Number.isInteger(v) ? Math.round(v * 1e4) / 1e4 : v);
+    const digest = (s: unknown) => JSON.stringify(s, round);
+    /** a base with a few Builder-placed structures (each goes through the place action: the road planner and its memos) */
+    const make = (seed: number) => {
+      const sim = BaseSim.create({ siteId: 'mare', seed, expedition: 'robotic', mode: { ...PLAYER_MODE } });
+      for (const type of ['solar', 'solar', 'battery', 'solar']) sim.placeAuto(type, {}, true);
+      return sim;
+    };
+    const N = 900;
+    const a = make(42);
+    for (let i = 0; i < N; i++) a.tick();
+    const b = make(7);
+    for (let i = 0; i < N; i++) b.tick();
+    // the same two bases again, one second of each in turn
+    const a2 = make(42), b2 = make(7);
+    for (let i = 0; i < N; i++) { a2.tick(); b2.tick(); }
+    // another base's alert never stirs this one's log stamp
+    const before = logStampOf(a2.state).n, beforeB = logStampOf(b2.state).n;
+    b2.apply({ kind: 'place', type: 'solar', gx: 1, gz: 1, rot: 0 }); // refused: CANNOT BUILD, an alert on b2 only
+    const stamps = { aSame: logStampOf(a2.state).n === before, bMoved: logStampOf(b2.state).n > beforeB };
+    // a save, and two loads of it (through a JSON round trip as the database does), one second of each in turn
+    const blob = JSON.parse(JSON.stringify(a.saveState()));
+    const c1 = BaseSim.fromState(JSON.parse(JSON.stringify(blob)), { ...PLAYER_MODE });
+    const c2 = BaseSim.fromState(JSON.parse(JSON.stringify(blob)), { ...PLAYER_MODE });
+    const loaded = { hash: c1.hf.terrainHash() === a.hf.terrainHash(), n: c1.state.buildings.length === a.state.buildings.length,
+      flattened: c1.out.flattened.length === a.state.flattens.length };
+    for (let i = 0; i < 300; i++) { c1.tick(); c2.tick(); }
+    return {
+      placed: [a.state.buildings.length, b.state.buildings.length],
+      aAlone: digest(a.state) === digest(a2.state), bAlone: digest(b.state) === digest(b2.state),
+      groundsDiffer: a.hf.terrainHash() !== b.hf.terrainHash(),
+      stamps, loaded, loadsAgree: digest(c1.state) === digest(c2.state) && c1.hf.terrainHash() === c2.hf.terrainHash(),
+      simTime: [a.state.simTime, c1.state.simTime],
+    };
+  });
+  expect(r.placed[0]).toBeGreaterThan(2);
+  expect(r.placed[1]).toBeGreaterThan(2);
+  expect(r.groundsDiffer).toBe(true);
+  expect(r.aAlone).toBe(true);
+  expect(r.bAlone).toBe(true);
+  expect(r.stamps).toEqual({ aSame: true, bMoved: true });
+  expect(r.loaded).toEqual({ hash: true, n: true, flattened: true });
+  expect(r.loadsAgree).toBe(true);
+  expect(r.simTime[1]).toBe(r.simTime[0] + 300);
+});

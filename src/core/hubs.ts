@@ -55,6 +55,7 @@ import { recordSpend } from './flowBook';
 import { alert, condition } from './economy';
 import { fmtClock } from './daynight';
 import { FLARE_EFFECTS } from '../data/spaceWeather';
+import { perState } from './stateMemo';
 
 type Pt = [number, number];
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -322,7 +323,8 @@ export interface TripEst {
   connected: boolean;
 }
 
-const tripMemo = new Map<string, TripEst>();
+/** per base: a second base has hubs and targets with the same ids (core/stateMemo.ts) */
+const tripMemos = perState(() => new Map<string, TripEst>());
 
 /** One way from the hub's door to face 0 of a target, at the unit's speed.
  *  A target no road reaches yet is estimated: the straight line × 1.3 to its
@@ -333,7 +335,8 @@ export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, ni
   const pit = pitAt(s, t);
   const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0},${s.zones?.length ?? 0}|${b.id}|${t.key}|${v.toFixed(3)}|${mods.haulOffroadMult}`
     + (pit ? `|${Math.round(pit.R)},${Math.round(pit.A)}` : '');
-  const hit = tripMemo.get(key);
+  const memo = tripMemos(s);
+  const hit = memo.get(key);
   if (hit) return hit;
   const from = standPoint(b);
   const face = facePoint(s, t, 0);
@@ -358,8 +361,8 @@ export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, ni
     const offM = t.plain ? HUB.plainR - HUB.plainFaceR : t.r * (1 - HUB.faceR);
     est = { t: (rim * 1.3 + offM * offW) / v, roadM: rim * 1.3, offM, connected: false };
   }
-  if (tripMemo.size > 4000) tripMemo.clear();
-  tripMemo.set(key, est);
+  if (memo.size > 4000) memo.clear();
+  memo.set(key, est);
   return est;
 }
 
