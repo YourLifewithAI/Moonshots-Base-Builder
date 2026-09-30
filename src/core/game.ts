@@ -7,8 +7,7 @@ import { TECHS, type TechId } from '../data/techs';
 import { MILESTONES, milestoneHint } from '../data/milestones';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, GRADE_CELLS, GRADE_COST_ENERGY,
-  GRADE_REGOLITH_YIELD, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
+  ALERTS, AUTOSAVE_S, CREW, CYCLE_S, DEPOSIT_FX, DOWNLINK, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, OVERCLOCK, RESUPPLY,
   SPEEDS, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import { DEPOSIT_INFO, type DepositKind } from '../data/deposits';
@@ -42,10 +41,10 @@ import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRov
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { TRAFFIC, trafficInfo, trafficStats } from './traffic';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, layApron, layPlan, laySpur, migrateRoads, planLink, planSpur } from './roads';
+import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, layApron, layPlan, laySpur, migrateRoads, planLink, planSpur } from './roads';
 import { zonesFrom } from './zones';
 import {
-  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, haulEnd, haulOpts, hopperRoom, migrateHubs, newHubState, openPit,
+  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, haulEnd, haulOpts, migrateHubs, newHubState, openPit,
   plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
@@ -68,6 +67,9 @@ import { aheadClass, launchSentinel, setAhead, withForecast } from './forecast';
 import { HAZARDS, HAZARD_NAME, type HazardId, type Tier } from '../data/hazards';
 import { FleetTarget, type Mode as FleetMode } from '../player/fleetTarget';
 import { RoadTool } from '../player/roadTool';
+import { GradeTool } from '../player/gradeTool';
+import { GradeMarks } from '../world/gradeMarks';
+import { cancelGrade, finishNow, gradePlan, gradeView, queueGrade, squareAt, type GradeRect } from './grading';
 import { Heightfield, type Deposit } from '../terrain/heightfield';
 import { TerrainChunks } from '../terrain/chunks';
 import { Horizon } from '../terrain/horizon';
@@ -75,7 +77,7 @@ import { Rocks } from '../terrain/rocks';
 import { BuildingInstances, centerOf, footprintRect } from '../buildings/instances';
 import { BuildingDarkness } from '../buildings/darkness';
 import {
-  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, gradeCost, untouchedSite, type PlaceableType,
+  PlacementController, buildCost, checkGrade, checkPlacement, demolishRefund, untouchedSite, type PlaceableType,
 } from '../buildings/placement';
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera, drawFrame, probeGround } from '../world/renderer';
@@ -160,6 +162,9 @@ export class Game {
   private fleetTarget!: FleetTarget;
   /** the road tool (player/roadTool.ts) */
   private roadTool!: RoadTool;
+  /** the grading tool (player/gradeTool.ts, docs/19 S5) and what marks its jobs on the ground */
+  private gradeTool!: GradeTool;
+  private gradeMarks!: GradeMarks;
   /** debug: a placement's road is laid open (tests that time builds, not roads) */
   debugOpenRoads = false;
   /** touch mode's gesture recognizer (player/touch.ts); null on desktop */
@@ -297,7 +302,8 @@ export class Game {
     // replay over them, in order (base → deltas → flattens, docs/17 §11.1)
     const carved = restoreTerrain(this.state, this.hf);
     for (const f of this.state.flattens) {
-      this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h);
+      // (a grading job's single cells carry no skirt: the job's whole rectangle, last, feathers it once)
+      this.hf.flatten(f.x0, f.z0, f.x1, f.z1, f.h, !f.noSkirt);
       this.onFlattened(f.x0, f.z0, f.x1, f.z1);
     }
     // migration rule 7: a Lander ice survey mapped every ice deposit; every
@@ -315,6 +321,7 @@ export class Game {
     this.chunks.clearQueue();
     if (carved) this.rocks.clearPits(0, 0, 255, 255);
     this.hf.carved.length = 0;
+    this.hf.leveled.length = 0;
     this.instances.rebuild(this.state);
     // (a save made on foot, from before walk mode was removed, loads here like any other)
     this.homeCamera(false);
@@ -368,6 +375,14 @@ export class Game {
       push: (a) => this.actions.push(a),
       holdCamera: (on) => { this.buildCam.enabled = !on; },
     }, this.scene);
+    this.gradeTool?.cancel();
+    this.gradeTool = new GradeTool({
+      state: () => this.state, mods: () => this.mods, hf: this.hf,
+      ray: () => { this.raycaster.setFromCamera(this.mouse, this.camera); return this.raycaster.ray; },
+      push: (a) => this.actions.push(a),
+      holdCamera: (on) => { this.buildCam.enabled = !on; },
+    }, this.scene);
+    this.gradeMarks = new GradeMarks(this.hf);
     $roverSel.set(null);
     this.worldGroup = new THREE.Group();
     this.highlight?.dispose();
@@ -378,7 +393,7 @@ export class Game {
     this.depLitSig = null;
     $hubLight.set(null);
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
-      this.overlays.group, this.life.group, this.fleetTarget.group, this.highlight.group);
+      this.overlays.group, this.life.group, this.fleetTarget.group, this.highlight.group, this.gradeMarks.group);
     for (const c of this.depositOverlay?.children ?? []) (c as THREE.LineSegments).geometry.dispose();
     this.depositOverlay = null;
     this.revealedIds = new Set();
@@ -438,6 +453,7 @@ export class Game {
     this.canvas.addEventListener('mousedown', (e) => {
       this.downPos = { x: e.clientX, y: e.clientY };
       if (e.button === 0 && this.roadTool?.active) this.roadTool.down(e.altKey);
+      if (e.button === 0 && this.gradeTool?.active) { this.gradeTool.update(); this.gradeTool.down(); }
     });
     this.canvas.addEventListener('mouseup', (e) => {
       if (!this.playing) return;
@@ -445,6 +461,12 @@ export class Game {
       if (this.roadTool?.active) {
         if (e.button === 0) this.roadTool.up();
         if (e.button === 2 && Math.hypot(e.clientX - this.downPos.x, e.clientY - this.downPos.y) <= 5) this.roadTool.cancel();
+        return;
+      }
+      // the grading tool takes them too: a drag is a box, a click the 16 m square
+      if (this.gradeTool?.active) {
+        if (e.button === 0) this.gradeTool.up();
+        if (e.button === 2 && Math.hypot(e.clientX - this.downPos.x, e.clientY - this.downPos.y) <= 5) this.gradeTool.cancel();
         return;
       }
       const moved = Math.hypot(e.clientX - this.downPos.x, e.clientY - this.downPos.y);
@@ -511,6 +533,7 @@ export class Game {
           // one thing at a time: placement, the inspector, a resource panel —
           // and with nothing left to cancel, the menu
           if (this.roadTool.active) this.roadTool.cancel();
+          else if (this.gradeTool.active) this.gradeTool.cancel();
           else if (this.fleetTarget.active) this.fleetTarget.cancel();
           else if (this.placement.active) this.cancelPlacement();
           else if ($selection.get()) $selection.set(null);
@@ -642,6 +665,7 @@ export class Game {
   beginFleetTarget(mode: FleetMode) {
     this.cancelPlacement();
     this.roadTool.cancel();
+    this.gradeTool.cancel();
     this.fleetTarget.begin(mode);
   }
 
@@ -660,6 +684,7 @@ export class Game {
   beginRoadTool() {
     this.cancelPlacement();
     this.fleetTarget.cancel();
+    this.gradeTool.cancel();
     $selection.set(null);
     this.roadTool.begin();
   }
@@ -668,10 +693,25 @@ export class Game {
   commitRoad() { this.roadTool?.commit(); }
   debugRoadTool() { return this.roadTool.info(); }
 
-  beginPlacement(type: PlaceableType) {
-    if (type === 'grade' && !this.mods.grading) return;
+  /** The grading tool (the palette's GRADE button, docs/19 S5): drag a box, the rovers level it. Every site has it from landing. */
+  beginGradeTool() {
+    this.cancelPlacement();
     this.fleetTarget.cancel();
     this.roadTool.cancel();
+    $selection.set(null);
+    this.gradeTool.begin();
+  }
+  cancelGradeTool() { this.gradeTool?.cancel(); }
+  debugGradeTool() { return this.gradeTool.info(); }
+  /** Cancel a queued grading job: the cells not yet levelled refund their energy. */
+  cancelGradeJob(id: number) { this.actions.push({ kind: 'cancelGrade', id }); }
+
+  beginPlacement(type: PlaceableType) {
+    // the old click-a-square placement is the grading tool now (its click is the 16 m square)
+    if (type === 'grade') { this.beginGradeTool(); return; }
+    this.fleetTarget.cancel();
+    this.roadTool.cancel();
+    this.gradeTool.cancel();
     $selection.set(null);
     $roverSel.set(null);
     this.placement.begin(type, this.state.techsDone);
@@ -692,7 +732,7 @@ export class Game {
   private bindTouch() {
     const host: TouchHost = {
       ready: () => this.playing && !overlayUp() && !$menuOpen.get(),
-      mode: () => (this.placement?.active ? 'place' : this.roadTool?.active ? 'road'
+      mode: () => (this.placement?.active ? 'place' : this.roadTool?.active || this.gradeTool?.active ? 'road'
         : this.fleetTarget?.active ? 'target' : 'select'),
       tap: (x, y) => this.touchTap(x, y),
       longPress: (x, y) => this.touchLongPress(x, y),
@@ -701,9 +741,17 @@ export class Game {
       twist: (rad) => this.buildCam.twist(rad),
       twistReset: () => this.buildCam.twistReset(),
       ghostDrag: (dx, dy) => this.pointAt(this.mousePx.x + dx, this.mousePx.y + dy),
-      roadDown: (x, y) => { this.pointAt(x, y); this.roadTool.update(); this.roadTool.down(this.roadRemove); },
+      roadDown: (x, y) => {
+        this.pointAt(x, y);
+        if (this.gradeTool.active) { this.gradeTool.update(); this.gradeTool.down(); return; }
+        this.roadTool.update(); this.roadTool.down(this.roadRemove);
+      },
       roadMove: (x, y) => this.pointAt(x, y),
-      roadUp: (x, y) => { this.pointAt(x, y); this.roadTool.update(); this.roadTool.up(); },
+      roadUp: (x, y) => {
+        this.pointAt(x, y);
+        if (this.gradeTool.active) { this.gradeTool.update(); this.gradeTool.up(); return; }
+        this.roadTool.update(); this.roadTool.up();
+      },
     };
     this.touchCtl = new TouchControls(this.canvas, host);
     window.addEventListener('pagehide', () => { if (this.playing) void this.doSave(true); });
@@ -727,6 +775,13 @@ export class Game {
    *  the deposit overlay on, a revealed deposit there opens its card. */
   private touchTap(x: number, y: number) {
     this.pointAt(x, y);
+    if (this.gradeTool.active) {
+      // a tap: the 16 m square there
+      this.gradeTool.update();
+      this.gradeTool.down();
+      this.gradeTool.up();
+      return;
+    }
     if (this.roadTool.active) {
       this.roadTool.update();
       this.roadTool.down(this.roadRemove);
@@ -749,7 +804,7 @@ export class Game {
    *  (the UI adds its info card); ground opens the card of a revealed
    *  deposit there. Returns what was found, for the UI. */
   private touchLongPress(x: number, y: number) {
-    if (this.placement.active || this.roadTool.active || this.fleetTarget.active) return;
+    if (this.placement.active || this.roadTool.active || this.gradeTool.active || this.fleetTarget.active) return;
     this.pointAt(x, y);
     this.raycaster.setFromCamera(this.mouse, this.camera);
     const hit = this.pickWorld();
@@ -873,6 +928,16 @@ export class Game {
 
   /** The boxes the pits carved since the last look: their chunks queued, their rocks cleared. */
   private takeTerrain() {
+    // ground the rovers levelled (core/grading.ts): the chunks it touches rebuild, the rocks on it go
+    const lv = this.hf.leveled;
+    if (lv.length) {
+      for (let i = 0; i < lv.length; i += 4) {
+        this.chunks.markDirty(lv[i], lv[i + 1], lv[i + 2], lv[i + 3]);
+        this.onFlattened(lv[i], lv[i + 1], lv[i + 2], lv[i + 3]);
+      }
+      lv.length = 0;
+      this.overlayOwed = true;
+    }
     if (!this.hf.carved.length) return;
     takeCarved(this.hf, (gx0, gz0, gx1, gz1) => {
       this.chunks.markDirty(gx0, gz0, gx1, gz1);
@@ -1089,22 +1154,14 @@ export class Game {
         if (!missionLost(s)) s.paused = a.paused;
         break;
       case 'launch': this.doLaunch(); break;
-      case 'grade': {
-        if (!this.mods.grading) break;
-        const chk = checkGrade(s, this.hf, a.gx, a.gz);
-        if (!chk.valid) { alert(s, `CANNOT GRADE — ${chk.reason}`, 'warn'); break; }
-        s.powerStored -= gradeCost(this.hf, a.gx, a.gz);
-        const h = this.hf.flatten(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
-        s.flattens.push({ x0: a.gx, z0: a.gz, x1: a.gx + GRADE_CELLS, z1: a.gz + GRADE_CELLS, h });
-        this.chunks.rebuildAround(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
-        this.onFlattened(a.gx, a.gz, a.gx + GRADE_CELLS, a.gz + GRADE_CELLS);
-        // dozed spoil, recovered: into the nearest smelter's or refinery's hopper with room, else the pile
-        const [gcx, gcz] = [(a.gx + GRADE_CELLS / 2) * 4 - 512, (a.gz + GRADE_CELLS / 2) * 4 - 512];
-        const hub = s.buildings.filter((b) => (b.type === 'smelter' || b.type === 'refinery') && b.hub && (b.construction ?? 0) <= 0 &&
-          hopperRoom(b) >= GRADE_REGOLITH_YIELD)
-          .sort((p, q) => Math.hypot(centerOf(p)[0] - gcx, centerOf(p)[1] - gcz) - Math.hypot(centerOf(q)[0] - gcx, centerOf(q)[1] - gcz))[0];
-        if (hub) hub.hub!.hopper += GRADE_REGOLITH_YIELD;
-        s.resources.regolith += GRADE_REGOLITH_YIELD;
+      case 'grade': this.queueBox(squareAt(a.gx, a.gz), false); break; // the old click: the 16 m square, as a job
+      case 'gradeBox': this.queueBox([a.gx0, a.gz0, a.gx1, a.gz1], !!a.instant); break;
+      case 'cancelGrade': {
+        const j = s.gradeJobs?.find((x) => x.id === a.id);
+        const r = cancelGrade(s, a.id);
+        if (r.ok && j) {
+          alert(s, `GRADING CANCELLED — ${j.cells.length - j.done} of ${j.cells.length} cells undone${r.refund >= 0.5 ? `, ${Math.round(r.refund)} stored energy back` : ''}`, 'info');
+        }
         break;
       }
       case 'orderResupply': {
@@ -1218,6 +1275,44 @@ export class Game {
         break;
       }
     }
+  }
+
+  /** Queue a grading box (docs/19 S5): refused with the words, or paid for and made a job the rovers level
+   *  cell by cell. `instant` (tests, the debug API): levelled at once. */
+  private queueBox(rect: GradeRect, instant: boolean) {
+    const s = this.state;
+    const r = queueGrade(s, this.hf, this.mods, rect);
+    if (!r.ok) { alert(s, `CANNOT GRADE — ${r.reason}`, 'warn'); return; }
+    const j = r.job!;
+    if (instant) { finishNow(s, this.hf, j); return; }
+    const nx = rect[2] - rect[0], nz = rect[3] - rect[1];
+    alert(s, `GRADING QUEUED — ${nx}×${nz} cells, ${fmtClock(Math.ceil(j.total / (this.mods.grading ? 2 : 1)))} of rover time, ${Math.round(j.energy)} stored energy`, 'info');
+  }
+
+  /** Every grading job with its progress, the box tool's state and the marks on the ground (debug). */
+  debugGrading() {
+    const s = this.state;
+    return {
+      jobs: gradeView(s, this.mods).map((v) => ({ ...v, job: s.gradeJobs?.find((j) => j.id === v.id) })),
+      tool: this.gradeTool.info(), marks: this.gradeMarks.info(), next: s.nextGradeJob ?? 1,
+    };
+  }
+
+  /** What a box would be (debug): the plan without its per-cell arrays. */
+  debugPlanGrade(gx0: number, gz0: number, gx1: number, gz1: number) {
+    const p = gradePlan(this.state, this.hf, this.mods, [gx0, gz0, gx1, gz1]);
+    const { cellSecs, order, ...rest } = p;
+    return { ...rest, first: order.length ? keyCell(order[0]) : null, last: order.length ? keyCell(order[order.length - 1]) : null,
+      minCell: cellSecs.length ? Math.min(...cellSecs) : 0, maxCell: cellSecs.length ? Math.max(...cellSecs) : 0 };
+  }
+
+  /** Level what is left of grading job `id` (every job without one) at once (the debug API). */
+  debugFinishGrading(id?: number) {
+    const s = this.state;
+    for (const j of [...(s.gradeJobs ?? [])]) if (id === undefined || j.id === id) finishNow(s, this.hf, j);
+    this.takeTerrain();
+    this.chunks.flushQueue();
+    this.publish();
   }
 
   private commitPlace(
@@ -1760,6 +1855,8 @@ export class Game {
     this.buildCam.update(dt);
     if (this.fleetTarget.active) this.fleetTarget.update();
     if (this.roadTool.active) this.roadTool.update();
+    if (this.gradeTool.active) this.gradeTool.update();
+    this.gradeMarks.update(this.state);
     if (this.placement.active) {
       this.raycaster.setFromCamera(this.mouse, this.camera);
       this.placement.update(this.state, this.mods.unlocked,
@@ -2845,7 +2942,7 @@ export class Game {
   }
 
   /** Site Grading's check at (gx, gz), as the ghost runs it. */
-  debugCheckGrade(gx: number, gz: number) { return checkGrade(this.state, this.hf, gx, gz); }
+  debugCheckGrade(gx: number, gz: number) { return checkGrade(this.state, this.hf, gx, gz, this.mods); }
 
   /** Relief (m) over a sample rect, as the placement check reads it. */
   debugRelief(gx0: number, gz0: number, gx1: number, gz1: number) { return this.hf.maxDelta(gx0, gz0, gx1, gz1); }

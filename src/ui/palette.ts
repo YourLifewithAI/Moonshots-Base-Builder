@@ -14,7 +14,7 @@ import {
 } from '../core/mods';
 import { uplinkShare } from '../core/research';
 import {
-  AGENT_GEN_TAX, CONSTRUCTION_KW, CYCLE_S, DOWNLINK, GRADE_COST_ENERGY, ICE_SURVEY_COST, OVERCLOCK, RESUPPLY, WEAR,
+  AGENT_GEN_TAX, CONSTRUCTION_KW, CYCLE_S, DOWNLINK, GRADE_JOB, ICE_SURVEY_COST, OVERCLOCK, RESUPPLY, WEAR,
 } from '../data/balance';
 import { DEPOSIT_INFO, FEED_KINDS, FEED_LABEL, type FeedGrade } from '../data/deposits';
 import type { Game } from '../core/game';
@@ -36,7 +36,7 @@ import { touchOn } from '../core/touch';
 
 const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 import {
-  $automation, $feed, $fleet, $ice, $lander, $placeFlash, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
+  $automation, $feed, $fleet, $ice, $lander, $placeFlash, $gradeTool, $placing, $power, $research, $resources, $roadTool, $selection, $siteId, $tech,
   $vitals, spawnFloater, $hazards, $touchInfo, $weather, $hubCard,
 } from './stores';
 import { isHubType } from '../data/hubs';
@@ -271,11 +271,14 @@ export function mountPalette(root: HTMLElement, game: Game) {
     }
     markStrands();
     // terrain tools live beside the extraction buildings
-    if (activeCat === 'extraction' && $tech.get().grading) {
+    // (grading is the rovers' job on every site from landing, docs/19 S5: drag a box, they level it cell by cell;
+    // Site Grading doubles the rate and lets them level tailings heaps)
+    if (activeCat === 'extraction') {
       const g = el('button', 'bld-btn') as HTMLButtonElement;
-      g.innerHTML = `<div class="icon">▭</div><div class="nm">Grade Site</div><div class="cost mono">${GRADE_COST_ENERGY}▮</div>`;
-      g.title = 'Flatten a 16×16 m patch of terrain for construction. Costs stored energy; recovers a little regolith.';
-      g.addEventListener('click', () => game.beginPlacement('grade'));
+      g.id = 'grade-btn';
+      g.innerHTML = `<div class="icon">▭</div><div class="nm">Grade Site</div><div class="cost mono">${GRADE_JOB.energyPerCell}▮/cell</div>`;
+      g.title = 'Drag a box of ground: rovers drive there and level it cell by cell, for construction. Costs stored energy per cell (refunded if you cancel); recovers a little regolith. A click grades the 16×16 m square.';
+      g.addEventListener('click', () => { if ($gradeTool.get()) game.cancelGradeTool(); else game.beginGradeTool(); });
       items.appendChild(g);
     }
   };
@@ -326,10 +329,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
   const costPart = (amt: number, glyph: string, have: number) =>
     have >= amt ? `${amt}${glyph} (${fmt(have)}→${fmt(have - amt)})` : `${amt}${glyph} (have ${fmt(have)})`;
   const hintLine = (type: BuildingId | 'grade'): string => {
-    if (type === 'grade') {
-      return ['GRADE SITE', costPart(GRADE_COST_ENERGY, '▮', $power.get().stored),
-        touchOn() ? 'each ✓ grades deeper' : 'each click grades deeper', touchOn() ? '✕ done' : 'right-click done'].join(' · ');
-    }
+    if (type === 'grade') return 'GRADE SITE';
     const res = $resources.get();
     const site = SITES[$siteId.get() ?? 'mare'];
     const parts = [BUILDINGS[type].name.toUpperCase()];
@@ -390,6 +390,26 @@ export function mountPalette(root: HTMLElement, game: Game) {
       : t.started ? 'ROAD · click each waypoint · Enter or double-click lays · Backspace undoes' : 'ROAD · drag out from a road cell, or click it and click on · Alt-drag removes · right-click done';
     roadHint.innerHTML = `<span class="label hint-line">${line}</span>${t.reason
       ? `<div class="${t.mode === 'remove' ? 'caution' : 'blocked'}">${t.reason}</div>` : ''}`;
+  });
+  // the grading tool's hint shares the spot (docs/19 S5)
+  const gradeHint = el('div', 'panel');
+  gradeHint.id = 'grade-hint';
+  gradeHint.style.display = 'none';
+  palette.insertBefore(gradeHint, items);
+  $gradeTool.subscribe((t) => {
+    items.querySelector('#grade-btn')?.classList.toggle('active', !!t);
+    if (!t) { gradeHint.style.display = 'none'; return; }
+    gradeHint.style.display = '';
+    const power = $power.get().stored;
+    const line = t.cells
+      ? [`GRADE ${t.w}×${t.d} cells (${t.w * 4}×${t.d * 4} m)`,
+        `${fmtClock(Math.ceil(t.eta))} with ${t.rovers} rover${t.rovers === 1 ? '' : 's'} (${Math.round(t.secs)} rover-s)`,
+        `${t.energy}▮ (${fmt(power)}→${fmt(Math.max(0, power - t.energy))})`,
+        ...(t.relief >= 0.05 ? [`${t.relief.toFixed(1)} m relief`] : []),
+        touchOn() ? 'drag a box · tap a 16 m square' : t.started ? 'release to queue it' : 'drag a box · click: 16 m square · right-click done']
+      : ['GRADE SITE · drag a box of ground · rovers level it cell by cell'];
+    gradeHint.innerHTML = `<span class="label hint-line">${line.join(' · ')}</span>${t.reason
+      ? `<div class="blocked">${esc(t.reason)}</div>` : t.spoil ? `<div class="road-note">${t.spoil} cells on a tailings heap: their spoil comes to a hopper</div>` : ''}`;
   });
   $resources.subscribe(() => { if ($placing.get()) renderHint(); });
   // a click on a blocked spot: the hint flashes (restarting the animation)

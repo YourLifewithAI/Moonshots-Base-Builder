@@ -6,6 +6,7 @@
  *  |---|---|---|
  *  | Rover welding a site | the print arm unfolds off the nose and sweeps over the site; a spark flickers at the nozzle (a warm pool under it at night); a regolith plume rises | the arm folds back over the nose |
  *  | Rover sintering a road cell | it crawls along the cell toward the frontier, the arm pointed down; the cell glows orange as it sinters and cools to dull red behind | — |
+ *  | Rover grading a cell | the arm swings down and forward with a blade on its tip; it creeps along the cell's row as the blade drags, and a dust cloud drifts up behind it | the arm folds back over the nose |
  *  | Drone printing | a nozzle spark and a print beam down to the site (orange, to the road, on a road job) | — |
  *  | Excavator | digging (home or away): the wheel turns, the boom dips and rises, spoil clods fly; unloading: boom up, wheel back, a spill | still while it drives, the boom carried high |
  *
@@ -46,8 +47,9 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ───────────────────────────── the hook: weld or sinter ─────────────────────────────
 
-/** How a unit at work is working: printing a structure, or sintering a road cell. */
-export type WorkMode = 'weld' | 'sinter';
+/** How a unit at work is working: printing a structure, sintering a road cell, or (docs/19 S5) levelling a
+ *  cell of a grading job with its blade. */
+export type WorkMode = 'weld' | 'sinter' | 'grade';
 
 /** How the animations read a unit's work when the unit carries no mode of
  *  its own (null: not working — no site or road job, or its site waits on
@@ -67,6 +69,7 @@ export const workModeOf: WorkModeFn = (s, u) => {
   if (u.road !== undefined) {
     for (const j of s.roadJobs ?? []) if (j.id === u.road) return 'sinter';
   }
+  if (u.grade !== undefined && u.task === 'grade') return 'grade';
   return null;
 };
 
@@ -91,6 +94,9 @@ const ONE = new THREE.Vector3(1, 1, 1);
 
 /** s (game) the print arm takes to unfold, or fold */
 const UNFOLD_S = 1.2;
+/** the grading blade: the arm's pose (as SINTER's) and the blade plate on its tip (m: wide, along the arm, thick) */
+const GRADE = { up: 0.25, down: -1.15, l2: 1.05 };
+const BLADE = new THREE.Vector3(1.35, 0.5, 0.09);
 /** the sinter crawl: m/s toward the frontier, and how far */
 const CRAWL_V = 0.4;
 const CRAWL_MAX = 1.2;
@@ -176,6 +182,8 @@ interface RoverAnim {
   /** the weld's unfold and the sinter's arm-down, 0..1 (eased when drawn) */
   weld: number;
   sinter: number;
+  /** the grading blade's arm-down, 0..1 */
+  grade: number;
   /** m crawled toward the frontier */
   crawl: number;
   mode: WorkMode | null;
@@ -447,7 +455,7 @@ export class WorkAnim {
     const r = sl.r!;
     let a = this.rovers.get(r.id);
     if (!a) {
-      a = { id: r.id, weld: 0, sinter: 0, crawl: 0, mode: null, atWork: false, spark: false, yaw: 0, reach: 0,
+      a = { id: r.id, weld: 0, sinter: 0, grade: 0, crawl: 0, mode: null, atWork: false, spark: false, yaw: 0, reach: 0,
         tip: new THREE.Vector3(), front: null, frontRev: -1, frontJob: 0, sinterAt: -1e9, seen: 0 };
       this.rovers.set(r.id, a);
     }
@@ -462,15 +470,16 @@ export class WorkAnim {
     const stopped = sl.there && r.v < 0.1;
     const near = !!spot && Math.hypot(r.x - spot.x, r.z - spot.z) < 6;
     a.mode = mode;
-    a.atWork = mode === 'weld' ? stopped : mode === 'sinter' ? near : false;
+    a.atWork = mode === 'weld' ? stopped : mode === 'sinter' || mode === 'grade' ? near : false;
     a.weld = approach(a.weld, a.atWork && mode === 'weld' ? 1 : 0, dt / UNFOLD_S);
     a.sinter = approach(a.sinter, a.atWork && mode === 'sinter' ? 1 : 0, dt / UNFOLD_S);
-    // the sinter crawl: creeps toward the frontier while it stands, eases back as it drives on
-    a.crawl = said === 'sinter' && stopped && a.atWork ? Math.min(CRAWL_MAX, a.crawl + CRAWL_V * dt) : Math.max(0, a.crawl - 1.5 * dt);
+    a.grade = approach(a.grade, a.atWork && mode === 'grade' ? 1 : 0, dt / UNFOLD_S);
+    // the sinter crawl (and the blade's): creeps toward the frontier, or along the row, while it stands; eases back as it drives on
+    a.crawl = (said === 'sinter' || said === 'grade') && stopped && a.atWork ? Math.min(CRAWL_MAX, a.crawl + CRAWL_V * dt) : Math.max(0, a.crawl - 1.5 * dt);
     const B = sl.B;
     const e = B.elements;
     const t = this.clock + r.id * 1.7;
-    const w = smooth(a.weld), sn = smooth(a.sinter);
+    const w = smooth(a.weld), sn = smooth(a.sinter), gr = smooth(a.grade);
     // aim at the site: its centre in the rover's own frame
     let aim = 0;
     if (w > 0 && u?.site !== null && u?.site !== undefined) {
@@ -482,9 +491,10 @@ export class WorkAnim {
       }
     }
     const yaw = w * (aim + 0.5 * Math.sin(t * 1.85));
-    const up = REST.up + w * (1.0 - REST.up) + sn * (SINTER.up - REST.up);
-    const down = REST.down + w * (-0.42 + 0.12 * Math.sin(t * 2.7) - REST.down) + sn * (SINTER.down - REST.down);
-    const l2 = REST.l2 + w * (1.65 + 0.3 * Math.sin(t * 1.19 + 1) - REST.l2) + sn * (SINTER.l2 - REST.l2);
+    const up = REST.up + w * (1.0 - REST.up) + sn * (SINTER.up - REST.up) + gr * (GRADE.up - REST.up);
+    const down = REST.down + w * (-0.42 + 0.12 * Math.sin(t * 2.7) - REST.down) + sn * (SINTER.down - REST.down)
+      + gr * (GRADE.down + 0.05 * Math.sin(t * 6.1) - REST.down);
+    const l2 = REST.l2 + w * (1.65 + 0.3 * Math.sin(t * 1.19 + 1) - REST.l2) + sn * (SINTER.l2 - REST.l2) + gr * (GRADE.l2 - REST.l2);
     const sy = Math.sin(yaw), cy = Math.cos(yaw);
     this.d1.set(sy * Math.cos(up), Math.sin(up), cy * Math.cos(up));
     this.d2.set(sy * Math.cos(down), Math.sin(down), cy * Math.cos(down));
@@ -499,6 +509,12 @@ export class WorkAnim {
     this.v0.copy(this.d2).multiplyScalar(0.04).add(this.N);
     this.q0.setFromUnitVectors(UP, this.d2);
     this.kitAt(B, this.v0, this.q0, HEAD, this.tint.plate, 0);
+    // the grading blade: a wide plate across the arm's end, dragging over the ground
+    if (gr > 0.02) {
+      this.v0.copy(this.d2).multiplyScalar(0.18).add(this.N);
+      this.q0.setFromUnitVectors(UP, this.d2);
+      this.kitAt(B, this.v0, this.q0, this.v3.copy(BLADE).multiplyScalar(0.35 + 0.65 * gr), this.tint.trim, 0);
+    }
     // the nozzle's tip, world
     a.tip.copy(this.d2).multiplyScalar(0.2).add(this.N).applyMatrix4(B);
     a.spark = false;
@@ -521,6 +537,24 @@ export class WorkAnim {
       this.bill(this.v0.copy(a.tip).addScaledVector(UP, 0.05), 0.5 * (0.8 + 0.4 * fl.s), 1.0, 0.7, 0.4, 0.8 * k);
       if (night > 0) this.ground(a.tip.x, a.tip.z, hy, 5, 5, 1.0, 0.45, 0.15, 0.3 * night);
       if (u) this.frontier(s, a, u);
+    } else if (mode === 'grade' && gr > 0.5) {
+      // the blade drags spoil: a low dust cloud rises and drifts off behind it
+      const fx = e[8], fz = e[10], fl2 = Math.hypot(fx, fz) || 1;
+      const ux = fx / fl2, uz = fz / fl2;
+      if (this.particles) {
+        const P = 2.4;
+        const lit = 0.25 + 0.75 * sun;
+        for (let j = 0; j < 5; j++) {
+          const u = (this.clock / P + j / 5 + hash(r.id * 3.7 + j)) % 1;
+          const fade = Math.sin(PI * u) * 0.5 * lit * gr;
+          const side = (hash(j * 4.3 + r.id) - 0.5) * 1.6;
+          const back = 0.3 + 2.4 * u;
+          this.v0.set(a.tip.x - ux * back + uz * side, this.hf.sample(a.tip.x, a.tip.z) + 0.25 + 1.3 * u, a.tip.z - uz * back - ux * side);
+          this.bill(this.v0, 0.9 + 2.2 * u, 0.55, 0.5, 0.45, fade);
+        }
+      }
+      // a soft dark smear of turned soil under the blade
+      this.ground(a.tip.x, a.tip.z, Math.atan2(ux, uz), 3.2, 2.6, 0.25, 0.22, 0.2, 0.22 * gr, 0.12);
     }
   }
 
@@ -951,7 +985,7 @@ export class WorkAnim {
       clock: r2(this.clock),
       rovers: (drawn(this.rovers) as RoverAnim[]).map((a) => ({
         id: a.id, mode: a.mode, atWork: a.atWork, spark: a.spark, crawl: r2(a.crawl),
-        arm: { unfold: r2(smooth(a.weld)), down: r2(smooth(a.sinter)), yaw: r2(a.yaw), reach: r2(a.reach),
+        arm: { unfold: r2(smooth(a.weld)), down: r2(smooth(a.sinter)), blade: r2(smooth(a.grade)), yaw: r2(a.yaw), reach: r2(a.reach),
           tip: [r2(a.tip.x), r2(a.tip.y), r2(a.tip.z)] },
       })),
       drones: (drawn(this.droneAnims) as DroneAnim[]).map((a) => ({ id: a.id, mode: a.mode, spark: a.spark })),

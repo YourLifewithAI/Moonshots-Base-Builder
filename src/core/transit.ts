@@ -28,6 +28,7 @@ import {
 } from './roads';
 import { centerOf } from '../buildings/instances';
 import { roverStep } from './traffic';
+import { gradeArea, onGradeGround, standOf } from './grading';
 
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
@@ -179,7 +180,7 @@ const spurOpen = (s: GameState, b: BuildingState) => !(b.spur?.length && spurLef
 export function spotGoal(s: GameState, spot: RoverSpot): Goal {
   const cell: Pt = [spot.gx, spot.gz];
   const ck = cellKey(spot.gx, spot.gz);
-  let kind: Kind = spot.survey ? 'survey' : spot.core !== undefined ? 'core' : 'dock';
+  let kind: Kind = spot.survey ? 'survey' : spot.core !== undefined ? 'core' : spot.grade !== undefined ? 'grade' : 'dock';
   let [x, z] = [spot.x, spot.z];
   // inside a dock (or the Lander, lent): in at its door
   if (spot.inside) [x, z] = cellCentre(spot.gx, spot.gz);
@@ -194,10 +195,11 @@ export function spotGoal(s: GameState, spot: RoverSpot): Goal {
     const f = j ? frontierOf(s, j.cells) : null;
     kind = f?.from && cellKey(f.from[0], f.from[1]) === ck ? 'front' : 'behind';
   }
-  const tgt = spot.site ?? spot.road ?? spot.core ?? spot.dock;
+  const tgt = spot.site ?? spot.road ?? spot.core ?? spot.grade ?? spot.dock;
   return {
     key: `${kind}:${tgt}@${ck}${spot.inside ? 'i' : ''}${spot.offroad ? 'o' : ''}`, kind, cell, x, z, ...(spot.offroad ? { off: true } : {}),
-    ...(spot.site !== null ? { site: spot.site } : {}), ...(spot.road !== undefined ? { job: spot.road } : {}),
+    ...(spot.site !== null ? { site: spot.site } : {}),
+    ...(spot.road !== undefined ? { job: spot.road } : spot.grade !== undefined ? { job: spot.grade } : {}),
   };
 }
 
@@ -280,8 +282,18 @@ function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: nu
   // (its pack flat on a mast's way out) sets off again from the nearest road,
   // and an off-road slot on open ground (a field structure's wall just outside
   // its zone's rim) is reached from the nearest road
-  const from = offAreaAt(s, x, z) ?? offGround(s, x, z);
-  const to = g.off ? offAreaAt(s, g.x, g.z) ?? offGround(s, g.x, g.z) : null;
+  let from = offAreaAt(s, x, z) ?? offGround(s, x, z);
+  let to = g.off ? offAreaAt(s, g.x, g.z) ?? offGround(s, g.x, g.z) : null;
+  // a grading job's stand (docs/19 S5) on open ground: the box is its own area with one gate (the road cell nearest it),
+  // so a rover hopping from cell to cell stays on it and one arriving drives in from that road cell
+  if (g.kind === 'grade' && g.job !== undefined && g.off && !offAreaAt(s, g.x, g.z)) {
+    const j = s.gradeJobs?.find((q) => q.id === g.job);
+    const area = j ? gradeArea(s, j) : null;
+    if (j && area) {
+      to = area;
+      if (onGradeGround(j, x, z) && !offAreaAt(s, x, z)) from = area;
+    }
+  }
   const way = groundWay(s, [x, z], [g.x, g.z], null, null, from, to);
   if (!way) return null;
   // drop points it already stands on
@@ -330,6 +342,8 @@ export interface Arrivals {
   front: Map<number, RoverUnit[]>;
   /** units behind a road job's frontier, by job */
   jobs: Map<number, RoverUnit[]>;
+  /** units at their stands on a grading job's cells (docs/19 S5), by job */
+  grade: Map<number, RoverUnit[]>;
 }
 
 /** Economy step 0, after the assignments: advance every trip by dt, then
@@ -337,7 +351,7 @@ export interface Arrivals {
  *  a road's frontier. A unit reassigned since its trip was planned counts
  *  for nothing until its new trip gets it there. */
 export function transitArrive(s: GameState, dt: number): Arrivals {
-  const out: Arrivals = { weld: new Map(), front: new Map(), jobs: new Map() };
+  const out: Arrivals = { weld: new Map(), front: new Map(), jobs: new Map(), grade: new Map() };
   const away = surveyRover(s);
   const push = (m: Map<number, RoverUnit[]>, k: number, r: RoverUnit) => (m.get(k) ?? m.set(k, []).get(k)!).push(r);
   for (const r of s.rovers ?? []) {
@@ -364,7 +378,11 @@ export function transitArrive(s: GameState, dt: number): Arrivals {
     }
     if (!arrived(t) || r.id === away || roverDown(s, r)) continue;
     if (t.kind === 'weld' && t.site !== undefined && t.site === r.site) push(out.weld, t.site, r);
-    else if (t.kind === 'front') {
+    else if (t.kind === 'grade') {
+      // at the stand on its cell of the job (a cell levelled since sends it on to the next: it counts once there)
+      const j = t.job !== undefined && t.job === r.grade ? s.gradeJobs?.find((q) => q.id === t.job) : undefined;
+      if (j && t.cell === standOf(s, j, r)) push(out.grade, j.id, r);
+    } else if (t.kind === 'front') {
       // still the frontier: the cell behind it (a drone: over it)
       const drone = isDrone(s, r);
       const cells = t.site !== undefined && t.site === r.site ? s.buildings.find((b) => b.id === t.site)?.spur

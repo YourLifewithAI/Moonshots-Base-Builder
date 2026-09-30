@@ -20,6 +20,7 @@ import { spurLeft, spurSeconds } from './roads';
 import { PROSPECTS } from '../data/lunarMap';
 import { packLine } from './unitPower';
 import { hubViews } from './hubView';
+import { gradeView, jobRect } from './grading';
 
 const G = RESOURCES.regolith.glyph;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -86,6 +87,17 @@ function roverState(s: GameState, r: GameState['rovers'][number], survey: boolea
     if (t?.stuck) return `NO ROAD — it cannot reach ${what} by road`;
     if (going && t!.job === r.road) return `EN ROUTE to ${what}${left}`;
     return j?.kind === 'haul' && by ? `LAYING A HAUL ROAD — out to ${label(by)}'s dig` : 'LAYING A ROAD — the one you drew';
+  }
+  // levelling a box the player dragged (docs/19 S5, core/grading.ts)
+  if (!site && r.grade !== undefined) {
+    const j = s.gradeJobs?.find((x) => x.id === r.grade);
+    if (j) {
+      const what = `the ${jobRect(j)[2] - jobRect(j)[0]}×${jobRect(j)[3] - jobRect(j)[1]} box`;
+      if (t?.stuck) return `NO ROAD — it cannot reach ${what} by road`;
+      if (going && t!.kind === 'grade') return `EN ROUTE to ${what}${left}`;
+      if (r.src === 'flat') return `OUT OF CHARGE — at ${what}, waiting for the grid`;
+      return `GRADING — ${what}, cell ${Math.min(j.done + 1, j.cells.length)} of ${j.cells.length}`;
+    }
   }
   if (!site) {
     if (r.src === 'flat') return `OUT OF CHARGE — waiting for the grid${going ? ` on its way to ${home ? label(home) : 'its dock'}` : ''}`;
@@ -188,5 +200,5 @@ export function fleetView(
       rate: trip.rate, homeRate: homeTrip.rate, waiting, nearby, pack,
     };
   }
-  return { rovers, sites, hauls, ...hubViews(s, mods, site) };
+  return { rovers, sites, hauls, grading: gradeView(s, mods), ...hubViews(s, mods, site) };
 }

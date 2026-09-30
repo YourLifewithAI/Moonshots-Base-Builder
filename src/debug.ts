@@ -118,7 +118,19 @@ function api(game: Game) {
     pointAt: (x: number, y: number) => game.pointAt(x, y),
     surveyIce: () => game.actions.push({ kind: 'surveyIce' }),
     orderResupply: () => game.actions.push({ kind: 'orderResupply' }),
-    gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'grade', gx, gz }),
+    /** the old one-click pass, for old specs (docs/19 S5): queue the 16 m square at (gx, gz) and level it at once */
+    gradeAt: (gx: number, gz: number) => game.actions.push({ kind: 'gradeBox', gx0: gx, gz0: gz, gx1: gx + 4, gz1: gz + 4, instant: true }),
+    /** queue a grading box: cells [gx0, gx1) × [gz0, gz1), the rovers level it over time (docs/19 S5) */
+    gradeBox: (gx0: number, gz0: number, gx1: number, gz1: number) => game.actions.push({ kind: 'gradeBox', gx0, gz0, gx1, gz1 }),
+    /** level what is left of grading job `id` (every job) at once */
+    finishGrading: (id?: number) => game.debugFinishGrading(id),
+    cancelGrade: (id: number) => game.actions.push({ kind: 'cancelGrade', id }),
+    /** every grading job and its progress, plus the box tool and its marks */
+    getGrading: () => clone(game.debugGrading()),
+    /** what a box would be: its numbers and why not ('' = it can) */
+    planGrade: (gx0: number, gz0: number, gx1: number, gz1: number) => game.debugPlanGrade(gx0, gz0, gx1, gz1),
+    beginGradeTool: () => game.beginGradeTool(),
+    cancelGradeTool: () => game.cancelGradeTool(),
     getIceDeposits: () => JSON.parse(JSON.stringify(game.iceDepositList)),
     canPlace: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => game.debugCheckPlace(type, gx, gz, rot),
     // ── the Lunar Map and local deposits (spec §5) ──

@@ -20,8 +20,9 @@
 import { BUILDINGS } from '../data/buildings';
 import type { BuildingState, GameState } from './state';
 import {
-  besideCells, cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, mastStand, roadMap, serviceCell, zoneStand,
+  besideCells, cellAt, cellCentre, cellKey, doorCell, frontierOf, isOpen, keyCell, mastStand, roadMap, serviceCell, zoneStand,
 } from './roads';
+import { rowDir, standIndex } from './grading';
 import { centerOf } from '../buildings/instances';
 import { FIELD_TYPES, ROAD } from '../data/roads';
 import { unitKind } from './fleet';
@@ -52,6 +53,8 @@ export interface RoverSpot {
   offroad?: boolean;
   /** a deposit it cores (docs/17 §13.2): off the road at the deposit's centre */
   core?: string;
+  /** a grading job it levels (docs/19 S5): off the road, on the next cell of the job (the second rover, the one after) */
+  grade?: number;
 }
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -113,6 +116,7 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
   const jobs = new Map<number, number[]>();
   const parked = new Map<number, number[]>();
   const cores = new Map<string, number[]>();
+  const grades = new Map<number, number[]>();
   const push = (m: Map<number, number[]>, k: number, id: number) => (m.get(k) ?? m.set(k, []).get(k)!).push(id);
   for (const u of roster) {
     const dock = at.get(u.home) ?? lander;
@@ -122,6 +126,7 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     if (site && isSite(site)) push(crews, site.id, u.id);
     else if (u.road !== undefined) push(jobs, u.road, u.id);
     else if (u.core !== undefined) (cores.get(u.core) ?? cores.set(u.core, []).get(u.core)!).push(u.id);
+    else if (u.grade !== undefined) push(grades, u.grade, u.id);
     else push(parked, dock.id, u.id);
   }
 
@@ -268,6 +273,30 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
       out.set(id, { gx, gz, side, axis: 'x', x: px, z: pz, face: 0, shuffle: [1, 0], site: null, dock: dockOf.get(id)!.id, offroad: true, core: dep });
     }
     for (const id of left) push(parked, dockOf.get(id)!.id, id);
+  }
+
+  // grading jobs (docs/19 S5): off the road on the next cell to level, the second rover on the one after it,
+  // each on a half of its cell; reached from the road cell nearest the box (core/transit.ts)
+  for (const [jid, team] of grades) {
+    const j = s.gradeJobs?.find((q) => q.id === jid);
+    if (!j || !j.cells.length) { for (const id of team) push(parked, dockOf.get(id)!.id, id); continue; }
+    team.forEach((id, rank) => {
+      const i = standIndex(j, rank);
+      const [gx, gz] = keyCell(j.cells[i]);
+      const dir = rowDir(j, i);
+      const axis = lateral(dir);
+      for (const side of [0, 1] as const) {
+        if (taken.has(slotKey(gx, gz, side))) continue;
+        taken.add(slotKey(gx, gz, side));
+        const [px, pz] = slotPoint(gx, gz, axis, side);
+        out.set(id, {
+          gx, gz, side, axis, x: px, z: pz, face: Math.atan2(dir[0], dir[1]), shuffle: [Math.abs(dir[0]), Math.abs(dir[1])],
+          site: null, dock: dockOf.get(id)!.id, offroad: true, grade: jid,
+        });
+        return;
+      }
+      push(parked, dockOf.get(id)!.id, id);
+    });
   }
 
   // parking: the bays within two cells of the dock's door, nearest first, nose

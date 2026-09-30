@@ -211,6 +211,40 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
       : t.reason ? `<div class="blocked">${t.reason}</div>` : ''}`;
     if (html !== hintHtml) { hintHtml = html; hint.innerHTML = html; }
   });
+  // ── the grading jobs (docs/19 S5): each box the rovers are levelling, its progress and a Cancel ──
+  const jobs = el('div', 'panel interactive');
+  jobs.id = 'grade-jobs';
+  jobs.style.display = 'none';
+  if (palette) palette.insertBefore(jobs, hint.nextSibling); else root.appendChild(jobs);
+  let jobsSig = '';
+  const renderJobs = () => {
+    const list = $fleet.get().grading ?? [];
+    if (!list.length) { jobs.style.display = 'none'; jobsSig = ''; return; }
+    jobs.style.display = '';
+    const next = list.map((j) => j.id).join(',');
+    if (next !== jobsSig) {
+      jobsSig = next;
+      jobs.innerHTML = `<span class="label">Grading</span>` + list.map((j) => `<div class="row grade-job" data-id="${j.id}">
+        <span class="mono grade-job-line" data-focus="${j.id}" title="Click to look at it"></span>
+        <button class="btn grade-cancel" data-id="${j.id}" title="Stop: the cells not yet levelled refund their stored energy">Cancel</button></div>`).join('');
+    }
+    for (const j of list) {
+      const w = j.rect[2] - j.rect[0], d = j.rect[3] - j.rect[1];
+      const who = j.rovers.length ? `${j.rovers.length} rover${j.rovers.length === 1 ? '' : 's'}` : 'waits for a rover';
+      const line = jobs.querySelector(`.grade-job-line[data-focus="${j.id}"]`);
+      const text = `${w}×${d} · ${j.done}/${j.cells} cells · ${Number.isFinite(j.eta) ? fmtClock(Math.ceil(j.eta)) : '—'} · ${who}`;
+      if (line && line.textContent !== text) line.textContent = text;
+    }
+  };
+  $fleet.subscribe(renderJobs);
+  jobs.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    const cancel = t.closest('.grade-cancel') as HTMLElement | null;
+    if (cancel) { game.cancelGradeJob(Number(cancel.dataset.id)); return; }
+    const focus = t.closest('[data-focus]') as HTMLElement | null;
+    const j = focus ? ($fleet.get().grading ?? []).find((x) => x.id === Number(focus.dataset.focus)) : undefined;
+    if (j) game.focusGround(((j.rect[0] + j.rect[2]) / 2) * 4 - 512, ((j.rect[1] + j.rect[3]) / 2) * 4 - 512);
+  });
   $fleetFlash.subscribe((n) => {
     if (!n) return;
     hint.classList.remove('flash');
