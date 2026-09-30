@@ -393,7 +393,7 @@ export class PitMarks {
   redrape() { if (this.sig) this.build(); }
 
   /** What is drawn (tests). */
-  info() { return { visible: this.group.visible, ...this.stats, sig: this.sig }; }
+  info() { return { visible: this.group.visible, ...this.stats, meshes: this.group.children.length, sig: this.sig }; }
 
   dispose() {
     this.clear();

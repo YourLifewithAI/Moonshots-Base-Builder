@@ -28,13 +28,6 @@ async function start(page: Page, style = '') {
   await page.evaluate(HELPERS);
 }
 
-/** the draw calls of a drawn frame (the live loop's, a few frames on: `stepFrame` steps the sim and does not draw) */
-async function drawnCalls(page: Page): Promise<number> {
-  await page.evaluate(() => new Promise<void>((done) => { let k = 4; const f = () => (--k <= 0 ? done() : requestAnimationFrame(f)); requestAnimationFrame(f); }));
-  await page.waitForTimeout(400);
-  return (await page.evaluate(() => window.__game.getRenderInfo())).frame.calls as number;
-}
-
 declare const P: any;
 const HELPERS = `(() => {
 const g = () => window.__game;
@@ -620,9 +613,9 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
     // the drawn ground is the carved ground (the pit's ink and cuts sit off the grid: the probe skips them)
     expect(r.err.vertex).toBeLessThan(0.01);
     // the cut's palette (ochre benches, the floor): 40/255 in a channel from the ground it was cut from,
-    // for nine samples in ten and for the median with room to spare
+    // for nine samples in ten (the flat floor, a tone closer to the ground, is the tenth) and the median
     expect(r.median).toBeGreaterThanOrEqual(40);
-    expect(r.low).toBeGreaterThanOrEqual(20);
+    expect(r.low).toBeGreaterThanOrEqual(40);
     expect(r.cells).toBeGreaterThan(20);
     expect(r.rocks).toBe(0);
     await page.screenshot({ path: 'test-results/pits-cel.png' });
@@ -631,7 +624,7 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
   test('the pit look is baked into the chunks: a contour ring a bench, a tread and arrow on the ramp, a hatched heap, no draw call more', async ({ page }) => {
     test.setTimeout(240_000);
     await start(page);
-    const before = await drawnCalls(page);
+    const before = await page.evaluate(() => window.__game.getRenderInfo().terrain);
     const stages: any[] = [];
     let dug = 0;
     for (const total of [400, 1600, 5000]) {
@@ -640,10 +633,10 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
         P.dig(-60, 20, to - from, 12);
         g.stepFrame(0.5);
         const pit = g.getPits().pits[0];
-        return { deep: pit.deep, look: g.getPitLook(), queued: g.getPits().queue.queued };
+        return { deep: pit.deep, look: g.getPitLook(), queued: g.getPits().queue.queued, terrain: g.getRenderInfo().terrain };
       }, [dug, total]);
       dug = total;
-      stages.push({ ...st, calls: await drawnCalls(page) });
+      stages.push(st);
     }
     // a save and a load: the chunks are rebuilt from the grid and the pits' ramps, the look with them
     const r: any = await page.evaluate(() => {
@@ -661,8 +654,9 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
       expect(st.look.levels).toEqual(Array.from({ length: benches }, (_, i) => 2 * i + 1));
       expect(st.look.contour).toBeGreaterThanOrEqual(benches);
       expect(st.queued).toBe(0);
-      // baked into the chunk's own buffers: a draw call the ground did not have, none
-      expect(st.calls).toBeLessThanOrEqual(r.before);
+      // baked into the chunk's own buffers: still one mesh (one draw call) a chunk, more triangles in them
+      expect(st.terrain.chunks).toBe(r.before.chunks);
+      expect(st.terrain.triangles).toBeGreaterThan(r.before.triangles);
     }
     // the pit grows benches as it deepens
     expect(r.stages[0].look.levels.length).toBeGreaterThanOrEqual(1);
@@ -707,11 +701,12 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
         for (let i = 0; i < 4; i++) g.stepFrame(0.3);
         return g.getPitMarks();
       }, [setup.key, state]);
-      seen[state] = { marks, calls: await drawnCalls(page) };
+      seen[state] = { marks };
     }
     // an open pit has no flag; each end state has one, on the rim, and a ring of dashes (its own pattern)
     expect(seen.open.marks.flags).toEqual([]);
     expect(seen.open.marks.rings).toBe(0);
+    expect(seen.open.marks.meshes).toBe(0);
     for (const state of ['exhausted', 'boxed', 'reclaimed']) {
       const m = seen[state].marks;
       expect(m.flags.map((f: any) => f.state)).toEqual([state]);
@@ -720,8 +715,8 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
       const d = Math.hypot(m.flags[0].x - setup.cx, m.flags[0].z - setup.cz);
       expect(d).toBeGreaterThan(setup.R - 3);
       expect(d).toBeLessThan(setup.R + 10);
-      // the flags are one mesh and the rings one: two draw calls at most
-      expect(seen[state].calls - seen.open.calls).toBeLessThanOrEqual(2);
+      // the flags are one mesh and the rings one: two draw calls
+      expect(m.meshes).toBe(2);
     }
     expect(seen.boxed.marks.dashes).toBeGreaterThan(seen.exhausted.marks.dashes);
     // the highlight (a hub's palette card up): the rim is the real cut contour, the chip wears the state
