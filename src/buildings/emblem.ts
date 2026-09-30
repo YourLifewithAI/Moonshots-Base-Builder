@@ -59,7 +59,7 @@ export interface MarkSpec {
 }
 
 /** A structure's mark: the door side, right of the door, at eye level. */
-export const DOOR_MARK: MarkSpec = { ry: 0, size: 1.3, side: 0.55, y0: 1.0, y1: 4.2, yPref: 1.9 };
+export const DOOR_MARK: MarkSpec = { ry: 0, size: 1.3, side: 0.55, y0: 0.35, y1: 4.2, yPref: 1.9 };
 
 /** A digger's flank (the hubs' units and the legacy pad digger): on the side away from the rig, above the livery band. */
 export const UNIT_MARK: MarkSpec = { ry: PI, size: 0.32, side: 0, y0: 1.25, y1: 1.5, yPref: 1.43 };
@@ -68,77 +68,155 @@ export const ROVER_MARK: MarkSpec = { ry: PI / 2, size: 0.26, side: 0.5, y0: 0.5
 /** A drone's flanks (before its scale): the body is a hand's breadth tall. */
 export const DRONE_MARK: MarkSpec = { ry: PI / 2, size: 0.12, side: 0, y0: 0.36, y1: 0.48, yPref: 0.42 };
 
-const rc = new THREE.Raycaster();
-const dirV = new THREE.Vector3();
-const orgV = new THREE.Vector3();
-
-interface Spot { t: number; y: number; d0: number; relief: number }
-
 const nearV = (a: number, b: number) => Math.abs(a - b) < 0.012;
-/** is this vertex plain hull (BODY)? */
-function isHull(g: THREE.BufferGeometry, i: number): boolean {
-  const c = g.getAttribute('color'), m = g.getAttribute('mat');
-  return nearV(c.getX(i), BODY.v) && nearV(m.getX(i), BODY.rough) && nearV(m.getY(i), BODY.metal) && Math.round(m.getZ(i)) === 0;
+
+/** The triangles of a geometry seen from a wall: each in the wall's own frame (t along it to the right, y up, d out), its
+ *  (t, y) bounds for a quick reject, whether its normal faces the wall squarely and whether it is plain hull or some
+ *  other solid (a window, lamp or beacon is neither). */
+interface WallTris {
+  n: number;
+  t: Float32Array; y: Float32Array; d: Float32Array; // 3 per triangle
+  box: Float32Array; // minT maxT minY maxY per triangle
+  flat: Uint8Array; // 1 = the face looks along the wall's normal and stands up
+  kind: Uint8Array; // 2 = hull (BODY), 1 = another solid, 0 = emissive (never a backing)
 }
 
-/** The first spot of the wall facing `spec.ry` that is flat hull all over a mark, or null. */
-export function findSpot(base: THREE.BufferGeometry, spec: MarkSpec): Spot | null {
+const wallCache = new WeakMap<THREE.BufferGeometry, Map<number, WallTris>>();
+
+function wallTris(g: THREE.BufferGeometry, ry: number): WallTris {
+  let per = wallCache.get(g);
+  if (!per) { per = new Map(); wallCache.set(g, per); }
+  const hit = per.get(ry);
+  if (hit) return hit;
+  const pos = g.getAttribute('position'), ix = g.index;
+  const c = g.getAttribute('color'), m = g.getAttribute('mat');
+  const n = (ix ? ix.count : pos.count) / 3;
+  const nx = Math.sin(ry), nz = Math.cos(ry), tx = Math.cos(ry), tz = -Math.sin(ry);
+  const w: WallTris = {
+    n, t: new Float32Array(n * 3), y: new Float32Array(n * 3), d: new Float32Array(n * 3), box: new Float32Array(n * 4),
+    flat: new Uint8Array(n), kind: new Uint8Array(n),
+  };
+  const P = [0, 0, 0].map(() => [0, 0, 0]);
+  for (let i = 0; i < n; i++) {
+    let first = 0;
+    for (let k = 0; k < 3; k++) {
+      const v = ix ? ix.getX(i * 3 + k) : i * 3 + k;
+      if (k === 0) first = v;
+      P[k][0] = pos.getX(v); P[k][1] = pos.getY(v); P[k][2] = pos.getZ(v);
+      w.t[i * 3 + k] = P[k][0] * tx + P[k][2] * tz;
+      w.y[i * 3 + k] = P[k][1];
+      w.d[i * 3 + k] = P[k][0] * nx + P[k][2] * nz;
+    }
+    w.box[i * 4] = Math.min(w.t[i * 3], w.t[i * 3 + 1], w.t[i * 3 + 2]);
+    w.box[i * 4 + 1] = Math.max(w.t[i * 3], w.t[i * 3 + 1], w.t[i * 3 + 2]);
+    w.box[i * 4 + 2] = Math.min(w.y[i * 3], w.y[i * 3 + 1], w.y[i * 3 + 2]);
+    w.box[i * 4 + 3] = Math.max(w.y[i * 3], w.y[i * 3 + 1], w.y[i * 3 + 2]);
+    // the face normal
+    const ax = P[1][0] - P[0][0], ay = P[1][1] - P[0][1], az = P[1][2] - P[0][2];
+    const bx = P[2][0] - P[0][0], by = P[2][1] - P[0][1], bz = P[2][2] - P[0][2];
+    let fx = ay * bz - az * by, fy = az * bx - ax * bz, fz = ax * by - ay * bx;
+    const len = Math.hypot(fx, fy, fz) || 1;
+    fx /= len; fy /= len; fz /= len;
+    w.flat[i] = Math.abs(fx * nx + fz * nz) >= 0.88 && Math.abs(fy) <= 0.3 ? 1 : 0;
+    const emit = Math.round(m.getZ(first));
+    w.kind[i] = emit > 0 ? 0 : nearV(c.getX(first), BODY.v) && nearV(m.getX(first), BODY.rough) && nearV(m.getY(first), BODY.metal) ? 2 : 1;
+  }
+  per.set(ry, w);
+  return w;
+}
+
+/** What a ray along the wall's inward normal, through (t, y), meets first: its depth d and the triangle, or null. */
+function wallHit(w: WallTris, t: number, y: number): { d: number; i: number } | null {
+  let best = -Infinity, bi = -1;
+  for (let i = 0; i < w.n; i++) {
+    const b = i * 4;
+    if (t < w.box[b] || t > w.box[b + 1] || y < w.box[b + 2] || y > w.box[b + 3]) continue;
+    const o = i * 3;
+    const t0 = w.t[o], t1 = w.t[o + 1], t2 = w.t[o + 2], y0 = w.y[o], y1 = w.y[o + 1], y2 = w.y[o + 2];
+    const den = (y1 - y2) * (t0 - t2) + (t2 - t1) * (y0 - y2);
+    if (Math.abs(den) < 1e-9) continue; // edge-on
+    const l0 = ((y1 - y2) * (t - t2) + (t2 - t1) * (y - y2)) / den;
+    const l1 = ((y2 - y0) * (t - t2) + (t0 - t2) * (y - y2)) / den;
+    const l2 = 1 - l0 - l1;
+    if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) continue;
+    const d = l0 * w.d[o] + l1 * w.d[o + 1] + l2 * w.d[o + 2];
+    if (d > best) { best = d; bi = i; }
+  }
+  return bi < 0 ? null : { d: best, i: bi };
+}
+
+/** Where a mark goes: the glyph's size and the wall it is on, its place on the wall, how deep the wall lies there and how thick
+ *  the slab must be to sit in it. */
+export interface Placement { ry: number; size: number; t: number; y: number; d0: number; relief: number }
+
+/** The first spot of the wall facing `spec.ry` that is flat all over a mark (hull only when `strict`, any solid when not), or null. */
+export function findSpot(base: THREE.BufferGeometry, spec: MarkSpec, strict = true): Placement | null {
   if (!base.boundingBox) base.computeBoundingBox();
   const bb = base.boundingBox!;
   const n = [Math.sin(spec.ry), Math.cos(spec.ry)]; // (x, z) of the outward normal
   const tt = [Math.cos(spec.ry), -Math.sin(spec.ry)]; // along the wall, to the right
-  let tMin = Infinity, tMax = -Infinity, nMax = -Infinity;
+  let tMin = Infinity, tMax = -Infinity;
   for (const x of [bb.min.x, bb.max.x]) for (const z of [bb.min.z, bb.max.z]) {
-    const t = x * tt[0] + z * tt[1], d = x * n[0] + z * n[1];
-    tMin = Math.min(tMin, t); tMax = Math.max(tMax, t); nMax = Math.max(nMax, d);
+    const t = x * tt[0] + z * tt[1];
+    tMin = Math.min(tMin, t); tMax = Math.max(tMax, t);
   }
   const half = spec.size * 0.6;
-  const t0 = tMin + half + 0.25, t1 = tMax - half - 0.25;
+  const t0 = tMin + half, t1 = tMax - half;
   const yTop = Math.min(spec.y1, bb.max.y - half - 0.1);
   if (t1 < t0 || yTop < spec.y0) return null;
   const tc = (tMin + tMax) / 2 + spec.side * (tMax - tMin) / 2;
   const cands: { t: number; y: number; score: number }[] = [];
-  const step = Math.max(0.1, spec.size * 0.3);
+  const step = Math.max(0.12, spec.size * 0.2);
   for (let t = t0; t <= t1 + 1e-6; t += step) {
     for (let y = spec.y0; y <= yTop + 1e-6; y += step) {
       cands.push({ t, y, score: Math.abs(t - tc) + 1.3 * Math.abs(y - spec.yPref) });
     }
   }
   cands.sort((a, b) => a.score - b.score || a.t - b.t || a.y - b.y);
-  const mesh = new THREE.Mesh(base, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  const w = wallTris(base, spec.ry);
   const probe = spec.size * 0.45;
   const offs: [number, number][] = [[0, 0], [-probe, -probe], [probe, -probe], [-probe, probe], [probe, probe]];
-  dirV.set(-n[0], 0, -n[1]);
+  const need = strict ? 2 : 1;
   for (const c of cands) {
     let dMin = Infinity, dMax = -Infinity, ok = true;
     for (const [ot, oy] of offs) {
-      const t = c.t + ot, y = c.y + oy;
-      orgV.set(tt[0] * t + n[0] * (nMax + 2), y, tt[1] * t + n[1] * (nMax + 2));
-      rc.set(orgV, dirV);
-      const hit = rc.intersectObject(mesh, false)[0];
-      if (!hit || !hit.face) { ok = false; break; }
-      const nrm = hit.face.normal;
-      if (nrm.x * n[0] + nrm.z * n[1] < 0.88 || Math.abs(nrm.y) > 0.3 || !isHull(base, hit.face.a)) { ok = false; break; }
-      const d = hit.point.x * n[0] + hit.point.z * n[1];
-      dMin = Math.min(dMin, d); dMax = Math.max(dMax, d);
+      const hit = wallHit(w, c.t + ot, c.y + oy);
+      if (!hit || !w.flat[hit.i] || w.kind[hit.i] < need) { ok = false; break; }
+      dMin = Math.min(dMin, hit.d); dMax = Math.max(dMax, hit.d);
       if (dMax - dMin > 0.16) { ok = false; break; }
     }
-    if (ok) return { t: c.t, y: c.y, d0: dMin - 0.02, relief: dMax - dMin + 0.09 };
+    if (ok) return { ry: spec.ry, size: spec.size, t: c.t, y: c.y, d0: dMin - 0.02, relief: dMax - dMin + 0.09 };
   }
   return null;
 }
 
-/** `base` with the faction's mark on the wall `spec` names (`base` unchanged when no wall has a flat
- *  stretch of hull big enough; the spec then tries the `fallback`, if any). The result is a fresh merge. */
-export function withMark(base: THREE.BufferGeometry, f: FactionId, spec: MarkSpec, ...fallback: MarkSpec[]): THREE.BufferGeometry {
-  for (const sp of [spec, ...fallback]) {
-    const spot = findSpot(base, sp);
-    if (!spot) continue;
-    const n = [Math.sin(sp.ry), Math.cos(sp.ry)], tt = [Math.cos(sp.ry), -Math.sin(sp.ry)];
-    const parts = glyphParts(f, sp.size, spot.relief).map((g) => g
-      .rotateY(sp.ry)
-      .translate(tt[0] * spot.t + n[0] * spot.d0, spot.y, tt[1] * spot.t + n[1] * spot.d0));
-    return merge([base, ...parts]);
+/** The best placement among the walls `spec` and `fallback` name: hull first, then any solid; the full size, then 0.8, 0.65,
+ *  0.5 and 0.4 of it (the wall a mark goes on matters less than that it is there). */
+export function findMark(base: THREE.BufferGeometry, spec: MarkSpec, ...fallback: MarkSpec[]): Placement | null {
+  for (const strict of [true, false]) {
+    for (const k of [1, 0.8, 0.65, 0.5, 0.4]) {
+      for (const w of [spec, ...fallback]) {
+        if (w.size * k < 0.09) continue; // a mark smaller than a hand is not a mark
+        const pl = findSpot(base, { ...w, size: w.size * k }, strict);
+        if (pl) return pl;
+      }
+    }
   }
-  return base;
+  return null;
+}
+
+/** `base` with the glyph stuck where `pl` says (a fresh merge). */
+export function applyMark(base: THREE.BufferGeometry, f: FactionId, pl: Placement): THREE.BufferGeometry {
+  const n = [Math.sin(pl.ry), Math.cos(pl.ry)], tt = [Math.cos(pl.ry), -Math.sin(pl.ry)];
+  const parts = glyphParts(f, pl.size, pl.relief).map((g) => g
+    .rotateY(pl.ry)
+    .translate(tt[0] * pl.t + n[0] * pl.d0, pl.y, tt[1] * pl.t + n[1] * pl.d0));
+  return merge([base, ...parts]);
+}
+
+/** `base` with the faction's mark on the wall `spec` names (else a `fallback` wall, smaller, or any solid), or `base` itself when there is no
+ *  flat wall anywhere. The result is a fresh merge. */
+export function withMark(base: THREE.BufferGeometry, f: FactionId, spec: MarkSpec, ...fallback: MarkSpec[]): THREE.BufferGeometry {
+  const pl = findMark(base, spec, ...fallback);
+  return pl ? applyMark(base, f, pl) : base;
 }

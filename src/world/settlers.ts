@@ -45,7 +45,7 @@ const PI = Math.PI;
 
 /** The suited figure (about 100 △): legs, torso, arms, helmet and visor, a
  *  backpack, a headlamp. Feet at y 0, facing +z. */
-function walkerGeometry(): THREE.BufferGeometry {
+export function walkerGeometry(): THREE.BufferGeometry {
   const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
     box(0.17, 0.72, 0.2, BODY, -0.13, 0.36, 0), box(0.17, 0.72, 0.2, BODY, 0.13, 0.36, 0),
     box(0.5, 0.64, 0.34, BODY, 0, 1.04, 0),

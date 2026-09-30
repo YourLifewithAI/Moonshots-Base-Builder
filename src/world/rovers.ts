@@ -106,7 +106,7 @@ function roverPackParts(key: string): THREE.BufferGeometry[] {
   return out;
 }
 
-function roverGeometry(key = ''): THREE.BufferGeometry {
+export function roverGeometry(key = ''): THREE.BufferGeometry {
   const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
     ...roverPackParts(key),
     box(1.0, 0.4, 1.5, BODY, 0, 0.64, 0),
@@ -1135,7 +1135,7 @@ function dronePackParts(key: string): THREE.BufferGeometry[] {
 
 /** A quadcopter from the kit (about 200 △): a body, four arms and rotor
  *  discs, skids, a nose lamp and a beacon. */
-function droneGeometry(key = ''): THREE.BufferGeometry {
+export function droneGeometry(key = ''): THREE.BufferGeometry {
   const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
     ...dronePackParts(key),
     box(0.66, 0.2, 0.66, BODY, 0, 0.42, 0),

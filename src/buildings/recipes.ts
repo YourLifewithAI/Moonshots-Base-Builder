@@ -30,7 +30,7 @@ import {
 import { flatten, upgradeTechs, upgradesIn, type Mount, type PartId } from './upgrades';
 import { rigParts, rigTriangles } from './rigs';
 import { lookFaction, lookKey } from './factionLook';
-import { DOOR_MARK, UNIT_MARK, withMark } from './emblem';
+import { DOOR_MARK, UNIT_MARK, applyMark, findMark, type MarkSpec, type Placement } from './emblem';
 
 export type { Mount, PartId } from './upgrades';
 type Parts = (BufferGeometry | BufferGeometry[])[];
@@ -1071,20 +1071,215 @@ function serverMonolith(): Parts {
   return p;
 }
 
-// ─── the factions' own buildings: PLACEHOLDERS (docs/20 S3; stream S7 replaces each with its real recipe) ───
-// A BODY box with one accent band under the roof line (a BAND part: the family accent at any size, where a big TRIM part
-// would read as a deck), a distinct size per building so every recipe keeps its own bounding box (tests/silhouettes.spec),
-// and the band is the tall identifier that carries the family accent. 24 triangles each.
-const slab = (w: number, h: number, d: number): Parts => [
-  box(w, h, d, BODY, 0, h / 2, 0),
-  box(w + 0.24, 0.7, d + 0.24, BAND, 0, h - 0.35, 0),
-];
-const nightVault = (): Parts => slab(10.6, 4.6, 6.6);
-const faradayShed = (): Parts => slab(10.2, 6.2, 10.2);
-const missionOps = (): Parts => slab(5.8, 8.4, 5.8);
-const skunkworks = (): Parts => slab(9.4, 5.6, 6.2);
-const commonsHall = (): Parts => slab(14.4, 5.2, 10.4);
-const regolithTerrace = (): Parts => slab(11.2, 4.8, 7.4);
+// ─── the factions' own buildings (docs/20 §1, S7): six silhouettes of their own, each with a tall identifier
+// carrying its family's accent. The Foundry's two are logistics (slate), the Vanguard's science (blue), the
+// Commons' life (lime). Door at +z as every recipe's; the hull (BODY) wears the player's livery.
+
+/** Faraday Shed (3×3 cells, 12 m): a low arched cage over a slab — a smoked dark shell on pale ribs and
+ *  longitudinal bars, hull end walls (the door in the front one), lightning finials along the ridge — and the
+ *  earthing mast at the front corner (9.8 m, slate rings, a beacon) that is its identifier. */
+function faradayShed(): Parts {
+  const R0 = 4.3, L = 8.4, zc = -0.4, y0 = 0.4;
+  const p: Parts = [
+    box(10.4, 0.4, 9.8, TRIM, 0, 0.2, -0.2),
+    vault(R0, L, GLASS, 0, y0, zc, 0, PI, 18),
+    archWall(R0, 0.3, BODY, 0, y0, zc + L / 2 - 0.05, 18),
+    archWall(R0, 0.3, BODY, 0, y0, zc - L / 2 + 0.05, 18),
+    door(0, zc + L / 2 + 0.1, 0, 1.7, 2.3, y0),
+    box(2.6, 0.12, 0.5, PLATE, 0, y0 + 2.7, zc + L / 2 + 0.35),
+    box(0.5, 0.16, 0.3, LAMP, 0, y0 + 3.0, zc + L / 2 + 0.3),
+  ];
+  // the cage: seven pale ribs round the shell, nine bars along it
+  for (let i = 0; i < 7; i++) p.push(vault(R0 + 0.07, 0.18, PLATE, 0, y0, zc - L / 2 + 0.55 + (i * (L - 1.1)) / 6, 0, PI, 18));
+  for (let k = 0; k < 9; k++) {
+    const a = 0.15 + (k / 8) * (PI - 0.3), r = R0 + 0.09;
+    p.push(bar([Math.cos(a) * r, y0 + Math.sin(a) * r, zc - L / 2 + 0.2], [Math.cos(a) * r, y0 + Math.sin(a) * r, zc + L / 2 - 0.2], 0.1, PLATE));
+  }
+  // lightning finials on the ridge, and the earth cable down to the slab
+  for (const z of [-2.6, 0.2, 3.0]) p.push(cyl(0.04, 0.09, 1.0, TRIM, 0, y0 + R0 + 0.5, z, 0, 0, 5));
+  // the identifier: the earthing mast at the front right corner, slate rings, a beacon on the tip
+  p.push(
+    cyl(0.12, 0.2, 9.2, TRIM, 4.6, 4.8, 4.0, 0, 0, 8),
+    ring(0.2, 2.4, 4.6, 4.0, 0.34, 8), ring(0.17, 5.0, 4.6, 4.0, 0.34, 8), ring(0.14, 7.6, 4.6, 4.0, 0.34, 8),
+    box(0.9, 0.2, 0.9, TRIM, 4.6, 0.5, 4.0),
+    dome(0.18, BEACON, 4.6, 9.45, 4.0, 8),
+    bar([4.6, 0.6, 4.0], [4.6, 0.6, 0.6], 0.14, PLATE),
+    box(1.0, 0.7, 0.8, PLATE, 4.6, 0.75, 0.3),
+  );
+  return p;
+}
+
+/** Night Vault (3×2 cells, 12×8 m): a stepped mound of regolith over a hangar, the blast door a hull portal
+ *  cut into its front (a hazard lintel, two lamps, a dock apron), and the vent and antenna stack rising from
+ *  the rear corner (9.6 m, slate rings, a beacon) for its identifier. */
+function nightVault(): Parts {
+  const p: Parts = [
+    box(11.6, 0.9, 7.4, TRIM, 0, 0.45, -0.2),
+    box(9.8, 0.9, 6.0, TRIM, 0, 1.35, -0.6),
+    box(7.8, 0.9, 4.6, TRIM, 0, 2.25, -1.0),
+    box(5.4, 0.7, 3.2, TRIM, 0, 3.05, -1.4),
+    // the portal: a hull frame, the blast door recessed in it, a hazard lintel and two lamps
+    box(8.2, 4.3, 1.6, BODY, 0, 2.15, 3.0),
+    box(6.0, 3.4, 0.2, PLATE, 0, 1.7, 3.85),
+    box(0.12, 3.4, 0.24, TRIM, 0, 1.7, 3.88),
+    ...[-2.4, 2.4].map((x) => box(0.12, 3.4, 0.24, TRIM, x, 1.7, 3.88)),
+    box(8.4, 0.5, 1.7, BAND, 0, 4.3, 3.0),
+    box(0.5, 0.2, 0.3, LAMP, -2.6, 3.95, 3.95), box(0.5, 0.2, 0.3, LAMP, 2.6, 3.95, 3.95),
+    door(-3.6, 3.82, 0, 0.8, 1.9, 0),
+    box(7.4, 0.1, 1.6, PLATE, 0, 0.05, 4.6),
+    // the stack at the rear right corner: a vent and antenna, rings, a beacon (the identifier)
+    cyl(0.4, 0.5, 7.4, TRIM, 4.6, 5.5, -2.4, 0, 0, 10),
+    ring(0.5, 3.0, 4.6, -2.4, 0.34, 10), ring(0.46, 5.4, 4.6, -2.4, 0.34, 10), ring(0.42, 7.8, 4.6, -2.4, 0.34, 10),
+    cyl(0.6, 0.4, 0.5, PLATE, 4.6, 9.4, -2.4, 0, 0, 10),
+    bar([4.6, 9.6, -2.4], [4.6, 10.2, -2.4], 0.08, TRIM),
+    dome(0.16, BEACON, 4.6, 10.3, -2.4, 8),
+    pipe([4.6, 1.8, -1.6], [2.2, 3.4, -1.6], 0.14, PLATE),
+    ...radiator(2.4, 1.0, -2.2, 0.9, -4.0, PI),
+  ];
+  return p;
+}
+
+/** Mission Ops (2×2 cells, 8 m): a two-storey control block, its upper room a glazed band under a flat roof,
+ *  a tracked dish on a lattice at the back (MOUNTS.missionOps) and the uplink mast at the front right (14.4 m,
+ *  blue rings, cross-arms, a beacon) for its identifier. */
+function missionOps(): Parts {
+  const p: Parts = [
+    box(6.6, 0.3, 6.4, TRIM, 0, 0.15, 0),
+    box(5.8, 2.6, 5.4, BODY, 0, 1.6, 0),
+    box(4.6, 1.7, 4.2, BODY, 0, 3.75, -0.2),
+    box(4.66, 0.9, 4.26, WINDOW, 0, 3.8, -0.2),
+    box(4.9, 0.32, 4.5, TRIM, 0, 4.76, -0.2),
+    box(6.0, 0.22, 5.6, TRIM, 0, 2.99, 0),
+    door(-1.4, 2.72, 0, 1.0, 2.0, 0.3),
+    windowStrip(2.4, 3, 0.7, 1.3, 1.9, 2.72, 0),
+    windowStrip(3.6, 4, 0.7, 2.92, 1.9, 0, PI / 2),
+    // the dish: a lattice tower at the back of the roof (the tracked dish is MOUNTS.missionOps)
+    cyl(0.5, 0.6, 0.3, TRIM, -1.4, 5.05, -1.4, 0, 0, 10),
+    lattice(1.9, 0.45, 0.26, -1.4, -1.4, 5.2, 3, 1.0),
+    box(0.8, 0.16, 0.8, TRIM, -1.4, 7.15, -1.4),
+    // the identifier: the uplink mast at the front right, rings and cross-arms, a beacon
+    lattice(11.6, 0.75, 0.3, 3.3, 3.0, 0.3, 3, 2.4),
+    ring(0.6, 4.2, 3.3, 3.0, 0.3, 8), ring(0.46, 7.4, 3.3, 3.0, 0.3, 8), ring(0.36, 10.4, 3.3, 3.0, 0.3, 8),
+    bar([2.4, 9.2, 3.0], [4.2, 9.2, 3.0], 0.1, TRIM), bar([2.8, 11.0, 3.0], [3.8, 11.0, 3.0], 0.08, TRIM),
+    box(0.4, 0.4, 0.3, PLATE, 2.4, 9.2, 3.0), box(0.4, 0.4, 0.3, PLATE, 4.2, 9.2, 3.0),
+    antenna(3.3, 11.9, 3.0, 2.6),
+    box(0.9, 0.16, 0.9, TRIM, 3.3, 0.38, 3.0),
+    radiator(1.8, 1.0, 1.0, 2.99, -3.0, PI),
+  ];
+  return p;
+}
+
+/** Skunkworks (3×2 cells, 12×8 m): an angular shed of two sawtooth roofs, a taller east block with a glazed
+ *  clerestory, a roll-up door at the west end, a radome on the low roof, and the scrubber and exhaust stack at
+ *  the rear right corner (10.6 m, blue rings, a slanted cap) for its identifier. */
+function skunkworks(): Parts {
+  const p: Parts = [
+    box(10.4, 0.3, 7.0, TRIM, 0, 0.15, -0.2),
+    box(9.2, 3.0, 5.8, BODY, 0, 1.8, -0.2),
+    box(4.6, 2.0, 5.8, BODY, 2.3, 4.3, -0.2),
+    // the two teeth: the east block's roof climbs east, the west one falls west
+    box(5.0, 0.26, 6.2, TRIM, 2.3, 5.45, -0.2, 0, 0.2),
+    box(4.8, 0.26, 6.2, TRIM, -2.3, 3.45, -0.2, 0, -0.16),
+    windowStrip(3.6, 4, 0.8, 2.4, 4.3, 2.72, 0),
+    box(0.06, 0.8, 0.06, TRIM, 4.68, 4.3, 2.72),
+    door(-3.0, 2.72, 0, 2.2, 2.3, 0.3),
+    windowStrip(2.0, 2, 0.6, 4.62, 1.5, 0.4, PI / 2),
+    // the radome on the low roof and the scrubber drum at the foot of the stack
+    dome(0.9, RADIATOR, -2.8, 3.5, 0.6, 10),
+    cyl(0.95, 0.95, 1.8, PLATE, 4.3, 1.0, -2.3, 0, 0, 12),
+    pipe([3.6, 3.0, -2.3], [4.3, 3.0, -2.3], 0.12, PLATE),
+    // the identifier: the exhaust stack, rings, a slanted cap and a beacon
+    cyl(0.42, 0.55, 8.6, TRIM, 4.3, 6.1, -2.3, 0, 0, 10),
+    ring(0.55, 3.4, 4.3, -2.3, 0.34, 10), ring(0.5, 6.0, 4.3, -2.3, 0.34, 10), ring(0.46, 8.6, 4.3, -2.3, 0.34, 10),
+    box(1.2, 0.2, 1.2, PLATE, 4.3, 10.6, -2.3, 0, 0.35),
+    dome(0.16, BEACON, 4.3, 10.9, -2.3, 8),
+    ...radiator(2.2, 1.0, -2.4, 3.3, -3.4, PI),
+    cableTray([-4.6, 1.0], [-5.6, 1.0]), junction(-5.7, 1.0, -PI / 2),
+  ];
+  return p;
+}
+
+/** Commons Hall (4×3 cells, 16×12 m): a round hall of vertical battens round lit panes under a steep cone
+ *  roof with a lantern, a ring of solar awnings at the eaves, a porch at +z, and a spire over the lantern
+ *  (12.4 m, lime rings, a beacon) for its identifier. */
+function commonsHall(): Parts {
+  const RW = 4.9, W0 = 0.3, H = 3.2, Re = 5.6, top = W0 + H;
+  const coneR = (y: number) => Re - ((y - top) / 3.4) * (Re - 0.6);
+  const p: Parts = [
+    cyl(6.0, 6.1, 0.3, TRIM, 0, 0.15, 0, 0, 0, 28),
+    cyl(RW, RW, H, BODY, 0, W0 + H / 2, 0, 0, 0, 28),
+    windowRing(RW + 0.02, 1.9, 1.3, 10, 1.2, PI * 0.32, PI * 2.68),
+    // the eave ring and three shingle courses up the roof
+    cyl(Re, Re, 0.28, BAND, 0, top + 0.06, 0, 0, 0, 28, true),
+    cyl(0.6, Re, 3.4, BODY, 0, top + 1.7, 0, 0, 0, 28),
+    ...[0.9, 1.9, 2.8].map((h) => cyl(coneR(top + h) + 0.05, coneR(top + h) + 0.05, 0.14, BAND, 0, top + h, 0, 0, 0, 24, true)),
+    // the lantern and the spire
+    cyl(0.95, 0.95, 1.0, WINDOW, 0, top + 3.9, 0, 0, 0, 12),
+    cyl(1.1, 1.1, 0.16, TRIM, 0, top + 4.45, 0, 0, 0, 12),
+    cyl(0.08, 0.14, 5.4, TRIM, 0, top + 7.1, 0, 0, 0, 8),
+    ring(0.14, top + 5.4, 0, 0, 0.3, 8), ring(0.12, top + 7.0, 0, 0, 0.3, 8), ring(0.1, top + 8.4, 0, 0, 0.3, 8),
+    dome(0.16, BEACON, 0, top + 9.8, 0, 8),
+    // the porch at +z, its door and lamp
+    box(3.0, 2.6, 2.1, BODY, 0, 1.6, 5.6),
+    box(3.2, 0.18, 2.3, TRIM, 0, 2.99, 5.6),
+    door(0, 6.66, 0, 1.6, 2.1, 0.3),
+  ];
+  // the awning: ten solar panels tilted out from the eave on posts
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * PI * 2 + PI / 10;
+    const c = Math.cos(a), s = Math.sin(a);
+    const cx = (Re + 0.1) * s, cz = (Re + 0.1) * c; // a = 0 is +z
+    if (Math.abs(((a + PI) % (PI * 2)) - PI) < 0.45) continue; // the porch side stays open
+    p.push(
+      box(2.1, 0.07, 1.25, TRIM, cx, top - 0.18, cz, a, 0, 0.3),
+      box(1.95, 0.05, 1.1, GLASS, cx, top - 0.14, cz, a, 0, 0.3),
+      bar([(Re - 0.1) * s, top - 1.4, (Re - 0.1) * c], [(Re + 0.4) * s, top - 0.4, (Re + 0.4) * c], 0.08, TRIM),
+    );
+  }
+  return p;
+}
+
+/** Regolith Terrace (3×2 cells, 12×8 m): three stepped planters climbing toward the back, each a hull
+ *  retaining wall under a lime course and a planted top, a potting shed in the middle of the front
+ *  tier (the door), an irrigation line down the steps and a water tower at the back (8.8 m, lime rings,
+ *  a beacon) for its identifier. */
+function regolithTerrace(): Parts {
+  const p: Parts = [];
+  // tier i: wall, course, planting, hedges
+  const tiers: [number, number, number, number][] = [ // [z centre, depth, height, x half width]
+    [2.5, 2.4, 0.9, 5.6], [0.1, 2.4, 1.9, 5.6], [-2.3, 2.4, 2.9, 5.6],
+  ];
+  tiers.forEach(([z, d, h, hw], i) => {
+    p.push(
+      box(hw * 2, h, d, BODY, 0, h / 2, z),
+      box(hw * 2 + 0.12, 0.13, 0.2, BAND, 0, h - 0.06, z + d / 2 + 0.02),
+      box(hw * 2 - 0.3, 0.14, d - 0.4, LEAF, 0, h + 0.05, z),
+    );
+    for (let k = 0; k < 4; k++) {
+      const x = -hw + 1.3 + k * ((hw * 2 - 2.6) / 3) + (i % 2 ? 0.6 : 0);
+      if (i === 0 && Math.abs(x) < 2.0) continue; // the shed stands in the middle of the front tier
+      p.push(box(1.5, 0.5, 1.2, LEAF, x, h + 0.35, z - 0.1));
+    }
+  });
+  p.push(
+    // the potting shed in the front tier: the door
+    box(3.4, 2.2, 1.8, BODY, 0, 1.1, 2.7),
+    box(3.6, 0.16, 2.0, TRIM, 0, 2.27, 2.7),
+    door(0, 3.6, 0, 1.2, 1.7, 0),
+    windowStrip(1.0, 1, 0.5, 1.15, 1.4, 3.6, 0),
+    // the irrigation line down the steps, and a trellis arch at the door
+    pipe([-5.0, 3.3, -2.3], [-5.0, 1.6, -0.5], 0.09, PLATE), pipe([-5.0, 2.3, 0.1], [-5.0, 1.1, 2.4], 0.09, PLATE),
+    box(0.14, 2.4, 0.14, TRIM, -1.3, 1.2, 3.8), box(0.14, 2.4, 0.14, TRIM, 1.3, 1.2, 3.8), box(2.74, 0.14, 0.14, TRIM, 0, 2.4, 3.8),
+    // the identifier: a water tower on four legs at the back left
+    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => bar([-4.4 + sx * 0.9, 2.9, -3.0 + sz * 0.9], [-4.4 + sx * 0.55, 6.2, -3.0 + sz * 0.55], 0.13, TRIM)),
+    cyl(1.2, 1.2, 2.0, BODY, -4.4, 7.2, -3.0, 0, 0, 14),
+    ring(1.2, 6.5, -4.4, -3.0, 0.3, 14), ring(1.2, 7.9, -4.4, -3.0, 0.3, 14),
+    dome(1.2, TRIM, -4.4, 8.2, -3.0, 12),
+    dome(0.16, BEACON, -4.4, 9.5, -3.0, 8),
+    box(0.8, 0.8, 0.6, PLATE, -5.6, 3.3, -3.0),
+  );
+  return p;
+}
 
 const R: Record<BuildingId, () => Parts> = {
   lander, solar, excavator, habitat, smelter, iceHarvester, hydroponics, battery,
@@ -1103,6 +1298,8 @@ export const MOUNTS: Partial<Record<BuildingId, Mount[]>> = {
   lab: [{ part: 'dish', p: [1.4, 7.75, 1.4], s: 1.3 }],
   relayMast: [{ part: 'dish', p: [0.62, 9.8, 0], s: 0.9 }],
   dataCenter: [{ part: 'dish', p: [-3.4, 4.55, 3.4], s: 1.0 }],
+  // the Vanguard's Mission Ops: the tracked dish on its roof lattice
+  missionOps: [{ part: 'dish', p: [-1.4, 7.6, -1.4], s: 1.5 }],
 };
 
 /** The moving parts of a type under an upgrade key. */
@@ -1119,7 +1316,16 @@ export function mountsFor(id: BuildingId, key = ''): Mount[] {
 }
 
 /** A type's recipe with the upgrade parts its key names ('' = stock). */
+/** the door-side mark, sized to the structure: 1.4 m on an 8 m building, up to 2.2 m on the big ones */
+function markFor(g: BufferGeometry): MarkSpec {
+  const b = g.boundingBox ?? (g.computeBoundingBox(), g.boundingBox!);
+  const w = Math.min(b.max.x - b.min.x, b.max.z - b.min.z);
+  return { ...DOOR_MARK, size: Math.min(2.2, Math.max(1.4, w * 0.15)) };
+}
+
 const cache = new Map<string, BufferGeometry>();
+/** where each type's emblem sits, per faction (emblem.ts findMark), once */
+const placements = new Map<string, Placement | null>();
 /** `key` is the upgrade key (upgrades.ts). In a faction game (factionLook.ts) the geometry is the
  *  faction's: the same recipe with the emblem stuck on its door side; a solo game's is untouched. */
 export function recipeGeometry(id: BuildingId, key = ''): BufferGeometry {
@@ -1131,9 +1337,16 @@ export function recipeGeometry(id: BuildingId, key = ''): BufferGeometry {
     g = merge(parts);
     const f = lookFaction();
     if (f) {
-      g = id === 'excavator' || id === 'iceMiner' // the legacy pad diggers are units
-        ? withMark(g, f, UNIT_MARK, { ...UNIT_MARK, ry: 0 })
-        : withMark(g, f, DOOR_MARK, { ...DOOR_MARK, ry: PI / 2 });
+      // found once per type, on the first geometry asked for, and kept for every upgrade of it
+      const pk = `${id}|${f}`;
+      let pl = placements.get(pk);
+      if (pl === undefined) {
+        pl = id === 'excavator' || id === 'iceMiner' // the legacy pad diggers are units
+          ? findMark(g, UNIT_MARK, { ...UNIT_MARK, ry: 0 })
+          : findMark(g, markFor(g), { ...markFor(g), ry: PI / 2 });
+        placements.set(pk, pl);
+      }
+      if (pl) g = applyMark(g, f, pl);
     }
     g.userData.recipe = id; // the classic palette's per-structure overrides
     cache.set(k, g);
@@ -1165,7 +1378,12 @@ export function unitRecipeGeometry(mk: UnitKey, key = ''): BufferGeometry {
     for (const u of upgradesIn(lane, key)) if (u.parts) parts.push(...flatten(u.parts()));
     g = merge(parts);
     const f = lookFaction();
-    if (f) g = withMark(g, f, UNIT_MARK, { ...UNIT_MARK, ry: 0 });
+    if (f) {
+      const pk = `${mk}|${f}`;
+      let pl = placements.get(pk);
+      if (pl === undefined) { pl = findMark(g, UNIT_MARK, { ...UNIT_MARK, ry: 0 }); placements.set(pk, pl); }
+      if (pl) g = applyMark(g, f, pl);
+    }
     g.userData.recipe = mk;
     // 3.0 m wide, tracks included (world/haulers.ts UNIT_BODY hw 1.5: two units in their lanes clear each other)
     g.scale(1, 1, UNIT_WIDTH_M / 3.8);

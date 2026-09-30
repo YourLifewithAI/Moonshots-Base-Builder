@@ -41,6 +41,7 @@ import { DIGGER_BOOM, DIGGER_RIG, ICE_BOOM, diggerWheel, iceDrum, type RigBox } 
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { CEL_PALETTE, CUT_NONE } from '../buildings/celBuilding';
+import { lookLivery } from '../buildings/factionLook';
 import { SITE_GROUND } from '../terrain/celGround';
 import { materials } from './materials';
 import { inked } from './ink';
@@ -356,8 +357,10 @@ export class WorkAnim {
     const rel = (c: THREE.Color, base: THREE.Color) => new THREE.Color(c.r / base.r, c.g / base.g, c.b / base.b);
     const hull = new THREE.Color(CEL_PALETTE.hull);
     const soil = (SITE_GROUND[this.hf.site.id] ?? SITE_GROUND.mare).clone().multiplyScalar(0.72);
+    // the player's faction: the rigs (print arms, booms, bucket wheels) wear its hull with the machines they belong to
+    const fh = lookLivery();
     return {
-      body: new THREE.Color(1, 1, 1), trim: rel(new THREE.Color(CEL_PALETTE.trim), hull),
+      body: fh ? rel(new THREE.Color(fh.hull), hull) : new THREE.Color(1, 1, 1), trim: rel(new THREE.Color(CEL_PALETTE.trim), hull),
       plate: rel(new THREE.Color(CEL_PALETTE.panel), hull), soil: rel(soil, hull),
     };
   }
@@ -370,7 +373,7 @@ export class WorkAnim {
     if (!t) {
       const hull = new THREE.Color(CEL_PALETTE.hull), l = liveryOf(mk);
       const rel = (c: number) => { const k = new THREE.Color(c); return new THREE.Color(k.r / hull.r, k.g / hull.g, k.b / hull.b); };
-      t = { body: rel(l.body), trim: rel(l.band), plate: this.tint.plate };
+      t = { body: rel(lookLivery()?.hull ?? l.body), trim: rel(l.band), plate: this.tint.plate };
       this.livery.set(mk, t);
     }
     return t;
