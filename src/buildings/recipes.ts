@@ -1070,11 +1070,12 @@ function serverMonolith(): Parts {
 }
 
 // ─── the factions' own buildings: PLACEHOLDERS (docs/20 S3; stream S7 replaces each with its real recipe) ───
-// A BODY box with one TRIM band under the roof line, a distinct size per building so every recipe keeps its own bounding
-// box (tests/silhouettes.spec), and the band is the tall identifier that carries the family accent. 24 triangles each.
+// A BODY box with one accent band under the roof line (a BAND part: the family accent at any size, where a big TRIM part
+// would read as a deck), a distinct size per building so every recipe keeps its own bounding box (tests/silhouettes.spec),
+// and the band is the tall identifier that carries the family accent. 24 triangles each.
 const slab = (w: number, h: number, d: number): Parts => [
   box(w, h, d, BODY, 0, h / 2, 0),
-  box(w + 0.24, 0.7, d + 0.24, TRIM, 0, h - 0.35, 0),
+  box(w + 0.24, 0.7, d + 0.24, BAND, 0, h - 0.35, 0),
 ];
 const nightVault = (): Parts => slab(10.6, 4.6, 6.6);
 const faradayShed = (): Parts => slab(10.2, 6.2, 10.2);

@@ -2669,8 +2669,11 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       if (fx.efficiency !== undefined) {
         // a faction whose landing taxes the bank (the Foundry's 75%) starts from its own figure
         const from = factionChargeEff(ctx.faction);
-        const text = `grid round-trip ${Math.round(from * 100)}% → ${Math.round(fx.efficiency * 100)}%`;
-        const m = mag(fx.efficiency / from);
+        // read without a faction (a generic card), a restore to the grid's own figure reads as one, not as `85% → 85%`
+        const text = fx.efficiency === from
+          ? `grid round-trip restored to ${Math.round(fx.efficiency * 100)}%`
+          : `grid round-trip ${Math.round(from * 100)}% → ${Math.round(fx.efficiency * 100)}%`;
+        const m = fx.efficiency === from ? mag(fx.efficiency / factionChargeEff('robots')) : mag(fx.efficiency / from);
         out.push(fx.efficiency >= from ? pro(text, m, 'mult') : con(text, m, 'mult'));
       }
       return out;

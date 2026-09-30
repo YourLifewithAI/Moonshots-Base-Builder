@@ -839,7 +839,7 @@ test('branches: a faction base sees its eight techs and none of the other sixtee
     const F = await import('/src/data/factions.ts');
     const seen = (): { visible: string[]; reasons: Record<string, string> } => {
       const cards = g.getResearch().cards;
-      const all = Object.values(branch).flat() as string[];
+      const all = (Object.values(branch).flat() as [string, number, string][]).map(([t]) => t);
       return {
         visible: all.filter((t) => cards[t].state !== 'hidden').sort(),
         reasons: Object.fromEntries(all.filter((t) => cards[t].state === 'hidden').map((t) => [t, cards[t].reason])),

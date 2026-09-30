@@ -1305,7 +1305,7 @@ export interface VolleyTerms { foils: number; launch: number; burst: number; cre
 export function volleyTerms(s: Pick<GameState, 'crew'>, mods: Mods): VolleyTerms {
   const onConsole = mods.volleyMinCrew <= 0 || s.crew >= mods.volleyMinCrew;
   return {
-    foils: LAUNCH_COST_FOILS,
+    foils: LAUNCH_COST_FOILS * mods.volleyFoilsMult, // Cooperative Swarm (docs/20): ×1 everywhere else
     launch: onConsole ? mods.volleyCap : LAUNCH_CAP_PER_VOLLEY,
     burst: LAUNCH_POWER_BURST * mods.launchBurstMult,
     crewed: mods.volleyMinCrew > 0 && onConsole,

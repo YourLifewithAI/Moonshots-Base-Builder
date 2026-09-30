@@ -488,3 +488,53 @@ so both sides are played the same way; the original probe gave 108.6 /
   suggest: three +10% lab steps and the survey-data steps are the gain the
   scale pays back.
 
+
+## 12. Factions: the branches on the shared spine (docs/20 §3, stream S3)
+
+The tree grows **24 faction techs** (8 per faction; `TECH_ORDER` 144 → 168, the three faction landings included). They are
+ordinary techs in ordinary lanes and eras (`TechDef.factions: [id]`), so they take their lane's research price, sit in its era
+and need prerequisites from its chain. What is new is who sees them:
+
+- **Visibility.** `techVisible` hides a `factions` tech from everyone else and from a solo game (`hiddenReason`: `⚑ The Vanguard
+  only`). Their effects carry no per-effect filter: the lock is the tech's own, so a solo base can never research one
+  (and `debugCompleteTech` leaves another faction's branch tech alone).
+- **Ethos locks.** `TechDef.notFactions` is the opposite lock: visible to a solo game and every faction except these. Lights-Out
+  Charter and Replicator Stacks (the Era 6 and 7 ◉ picks) are `notFactions: ['solarpunks']` (`⚑ not open to The Commons`); the
+  ⌂ pick beside each stays open. Human-only techs stay human-only (both human factions see them); the Foundry's crew techs stay
+  behind Human Cohabitation.
+- **Pages.** An era page draws its faction's techs in a **⚑ FACTION** row after the lanes (each card carries the faction glyph in
+  its trim colour); the row costs one row of height (eight at most, so 49 px rows at 1280×720 on those pages). A lane header shows
+  its faction price tag (`×1.3`, `×0.6`) and the destiny column the pick price (`×0.85`).
+- **Prerequisites** are never site-locked, doctrine, breakthrough, crew (on the Foundry) or other-expedition techs, so a branch is
+  reachable on every site; costs sit between 0.6 and 1.6 × their era's median.
+
+| Faction | Era · lane | Tech | Effect (pro · con) |
+|---|---|---|---|
+| Foundry | 2 power | Night Vault | unlocks the vault · it costs, draws and needs upkeep |
+| Foundry | 3 robotics | Faraday Sheds | unlocks the shed · likewise |
+| Foundry | 3 compute | Hardened Firmware | machine reboot/latch/burn ×0.5 (1.75 → 0.875) · +15% draw on bays and fabs |
+| Foundry | 4 power | Isotope Warmers | night output ×0.25 → ×0.5 · unit packs ×0.9 |
+| Foundry | 5 power | Bank Trenches | bank round trip 75% → 85% · batteries build ×1.3 slower, +20% upkeep |
+| Foundry | 5 robotics | Self-Repair Cells | wear heals ×1.3 · parts fab upkeep +30% |
+| Foundry | 6 materials | Lights-Out Foundry | foil factory +20% while agent-run · +25% upkeep |
+| Foundry | 7 export | Swarm Relay Uplink | a volley needs 2↑ instead of 3 · −3 kW at the Lander |
+| Vanguard | 1 compute | Press Corps | unlocks Mission Ops, scrutiny fades ×1.5 · the console's cost |
+| Vanguard | 2 compute | Crunch Culture | lab and Data Center data +15% · morale base −5 |
+| Vanguard | 3 robotics | Hazard Waivers | builds 15% faster · hazard windows ×1.2 as often |
+| Vanguard | 4 compute | Skunkworks | unlocks the lab variant (data ×2) · its cost, crew 2, −10 kW |
+| Vanguard | 4 habitat | Hearing Prep | a hearing recalls half as many crew · lab output −8% |
+| Vanguard | 5 materials | Venture Foils | foil factory +25% · its upkeep +50% |
+| Vanguard | 6 export | Launch Fever | a volley needs 2↑ · morale base −5 |
+| Vanguard | 7 compute | Media Blitz | FIRST LIGHT clears scrutiny and lifts morale +10 for a day · +15% draw on labs and Data Centers |
+| Commons | 1 habitat | Commons Charter | unlocks the Hall, morale base +6 · the hall's cost |
+| Commons | 2 habitat | Mutual Aid Drills | hazard windows ×0.8 · crewed stations −5% output |
+| Commons | 3 materials | Slow Build Doctrine | upkeep ×0.7 on everything · builds 15% slower |
+| Commons | 4 habitat | Regolith Terraces | unlocks the terrace · its cost |
+| Commons | 5 compute | Consensus Council | Builder dwell ×0.8 · +1 crew at every lab |
+| Commons | 6 export | Cooperative Swarm | a volley flies with 9▰ not 10▰ · upkeep +15% on foil factory, driver, plant |
+| Commons | 7 exploration | Guardianship | a rival's disaster grants +120≡ data · −3 kW at the Lander |
+| Commons | 7 habitat | Long Night Gardens | greenhouse ring +20% at night · +15% draw |
+
+The effect kinds added for them (all additive, neutral in a solo game; `core/mods.ts` carries the fields): `outputMult.agentOnly`,
+`nightMode.relief` (and `nightMode.output` is now absolute, the best of the nightMode effects), `scrutiny` tuning
+(`decay`, `recall`, `firstLight`), `volleyFoils`, `rivalAid`, `nightOutput`. The six faction buildings are listed in docs/04.

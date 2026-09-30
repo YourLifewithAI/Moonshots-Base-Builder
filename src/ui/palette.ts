@@ -334,6 +334,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
     if (sig !== itemSig) { itemSig = sig; renderItems(); }
   });
   $siteId.subscribe(() => { itemSig = ''; renderItems(); });
+  // a new game of another faction offers that faction's own buildings (the research view carries it: docs/20 §1)
+  let itemFaction: string | null | undefined;
+  $research.subscribe((rv) => {
+    const f = rv?.faction ?? null;
+    if (f !== itemFaction) { itemFaction = f; renderItems(); }
+  });
 
   // ── placement hint: in the palette column, above the cards ──
   const hint = el('div', 'panel');
