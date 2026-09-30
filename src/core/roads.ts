@@ -18,6 +18,7 @@ import { APRON, DOCK_TYPES, FIELD_TYPES, OFFROAD_TYPES, ROAD } from '../data/roa
 import type { BuildingState, GameState, RoadCell, RoadJob, ZoneState } from './state';
 import { footprintRect } from '../buildings/instances';
 import { rimOf, zoneCells, zoneOfCell } from './zones';
+import { perState } from './stateMemo';
 
 /** The ground a road is planned over: heights, and (the heightfield) the
  *  cells no road may take — a pit's cut or a heap (terrain/pitCarve.ts). */
@@ -711,18 +712,20 @@ export interface SpurPlan {
   gate?: { key: number; zone: string };
 }
 
-const planMemo = new Map<string, SpurPlan>();
+/** per base: a second base has the same network revisions and building ids (core/stateMemo.ts) */
+const planMemos = perState(() => new Map<string, SpurPlan>());
 
 /** The road a structure placed here would need (memoised on the network). */
 export function planSpur(s: GameState, hf: Heights, b: Placed): SpurPlan {
   const none: SpurPlan = { cells: [], fresh: [], bays: [], reason: '' };
   if (!hasRoads(s)) return none;
   const key = `${b.type},${b.gx},${b.gz},${b.rot}|${s.roadRev ?? 0},${s.roads!.length}|${s.nextBuildingId},${s.buildings.length}|z${s.zones?.length ?? 0}|t${s.terrain?.rev ?? 0}`;
-  const hit = planMemo.get(key);
+  const memo = planMemos(s);
+  const hit = memo.get(key);
   if (hit) return hit;
   const out = planFresh(s, hf, b);
-  if (planMemo.size > 400) planMemo.clear();
-  planMemo.set(key, out);
+  if (memo.size > 400) memo.clear();
+  memo.set(key, out);
   return out;
 }
 
@@ -1430,7 +1433,7 @@ export function removeCells(s: GameState, keys: readonly number[]): number {
 
 // ───────────────────────────── routes ─────────────────────────────
 
-const routeMemo = new Map<string, Cell[] | null>();
+const routeMemos = perState(() => new Map<string, Cell[] | null>());
 
 /** The shortest open road from cell a to cell b (both ends may be bays or
  *  closed frontier-adjacent cells; the way between is open carriageway).
@@ -1440,11 +1443,12 @@ const routeMemo = new Map<string, Cell[] | null>();
  *  both trunks when a base has two; the shortest when there is no other. */
 export function roadRoute(s: GameState, a: Cell, b: Cell, variant: 0 | 1 = 0): Cell[] | null {
   const key = `${s.roadRev ?? 0}|${a[0]},${a[1]}>${b[0]},${b[1]}${variant ? '#1' : ''}`;
-  if (routeMemo.has(key)) return routeMemo.get(key)!;
+  const memo = routeMemos(s);
+  if (memo.has(key)) return memo.get(key)!;
   let out = bfs(s, a, b);
   if (variant && out && out.length > 3) out = alternative(s, a, b, out) ?? out;
-  if (routeMemo.size > 2000) routeMemo.clear();
-  routeMemo.set(key, out);
+  if (memo.size > 2000) memo.clear();
+  memo.set(key, out);
   return out;
 }
 
@@ -1531,7 +1535,7 @@ function bfs(s: GameState, a: Cell, b: Cell): Cell[] | null {
   return null;
 }
 
-const distMemo = new Map<string, Map<number, number>>();
+const distMemos = perState(() => new Map<string, Map<number, number>>());
 
 /** Cells by open road from cell `to` (a BFS, memoised on the network):
  *  cell key → steps, as roadRoute walks — bays only as ends, and the start
@@ -1539,7 +1543,8 @@ const distMemo = new Map<string, Map<number, number>>();
 export function roadDistances(s: GameState, to: Cell): Map<number, number> {
   const tk = cellKey(to[0], to[1]);
   const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${tk}`;
-  const hit = distMemo.get(key);
+  const memo = distMemos(s);
+  const hit = memo.get(key);
   if (hit) return hit;
   const map = roadMap(s);
   const dist = new Map<number, number>([[tk, 0]]);
@@ -1557,8 +1562,8 @@ export function roadDistances(s: GameState, to: Cell): Map<number, number> {
       q.push(nk);
     }
   }
-  if (distMemo.size > 96) distMemo.clear();
-  distMemo.set(key, dist);
+  if (memo.size > 96) memo.clear();
+  memo.set(key, dist);
   return dist;
 }
 

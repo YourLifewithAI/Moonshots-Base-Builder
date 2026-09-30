@@ -80,8 +80,14 @@ const SEVERITY: Record<AlertKind, number> = { info: 0, warn: 1, crit: 2 };
 export const GRID = { dark: false };
 
 /** Bumped whenever the notification log gains a line or a repeat counts on one
- *  (the UI republishes `$log` when it changes: game.publish). */
-export const logStamp = { n: 0 };
+ *  (the UI republishes `$log` when it changes: game.publish). One per base, so a
+ *  second base's alerts never stir the player's log. */
+const logStamps = new WeakMap<GameState, { n: number }>();
+export function logStampOf(s: GameState): { n: number } {
+  let st = logStamps.get(s);
+  if (!st) logStamps.set(s, st = { n: 0 });
+  return st;
+}
 
 /** A one-shot event. Repeating one still listed merges into it (×N). It
  *  belongs to a notification `family` (docs/19 S7; a crit alert with none is a
@@ -91,7 +97,7 @@ export function alert(
   s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction, family?: NotifyFamily, report?: FieldReport,
 ) {
   const i = s.alerts.findIndex((a) => !a.cond && a.key === text);
-  logStamp.n++;
+  logStampOf(s).n++;
   if (i >= 0) {
     const [a] = s.alerts.splice(i, 1);
     a.count += 1;

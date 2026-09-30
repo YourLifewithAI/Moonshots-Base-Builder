@@ -271,6 +271,18 @@ export class Heightfield {
    *  or neighbouring building pads get carved into visible seams (pits never dig them) */
   readonly padMask = new Uint8Array(N * N);
 
+  /** A hash of every height and delta sample (save and reload must reproduce it bit for bit): two FNV-style
+   *  words, the heights' and the deltas'. */
+  terrainHash(): string {
+    const bits = new Uint32Array(this.h.buffer, this.h.byteOffset, this.h.length);
+    let a = 0x811c9dc5, b = 0x01000193;
+    for (let i = 0; i < bits.length; i++) {
+      a = Math.imul(a ^ bits[i], 0x01000193) >>> 0;
+      b = Math.imul(b ^ (this.delta[i] & 0xffff), 0x85ebca6b) >>> 0;
+    }
+    return `${a.toString(16)}:${b.toString(16)}`;
+  }
+
   /** Flatten a cell rect [gx0..gx1) x [gz0..gz1) to its mean corner height,
    *  with a mask-aware two-ring smoothed skirt (`skirt` false: the samples of
    *  the rect only, as a grading job levels one cell at a time; the whole
