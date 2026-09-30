@@ -239,6 +239,14 @@ export function lookInfo(hf: Heightfield) {
       heap: srgb(PALETTE.heap), hatch: srgb(PALETTE.hatch), contour: srgb(PALETTE.contour), arrow: srgb(PALETTE.arrow),
     },
     looks: pitLooks(hf).length,
+    /** each ramp's arrow: the ground's height at its tail and its tip (the tip is the lower) */
+    arrows: pitLooks(hf).flatMap((l) => {
+      const sp = arrowSpan(l);
+      if (!sp) return [];
+      const at = (a: number) => [l.ox + l.ux * a, l.oz + l.uz * a] as const;
+      const [tx, tz] = at(sp.tail), [px, pz] = at(sp.tip);
+      return [{ id: l.id, len: sp.len, tailY: hf.sample(tx, tz), tipY: hf.sample(px, pz) }];
+    }),
   };
 }
 
@@ -262,13 +270,21 @@ function halves(pts: readonly (readonly [number, number])[]): Half[] {
   return out;
 }
 
-/** the ramp's arrow, pointing down it: a shaft and a head, in (a, p) (none on a tread too short) */
-function arrowParts(look: PitLook): Half[][] {
+/** where a ramp's arrow lies along its line (a, m from the line's origin): its length, tail and tip; the tip is the
+ *  lower end, toward the pit's centre. Null on a tread too short. */
+function arrowSpan(look: PitLook): { len: number; tail: number; tip: number } | null {
   const span = look.deep * PIT.rampRun;
   const len = Math.min(PIT.arrowMaxM, span * PIT.arrowShare);
-  if (len < PIT.arrowMinM) return [];
+  if (len < PIT.arrowMinM) return null;
   const mid = look.A - span / 2;
-  const tail = mid + len / 2, tip = mid - len / 2;
+  return { len, tail: mid + len / 2, tip: mid - len / 2 };
+}
+
+/** the ramp's arrow, pointing down it: a shaft and a head, in (a, p) (none on a tread too short) */
+function arrowParts(look: PitLook): Half[][] {
+  const sp = arrowSpan(look);
+  if (!sp) return [];
+  const { len, tail, tip } = sp;
   const headLen = 0.42 * len, headW = Math.min(0.5 * len, 4.4), shaftW = Math.min(0.15 * len, 1.6);
   const neck = tip + headLen;
   return [
