@@ -1,0 +1,19 @@
+/* The race (docs/20, stream S1): the faction step of the site screen, the briefing, the RACE chip and its panel.
+   docs/07 stays greyscale; a faction's TRIM colour (data/factions.ts livery, set per element as --ft) is the one hue,
+   as a 3 px rule and a glyph colour, and the glyph always says the faction too. */
+
+/* ── the faction step (screens.ts): the site card's shape, a trim rule on top ── */
+.faction-card { width: 318px; border-top: 3px solid var(--ft, var(--paper)); }
+.faction-card:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
+.faction-card h3 { display: flex; align-items: baseline; gap: 8px; }
+.faction-card .fc-glyph { color: var(--ft); font-size: 1.2em; line-height: 1; }
+.faction-card .fc-lands { color: var(--ink-050); }
+.faction-card .blurb { margin-bottom: 10px; }
+.faction-card .pro, .faction-card .con { margin-bottom: 2px; }
+.fc-rivals { margin-top: 12px; padding-top: 8px; border-top: var(--hair); font-size: 11px; line-height: 16px; }
+.fc-rivals .label { display: block; margin-bottom: 3px; }
+.fc-rival { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.fc-rival .fc-gap { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+#faction-sub { max-width: 640px; text-align: center; text-transform: none; letter-spacing: 0.04em; line-height: 18px; }
+html.touch #site-screen #faction-sub { display: none; }
+html.touch #site-screen .faction-card { width: 286px; }
