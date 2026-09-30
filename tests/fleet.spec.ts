@@ -1,20 +1,21 @@
 /** Fleet control (core/fleet.ts, core/haul.ts): construction rovers as sim
  *  units — auto one per site, Summon / Release / Send to… pins, the n^0.85
- *  crew rate, surveys that never borrow a pinned rover — and the Regolith
- *  Excavator as a hauling digger: credited on unload, the feed grade from
- *  deliveries, distance as the trade-off, Dig at… and Return home, saves
- *  and old-save migration. The two robotics capability techs. */
+ *  crew rate, surveys flown by drones that never borrow a rover — and a hub's
+ *  Regolith Excavator as a hauling digger: credited on unload, the hub's
+ *  grade from deliveries, distance as the trade-off, Send… and Auto, saves
+ *  mid-haul, the drawn unit's upgrades and lights. The two robotics
+ *  capability techs. Old saves' pad excavators join hubs in hubs.spec. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 const RATE_EXP = 0.85;
 
-async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'human', style = '') {
-  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${style ? `&style=${style}` : ''}`);
+async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'human') {
+  await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   await page.evaluate(HELPERS);
@@ -23,8 +24,7 @@ async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'huma
 const hasAlert = (s: any, re: RegExp) => s.alerts.some((a: any) => re.test(a.text));
 
 /** The first world point whose screen position is on the canvas itself (in
- *  view, not under a HUD panel) — clicks land there in either render style
- *  (Classic's isometric camera, High detail's orbit). */
+ *  view, not under a HUD panel): a click lands there. */
 async function onCanvas(page: Page, pts: [number, number][]) {
   const at = await page.evaluate((list) => {
     for (const [x, z] of list) {
@@ -47,7 +47,42 @@ declare function drained(secs: number): void;
 declare function near(type: string, x: number, z: number, test?: (cx: number, cz: number) => boolean,
   w?: number, d?: number): { gx: number; gz: number; cx: number; cz: number } | null;
 declare function byType(type: string): any;
+declare function hubBy(type: string, depId: string | null, x?: number, z?: number, off?: number): number | null;
+declare function power(n: number): number;
+declare function units(hub?: number): any[];
 const HELPERS = `(() => {
+/** a hub just outside a deposit's ring (its door toward it), or near (x, z) with no deposit; its id */
+window.hubBy = (type, depId, x, z, off = 0) => {
+  const g = window.__game;
+  const d = depId ? g.getDeposits().find((q) => q.id === depId) : { x, z, r: 0 };
+  const cgx = Math.floor((d.x + 512) / 4), cgz = Math.floor((d.z + 512) / 4);
+  const R0 = Math.ceil(d.r / 4) + off;
+  for (let rr = R0; rr <= R0 + 16; rr++) {
+    const found = [];
+    for (let i = -rr; i <= rr; i++) for (const [gx, gz] of [[cgx + i, cgz - rr], [cgx + i, cgz + rr], [cgx - rr, cgz + i], [cgx + rr, cgz + i]]) {
+      for (const rot of [0, 1, 2, 3]) {
+        if (!g.canPlace(type, gx, gz, rot).valid) continue;
+        const w = (rot % 2 ? 2 : 3), dd = (rot % 2 ? 3 : 2);
+        found.push({ gx, gz, rot, dist: Math.hypot((gx + w / 2) * 4 - 512 - d.x, (gz + dd / 2) * 4 - 512 - d.z) });
+      }
+    }
+    found.sort((a, b) => a.dist - b.dist || a.gx - b.gx || a.gz - b.gz || a.rot - b.rot);
+    for (const f of found) if (g.placeBuilding(type, f.gx, f.gz, f.rot)) return g.getState().buildings[g.getState().buildings.length - 1].id;
+  }
+  return null;
+};
+/** n Solar Arrays, built where the base has room */
+window.power = (n) => {
+  const g = window.__game;
+  let placed = 0;
+  for (let r = 0; r < 30 && placed < n; r++) for (let dx = -r; dx <= r && placed < n; dx++) for (let dz = -r; dz <= r && placed < n; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+    const gx = 118 + dx * 2, gz = 118 + dz * 2;
+    if (g.canPlace('solar', gx, gz, 0).valid && g.placeBuilding('solar', gx, gz, 0)) placed++;
+  }
+  return placed;
+};
+window.units = (hub) => window.__game.getState().haulers.filter((u) => hub === undefined || u.hub === hub);
 window.powered = (secs) => {
   const g = window.__game;
   for (let t = 0; t < secs; t += 10) { g.grantPower(5000); g.advanceGameSeconds(Math.min(10, secs - t)); }
@@ -173,10 +208,9 @@ test('release and completion return rovers to auto', async ({ page }) => {
   expect(done.s.rovers.filter((x: any) => x.site === r.lab)).toHaveLength(1);
 });
 
-// picking and targeting under both cameras: Classic's isometric one (the
-// default) and High detail's orbit
-for (const style of ['cel']) test(`${style}: select a rover in the world, Send to…, click a site: it is pinned there`, async ({ page }) => {
-  await start(page, 'mare', 'human', style);
+// picking and targeting under the fixed isometric camera
+test('select a rover in the world, Send to…, click a site: it is pinned there', async ({ page }) => {
+  await start(page, 'mare', 'human');
   await page.evaluate(() => {
     const g = window.__game!;
     g.placeBuilding('habitat', 132, 126);
@@ -226,12 +260,12 @@ for (const style of ['cel']) test(`${style}: select a rover in the world, Send t
   await expect(page.locator('#rover-inspector')).toBeHidden();
 });
 
-test('a survey never borrows a pinned rover', async ({ page }) => {
+test('a survey flies a drone: it never asks for a rover, pinned or not', async ({ page }) => {
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.instantTravel(true); // who is lent is the point, not the drive
-    g.completeTech('prospectingRovers');
+    g.completeTech('prospectingRovers'); // Prospecting Drones
     g.grantResources({ oxygen: 300, water: 100, parts: 50 });
     g.placeBuilding('habitat', 132, 126);
     g.finishRoads(); // its road open: welding, not sintering (docs/15)
@@ -239,26 +273,21 @@ test('a survey never borrows a pinned rover', async ({ page }) => {
     const hab = byType('habitat').id;
     g.summonRover(hab); // both rovers pinned to the habitat
     g.advanceGameSeconds(1);
+    const before = g.getState();
     g.grantPower(1000);
     g.surveyProspect('tranqPit');
-    g.advanceGameSeconds(0);
-    const refused = g.getState();
-    g.releaseRover(hab);
     g.advanceGameSeconds(1);
-    const released = g.getState();
-    g.surveyProspect('tranqPit');
-    g.advanceGameSeconds(1);
-    return { hab, refused, released, s: g.getState() };
+    return { hab, before, s: g.getState() };
   });
-  expect(r.refused.survey.active).toBeNull();
-  expect(hasAlert(r.refused, /^SURVEY NEEDS A FREE ROVER — every rover is pinned to a site; release one$/)).toBe(true);
-  const pinned = r.released.rovers.find((x: any) => x.pinned);
-  expect(pinned.site).toBe(r.hab);
-  expect(r.s.survey.active.rover).toBeDefined();
-  expect(r.s.survey.active.rover).not.toBe(pinned.id);
-  // the pinned one keeps welding; the fleet shows one lent
-  expect(r.s.rovers.find((x: any) => x.id === pinned.id)).toMatchObject({ site: r.hab, pinned: true });
-  expect(r.s.bots.total).toBe(1);
+  expect(r.before.rovers.filter((x: any) => x.pinned)).toHaveLength(2);
+  // the Lander's drone is out: one flight, and no rover lent (the old `active` slot stays null)
+  expect(r.s.survey.flights).toHaveLength(1);
+  expect(r.s.survey.active).toBeNull();
+  expect(hasAlert(r.s, /^SURVEY LAUNCHED — /)).toBe(true);
+  expect(hasAlert(r.s, /SURVEY NEEDS A FREE ROVER/)).toBe(false);
+  // both pinned rovers keep welding, and the fleet reads two busy, none lent
+  expect(r.s.rovers.map((x: any) => ({ site: x.site, pinned: x.pinned }))).toEqual([{ site: r.hab, pinned: true }, { site: r.hab, pinned: true }]);
+  expect(r.s.bots).toEqual({ total: 2, busy: 2 });
   expect(r.s.buildings.find((b: any) => b.id === r.hab).idleReason).toBe('building');
 });
 
@@ -322,223 +351,258 @@ test('saves keep the roster and its pins; an old save builds its roster on load'
   expect(errors).toEqual([]);
 });
 
-// ───────────────────────────── the hauling excavator ─────────────────────────────
+// ───────────────────────────── a hub's hauling excavator ─────────────────────────────
 
-/** An excavator on the mare near the Lander, built; returns its id. */
-async function excavator(page: Page, at: [number, number] = [-26, -2]) {
-  return page.evaluate(([x, z]) => {
+/** A Regolith Smelter by the high-Ti basalt, built, with the one unit it commissions with; the hub and the unit. */
+async function hubUnit(page: Page, off = 3) {
+  return page.evaluate((off) => {
     const g = window.__game!;
-    g.placeBuilding('solar', 132, 126);
-    const c = near('excavator', x, z, (cx, cz) => g.depositAt(cx, cz) === null)!;
-    g.placeBuilding('excavator', c.gx, c.gz);
+    g.holdHazards(true);
+    g.grantResources({ metals: 400, parts: 200 });
+    power(12);
+    const hub = hubBy('smelter', 'ilmenite-0', undefined, undefined, off)!;
     g.finishConstruction();
-    return byType('excavator').id;
-  }, at);
+    g.advanceGameSeconds(1);
+    return { hub, unit: units(hub)[0].id };
+  }, off);
 }
 
-test('a load is credited only on unload: dig, haul, unload, back', async ({ page }) => {
-  await start(page);
-  const id = await excavator(page);
+test('a load is credited only on unload: dig, haul, tip, back', async ({ page }) => {
+  await start(page, 'mare', 'robotic'); // (a crew would run out of air in a long run)
+  const { hub, unit } = await hubUnit(page);
   const r = await page.evaluate((id) => {
     const g = window.__game!;
-    const trace: { t: number; reg: number; made: number; phase: string; cargo: number }[] = [];
-    for (let i = 0; i < 170; i++) {
+    const trace: { t: number; made: number; phase: string; cargo: number }[] = [];
+    for (let i = 0; i < 300; i++) {
       g.grantPower(100);
       g.advanceGameSeconds(1);
       const s = g.getState();
-      const b = s.buildings.find((x: any) => x.id === id);
-      trace.push({ t: s.simTime, reg: s.resources.regolith, made: s.stats.produced.regolith, phase: b.haul.phase, cargo: b.haul.cargo.regolith ?? 0 });
+      const h = s.haulers.find((x: any) => x.id === id).haul;
+      trace.push({ t: s.simTime, made: s.stats.produced.regolith, phase: h.phase, cargo: h.cargo.regolith ?? 0 });
     }
-    return { trace, fleet: g.getFleet().hauls[id] };
-  }, id);
-  const jumps = r.trace.filter((x, i) => i > 0 && x.reg > r.trace[i - 1].reg + 1e-9);
+    return { trace, view: g.getHubs().units.find((x: any) => x.id === id) };
+  }, unit);
+  const jumps = r.trace.filter((x, i) => i > 0 && x.made > r.trace[i - 1].made + 1e-9);
   expect(jumps.length).toBeGreaterThanOrEqual(2);
-  // every rise of the stock is a whole bucket, on the tick the unload ends
+  // every rise of the tonnage is a whole bucket, on the tick the tip ends
   for (const j of jumps) {
     const i = r.trace.indexOf(j);
-    expect(j.reg - r.trace[i - 1].reg).toBeCloseTo(105 * 1.25, 6); // the mare's ISRU ×1.25
-    expect(j.made - r.trace[i - 1].made).toBeCloseTo(105 * 1.25, 6);
+    expect(j.made - r.trace[i - 1].made).toBeCloseTo(105 * 1.25, 6); // the mare's ISRU ×1.25
     expect(r.trace[i - 1].phase).toBe('unload');
     expect(j.phase).toBe('toDig');
   }
   // the phases in order, and nothing credited while digging or driving
   const phases = r.trace.map((x) => x.phase).filter((p, i, a) => i === 0 || p !== a[i - 1]);
-  expect(phases.slice(0, 5)).toEqual(['dig', 'toDrop', 'unload', 'toDig', 'dig']);
-  const between = r.trace.slice(jumps.length ? r.trace.indexOf(jumps[0]) : 0, r.trace.indexOf(jumps[1]));
-  expect(new Set(between.map((x) => x.reg)).size).toBe(1);
-  expect(r.fleet.dropName).toMatch(/^Lander #1$/); // no smelter yet: it tips at the Lander
+  const firstDig = phases.indexOf('dig');
+  expect(phases.slice(firstDig, firstDig + 5)).toEqual(['dig', 'toDrop', 'unload', 'toDig', 'dig']);
+  const between = r.trace.slice(r.trace.indexOf(jumps[0]), r.trace.indexOf(jumps[1]));
+  expect(new Set(between.map((x) => x.made)).size).toBe(1);
+  expect(r.view.hubName).toBe(`Regolith Smelter #${hub}`); // it tips into its own hub's hopper
 });
 
-test('the feed grade follows what is delivered, weighted by amount', async ({ page }) => {
-  await start(page);
-  const id = await excavator(page);
-  const r = await page.evaluate((id) => {
+test('the hub\'s grade follows what is delivered, weighted by amount', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page, 'mare', 'robotic'); // (a crew would run out of air in a long run)
+  const { hub, unit } = await hubUnit(page);
+  const r = await page.evaluate(({ hub, unit }) => {
     const g = window.__game!;
-    drained(150);
-    const plain = g.getState().feed;
-    const dep = g.getDeposits().find((d: any) => d.kind === 'ilmenite' && d.revealed);
-    g.digAt(id, dep.x, dep.z);
-    g.advanceGameSeconds(0);
-    const set = g.getState();
-    const shares: number[] = [];
-    let last = -1;
-    for (let i = 0; i < 700; i++) {
-      drained(1);
-      const f = g.getState().feed.ilmenite;
-      if (f !== last) { shares.push(f); last = f; }
+    const drain = (secs: number) => {
+      for (let t = 0; t < secs; t++) {
+        g.grantPower(5000);
+        const reg = g.getState().resources.regolith;
+        if (reg > 0) g.grantResources({ regolith: -reg });
+        g.advanceGameSeconds(1);
+      }
+    };
+    const feedOf = () => g.getState().buildings.find((b: any) => b.id === hub).hub.feed;
+    drain(150);
+    const before = { ...feedOf() };
+    // a plain pit of its own, and the unit sent there: the loads it tips move the mix
+    let pit: any = null;
+    for (let r = 0; r <= 60 && !pit; r += 4) for (let k = 0; k < (r ? 16 : 1) && !pit; k++) {
+      const a = (k / 16) * Math.PI * 2, px = -60 + Math.cos(a) * r, pz = 10 + Math.sin(a) * r;
+      if (g.plainPitWhy(px, pz)) continue;
+      const n = g.getState().plainPits.length;
+      g.openPit(hub, px, pz);
+      g.advanceGameSeconds(1);
+      const all = g.getState().plainPits;
+      if (all.length > n) pit = all[all.length - 1];
     }
-    g.select(g.getState().buildings.find((b: any) => b.type === 'excavator').id);
-    return { plain, set, shares, dep, feed: g.getState().feed };
-  }, id);
-  expect(r.plain.plain).toBeCloseTo(1, 9);
-  expect(r.set.buildings.find((b: any) => b.id === id).deposit).toBe('ilmenite');
-  expect(hasAlert(r.set, /^DIG SITE SET — Regolith Excavator #\d+ digs high-Ti basalt \d+ m from its pad$/)).toBe(true);
-  // the first ilmenite load moves it a third of the way (131 / (131 + 210)); each
-  // next load closes the gap; plain ground fades
-  const first = (105 * 1.25) / (105 * 1.25 + 210);
-  expect(r.shares[1]).toBeCloseTo(first, 6);
-  for (let i = 2; i < r.shares.length; i++) expect(r.shares[i]).toBeGreaterThan(r.shares[i - 1]);
-  expect(r.feed.ilmenite).toBeGreaterThan(0.6);
-  expect(r.feed.ilmenite + r.feed.plain).toBeCloseTo(1, 9);
-  await expect(page.locator('#inspector')).toContainText('Digs high-Ti basalt');
-  await expect(page.locator('#insp-haul-line')).toBeVisible();
+    g.finishRoads(); // its haul road open at once (docs/15)
+    g.sendUnit(unit, `plain:${pit.id}`);
+    g.select(hub);
+    const shares: number[] = [];
+    const tips: number[] = [];
+    let last = -1, made = g.getState().stats.produced.regolith;
+    for (let i = 0; i < 900; i++) {
+      drain(1);
+      const f = feedOf().plain;
+      const m = g.getState().stats.produced.regolith;
+      if (m > made + 1e-9 && f > 1e-9) tips.push(m - made);
+      made = m;
+      if (f !== last && f > 1e-9) { shares.push(f); last = f; }
+    }
+    return { before, pit: pit?.id, shares, tips, feed: feedOf() };
+  }, { hub, unit });
+  expect(r.before.ilmenite).toBeCloseTo(1, 9);
+  expect(r.pit).toBeTruthy();
+  // the first plain load moves the mix a share of the way — its tonnes over (its tonnes + the 210▲ memory) —
+  // and each next load closes the gap; the ilmenite fades
+  expect(r.shares.length).toBeGreaterThanOrEqual(3);
+  expect(r.shares[0]).toBeCloseTo(r.tips[0] / (r.tips[0] + 210), 3);
+  for (let i = 1; i < r.shares.length; i++) expect(r.shares[i]).toBeGreaterThan(r.shares[i - 1]);
+  expect(r.feed.plain + r.feed.ilmenite).toBeCloseTo(1, 9);
+  await expect(page.locator('#inspector')).toContainText(/feed q \d\.\d\d/);
+  await page.evaluate((u) => window.__game.selectUnit(u), unit);
+  await expect(page.locator('#unit-inspector')).toContainText('plain pit');
 });
 
-test('distance is the trade-off: a haul delivers by its road route (15 m: today\'s rate), far ground less', async ({ page }) => {
-  await start(page);
-  const r = await page.evaluate(() => {
+test('distance is the trade-off: a haul delivers by its road route, a farther pit less', async ({ page }) => {
+  test.setTimeout(240_000);
+  await start(page, 'mare', 'robotic'); // (a crew would run out of air in a long run)
+  const { hub, unit } = await hubUnit(page, 6);
+  const r = await page.evaluate(({ hub, unit }) => {
     const g = window.__game!;
-    g.completeTech('regolithProcessing');
-    g.completeTech('prospectingRovers'); // the 320 m survey: far ground in range
-    g.grantResources({ metals: 200, parts: 60 });
-    for (const [x, z] of [[132, 126], [132, 130], [136, 126]]) g.placeBuilding('solar', x, z);
-    const sm = near('smelter', -2, 22, undefined, 3, 2)!;
-    g.placeBuilding('smelter', sm.gx, sm.gz);
-    const ex = near('excavator', -30, 20, (cx, cz) => g.depositAt(cx, cz) === null)!;
-    g.placeBuilding('excavator', ex.gx, ex.gz);
-    g.finishConstruction();
-    const id = byType('excavator').id;
-    const smelter = byType('smelter');
-    // the smelter's west wall, 30 m of haul road from it (open ground, north of the pad)
-    const measure = (x: number, z: number) => {
-      g.digAt(id, x, z);
-      g.advanceGameSeconds(0);
-      g.finishRoads(); // its haul road open at once (docs/15)
-      drained(200); // settle into the new route
-      // whole cycles: from one unload to the sixth after it
+    const drain = (secs: number) => {
+      for (let t = 0; t < secs; t++) {
+        g.grantPower(5000);
+        const reg = g.getState().resources.regolith;
+        if (reg > 0) g.grantResources({ regolith: -reg });
+        g.advanceGameSeconds(1);
+      }
+    };
+    const view = () => g.getHubs().units.find((x: any) => x.id === unit);
+    // a plain pit well out from the hub, and the deposit beside it
+    let far: any = null;
+    for (let r = 0; r <= 120 && !far; r += 4) for (let k = 0; k < (r ? 16 : 1) && !far; k++) {
+      const a = (k / 16) * Math.PI * 2, px = -100 + Math.cos(a) * r, pz = 40 + Math.sin(a) * r;
+      if (g.plainPitWhy(px, pz)) continue;
+      const n = g.getState().plainPits.length;
+      g.openPit(hub, px, pz);
+      g.advanceGameSeconds(1);
+      const all = g.getState().plainPits;
+      if (all.length > n) far = all[all.length - 1];
+    }
+    g.finishRoads(); // its haul road open at once (docs/15)
+    // whole cycles: from one tip to the sixth after it
+    const measure = (key: string) => {
+      g.sendUnit(unit, key);
+      drain(300); // settle into the new route
       const made = () => g.getState().stats.produced.regolith;
-      const next = () => { const m = made(); for (let i = 0; i < 600 && made() === m; i++) drained(1); };
+      const next = () => { const m = made(); for (let i = 0; i < 600 && made() === m; i++) drain(1); };
       next();
       const m0 = made(), t0 = g.getState().simTime;
       for (let k = 0; k < 6; k++) next();
       const s = g.getState();
-      return { rate: (s.stats.produced.regolith - m0) / (s.simTime - t0), route: g.getFleet().hauls[id].routeM,
-        drop: g.getFleet().hauls[id].dropName };
+      const v = view();
+      return { rate: (s.stats.produced.regolith - m0) / (s.simTime - t0), viewRate: v.rate, tripS: v.tripS, target: v.target };
     };
-    const sx = smelter.gx * 4 - 512; // the smelter's west wall
-    const sz = (smelter.gz + 1) * 4 - 512;
-    const at30 = measure(sx - 4.5 - 30, sz);
-    const far = measure(sx - 4.5 - 150, sz);
-    return { at30, far, smelter: smelter.id };
-  });
-  const old = 1.5 * 1.25; // the static excavator's nameplate × the mare's ISRU
-  // on roads the route is at least the straight way, and the rate follows the
-  // route: a 60 s dig, 4 s unload, 5 m/s each way (15 m of road: today's rate)
-  const byRoute = (m: number) => old * (60 + 4 + 2 * 15 / 5) / (60 + 4 + 2 * m / 5);
-  expect(r.at30.drop).toBe(`Regolith Smelter #${r.smelter}`);
-  expect(r.at30.route).toBeGreaterThan(27);
-  expect(r.at30.rate / byRoute(r.at30.route)).toBeGreaterThan(0.9);
-  expect(r.at30.rate / byRoute(r.at30.route)).toBeLessThan(1.1);
-  expect(r.far.route).toBeGreaterThan(140);
-  expect(r.far.rate / old).toBeLessThan(0.7);
+    const near = measure('dep:ilmenite-0');
+    const away = measure(`plain:${far.id}`);
+    return { near, away, far: far.id };
+  }, { hub, unit });
+  expect(r.near.target).toBe('dep:ilmenite-0');
+  expect(r.away.target).toBe(`plain:${r.far}`);
+  // the trip is the road route: its rate is a bucket over dig + tip + the two ways (the view's own reading)
+  expect(r.near.rate / r.near.viewRate).toBeGreaterThan(0.9);
+  expect(r.near.rate / r.near.viewRate).toBeLessThan(1.1);
+  expect(r.away.rate / r.away.viewRate).toBeGreaterThan(0.9);
+  expect(r.away.rate / r.away.viewRate).toBeLessThan(1.1);
+  // and the farther pit delivers less
+  expect(r.away.tripS).toBeGreaterThan(r.near.tripS * 1.5);
+  expect(r.away.rate).toBeLessThan(r.near.rate * 0.85);
 });
 
-for (const style of ['cel']) test(`${style}: Dig at… refuses unmapped ground with its reason, and Return home digs the pad again`, async ({ page }) => {
-  await start(page, 'mare', 'human', style);
-  const id = await excavator(page);
-  // a wide view west of the base: 190 m out and the mapped ground both in it
-  await page.evaluate(() => window.__game.setView({ x: 220, y: 260, z: 250 }, { x: -60, y: 0, z: 20 }));
-  await page.evaluate((id) => window.__game.select(id), id);
-  await page.locator('#insp-digat').click();
-  await expect(page.locator('#fleet-hint')).toContainText('DIG AT…');
-  // 190 m west: past the 120 m landing-site survey (and clear of the inspector on the right)
-  const far = await onCanvas(page, [[-190, -2], [-190, 30], [-185, 50], [-200, 20], [-180, -30]]);
-  await page.mouse.move(far.x, far.y);
-  await expect(page.locator('#fleet-hint')).toContainText('UNMAPPED GROUND');
-  await page.mouse.click(far.x, far.y);
+test('Send… refuses open ground with its reason, sends a unit to a pit it names, and Auto gives it back to its hub', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page, 'mare', 'robotic');
+  const { hub, unit } = await hubUnit(page);
+  // a plain pit for it to be sent to, its haul road open
+  const pit = await page.evaluate((hub) => {
+    const g = window.__game!;
+    for (let r = 0; r <= 100; r += 4) for (let k = 0; k < (r ? 24 : 1); k++) {
+      const a = (k / 24) * Math.PI * 2, px = -30 + Math.cos(a) * r, pz = 10 + Math.sin(a) * r;
+      if (g.plainPitWhy(px, pz)) continue;
+      // one the player can click: in view, not under a HUD panel
+      const sp = g.screenOf(px, pz);
+      if (!sp.visible || document.elementFromPoint(sp.x, sp.y)?.tagName !== 'CANVAS') continue;
+      const n = g.getState().plainPits.length;
+      g.openPit(hub, px, pz);
+      g.advanceGameSeconds(1);
+      const all = g.getState().plainPits;
+      if (all.length > n) { g.finishRoads(); return all[all.length - 1]; }
+    }
+    return null;
+  }, hub);
+  expect(pit, 'a plain pit').not.toBeNull();
+  await page.evaluate((id) => window.__game.selectUnit(id), unit);
+  await page.locator('#un-send').click();
+  await expect(page.locator('#fleet-hint')).toContainText('SEND E');
+  // open ground says why not, and changes nothing
+  const ground = await onCanvas(page, [[-20, -24], [-24, -26], [30, -30], [-30, -10], [10, -30], [40, -40]]);
+  await page.mouse.move(ground.x, ground.y);
+  await expect(page.locator('#fleet-hint')).toContainText('Not a pit — click a mapped deposit');
+  await page.mouse.click(ground.x, ground.y);
   await expect(page.locator('#fleet-hint')).toHaveAttribute('data-flash', /\d+/);
-  // mapped ground 60 m out: the estimate, then the click takes it
-  const ok = await onCanvas(page, [[-2, 60], [-20, 60], [-40, 50], [-30, 70]]);
-  await page.mouse.move(ok.x, ok.y);
-  await expect(page.locator('#fleet-hint')).toContainText(/plain regolith · \d+ m · ≈\d+▲\/min \(now \d+▲\/min\) · plain feed/);
-  await page.mouse.click(ok.x, ok.y);
+  // the plain pit: the estimate, then the click takes it
+  const spot = await onCanvas(page, [[pit.x, pit.z], [pit.x + 3, pit.z], [pit.x, pit.z + 3], [pit.x - 3, pit.z - 3]]);
+  await page.mouse.move(spot.x, spot.y);
+  await expect(page.locator('#fleet-hint')).toContainText(/plain pit P\d+ · [≈]?\d+:\d\d one way · faces \d\/\d/);
+  await page.mouse.click(spot.x, spot.y);
   await expect(page.locator('#fleet-hint')).toBeHidden();
-  const set = await page.evaluate((id) => { window.__game.advanceGameSeconds(1); return window.__game.getState().buildings.find((b: any) => b.id === id); }, id);
-  expect(Math.hypot(set.haul.digX - ok.wx, set.haul.digZ - ok.wz)).toBeLessThan(6);
-  // the action refuses the same way, and names the reason
+  const sent = await page.evaluate((id) => { window.__game.advanceGameSeconds(1); return window.__game.getState().haulers.find((x: any) => x.id === id); }, unit);
+  expect(sent.target).toBe(`plain:${pit.id}`);
+  expect(sent.pinned).toBe(true);
+  // the action refuses the same way, and names the reason: a pit the hub cannot reach
   const refused = await page.evaluate((id) => {
     const g = window.__game!;
-    g.digAt(id, 260, 260);
+    g.sendUnit(id, 'dep:no-such-deposit');
     g.advanceGameSeconds(0);
     return g.getState();
-  }, id);
-  expect(hasAlert(refused, /^CANNOT DIG THERE — UNMAPPED GROUND — the survey maps 120 m around the Lander/)).toBe(true);
-  expect(refused.buildings.find((b: any) => b.id === id).haul.digX).toBe(set.haul.digX);
-  // Return home: the pad again, and the digger drives back to it
-  await expect(page.locator('#insp-dighome')).toBeVisible();
-  await page.locator('#insp-dighome').click();
-  const home = await page.evaluate((id) => {
-    const g = window.__game!;
-    g.advanceGameSeconds(0);
-    const b0 = g.getState().buildings.find((b: any) => b.id === id);
-    for (let i = 0; i < 300; i++) { g.grantPower(100); g.advanceGameSeconds(1); }
-    return { b0, b: g.getState().buildings.find((b: any) => b.id === id) };
-  }, id);
-  const padX = (home.b0.gx + 1) * 4 - 512, padZ = (home.b0.gz + 1) * 4 - 512;
-  expect(home.b0.haul.digX).toBeCloseTo(padX, 6);
-  expect(home.b0.haul.digZ).toBeCloseTo(padZ, 6);
-  expect(home.b0.deposit).toBeUndefined();
-  await expect(page.locator('#insp-dighome')).toHaveCount(0);
-  // after a trip it digs its own pad
-  const digging = home.b.haul.phase === 'dig' ? home.b : null;
-  if (digging) expect(Math.hypot(digging.haul.x - padX, digging.haul.z - padZ)).toBeLessThan(0.01);
+  }, unit);
+  expect(hasAlert(refused, /^CANNOT SEND — NOT A PIT — click a mapped deposit or a plain pit/)).toBe(true);
+  expect(refused.haulers.find((x: any) => x.id === unit).target).toBe(`plain:${pit.id}`);
+  // Auto: its hub chooses for it again
+  await page.evaluate((id) => window.__game.selectUnit(id), unit);
+  await expect(page.locator('#un-mode')).toContainText('sent — stays until you press Auto');
+  await page.locator('#un-auto').click();
+  const auto = await page.evaluate((id) => { window.__game.advanceGameSeconds(2); return window.__game.getState().haulers.find((x: any) => x.id === id); }, unit);
+  expect(auto.pinned).toBe(false);
+  await expect(page.locator('#un-auto')).toHaveCount(0);
+  await expect(page.locator('#un-mode')).toContainText('auto — its hub chooses');
 });
 
-test('saves keep the dig site and the cycle mid-haul; an old excavator digs its own pad', async ({ page }) => {
-  test.setTimeout(240_000); // four page loads
+test('saves keep the unit mid-haul: its cargo, its target and its route; and it carries on', async ({ page }) => {
+  test.setTimeout(240_000); // page loads
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  await start(page);
-  const id = await excavator(page);
+  await start(page, 'mare', 'robotic');
+  const { unit } = await hubUnit(page);
   const before = await page.evaluate((id) => {
     const g = window.__game!;
-    g.digAt(id, -2, 60);
-    g.advanceGameSeconds(0);
     g.finishRoads(); // its haul road open at once (docs/15)
-    const h = () => g.getState().buildings.find((b: any) => b.id === id).haul;
-    // room in the store: a full one keeps a full bucket waiting at the dig (docs/15 §5)
+    const h = () => g.getState().haulers.find((b: any) => b.id === id).haul;
+    // room in the store: a full hopper keeps a full bucket waiting at the face (docs/15 §5)
     const tick = () => {
       g.grantPower(100);
       const reg = g.getState().resources.regolith;
       if (reg > 0) g.grantResources({ regolith: -reg });
       g.advanceGameSeconds(1);
     };
-    // the bucket it had started goes home first; then a whole one at the new dig
-    // (the dig snaps to its cell's centre: -2, 62)
-    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - h().digX, h().z - h().digZ) < 0.5); i++) tick();
     // into the haul: bucket full, on the road
-    for (let i = 0; i < 200 && h().phase !== 'toDrop'; i++) tick();
+    for (let i = 0; i < 400 && h().phase !== 'toDrop'; i++) tick();
     g.grantPower(100);
     g.advanceGameSeconds(2);
     return g.getState();
-  }, id);
-  const h0 = before.buildings.find((b: any) => b.id === id).haul;
-  expect(h0.phase).toBe('toDrop');
-  expect(h0.cargo.regolith).toBeGreaterThan(100);
+  }, unit);
+  const u0 = before.haulers.find((x: any) => x.id === unit);
+  expect(u0.haul.phase).toBe('toDrop');
+  expect(u0.haul.cargo.regolith).toBeGreaterThan(100);
   await putSave(page, before);
-  const after = await page.evaluate((id) => window.__game.getState().buildings.find((b: any) => b.id === id), id);
-  expect(after.haul).toEqual(h0);
-  expect(after.deposit).toBe(before.buildings.find((b: any) => b.id === id).deposit);
+  const after = await page.evaluate((id) => window.__game.getState().haulers.find((x: any) => x.id === id), unit);
+  expect(after.haul).toEqual(u0.haul);
+  expect(after.target).toBe(u0.target);
+  expect(after.face).toBe(u0.face);
   // and it carries on: the load lands
   const landed = await page.evaluate(() => {
     const g = window.__game!;
@@ -546,23 +610,13 @@ test('saves keep the dig site and the cycle mid-haul; an old excavator digs its 
     const r0 = g.getState().stats.produced.regolith;
     for (let i = 0; i < 90 && g.getState().stats.produced.regolith === r0; i++) {
       g.grantPower(100);
-      const reg = g.getState().resources.regolith; // room for it: the longer road trips fill the store first
+      const reg = g.getState().resources.regolith; // room for it
       if (reg > 0) g.grantResources({ regolith: -reg });
       g.advanceGameSeconds(1);
     }
     return g.getState().stats.produced.regolith - r0;
   });
-  expect(landed).toBeCloseTo(h0.cargo.regolith, 6);
-
-  // a save from before the haul: the excavator digs its own pad, as it did
-  const legacy = JSON.parse(JSON.stringify(before));
-  const ex = legacy.buildings.find((b: any) => b.id === id);
-  delete ex.haul;
-  delete ex.deposit;
-  await putSave(page, legacy);
-  const migrated = await page.evaluate((id) => window.__game.getState().buildings.find((b: any) => b.id === id), id);
-  const padX = (migrated.gx + 1) * 4 - 512, padZ = (migrated.gz + 1) * 4 - 512;
-  expect(migrated.haul).toMatchObject({ digX: padX, digZ: padZ, phase: 'dig', x: padX, z: padZ, t: 0, drop: null });
+  expect(landed).toBeCloseTo(u0.haul.cargo.regolith, 6);
   expect(errors).toEqual([]);
 });
 
@@ -622,11 +676,10 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
     await start(page, 'southpole');
     const ids = await page.evaluate(() => {
       const g = window.__game!;
-      g.completeTech('dynamicClocking'); // the excavator's clock toggle too: its tallest foot
       g.completeTech('prospectingRovers');
       g.grantResources({ metals: 300, parts: 100, chips: 1, foils: 1, launch: 1, oxygen: -110, water: -45 });
-      const ex = near('excavator', -24, -2)!;
-      g.placeBuilding('excavator', ex.gx, ex.gz);
+      // a smelter and its unit, sent away from where its hub would choose: Auto shows
+      const hub = hubBy('smelter', null, -24, -2)!;
       g.finishConstruction();
       // three sites for two rovers: one queued, and a crew of two on the first
       const s1 = near('solar', 20, -2)!; g.placeBuilding('solar', s1.gx, s1.gz);
@@ -635,10 +688,10 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
       g.advanceGameSeconds(1);
       const sites = g.getState().buildings.filter((b: any) => b.construction > 0).map((b: any) => b.id);
       g.summonRover(sites[0]);
-      const exId = byType('excavator').id;
-      g.digAt(exId, -2, 50); // away from its pad: Return home shows
+      const unit = units(hub)[0];
+      g.sendUnit(unit.id, unit.target); // pinned where it is: Send…, Recall, Auto
       g.advanceGameSeconds(3);
-      return { sites, ex: exId, rover: g.getState().rovers.find((r: any) => r.pinned).id };
+      return { sites, hub, unit: unit.id, rover: g.getState().rovers.find((r: any) => r.pinned).id };
     });
     type Box = { x: number; y: number; width: number; height: number };
     const inView = async (sel: string, min: number) => {
@@ -660,14 +713,16 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
     await page.evaluate((id) => window.__game.select(id), ids.sites[2]);
     await expect(page.locator('#insp-buildnext')).toBeVisible();
     await inView('#inspector', 10);
-    // the excavator away from its pad: priority, clock, Dig at…, Return home, Shut down, Demolish
-    await page.evaluate((id) => window.__game.select(id), ids.ex);
-    await expect(page.locator('#insp-dighome')).toBeVisible();
-    await expect(page.locator('#insp-oc-on')).toBeVisible();
-    // what it is doing reads in the head, which never scrolls
-    await expect(page.locator('#insp-status')).toContainText(/^(DIGGING|HAULING|UNLOADING|RETURNING)/);
-    await inView('#inspector', 11);
+    // the hub, the tallest foot: priority, print, bay, Open pit…, Shut down, Demolish, close
+    await page.evaluate((id) => window.__game.select(id), ids.hub);
+    await expect(page.locator('#hub-print')).toBeVisible();
+    await inView('#inspector', 6);
     await page.screenshot({ path: `test-results/fleet-inspector-${vp.width}x${vp.height}.png` });
+    // the unit sent to a pit: Send…, Recall, Auto, Hub, close; what it is doing reads in the head, which never scrolls
+    await page.evaluate((id) => window.__game.selectUnit(id), ids.unit);
+    await expect(page.locator('#un-auto')).toBeVisible();
+    await expect(page.locator('#un-status')).toContainText(/^(DIGGING|HAULING|TIPPING|OUT TO|RETURNING|WAITING|PARKED|CHARGING)/);
+    await inView('#unit-inspector', 5);
     // the rover inspector: Send to…, Release to auto, Dock, close
     await page.evaluate((id) => window.__game.selectRover(id), ids.rover);
     await expect(page.locator('#rover-inspector #rv-unpin')).toBeVisible();
@@ -675,54 +730,40 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
   });
 }
 
-// ───────────────────────────── with the render styles ─────────────────────────────
+// ───────────────────────────── the drawn unit ─────────────────────────────
 
-test('classic: the digger out on its haul wears the pad\'s upgrades and lights; its pad loses decal and pool', async ({ page }) => {
-  await start(page); // Classic is the default style
+test('the drawn hub unit wears the upgraded recipe and its lamps follow its own darkness', async ({ page }) => {
+  await start(page, 'mare', 'robotic');
   const r = await page.evaluate(() => {
     const g = window.__game!;
+    g.holdHazards(true);
     g.grantResources({ metals: 400, parts: 200 });
     g.completeTech('grizzlyScreens');
     g.completeTech('autonomousHaulage');
-    for (const [x, z] of [[132, 126], [132, 130]]) g.placeBuilding('solar', x, z);
-    const c = near('excavator', -26, -2, (cx, cz) => g.depositAt(cx, cz) === null)!;
-    g.placeBuilding('excavator', c.gx, c.gz);
+    power(12);
+    const hub = hubBy('smelter', 'ilmenite-0', undefined, undefined, 3)!;
     g.finishConstruction();
-    const id = byType('excavator').id;
-    // at night, so the base's pools are lit: first home, digging its own pad
-    // (between loads it hauls to the Lander, the only consumer here; the
-    // store is emptied so it never waits there for room)…
-    drained(640 - g.getState().simTime);
-    const h = () => byType('excavator').haul;
-    const padX = (byType('excavator').gx + 1) * 4 - 512, padZ = (byType('excavator').gz + 1) * 4 - 512;
-    // (well inside a 60 s dig, so the second of live frames below stays in it)
-    for (let i = 0; i < 200 && !(h().phase === 'dig' && Math.hypot(h().x - padX, h().z - padZ) < 0.01 && h().t > 2 && h().t < 50); i++) {
-      drained(1);
-    }
-    g.setPaused(false); // a second of live frames: it squares up on its pad
+    // at night, so the lamps are lit; the unit at work (the store is emptied so it never waits for room)…
+    drained(700 - g.getState().simTime);
+    const unit = units(hub)[0].id;
+    g.setPaused(false); // a second of live frames: it is drawn where the sim has it
     for (let i = 0; i < 20; i++) g.stepFrame(0.05);
     g.setPaused(true);
     g.stepFrame(0.05);
-    const home = { up: g.getUpgrades(), life: g.getRenderInfo().life.haulers };
-    // …then under way to a dig 50 m north: its lamps follow the excavator's own darkness
-    g.digAt(id, -2, 50);
-    g.grantPower(20000);
-    g.advanceGameSeconds(2);
-    for (let i = 0; i < 6; i++) g.stepFrame(0.05);
-    return { id, home, away: { up: g.getUpgrades(), life: g.getRenderInfo().life.haulers } };
+    return { unit, up: g.getUpgrades(), life: g.getRenderInfo().life.haulers, night: g.getState().simTime };
   });
-  const pad = r.away.up.meshes.excavator;
-  // the same upgraded recipe on the pad and on the road
-  expect(pad.key).toBe('grizzlyScreens,autonomousHaulage');
-  expect(r.away.life.key).toBe(pad.key);
-  expect(r.away.life.triangles).toBe(pad.triangles);
-  // away: drawn by the haulers, its pad leaves no decal and no pool behind
-  expect(r.home.life.away).toEqual([]);
-  expect(r.away.life.away).toEqual([r.id]);
-  expect(r.away.up.decals).toBe(r.home.up.decals - 1);
-  expect(r.home.up.pools).toBeGreaterThan(0);
-  expect(r.away.up.pools).toBeLessThan(r.home.up.pools);
-  // the lit channel 2 + k at the excavator's own darkness
-  expect(r.away.life.dark[0]).toBeGreaterThan(0.5); // night
-  expect(r.away.life.lit[0]).toBeCloseTo(2 + r.away.life.dark[0], 3);
+  // the same upgraded recipe the palette's excavator wears, drawn on the unit
+  expect(r.up.want.excavator).toBe('grizzlyScreens,autonomousHaulage');
+  const drawn = Object.entries(r.life.meshes as Record<string, { count: number; key: string; triangles: number }>).filter(([, m]) => m.count > 0);
+  expect(drawn.length).toBe(1);
+  expect(drawn[0][1].key).toBe('grizzlyScreens,autonomousHaulage');
+  expect(drawn[0][1].triangles).toBeGreaterThan(50);
+  // it is the one drawn (a hub unit's id in the picture is UNIT_VID + its own), and no pad excavator stands
+  expect(r.life.away).toHaveLength(1);
+  expect(r.life.away[0]).toBeGreaterThan(r.unit);
+  expect(r.up.meshes.excavator?.count ?? 0).toBe(0);
+  // the lit channel 2 + k at the unit's own darkness
+  expect(r.life.dark[0]).toBeGreaterThan(0.5); // night
+  expect(r.life.lit[0]).toBeCloseTo(2 + r.life.dark[0], 3);
 });
+

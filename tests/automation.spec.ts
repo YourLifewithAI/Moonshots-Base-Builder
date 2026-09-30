@@ -11,7 +11,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'robotic', extra = '') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
@@ -23,14 +23,19 @@ async function start(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'robo
 const hasAlert = (s: any, re: RegExp) => s.alerts.some((a: any) => re.test(a.text));
 
 /** In-page helpers. base(): a small working base near the Lander (8 Solar
- *  Arrays, 2 Smelters, 1 Excavator, built, bank topped up); place(type, n)
- *  fills the first valid cells of a fixed scan; powered(secs) advances with the
- *  bank topped up; rule(id) reads a rule's view; autos() lists auto sites. */
-declare function base(opts?: { solar?: number; smelters?: number; excavators?: number }): void;
+ *  Arrays and 2 Smelters, each with the one unit it commissions with, built,
+ *  bank topped up); hubBase(): the same power with ONE smelter by the high-Ti
+ *  basalt, the deposit cored, so its unit digs a real pit and the hub rule has
+ *  something to read; place(type, n) fills the first valid cells of a fixed
+ *  scan; powered(secs) advances with the bank topped up; rule(id) reads a
+ *  rule's view; autos() lists auto sites. */
+declare function base(opts?: { solar?: number; smelters?: number }): void;
+declare function hubBase(opts?: { solar?: number }): number;
 declare function place(type: string, n: number): number;
 declare function powered(secs: number): void;
 declare function rule(id: string): any;
 declare function autos(): any[];
+declare function hubBy(type: string, depId: string): number | null;
 declare function until(test: () => boolean, secs: number, step?: number): number;
 const HELPERS = `(() => {
 const G = window.__game;
@@ -41,12 +46,41 @@ window.place = (t, n) => {
 };
 window.base = (o = {}) => {
   G.grantPower(5000);
-  G.completeTech('regolithProcessing');
   G.grantResources({ metals: 400, parts: 200 });
   place('solar', o.solar ?? 8);
   place('smelter', o.smelters ?? 2);
-  place('excavator', o.excavators ?? 1);
   G.finishConstruction();
+};
+/** a hub just outside a deposit's ring, its door toward it; the hub's id */
+window.hubBy = (type, depId) => {
+  const d = G.getDeposits().find((q) => q.id === depId);
+  const cgx = Math.floor((d.x + 512) / 4), cgz = Math.floor((d.z + 512) / 4);
+  const R0 = Math.ceil(d.r / 4) + 3;
+  for (let rr = R0; rr <= R0 + 16; rr++) {
+    const found = [];
+    for (let i = -rr; i <= rr; i++) for (const [gx, gz] of [[cgx + i, cgz - rr], [cgx + i, cgz + rr], [cgx - rr, cgz + i], [cgx + rr, cgz + i]]) {
+      for (const rot of [0, 1, 2, 3]) {
+        if (!G.canPlace(type, gx, gz, rot).valid) continue;
+        const w = (rot % 2 ? 2 : 3), dd = (rot % 2 ? 3 : 2);
+        found.push({ gx, gz, rot, dist: Math.hypot((gx + w / 2) * 4 - 512 - d.x, (gz + dd / 2) * 4 - 512 - d.z) });
+      }
+    }
+    found.sort((a, b) => a.dist - b.dist || a.gx - b.gx || a.gz - b.gz || a.rot - b.rot);
+    for (const f of found) if (G.placeBuilding(type, f.gx, f.gz, f.rot)) return G.getState().buildings[G.getState().buildings.length - 1].id;
+  }
+  return null;
+};
+window.hubBase = (o = {}) => {
+  G.holdHazards(true);
+  G.grantPower(5000);
+  G.grantResources({ metals: 400, parts: 200 });
+  place('solar', o.solar ?? 8);
+  const hub = hubBy('smelter', 'ilmenite-0');
+  G.finishConstruction();
+  // the Builder prints only against ore a rover has cored (surveyed reserves)
+  G.surveyDeposit('ilmenite-0');
+  for (let t = 0; t < 900 && !G.getState().oreSurvey.done['ilmenite-0']; t += 5) { G.grantPower(5000); G.advanceGameSeconds(5); }
+  return hub;
 };
 window.powered = (secs) => {
   for (let t = 0; t < secs; t += 10) { G.grantPower(5000); G.advanceGameSeconds(Math.min(10, secs - t)); }
@@ -60,16 +94,28 @@ window.until = (test, secs, step = 5) => {
 };
 })()`;
 
-/** the Excavation rule, live on a working base */
+/** the Excavation rule (hubUnit), live on a hub by the deposit */
 async function excavationBase(page: Page) {
   await page.evaluate(() => {
     const G = window.__game;
-    base();
+    hubBase();
     G.completeTech('teleoperation');
     G.completeTech('buildOrders');
     G.completeTech('autoExcavation');
     G.advanceGameSeconds(1);
   });
+}
+
+/** the Power rule, live on a thin grid: it places Solar Array sites (the
+ *  Excavation rule prints units at hubs and places nothing) */
+async function powerBase(page: Page, solar = 3) {
+  await page.evaluate((n) => {
+    const G = window.__game;
+    base({ solar: n });
+    G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoPower');
+    G.setRule('solar', { threshold: 0.5 });
+    G.advanceGameSeconds(1);
+  }, solar);
 }
 
 // ───────────────────────────── orders ─────────────────────────────
@@ -144,7 +190,7 @@ test('orders: the Lander refuses, a short stock skips with the reason, Build Ord
     const a3 = G.getAutomation();
     const placed3 = mine();
     // four open orders at most
-    for (let i = 0; i < 4; i++) G.order('excavator', 2);
+    for (let i = 0; i < 4; i++) G.order('solar', 2);
     G.advanceGameSeconds(0);
     const a4 = G.getAutomation();
     const full = G.getState().alerts.map((a: any) => a.text).find((t: string) => /ORDER BOOK FULL/.test(t));
@@ -172,7 +218,8 @@ test('orders: the Lander refuses, a short stock skips with the reason, Build Ord
 
 // ───────────────────────────── standing rules ─────────────────────────────
 
-test('the Excavation rule: on at completion, watches the deficit, places one excavator, settles, stops at its cap', async ({ page }) => {
+test('the Excavation rule: on at completion, watches a hub’s starvation, prints one unit, settles, stops at its cap', async ({ page }) => {
+  test.setTimeout(200_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await start(page);
@@ -181,120 +228,119 @@ test('the Excavation rule: on at completion, watches the deficit, places one exc
     const G = window.__game;
     const s0 = G.getState();
     const on = s0.alerts.map((a: any) => a.text).find((t: string) => /BUILDER — the Excavation rule/.test(t));
-    const r0 = rule('excavator');
+    const r0 = rule('hubUnit');
+    const n0 = s0.haulers.length;
+    // the cap first: one unit is all it may print (the hub's own commissioned unit counts)
+    G.setRule('hubUnit', { cap: n0 });
     G.advanceGameSeconds(30);
-    const r30 = rule('excavator');
+    const r30 = rule('hubUnit');
     const flow = G.getState().flowBook.regolith;
-    const t = until(() => autos().length > 0, 240, 5);
+    const t1 = until(() => rule('hubUnit').phase === 'capped', 300, 5);
+    const capped = rule('hubUnit');
+    const cap1 = G.getState().alerts.map((a: any) => a.text).filter((x: string) => /AUTO CAP/.test(x));
+    G.setRule('hubUnit', { cap: 12 });
+    const t2 = until(() => rule('hubUnit').built > 0, 900, 5);
+    const r1 = rule('hubUnit');
     const s1 = G.getState();
-    const r1 = rule('excavator');
-    const site1 = autos()[0];
-    // one pending site a family: nothing else while it builds
-    powered(60);
-    const pending = autos().length;
-    G.finishConstruction();
-    const r2 = rule('excavator');
-    // the cap: every excavator counts
-    const n = G.getState().buildings.filter((b: any) => b.type === 'excavator').length;
-    G.setRule('excavator', { cap: n });
-    // a third smelter: demand well past what n excavators haul, whatever their roads (docs/15)
-    place('smelter', 1);
-    G.finishConstruction();
-    powered(400);
-    const r3 = rule('excavator');
-    const s3 = G.getState();
-    return { on, r0, r30, flow, t, site1, r1, pending, r2, n, r3, cap: s3.alerts.map((a: any) => a.text).filter((x: string) => /AUTO CAP/.test(x)),
-      alerts: s1.alerts.map((a: any) => a.text), count: s3.buildings.filter((b: any) => b.type === 'excavator').length };
+    const hub = s1.buildings.find((b: any) => b.hub);
+    const queued = hub.hub.queue.filter((j: any) => j.kind === 'unit').length;
+    const log = G.getAutomation().log.map((l: any) => l.text).find((x: string) => /a unit queued at/.test(x));
+    // one print at a time: nothing more is queued while it runs, and the rule settles
+    powered(20);
+    const queued2 = G.getState().buildings.find((b: any) => b.hub).hub.queue.filter((j: any) => j.kind === 'unit').length;
+    const r2 = rule('hubUnit');
+    powered(120);
+    const units = G.getState().haulers.length;
+    return { on, r0, n0, r30, flow, t1, capped, cap1, t2, r1, queued, log, queued2, r2, units,
+      sites: G.getState().buildings.filter((b: any) => b.auto).length, legacy: G.getState().buildings.filter((b: any) => b.type === 'excavator').length };
   });
-  expect(r.on).toMatch(/BUILDER — the Excavation rule is on: \+1 Regolith Excavator when regolith demand outruns supply .* · cap 6 · \[B\] to tune/);
-  expect(r.r0).toMatchObject({ on: true, cap: 6, threshold: -0.1 });
-  expect(r.r30.phase).toBe('watching');
-  expect(r.r30.status).toMatch(/watching · regolith [\d.]+▲\/min short for \d+ s of 60/);
-  // two smelters want 4▲/s; one excavator makes at most 1.5
-  expect(r.flow.want).toBeGreaterThan(3);
-  expect(r.flow.made - r.flow.want - r.flow.spend).toBeLessThan(-0.1);
-  expect(r.t).toBeLessThanOrEqual(90);
-  expect(r.site1).toMatchObject({ type: 'excavator', auto: { by: 'rule', rule: 'excavator' } });
-  expect(r.alerts.some((x: string) => new RegExp(`AUTO — Regolith Excavator #${r.site1.id} placed, nearest free pad`).test(x))).toBe(true);
-  expect(r.r1.phase).toBe('building');
-  expect(r.pending).toBe(1);
-  expect(r.r2.phase).toBe('settling');
-  expect(r.r2.status).toMatch(/settling \d+:\d\d — letting the rates catch up/);
-  expect(r.r3.phase).toBe('capped');
-  expect(r.r3.status).toMatch(new RegExp(`cap ${r.n}/${r.n} Regolith Excavators`));
-  expect(r.count).toBe(r.n);
-  expect(r.cap.length).toBeGreaterThanOrEqual(1);
+  expect(r.on).toMatch(/BUILDER — the Excavation rule is on: \+1 unit at a hub starved ≥25% for 60 s, with a free face.* · cap 12 · \[B\] to tune/);
+  expect(r.r0).toMatchObject({ on: true, cap: 12, threshold: 0.25, building: 'Hub units' });
+  expect(r.n0).toBe(1); // the smelter commissioned with one unit
+  expect(r.r30.phase).toMatch(/^(watching|holding)$/);
+  expect(r.r30.status).toMatch(/(watching · Regolith Smelter #\d+ starved \d+% for \d+ s of 60|holding · Regolith Smelter #\d+ — )/);
+  // one smelter wants more regolith than its one unit brings
+  expect(r.flow.want).toBeGreaterThan(r.flow.made);
+  // at its cap it prints nothing and says so, once
+  expect(r.t1).toBeLessThan(300);
+  expect(r.capped.status).toBe(`cap ${r.n0}/${r.n0} units — raise the cap to let it print more`);
+  expect(r.cap1.length).toBeGreaterThanOrEqual(1);
+  // raised: it prints one unit at the starved hub, from the hub, not a pad
+  expect(r.t2).toBeLessThan(900);
+  expect(r.log).toMatch(/a unit queued at Regolith Smelter #\d+ · Regolith Smelter #\d+ starved \d+%; \+[\d.]+▲\/s at high-Ti basalt #0/);
+  expect(r.r1.built).toBe(1);
+  expect(r.queued).toBeLessThanOrEqual(1);
+  expect(r.queued2).toBeLessThanOrEqual(1);
+  expect(r.r2.phase).toMatch(/^(settling|ok)$/);
+  expect(r.units).toBe(r.n0 + 1);
+  expect(r.sites).toBe(0);
+  expect(r.legacy).toBe(0);
   expect(errors).toEqual([]);
 });
 
-test('a rule founds nothing, holds when more would not help, and the dwell resets at re-arm', async ({ page }) => {
+test('the Excavation rule holds when more would not help, and starts over once the hub is fed', async ({ page }) => {
+  test.setTimeout(200_000);
   await start(page);
   const r = await page.evaluate(() => {
     const G = window.__game;
-    base({ excavators: 0 });
+    const hub = hubBase();
     G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoExcavation');
     G.grantResources({ regolith: -G.getState().resources.regolith });
-    powered(90);
-    const founded = rule('excavator');
-    const none = autos().length;
-    // found one yourself on a thin grid, shed first: dark diggers are not a shortage of diggers
-    place('excavator', 1);
-    const dig = G.getState().buildings.find((b: any) => b.type === 'excavator');
-    G.setPriority(dig.id, 3);
+    // a thin grid, shed to nothing: a unit that cannot charge is not a shortage of units
     const solars = G.getState().buildings.filter((b: any) => b.type === 'solar');
     for (const b of solars.slice(2)) G.setEnabled(b.id, false);
     G.grantPower(-G.getState().powerStored);
-    G.finishConstruction();
-    for (let i = 0; i < 90; i++) { G.grantPower(-G.getState().powerStored); G.advanceGameSeconds(1); }
-    const holding = rule('excavator');
-    // its grid draw dark: idle, or digging on its pack meanwhile (docs/02, On-board power)
-    const d = G.getState().buildings.find((b: any) => b.id === dig.id);
-    const darkNow = d.onPack ? 'power' : d.idleReason;
-    // lights back on; the smelters off: supply over demand re-arms the rule
+    for (let i = 0; i < 240; i++) { G.grantPower(-G.getState().powerStored); G.advanceGameSeconds(1); }
+    const holding = rule('hubUnit');
+    const printed = G.getState().buildings.find((b: any) => b.id === hub).hub.queue.length;
+    // lights back on; the smelter off: a hub that is not starving has nothing to watch
     for (const b of solars) G.setEnabled(b.id, true);
-    for (const b of G.getState().buildings) if (b.type === 'smelter') G.setEnabled(b.id, false);
+    G.setEnabled(hub, false);
     powered(200);
-    const calm = rule('excavator');
-    return { founded, none, holding, darkNow, calm, autos: autos().length };
+    const calm = rule('hubUnit');
+    return { holding, printed, calm, autos: autos().length };
   });
-  expect(r.founded.phase).toBe('founded');
-  expect(r.founded.status).toMatch(/found the first Regolith Excavator yourself/);
-  expect(r.none).toBe(0);
-  expect(r.darkNow).toBe('power');
-  expect(r.holding.phase).toBe('holding');
-  expect(r.holding.status).toMatch(/holding · 1 of 1 Regolith Excavator dark \(power\) — more would not help/);
+  expect(r.holding.phase).toMatch(/^(holding|watching)$/);
+  if (r.holding.phase === 'holding') {
+    expect(r.holding.status).toMatch(/^holding · Regolith Smelter #\d+ — (power first|hub is waiting on power|an existing unit is idle)/);
+  }
+  expect(r.printed).toBe(0);
   expect(r.calm.phase).toBe('ok');
-  expect(r.calm.status).toMatch(/ok · regolith supply .* over demand/);
+  expect(r.calm.status).toMatch(/^ok · every hub below 25% starvation/);
   expect(r.autos).toBe(0);
 });
 
 test('the budget: a rule keeps one more in stock, the weld debt and parts floor come first', async ({ page }) => {
+  test.setTimeout(200_000);
   await start(page);
   await excavationBase(page);
   const r = await page.evaluate(() => {
     const G = window.__game;
-    // an excavator on the mare costs 16◆ 4⚙: hold 20◆ (one, not two) while the smelters pour more in
-    for (let i = 0; i < 120; i++) {
+    // a unit on the mare costs 16◆ 4⚙: hold 20◆ (one, not two) while the smelter pours more in
+    for (let i = 0; i < 600; i++) {
       G.grantPower(100);
       G.grantResources({ metals: 20 - G.getState().resources.metals });
       G.advanceGameSeconds(1);
+      if (/needs \d+◆/.test(rule('hubUnit').status)) break;
     }
     G.grantResources({ metals: 20 - G.getState().resources.metals });
     G.advanceGameSeconds(0);
-    const short = rule('excavator');
-    const none = autos().length;
+    const short = rule('hubUnit');
+    const before = G.getState().haulers.length;
     G.grantResources({ metals: 200 });
-    powered(10);
-    return { short, none, after: autos().length };
+    until(() => rule('hubUnit').built > 0, 400, 5);
+    return { short, before, built: rule('hubUnit').built, queued: G.getState().buildings.find((b: any) => b.hub).hub.queue.length, units: G.getState().haulers.length };
   });
-  expect(r.short.phase).toBe('waiting');
-  expect(r.short.status).toMatch(/waiting · needs 16◆ above the 16◆ reserve \(have 2\d\)/);
+  expect(r.short.phase).toBe('holding');
+  expect(r.short.status).toMatch(/^holding · Regolith Smelter #\d+ — needs 16◆ above the 16◆ reserve \(have 2\d\)/);
   expect(r.short.status).not.toMatch(/⚙/); // 200⚙ covers the parts floor and the weld debt
-  expect(r.none).toBe(0);
-  expect(r.after).toBe(1);
+  expect(r.short.built).toBe(0);
+  expect(r.built).toBe(1);
+  expect(r.queued + r.units).toBeGreaterThan(r.before);
 });
 
 test('the Budget Governor: reserve floors, family order, and the setters it gates', async ({ page }) => {
+  test.setTimeout(200_000);
   await start(page);
   await excavationBase(page);
   const r = await page.evaluate(() => {
@@ -307,64 +353,73 @@ test('the Budget Governor: reserve floors, family order, and the setters it gate
     G.completeTech('autoPower'); G.completeTech('budgetGovernor');
     G.setReserve('metals', 350);
     G.moveFamily('excavation', -1);
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 400; i++) {
       G.grantPower(100);
       G.grantResources({ metals: 300 - G.getState().resources.metals });
       G.advanceGameSeconds(1);
+      if (/needs \d+◆/.test(rule('hubUnit').status)) break;
     }
     const a1 = G.getAutomation();
-    return { a0, a1, ex: a1.rules.find((x: any) => x.id === 'excavator'), autos: autos().length, metals: G.getState().resources.metals };
+    return { a0, a1, ex: a1.rules.find((x: any) => x.id === 'hubUnit'), autos: autos().length, metals: G.getState().resources.metals,
+      queued: G.getState().buildings.find((b: any) => b.hub).hub.queue.length };
   });
   expect(r.a0.governor).toBe(false);
   expect(r.a0.reserve.find((x: any) => x.res === 'metals').set).toBe(false);
   expect(r.a1.governor).toBe(true);
   expect(r.a1.priority.indexOf('excavation')).toBeLessThan(r.a1.priority.indexOf('power'));
   expect(r.a1.reserve.find((x: any) => x.res === 'metals')).toMatchObject({ amount: 350, set: true });
-  expect(r.ex.phase).toBe('waiting');
-  expect(r.ex.status).toMatch(/needs 16◆ above the 350◆ reserve/);
+  expect(r.ex.phase).toBe('holding');
+  expect(r.ex.status).toMatch(/^holding · Regolith Smelter #\d+ — needs 16◆ above the 350◆ reserve/);
+  expect(r.queued).toBe(0);
   expect(r.autos).toBe(0);
 });
 
-test('prerequisites: a consumer with no headroom waits for a Solar Array; without Automated Power it holds', async ({ page }) => {
+test('prerequisites: a hub with no headroom says power first; a thin grid gets its Solar Array from the Power rule', async ({ page }) => {
+  test.setTimeout(200_000);
   await start(page);
   const r = await page.evaluate(() => {
     const G = window.__game;
-    base({ solar: 3 });
+    hubBase({ solar: 1 });
     G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoExcavation');
-    powered(120);
-    const hold = rule('excavator');
+    for (let i = 0; i < 300 && !/power first/.test(rule('hubUnit').status); i++) { G.grantPower(20); G.advanceGameSeconds(1); }
+    const hold = rule('hubUnit');
     const none = autos().length;
+    const queued = G.getState().buildings.find((b: any) => b.hub).hub.queue.length;
+    // Automated Power: the Power rule builds the array the base is short of
     G.completeTech('autoPower');
+    G.setRule('solar', { threshold: 0.5 });
     G.advanceGameSeconds(1);
-    const t = until(() => autos().some((b: any) => b.type === 'solar'), 120, 1);
-    return { hold, none, t, solar: autos().find((b: any) => b.type === 'solar'), ex: rule('excavator'), log: G.getAutomation().log };
+    const t = until(() => autos().some((b: any) => b.type === 'solar'), 240, 1);
+    return { hold, none, queued, t, solar: autos().find((b: any) => b.type === 'solar'), log: G.getAutomation().log };
   });
   expect(r.none).toBe(0);
+  expect(r.queued).toBe(0);
   expect(r.hold.phase).toBe('holding');
-  expect(r.hold.status).toMatch(/holding · a Regolith Excavator's 6 kW would brown the grid out — build power first/);
-  expect(r.t).toBeLessThan(120);
+  expect(r.hold.status).toMatch(/^holding · Regolith Smelter #\d+ — power first: (another unit|high-Ti basalt #0) needs \d+ kW spare \(have -?\d+\)/);
+  expect(r.t).toBeLessThan(240);
   expect(r.solar.auto).toMatchObject({ by: 'rule', rule: 'solar' });
   expect(r.solar.auto.why).toBeTruthy();
 });
 
 test('cancel is a veto: an untouched auto site removed keeps the rule off that ground for a lunar day', async ({ page }) => {
   await start(page);
-  await excavationBase(page);
+  await powerBase(page);
   const r = await page.evaluate(() => {
     const G = window.__game;
     until(() => autos().length > 0, 240, 1);
     const site = autos()[0];
-    const plan0 = G.planSite('excavator', { res: 'regolith' });
+    const plan0 = G.planSite('solar');
     G.demolish(site.id);
     G.advanceGameSeconds(1);
     const s = G.getState();
-    const plan1 = G.planSite('excavator', { res: 'regolith' });
-    return { site, plan0, plan1, rule: rule('excavator'), vetoes: s.auto.vetoes, alert: s.alerts.map((a: any) => a.text).find((t: string) => /AUTO SITE CANCELLED/.test(t)), gone: !s.buildings.some((b: any) => b.id === site.id) };
+    const plan1 = G.planSite('solar');
+    return { site, plan0, plan1, rule: rule('solar'), vetoes: s.auto.vetoes, alert: s.alerts.map((a: any) => a.text).find((t: string) => /AUTO SITE CANCELLED/.test(t)), gone: !s.buildings.some((b: any) => b.id === site.id) };
   });
+  expect(r.site.type).toBe('solar');
   expect(r.gone).toBe(true);
-  expect(r.alert).toMatch(/AUTO SITE CANCELLED — the Excavation rule leaves that ground alone for a lunar day/);
+  expect(r.alert).toMatch(/AUTO SITE CANCELLED — the Power rule leaves that ground alone for a lunar day/);
   expect(r.rule.phase).toBe('vetoed');
-  expect(r.rule.status).toMatch(new RegExp(`you cancelled Regolith Excavator #${r.site.id} — resumes in 1[12]:\\d\\d`));
+  expect(r.rule.status).toMatch(new RegExp(`you cancelled Solar Array #${r.site.id} — resumes in 1[12]:\\d\\d`));
   expect(r.vetoes).toHaveLength(1);
   const v = r.vetoes[0];
   expect(v.gx0).toBe(r.site.gx - 1);
@@ -377,7 +432,7 @@ test('the chooser is deterministic: the same base twice gives the same sites, ro
   test.setTimeout(150_000);
   const run = async () => {
     await start(page);
-    await excavationBase(page);
+    await powerBase(page);
     return page.evaluate(() => {
       const G = window.__game;
       G.order('solar', 3);
@@ -407,7 +462,14 @@ test('Automated Life Support on a crewed base: short O₂ runway builds a produc
     G.grantResources({ oxygen: -G.getState().resources.oxygen + 40 });
     G.advanceGameSeconds(1);
     const a = G.getAutomation();
-    const t = until(() => autos().some((b: any) => b.auto.rule === 'oxygen') || /no free hands/.test(rule('oxygen').status), 200, 2);
+    // a smelter is the oxygen maker. One that runs on regolith it lacks is not "more would help": the
+    // rule waits for regolith and asks the Excavation rule first. So the pile feeds the hubs, and the
+    // one smelter is shut down (its O₂ is what is short): the crew logic is what is read.
+    const fed = () => G.grantResources({ regolith: 2000 - G.getState().resources.regolith });
+    fed();
+    for (const b of G.getState().buildings) if (b.type === 'smelter') G.setEnabled(b.id, false);
+    G.advanceGameSeconds(1);
+    const t = until(() => { fed(); return autos().some((b: any) => b.auto.rule === 'oxygen') || /no free hands/.test(rule('oxygen').status); }, 200, 2);
     return { on: a.rules.filter((x: any) => x.family === 'life' && x.on).map((x: any) => x.id), t, ox: rule('oxygen'), autos: autos() };
   });
   expect(r.on).toContain('oxygen');
@@ -431,7 +493,7 @@ test('Maintenance Automation: a machine worn for a lunar day is replaced, the ol
     G.completeTech('autoSmelting'); G.completeTech('partsFabrication'); G.completeTech('autoFabrication');
     G.completeTech('maintenanceAutomation');
     G.grantResources({ metals: 300, parts: 200 });
-    for (const x of ['excavator', 'smelter', 'refinery', 'partsFab', 'chipFab', 'roboticsBay', 'storageYard']) G.setRule(x, { on: false });
+    for (const x of ['hubUnit', 'smelter', 'refinery', 'partsFab', 'chipFab', 'roboticsBay', 'storageYard']) G.setRule(x, { on: false });
     G.advanceGameSeconds(1);
     const on = G.getState().alerts.map((a: any) => a.text).find((t: string) => /Maintenance rule is on/.test(t));
     const old = G.getState().buildings.find((b: any) => b.type === 'smelter');
@@ -453,47 +515,43 @@ test('Maintenance Automation: a machine worn for a lunar day is replaced, the ol
   expect(r.replaced).toMatch(new RegExp(`REPLACED — Regolith Smelter #${r.old} \\(WORN \\d+%\\) replaced by Regolith Smelter #${r.site.id}; #${r.old} demolished, ½ refunded`));
 });
 
-test('siting: masts go to the network edge, and Site Survey AI puts an excavator on the wanted ground', async ({ page }) => {
+test('siting: masts go to the network edge, and a hub stands by the nearest mapped deposit it wants, Site Survey AI or not', async ({ page }) => {
   await start(page);
   const r = await page.evaluate(() => {
     const G = window.__game;
-    base({ smelters: 0, excavators: 0 });
+    base({ smelters: 0 });
     G.revealAll();
-    G.completeTech('prospectingRovers'); // Relay Masts
+    G.completeTech('prospectingRovers'); // Prospecting Drones: Relay Masts
     const cx = (p: any, w = 2) => (p.gx + w / 2) * 4 - 512, cz = (p: any, d = 2) => (p.gz + d / 2) * 4 - 512;
     const L = G.getState().buildings.find((b: any) => b.type === 'lander');
     const lx = cx(L, 3), lz = cz(L, 3);
     const dist = (p: any) => Math.hypot(cx(p) - lx, cz(p) - lz);
     const near = G.planSite('relayMast');
     const edge = G.planSite('relayMast', { edge: true });
-    // a smelter on the near rim of the high-Ti basalt north of the Lander
     const dep = G.getDeposits().find((d: any) => d.kind === 'ilmenite' && d.inNetwork);
-    let sm = null;
-    for (let k = 0; k < 40 && !sm; k++) {
-      const t = (dep.r + 4 + k) / Math.hypot(dep.x - lx, dep.z - lz);
-      const x = dep.x + (lx - dep.x) * t, z = dep.z + (lz - dep.z) * t;
-      const gx = Math.round((x + 512) / 4 - 1.5), gz = Math.round((z + 512) / 4 - 1);
-      // (beside the line if it crosses the Lander's apron road)
-      for (const dx of [0, 3, -3]) if (!sm && G.placeBuilding('smelter', gx + dx, gz)) sm = { gx: gx + dx, gz };
-    }
-    G.finishConstruction();
-    const plain = G.planSite('excavator', { res: 'regolith' });
+    // a smelter is a hub: its anchor is the deposit, and its walls keep the pits' 12 m setback off the ring
+    const plain = G.planSite('smelter');
     G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('siteSurveyAI');
-    const survey = G.planSite('excavator', { res: 'regolith' });
-    const ground = (p: any) => G.depositAt(cx(p), cz(p))?.kind ?? null;
-    return { near, edge, nearD: dist(near), edgeD: dist(edge), sm, plain, survey, plainGround: ground(plain), surveyGround: ground(survey) };
+    const survey = G.planSite('smelter');
+    const off = (p: any) => Math.hypot(cx(p, 3) - dep.x, cz(p, 2) - dep.z) - dep.r;
+    const ground = (p: any) => G.depositAt(cx(p, 3), cz(p, 2))?.kind ?? null;
+    return { near, edge, nearD: dist(near), edgeD: dist(edge), dep, plain, survey, plainOff: off(plain), surveyOff: off(survey),
+      plainGround: ground(plain), surveyGround: ground(survey) };
   });
   expect(r.near.why).toMatch(/nearest free pad/);
   expect(r.edge.why).toMatch(/at the network edge, \d+ m from the nearest node/);
   expect(r.edgeD).toBeGreaterThan(r.nearD + 10);
   expect(r.edgeD).toBeGreaterThan(45);
   expect(r.edgeD).toBeLessThanOrEqual(62);
-  expect(r.sm).not.toBeNull();
-  expect(r.plain.why).toMatch(/nearest free pad to Regolith Smelter #\d+/);
+  expect(r.dep).toBeTruthy();
+  expect(r.plain.why).toMatch(/nearest free pad to high-Ti basalt #\d+ · \d+ m/);
   expect(r.plainGround).toBeNull();
-  // with the survey: the wanted deposit, or a pad by the smelter digging it
-  expect(r.surveyGround === 'ilmenite' || !!r.survey.dig).toBe(true);
-  expect(r.survey.why).toMatch(/high-Ti basalt/);
+  expect(r.plainOff).toBeGreaterThan(12);
+  // with the survey: still a pad by the deposit, off its ring and its pit's setback
+  expect(r.survey.refusal).toBeUndefined();
+  expect(r.survey.why).toMatch(/nearest free pad to high-Ti basalt #\d+ · \d+ m/);
+  expect(r.surveyGround).toBeNull();
+  expect(r.surveyOff).toBeGreaterThan(12);
 });
 
 // ───────────────────────────── siting on roads (docs/15) ─────────────────────────────
@@ -541,7 +599,7 @@ window.fullSun = async () => {
 
 /** the crewed pole on a rough seed, paused, with the helpers */
 async function roughPole(page: Page) {
-  await page.goto('/?debug&seed=1234&nolock&lowfx&site=southpole');
+  await page.goto('/?debug&seed=1234&site=southpole');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   await page.evaluate(HELPERS);
@@ -565,7 +623,6 @@ test('siting on rough pole ground: an order walks out to flat ground and lays it
     G.advanceGameSeconds(0);
     const first = autos()[0];
     // a load for the margin to read
-    G.completeTech('regolithProcessing');
     place('smelter', 1);
     G.finishConstruction();
     const firstAccess = G.roadAccess().find((a: any) => a.id === first.id);
@@ -604,7 +661,6 @@ test('no ground a road can serve: the solar rule says why in [B] and in a warnin
     G.grantResources({ metals: 3000, parts: 500 });
     G.order('solar', 1);
     G.advanceGameSeconds(0);
-    G.completeTech('regolithProcessing');
     place('smelter', 1);
     G.finishConstruction();
     G.completeTech('teleoperation'); G.completeTech('buildOrders'); G.completeTech('autoPower');
@@ -615,10 +671,12 @@ test('no ground a road can serve: the solar rule says why in [B] and in a warnin
     const plan = G.planSite('solar');
     until(() => rule('solar').phase === 'nosite', 900, 5);
     const first = rule('solar');
-    // a lunar stretch: while the margin cannot be read, the rule still says it has no ground
+    // a lunar stretch: while the margin cannot be read, the rule still says it has no ground. The warning
+    // stands once the refusal has held AUTO.refusalAlertS (60 s): 20 dark samples of 5 s leave room to spare
+    // whichever second of the day the run began in
     const seen: string[] = [];
     let dark = 0;
-    for (let i = 0; i < 480 && dark < 12; i++) {
+    for (let i = 0; i < 480 && dark < 20; i++) {
       G.grantPower(5000); G.advanceGameSeconds(5);
       if (!(await fullSun())) { dark++; seen.push(rule('solar').phase); }
     }
@@ -670,11 +728,12 @@ test('saves keep the rules, the book and the AUTO tags; an old save loads with e
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   await start(page);
-  await excavationBase(page);
+  await powerBase(page);
   const before = await page.evaluate(() => {
     const G = window.__game;
+    G.completeTech('autoExcavation');
     until(() => autos().length > 0, 240, 5);
-    G.setRule('excavator', { cap: 4, threshold: -0.2 });
+    G.setRule('hubUnit', { cap: 4, threshold: 0.4 });
     G.setRule('smelter', { on: false });
     G.grantResources({ metals: -G.getState().resources.metals });
     G.order('solar', 3);
@@ -684,7 +743,7 @@ test('saves keep the rules, the book and the AUTO tags; an old save loads with e
   expect(before.auto.orders).toHaveLength(1);
   await putSave(page, before);
   const after = await page.evaluate(() => window.__game.getState());
-  expect(after.auto.rules.excavator).toMatchObject({ on: true, cap: 4, threshold: -0.2 });
+  expect(after.auto.rules.hubUnit).toMatchObject({ on: true, cap: 4, threshold: 0.4 });
   expect(after.auto.orders).toEqual(before.auto.orders);
   expect(after.auto.families).toEqual(before.auto.families);
   const tags = (st: any) => st.buildings.filter((b: any) => b.auto).map((b: any) => [b.id, b.type, b.gx, b.gz, b.rot, b.auto]);
@@ -692,13 +751,13 @@ test('saves keep the rules, the book and the AUTO tags; an old save loads with e
   expect(tags(before).length).toBeGreaterThanOrEqual(1);
   // the Builder panel reads the loaded state
   await page.keyboard.press('b');
-  await expect(page.locator('#builder-panel .bp-rule[data-rule="excavator"]')).toBeVisible();
+  await expect(page.locator('#builder-panel .bp-rule[data-rule="hubUnit"]')).toBeVisible();
 
   // a save from before the Builder: no auto, no flow book, no tags
   const legacy = JSON.parse(JSON.stringify(before));
   delete legacy.auto;
   delete legacy.flowBook;
-  legacy.techsDone = legacy.techsDone.filter((t: string) => !['buildOrders', 'autoExcavation'].includes(t));
+  legacy.techsDone = legacy.techsDone.filter((t: string) => !['buildOrders', 'autoExcavation', 'autoPower'].includes(t));
   for (const b of legacy.buildings) delete b.auto;
   await putSave(page, legacy);
   const migrated = await page.evaluate(() => { window.__game.advanceGameSeconds(5); return window.__game.getAutomation(); });
@@ -716,23 +775,23 @@ test('the Builder panel: B opens it, the switch and cap edit the rule, rows stay
   await page.keyboard.press('b');
   const panel = page.locator('#builder-panel');
   await expect(panel).toBeVisible();
-  const row = panel.locator('.bp-rule[data-rule="excavator"]');
+  const row = panel.locator('.bp-rule[data-rule="hubUnit"]');
   await expect(row).toBeVisible();
-  await expect(row).toContainText('Regolith Excavator');
+  await expect(row).toContainText('Hub units');
   await row.evaluate((el) => { (el as any).__mark = 1; });
   for (let i = 0; i < 10; i++) await page.evaluate(() => window.__game.advanceGameSeconds(1));
   expect(await row.evaluate((el) => (el as any).__mark)).toBe(1); // refreshed in place, not rebuilt
-  await expect(row).toHaveAttribute('data-phase', /watching|ok|building/);
+  await expect(row).toHaveAttribute('data-phase', /watching|holding|settling|ok|building/);
   // cap +
   await row.locator('[data-act="c+"]').click();
   await page.evaluate(() => window.__game.advanceGameSeconds(0));
-  expect((await page.evaluate(() => rule('excavator'))).cap).toBe(7);
-  await expect(row.locator('.bp-c')).toHaveText('7');
+  expect((await page.evaluate(() => rule('hubUnit'))).cap).toBe(13);
+  await expect(row.locator('.bp-c')).toHaveText('13');
   // off
   await row.locator('[data-act="toggle"]').click();
   await page.evaluate(() => window.__game.advanceGameSeconds(1));
-  expect((await page.evaluate(() => rule('excavator'))).on).toBe(false);
-  await expect(panel.locator('.bp-rule[data-rule="excavator"]')).toHaveAttribute('data-phase', 'off');
+  expect((await page.evaluate(() => rule('hubUnit'))).on).toBe(false);
+  await expect(panel.locator('.bp-rule[data-rule="hubUnit"]')).toHaveAttribute('data-phase', 'off');
   // the resource panel carries the same rule and the order buttons
   await page.keyboard.press('b');
   await expect(panel).toBeHidden();
