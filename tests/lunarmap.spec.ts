@@ -421,7 +421,24 @@ test('the whole Moon at T4: both hemispheres, every prospect, outposts and the a
 
 // ── docs/19 S8: outposts made legible ──
 
-const chipsOf = (page: Page, key: string) => page.locator(`#resource-strip .chip[data-key="${key}"]`);
+const chipsOf = (page: Page, key: string) => page.locator(`#resource-strip .chip[data-key="${key}"]`).first();
+/** two real claims, the way a player gets them: Tranquillitatis soil (volatiles, a rover haul) and Fra Mauro (KREEP, a
+ *  hopper that burns 0.02○/s). Nothing else streams oxygen, so with none left the hopper is grounded. */
+async function claimHopperPair(page: Page) {
+  await complete(page, ['prospectingRovers', 'orbitalProspector', 'farSideRelay']); // T3: two slots
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.grantResources({ metals: 400, parts: 100, chips: 40, oxygen: 300, water: 100 });
+    g.grantPower(800);
+    g.surveyProspect('tranqRegolith');
+    g.advanceGameSeconds(105); // 80 s of flight and the drone's 20 s recharge
+    g.surveyProspect('fraMauro');
+    g.advanceGameSeconds(190);
+    g.claimOutpost('tranqRegolith');
+    g.claimOutpost('fraMauro');
+    g.advanceGameSeconds(365);
+  });
+}
 const alertOf = (page: Page, re: RegExp) =>
   page.evaluate((src) => window.__game.getState().alerts.find((a: any) => new RegExp(src).test(a.text)) ?? null, re.source);
 
@@ -436,18 +453,14 @@ test('the OUTPOSTS chip: hidden with no slot, a free slot, then how many live, w
   await g(page, 'forceOutposts', 6);
   await expect(chip).toHaveText('▢ OUTPOSTS 6 live');
   await expect(chip).toHaveAttribute('title', /^Outposts 6\/1 · 6 live/);
-  // no oxygen: the hopper is grounded, the rest still stream
-  await g(page, 'grantResources', { oxygen: -(await g(page, 'getState')).resources.oxygen });
-  await g(page, 'advanceGameSeconds', 2);
-  await expect(chip).toHaveText('▢ OUTPOSTS 5 live · 1 grounded');
-  await expect(chip).toHaveClass(/fault/);
-  // no parts for their upkeep: each one is worn (a grounded one stays grounded)
+  // no parts for their upkeep: each one is worn (its stream halves), and the chip says so
   await g(page, 'grantResources', { parts: -(await g(page, 'getState')).resources.parts });
   await g(page, 'advanceGameSeconds', 2);
-  await expect(chip).toHaveText('▢ OUTPOSTS 5 worn · 1 grounded');
-  expect((await g(page, 'getLunar')).outposts.map((o: any) => o.state).sort()).toEqual(['grounded', 'worn', 'worn', 'worn', 'worn', 'worn']);
-  // parts and oxygen back: all live again
-  await g(page, 'grantResources', { parts: 60, oxygen: 60 });
+  await expect(chip).toHaveText('▢ OUTPOSTS 6 worn');
+  await expect(chip).toHaveClass(/fault/);
+  expect((await g(page, 'getLunar')).outposts.every((o: any) => o.state === 'worn')).toBe(true);
+  // parts back: all live again
+  await g(page, 'grantResources', { parts: 60 });
   await g(page, 'advanceGameSeconds', 2);
   await expect(chip).toHaveText('▢ OUTPOSTS 6 live');
   await expect(chip).not.toHaveClass(/fault/);
@@ -562,22 +575,32 @@ test('"Outposts cover" at the lava tube names power and the KREEP outposts', asy
   await expect(page.locator('.ns-weak')).toContainText('power — Marius Hills lacks it: Marius Hills domes or Mons Rümker KREEP outpost');
 });
 
-test('outpost alerts are field alerts that open the map at the outpost', async ({ page }) => {
+test('outpost alerts are field alerts that open the map at the outpost, and a hopper with no fuel is grounded on the chip', async ({ page }) => {
   await boot(page);
-  await g(page, 'forceOutposts', 6);
-  await g(page, 'grantResources', { oxygen: -(await g(page, 'getState')).resources.oxygen, parts: -(await g(page, 'getState')).resources.parts });
+  await claimHopperPair(page);
+  const chip = page.locator('#outposts-chip');
+  await expect(chip).toHaveText('▢ OUTPOSTS 2 live');
+  // no oxygen: the hopper cannot fly, the rover-haul outpost still streams
+  await g(page, 'grantResources', { oxygen: -(await g(page, 'getState')).resources.oxygen });
   await g(page, 'advanceGameSeconds', 2);
+  await expect(chip).toHaveText('▢ OUTPOSTS 1 live · 1 grounded');
+  await expect(chip).toHaveClass(/fault/);
   const grounded = await alertOf(page, /^HOPPER GROUNDED — Fra Mauro/);
   expect(grounded).toMatchObject({ family: 'field', action: { map: 'fraMauro' }, kind: 'warn' });
-  const worn = await alertOf(page, /^OUTPOST WORN — Moltke/);
-  expect(worn).toMatchObject({ family: 'field', action: { map: 'moltke' }, kind: 'warn' });
-  // the stack line carries the field glyph and opens the map at that outpost (one outpost, so the stack shows it)
-  await g(page, 'forceOutposts', 1);
+  // no parts: worn (a grounded outpost stays grounded)
+  await g(page, 'grantResources', { parts: -(await g(page, 'getState')).resources.parts });
   await g(page, 'advanceGameSeconds', 2);
-  const line = page.locator('#alerts .alert', { hasText: 'OUTPOST WORN — Moltke' });
+  await expect(chip).toHaveText('▢ OUTPOSTS 1 worn · 1 grounded');
+  const worn = await alertOf(page, /^OUTPOST WORN — Tranquillitatis soil/);
+  expect(worn).toMatchObject({ family: 'field', action: { map: 'tranqRegolith' }, kind: 'warn' });
+  // the stack line carries the field glyph and opens the map at that outpost
+  const line = page.locator('#alerts .alert', { hasText: 'OUTPOST WORN — Tranquillitatis soil' });
   await expect(line).toHaveClass(/nf-field/);
   await expect(line.locator('.alert-g')).toHaveText('◎');
   await line.locator('.alert-text').click();
   await expect(mapScreen(page)).toBeVisible();
-  await expect(page.locator('.ps-name')).toHaveText('Moltke crater ejecta');
+  await expect(page.locator('.ps-name')).toHaveText('Central Tranquillitatis mature soil');
+  // the strip's grounded card says what is wrong
+  await expect(page.locator('.op[data-id="fraMauro"] .op-3')).toHaveText('fuel ✗ · upkeep ✗');
+  await expect(page.locator('.op[data-id="fraMauro"]')).toHaveClass(/fault/);
 });
