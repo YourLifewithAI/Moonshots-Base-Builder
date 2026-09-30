@@ -27,12 +27,12 @@ export function glyphParts(f: FactionId, s: number, relief: number, detail = s >
   const gy = 0.1 * s; // the glyph's centre, over the line
   const small = !detail;
   if (f === 'robots') {
-    // a gear: an eight-sided plate and six sawtooth teeth (a plate and a line when small)
+    // a gear: an eight-sided plate and six square teeth (a plate and a line when small)
     out.push(cyl(0.34 * s, 0.34 * s, relief, MARK, 0, gy, zc, PI / 2, 0, 8));
     if (!small) {
       for (let k = 0; k < 6; k++) {
-        const a = (k / 6) * PI * 2 + PI / 12; // a three-sided prism: its first vertex points down before the turn
-        out.push(cyl(0.17 * s, 0.17 * s, relief, MARK, Math.cos(a) * 0.36 * s, gy + Math.sin(a) * 0.36 * s, zc, PI / 2, a + PI / 2, 3));
+        const a = (k / 6) * PI * 2 + PI / 12;
+        out.push(box(0.26 * s, 0.17 * s, relief, MARK, Math.cos(a) * 0.4 * s, gy + Math.sin(a) * 0.4 * s, zc, 0, a));
       }
     }
   } else if (f === 'accelerationists') {

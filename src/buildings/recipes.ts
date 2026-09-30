@@ -1116,7 +1116,7 @@ function faradayShed(): Parts {
  *  the rear corner (9.6 m, slate rings, a beacon) for its identifier. */
 function nightVault(): Parts {
   const p: Parts = [
-    box(11.6, 0.9, 7.4, TRIM, 0, 0.45, -0.2),
+    box(12.0, 0.9, 7.4, TRIM, 0, 0.45, -0.2),
     box(9.8, 0.9, 6.0, TRIM, 0, 1.35, -0.6),
     box(7.8, 0.9, 4.6, TRIM, 0, 2.25, -1.0),
     box(5.4, 0.7, 3.2, TRIM, 0, 3.05, -1.4),

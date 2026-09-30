@@ -835,7 +835,7 @@ of each structure's light.
   a hair proud of the panes: the base goes dark from outside), cable trays,
   black monolith annexes and guidance slabs, antenna farms, drone perches,
   second fab storeys, fin crowns.
-- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (the heaviest
+- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (8,000 for the Lander since the faction landings, §16.2; the heaviest
   set one run can hold: one side of each era's pick, one capstone); the four
   destiny recipes ≤ 3,500 △.
 
@@ -999,7 +999,7 @@ was (`tests/silhouettes.spec.ts` compares them).
 | Hull (`BODY`) | `#6f7580` gunmetal | `#f2f3f5` white | `#d9c9a3` sand |
 | Trim (`MARK`: emblem, hazard tape, fins, awnings, banners) | `#e8632b` signal orange | `#2f5fd0` cobalt | `#5f9f3f` leaf green |
 | Suit (EVA walkers) | `#d9d4c8` | `#f2f3f5` | `#e8dcb8` |
-| Emblem | a gear: a ten-sided plate, six teeth, a dark hub (156 △) | a solid triangle (24 △) | a five-petal flower round a hub (136 △) |
+| Emblem | a gear: an eight-sided plate and six square teeth (116 △) | a solid triangle (24 △) | a five-petal flower round a hub (104 △) |
 
 - **The hull layer** (`celBuilding.ts factionLayer`, applied between the family accent and
   the per-recipe overrides): every `BODY` vertex takes the livery's hull colour, per
@@ -1024,9 +1024,12 @@ was (`tests/silhouettes.spec.ts` compares them).
   another wins; the slab is as thick as the wall's spread plus 9 cm, so on a round hull
   (the Lander, a dome's porch) it sits in the wall. No flat hull: the size steps down
   (× 0.8 … 0.4), then any solid will do. It is found once per type, on the first geometry
-  of it built, and kept for every upgrade. All 35 structures carry one (a mark of ≈ 136–156
-  △; the triangle is 24). Units: a digger's flank away from its rig, above the band;
-  both flanks of a construction rover and a drone; a walker's chest.
+  of it built, and kept for every upgrade. All 35 structures carry one (104–116 △, the triangle
+  24; 36–44 △ on the two cabinets too small for more: the Solar Array's and the Relay Mast's).
+  Every instance draws its mark twice (the ink twin), so a small mark (under 0.6 m: a
+  unit's, a walker's) is a plate and a line: 44 / 22 / 36 △. Units: a digger's flank away
+  from its rig, above the band; one flank of a construction rover and of a drone; a
+  walker's chest.
 - **Suits.** The EVA walker (`world/settlers.ts`) is tagged `crew`: its hull parts take the
   suit colour, and three `TRIM` parts (a belt band, two shoulder stripes, a helmet ring)
   and the chest emblem take the livery's trim, so the accent shows on a 2 m figure. A solo
@@ -1044,9 +1047,9 @@ the same upgrade key as every other destiny part (≤ 600 △ a part, measured t
 
 | | Lander | Habitat | Lab |
 |---|---|---|---|
-| **Foundry** (`landingFoundry`) | cabin windows blanked by a hull band, a rover stowed in a cradle on the back, a guyed antenna mast (bare metal), orange hazard tape (a `MARK` ring under 14 hull chevrons) round the hull — 474 △ | every window blanked (the ring, the patches, the skylight), hazard tape round the drum, a roof mast — 498 △ | shutters over both window strips, a guyed mast on the roof, hazard tape along the foot of two walls — 494 △ |
+| **Foundry** (`landingFoundry`) | cabin windows blanked by a hull band, a rover stowed in a cradle on the back, a guyed antenna mast (bare metal), orange hazard tape (a `MARK` ring under 10 hull chevrons) round the hull — 400 △ | every window blanked (the ring, the patches, the skylight), hazard tape round the drum, a roof mast — 400 △ | shutters over both window strips, a guyed mast on the roof, hazard tape along the foot of two walls — 348 △ |
 | **Vanguard** (`landingVanguard`) | a flag (cloth, cobalt stripe, ▲) by the ladder, a press dish at the front left, a lit window band between cobalt lines round the cabin, three cobalt fins on the lower hull — 526 △ | a lit window band under cobalt lines on the dome, a flag on the crown — 342 △ | a lit band under the roof, a press dish on the roof, three cobalt fins along its back edge — 376 △ |
-| **Commons** (`landingCommons`) | two solar awnings (PV on a frame, over the door and on the +x side), three planter boxes (`BODY`, `LEAF`, shrubs) between the legs, a green banner carrying ❀ — 532 △ | an awning over the porch door, two planters, a banner — 400 △ | awnings over the door and the front windows, two planters, a banner — 448 △ |
+| **Commons** (`landingCommons`) | two solar awnings (PV on a frame, over the door and on the +x side), three planter boxes (`BODY`, `LEAF`, shrubs) between the legs, a banner (hull cloth, green stripes, ❀) — 524 △ | an awning over the porch door, two planters, a banner — 392 △ | awnings over the door and the front windows, two planters, a banner — 440 △ |
 
 Night: the Vanguard's bands and the habitat's dome band are `WINDOW` (lit at the
 structure's own darkness, warm or cold by its `iWarm` like every other window); the
@@ -1070,13 +1073,18 @@ its footprint to within ≈ 0.3 m. Heights and footprints are the recipes' own.
 
 ### 16.4 Budget and contact sheets
 
-A faction mesh is the solo mesh plus the emblem (≈ 140 △ a structure type, 24–156 △ a
-unit or walker) plus its variant parts: a home view of a faction base stays inside the
-docs/06 §14 budget (the solo base's 250 k △ gains a few hundred). Building a type's
-emblem costs about 1–40 ms once (measured 0.5 s for all 35). The contact sheets
+A faction mesh is the solo mesh plus the emblem (104–116 △ a structure, 22–44 △ a unit or
+walker; every instance draws it twice, with its ink twin) plus its variant parts (≤ 600 △,
+§16.2). Measured on the `tests/look.spec.ts` "cel budget" base (seed 42, Ilmenite Plains,
+23 structures) at home / at the far zoom, calls and triangles: solo 73 / 101 calls,
+256,234 / 291,752 △; the Foundry 75 / 101, 264,602 / 299,792 (its three variants and the
+gear are the heaviest); the Vanguard 74 / 100, 256,916 / 292,068; the Commons 74 / 100,
+260,224 / 295,376. A faction base stays inside the §14 bounds (≤ 80 and ≤ 105 calls, ≤ 300 k
+△), the Foundry's far frame by 200 △. Building a type's emblem costs about 1–40 ms once
+(0.3–0.5 s for all 35). The contact sheets
 (`$SP/shots/fs7/contact-<faction>-{day,night}.png`: the Lander, habitat, lab, the faction's
-two buildings, a rover, a hub digger, a drone hive's deck and a walker, at the closest
-zoom level) and a wide base shot per faction (`wide-<faction>-{day,night}.png`) are the
+two buildings, a rover, a hub digger, a Drone Hive deck and a walker, at the closest zoom
+level) and a wide base shot per faction (`wide-<faction>-{day,night}.png`) are the
 deliverables; `tests/silhouettes.spec.ts` holds the rules (the three hulls differ, the
 family accents stay, every structure carries the emblem in the livery's trim, the walker
 wears the suit, a solo game is untouched, the variants add 100–600 △).
