@@ -41,10 +41,10 @@ import {
 import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRover } from './fleet';
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, layApron, laySpur, migrateRoads, planLink, planSpur } from './roads';
+import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, layApron, layPlan, laySpur, migrateRoads, planLink, planSpur } from './roads';
 import { zonesFrom } from './zones';
 import {
-  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, facePoint, hopperRoom, migrateHubs, newHubState, openPit,
+  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, haulEnd, haulOpts, hopperRoom, migrateHubs, newHubState, openPit,
   plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
@@ -1283,15 +1283,15 @@ export class Game {
     b.hub = newHubState();
     if (!choicesFor(s, this.mods, site, b, 1).some((c) => c.inReach && !c.target.plain)) stakeHubPit(s, this.mods, site, b);
     const best = choicesFor(s, this.mods, site, b, 1).find((c) => c.inReach);
-    if (!best || best.trip.connected || !hasRoads(s)) return;
-    const [fx, fz] = facePoint(s, best.target, 0);
-    const plan = planLink(s, this.hf, null, cellAt(fx, fz));
+    if (!best || !hasRoads(s)) return;
+    const [fx, fz] = haulEnd(s, best.target);
+    const plan = planLink(s, this.hf, null, cellAt(fx, fz), haulOpts(s, b, best.target));
     (b.hub.roads ??= {})[best.target.key] = { job: 0, at: s.simTime, ...(plan.reason ? { why: `NO HAUL ROAD — ${plan.reason}` } : {}) };
-    if (plan.reason || !plan.cells.length) return;
+    if (plan.reason || !(plan.cells.length || plan.gate)) return;
+    // planned from its door: its own spur's cells lead the plan, then the road on from the network
     const open = this.debugOpenRoads;
-    for (const k of plan.fresh) { const [gx, gz] = keyCell(k); s.roads!.push({ gx, gz, left: open ? 0 : ROAD.cellS }); }
+    layPlan(s, plan, open);
     if (!open) b.spur = [...(b.spur ?? []), ...plan.cells.filter((k) => !(b.spur ?? []).includes(k))];
-    bumpRoads(s);
   }
 
   /** b.deposit: the deposit under the footprint centre (placement and load);

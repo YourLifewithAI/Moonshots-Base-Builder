@@ -417,6 +417,26 @@ export function gatesOf(s: GameState, zone: ZoneState): Cell[] {
   return g;
 }
 
+/** The holding bay of a gate (docs/19 S3): the open `hold` cell of that zone beside it (or, with no room
+ *  beside the gate, beside the road cell before it), else null. Units queue here, never on the gate. */
+export function holdOf(s: GameState, zone: ZoneState, gate: Cell): Cell | null {
+  const map = roadMap(s);
+  const near = (k: Cell): Cell | null => {
+    for (const [dx, dz] of N4) {
+      const c = map.get(cellKey(k[0] + dx, k[1] + dz));
+      if (c?.hold === zone.id && isOpen(c)) return [c.gx, c.gz];
+    }
+    return null;
+  };
+  const beside = near(gate);
+  if (beside) return beside;
+  for (const [dx, dz] of N4) {
+    const c = map.get(cellKey(gate[0] + dx, gate[1] + dz));
+    if (c && isOpen(c) && throughCell(c) && !zoneCells(s).has(cellKey(c.gx, c.gz))) { const h = near([c.gx, c.gz]); if (h) return h; }
+  }
+  return null;
+}
+
 /** Is this cell a gate (an open road cell where a zone's road stops)? */
 export function isGate(s: GameState, gx: number, gz: number): boolean {
   const k = cellKey(gx, gz);
@@ -1233,6 +1253,73 @@ export function layJob(s: GameState, plan: LinkPlan, kind: RoadJob['kind'], by?:
   s.roadJobs.push({ id, kind, cells: [...plan.cells], ...(by !== undefined ? { by } : {}) });
   bumpRoads(s);
   return id;
+}
+
+/** A pit has eaten into a haul road (docs/19 S3, docs/17 §11.4): the
+ *  sacrificial cells whose ground it cut go, each gate among them steps back to the
+ *  cell before it (away from the zone), that gate gets a holding bay again, and a
+ *  passing or holding bay left with no road beside it goes too. Returns the cells removed. */
+export function regate(s: GameState, hf: Heights): number {
+  if (!s.roads?.some((c) => c.sacrificial)) return 0;
+  const map = roadMap(s);
+  const gone = s.roads.filter((c) => c.sacrificial && hf.noRoad?.(c.gx, c.gz));
+  if (!gone.length) return 0;
+  const goneKeys = new Set(gone.map((c) => cellKey(c.gx, c.gz)));
+  const stepped: { zone: string; at: Cell; sac: boolean }[] = [];
+  for (const c of gone) if (c.gate) stepped.push({ zone: c.gate, at: [c.gx, c.gz], sac: true });
+  let removed = removeCells(s, [...goneKeys]);
+  for (const b of s.buildings) if (b.spur?.length) b.spur = b.spur.filter((k) => !goneKeys.has(k));
+  // bays with no road beside them any more
+  const strand = () => {
+    const m = roadMap(s);
+    const orphans: number[] = [];
+    for (const c of s.roads ?? []) {
+      if (!c.pass && !c.hold) continue;
+      const has = N4.some(([dx, dz]) => { const o = m.get(cellKey(c.gx + dx, c.gz + dz)); return !!o && !o.pass && !o.hold && !o.bay; });
+      if (!has) orphans.push(cellKey(c.gx, c.gz));
+    }
+    return orphans;
+  };
+  const orphans = strand();
+  if (orphans.length) removed += removeCells(s, orphans);
+  const zones = s.zones ?? [];
+  let blocked: Set<number> | null = null;
+  for (const st of stepped) {
+    const zone = zones.find((z) => z.id === st.zone);
+    if (!zone) continue;
+    const m = roadMap(s);
+    const [zx, zz] = [zone.cx, zone.cz];
+    // the way back: the road cell beside it that lies farthest from the zone's centre
+    let back: RoadCell | null = null, bd = -1;
+    for (const [dx, dz] of N4) {
+      const c = m.get(cellKey(st.at[0] + dx, st.at[1] + dz));
+      if (!c || !isOpen(c) || !throughCell(c) || c.gate === zone.id) continue;
+      const [cx, cz] = cellCentre(c.gx, c.gz);
+      const d = Math.hypot(cx - zx, cz - zz);
+      if (d > bd + 1e-9) { bd = d; back = c; }
+    }
+    if (!back) continue;
+    back.gate = zone.id;
+    // a holding bay beside the new gate, if none stands there
+    const [gx, gz] = [back.gx, back.gz];
+    if (N4.some(([dx, dz]) => m.get(cellKey(gx + dx, gz + dz))?.hold === zone.id)) continue;
+    const away: Cell = [st.at[0] - gx, st.at[1] - gz]; // toward the zone: the way the road ran
+    blocked ??= occupied(s);
+    for (const k of doorKeys(s)) blocked.add(k);
+    const zc = zoneCells(s);
+    const [x0, z0] = cellCentre(gx, gz);
+    const h0 = hf.sample(x0, z0);
+    for (const sgn of [1, -1]) {
+      const hx = gx - away[1] * sgn, hz = gz + away[0] * sgn;
+      const k = cellKey(hx, hz);
+      if (!inMap(hx, hz) || blocked.has(k) || m.has(k) || zc.has(k) || hf.noRoad?.(hx, hz)) continue;
+      if (Math.abs(hf.sample(...cellCentre(hx, hz)) - h0) > ROAD.maxStep) continue;
+      s.roads.push({ gx: hx, gz: hz, left: 0, hold: zone.id, ...(back.sacrificial ? { sacrificial: true } : {}) });
+      break;
+    }
+  }
+  bumpRoads(s);
+  return removed;
 }
 
 /** A road the player drew that stops on a zone's rim ends at its gate. */
