@@ -197,7 +197,7 @@ test('a claim by one base refuses the other with CLAIMED BY, and abandoning free
     };
   });
   expect(r.held.length).toBe(2);
-  expect(r.refused).toMatch(/^CLAIMED BY ROBOTS — its outpost stands there$/);
+  expect(r.refused).toBe('CLAIMED BY THE FOUNDRY — its outpost stands there');
   expect(r.ownRefusal).not.toMatch(/CLAIMED BY/);
   expect(r.claims[r.held[0]]).toBe('robots');
   expect(r.overlap).toEqual([]);

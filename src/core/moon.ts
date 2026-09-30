@@ -22,12 +22,11 @@ import { activity, drawClass, migrateFlareSchema, rangeOf, telegraphOf, type Cla
 import { mulberry32 } from './rng';
 import type { FlareState, GameState } from './state';
 
-// TODO: re-export from data/factions.ts (fw0d) and delete this alias when that file is on main.
-export type FactionId = 'robots' | 'accelerationists' | 'solarpunks';
-export const FACTION_IDS: readonly FactionId[] = ['robots', 'accelerationists', 'solarpunks'];
+import { FACTION_NAME, type FactionId } from '../data/factions';
+export type { FactionId };
 
-/** The words a refusal or a line uses for a faction. TODO: `FACTION_NAME[f]` from data/factions.ts. */
-export const factionName = (f: FactionId): string => f;
+/** The words a refusal or a line uses for a faction: 'The Foundry'. */
+export const factionName = (f: FactionId): string => FACTION_NAME[f];
 
 // ─────────────────────────── the schedule ───────────────────────────
 
@@ -268,7 +267,9 @@ export function moonWeatherTick(moon: MoonState, dt: number): void {
  *  already there or ahead). Whoever reaches a second first drives it, so the Game loop may call
  *  `moonWeatherTick` before or after the player's tick, or not at all while a base ticks. */
 export function moonCatchUp(moon: MoonState, to: number): void {
-  while (moon.clock < to - 1e-9) moonWeatherTick(moon, Math.min(1, to - moon.clock));
+  while (moon.clock + 1 <= to + 1e-9) moonWeatherTick(moon, 1);
+  // a clock created off the base's by a fraction of a second adopts it (the machine never steps by a part of a second)
+  if (moon.clock < to - 1e-9) moon.clock = to;
 }
 
 /** Is this base the one whose era, forecast lead and tier the shared schedule follows: the player's (a solo game's only base)? */
