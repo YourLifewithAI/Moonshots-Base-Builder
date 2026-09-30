@@ -706,7 +706,7 @@ test('base life: rovers, dust, launch and resupply on the cel materials; none of
   info = await life();
   expect(info.rovers.positions, 'the rovers left their parking spots').not.toEqual(start);
 
-  // a volley flies off the rail and the swarm shows in the sky; the habitat is bermed
+  // a volley flies off the rail; the habitat is bermed
   await page.evaluate(() => {
     const g = window.__game;
     g.setSpeed(1);
@@ -720,7 +720,6 @@ test('base life: rovers, dust, launch and resupply on the cel materials; none of
   const c0 = (await life()).launch.capsule;
   await expect.poll(async () => (await life()).launch.capsule, { timeout: 20_000 }).not.toEqual(c0);
   info = await life();
-  expect(info.swarmGlints, 'the first volley already glints').toBeGreaterThan(0);
   expect(info.berms, 'Regolith Shielding berms the finished habitat').toBeGreaterThan(0);
 
   // Earth resupply: on its braking burn 6 s out, then standing on the ground

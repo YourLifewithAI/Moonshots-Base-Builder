@@ -154,7 +154,6 @@ src/
     roads.ts              the road mesh: merged draped strips, markings by tier, beacon posts, pending cells
     dust.ts               regolith grains: pooled emitter slots, static puffs placed on the CPU
     events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
-    swarm.ts              Dyson-swarm glints near the sun, growing with swarm %
   player/
     isoCam.ts             the fixed isometric camera: 20° lens, 90° yaw steps (Q/E), two tilts 32°/55° (V), continuous zoom 100–830 m;
                           its preset (step, tilt, dist) is saved as SaveBlob.camera; owns commandKey and CommandCam

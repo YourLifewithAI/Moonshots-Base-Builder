@@ -160,7 +160,7 @@ const lander: Upgrade[] = [
 ];
 
 const lab: Upgrade[] = [
-  { tech: 'pressureHalls', parts: () => [airlockPorch(-2.72, 0.6, -PI / 2, 2.0, 2.5, 1.15)] },
+  { tech: 'pressureHalls', parts: () => [airlockPorch(-1.2, 2.72, 0, 2.0, 2.5, 1.15)] },
 ];
 
 const partsFab: Upgrade[] = [

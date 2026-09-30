@@ -767,3 +767,73 @@ test('the drawn hub unit wears the upgraded recipe and its lamps follow its own 
   expect(r.life.lit[0]).toBeCloseTo(2 + r.life.dark[0], 3);
 });
 
+
+// docs/19 S11: a dock with one parking cell and more rovers than the cell holds
+test('a Robotics Bay with one parking cell and three rovers: the third stays inside, and no rover waits long on another', async ({ page }) => {
+  test.setTimeout(240_000);
+  await start(page, 'mare', 'robotic');
+  const setup = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('constructionRobotics');
+    g.completeTech('swarmRobotics'); // three rovers to a Bay
+    g.grantResources({ metals: 5000, parts: 5000 });
+    const put = (type: string, x: number, z: number) => {
+      const c = { gx: Math.round((x + 512) / 4), gz: Math.round((z + 512) / 4) };
+      for (let r = 0; r < 16; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        for (const rot of [0, 1, 2, 3]) if (g.canPlace(type, c.gx + dx, c.gz + dz, rot).valid && g.placeBuilding(type, c.gx + dx, c.gz + dz, rot)) return true;
+      }
+      return false;
+    };
+    // the Bay at world (16, 20), its door toward ilmenite-0's ring: the road along its front leaves one cell to park in
+    const bayAt = g.placeBuilding('roboticsBay', 132, 133, 1);
+    const dep = g.getDeposits().find((q: any) => q.id === 'ilmenite-0');
+    const rest = [put('smelter', dep.x + 30, dep.z), put('solar', 30, 10), put('solar', 30, 18), put('solar', 34, 10)];
+    g.finishConstruction();
+    // four sites for the rovers, two more summoned to the first
+    rest.push(put('lab', -10, -26), put('lab', 10, -26), put('storageYard', -34, 14), put('lab', 30, 34));
+    g.advanceGameSeconds(1);
+    const bay = g.getState().buildings.find((b: any) => b.type === 'roboticsBay');
+    const ids = g.getState().buildings.filter((b: any) => b.construction > 0).map((b: any) => b.id);
+    g.summonRover(ids[0]);
+    g.summonRover(ids[0]);
+    const homed = g.getState().rovers.filter((r: any) => r.home === bay.id).map((r: any) => r.id);
+    return { bayAt, rest, bay: bay.id, homed, bays: g.getState().roads.filter((c: any) => c.bay && Math.abs(c.gx - 132) <= 3 && Math.abs(c.gz - 133) <= 3).length };
+  });
+  expect(setup.bayAt).toBe(true);
+  expect(setup.rest.every(Boolean)).toBe(true);
+  expect(setup.homed).toHaveLength(3);
+  expect(setup.bays, 'one parking cell beside its door').toBe(1);
+  // four game-minutes of the crowd going out to the sites and coming home, live at 10×
+  const r = await page.evaluate(({ homed }) => {
+    const g = window.__game!;
+    g.setPaused(false);
+    g.setSpeed(10);
+    g.stepFrame(0);
+    g.getRenderInfo();
+    const spotOf = (id: number) => { const R = g.getRenderInfo().life.rovers; return R.spots[R.ids.indexOf(id)]; };
+    const third = homed[homed.length - 1];
+    const first = JSON.stringify(spotOf(third));
+    let maxWaited = 0, moved = 0, parked = 0;
+    for (let i = 0; i < 240; i++) {
+      if (i % 10 === 0) g.grantPower(50000);
+      g.stepFrame(0.1);
+      const life = g.getRenderInfo().life;
+      for (const u of life.traffic.units) maxWaited = Math.max(maxWaited, u.waited);
+      // (parked: no site, no road job, no survey, no grading; at work its spot is the job's)
+      const u = g.getState().rovers.find((x: any) => x.id === third);
+      if (u.site === null && u.road === undefined && u.core === undefined && u.grade === undefined) {
+        parked++;
+        if (JSON.stringify(spotOf(third)) !== first) moved++;
+      }
+    }
+    g.setPaused(true);
+    g.stepFrame(0);
+    return { maxWaited, moved, parked, rescues: g.getRenderInfo().life.traffic.rescues, first };
+  }, { homed: setup.homed });
+  // the third rover has no bay slot of its own and holds its place inside the dock whoever is away: it never takes the slot
+  // of one that is out, which that one found held when it came home, and the three deadlocked at the door for minutes
+  expect(r.parked, 'polls at which the third rover was parked').toBeGreaterThan(20);
+  expect(r.moved, 'polls at which the third rover\'s spot left the dock').toBe(0);
+  expect(r.maxWaited, 'longest a unit waited on another, s').toBeLessThan(60);
+});

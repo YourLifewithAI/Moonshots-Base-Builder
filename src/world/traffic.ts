@@ -212,6 +212,7 @@ const BREAK_S = 1;       // a wait cycle this old is broken
 const DETOUR_S = 2;      // held up this long by a unit that is not moving: another road, if there is one
 const STEP_ASIDE_S = 3;  // a unit stood in another's way this long steps aside
 const RESCUE_S = 8;      // nothing worked this long: set down
+const YIELDS_MAX = 3;    // a unit that has yielded to a wait cycle this often in RESCUE_S s has not got out of it
 const COURTESY_S = 4;    // a rover asked to make way for a free unit is not asked again for this long
 
 export class Traffic {
@@ -230,6 +231,8 @@ export class Traffic {
   private lastBreak = '';
   /** seconds stepped, for the courtesy's spacing */
   private clock = 0;
+  /** units that gave way to a wait cycle: how often lately, since when (a yield that leaves the cycle standing is no way out) */
+  private yields = new Map<number, { n: number; since: number }>();
   private courtesies = 0;
 
   /** The road cells (grid cells) units may drive; a signature skips unchanged frames. */
@@ -740,7 +743,15 @@ export class Traffic {
         const ranked = [...chain].filter((c) => !c.free).sort((p, q) => p.cls - q.cls || q.key - p.key);
         let done = false;
         for (const y of ranked) {
-          if (y.drv.yieldTo(y, chain.filter((c) => c !== y))) { done = true; break; }
+          // one that has given way to cycles again and again within RESCUE_S and is still in them is not getting out of the
+          // way (its refuge is held, or it cannot turn there): the next one tries, and then the last resort below
+          const h = this.yields.get(y.key);
+          if (h && this.clock - h.since < RESCUE_S && h.n >= YIELDS_MAX) continue;
+          if (y.drv.yieldTo(y, chain.filter((c) => c !== y))) {
+            this.yields.set(y.key, h && this.clock - h.since < RESCUE_S ? { n: h.n + 1, since: h.since } : { n: 1, since: this.clock });
+            done = true;
+            break;
+          }
         }
         if (done) { this.breaks++; this.lastBreak = ranked.map((c) => `${c.kind}#${c.id}`).join('>'); for (const c of chain) c.waited = 0; }
         else if (a.waited > RESCUE_S) { this.rescue(ranked[0]); for (const c of chain) c.waited = 0; }
