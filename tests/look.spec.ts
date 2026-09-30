@@ -14,7 +14,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, exp: 'human' | 'robotic' = 'robotic', extra = '') {
   await page.goto(`${URL_DEBUG}&site=mare${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
@@ -116,7 +116,6 @@ async function smelterBase(page: Page, extra = '') {
   return page.evaluate(() => {
     const g = window.__game!;
     g.openRoads(true);
-    for (const t of ['regolithProcessing']) g.completeTech(t);
     g.grantResources({ metals: 5000, parts: 2000 });
     const ok = g.placeBuilding('smelter', 135, 133);
     g.finishConstruction();
@@ -228,7 +227,7 @@ test('cel night: earthshine holds the open ground well off black; the frame is o
   expect(info.context).toMatchObject({ antialias: true, shadowMap: false, toneMapping: 0 });
 });
 
-test('cel budget: the seed-42 base draws in at most 80 calls and 300k triangles at home, and 300k triangles at the far zoom', async ({ page }) => {
+test('cel budget: the seed-42 base draws in at most 80 calls and 300k triangles at home, and 105 calls and 300k triangles at the far zoom', async ({ page }) => {
   test.setTimeout(240_000);
   await start(page, 'robotic');
   await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
@@ -272,10 +271,12 @@ test('cel budget: the seed-42 base draws in at most 80 calls and 300k triangles 
   });
   const far = await frame();
   test.info().annotations.push({ type: 'frame cost', description: JSON.stringify({ home, far }) });
+  console.log('[cel budget: home, far]', JSON.stringify({ home, far }));
   for (const [name, f] of Object.entries({ home, far })) {
     // (at 830 m about forty of the sixty-four terrain chunks are in view, a call each: the far frame gets a
-    // looser bound on calls, the same on triangles)
-    expect(f.calls, `${name}: draw calls`).toBeLessThanOrEqual(name === 'home' ? 80 : 100);
+    // looser bound on calls, the same on triangles. 105, not 100: S6's survey drone and its ink twin, docked at
+    // the Lander, add two calls (101 on this base) and a call drifts with sim time)
+    expect(f.calls, `${name}: draw calls`).toBeLessThanOrEqual(name === 'home' ? 80 : 105);
     expect(f.triangles, `${name}: triangles`).toBeLessThanOrEqual(300_000);
   }
 });
@@ -321,7 +322,7 @@ async function buildBase(page: Page, band: 'colony' | 'automation' | 'concord', 
 }
 
 const CORE: [string, number][] = [
-  ['solar', 6], ['battery', 2], ['excavator', 2], ['smelter', 1], ['refinery', 1], ['storageYard', 1],
+  ['solar', 6], ['battery', 2], ['smelter', 1], ['refinery', 1], ['storageYard', 1],
   ['partsFab', 1], ['chipFab', 1], ['lab', 1], ['roboticsBay', 1], ['relayMast', 1], ['dataCenter', 1], ['foilFactory', 1],
 ];
 const COLONY: [string, number][] = [['gardenDome', 1], ['greenhouseRing', 2], ['habitat', 5], ['hydroponics', 2], ['recDome', 1], ['lab', 1]];
@@ -514,7 +515,7 @@ test('light: homes burn warm and machines cold whatever the lean; the rest follo
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.openRoads(true);
-    for (const t of ['habitation', 'lunarDataCenter', 'regolithProcessing', 'humanCohabitation']) g.completeTech(t);
+    for (const t of ['habitation', 'lunarDataCenter', 'humanCohabitation']) g.completeTech(t);
     g.grantResources({ metals: 5000, parts: 2000, silicon: 1000, chips: 500 });
     const place = (type: string) => {
       for (let rr = 4; rr < 30; rr++) for (let dx = -rr; dx <= rr; dx += 2) {
@@ -555,31 +556,29 @@ test('light: homes burn warm and machines cold whatever the lean; the rest follo
   expect(alarm).toEqual({ on: 1, off: 0 });
 });
 
-for (const style of ['cel']) {
-  test(`${style}: an Era 8 base in each band stays within the frame budget`, async ({ page }) => {
-    test.setTimeout(300_000);
-    const out: Record<string, { calls: number; triangles: number }> = {};
-    for (const band of ['colony', 'automation', 'concord'] as const) {
-      await start(page, 'robotic', `&style=${style}`);
-      const district = band === 'colony' ? COLONY : band === 'automation' ? AUTOMATION
-        : [['habitat', 3], ['hydroponics', 1], ['droneHive', 1], ['serverMonolith', 2]] as [string, number][];
-      await buildBase(page, band, district, CORE);
-      await page.evaluate(() => {
-        const g = window.__game!;
-        const t = { x: 8, z: 8 }, d = 290, p = 32 * Math.PI / 180, a = Math.PI / 4;
-        g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
-      });
-      await page.waitForTimeout(1500);
-      out[band] = (await g(page, 'getRenderInfo')).frame;
-    }
-    test.info().annotations.push({ type: 'frame cost', description: JSON.stringify(out) });
-    console.log(`[era 8 frame cost · ${style}]`, JSON.stringify(out));
-    for (const [band, f] of Object.entries(out)) {
-      expect(f.calls, `${band}: draw calls`).toBeLessThan(90);
-      expect(f.triangles, `${band}: triangles`).toBeLessThan(600_000);
-    }
-  });
-}
+test('cel: an Era 8 base in each band stays within the frame budget', async ({ page }) => {
+  test.setTimeout(300_000);
+  const out: Record<string, { calls: number; triangles: number }> = {};
+  for (const band of ['colony', 'automation', 'concord'] as const) {
+    await start(page, 'robotic');
+    const district = band === 'colony' ? COLONY : band === 'automation' ? AUTOMATION
+      : [['habitat', 3], ['hydroponics', 1], ['droneHive', 1], ['serverMonolith', 2]] as [string, number][];
+    await buildBase(page, band, district, CORE);
+    await page.evaluate(() => {
+      const g = window.__game!;
+      const t = { x: 8, z: 8 }, d = 290, p = 32 * Math.PI / 180, a = Math.PI / 4;
+      g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
+    });
+    await page.waitForTimeout(1500);
+    out[band] = (await g(page, 'getRenderInfo')).frame;
+  }
+  test.info().annotations.push({ type: 'frame cost', description: JSON.stringify(out) });
+  console.log('[era 8 frame cost · cel]', JSON.stringify(out));
+  for (const [band, f] of Object.entries(out)) {
+    expect(f.calls, `${band}: draw calls`).toBeLessThan(90);
+    expect(f.triangles, `${band}: triangles`).toBeLessThan(600_000);
+  }
+});
 
 test('audio: the score follows the lean, and the destiny\'s sounds play (modem chirp, squelch; rotors near the hive)', async ({ page }) => {
   test.setTimeout(180_000);
@@ -628,7 +627,7 @@ test('hazard looks: infected flicker, a cascade goes dark, blight tints, a breac
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.openRoads(true);
-    for (const t of ['habitation', 'humanCohabitation', 'regolithProcessing', 'droneHives']) g.completeTech(t);
+    for (const t of ['habitation', 'humanCohabitation', 'droneHives']) g.completeTech(t);
     g.grantResources({ metals: 5000, parts: 2000 });
     const place = (type: string) => {
       for (let rr = 4; rr < 30; rr++) for (let dx = -rr; dx <= rr; dx += 2) {
@@ -691,7 +690,7 @@ test('hazard looks: infected flicker, a cascade goes dark, blight tints, a breac
 // along the mitre of its faces by a constant width on screen, in flat ink.
 
 test.describe('ink outlines', () => {
-  const INK_URL = '/?debug&seed=42&nolock&lowfx&site=mare&exp=robotic';
+  const INK_URL = '/?debug&seed=42&site=mare&exp=robotic';
 
   /** day ink, #141618 */
   const INK_RGB = [20, 22, 24] as const;
@@ -861,12 +860,15 @@ test.describe('ink outlines', () => {
   test('no outline above the print cut: a half-printed structure grows no full-height ink', async ({ page }) => {
     test.setTimeout(240_000);
     await inkStart(page);
+    // the roads' edges are ink too (S3): the spur the lab lays would cross the rows measured, so the roads are hidden
+    await g(page, 'setRoadsVisible', false);
     await inkZoom(page, 'KeyH');
     const r = await page.evaluate(() => {
       const G = window.__game!;
       G.grantResources({ metals: 3000, parts: 1000 });
       G.grantPower(100000);
-      G.placeBuilding('lab', 136, 134);
+      // (up-screen of the Lander: the lab's dish tower is taller now, and at 136, 134 its head ran off the frame's foot)
+      G.placeBuilding('lab', 118, 119);
       const lab = G.getState().buildings.find((b: any) => b.type === 'lab');
       // print about a third of it
       let progress = 0;
@@ -949,7 +951,7 @@ test.describe('ink outlines', () => {
       const G = window.__game!;
       G.grantResources({ metals: 30000, parts: 10000, silicon: 5000, chips: 2000, regolith: 5000 });
       for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['habitat', 126, 132], ['lab', 135, 133],
-        ['excavator', 120, 126], ['smelter', 121, 133], ['storageYard', 121, 140], ['relayMast', 128, 118]] as const) G.placeBuilding(t, x, z);
+        ['smelter', 121, 133], ['storageYard', 121, 140], ['relayMast', 128, 118]] as const) G.placeBuilding(t, x, z);
       G.finishConstruction();
       G.grantPower(100000);
       G.advanceGameSeconds(20);
