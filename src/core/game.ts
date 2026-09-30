@@ -66,7 +66,10 @@ import { leanFrom } from '../buildings/look';
 import { materials } from '../world/materials';
 import { IsoCam, commandKey } from '../player/isoCam';
 import { TouchControls, type TouchHost } from '../player/touch';
-import { saveGame, loadGame, clearSave, type SaveBlob } from './save';
+import { saveGame, loadSave, clearSave, asV2, isV2, stripForRivalSave, type SaveFile } from './save';
+import { bindMoon, createMoon, scheduleLandings, dueLandings, type MoonState } from './moon';
+import { RivalProgram, rivalInfos } from './rival';
+import { FACTIONS, FACTION_NAME, FACTION_ORDER, assignSites, type FactionId } from '../data/factions';
 import { loadSettings, saveSettings, RESUME_KEY } from './settings';
 import { autoTouch, type TouchChoice } from './touch';
 import { sfx } from '../audio/sfx';
@@ -110,6 +113,16 @@ const TOGGLE_KEYS = new Set([
 export class Game {
   /** the player's base: the sim (core/baseSim.ts) owns the state, the mods and the ground; this class owns the world, the input and the UI */
   sim!: BaseSim;
+  /** the Moon every base on it shares (core/moon.ts): its clock is the players' (`s.simTime`), its flare schedule,
+   *  the prospect claims and the race. A solo game has one too: `player` null, nobody else ever lands. */
+  moon!: MoonState;
+  /** the other programs that have landed, in landing order (core/rival.ts); always empty in a solo game. A rival that
+   *  lands after the player joins when the Moon's clock reaches its day. */
+  rivals: RivalProgram[] = [];
+  /** debug (`setRivalsEnabled`): rivals tick with the player's base (default) or are frozen, for specs that time the player's loop */
+  rivalsOn = true;
+  /** the rivals' step counters (docs/20 §4.5): whole Moon seconds stepped, the last one's cost and its moving average (ms) */
+  private rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
   get state(): GameState { return this.sim?.state; }
   get mods(): Mods { return this.sim?.mods; }
   private get hf(): Heightfield { return this.sim.hf; }
@@ -226,7 +239,7 @@ export class Game {
     // holds from the very first frame
     if (opts.safe) this.enableSafeMode(false, false);
     requestAnimationFrame((t) => this.frame(t));
-    void loadGame().then((blob) => this.publishSaveSlot(blob));
+    void loadSave().then((file) => this.publishSaveSlot(file));
   }
 
   // ─────────────────────────── lifecycle ───────────────────────────
@@ -236,9 +249,31 @@ export class Game {
     return { ...PLAYER_MODE, openRoads: this.openRoads };
   }
 
-  startNew(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
-    // the Lander pre-placed at the map heart with its pad, rovers and drone, and the TOUCHDOWN alert
-    const sim = BaseSim.create({ siteId, seed: this.opts.seed, expedition, mode: this.playerMode() });
+  /** A new game. No `faction`: the solo game of always (`expedition` picks the legacy landing), on a Moon of its own with
+   *  nobody else on it. A `faction` (docs/20): the expedition comes from it, the player lands on its day at `siteId`, the
+   *  other two take the sites left in their own order, and the ones that land before the player are already on the Moon
+   *  (created at their landing day and stepped, passive, up to the player's landing second: the pre-roll). */
+  startNew(siteId: SiteId, expedition: 'human' | 'robotic' = 'human', faction?: FactionId) {
+    const seed = this.opts.seed;
+    const moon = createMoon(seed, { player: faction ?? null, siteId });
+    let sim: BaseSim;
+    this.moon = moon;
+    this.rivals = [];
+    this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
+    if (faction) {
+      const def = FACTIONS[faction];
+      scheduleLandings(moon, assignSites(faction, siteId));
+      const landedAt = moon.factions[faction].landedAt;
+      // the Moon's clock starts when the first faction lands (the Foundry, day 0, mid-morning)
+      moon.clock = Math.min(...FACTION_ORDER.map((f) => moon.factions[f].landedAt)) + 90;
+      // the Lander pre-placed at the map heart with its pad, rovers and drone, and the TOUCHDOWN alert
+      sim = BaseSim.create({ siteId, seed, expedition: def.expedition, faction, landedAt, mode: this.playerMode(), moon });
+      moon.factions[faction].landed = true;
+      this.preRoll(moon, sim.state.simTime);
+    } else {
+      moon.clock = 90; // (a solo base lands at day 0, mid-morning, like every base)
+      sim = BaseSim.create({ siteId, seed, expedition, mode: this.playerMode(), moon });
+    }
     this.bootWorld(sim);
     this.drain(true);
     this.homeCamera(false);
@@ -246,9 +281,65 @@ export class Game {
     this.publish();
   }
 
-  loadFrom(blob: SaveBlob) {
+  /** The Moon before the player lands: every rival whose landing second comes before `until` is created at its landing
+   *  and all of them tick, passive, one Moon second at a time up to it (the order the live loop keeps: a rival that lands
+   *  on day 2 feels the flares of day 2, not the clock's end). Whoever ticks drives the Moon's clock (core/moon.ts). */
+  private preRoll(moon: MoonState, until: number) {
+    const t0 = performance.now();
+    for (let t = moon.clock; t < until; t++) {
+      this.landDue(t, false);
+      for (const r of this.rivals) r.step();
+    }
+    this.preRollMs = performance.now() - t0;
+  }
+  /** how long the last new game's pre-roll took (ms; the debug API reads it) */
+  preRollMs = 0;
+
+  /** Rivals whose landing second has come (Moon second `now`) land: their base is created on its site, at its landing day. A
+   *  landing after the game began is announced (a `race`-family line in the log once stream S1 lands the family). */
+  private landDue(now: number, announce: boolean) {
+    for (const f of dueLandings(this.moon, now)) {
+      const m = this.moon.factions[f];
+      this.rivals.push(RivalProgram.land(f, this.moon, m.siteId, m.landedAt));
+      m.landed = true;
+      if (announce) alert(this.state, `${FACTION_NAME[f].toUpperCase()} LANDS — at ${SITES[m.siteId].name}`, 'info');
+    }
+  }
+
+  /** One Moon second of the other programs, right after the player's tick (the live loop and `debugAdvance` both call it):
+   *  the landings that are due, then every rival's step in landing order. `now` is the whole second the player's base has
+   *  ticked to. The Moon's clock itself is advanced by the ticks (whoever reaches a second first drives it), never here. */
+  private stepRivals(now: number) {
+    const s = this.state;
+    const me = this.moon.player;
+    if (me !== null) {
+      // the player's own line of the race (S6 writes it from `launchVolley`; until then it is mirrored here, once a second)
+      const e = this.moon.race[me];
+      e.launches = s.launches;
+      e.swarmPct = s.swarmPct;
+      e.era = s.era;
+      if (e.firstLaunchAt === null && s.launches > 0) e.firstLaunchAt = s.simTime;
+    }
+    if (!this.rivalsOn || me === null) return;
+    const t0 = performance.now();
+    this.landDue(now, true);
+    for (const r of this.rivals) r.step();
+    const ms = performance.now() - t0;
+    const p = this.rivalPerf;
+    p.ticks++;
+    p.msLast = ms;
+    p.msPerTick += (ms - p.msPerTick) / Math.min(p.ticks, 60);
+  }
+
+  loadFrom(file: SaveFile) {
+    const save = asV2(file); // a v1 file is a solo game: its Moon is made from its state
+    const moon = save.moon;
     // every migration, the regenerated ground with the pits' deltas and the flattens replayed on it
-    const sim = BaseSim.fromState(blob.state, this.playerMode());
+    const sim = BaseSim.fromState(save.player, this.playerMode(), moon);
+    // the rivals that had landed: each on its own stand-in ground, on the same Moon
+    this.rivals = save.rivals.map((r) => RivalProgram.fromState(r.faction, r.state, moon));
+    this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
+    this.moon = moon;
     this.bootWorld(sim);
     // (the world was built over the finished ground: the chunks need no rebuild, only the rocks and the horizon the flattens touch)
     this.drain(true);
@@ -256,7 +347,7 @@ export class Game {
     if (sim.carvedOnLoad) this.rocks.clearPits(0, 0, 255, 255);
     this.homeCamera(false);
     // the view the player left (turn, tilt, zoom); an older save has none and keeps the default
-    if (blob.camera) this.buildCam.setPreset(blob.camera);
+    if (save.camera) this.buildCam.setPreset(save.camera);
     this.publish();
     if (missionLost(this.state)) $defeat.set(true);
   }
@@ -1282,6 +1373,9 @@ export class Game {
         guard++;
         // (the clock moved by this frame's own share above: the whole seconds run the economy step only)
         const ev = this.sim.econStep();
+        // then the other programs, one Moon second each, in lockstep (`econAcc` is what is left of the frame's share: the
+        // seconds run so far are the clock less it)
+        this.stepRivals(Math.floor(this.state.simTime - this.econAcc + 1e-6));
         if (ev.victory && !this.state.victoryShown) {
           this.state.victoryShown = true;
           victory = true;
@@ -1846,7 +1940,7 @@ export class Game {
     // while it is shut the chip pulses until the next open
     const ui = this.lunarUi;
     if (ui.open && this.mods.surveyTier > ui.seenTier) ui.view = TIER_VIEW[this.mods.surveyTier];
-    $lunar.set(lunarView(s, this.mods, ui));
+    $lunar.set(lunarView(s, this.mods, ui, rivalInfos(this.moon, this.rivals)));
     if (ui.open) ui.seenTier = this.mods.surveyTier;
     $caps.set({ ...(s.storageCaps ?? {}) });
     const counts: Partial<Record<BuildingId, { total: number; active: number; dark: number }>> = {};
@@ -2073,11 +2167,17 @@ export class Game {
 
   // ─────────────────────────── persistence ───────────────────────────
 
-  private saveBlob(): SaveBlob {
+  /** The save: a solo game writes the v1 file it always did (`{ state, camera, savedAt }`: a v1 loads as solo, core/save.ts
+   *  `asV2`); a game with a faction writes v2 (docs/20 §4.4): the Moon, the player's base and each landed rival's, stripped
+   *  of what nobody reads again (`stripForRivalSave`; the flatten history stays: it marks the pads on the flat ground). */
+  private saveBlob(): SaveFile {
+    const state = this.sim.saveState(this.savePausedAs);
+    const camera = this.buildCam.preset();
+    const savedAt = Date.now();
+    if (this.moon.player === null) return { state, camera, savedAt };
     return {
-      state: this.sim.saveState(this.savePausedAs),
-      camera: this.buildCam.preset(),
-      savedAt: Date.now(),
+      version: 2, moon: this.moon, player: state, camera, savedAt,
+      rivals: this.rivals.map((r) => ({ faction: r.faction, state: { ...stripForRivalSave(r.base.saveState()), flattens: r.state.flattens } })),
     };
   }
 
@@ -2097,19 +2197,21 @@ export class Game {
   }
 
   /** the title screen's view of the save slot: a lost mission is shown, not continued */
-  private publishSaveSlot(blob: SaveBlob | null) {
-    const lost = blob !== null && missionLost(blob.state);
-    $hasSave.set(blob !== null && !lost);
-    const last = lost ? blob.state.deaths?.[blob.state.deaths.length - 1] : undefined;
+  private publishSaveSlot(file: SaveFile | null) {
+    const st = file === null ? null : isV2(file) ? file.player : file.state;
+    const lost = st !== null && missionLost(st);
+    $hasSave.set(st !== null && !lost);
+    const last = lost ? st.deaths?.[st.deaths.length - 1] : undefined;
     $lostMission.set(lost
-      ? { siteId: blob.state.siteId, day: missionDay(blob.state), ...(last?.hazard ? { cause: deathClause(last.cause) } : {}) }
+      ? { siteId: st.siteId, day: missionDay(st), ...(last?.hazard ? { cause: deathClause(last.cause) } : {}) }
       : null);
   }
 
   async continueSave(): Promise<boolean> {
-    const blob = await loadGame();
-    if (!blob || missionLost(blob.state)) { this.publishSaveSlot(blob); return false; }
-    this.loadFrom(blob);
+    const file = await loadSave();
+    const st = file === null ? null : isV2(file) ? file.player : file.state;
+    if (!file || !st || missionLost(st)) { this.publishSaveSlot(file); return false; }
+    this.loadFrom(file);
     return true;
   }
 
@@ -2121,13 +2223,14 @@ export class Game {
     const url = new URL(location.href);
     url.searchParams.delete('site');
     url.searchParams.delete('exp');
+    url.searchParams.delete('faction');
     location.assign(url.toString());
   }
 
-  async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human') {
+  async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human', faction?: FactionId) {
     await clearSave();
     this.publishSaveSlot(null);
-    this.startNew(siteId, expedition);
+    this.startNew(siteId, expedition, faction);
   }
 
   private onResize() {
@@ -2192,7 +2295,11 @@ export class Game {
    *  second that depends on load). Meant for the moment right after boot, before the base has anything stamped with a time. */
   debugSettleClock(at = 90) {
     this.state.paused = true;
-    this.state.simTime = at;
+    // (a solo game's Moon keeps the player's clock; in a faction game the clocks are the Moon's and stay as they are)
+    if (this.moon.player === null) {
+      this.state.simTime = at;
+      this.moon.clock = at;
+    }
     this.econAcc = 0;
     this.publish();
   }
@@ -2263,6 +2370,7 @@ export class Game {
     for (let i = 0; i < gameSeconds && !missionLost(this.state); i++) {
       if (i % 5 === 0) this.updateShading();
       const ev = this.sim.tick();
+      this.stepRivals(this.state.simTime);
       if (ev.victory && !this.state.victoryShown) {
         this.state.victoryShown = true;
         victory = true;
@@ -2331,6 +2439,14 @@ export class Game {
       // (the sim's reservation counters ride with the visuals' traffic ones: core/traffic.ts)
       life: (() => { const l = this.life.info(); return { ...l, traffic: { ...l.traffic, sim: trafficStats(this.state) } }; })(),
       lens: { fov: this.camera.fov, near: this.camera.near },
+      /** the other programs' cost (docs/20 §4.5): rivals landed, Moon seconds they have stepped, the last second's cost and its
+       *  moving average over 60 (ms; all rivals together), and how far they trail the player's clock (0: they tick in lockstep) */
+      rivals: { n: this.rivals.length, ticks: this.rivalPerf.ticks, msLast: this.rivalPerf.msLast, msPerTick: this.rivalPerf.msPerTick, behind: 0 },
+      /** the shared Moon: its clock and the flare schedule in brief */
+      moon: {
+        clock: this.moon.clock,
+        weather: { phase: this.moon.weather.phase, n: this.moon.weather.n ?? 0, cls: this.moon.weather.cls ?? null, nextAt: this.moon.weather.nextAt },
+      },
     };
   }
 
@@ -2426,7 +2542,7 @@ export class Game {
   }
   /** the targeting mode on now (null = none), as the hint shows it */
   debugFleetTarget() { return { mode: this.fleetTarget.modeInfo, hint: $fleetTarget.get() }; }
-  debugLunar() { return lunarView(this.state, this.mods, this.lunarUi); }
+  debugLunar() { return lunarView(this.state, this.mods, this.lunarUi, rivalInfos(this.moon, this.rivals)); }
   debugDepositAt(x: number, z: number) { return this.hf.depositAt(x, z); }
   /** every deposit struck, as if surveyed on foot */
   debugRevealAll() {

@@ -196,3 +196,19 @@ export function factionOfState(s: object | null | undefined): FactionId | undefi
   const f = (s as { faction?: FactionId | null } | null | undefined)?.faction;
   return isFactionId(f) ? f : undefined;
 }
+
+/** Where each faction lands in a game the player starts as `playerFaction` at `playerSite` (docs/20 §1):
+ *  the player takes the site they chose, and the others, in landing order (FACTION_ORDER), each take the first site of
+ *  their own preference that is not taken yet. Every game uses all three sites, so the result is three distinct sites
+ *  (a faction always finds one: at most two are taken when it picks). */
+export function assignSites(playerFaction: FactionId, playerSite: SiteId): Record<FactionId, SiteId> {
+  const taken = new Set<SiteId>([playerSite]);
+  const out = { [playerFaction]: playerSite } as Record<FactionId, SiteId>;
+  for (const f of FACTION_ORDER) {
+    if (f === playerFaction) continue;
+    const site = FACTIONS[f].sites.find((s) => !taken.has(s)) as SiteId;
+    taken.add(site);
+    out[f] = site;
+  }
+  return out;
+}

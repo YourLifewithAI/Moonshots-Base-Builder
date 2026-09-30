@@ -26,7 +26,7 @@ import {
 import { chooseSite, feedPlan } from './siting';
 import { recordSpend } from './flowBook';
 import { AUTO, RULES } from '../data/automation';
-import { cancel, enqueue, enqueuePath, migrateTechSchema, moveInQueue } from './research';
+import { applyGrants, cancel, enqueue, enqueuePath, migrateTechSchema, moveInQueue } from './research';
 import { fmtClock } from './daynight';
 import {
   abandonOutpost, claimOutpost, depositRevealed, groundMapped, revealDeposits, revealRadiusM, startSurvey, strikeEffect,
@@ -54,6 +54,11 @@ import { applyFlareCounter, commsDark, isFlareCounter } from './flareEffects';
 import { launchSentinel, setAhead } from './forecast';
 import { cancelGrade, finishNow, queueGrade, squareAt, type GradeRect } from './grading';
 import { Heightfield, type Deposit } from '../terrain/heightfield';
+import { FlatHeights } from '../terrain/flatHeights';
+import { bindMode } from './simMode';
+import { bindMoon, type MoonState } from './moon';
+import { landingTechFor } from '../data/techs';
+import { factionOfState, type FactionId } from '../data/factions';
 import { centerOf, footprintRect } from '../buildings/instances';
 import { buildCost, checkPlacement, demolishRefund, untouchedSite } from '../buildings/placement';
 
@@ -99,16 +104,22 @@ export interface SimOut {
 
 export const newOut = (): SimOut => ({ buildings: false, flattened: [], launches: 0, wrecked: [], placed: [] });
 
-/** `BaseSim.create`'s inputs. `faction`, `landedAt` and `moon` are stored and not read yet (docs/20: the Moon arrives with W0c, the integration with W0i). */
+/** `BaseSim.create`'s inputs. */
 export interface SimCreate {
   siteId: SiteId;
   seed: number;
   expedition: 'human' | 'robotic';
-  faction?: string;
-  /** the Moon clock second this base landed at (TODO W0i: `createInitialState` takes it; every base lands at 0 until then) */
+  /** a faction's base (docs/20): its landing tech stands in for the solo landing (`landingCrew`/`landingRobotic`) and its
+   *  one-time grants are paid (the Vanguard's +100 data); `state.faction` is set. Absent: the solo game, exactly as before. */
+  faction?: FactionId;
+  /** the Moon clock at the start of the landing's day (`landsAtDay × CYCLE_S`); the base's clock starts at `landedAt + 90` */
   landedAt?: number;
   mode: SimMode;
-  moon?: unknown;
+  /** the Moon this base is on (bound to the state, `core/moon.ts`): a solo game passes its own one-faction Moon */
+  moon?: MoonState;
+  /** a headless base's ground (`FlatHeights`: flat, the real deposits, virtual pits) instead of the real `Heightfield`; pairs with
+   *  `mode: HEADLESS_MODE` (a rival's base, core/rival.ts). The player's base leaves it off. */
+  flat?: boolean;
 }
 
 export class BaseSim {
@@ -120,10 +131,10 @@ export class BaseSim {
   out: SimOut = newOut();
   /** what the last Builder place action did: the building, or why it refused */
   lastPlace: BuildingState | string | null = null;
-  /** stored for the integration (docs/20 W0i); nothing reads them yet */
-  faction?: string;
+  /** the faction this base plays (docs/20), the Moon second it landed at, and the Moon it is on: a solo base has no faction and lands at 0 */
+  faction?: FactionId;
   landedAt = 0;
-  moon?: unknown;
+  moon?: MoonState;
   /** the deposits the last sync saw revealed; `revealedRev` counts its changes so the owner redraws the rings only when it moved */
   revealedIds = new Set<string>();
   revealedRev = 0;
@@ -132,22 +143,33 @@ export class BaseSim {
   /** a load carved the ground (the pits' saved height deltas): the owner's rocks on it go */
   carvedOnLoad = false;
 
-  /** The sim half of `bootWorld`: the derived mods, the heightfield, and the binds the core reads it through. */
-  private constructor(state: GameState, mode: SimMode) {
+  /** The sim half of `bootWorld`: the derived mods, the heightfield, and the binds the core reads it through. `flat`: a
+   *  headless base's stand-in ground (docs/20 §4.2) and, through `mode`, its stand-in travel (§4.3). */
+  private constructor(state: GameState, mode: SimMode, flat = false) {
     this.state = state;
     this.mode = mode;
     this.site = SITES[state.siteId];
     this.mods = refreshDerived(state);
-    this.hf = new Heightfield(SITES[state.siteId], state.seed);
+    this.hf = flat ? new FlatHeights(SITES[state.siteId], state.seed) : new Heightfield(SITES[state.siteId], state.seed);
     // the sim plans hub units' haul roads and stakes plain pits on it (core/hubs.ts)
     bindHeights(state, this.hf);
     bindTerrain(state, this.hf); // the pits carve this ground (core/pits.ts, economy step 4.2)
+    bindMode(state, mode); // the legs, the traffic and the pits read how this base runs from its state (core/simMode.ts)
   }
 
   /** A new base: the Lander at the map heart (free, with its apron), its rovers and survey drone, parked. */
   static create(o: SimCreate): BaseSim {
-    const state = createInitialState(o.siteId, o.seed, o.expedition);
-    const sim = new BaseSim(state, o.mode);
+    const state = createInitialState(o.siteId, o.seed, o.expedition, o.landedAt ?? 0);
+    if (o.faction) {
+      // the faction's landing is its Era 1 pick, in place of the solo landing; its traits ride on it (docs/20 §1),
+      // and a landing is never "researched", so its one-time grants are paid here
+      const landing = landingTechFor(o.faction);
+      state.faction = o.faction;
+      state.techsDone = [landing];
+      applyGrants(state, landing);
+    }
+    if (o.moon) bindMoon(state, o.moon);
+    const sim = new BaseSim(state, o.mode, !!o.flat);
     sim.faction = o.faction;
     sim.landedAt = o.landedAt ?? 0;
     sim.moon = o.moon;
@@ -162,8 +184,9 @@ export class BaseSim {
     return sim;
   }
 
-  /** A saved base: every migration, the regenerated ground with the pits' deltas and the flattens replayed on it. */
-  static fromState(state: GameState, mode: SimMode, moon?: unknown): BaseSim {
+  /** A saved base: every migration, the regenerated ground with the pits' deltas and the flattens replayed on it. `moon`: the
+   *  Moon it is on (bound here); `flat`: a rival's stand-in ground (its saved state keeps the flattens, which mark the pads). */
+  static fromState(state: GameState, mode: SimMode, moon?: MoonState, flat = false): BaseSim {
     // migrate pre-bank saves: scalar researchProgress → per-tech researchSpent
     const legacy = state as GameState & { researchProgress?: number };
     if (!legacy.researchSpent) {
@@ -199,8 +222,11 @@ export class BaseSim {
     migrateFlareSchema(state);
     // saves from before the survey-drone fleet (docs/19 S6, surveySchema 0 → 1)
     migrateSurveySchema(state);
-    const sim = new BaseSim(state, mode);
+    if (moon) bindMoon(state, moon);
+    const sim = new BaseSim(state, mode, flat);
     sim.moon = moon;
+    sim.faction = factionOfState(state);
+    sim.landedAt = state.landedAt ?? 0;
     // the pits' height deltas onto the regenerated surface, then the flattens
     // replay over them, in order (base → deltas → flattens, docs/17 §11.1)
     const carved = restoreTerrain(sim.state, sim.hf);
