@@ -46,9 +46,10 @@ void main() {
 }
 `;
 
-/** the ground's tone steps: log2 of brightness per step (about 6%), and the
- *  soft share of each step's edge */
-const POSTER_STEP = '0.09', POSTER_SOFT = '0.1';
+/** the ground's tone steps: linear brightness per step (about 6% of the
+ *  mare's own tone; no logarithms, which software GL pays for), and the soft
+ *  share of each step's edge (a linear ramp from 0.4 to 0.6 of the step) */
+const POSTER_STEP = 0.014, POSTER_EDGE = ['0.4', '5.0'];
 
 const FRAG = /* glsl */`
 #define MBB_CEL
@@ -67,12 +68,11 @@ void main() {
 	vec3 albedo = vCol;
 	#ifdef CEL_POSTER
 		// the ground's own tone in flat patches, not a smear: brightness in steps
-		// of ${POSTER_STEP} (log2), the hue left alone; each edge a hair soft
+		// of about ${POSTER_STEP} (linear, the hue left alone), each edge a hair soft
 		float lum = max( dot( albedo, vec3( 0.3, 0.59, 0.11 ) ), 0.0001 );
-		float t = log2( lum ) / ${POSTER_STEP};
-		float f = floor( t );
-		float qt = f + smoothstep( 0.5 - ${POSTER_SOFT}, 0.5 + ${POSTER_SOFT}, t - f );
-		albedo *= exp2( ( qt - t ) * ${POSTER_STEP} );
+		float t = lum * ${(1 / POSTER_STEP).toFixed(2)};
+		float r = fract( t );
+		albedo *= ( t - r + clamp( ( r - ${POSTER_EDGE[0]} ) * ${POSTER_EDGE[1]}, 0.0, 1.0 ) ) / t;
 	#endif
 	float ndl = dot( normalize( vN ), uLightDir );
 	#ifdef CEL_BUILDING_RAMP

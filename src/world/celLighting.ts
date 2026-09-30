@@ -74,10 +74,10 @@ const GROUND_DAY = new THREE.Color(0.24, 0.215, 0.19);
 const EARTH = new THREE.Color(0.16, 0.22, 0.38);
 const SKY_NIGHT = new THREE.Color(0.06, 0.085, 0.15);
 const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
-/** the clear colour is the sky: a deep dusk blue by day, near-black by night
+/** the clear colour is the sky: black with a trace of blue by day and by night (its r+g+b stays under the black-frame probe's 12, so a frame with no ground still reads black)
  *  (no dome and no stars; what the camera never sees needs no more) */
-const SKY_CLEAR_DAY = new THREE.Color(0x101828);
-const SKY_CLEAR_NIGHT = new THREE.Color(0x04060b);
+const SKY_CLEAR_DAY = new THREE.Color(0x020306);
+const SKY_CLEAR_NIGHT = new THREE.Color(0x010204);
 
 export class CelLighting {
   readonly sun: THREE.DirectionalLight;

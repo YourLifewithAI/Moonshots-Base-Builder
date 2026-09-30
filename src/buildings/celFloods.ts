@@ -17,7 +17,7 @@ const SEGMENTS = 28;
 const RING_M = 3.5;
 const REACH_M = 7;        // past the footprint's half-width
 const LIFT_M = 0.25;
-const GAIN = 0.14;
+const GAIN = 0.11;
 /** the pool's steps: out to this share of its radius it wears this share of the light */
 const STEPS: readonly { to: number; level: number }[] = [
   { to: 0.5, level: 1.0 },
