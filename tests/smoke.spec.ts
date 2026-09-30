@@ -42,8 +42,9 @@ test('landing starts the game with HUD and lander', async ({ page }) => {
   await page.goto(URL_DEBUG);
   await page.locator('.site-card', { hasText: 'ILMENITE' }).click();
   await page.locator('#btn-land').click();
-  // expedition step: human crew is the default selection
-  await expect(page.locator('.site-card', { hasText: 'HUMAN CREW' })).toBeVisible();
+  // the faction step (docs/20) replaces the expedition step: the Vanguard flies a human crew
+  await page.locator('.faction-card[data-faction="accelerationists"]').click();
+  await expect(page.locator('.faction-card.sel', { hasText: 'Human crew' })).toBeVisible();
   await page.locator('#btn-launch-exp').click();
   await game(page);
   await expect(page.locator('#resource-strip')).toBeVisible();
@@ -1037,7 +1038,7 @@ test('robotic mission copy: landing, objectives, perimeter, launch reasons', asy
   await page.goto(URL_DEBUG);
   await page.locator('.site-card', { hasText: 'ILMENITE' }).click();
   await page.locator('#btn-land').click();
-  await page.locator('.site-card', { hasText: 'ROBOTIC MISSION' }).click();
+  await page.locator('.faction-card[data-faction="robots"]').click(); // the faction step (docs/20): the Foundry flies the robotic mission
   // the Land button shows the descent at once and takes no second click
   const land = page.locator('#btn-launch-exp');
   await land.dblclick();

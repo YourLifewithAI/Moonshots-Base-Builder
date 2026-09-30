@@ -19,6 +19,7 @@ import {
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
+import type { FactionId } from '../data/factions';
 import { fillStateDefaults, sinceLanding, type AlertAction, type AlertMsg, type FieldReport, type GameState, type BuildingState, type NotifyFamily, type RoverUnit } from './state';
 import {
   canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, waterReclaimFactor, wearDerate, type EffectiveRates, type Mods,
@@ -97,6 +98,7 @@ export function logStampOf(s: GameState): { n: number } {
  *  events). `report` is a field card's body (title, geology, reward lines). */
 export function alert(
   s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction, family?: NotifyFamily, report?: FieldReport,
+  faction?: FactionId,
 ) {
   const i = s.alerts.findIndex((a) => !a.cond && a.key === text);
   logStampOf(s).n++;
@@ -112,9 +114,9 @@ export function alert(
   }
   const fam = family ?? (kind === 'crit' ? 'hazard' : undefined);
   const id = s.nextAlertId++;
-  s.alerts.push({ id, text, kind, at: s.simTime, key: text, count: 1, action, ...(fam ? { family: fam } : {}), ...(report ? { report } : {}) });
+  s.alerts.push({ id, text, kind, at: s.simTime, key: text, count: 1, action, ...(fam ? { family: fam } : {}), ...(report ? { report } : {}), ...(faction ? { faction } : {}) });
   const log = (s.log ??= []);
-  log.push({ id, at: s.simTime, kind, text, count: 1, ...(action ? { action } : {}), ...(fam ? { family: fam } : {}), ...(report ? { report } : {}) });
+  log.push({ id, at: s.simTime, kind, text, count: 1, ...(action ? { action } : {}), ...(fam ? { family: fam } : {}), ...(report ? { report } : {}), ...(faction ? { faction } : {}) });
   if (log.length > ALERTS.logMax) log.splice(0, log.length - ALERTS.logMax);
   // bounded: the least severe, then the oldest, event makes room
   const events = s.alerts.filter((a) => !a.cond);

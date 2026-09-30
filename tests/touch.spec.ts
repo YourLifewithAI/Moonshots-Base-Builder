@@ -497,7 +497,7 @@ for (const [phone, vp] of Object.entries(PHONES)) {
       expectFit(await fitReport(page, '#site-screen'), `${phone} landing`);
       await page.locator('.site-card').first().tap();
       await page.locator('#btn-land').tap();
-      expectFit(await fitReport(page, '#site-screen'), `${phone} expedition`);
+      expectFit(await fitReport(page, '#site-screen'), `${phone} faction step`);
 
       await boot(page);
       // a lived-in base: a few alerts, a building under way

@@ -301,6 +301,14 @@ function api(game: Game) {
     /** Raise a notification in a family (ui/notify.ts): a stack line, a log line and, for a field
      *  card with a `report`, the dispatch card. The state is published at once. */
     notify: (family: NotifyFamily, card: NotifyCard) => { notify(game.state, family, card); game.publish(); },
+    /** the Moon's feed so far (clone, newest last) */
+    getFeed: () => clone(game.moon?.feed ?? []),
+    /** set a faction's line of the race (`moon.race[faction]`: launches, swarmPct, firstLaunchAt, era) and publish, so a spec can stage
+     *  a standing; the next Moon second rewrites it from the base it belongs to */
+    raceSet: (faction: FactionId, patch: Partial<{ launches: number; swarmPct: number; firstLaunchAt: number | null; era: number }>) => {
+      Object.assign(game.moon.race[faction], patch);
+      game.publish();
+    },
     /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
     getSpaceWeather: (slider?: number) => {
       const s = game.state;

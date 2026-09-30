@@ -271,7 +271,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   const info = el('div', 'panel');
   info.id = 'touch-info';
   info.style.display = 'none';
-  for (const id of ['#inspector', '#rover-inspector', '#deposit-card', '#res-panel', '#builder-panel', '#hazards-panel', '#weather-panel']) {
+  for (const id of ['#inspector', '#rover-inspector', '#deposit-card', '#res-panel', '#builder-panel', '#hazards-panel', '#weather-panel', '#race-panel']) {
     const e = $(id);
     if (e) sheet.appendChild(e);
   }

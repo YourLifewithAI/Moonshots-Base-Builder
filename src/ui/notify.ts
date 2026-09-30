@@ -1,6 +1,6 @@
 /** One notification system (docs/19, improvement 13; S7 owns this file): the
- *  one entry point for anything the player is told, in one of five families
- *  (research, field, era, weather, hazard), each with its own shape, colour
+ *  one entry point for anything the player is told, in one of six families
+ *  (research, field, era, weather, hazard, and docs/20's race), each with its own shape, colour
  *  rule, position, sound and pause behaviour, all listed in the log.
  *
  *  This file is the pure half (no DOM, no stores): the family table, `notify()`,
@@ -17,6 +17,7 @@ import { alert } from '../core/economy';
 import { CYCLE_S } from '../data/balance';
 import type { Cue } from '../audio/sfx';
 import type { AlertAction, AlertMsg, FieldReport, GameState, LogEntry, NotifyFamily } from '../core/state';
+import { FACTIONS, type FactionId } from '../data/factions';
 
 export type { NotifyFamily, FieldReport, FieldReward } from '../core/state';
 
@@ -28,9 +29,11 @@ export interface NotifyCard {
   kind?: AlertMsg['kind'];
   action?: AlertAction;
   report?: FieldReport;
+  /** the `race` family: whose doing it is. The card's 3 px rule takes that faction's trim colour, its glyph the faction's. */
+  faction?: FactionId;
 }
 
-export const NOTIFY_FAMILIES: readonly NotifyFamily[] = ['research', 'field', 'era', 'weather', 'hazard'];
+export const NOTIFY_FAMILIES: readonly NotifyFamily[] = ['research', 'field', 'era', 'weather', 'hazard', 'race'];
 
 /** How one family looks, sounds and behaves. `container` is the id of its card. */
 export interface FamilySpec {
@@ -70,6 +73,12 @@ export const FAMILY: Record<NotifyFamily, FamilySpec> = {
     id: 'hazard', label: 'Hazard', glyph: '⚠', what: 'drills, live hazards, critical alerts', where: 'the drill card',
     container: 'hazard-card', cue: null, pauses: 'setting',
   },
+  // docs/20 S1: news of the other programs (a landing, an era, a hearing; later a claim, a first light, the standings).
+  // The rule colour and the glyph of a card are the EVENT's faction's, so the family glyph shows where no faction does
+  race: {
+    id: 'race', label: 'Race', glyph: '⚑', what: 'the other programs: a landing, an era, a hearing, a first light, the standings',
+    where: 'the race card, lower right', container: 'race-card', cue: 'race', pauses: 'setting',
+  },
 };
 
 /** the glyph of a line that belongs to no family (a plain event) */
@@ -85,12 +94,17 @@ export function familyOf(a: { family?: NotifyFamily; kind: AlertMsg['kind'] }): 
 export const echoes = (own: NotifyFamily, a: { family?: NotifyFamily; kind: AlertMsg['kind'] }) =>
   a.kind === 'crit' || a.family === undefined || a.family === own;
 
-export const glyphOf = (f: NotifyFamily | undefined) => (f ? FAMILY[f].glyph : PLAIN_GLYPH);
+/** The shape a line carries: its family's, except a `race` line that names a faction, which wears the faction's own. */
+export const glyphOf = (f: NotifyFamily | undefined, faction?: FactionId) =>
+  f === 'race' && faction ? FACTIONS[faction].glyph : f ? FAMILY[f].glyph : PLAIN_GLYPH;
+
+/** A `race` line's rule colour: its faction's trim (docs/20 §7), '' for a line that names none (the family's own neutral). */
+export const factionTrim = (faction: FactionId | undefined) => (faction ? FACTIONS[faction].livery.trim : '');
 
 /** Tell the player something, filed under `family`: a line in the alert stack and
  *  in the saved log, and (field, with a report) a dispatch card. */
 export function notify(s: GameState, family: NotifyFamily, card: NotifyCard) {
-  alert(s, card.text, card.kind ?? 'info', card.action, family, card.report);
+  alert(s, card.text, card.kind ?? 'info', card.action, family, card.report, card.faction);
 }
 
 // ─────────────────────────── the log ───────────────────────────
@@ -121,9 +135,11 @@ export function logRowHtml(e: LogEntry): string {
   const fam = familyOf(e);
   const n = e.count > 1 ? `<span class="nl-n mono">×${e.count}</span>` : '';
   const act = e.action ? ' actionable' : '';
+  const trim = factionTrim(e.faction);
   return `<div class="nl-row nf ${fam ? `nf-${fam}` : 'nf-plain'} ${e.kind}${act}" data-log="${e.id}" role="${e.action ? 'button' : 'listitem'}"` +
+    `${trim ? ` data-faction="${e.faction}" style="--nf:${trim}"` : ''}` +
     `${e.action ? ' tabindex="0"' : ''} title="${esc(e.text)}${e.action ? ' — click to open' : ''}">` +
-    `<span class="nl-g" aria-hidden="true">${glyphOf(fam)}</span><span class="nl-t">${esc(e.text)}</span>${n}` +
+    `<span class="nl-g" aria-hidden="true">${glyphOf(fam, e.faction)}</span><span class="nl-t">${esc(e.text)}</span>${n}` +
     `<span class="nl-at mono">${dayTag(e.at)}</span></div>`;
 }
 

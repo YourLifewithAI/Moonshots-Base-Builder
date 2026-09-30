@@ -20,16 +20,16 @@
 
 export type Cue =
   | 'tick' | 'place' | 'invalid' | 'built' | 'research' | 'warn' | 'crit' | 'nightfall' | 'launch' | 'era'
-  | 'modem' | 'squelch' | 'chirp' | 'flare';
+  | 'modem' | 'squelch' | 'chirp' | 'flare' | 'race';
 
 export const CUES: readonly Cue[] = ['tick', 'place', 'invalid', 'built', 'research', 'warn', 'crit', 'nightfall', 'launch', 'era',
-  'modem', 'squelch', 'chirp', 'flare'];
+  'modem', 'squelch', 'chirp', 'flare', 'race'];
 
 /** real-time floor between two plays of one cue, so 10× speed never spams */
 const MIN_GAP_MS: Record<Cue, number> = {
   tick: 45, place: 70, invalid: 160, built: 1200, research: 1500,
   warn: 3500, crit: 5000, nightfall: 20_000, launch: 2000, era: 4000,
-  modem: 900, squelch: 2500, chirp: 700, flare: 4000,
+  modem: 900, squelch: 2500, chirp: 700, flare: 4000, race: 2500,
 };
 
 /** What lives near the listener (docs/14 §4.6), 0..1 each: the drones'
@@ -456,6 +456,12 @@ class Sfx {
         this.hiss(t, 0.9, 0.11, 'lowpass', 500, 0.7, m, 1600, 0.3);
         this.tone('sine', 880, t + 0.05, 0.5, 0.1, m, 660, 0.01);
         this.tone('sine', 660, t + 0.36, 0.6, 0.1, m, 495, 0.01);
+        break;
+      case 'race':
+        // news of the other programs (docs/20 S1): a radio keying up, then two low, level pings — a relay beat, not a chime
+        this.hiss(t, 0.12, 0.04, 'bandpass', 1800, 0.7, radio, 1200, 0.004);
+        this.tone('sine', 523.25, t + 0.12, 0.22, 0.09, radio, undefined, 0.006);
+        this.tone('sine', 392, t + 0.3, 0.3, 0.09, radio, undefined, 0.006);
         break;
       case 'squelch': {
         // a suit radio keying up: a burst of hiss through the radio band, a click
