@@ -183,11 +183,14 @@ export function facePoint(s: GameState, t: Target, i: number): Pt {
   const p = pitAt(s, t);
   if (p) {
     let rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
-    // (docs/19 S4a) faces sit far enough apart for the bodies of the units that dig them (a deep cone's
-    // floor is a few metres across: its faces spread onto the wall's foot rather than pile up in the middle)
-    if (t.faces > 1) rf = Math.min(Math.max(rf, FACE_GAP_M / 2 / Math.sin(Math.PI * 0.6 / (t.faces - 1))), 0.8 * p.R);
+    // (docs/19 S4a, S4b) faces sit far enough apart for the bodies of the units that dig them (a deep cone's
+    // floor is a few metres across: its faces spread onto the wall's foot rather than pile up in the middle),
+    // and on the far side from the ramp: the outer faces at least 100° round from its axis, so a unit driving up
+    // to the ramp's foot does not pass within a body of one that digs
+    const spread = t.faces > 1 ? Math.min(Math.PI * 1.2, 0.45 * Math.PI * (t.faces - 1)) : 0;
+    if (t.faces > 1) rf = Math.min(Math.max(rf, FACE_GAP_M / 2 / Math.sin(spread / (2 * (t.faces - 1)))), 0.8 * p.R);
     const back = Math.atan2(-p.uz, -p.ux);
-    const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * Math.PI * 1.2 : 0);
+    const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * spread : 0);
     return [p.cx + Math.cos(a) * rf, p.cz + Math.sin(a) * rf];
   }
   const a0 = mulberry32((s.seed ^ hashString(t.key)) >>> 0)() * Math.PI * 2;
@@ -271,7 +274,7 @@ function standsIn(s: GameState, u: Hauler): { t: Target; face: boolean } | null 
  *  ramp first); `to`: b is a face of that target (down its ramp last). */
 function legTo(
   s: GameState, mods: Mods, a: Pt, b: Pt, hub?: BuildingState,
-  ends: { from?: Target | null; fromFace?: boolean; to?: Target | null } = {},
+  ends: { from?: Target | null; fromFace?: boolean; to?: Target | null; variant?: 0 | 1 } = {},
 ): { pts: Pt[]; w?: number[] } | null {
   const OFF = 1 / ROAD.offroad;
   let head: Pt[] = [], tail: Pt[] = [];
@@ -289,7 +292,7 @@ function legTo(
   }
   // face to face in one pit: across its floor
   if (ends.from && ends.to && ends.from.key === ends.to.key && ends.fromFace) { head = []; tail = [b]; a0 = a; b0 = a; }
-  const way = a0 === b0 ? { pts: [a0], w: [] as number[] } : groundWay(s, a0, b0, null, hub ? doorCell(hub) : null, aArea, bArea);
+  const way = a0 === b0 ? { pts: [a0], w: [] as number[] } : groundWay(s, a0, b0, null, hub ? doorCell(hub) : null, aArea, bArea, ends.variant ?? 0);
   if (!way) return null;
   // way.w[i] is the segment into way.pts[i + 1]: it lines up with the points after the first
   const mid = way.pts.slice(1);
@@ -857,9 +860,11 @@ function unitLeg(
 ): { pts: Pt[]; w?: number[] } | null {
   const h = u.haul;
   const at = where;
-  let leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at?.face ? at.t : null, fromFace: !!at?.face, to });
+  // (docs/19 S4b: by id parity, two units take the two trunks when a base has two)
+  const variant = (u.id & 1) as 0 | 1;
+  let leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at?.face ? at.t : null, fromFace: !!at?.face, to, variant });
   // part way in (recalled, re-sent): out by its target's gates
-  if (!leg && at) leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at.t, to });
+  if (!leg && at) leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at.t, to, variant });
   return leg;
 }
 

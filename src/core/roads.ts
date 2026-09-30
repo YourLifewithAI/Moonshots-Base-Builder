@@ -536,7 +536,7 @@ export interface GroundWay {
  *  by, through its centre (a pad's door). Null: no way. */
 export function groundWay(
   s: GameState, a: [number, number], b: [number, number], aVia?: Cell | null, bVia?: Cell | null,
-  aZone?: ZoneState | OffArea | null, bZone?: ZoneState | OffArea | null,
+  aZone?: ZoneState | OffArea | null, bZone?: ZoneState | OffArea | null, variant: 0 | 1 = 0,
 ): GroundWay | null {
   const za = aVia ? null : aZone ?? offAreaAt(s, a[0], a[1]);
   const zb = bVia ? null : bZone ?? offAreaAt(s, b[0], b[1]);
@@ -561,7 +561,7 @@ export function groundWay(
     }
   }
   if (!best) return null;
-  const cells = best.ga[0] === best.gb[0] && best.ga[1] === best.gb[1] ? [best.ga] : roadRoute(s, best.ga, best.gb);
+  const cells = best.ga[0] === best.gb[0] && best.ga[1] === best.gb[1] ? [best.ga] : roadRoute(s, best.ga, best.gb, variant);
   if (!cells) return null;
   const pts: [number, number][] = [a];
   const w: number[] = [];
@@ -1426,14 +1426,74 @@ const routeMemo = new Map<string, Cell[] | null>();
 
 /** The shortest open road from cell a to cell b (both ends may be bays or
  *  closed frontier-adjacent cells; the way between is open carriageway).
- *  Null: no way. Cached on the network's revision. */
-export function roadRoute(s: GameState, a: Cell, b: Cell): Cell[] | null {
-  const key = `${s.roadRev ?? 0}|${a[0]},${a[1]}>${b[0]},${b[1]}`;
+ *  Null: no way. Cached on the network's revision.
+ *  `variant` 1 (docs/19 S4b: a unit's id parity): among roads no more than 5%
+ *  longer, the one that shares the least with the shortest, so two units use
+ *  both trunks when a base has two; the shortest when there is no other. */
+export function roadRoute(s: GameState, a: Cell, b: Cell, variant: 0 | 1 = 0): Cell[] | null {
+  const key = `${s.roadRev ?? 0}|${a[0]},${a[1]}>${b[0]},${b[1]}${variant ? '#1' : ''}`;
   if (routeMemo.has(key)) return routeMemo.get(key)!;
-  const out = bfs(s, a, b);
+  let out = bfs(s, a, b);
+  if (variant && out && out.length > 3) out = alternative(s, a, b, out) ?? out;
   if (routeMemo.size > 2000) routeMemo.clear();
   routeMemo.set(key, out);
   return out;
+}
+
+/** The road from a to b that leans away from `base` (its cells cost 10% more), if it is within 5% (+1 cell) of
+ *  base's length; null: there is none. */
+function alternative(s: GameState, a: Cell, b: Cell, base: Cell[]): Cell[] | null {
+  const map = roadMap(s);
+  const ak = cellKey(a[0], a[1]), bk = cellKey(b[0], b[1]);
+  const used = new Set(base.map((c) => cellKey(c[0], c[1])));
+  const cost = new Map<number, number>([[ak, 0]]);
+  const from = new Map<number, number>([[ak, -1]]);
+  // (a small binary heap on [cost, key])
+  const heap: [number, number][] = [[0, ak]];
+  const push = (e: [number, number]) => {
+    heap.push(e);
+    for (let i = heap.length - 1; i > 0;) {
+      const p = (i - 1) >> 1;
+      if (heap[p][0] <= heap[i][0]) break;
+      [heap[p], heap[i]] = [heap[i], heap[p]];
+      i = p;
+    }
+  };
+  const pop = (): [number, number] => {
+    const top = heap[0], last = heap.pop()!;
+    if (heap.length) {
+      heap[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1, r = l + 1;
+        let m = i;
+        if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+        if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+        if (m === i) break;
+        [heap[m], heap[i]] = [heap[i], heap[m]];
+        i = m;
+      }
+    }
+    return top;
+  };
+  while (heap.length) {
+    const [c, k] = pop();
+    if (c > (cost.get(k) ?? Infinity) + 1e-9) continue;
+    if (k === bk) break;
+    const [x, z] = keyCell(k);
+    for (const [dx, dz] of N4) {
+      const nk = cellKey(x + dx, z + dz);
+      const cell = map.get(nk);
+      if (!cell || !isOpen(cell)) continue;
+      if (nk !== bk && cell.bay) continue;
+      const nc = c + (used.has(nk) ? 1.1 : 1);
+      if (nc < (cost.get(nk) ?? Infinity) - 1e-9) { cost.set(nk, nc); from.set(nk, k); push([nc, nk]); }
+    }
+  }
+  if (!from.has(bk)) return null;
+  const out: Cell[] = [];
+  for (let p = bk; p !== -1; p = from.get(p)!) out.push(keyCell(p));
+  out.reverse();
+  return out.length <= base.length * 1.05 + 1 ? out : null;
 }
 
 function bfs(s: GameState, a: Cell, b: Cell): Cell[] | null {
