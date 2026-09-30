@@ -16,7 +16,7 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, cellAt, doorCell, gatesOf, holdOf, mastStand, openAll, planLink, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, cellAt, doorCell, gatesOf, holdOf, mastStand, openAll, planLink, planPath, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
 import { choicesFor, haulEnd, haulOpts, heightsOf, hubOf, plainPitRefusal, targetOf, unitsOf } from './core/hubs';
 import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
@@ -556,6 +556,13 @@ function api(game: Game) {
         hold: plan.hold !== undefined ? xy(plan.hold) : null, pass: (plan.pass ?? []).map(xy), sacrificial: (plan.sacrificial ?? []).map(xy),
         cells: plan.cells.map(xy), fresh: plan.fresh.map(xy),
       };
+    },
+    /** the road the tool would lay from an open road cell through waypoints to a cell (docs/19 S3): why not, and its cells */
+    planRoad: (from: [number, number], to: [number, number], via: [number, number][] = []) => {
+      const s = game.state, hf = heightsOf(s);
+      if (!hf) return null;
+      const plan = via.length ? planPath(s, hf, from, [...via, to]) : planLink(s, hf, from, to);
+      return { reason: plan.reason, cells: plan.cells.map((k) => [k % 256, Math.floor(k / 256)]) };
     },
     /** the holding bay of a zone's gate, [gx, gz] (or null) */
     holdOf: (zone: string, gate: [number, number]) => {

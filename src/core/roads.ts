@@ -1019,6 +1019,8 @@ export interface LinkPlan {
   /** a new holding bay beside the gate; new passing bays beside the route (both also in `cells`) */
   hold?: number;
   pass?: number[];
+  /** no room beside the gate for a holding bay: this passing bay beside it (laid already) serves as one */
+  holdFlag?: number;
   /** the new cells inside the pit's full-size ring: the pit consumes them */
   sacrificial?: number[];
 }
@@ -1079,7 +1081,7 @@ export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell, opt
       cells: [...cells, ...(ex.hold >= 0 ? [ex.hold] : []), ...ex.pass],
       fresh: [...fresh, ...(ex.hold >= 0 ? [ex.hold] : []), ...ex.pass],
       reason: '', route, gate: { key: found.end, zone: zone.id },
-      ...(ex.hold >= 0 ? { hold: ex.hold } : {}), pass: ex.pass, sacrificial: ex.sacrificial,
+      ...(ex.hold >= 0 ? { hold: ex.hold } : {}), ...(ex.holdFlag >= 0 ? { holdFlag: ex.holdFlag } : {}), pass: ex.pass, sacrificial: ex.sacrificial,
     };
   }
   let sources: number[];
@@ -1126,7 +1128,7 @@ export function planPath(s: GameState, hf: Heights, a: Cell, via: readonly Cell[
  *  pit consumes. Bays are plain open cells beside the road, never `bay`. */
 function haulExtras(
   s: GameState, hf: Heights, route: number[], zone: ZoneState, blocked: Set<number>, ring: Ring | null, fresh: Set<number>, self?: Placed,
-): { hold: number; pass: number[]; sacrificial: number[] } {
+): { hold: number; pass: number[]; sacrificial: number[]; holdFlag: number } {
   const map = roadMap(s);
   const onRoute = new Set(route);
   const taken = new Set<number>();
@@ -1169,6 +1171,15 @@ function haulExtras(
         const side = opts.findIndex((k) => { const [x, z] = keyCell(k); return free(x, z, base); });
         if (side >= 0) { hold = opts[side]; holdSide = side ? -1 : 1; taken.add(hold); break; }
       }
+    }
+  }
+  // no free ground beside the gate: a passing bay laid already beside it serves as the holding bay
+  let holdFlag = -1;
+  if (hold < 0 && prev >= 0 && !N4.some(([dx, dz]) => { const [gx, gz] = keyCell(G); return map.get(cellKey(gx + dx, gz + dz))?.hold === zone.id; })) {
+    const [gx, gz] = keyCell(G);
+    for (const [dx, dz] of N4) {
+      const k = cellKey(gx + dx, gz + dz);
+      if (map.get(k)?.pass) { holdFlag = k; break; }
     }
   }
   const pass: number[] = [];
@@ -1238,7 +1249,7 @@ function haulExtras(
     }
     for (const k of extras) if (inside(k)) sacrificial.push(k);
   }
-  return { hold, pass, sacrificial };
+  return { hold, pass, sacrificial, holdFlag };
 }
 
 /** Lay a plan's cells, and its marks: the gate (an open cell laid before may
@@ -1258,6 +1269,7 @@ export function layPlan(s: GameState, plan: LinkPlan, open = false) {
   }
   const map = roadMap(s);
   for (const k of sac) { const c = map.get(k); if (c && !c.bay && !c.closed) c.sacrificial = true; }
+  if (plan.holdFlag !== undefined && plan.gate) { const c = map.get(plan.holdFlag); if (c) c.hold = plan.gate.zone; }
   if (plan.gate) {
     const c = map.get(plan.gate.key);
     if (c && throughCell(c)) c.gate = plan.gate.zone;
@@ -1333,13 +1345,22 @@ export function regate(s: GameState, hf: Heights): number {
     const zc = zoneCells(s);
     const [x0, z0] = cellCentre(gx, gz);
     const h0 = hf.sample(x0, z0);
+    let placed = false;
     for (const sgn of [1, -1]) {
       const hx = gx - away[1] * sgn, hz = gz + away[0] * sgn;
       const k = cellKey(hx, hz);
       if (!inMap(hx, hz) || blocked.has(k) || m.has(k) || zc.has(k) || hf.noRoad?.(hx, hz)) continue;
       if (Math.abs(hf.sample(...cellCentre(hx, hz)) - h0) > ROAD.maxStep) continue;
       s.roads.push({ gx: hx, gz: hz, left: 0, hold: zone.id, ...(back.sacrificial ? { sacrificial: true } : {}) });
+      placed = true;
       break;
+    }
+    // no room beside it (the cut, a structure): a passing bay beside the gate serves as its holding bay
+    if (!placed) {
+      for (const [dx, dz] of N4) {
+        const c = m.get(cellKey(gx + dx, gz + dz));
+        if (c?.pass && isOpen(c)) { c.hold = zone.id; break; }
+      }
     }
   }
   bumpRoads(s);
