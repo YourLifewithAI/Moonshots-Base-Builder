@@ -11,7 +11,10 @@
  *  - Small rocks (< 1 m) are one InstancedMesh refilled with those within
  *    range of the view's focus (the isometric camera stands hundreds of
  *    metres off) and not at all once they would be specks; large rocks are
- *    one static mesh. Two draw calls.
+ *    one static mesh. Two draw calls (four with their blobs).
+ *  - Each rock stands on a soft dark blob (a radial decal, one more instanced
+ *    draw per set, filled with the rocks): the cel look's blob shadow, since
+ *    no shadow map is drawn.
  *  - Building pads and graded patches clear what they cover (and resettle
  *    the rocks on their feathered skirts); load replays the same flattens.
  *  - Density: half the small rocks, a quarter in safe mode; large rocks stay
@@ -38,6 +41,28 @@ function powerLaw(rng: Rng, dMin: number, dMax: number, alpha: number): number {
   return dMin / Math.pow(1 - rng() * k, 1 / alpha);
 }
 
+/** A radial falloff (alpha in G) for the blob under a rock. */
+function radialTexture(): THREE.DataTexture {
+  const N = 32;
+  const data = new Uint8Array(N * N * 4);
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const r = Math.hypot((x + 0.5) / N * 2 - 1, (y + 0.5) / N * 2 - 1);
+      const a = Math.max(0, Math.min(1, 1 - r));
+      const o = (y * N + x) * 4;
+      data[o] = data[o + 1] = data[o + 2] = Math.round(a * a * (3 - 2 * a) * 255);
+      data[o + 3] = 255;
+    }
+  }
+  const t = new THREE.DataTexture(data, N, N, THREE.RGBAFormat);
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+
+/** the blob's reach past the rock's own diameter, and its darkness */
+const BLOB_SCALE = 1.5, BLOB_OPACITY = 0.32, BLOB_LIFT = 0.06;
+
 function rockGeometry(g: THREE.PolyhedronGeometry, seed: number): THREE.BufferGeometry {
   const noise = createNoise3D(mulberry32(seed));
   const p = g.getAttribute('position') as THREE.BufferAttribute;
@@ -56,6 +81,8 @@ function rockGeometry(g: THREE.PolyhedronGeometry, seed: number): THREE.BufferGe
 
 interface RockSet {
   mesh: THREE.InstancedMesh;
+  /** the soft shadow blobs under the rocks drawn, in the same order */
+  blob: THREE.InstancedMesh;
   x: Float32Array; z: Float32Array; d: Float32Array; rank: Float32Array;
   removed: Uint8Array;
   matrices: Float32Array;   // 16 per rock, composed once
@@ -68,6 +95,11 @@ export class Rocks {
   private large: RockSet;
   private safe = false;
   private refillAt = new THREE.Vector3(Infinity, 0, 0);
+  private blobMat = new THREE.MeshBasicMaterial({
+    color: 0x000000, alphaMap: radialTexture(), transparent: true, opacity: BLOB_OPACITY, depthWrite: false,
+    polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4,
+  });
+  private blobGeo = (() => { const g = new THREE.PlaneGeometry(1, 1); g.rotateX(-Math.PI / 2); return g; })();
 
   constructor(private hf: Heightfield) {
     const rng = mulberry32(hf.seed ^ 0x60c45);
@@ -103,6 +135,7 @@ export class Rocks {
       const n = items.length;
       const set: RockSet = {
         mesh: new THREE.InstancedMesh(geo, materials.get('rock'), Math.max(1, n)),
+        blob: new THREE.InstancedMesh(this.blobGeo, this.blobMat, Math.max(1, n)),
         x: new Float32Array(n), z: new Float32Array(n), d: new Float32Array(n),
         rank: new Float32Array(n), removed: new Uint8Array(n),
         matrices: new Float32Array(n * 16), colors: new Float32Array(n * 3),
@@ -132,7 +165,11 @@ export class Rocks {
       set.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       set.mesh.setColorAt(0, new THREE.Color(0, 0, 0)); // allocates instanceColor
       set.mesh.count = 0;
-      this.group.add(set.mesh);
+      set.blob.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      set.blob.count = 0;
+      set.blob.frustumCulled = false;
+      set.blob.renderOrder = 1;
+      this.group.add(set.mesh, set.blob);
       return set;
     };
     this.small = make(list.filter((r) => r.d < LARGE_D), rockGeometry(new THREE.DodecahedronGeometry(1, 0), 0x5a11));
@@ -154,7 +191,11 @@ export class Rocks {
    *  and null when it stands too far off for small rocks at all. */
   update(camera: THREE.Camera, focus?: THREE.Vector3 | null) {
     if (focus === null) {
-      if (this.small.mesh.count) { this.small.mesh.count = 0; this.refillAt.set(Infinity, 0, 0); }
+      if (this.small.mesh.count) {
+        this.small.mesh.count = this.small.blob.count = 0;
+        this.small.mesh.visible = this.small.blob.visible = false;
+        this.refillAt.set(Infinity, 0, 0);
+      }
       return;
     }
     const p = focus ?? camera.position;
@@ -166,6 +207,7 @@ export class Rocks {
   private fill(set: RockSet, near: THREE.Vector3 | null) {
     const arr = set.mesh.instanceMatrix.array as Float32Array;
     const col = set.mesh.instanceColor!.array as Float32Array;
+    const blob = set.blob.instanceMatrix.array as Float32Array;
     const density = near ? this.smallDensity : 1;
     const r2 = (SMALL_RANGE + REFILL_M) ** 2;
     let n = 0;
@@ -177,9 +219,18 @@ export class Rocks {
       }
       arr.set(set.matrices.subarray(i * 16, i * 16 + 16), n * 16);
       col.set(set.colors.subarray(i * 3, i * 3 + 3), n * 3);
+      // its blob: a flat quad on the ground under it (column-major: scale, then the position)
+      const b = n * 16, sc = set.d[i] * BLOB_SCALE;
+      blob.fill(0, b, b + 16);
+      blob[b] = sc; blob[b + 5] = 1; blob[b + 10] = sc; blob[b + 15] = 1;
+      blob[b + 12] = set.x[i]; blob[b + 13] = this.hf.sample(set.x[i], set.z[i]) + BLOB_LIFT; blob[b + 14] = set.z[i];
       n++;
     }
     set.mesh.count = n;
+    set.blob.count = n;
+    // an empty set is not a draw call (the small rocks go at the far zooms)
+    set.mesh.visible = set.blob.visible = n > 0;
+    set.blob.instanceMatrix.needsUpdate = true;
     set.mesh.instanceMatrix.needsUpdate = true;
     set.mesh.instanceColor!.needsUpdate = true;
     set.mesh.computeBoundingSphere();

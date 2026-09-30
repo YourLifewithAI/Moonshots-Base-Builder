@@ -81,8 +81,9 @@ import {
 import { BaseOverlays } from '../buildings/overlays';
 import { createRenderer, createCamera, drawFrame, probeGround } from '../world/renderer';
 import { CelLighting, sunStep } from '../world/celLighting';
+import { ramp } from '../world/celStyle';
 import { installCel } from '../world/cel';
-import { CEL_MARKER, celFallbackMaterial } from '../buildings/celBuilding';
+import { CEL_MARKER } from '../buildings/celBuilding';
 import { INK_MARKER, breakInk, inkFaulted, inkInfo, outlineList, setInkEnabled, setInkVariant } from '../world/ink';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
@@ -1658,16 +1659,16 @@ export class Game {
     return this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 1500) !== null;
   }
 
-  /** A shader failed to compile this frame. The cel building program is the
-   *  likely culprit and the cheapest to lose: stock Lambert in the same
-   *  palette takes its place (the glow and the print reveal go). The ink
-   *  outlines' program failing only hides the outlines. Any other program
-   *  means safe mode. */
+  /** A shader failed to compile this frame. The cel programs (the buildings'
+   *  and the ground's) are the likely culprits and the cheapest to lose:
+   *  stock Lambert in the same palette takes their place (the ramp, the glow
+   *  and the print reveal go). The ink outlines' program failing only hides
+   *  the outlines. Any other program means safe mode. */
   private recoverFromShaderFault() {
     const fault = this.shaderFault;
     this.shaderFault = null;
-    if (fault === 'cel' && materials.replace('building', celFallbackMaterial(), this.scene)) {
-      console.warn('[MOONSHOTS] Cel building shader failed to compile — stock Lambert.');
+    if (fault === 'cel' && materials.replaceCustom(this.scene)) {
+      console.warn('[MOONSHOTS] Cel shader failed to compile — stock Lambert.');
       if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
       return;
     }
@@ -2973,8 +2974,7 @@ export class Game {
   }
 
   /** Render-path state for tests and probes. `style` is 'cel' (the one
-   *  renderer); `outlines` and `ramp` are the look constants S1a and S1b
-   *  replace (stubs until then: no ink pass yet, a 3-step ramp). */
+   *  renderer); `outlines` is S1b's ink pass, `ramp` the variant's step count. */
   debugRenderInfo() {
     const gl = this.renderer.getContext();
     const iso = this.buildCam.info();
@@ -2987,7 +2987,7 @@ export class Game {
       /** ink outline meshes drawing this frame (0 in safe mode or after a fault); `ink` has the detail */
       outlines: inkInfo().drawn,
       ink: { ...inkInfo(), list: outlineList() },
-      ramp: 3,
+      ramp: ramp().steps,
       /** the last drawn frame */
       frame: { ...this.frameStats },
       context: {

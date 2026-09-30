@@ -1,7 +1,9 @@
-/** Placement ghost. The registry's stock translucent Lambert (world/cel.ts:
- *  the form reads by its lit and shaded faces, pale = yes, dark = no) over a
- *  depth-only pre-pass, so only the front surface blends — internal faces
- *  never double up. Valid = pale, blocked = dark (value, never hue). */
+/** Placement ghost. The registry's translucent ground program on the
+ *  buildings' ramp (world/cel.ts, world/celSurface.ts: the form reads by its
+ *  lit and shaded bands, pale = yes, dark = no) over a depth-only pre-pass,
+ *  so only the front surface blends — internal faces never double up. Valid
+ *  = pale, blocked = dark (value, never hue). In safe mode (or after a
+ *  shader fault) the material is an unlit or stock twin: same colours. */
 import * as THREE from 'three';
 import { materials } from '../world/materials';
 
@@ -24,8 +26,12 @@ export function createGhost(geo: THREE.BufferGeometry): THREE.Mesh {
 }
 
 export function setGhostBlocked(ghost: THREE.Mesh, blocked: boolean) {
-  const m = ghost.material as THREE.MeshBasicMaterial;
+  const m = ghost.material as THREE.MeshBasicMaterial | THREE.ShaderMaterial;
   const s = blocked ? BLOCKED : VALID;
-  m.color.copy(s.color);
+  if ((m as THREE.ShaderMaterial).isShaderMaterial) {
+    const u = (m as THREE.ShaderMaterial).uniforms;
+    (u.uTint.value as THREE.Color).copy(s.color);
+    u.uOpacity.value = s.opacity;
+  } else (m as THREE.MeshBasicMaterial).color.copy(s.color);
   m.opacity = s.opacity;
 }
