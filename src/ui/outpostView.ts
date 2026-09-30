@@ -6,12 +6,16 @@
  *  the stream is halved), `grounded` (no hopper fuel: nothing streams and a KREEP modifier is off) or `off`
  *  (an air-gapped Lander or a hack cuts the stream). */
 import { FEED } from '../data/balance';
-import { OUTPOST_KINDS } from '../data/lunarMap';
+import { OUTPOST_KINDS, PROSPECTS, type ProspectId } from '../data/lunarMap';
 import { RESOURCES, type ResourceId } from '../data/resources';
+import { FACTIONS, factionOfState, type FactionId } from '../data/factions';
+import { SITES } from '../data/sites';
 import { fmtClock } from '../core/daynight';
-import { KIND_LABEL } from '../core/exploration';
+import { KIND_LABEL, REGIONAL_DEG, greatCircleDeg } from '../core/exploration';
+import { factionName, onFeed, type FeedEvent, type MoonState } from '../core/moon';
+import type { GameState } from '../core/state';
 import { fmt } from './hud';
-import { esc } from './notify';
+import { esc, notify } from './notify';
 import type { LunarOutpostView, LunarView } from './stores';
 
 export type OutpostState = LunarOutpostView['state'];
@@ -43,7 +47,9 @@ export function outpostChip(lv: LunarView | null): { text: string; title: string
   const say = (n: number, what: string) => (n ? ` · ${n} ${what}` : '');
   const title = `Outposts ${c.total}/${c.slots}${say(c.live, 'live')}${say(c.worn, 'worn: parts short, stream ×0.5')}` +
     `${say(c.grounded, 'grounded: no hopper fuel')}${say(c.off, 'cut off from the Lander')}${say(c.deploying, 'deploying')}` +
-    `${c.free ? ` · ${c.free} slot${c.free === 1 ? '' : 's'} free` : ''} — click for the Lunar Map's outposts`;
+    `${c.free ? ` · ${c.free} slot${c.free === 1 ? '' : 's'} free` : ''}` +
+    // the crowded Moon (docs/20 §5): what the other programs hold, in the same breath
+    `${rivalCountText(lv) ? ` · rivals hold ${rivalCountText(lv)}` : ''} — click for the Lunar Map's outposts`;
   return { text, title, fault: c.worn + c.grounded + c.off > 0 };
 }
 
@@ -143,3 +149,45 @@ export function outpostCover(lv: LunarView | null): string {
   }
   return [...tot.values()].map((t) => `${t.name} +${num(t.v)}${t.glyph}/s`).join(' · ');
 }
+
+// ─────────────────────────── the crowded Moon (docs/20 §5) ───────────────────────────
+
+/** text presentation: a faction's glyph (⚙ ❀) must never turn into a colour emoji */
+const TX = '\uFE0E';
+/** a faction's glyph as text */
+export const factionGlyph = (f: FactionId) => `${FACTIONS[f].glyph}${TX}`;
+/** a faction's colour: its livery's trim (the map's `--fc`) */
+export const factionColour = (f: FactionId) => FACTIONS[f].livery.trim;
+
+/** The landed rival programs and what each holds, in landing order: the map header's `⚙ Foundry 2 · ▲ Vanguard 1`. */
+export function rivalOutposts(lv: LunarView | null): { faction: FactionId; name: string; short: string; glyph: string; n: number }[] {
+  return (lv?.rivals ?? []).filter((r) => r.landed).map((r) => ({
+    faction: r.faction, name: r.name, short: FACTIONS[r.faction].short, glyph: factionGlyph(r.faction), n: r.outposts.length,
+  }));
+}
+/** `⚙ Foundry 2 · ▲ Vanguard 1` (empty with no rival on the Moon) */
+export const rivalCountText = (lv: LunarView | null) =>
+  rivalOutposts(lv).map((r) => `${r.glyph} ${r.short} ${r.n}`).join(' · ');
+
+/** The field line for a rival's claim (feed event `claim`) within the regional radius of the player's landing site, or null
+ *  (farther off, an own claim, or no prospect named): `THE FOUNDRY CLAIMS MOLTKE — ilmenite outpost, 1.8° from your landing site`. */
+export function claimNotice(e: FeedEvent, s: Pick<GameState, 'siteId' | 'faction'>): { text: string; pid: ProspectId } | null {
+  const pid = e.prospect;
+  const p = pid && PROSPECTS[pid];
+  if (!pid || !p || e.faction === factionOfState(s)) return null;
+  const deg = greatCircleDeg(SITES[s.siteId].home, p);
+  if (deg > REGIONAL_DEG) return null;
+  const kind = KIND_LABEL[p.kind as keyof typeof KIND_LABEL] ?? p.kind;
+  return { pid, text: `${factionName(e.faction).toUpperCase()} CLAIMS ${p.short.toUpperCase()} — ${kind} outpost, ${deg.toFixed(1)}° from your landing site` };
+}
+
+/** One registration per page, whatever a hot reload re-runs: the newest module's handler replaces the old one. */
+const HANDLE = '__claimNotice';
+const reg = globalThis as unknown as Record<string, (() => void) | undefined>;
+reg[HANDLE]?.();
+reg[HANDLE] = onFeed('claim', (e, ctx: { moon: MoonState; player: GameState | null }) => {
+  // (a feed with no player base, as a spec or a solo Moon dispatches it, has nobody to tell)
+  const pl = ctx.player;
+  const n = pl ? claimNotice(e, pl) : null;
+  if (pl && n) notify(pl, 'field', { text: n.text, action: { map: n.pid } });
+});

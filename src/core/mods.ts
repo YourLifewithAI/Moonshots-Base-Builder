@@ -172,6 +172,8 @@ export interface Mods {
   /** research cost × per lane and per destiny side: read by research.techCost */
   laneCostMult: Record<Lane, number>;
   pickCostMult: Record<Side, number>;
+  /** an outpost claim's metals × this (exploration.claimCost; the Commons' ×0.85) */
+  outpostCostMult: number;
   /** machine reboot / latch / burn × this in a flare (flareEffects.drawMachines; the reader is stream S2's) */
   machineFlareMult: number;
   /** stations and units' output × this at night (economy, hubs, haul: stream S2's) */
@@ -242,7 +244,7 @@ export function computeMods(
     volleyCap: LAUNCH_CAP_PER_VOLLEY, volleyMorale: 0, volleyMinCrew: 0, autoLaunch: false, launchBurstMult: 1,
     moraleBase: 0, hazardRateMult: 1, guards: new Set(), exposure: new Map(),
     stowShield: 0, arrayHardMult: 1, forecastTier: 0,
-    laneCostMult: neutralLanes(), pickCostMult: { colony: 1, automation: 1 },
+    laneCostMult: neutralLanes(), pickCostMult: { colony: 1, automation: 1 }, outpostCostMult: 1,
     machineFlareMult: 1, nightOutputMult: 1, bankDischargeMult: 1, moraleFallMult: 1, scrutiny: false, builderFounds: false,
   };
 
@@ -396,6 +398,7 @@ export function computeMods(
         // ── factions (docs/20 §3) ──
         case 'laneCost': m.laneCostMult[fx.lane] *= fx.mult; break;
         case 'pickCost': m.pickCostMult[fx.side] *= fx.mult; break;
+        case 'outpostCost': m.outpostCostMult *= fx.mult; break;
         case 'flareVuln':
           m.arrayHardMult *= fx.arrayHard ?? 1;
           m.machineFlareMult *= fx.machine ?? 1;
