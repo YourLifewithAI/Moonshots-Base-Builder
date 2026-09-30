@@ -37,6 +37,10 @@ const RIDGE_CANDIDATES = 40;
 const GUARANTEED_CANDIDATES = 24;
 
 export class Heightfield {
+  /** a stand-in surface (terrain/flatHeights.ts): pits are counted, not carved (core/pits.ts) */
+  readonly virtual: boolean = false;
+  /** a flat site's signature of its virtual pits (core/pits.ts writes it after a carve); `terrainHash` folds it in */
+  virtualSig = 0;
   readonly h: Float32Array;
   /** the generated surface, before any pad or pit: a carved sample's height is
    *  exactly base + delta / 10 (terrain/pitCarve.ts) */
@@ -57,8 +61,18 @@ export class Heightfield {
   readonly deposits: Deposit[] = [];
   private noise: NoiseFunction2D;
 
-  constructor(public site: SiteDef, public seed: number) {
+  /** `flat`: no craters, no fBm — the surface is zero everywhere and only the deposits are generated
+   *  (their random streams do not touch the crater stream, so the deposit set is the real site's; a pick
+   *  that scores the ground takes the first valid candidate). `h` and `base` are one zeroed grid. */
+  constructor(public site: SiteDef, public seed: number, opts: { flat?: boolean } = {}) {
     const rng = mulberry32(seed ^ 0x9e3779b9);
+    if (opts.flat) {
+      this.noise = () => 0;
+      this.h = new Float32Array(N * N);
+      this.base = this.h;
+      this.generateDeposits();
+      return;
+    }
     this.noise = createNoise2D(rng);
     this.h = new Float32Array(N * N);
     this.generate(rng);

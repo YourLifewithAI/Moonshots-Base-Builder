@@ -30,6 +30,11 @@
  *    away from structures and roads; a building placed later is respected from
  *    the next carve on; no pad's footing ever changes.
  *
+ *  - **Virtual pits** (docs/20 §4.2). On a flat stand-in ground (`hf.virtual`, terrain/flatHeights.ts)
+ *    a rival's pits are counted, not carved: the same fields, gating and batches, the rim solved from the
+ *    volume (`carveVirtual`), no grid, no zones, never boxed in; `faceCapacity`, `targetGrade`, `exhaustCheck`
+ *    and `runningOut` run unchanged on them.
+ *
  *  The heightfield is bound per state (`bindTerrain`, by Game.bootWorld): the
  *  economy tick has no terrain of its own. Pure otherwise: no Three.js, no
  *  randomness beyond the seeded loose layer and stake jitter. */
@@ -271,6 +276,7 @@ function shapeOf(s: GameState, p: PitState): PitShape {
 export function pitsStep(s: GameState, dt: number, mods?: Pick<Mods, 'pitBedrockBenches'>) {
   const hf = terrains.get(s);
   if (!hf || !s.pits?.length) return;
+  const virt = hf.virtual;
   s.terrain ??= { rev: 0, clock: 0, delta: '' };
   const clock = (s.terrain.clock += dt);
   const rock = (mods?.pitBedrockBenches ?? 0) * PIT.bench;
@@ -296,7 +302,7 @@ export function pitsStep(s: GameState, dt: number, mods?: Pick<Mods, 'pitBedrock
       if (p.dugM3 < PIT.firstM3) continue;
       p.at = clock;
       bl ??= blockersOf(s);
-      if (!stake(s, hf, p, bl)) continue;
+      if (!(virt ? stakeVirtual(s, hf, p, bl) : stake(s, hf, p, bl))) continue;
     } else if (p.state === 'boxed' && owe < 20) {
       // hemmed in, with nothing owed: does it have room again (a structure demolished)?
       p.at = clock;
@@ -311,13 +317,19 @@ export function pitsStep(s: GameState, dt: number, mods?: Pick<Mods, 'pitBedrock
       if (owe < 20 || (move < PIT.rimMoveM && owe < PIT.batchM3)) continue;
       p.at = clock;
     }
-    bl ??= blockersOf(s);
-    if (carve(s, hf, p, bl, owe)) carved.add(p.id);
+    if (virt) {
+      if (carveVirtual(s, hf, p, owe)) carved.add(p.id);
+    } else {
+      bl ??= blockersOf(s);
+      if (carve(s, hf, p, bl, owe)) carved.add(p.id);
+    }
     exhaustCheck(s, p);
     runningOut(s, p);
   }
   if (!carved.size) return;
   s.terrain.rev++;
+  // a virtual site has no roads to regate and no cut to zone: its signature follows its radii
+  if (virt) { hf.virtualSig = virtualSignature(s); return; }
   // a haul road's sacrificial tail the cut has reached goes, and its gate steps back (docs/19 S3)
   regate(s, hf);
   syncPitZones(s, hf, carved);
@@ -482,6 +494,185 @@ function grow(box: PitState['box'], r: { ix0: number; iz0: number; ix1: number; 
   box[2] = Math.max(box[2], r.ix1); box[3] = Math.max(box[3], r.iz1);
 }
 
+// ───────────────────────────── virtual pits (docs/20 §4.2) ─────────────────────────────
+
+/** The sample index nearest a world point (a virtual pit's anchor). */
+function sampleIndexAt(x: number, z: number): number {
+  const ix = Math.min(N - 1, Math.max(0, Math.round((x + MAP_M / 2) / CELL_M)));
+  const iz = Math.min(N - 1, Math.max(0, Math.round((z + MAP_M / 2) / CELL_M)));
+  return iz * N + ix;
+}
+
+/** Grow a pit's sample bounds over a disc (centre, radius), clamped to the grid. */
+function growDisc(box: PitState['box'], x: number, z: number, r: number) {
+  const lo = (v: number) => Math.min(N - 1, Math.max(0, Math.floor((v + MAP_M / 2) / CELL_M)));
+  const hi = (v: number) => Math.min(N - 1, Math.max(0, Math.ceil((v + MAP_M / 2) / CELL_M)));
+  grow(box, { ix0: lo(x - r), iz0: lo(z - r), ix1: hi(x + r), iz1: hi(z + r) });
+}
+
+/** A real carve's rim sits this far outside the free round pit of the volume it cut (the 2 m benches leave the wall's
+ *  outer metres uncut, and the grid cannot resolve a small floor): R − pitRadius(cut) measured 1.2–1.6 m on the seed-42
+ *  mare deposit from 90 to 2,100 m³ (docs/20 W0b). */
+const VIRTUAL_RIM_M = 1.3;
+/** how far from a virtual pit's centre its deepest sample is taken to lie (the grid's nearest sample, m) */
+const VIRTUAL_DEEP_M = 2.5;
+
+/** The m² a virtual pit scars: its cut disc and its heap's (a real pit counts its changed samples). */
+const virtualScar = (p: PitState) => Math.round(Math.PI * (p.R * p.R + (p.heap?.Rh ?? 0) ** 2));
+
+/** A signature of the base's virtual pits, folded into `FlatHeights.terrainHash`: each pit's id, rim and heap radius (dm). */
+export function virtualSignature(s: Pick<GameState, 'pits'>): number {
+  let a = 0x811c9dc5;
+  for (const p of s.pits ?? []) {
+    a = Math.imul(a ^ p.id, 0x01000193) >>> 0;
+    a = Math.imul(a ^ Math.round(p.R * 10), 0x01000193) >>> 0;
+    a = Math.imul(a ^ Math.round((p.heap?.Rh ?? 0) * 10), 0x01000193) >>> 0;
+  }
+  return a >>> 0;
+}
+
+/** The ring a virtual pit may not pass: its planned ring, or (a deposit) the rim at which its cut is at the cutoff. */
+function virtualRing(s: GameState, hf: Heightfield, p: PitState): number {
+  const d = depositOf(s, p);
+  const t = d ? oreTruth(s, d) : null;
+  return Math.max(planRadius(hf, p, looseLayer(s, p)), t?.fullR ?? 0);
+}
+
+/** Open a virtual pit: at its key's point, ramp facing its gate, its heap a quarter turn off on the side farther from
+ *  structures and roads. Nothing is searched for and nothing is carved, so it always opens. */
+function stakeVirtual(s: GameState, hf: Heightfield, p: PitState, bl: Blockers): boolean {
+  const [x, z] = keyPoint(hf, p.key, s);
+  p.deposit = p.key.startsWith('dep:') ? p.key.slice(4) : p.key.startsWith('plain:') ? null : hf.depositAt(x, z)?.id ?? null;
+  const planR = planRadius(hf, p, looseLayer(s, p));
+  p.cx = p.ox = x;
+  p.cz = p.oz = z;
+  const lander = s.buildings.find((b) => b.type === 'lander');
+  let ux = 1, uz = 0;
+  if (lander) {
+    const r = footprintRect(lander);
+    const ax = ((r.gx0 + r.gx1) / 2) * CELL_M - MAP_M / 2 - x, az = ((r.gz0 + r.gz1) / 2) * CELL_M - MAP_M / 2 - z;
+    const l = Math.hypot(ax, az);
+    if (l > 1e-6) { ux = ax / l; uz = az / l; }
+  }
+  const toGate = gateDir(s, p.key, x, z);
+  if (toGate) { ux = toGate[0]; uz = toGate[1]; }
+  p.ux = ux; p.uz = uz;
+  p.A = 0;
+  p.anchor = sampleIndexAt(x, z);
+  const D0 = planR + heapPlanR() + 3 * CELL_M;
+  const gate = Math.atan2(uz, ux);
+  const away = (px: number, pz: number) => {
+    let m = Infinity;
+    for (const r of bl.pads) {
+      const dx = Math.max(r.gx0 * CELL_M - MAP_M / 2 - px, 0, px - (r.gx1 * CELL_M - MAP_M / 2));
+      const dz = Math.max(r.gz0 * CELL_M - MAP_M / 2 - pz, 0, pz - (r.gz1 * CELL_M - MAP_M / 2));
+      m = Math.min(m, Math.hypot(dx, dz));
+    }
+    for (const key of bl.cells) {
+      m = Math.min(m, Math.hypot(((key % MAP_CELLS) + 0.5) * CELL_M - MAP_M / 2 - px, (Math.floor(key / MAP_CELLS) + 0.5) * CELL_M - MAP_M / 2 - pz));
+    }
+    return m;
+  };
+  let best = { x: 0, z: 0 }, bestA = -Infinity;
+  for (const side of [1, -1]) {
+    const hx = x + Math.cos(gate + side * (Math.PI / 2)) * D0, hz = z + Math.sin(gate + side * (Math.PI / 2)) * D0;
+    const a = Math.min(away(hx, hz), 80);
+    if (a > bestA + 1e-9) { bestA = a; best = { x: hx, z: hz }; }
+  }
+  const edge = MAP_M / 2 - PIT.border * CELL_M;
+  p.heap = { x: Math.max(-edge, Math.min(edge, best.x)), z: Math.max(-edge, Math.min(edge, best.z)), Rh: 0, anchor: -1 };
+  p.state = 'open';
+  return true;
+}
+
+/** What a real carve would have cut, counted: every m³ dug is cut, the rim is the free round pit's (capped at the
+ *  ring), the floor as deep as its benches reach, the spoil on its heap. Never boxed in. True: something changed. */
+function carveVirtual(s: GameState, hf: Heightfield, p: PitState, owe: number): boolean {
+  if (!(owe > 0)) return false;
+  const L = shapeOf(s, p).L;
+  if (p.rockR !== undefined) {
+    // bedrock benches under the held rim: the floor deepens as the ore under it is dug; done when it is all cut
+    p.cutM3 += owe;
+    const left = pitOreLeft(s, p);
+    const total = bedrockOre(p.rockR, looseLayer(s, p) + (p.rock ?? 0), (p.rockTo ?? 0) - (p.rock ?? 0));
+    const share = left === null || total <= 0 ? 1 : 1 - left / total;
+    p.deep = Math.max(p.deep, Math.round((looseLayer(s, p) + (p.rock ?? 0) + ((p.rockTo ?? 0) - (p.rock ?? 0)) * share) * 10) / 10);
+    virtualHeap(p);
+    if (left === null || left / PIT.tPerM3 < 0.5) {
+      p.rock = p.rockTo;
+      p.state = p.rockFrom ?? 'boxed';
+      delete p.rockR; delete p.rockTo; delete p.rockFrom;
+      p.endedAt = s.simTime;
+      (p.news ??= []).push('rockDone');
+    } else p.state = 'open';
+    p.scar = virtualScar(p);
+    return true;
+  }
+  p.cutM3 += owe;
+  const R = Math.min(pitRadius(p.cutM3, L) + VIRTUAL_RIM_M, virtualRing(s, hf, p));
+  if (R > p.R) p.R = R;
+  p.A = Math.max(0, p.R - PIT.bench);
+  const wall = PIT.bench * Math.floor(Math.max(0, p.R - VIRTUAL_DEEP_M) / 2 / PIT.bench + 0.5);
+  p.deep = Math.max(p.deep, Math.min(Math.round(wall * 10), Math.round(L * 10)) / 10);
+  p.free = 1;
+  p.state = p.spent ? 'exhausted' : 'open';
+  growDisc(p.box, p.cx, p.cz, p.R);
+  virtualHeap(p);
+  p.scar = virtualScar(p);
+  return true;
+}
+
+/** The spoil a virtual pit owes its heap (the real dump's 8 m³ batches), and the heap's base radius and bounds. */
+function virtualHeap(p: PitState) {
+  if (!p.heap) return;
+  const owe = p.cutM3 * HEAP_PER_PIT - p.heapM3;
+  if (owe < 8) return;
+  p.heapM3 += owe;
+  p.heap.Rh = Math.min(120, heapRadius(p.heapM3));
+  p.heap.anchor = sampleIndexAt(p.heap.x, p.heap.z);
+  growDisc(p.box, p.heap.x, p.heap.z, p.heap.Rh);
+}
+
+/** Reclaim on a virtual pit: the spoil pushed back is counted off its heap. */
+function reclaimVirtual(s: GameState, p: PitState): boolean {
+  const owe = (p.fill ?? 0) - (p.filled ?? 0);
+  if (owe < RECLAIM.batchM3 && p.heapM3 >= 1) return false;
+  const add = Math.max(0, Math.min(owe, p.heapM3, p.cutM3 - (p.filled ?? 0)));
+  let changed = add > 0;
+  if (add > 0) {
+    p.filled = (p.filled ?? 0) + add;
+    p.heapM3 = Math.max(0, p.heapM3 - add);
+    if (p.heap) p.heap.Rh = p.heapM3 >= 1 ? Math.min(120, heapRadius(p.heapM3)) : 0;
+  }
+  if (add < 0.5 || p.heapM3 < 1) {
+    p.heapM3 = 0;
+    if (p.heap) p.heap.Rh = 0;
+    p.state = 'reclaimed';
+    p.endedAt = s.simTime;
+    releasePit(s, p.key);
+    (p.news ??= []).push('reclaimed');
+    changed = true;
+  }
+  if (changed) p.scar = virtualScar(p);
+  return changed;
+}
+
+/** `pitRefusal` for a virtual site: the base's own pits as discs (its cut, a rim's setback round it, its spoil). */
+function virtualRefusal(s: GameState, gx0: number, gz0: number, gx1: number, gz1: number): string {
+  const x0 = gx0 * CELL_M - MAP_M / 2, x1 = gx1 * CELL_M - MAP_M / 2, z0 = gz0 * CELL_M - MAP_M / 2, z1 = gz1 * CELL_M - MAP_M / 2;
+  const off = (cx: number, cz: number) => Math.hypot(Math.max(x0 - cx, 0, cx - x1), Math.max(z0 - cz, 0, cz - z1));
+  let near: PitState | null = null, spoil = false;
+  for (const p of s.pits ?? []) {
+    if (p.anchor < 0 || p.state === 'reclaimed') continue;
+    const d = off(p.cx, p.cz);
+    if (d <= p.R) return `ON A PIT — its benches go ${p.deep.toFixed(1)} m down; build ${PIT.rimClearM} m back from the rim`;
+    if (p.heap && p.heap.Rh > 0 && off(p.heap.x, p.heap.z) <= p.heap.Rh) spoil = true;
+    if (d <= p.R + PIT.rimClearM) near = p;
+  }
+  if (spoil) return 'ON SPOIL — a tailings heap; level it with Site Grading, or build elsewhere';
+  return near ? `TOO CLOSE TO A PIT — nothing within ${PIT.rimClearM} m of a rim; build ${PIT.rimClearM} m back` : '';
+}
+
 // ───────────────────────────── zones ─────────────────────────────
 
 /** The pits' ramps and floors for the chunk look (docs/19 S2b, terrain/pitLook.ts): the chunks that
@@ -499,6 +690,8 @@ function syncPitLooks(s: GameState, hf: Heightfield) {
  *  network's revision (gates and routes are cached on it). `only`: just
  *  these pits' zones are recomputed; `bump` false on a load. */
 export function syncPitZones(s: GameState, hf: Heightfield, only?: ReadonlySet<number>, bump = true) {
+  // a virtual pit has no cut to zone (docs/20 §4.2); a load only re-derives the terrain hash's signature
+  if (hf.virtual) { hf.virtualSig = virtualSignature(s); return; }
   syncPitLooks(s, hf);
   const all = s.zones ?? [];
   const keep = all.filter((z) => z.kind !== 'pit');
@@ -543,7 +736,7 @@ export function syncPitZones(s: GameState, hf: Heightfield, only?: ReadonlySet<n
 /** Write the grid into the state as saved (Game.saveBlob). */
 export function saveTerrain(s: GameState, hf: Heightfield) {
   s.terrain ??= { rev: 0, clock: 0, delta: '' };
-  s.terrain.delta = encodeDelta(hf.delta);
+  s.terrain.delta = hf.virtual ? '' : encodeDelta(hf.delta);
 }
 
 /** A load: the saved grid onto the regenerated surface (base → deltas; the
@@ -568,6 +761,7 @@ const depthWords = (s: GameState, k: number, hf: Heightfield) => {
 /** Why nothing may stand on this cell rect ('' = the pits allow it): on a pit,
  *  on spoil, or within 4 m of a rim. Graded spoil is buildable. */
 export function pitRefusal(s: GameState, hf: Heightfield, gx0: number, gz0: number, gx1: number, gz1: number): string {
+  if (hf.virtual) return virtualRefusal(s, gx0, gz0, gx1, gz1);
   let spoil = false;
   const rec = reclaimedSet(s, hf);
   for (let iz = gz0; iz <= gz1; iz++) {
@@ -717,6 +911,7 @@ export function pushFill(p: PitState, m3: number) {
  *  below the ground, its heap comes down by as much; when either is done the
  *  pit is reclaimed and its heap is gone. True: the grid changed. */
 function reclaimStep(s: GameState, hf: Heightfield, p: PitState): boolean {
+  if (hf.virtual) return reclaimVirtual(s, p);
   const owe = (p.fill ?? 0) - (p.filled ?? 0);
   if (owe < RECLAIM.batchM3 && p.heapM3 >= 1) return false;
   const samples = ownSamples(hf, p.anchor, p.box, -1);

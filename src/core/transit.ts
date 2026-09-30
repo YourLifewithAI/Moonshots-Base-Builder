@@ -29,13 +29,15 @@ import {
 import { centerOf } from '../buildings/instances';
 import { roverStep } from './traffic';
 import { GRADE_HOP_ACCEL, GRADE_REACH_M, gradeArea, onGradeGround, standOf } from './grading';
+import { STRAIGHT_DETOUR, instantOf, straightOf } from './simMode';
 
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
 
 /** Tests where timing is not the point: every trip ends as it starts, and
- *  a new goal is reached in the tick that sets it (economy step 0). */
-export const TRANSIT = { instant: false };
+ *  a new goal is reached in the tick that sets it (economy step 0). The switch
+ *  lives in core/simMode.ts (`instantOf(s)` is the per-base answer). */
+export { TRANSIT } from './simMode';
 
 // ───────────────────────────── the move ─────────────────────────────
 
@@ -271,6 +273,8 @@ export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
  *  zone to and from its gate (core/roads.ts groundWay). Null: no road there. */
 function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: number[] } | null {
   if (!g.cell || !hasRoads(s)) return { pts: [[x, z], [g.x, g.z]] };
+  // a headless base's rovers drive the straight line, no road search; the road grid's extra metres are charged (core/simMode.ts)
+  if (straightOf(s)) return { pts: [[x, z], [g.x, g.z]], w: [STRAIGHT_DETOUR] };
   // a slot on a road cell is reached by it; an off-road one (inside a zone,
   // or a Relay Mast's stand) by a gate; a unit stopped out on open ground
   // (its pack flat on a mast's way out) sets off again from the nearest road,
@@ -315,8 +319,9 @@ export function planTrip(s: GameState, r: RoverUnit, g: Goal, v: number, a: numb
   if (!way) return { ...base, pts: [[x, z]], len: 0, dur: 0, stuck: true };
   // off-road metres count 1 / ROAD.offroad: the trip is timed as that much road
   const len = weighedLen(way.pts, way.w);
-  const dur = TRANSIT.instant ? 0 : travelTime(len, v, a);
-  if (TRANSIT.instant) { r.x = g.x; r.z = g.z; }
+  const instant = instantOf(s);
+  const dur = instant ? 0 : travelTime(len, v, a);
+  if (instant) { r.x = g.x; r.z = g.z; }
   return { ...base, pts: way.pts, ...(way.w ? { w: way.w } : {}), len, dur };
 }
 

@@ -113,6 +113,8 @@ export function gradePlan(
     ok: false, reason: '', rect, cells: Math.max(0, nx) * Math.max(0, nz), h: 0, relief: 0, secs: 0, cellSecs: [], order: [],
     energy: 0, spoil: 0, rovers: 0, eta: 0,
   };
+  // a virtual site (docs/20 §4.2) has no surface to level: rivals never grade
+  if (hf.virtual) { plan.reason = 'NO GRADING ON A VIRTUAL SITE — a headless base has no ground to level'; return plan; }
   if (nx < 1 || nz < 1) { plan.reason = 'Drag a box'; return plan; }
   if (x0 < 1 || z0 < 1 || x1 > MAP_CELLS - 1 || z1 > MAP_CELLS - 1) { plan.reason = 'Outside survey area'; return plan; }
   if (plan.cells > GRADE_JOB.maxCells) {

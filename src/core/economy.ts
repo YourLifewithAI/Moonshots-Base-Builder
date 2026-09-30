@@ -39,7 +39,8 @@ import { FEED_KINDS } from '../data/deposits';
 import { oreSurveyStep, pitsStep, stripMorale } from './pits';
 import { gradeStep } from './grading';
 import { settleJobs, sinter, spurLeft } from './roads';
-import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
+import { siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
+import { instantOf } from './simMode';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
 import { updateFlowBook } from './flowBook';
 import { automationTick, type AutoRequest } from './automation';
@@ -307,7 +308,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   syncRoster(s, mods);
   const crews = assignRovers(s);
   // (debug instant travel: a new goal is reached in the tick that sets it, as before transit)
-  if (TRANSIT.instant) transitPlan(s, mods, false);
+  if (instantOf(s)) transitPlan(s, mods, false);
   // (docs/19 S4a: every unit's reservations are planned, in priority order, before any of them moves)
   planTraffic(s);
   const here: Arrivals = transitArrive(s, dt);

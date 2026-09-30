@@ -25,6 +25,7 @@ import {
   accessCell, besideCells, cellAt, cellCentre, cellKey, doorCell, groundWay, hasRoads, jobOpen, layJob, nearestRoad, offRoadAt,
   planLink, roadMap, zoneStand, type Heights,
 } from './roads';
+import { straightOf } from './simMode';
 
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
 const label = (b: BuildingState) => `${BUILDINGS[b.type].name} #${b.id}`;
@@ -165,7 +166,8 @@ function legPath(
   s: GameState, b: BuildingState, h: Pick<HaulState, 'x' | 'z'>, goal: 'home' | [number, number], drop?: BuildingState,
 ): Leg | null {
   const [px, pz] = centerOf(b);
-  if (!hasRoads(s)) {
+  // (a base with no roads drives straight; so does a headless one, core/simMode.ts: no road search)
+  if (!hasRoads(s) || straightOf(s)) {
     const [gx, gz] = goal === 'home' ? [px, pz] : cellCentre(goal[0], goal[1]);
     return { pts: [[gx, gz]] };
   }
@@ -231,7 +233,7 @@ export function tripFor(
 function routeTo(s: GameState, b: BuildingState, x: number, z: number, drop: BuildingState): number {
   const [px, pz] = centerOf(b);
   const home = Math.hypot(x - px, z - pz) < 0.5;
-  const stand = hasRoads(s) ? standFor(s, b, drop) : null;
+  const stand = hasRoads(s) && !straightOf(s) ? standFor(s, b, drop) : null;
   if (!stand) return Math.hypot(...wallDelta(drop, x, z));
   let from: [number, number] = [x, z], extra = 0;
   // open ground with no road yet (outside a zone: inside one it drives off-road to a gate)
@@ -354,7 +356,7 @@ function startDrop(s: GameState, mods: Mods, b: BuildingState, h: HaulState) {
   h.t = 0;
   h.drop = drop?.id ?? null;
   if (!drop) { setLeg(h, { pts: [] }); return; }
-  const stand = hasRoads(s) ? standFor(s, b, drop) : cellAt(...(() => { const p = wallSpot(worldRect(drop), h.x, h.z, HAUL.unloadOut); return [p.x, p.z] as [number, number]; })());
+  const stand = hasRoads(s) && !straightOf(s) ? standFor(s, b, drop) : cellAt(...(() => { const p = wallSpot(worldRect(drop), h.x, h.z, HAUL.unloadOut); return [p.x, p.z] as [number, number]; })());
   setLeg(h, stand ? legPath(s, b, h, stand, drop) : null);
   const m = legLen(h.x, h.z, { pts: h.path, w: h.w });
   if (s.stats) s.stats.haulMaxM = Math.max(s.stats.haulMaxM ?? 0, m);

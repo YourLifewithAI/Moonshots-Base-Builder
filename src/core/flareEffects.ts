@@ -36,7 +36,7 @@ import { fmtClock } from './daynight';
 import { mulberry32 } from './rng';
 import { attachCounters, occupancy, pressurizedTypes } from './hazards';
 import { reachS, siteEntry } from './fleet';
-import { TRANSIT } from './transit';
+import { instantOf } from './simMode';
 import { buildCostAt } from './automation';
 import { techCost } from './research';
 import { hubName, hubOf, jobCost, jobTime, recallUnit, targetOf, tripTo, unitTag } from './hubs';
@@ -622,7 +622,7 @@ function flareEndsAt(s: GameState): number {
 
 /** A hub unit's trip home (s): back from its target, as the hub reckons it (0: it is in or by its bay). */
 function unitHomeS(s: GameState, mods: Mods, u: Hauler): number {
-  if (!unitOpen(u) || TRANSIT.instant) return 0;
+  if (!unitOpen(u) || instantOf(s)) return 0;
   const b = hubOf(s, u);
   const tt = targetOf(s, u.target);
   if (!b || !tt || u.haul.phase === 'toBay' || u.haul.phase === 'toDrop' || u.haul.phase === 'unload') return 0;
@@ -654,7 +654,7 @@ function recallPlan(s: GameState): { home: RoverUnit[]; out: RoverUnit[]; park: 
   for (const r of s.rovers) {
     if (!inOpen(s, r) || (r.brickedUntil ?? 0) > 0) continue;
     const dock = s.buildings.find((b) => b.id === r.home);
-    const secs = !dock || TRANSIT.instant ? 0 : reachS(s, r, siteEntry(s, dock), centerOf(dock));
+    const secs = !dock || instantOf(s) ? 0 : reachS(s, r, siteEntry(s, dock), centerOf(dock));
     (secs <= left + 1e-9 ? home : out).push(r);
   }
   return { home, out, park: s.buildings.filter(diggerOut) };
