@@ -85,6 +85,7 @@ export function rivalInfos(moon: MoonState, rivals: readonly RivalProgram[]): Ri
     return {
       faction: f, name: FACTION_NAME[f], siteId: m.siteId, landed: m.landed, landedAt: m.landedAt,
       outposts: r ? r.state.survey.outposts.map((o) => o.id) : [], launches: moon.race[f].launches, era: moon.race[f].era,
+      surveying: r ? (r.state.survey.flights ?? []).map((fl) => fl.id) : [],
     };
   });
 }

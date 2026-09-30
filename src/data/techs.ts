@@ -211,6 +211,8 @@ export type TechEffect = EffectFilter & (
   | { kind: 'laneCost'; lane: Lane; mult: number }
   /** a destiny side's picks cost ×mult (techCost, `track` techs that are not the landing) */
   | { kind: 'pickCost'; side: Side; mult: number }
+  /** an outpost claim's metals ×mult (exploration.claimCost; parts and chips are not scaled) */
+  | { kind: 'outpostCost'; mult: number }
   /** flare damage: solar arrays ×arrayHard (mods.arrayHardMult), machine reboot / latch / burn ×machine (mods.machineFlareMult) */
   | { kind: 'flareVuln'; arrayHard?: number; machine?: number }
   /** the long night: stations and units' output ×output, standby draw ×standby, bank charge efficiency
@@ -1687,6 +1689,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'laneCost', lane: 'compute', mult: 0.8 },
       { kind: 'laneCost', lane: 'materials', mult: 0.8 },
       { kind: 'grant', data: 100 },
+      { kind: 'survey', dataMult: 1.2 },
       { kind: 'moraleBase', delta: -8 },
       { kind: 'moraleDynamics', fallMult: 2 },
       { kind: 'scrutiny', on: true },
@@ -1712,6 +1715,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'growth', mult: 1 / 1.25 },
       { kind: 'buildSpeed', mult: 1.3 },
       { kind: 'pickCost', side: 'colony', mult: 0.85 },
+      { kind: 'outpostCost', mult: 0.85 },
     ],
     desc: 'A crew that came to stay. The Commons build for people first: a well-fed, well-warned base that grows on its own and shelters the swarm as a commons, slow to raise and dear in steel and machines.',
     visual: 'The Lander wears solar awnings, planter boxes by its door and a green banner.',
@@ -2666,6 +2670,10 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
     }
     case 'pickCost': {
       const text = `${SIDE_GLYPH[fx.side]} ${SIDE_LABEL[fx.side]} picks ×${num(fx.mult)} cost`;
+      return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
+    }
+    case 'outpostCost': {
+      const text = `outpost claims cost ×${num(fx.mult)} metals`;
       return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
     }
     case 'flareVuln': {
