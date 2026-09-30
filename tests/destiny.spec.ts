@@ -4,7 +4,7 @@
  *  brought forward or waived; the new effects (settlers, volleys, the
  *  autonomous cadence, EVA crews); the destiny column's commit flow, the
  *  meter and the pips; CREW HOME, the victory text per band, and the
- *  techSchema 3 → 4 migration. Every test pauses the game and drives time
+ *  techSchema 3 → 5 migration. Every test pauses the game and drives time
  *  with advanceGameSeconds. */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
 
@@ -123,7 +123,7 @@ test('landing: the expedition is the Era 1 pick, done at landing, and it never c
   await start(page, 'mare', 'robotic');
   const robotic = await g(page, 'getState');
   expect(robotic.techsDone).toEqual(['landingRobotic']);
-  expect(robotic.techSchema).toBe(4);
+  expect(robotic.techSchema).toBe(5);
   const r = await page.evaluate(() => {
     const g = window.__game!;
     for (const t of ['regolithProcessing', 'teleoperation', 'grizzlyScreens']) g.completeTech(t);
@@ -690,7 +690,7 @@ test('migration: a techSchema-3 save in Era 5 gains its landing pick, keeps its 
   await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 0);
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   const r = await page.evaluate(() => ({ s: window.__game.getState(), v: window.__game.getResearch() }));
-  expect(r.s.techSchema).toBe(4);
+  expect(r.s.techSchema).toBe(5);
   expect(r.s.era).toBe(5);
   expect(r.s.techsDone).toEqual(['landingRobotic', ...old]);
   expect(r.s.forwarded).toEqual([]);
