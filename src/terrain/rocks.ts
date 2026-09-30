@@ -191,7 +191,11 @@ export class Rocks {
    *  and null when it stands too far off for small rocks at all. */
   update(camera: THREE.Camera, focus?: THREE.Vector3 | null) {
     if (focus === null) {
-      if (this.small.mesh.count) { this.small.mesh.count = 0; this.small.blob.count = 0; this.refillAt.set(Infinity, 0, 0); }
+      if (this.small.mesh.count) {
+        this.small.mesh.count = this.small.blob.count = 0;
+        this.small.mesh.visible = this.small.blob.visible = false;
+        this.refillAt.set(Infinity, 0, 0);
+      }
       return;
     }
     const p = focus ?? camera.position;
@@ -224,6 +228,8 @@ export class Rocks {
     }
     set.mesh.count = n;
     set.blob.count = n;
+    // an empty set is not a draw call (the small rocks go at the far zooms)
+    set.mesh.visible = set.blob.visible = n > 0;
     set.blob.instanceMatrix.needsUpdate = true;
     set.mesh.instanceMatrix.needsUpdate = true;
     set.mesh.instanceColor!.needsUpdate = true;
