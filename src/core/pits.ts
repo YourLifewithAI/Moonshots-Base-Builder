@@ -55,6 +55,7 @@ import { bumpRoads, cellAt, cellCentre, cellKey, doorCell, gatesOf, regate } fro
 import { mulberry32 } from './rng';
 import { alert as rawAlert, alertIn } from './economy';
 import { depositRevealed, networkRadius } from './exploration';
+import { perState } from './stateMemo';
 
 /** deposit surveys are field reports (docs/19 S7) */
 const alert = alertIn('field');
@@ -940,7 +941,8 @@ function reclaimStep(s: GameState, hf: Heightfield, p: PitState): boolean {
 
 // ───────────────────────────── Phase 4: grade, faces, reserves ─────────────────────────────
 
-const gradeMemo = new Map<string, number>();
+/** per base (core/stateMemo.ts); the key keeps the seed too */
+const gradeMemos = perState(() => new Map<string, number>());
 
 /** The grade (q) a hub's units bring from a target now (§9.1): a deposit's cut
  *  (its centre, before a pit), plain ground's grade for a plain pit or a
@@ -962,11 +964,12 @@ export function targetGrade(s: GameState, mods: Mods, site: Pick<SiteDef, 'hasIc
     ? { cx: p.cx, cz: p.cz, R: p.rockR ?? p.R, L: prof.L, rock: p.rockR !== undefined }
     : { cx: d.cx, cz: d.cz, R: 4, L: prof.L };
   const mk = `${s.seed}|${key}|${proc}|${shape.cx.toFixed(1)},${shape.cz.toFixed(1)}|${shape.R.toFixed(1)}|${shape.rock ? 1 : 0}`;
-  let g = gradeMemo.get(mk);
+  const memo = gradeMemos(s);
+  let g = memo.get(mk);
   if (g === undefined) {
     g = cutGrade(prof, proc, s.siteId, shape);
-    if (gradeMemo.size > 2000) gradeMemo.clear();
-    gradeMemo.set(mk, g);
+    if (memo.size > 2000) memo.clear();
+    memo.set(mk, g);
   }
   return g * gradeMult(s, mods, proc, false);
 }

@@ -14,6 +14,7 @@ import { DEPOSIT_INFO, siteHasDeposit, type DepositKind, type FeedKind } from '.
 import { EXPOSURE_TEXT, GUARD_TEXT, HAZARDS_LIVE, HAZARD_NAME, type GuardId, type HazardId } from './hazards';
 import { AUTO, FAMILY_LABEL, RULES, RULE_TEXT, rulesOf, type AutoFamily } from './automation';
 import type { ProspectId } from './lunarMap';
+import { LANDING_TECH_FOR, type FactionId } from './factions';
 import { FORECAST } from './forecast';
 import type { GameState } from '../core/state';
 import {
@@ -78,6 +79,8 @@ export type TechId =
   | 'swarmProtocol' | 'powerBeaming' | 'vonNeumann' | 'railCapacitors' | 'cryocoolerHeads' | 'canisterPress'
   // destiny (docs/14): the landing, a ⌂ Colony / ◉ Automation pick for eras 2–8, the three capstones
   | 'landingCrew' | 'landingRobotic'
+  // the three faction landings (docs/20 §1): their traits are these techs' effects
+  | 'landingFoundry' | 'landingVanguard' | 'landingCommons'
   | 'pressureHalls' | 'dispatchMesh' | 'crewCharter' | 'droneHives' | 'hydroCommons' | 'lightsOutFabs'
   | 'greenhouseRings' | 'fleetOS' | 'settlerCharter' | 'lightsOutCharter' | 'gardenDomes' | 'replicatorStacks'
   | 'missionControl' | 'autoCadence'
@@ -88,10 +91,14 @@ export type Side = 'colony' | 'automation';
 /** where the eight picks land: a pure destiny (6 of 8 on one side), or Concord */
 export type Band = Side | 'concord';
 
-/** Any effect may be limited to some sites / expeditions; computeMods skips it elsewhere.
+/** Any effect may be limited to some sites / expeditions / factions; computeMods skips it elsewhere.
  *  `crew`: only where people live — human runs, and robotic runs once Human
  *  Cohabitation is done (the card line says `(with crew)`). */
-export interface EffectFilter { sites?: SiteId[]; expeditions?: Expedition[]; crew?: true }
+export interface EffectFilter {
+  sites?: SiteId[]; expeditions?: Expedition[]; crew?: true;
+  /** only on these factions' bases (docs/20 §3); a solo game (no faction) skips every effect that has one */
+  factions?: FactionId[];
+}
 
 export interface RecipeOverride {
   inputs?: Partial<Record<ResourceId, number>>;
@@ -199,6 +206,22 @@ export type TechEffect = EffectFilter & (
   | { kind: 'stowShield'; sigma: number }
   /** flare forecasting (docs/16 §6, core/forecast.ts): the tier this tech makes possible */
   | { kind: 'forecast'; tier: 1 | 2 | 3 }
+  // ── factions (docs/20 §3; the readers come with stream S2, the cost readers are core/research.ts) ──
+  /** a lane's research costs ×mult (techCost) */
+  | { kind: 'laneCost'; lane: Lane; mult: number }
+  /** a destiny side's picks cost ×mult (techCost, `track` techs that are not the landing) */
+  | { kind: 'pickCost'; side: Side; mult: number }
+  /** flare damage: solar arrays ×arrayHard (mods.arrayHardMult), machine reboot / latch / burn ×machine (mods.machineFlareMult) */
+  | { kind: 'flareVuln'; arrayHard?: number; machine?: number }
+  /** the long night: stations and units' output ×output, standby draw ×standby, bank charge efficiency
+   *  chargeEff (absolute: the worse of it and the grid's), bank discharge ×discharge */
+  | { kind: 'nightMode'; output?: number; standby?: number; chargeEff?: number; discharge?: number }
+  /** morale falls ×fallMult as fast (the rise is untouched) */
+  | { kind: 'moraleDynamics'; fallMult: number }
+  /** the scrutiny meter is live (core/scrutiny.ts, stream S2) */
+  | { kind: 'scrutiny'; on: true }
+  /** a one-time grant when the tech completes (research.onTechComplete; the landing tech's is applied at landing) */
+  | { kind: 'grant'; data?: number }
 );
 export type TechEffectKind = TechEffect['kind'];
 
@@ -220,8 +243,12 @@ export interface TechDef {
   expeditions?: Expedition[];
   /** human-comfort tech: on robotic runs visible but locked until Human Cohabitation */
   crewTech?: boolean;
-  /** robotic-run overrides, merged by resolveTech() */
+  /** robotic-run overrides, merged by resolveTech() (robotic resolves through the Foundry) */
   robotic?: { era?: Era; costData?: number };
+  /** faction-locked (docs/20 §3): visible only to these factions, never in a solo game (techVisible) */
+  factions?: FactionId[];
+  /** per-faction overrides, merged by resolveTech(faction) after `robotic` */
+  factionOverride?: Partial<Record<FactionId, { era?: Era; costData?: number; name?: string; short?: string; desc?: string }>>;
   /** hidden until one of its hosts is surveyed; fixed Exploration-lane slot */
   breakthrough?: { hosts: ProspectId[]; slot: 1 | 2 };
   effects: TechEffect[];
@@ -1631,6 +1658,65 @@ export const TECHS: Record<TechId, TechDef> = {
     visual: 'The Lander’s cabin windows are blanked, and a rover rides stowed in a cradle on its hull.',
     tradeoff: 'Machines cannot die, and cannot dream either.',
   },
+  // ── the three faction landings (docs/20 §1): every trait of a faction is an effect here, so it
+  // flows through computeMods like any tech. They are faction-locked (`factions`): solo games never
+  // see them (landingCrew / landingRobotic stay the solo landings), a faction game sees only its own.
+  landingFoundry: {
+    id: 'landingFoundry', era: 1, name: 'Foundry Landing', short: 'Foundry Landing',
+    costData: 0, requires: [], expeditions: ['robotic'], factions: ['robots'],
+    track: { era: 1, side: 'automation', landing: true },
+    effects: [
+      { kind: 'buildSpeed', mult: 0.9 },
+      { kind: 'laneCost', lane: 'robotics', mult: 0.85 },
+      { kind: 'laneCost', lane: 'compute', mult: 0.85 },
+      { kind: 'survey', range: 1.15 },
+      { kind: 'flareVuln', arrayHard: 1.6, machine: 1.75 },
+      { kind: 'nightMode', output: 0.25, standby: 1.3, chargeEff: 0.75, discharge: 1.25 },
+    ],
+    desc: 'Machines first. A lander with no beds, no air and nobody to wait for: the Foundry is on the Moon before anyone, and it builds while the rest are still packing.',
+    visual: 'The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating.',
+    tradeoff: 'Machines have no margin: a flare hits them hardest, and in the long night they crawl on a thin, leaky bank.',
+  },
+  landingVanguard: {
+    id: 'landingVanguard', era: 1, name: 'Vanguard Landing', short: 'Vanguard Landing',
+    costData: 0, requires: [], expeditions: ['human'], factions: ['accelerationists'],
+    track: { era: 1, side: 'colony', landing: true },
+    effects: [
+      { kind: 'outputMult', buildings: ['lab'], mult: 1.35 },
+      { kind: 'outputMult', buildings: ['dataCenter'], mult: 1.2 },
+      { kind: 'laneCost', lane: 'compute', mult: 0.8 },
+      { kind: 'laneCost', lane: 'materials', mult: 0.8 },
+      { kind: 'grant', data: 100 },
+      { kind: 'moraleBase', delta: -8 },
+      { kind: 'moraleDynamics', fallMult: 2 },
+      { kind: 'scrutiny', on: true },
+      { kind: 'hazardRate', mult: 1.25 },
+      { kind: 'pickCost', side: 'colony', mult: 1.15 },
+    ],
+    desc: 'Seven people, a flag and a launch window to win. The Vanguard runs its labs hot and publishes everything: data comes cheap, silicon and steel come cheaper, and the whole world reads the log.',
+    visual: 'The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull.',
+    tradeoff: 'Everybody is watching: a death, a wreck or an accident becomes a hearing, and a hearing brings people home.',
+  },
+  landingCommons: {
+    id: 'landingCommons', era: 1, name: 'Commons Landing', short: 'Commons Landing',
+    costData: 0, requires: [], expeditions: ['human'], factions: ['solarpunks'],
+    track: { era: 1, side: 'colony', landing: true },
+    effects: [
+      { kind: 'moraleBase', delta: 10 },
+      { kind: 'hazardRate', mult: 0.6 },
+      { kind: 'guard', guard: 'safety' },
+      { kind: 'laneCost', lane: 'habitat', mult: 0.6 },
+      { kind: 'laneCost', lane: 'materials', mult: 1.3 },
+      { kind: 'laneCost', lane: 'robotics', mult: 1.3 },
+      { kind: 'laneCost', lane: 'exploration', mult: 1.3 },
+      { kind: 'growth', mult: 1 / 1.25 },
+      { kind: 'buildSpeed', mult: 1.3 },
+      { kind: 'pickCost', side: 'colony', mult: 0.85 },
+    ],
+    desc: 'A crew that came to stay. The Commons build for people first: a well-fed, well-warned base that grows on its own and shelters the swarm as a commons, slow to raise and dear in steel and machines.',
+    visual: 'The Lander wears solar awnings, planter boxes by its door and a green banner.',
+    tradeoff: 'Nothing here is built in a hurry, and the machines are the dear part.',
+  },
   pressureHalls: {
     id: 'pressureHalls', era: 2, name: 'Pressure-Rated Halls', short: 'Pressure Halls',
     costData: 120, costGoods: { metals: 20 }, requires: [], track: { era: 2, side: 'colony' },
@@ -1932,6 +2018,13 @@ export const BAND_ENDING: Record<Band, string> = {
 export const CAPSTONES: Record<Band, TechId> = { colony: 'commonwealth', automation: 'selenicMind', concord: 'concord' };
 /** the landing pick of each expedition (pushed into techsDone at landing) */
 export const LANDING_TECH: Record<Expedition, TechId> = { human: 'landingCrew', robotic: 'landingRobotic' };
+/** the landing pick of a faction's game (docs/20): its own landing tech, which carries its traits */
+export const landingTechFor = (faction: FactionId): TechId => LANDING_TECH_FOR[faction];
+/** every landing, by the side it counts on toward the Era 1 destiny pick: the solo landings and the faction ones */
+const LANDINGS_OF: Record<Side, TechId[]> = {
+  colony: ['landingCrew', 'landingVanguard', 'landingCommons'],
+  automation: ['landingRobotic', 'landingFoundry'],
+};
 /** Era 8's blurb once the band is known (banner and page header) */
 export const ERA_BLURB_8: Record<Band, string> = {
   colony: 'The first collectors fly from a city under glass. Every volley is a launch day.',
@@ -1948,7 +2041,9 @@ export function destinyCounts(done: readonly string[]): {
   let c = 0, a = 0;
   for (let e = 1 as Era; e <= 8; e = (e + 1) as Era) {
     const t = TRACKS[e];
-    const col = done.includes(t.colony), aut = done.includes(t.automation);
+    // Era 1's pick is the landing: a faction's own counts on its side as the solo landings do
+    const col = e === 1 ? LANDINGS_OF.colony.some((l) => done.includes(l)) : done.includes(t.colony);
+    const aut = e === 1 ? LANDINGS_OF.automation.some((l) => done.includes(l)) : done.includes(t.automation);
     if (col) c++;
     if (aut) a++;
     if (col || aut) picks[e] = col ? 'colony' : 'automation';
@@ -2079,6 +2174,8 @@ export interface DescribeCtx {
   agentTax?: number;
   /** techs done: a spent `bringsCrew` line is hidden once Human Cohabitation is */
   done?: readonly TechId[];
+  /** the state's faction (none in a solo game): faction-filtered effects describe only there */
+  faction?: FactionId;
 }
 
 const glyph = (r: string) => RESOURCES[r as ResourceId]?.glyph ?? '';
@@ -2561,6 +2658,41 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       const who = fx.buildings?.length ? `${names(fx.buildings)} ` : '';
       return [con(`${HAZARD_NAME[fx.hazard]}: ${who}${t.what} — ${t.cost}`, 1, 'use')];
     }
+    // ── factions (docs/20 §3) ──
+    case 'laneCost': {
+      const lane = LANES.find((l) => l.id === fx.lane)?.label ?? fx.lane;
+      const text = `${lane} research ×${num(fx.mult)} cost`;
+      return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
+    }
+    case 'pickCost': {
+      const text = `${SIDE_GLYPH[fx.side]} ${SIDE_LABEL[fx.side]} picks ×${num(fx.mult)} cost`;
+      return [fx.mult <= 1 ? pro(text, mag(fx.mult), 'mult') : con(text, mag(fx.mult), 'mult')];
+    }
+    case 'flareVuln': {
+      const out: EffectLine[] = [];
+      const line = (text: string, m: number) => out.push(m <= 1 ? pro(text, mag(m), 'mult') : con(text, mag(m), 'mult'));
+      if (fx.arrayHard !== undefined && fx.arrayHard !== 1) line(`solar arrays take ×${num(fx.arrayHard)} flare damage`, fx.arrayHard);
+      if (fx.machine !== undefined && fx.machine !== 1) line(`machine reboot, latch and burn ×${num(fx.machine)}`, fx.machine);
+      return out;
+    }
+    case 'nightMode': {
+      const out: EffectLine[] = [];
+      const line = (text: string, m: number, good: boolean) =>
+        out.push(good ? pro(text, mag(m), 'mult') : con(text, mag(m), 'mult'));
+      if (fx.output !== undefined && fx.output !== 1) line(`stations and units run at ×${num(fx.output)} output at night`, fx.output, fx.output >= 1);
+      if (fx.standby !== undefined && fx.standby !== 1) line(`standby draw ×${num(fx.standby)} at night`, fx.standby, fx.standby <= 1);
+      if (fx.chargeEff !== undefined) line(`the bank charges at ${Math.round(fx.chargeEff * 100)}%`, fx.chargeEff / BATTERY_EFF, fx.chargeEff >= BATTERY_EFF);
+      if (fx.discharge !== undefined && fx.discharge !== 1) line(`the bank discharges ×${num(fx.discharge)} as fast`, fx.discharge, fx.discharge <= 1);
+      return out;
+    }
+    case 'moraleDynamics': {
+      const text = `morale falls ×${num(fx.fallMult)} as fast`;
+      return [fx.fallMult <= 1 ? pro(text, mag(fx.fallMult), 'mult') : con(text, mag(fx.fallMult), 'mult')];
+    }
+    case 'scrutiny':
+      return [con('SCRUTINY: a death, wreck or accident raises a meter; high, it cuts crewed output and research, and hearings recall crew', 1, 'use')];
+    case 'grant':
+      return fx.data ? [pro(`+${num(fx.data)}≡ data on landing`, fx.data, 'count')] : [];
     case 'feedBonus': {
       const p = FEED_POSITIVE[fx.deposit];
       const text = p
@@ -2572,8 +2704,13 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
 }
 
 /** Does the effect apply here? `techsDone` (computeMods passes it) applies
- *  the crew filter: on a robotic run, crew effects wait for Human Cohabitation. */
-export function effectApplies(fx: TechEffect, siteId?: SiteId | null, exp?: Expedition, techsDone?: readonly string[]): boolean {
+ *  the crew filter: on a robotic run, crew effects wait for Human Cohabitation.
+ *  `faction` (the state's; undefined in a solo game) applies the faction filter. */
+export function effectApplies(
+  fx: TechEffect, siteId?: SiteId | null, exp?: Expedition, techsDone?: readonly string[], faction?: FactionId | null,
+): boolean {
+  // a faction-filtered effect applies only on that faction's base: a solo game (no faction) skips it
+  if (fx.factions && !(faction && fx.factions.includes(faction))) return false;
   if (fx.sites && siteId && !fx.sites.includes(siteId)) return false;
   if (fx.expeditions && exp && !fx.expeditions.includes(exp)) return false;
   if (fx.crew && exp === 'robotic' && techsDone && !techsDone.includes('humanCohabitation')) return false;
@@ -2584,7 +2721,7 @@ export function effectApplies(fx: TechEffect, siteId?: SiteId | null, exp?: Expe
  *  A crew effect's lines say `(with crew)` wherever people may not be aboard. */
 export function describeTech(def: TechDef, ctx: DescribeCtx = {}): EffectLine[] {
   const lines = def.effects
-    .filter((fx) => effectApplies(fx, ctx.siteId, ctx.expedition))
+    .filter((fx) => effectApplies(fx, ctx.siteId, ctx.expedition, undefined, ctx.faction))
     .flatMap((fx) => {
       const out = describeEffect(fx, ctx);
       return fx.crew && ctx.expedition !== 'human' ? out.map((l) => ({ ...l, text: `${l.text} (with crew)` })) : out;

@@ -17,7 +17,8 @@ import {
   QUEUE_MAX, RESEARCH_RATE_EMA_S, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB,
 } from '../data/balance';
 import { fillStateDefaults, type BuildingState, type GameState } from './state';
-import { computeMods, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, waterReclaimFactor, type Mods } from './mods';
+import { computeMods, costMults, effectiveDef, effectiveRates, isAgentRun, modsFor, unmanned, waterReclaimFactor, type Mods } from './mods';
+import { FACTION_NAME, factionOfState, type FactionId } from '../data/factions';
 import { alert as rawAlert, alertIn, crewReserve, moraleWorkMult } from './economy';
 import { CLASS_LABEL, KIND_LABEL, baseStream, outpostSlots, prospectClass, prospectDist, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
@@ -33,7 +34,11 @@ export interface ActionResult { ok: boolean; reason: string }
 /** what techVisible needs — a live state, or a site/expedition pair for audits
  *  (no techsDone: every capstone counts as visible, as every breakthrough does
  *  with discoveries = TECH_ORDER) */
-export interface TechCtx { siteId: SiteId; expedition: Expedition; discoveries?: readonly TechId[]; techsDone?: readonly TechId[] }
+export interface TechCtx {
+  siteId: SiteId; expedition: Expedition; discoveries?: readonly TechId[]; techsDone?: readonly TechId[];
+  /** the state's faction (docs/20): faction-locked techs show only on theirs; none = a solo game (a live state passes itself) */
+  faction?: FactionId | null;
+}
 
 const OK: ActionResult = { ok: true, reason: '' };
 /** the research tree's save schema: 2 = the 47-tech tree, 3 = the 90-tech tree,
@@ -46,20 +51,43 @@ const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpp
 
 // ─────────────────────────── resolution & visibility ───────────────────────────
 
-const robotCache: Partial<Record<TechId, TechDef>> = {};
-/** Merges the robotic override (era, costData) on robotic runs. */
-export function resolveTech(def: TechDef, exp: Expedition): TechDef {
-  if (exp !== 'robotic' || !def.robotic) return def;
-  let r = robotCache[def.id];
+const resolveCache = new Map<string, TechDef>();
+/** Merges the robotic override (era, costData) on robotic runs (docs/20: robotic resolves through the
+ *  Foundry, whose expedition it is), then the faction's own override (era, costData, name, short, desc).
+ *  A solo game passes no faction and resolves exactly as before. */
+export function resolveTech(def: TechDef, exp: Expedition, faction?: FactionId | null): TechDef {
+  const rob = exp === 'robotic' ? def.robotic : undefined;
+  const fo = faction ? def.factionOverride?.[faction] : undefined;
+  if (!rob && !fo) return def;
+  const key = `${def.id}|${rob ? 'r' : ''}|${fo ? faction : ''}`;
+  let r = resolveCache.get(key);
   if (!r) {
-    r = { ...def, era: def.robotic.era ?? def.era, costData: def.robotic.costData ?? def.costData };
-    robotCache[def.id] = r;
+    r = {
+      ...def,
+      era: fo?.era ?? rob?.era ?? def.era,
+      costData: fo?.costData ?? rob?.costData ?? def.costData,
+      ...(fo?.name !== undefined ? { name: fo.name } : {}),
+      ...(fo?.short !== undefined ? { short: fo.short } : {}),
+      ...(fo?.desc !== undefined ? { desc: fo.desc } : {}),
+    };
+    resolveCache.set(key, r);
   }
   return r;
 }
-const R = (tid: TechId, exp: Expedition) => resolveTech(TECHS[tid], exp);
+const R = (tid: TechId, exp: Expedition, faction?: FactionId | null) => resolveTech(TECHS[tid], exp, faction);
+/** the tech as this state sees it (expedition and faction) */
+const RS = (tid: TechId, s: { expedition: Expedition }) => R(tid, s.expedition, factionOfState(s));
+
+/** a faction-locked tech shows only on its factions' bases (never solo); in a faction game the solo
+ *  landings (landingCrew / landingRobotic) give way to the faction's own */
+const factionHides = (def: TechDef, ctx: TechCtx): boolean => {
+  const f = factionOfState(ctx);
+  if (def.factions) return !f || !def.factions.includes(f);
+  return !!f && !!def.track?.landing;
+};
 
 export function techVisible(def: TechDef, ctx: TechCtx): boolean {
+  if (factionHides(def, ctx)) return false;
   if (def.sites && !def.sites.includes(ctx.siteId)) return false;
   if (def.expeditions && !def.expeditions.includes(ctx.expedition)) return false;
   if (def.breakthrough && !(ctx.discoveries ?? []).includes(def.id)) return false;
@@ -98,6 +126,9 @@ export function compassOf(def: TechDef, s: Pick<GameState, 'siteId' | 'survey' |
 }
 
 function hiddenReason(def: TechDef, ctx: TechCtx): string {
+  if (factionHides(def, ctx)) {
+    return def.factions ? `⚑ ${def.factions.map((f) => FACTION_NAME[f]).join(' / ')} only` : 'the solo landing — not offered in a faction game';
+  }
   if (def.band && !(def.sites && !def.sites.includes(ctx.siteId))) {
     return 'a destiny capstone — the Era 8 pick settles which one opens';
   }
@@ -176,9 +207,22 @@ export interface TechCost {
   insightLabel: string;
 }
 
-export function techCost(tid: TechId, s: Pick<GameState, 'expedition' | 'insights' | 'siteId'>): TechCost {
-  const def = R(tid, s.expedition);
-  const scaled = def.costData * ERA_COST_SCALE[def.era];
+/** `mods`: the state's computed mods when the caller has them; otherwise the multipliers are read from
+ *  the state's own techs (mods.costMults), so a state with no faction tech costs exactly what it always did. */
+export function techCost(
+  tid: TechId,
+  s: Pick<GameState, 'expedition' | 'insights' | 'siteId'> & { techsDone?: readonly TechId[]; faction?: FactionId | null },
+  mods?: Pick<Mods, 'laneCostMult' | 'pickCostMult'>,
+): TechCost {
+  const def = R(tid, s.expedition, factionOfState(s));
+  // faction costs (docs/20 §3): a lane's multiplier, or a destiny pick's side multiplier (never the landing)
+  let mult = 1;
+  if (def.lane || (def.track && !def.track.landing)) {
+    const cm = mods ?? costMults(s);
+    if (def.lane) mult = cm.laneCostMult[def.lane];
+    else mult = cm.pickCostMult[def.track!.side];
+  }
+  const scaled = def.costData * ERA_COST_SCALE[def.era] * mult;
   const discount = Math.min(INSIGHT_MAX, s.insights?.[tid] ?? 0);
   return {
     data: Math.round(scaled * (1 - discount)),
@@ -269,7 +313,7 @@ export function shortfallText(tid: TechId, s: GameState, mods: Mods = modsFor(s)
 export function techAvailability(tid: TechId, s: GameState, mods?: Mods): Availability {
   const raw = TECHS[tid];
   if (!raw) return { state: 'hidden', reason: 'retired tech' };
-  const def = resolveTech(raw, s.expedition);
+  const def = resolveTech(raw, s.expedition, factionOfState(s));
   if (!techVisible(def, s)) return { state: 'hidden', reason: hiddenReason(def, s) };
   if (s.techsDone.includes(tid)) return { state: 'done', reason: 'researched' };
   const qi = s.researchQueue.indexOf(tid);
@@ -336,7 +380,7 @@ function rejectText(tid: TechId, a: Availability, s: GameState): string {
     case 'foreclosed': return `FORECLOSED — ${n} ${a.reason.replace(/^foreclosed /, '')}`;
     case 'crewLocked': return `CREW TECH — ${n} needs Human Cohabitation (Era 6) first`;
     case 'eraLocked': {
-      const era = R(tid, s.expedition).era;
+      const era = RS(tid, s).era;
       return `ERA LOCKED — ${n} opens with Era ${era} · ${gateHint(era, s)}`;
     }
     case 'requires': case 'requiresAny':
@@ -386,7 +430,7 @@ export function enqueuePath(s: GameState, tid: TechId): ActionResult {
   };
   const visit = (t: TechId): string => {
     if (have(t)) return '';
-    const def = R(t, s.expedition);
+    const def = RS(t, s);
     const a = techAvailability(t, s);
     if (a.state === 'hidden') return `CANNOT QUEUE PATH — ${nameOf(t)}: ${a.reason}`;
     if (a.state === 'foreclosed') return `CANNOT QUEUE PATH — ${nameOf(t)} is ${a.reason}`;
@@ -413,7 +457,7 @@ export function enqueuePath(s: GameState, tid: TechId): ActionResult {
   const err = visit(tid);
   if (err) return { ok: false, reason: err };
   const order = [...picked].sort((x, y) =>
-    R(x, s.expedition).era - R(y, s.expedition).era || TECH_ORDER.indexOf(x) - TECH_ORDER.indexOf(y));
+    RS(x, s).era - RS(y, s).era || TECH_ORDER.indexOf(x) - TECH_ORDER.indexOf(y));
   const room = QUEUE_MAX - s.researchQueue.length;
   if (order.length > room) return { ok: false, reason: `QUEUE FULL — ${Math.max(0, room)} of ${order.length} fit` };
   s.researchQueue.push(...order);
@@ -440,7 +484,7 @@ export function moveInQueue(s: GameState, tid: TechId, delta: -1 | 1): ActionRes
   const next = q.slice();
   [next[i], next[j]] = [next[j], next[i]];
   const up = next[Math.min(i, j)], down = next[Math.max(i, j)];
-  if (dropReason(R(up, s.expedition), s, next.slice(0, Math.min(i, j)))) {
+  if (dropReason(RS(up, s), s, next.slice(0, Math.min(i, j)))) {
     return { ok: false, reason: `CANNOT MOVE — ${nameOf(up)} needs ${nameOf(down)} first` };
   }
   s.researchQueue = next;
@@ -476,7 +520,7 @@ export function sanitizeQueue(s: GameState): TechId[] {
     for (const tid of queue) {
       // retired, already done (debug completeTech) or duplicated: nothing to tell
       if (!TECHS[tid] || s.techsDone.includes(tid) || kept.includes(tid)) { changed = true; continue; }
-      const def = R(tid, s.expedition);
+      const def = RS(tid, s);
       const why = dropReason(def, s, kept);
       if (why) {
         changed = true;
@@ -542,12 +586,22 @@ export function researchRates(s: GameState, mods: Mods): ResearchRates {
 
 const fmtMS = (sec: number) => `${Math.floor(sec / 60)}:${String(Math.round(sec % 60)).padStart(2, '0')}`;
 
+/** A tech's one-time grants (`grant` effects: the Vanguard's +100 data). onTechComplete applies them on completion;
+ *  a faction's landing tech is never researched, so the integrator calls this once at landing (docs/20 W0i). */
+export function applyGrants(s: GameState, tid: TechId) {
+  const f = factionOfState(s);
+  for (const fx of TECHS[tid]?.effects ?? []) {
+    if (fx.kind === 'grant' && effectApplies(fx, s.siteId, s.expedition, s.techsDone, f)) s.data += fx.data ?? 0;
+  }
+}
+
 /** Side effects of finishing a tech: the crew rotation for robotic
  *  Cohabitation, and a destiny pick that brings Cohabitation forward
  *  (docs/14 §2.5) — done and forwarded, never counted toward a charter. */
 export function onTechComplete(s: GameState, tid: TechId) {
   const def = TECHS[tid];
-  const brings = !!def?.effects.some((fx) => fx.kind === 'bringsCrew' && effectApplies(fx, s.siteId, s.expedition));
+  applyGrants(s, tid);
+  const brings = !!def?.effects.some((fx) => fx.kind === 'bringsCrew' && effectApplies(fx, s.siteId, s.expedition, undefined, factionOfState(s)));
   if (brings && s.expedition === 'robotic' && !s.techsDone.includes('humanCohabitation')) {
     const co: TechId = 'humanCohabitation';
     s.techsDone.push(co);
@@ -688,11 +742,11 @@ export interface GateProgress {
 /** techs that carry a charter waiver (Lights-Out Charter) */
 const WAIVERS = TECH_ORDER.filter((t) => TECHS[t].effects.some((fx) => fx.kind === 'waive'));
 /** Charter requirements waived on this run by a destiny done. */
-export function waivedTechs(s: Pick<GameState, 'techsDone' | 'siteId' | 'expedition'>): Set<TechId> {
+export function waivedTechs(s: Pick<GameState, 'techsDone' | 'siteId' | 'expedition'> & { faction?: FactionId | null }): Set<TechId> {
   const out = new Set<TechId>();
   for (const t of WAIVERS) {
     if (!s.techsDone.includes(t)) continue;
-    for (const fx of TECHS[t].effects) if (fx.kind === 'waive' && effectApplies(fx, s.siteId, s.expedition)) out.add(fx.tech);
+    for (const fx of TECHS[t].effects) if (fx.kind === 'waive' && effectApplies(fx, s.siteId, s.expedition, undefined, factionOfState(s))) out.add(fx.tech);
   }
   return out;
 }
@@ -709,7 +763,7 @@ export function gateProgress(s: GameState, era: Era): GateProgress {
   let techs = 0;
   for (const tid of s.techsDone) {
     if (!TECHS[tid]) continue;
-    const def = R(tid, s.expedition);
+    const def = RS(tid, s);
     if (def.track?.landing || forwarded.includes(tid)) continue;
     if (def.era === era - 1 && techVisible(def, s)) techs++;
   }
@@ -826,8 +880,9 @@ const fmtD = (v: number, digits = 2) => `${v > 0 ? '+' : '−'}${Number(Math.abs
 export function previewTech(tid: TechId, s: GameState): PreviewLine[] {
   if (!TECHS[tid] || s.techsDone.includes(tid)) return [];
   const outposts = s.survey?.outposts ?? [];
-  const a = computeMods(s.techsDone, s.expedition, s.siteId, outposts);
-  const b = computeMods([...s.techsDone, tid], s.expedition, s.siteId, outposts);
+  const faction = factionOfState(s);
+  const a = computeMods(s.techsDone, s.expedition, s.siteId, outposts, faction);
+  const b = computeMods([...s.techsDone, tid], s.expedition, s.siteId, outposts, faction);
   const site = SITES[s.siteId];
   const robotic = s.expedition === 'robotic';
   const workMult = robotic && s.crew <= 0 ? 1 : moraleWorkMult(s.morale);
@@ -879,10 +934,10 @@ export function previewTech(tid: TechId, s: GameState): PreviewLine[] {
 }
 
 /** Visible techs at a site × expedition that fail the techRelevance invariant (should be none). */
-export function irrelevantVisibleTechs(siteId: SiteId, expedition: Expedition): TechId[] {
+export function irrelevantVisibleTechs(siteId: SiteId, expedition: Expedition, faction?: FactionId): TechId[] {
   return TECH_ORDER.filter((t) => {
-    const def = resolveTech(TECHS[t], expedition);
-    const ctx: TechCtx = { siteId, expedition, discoveries: TECH_ORDER };
+    const def = resolveTech(TECHS[t], expedition, faction);
+    const ctx: TechCtx = { siteId, expedition, discoveries: TECH_ORDER, faction };
     return techVisible(def, ctx) && !techRelevance(def, siteId, expedition);
   });
 }
@@ -960,7 +1015,7 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
   }
   const cards = {} as Record<TechId, ResearchCard>;
   for (const tid of TECH_ORDER) {
-    const def = R(tid, s.expedition);
+    const def = RS(tid, s);
     const av = techAvailability(tid, s, mods);
     const cost = techCost(tid, s);
     const spent = s.researchSpent[tid] ?? 0;

@@ -158,12 +158,14 @@ test('the per-state mode defaults to today, binds per base, and the debug switch
   await page.goto('/');
   const r = await page.evaluate(async () => {
     const SM = await import('/src/core/simMode.ts');
+    const BS = await import('/src/core/baseSim.ts');
     const T = await import('/src/core/transit.ts');
     const TR = await import('/src/core/traffic.ts');
     const ST = await import('/src/core/state.ts');
     const a = ST.createInitialState('mare', 42, 'robotic');
     const b = ST.createInitialState('mare', 42, 'robotic');
     const headless = { headless: true, straightLegs: true, traffic: false, virtualPits: true, openRoads: false };
+    const agree = [{ ...BS.PLAYER_MODE }, { ...SM.DEFAULT_MODE }, { ...SM.HEADLESS_MODE }];
     const fresh = { mode: { ...SM.modeOf(a) }, instant: SM.instantOf(a), off: SM.trafficOff(a), straight: SM.straightOf(a) };
     SM.bindMode(b, headless);
     const bound = { mode: { ...SM.modeOf(b) }, instant: SM.instantOf(b), off: SM.trafficOff(b), straight: SM.straightOf(b), aStill: { ...SM.modeOf(a) } };
@@ -173,12 +175,16 @@ test('the per-state mode defaults to today, binds per base, and the debug switch
     const debug = { aOff: SM.trafficOff(a), aInstant: SM.instantOf(a), bInstant: SM.instantOf(b), stats: TR.trafficStats(a).bypass };
     TR.TRAFFIC.bypass = false; T.TRANSIT.instant = false;
     const after = { aOff: SM.trafficOff(a), aInstant: SM.instantOf(a), stats: TR.trafficStats(a).bypass };
-    return { fresh, bound, same, debug, after, headless };
+    return { fresh, bound, same, debug, after, headless, agree };
   });
   expect(r.fresh).toEqual({
     mode: { headless: false, straightLegs: false, traffic: true, virtualPits: false, openRoads: false },
     instant: false, off: false, straight: false,
   });
+  // the defaults agree with the player's mode (core/baseSim.ts), and the headless constant is the five values below
+  expect(r.agree[1]).toEqual(r.agree[0]);
+  expect(r.agree[0]).toEqual(r.fresh.mode);
+  expect(r.agree[2]).toEqual(r.headless);
   expect(r.bound.mode).toEqual(r.headless);
   expect([r.bound.instant, r.bound.off, r.bound.straight]).toEqual([false, true, true]);
   expect(r.bound.aStill).toEqual(r.fresh.mode);
@@ -204,7 +210,7 @@ test('a headless base on a flat site digs a virtual pit that tracks a real pit, 
     const E = await import('/src/core/economy.ts');
     const T = await import('/src/core/transit.ts');
     const TR = await import('/src/core/traffic.ts');
-    const HEADLESS = { headless: true, straightLegs: true, traffic: false, virtualPits: true, openRoads: false };
+    const HEADLESS = { ...SM.HEADLESS_MODE };
     /** the base cloned onto `kind` of ground, ticked `minutes` game-minutes (as Game.econStep: clock first, then the tick);
      *  the power topped up and the hopper emptied every half minute, so a unit never waits for either */
     const run = (kind: 'real' | 'flat', mode: any, minutes: number) => {

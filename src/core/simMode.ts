@@ -18,18 +18,21 @@
  *  (core/game.ts `debugInstantTravel`); they live here so both transit.ts and
  *  traffic.ts can read the per-state answer without importing each other. */
 import type { GameState } from './state';
+import type { SimMode } from './baseSim';
 
-export interface SimMode {
-  headless: boolean;
-  straightLegs: boolean;
-  traffic: boolean;
-  virtualPits: boolean;
-  openRoads: boolean;
-}
+/** (declared with `BaseSim`, core/baseSim.ts, where the player's `PLAYER_MODE` is too) */
+export type { SimMode };
 
-/** Today's behaviour: the visible base. */
+/** Today's behaviour: the visible base. The same five values as `PLAYER_MODE` (core/baseSim.ts; a value import of it
+ *  would close a cycle, baseSim → economy → simMode, so tests/headless.spec.ts checks the two agree). */
 export const DEFAULT_MODE: Readonly<SimMode> = Object.freeze({
   headless: false, straightLegs: false, traffic: true, virtualPits: false, openRoads: false,
+});
+
+/** A rival's base: nobody draws it, its legs are straight, it runs without traffic and its pits are counted, not
+ *  carved (roads are still laid and sintered, so they cost the rover-seconds they cost the player). */
+export const HEADLESS_MODE: Readonly<SimMode> = Object.freeze({
+  headless: true, straightLegs: true, traffic: false, virtualPits: true, openRoads: false,
 });
 
 /** Tests where timing is not the point (debug): every trip ends as it starts, and a new goal is reached in the tick that sets it. */
