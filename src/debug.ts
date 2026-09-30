@@ -12,6 +12,7 @@ import { FACTIONS, FACTION_ORDER, type FactionId } from './data/factions';
 import { isHubType } from './data/hubs';
 import type { Action } from './core/actions';
 import type { RivalProgram } from './core/rival';
+import { pushFeed, type FeedKind } from './core/moon';
 import { BaseSim } from './core/baseSim';
 import { HEADLESS_MODE } from './core/simMode';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
@@ -141,6 +142,10 @@ function api(game: Game) {
       r.base.clearOut();
       return true;
     },
+    /** test hook (docs/20 S5): record an event on the Moon's feed, as the rival runner does; `Game` hands it to the UI on the next tick.
+     *  Returns its id (0 in a solo game, which has no Moon to tell). */
+    feedPush: (e: { faction: FactionId; kind: FeedKind; text: string; prospect?: ProspectId; era?: number; n?: number }) =>
+      (game.moon && game.moon.player !== null ? pushFeed(game.moon, e).id : 0),
     placeBuilding: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
       game.debugPlace(type, gx, gz, rot),
     grantResources: (map: Partial<Record<ResourceId, number>>) => {

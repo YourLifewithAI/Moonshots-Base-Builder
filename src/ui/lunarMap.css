@@ -142,6 +142,39 @@
 .mk .scale text { font-size: 10px; fill: rgba(var(--paper-rgb), 0.7); text-anchor: middle; }
 @keyframes pm-spin { to { transform: rotate(360deg); } }
 
+/* the crowded Moon (docs/20 §5): another program's marks wear its colour, `--fc`, set inline from
+   FACTIONS[f].livery.trim (the class k-rival-<faction> names it for tests and hooks). Shape still carries the meaning:
+   a FILLED frame is a rival outpost (ours is hollow), a glyph badge says whose, a dashed ring is its reach. */
+.mb .rcov-fill { fill: var(--fc); fill-opacity: 0.07; stroke: none; }
+.mb .rcov-edge { fill: none; stroke: var(--fc); stroke-opacity: 0.6; stroke-dasharray: 7 4; }
+.pm .rframe { fill: var(--fc); stroke: var(--paper); stroke-width: 1; }
+.pm .rbadge circle { fill: var(--fc); stroke: var(--ink-900); stroke-width: 1.5; }
+.pm .rbadge text {
+  font-size: 8px; fill: var(--paper); text-anchor: middle; dominant-baseline: central; pointer-events: none;
+}
+.pm.rival .ring { stroke: var(--paper); }
+.pm .rspin {
+  fill: none; stroke: var(--fc); stroke-width: 2; stroke-dasharray: 5 3;
+  transform-box: fill-box; transform-origin: center;
+  animation: pm-spin 2.4s linear infinite;
+}
+.mk .rhome .rring { fill: var(--ink-900); stroke: var(--fc); stroke-width: 2.2; }
+.mk .rhome .pin-x { fill: none; stroke: var(--fc); stroke-width: 1.4; }
+.mk .rhome .hit { fill: transparent; }
+.mk .rhome .rg { font-size: 10px; fill: var(--paper); text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+.mk .rhome .lbl { font-weight: 600; letter-spacing: 0.05em; }
+#map-thumb .rpin { fill: var(--fc); stroke: var(--ink-900); stroke-width: 1; }
+#mh-rivals { color: var(--ink-050); }
+.ns-rv {
+  display: inline-block; min-width: 14px; padding: 0 2px; margin-left: 4px; border-radius: 1px;
+  background: var(--fc); color: var(--paper); font-size: 10px; line-height: 14px; text-align: center; vertical-align: 1px;
+}
+.ps-rival { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12px; line-height: 16px; color: var(--paper); }
+.ps-rival .ps-rg {
+  flex: none; width: 22px; height: 22px; background: var(--fc); color: var(--paper);
+  font-size: 12px; line-height: 22px; text-align: center; border: 1px solid var(--paper);
+}
+
 /* corner thumbnail, the SITE inset, the legend */
 #map-thumb { position: absolute; top: 8px; right: 8px; width: 120px; z-index: 2; text-align: center; }
 #map-thumb svg { display: block; width: 120px; height: 120px; }
@@ -312,6 +345,6 @@ html.touch #outposts-chip { display: none !important; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pm .spin { animation: none; }
+  .pm .spin, .pm .rspin { animation: none; }
   #map-chip.pulse { animation: none; background: var(--paper); color: var(--ink-900); }
 }
