@@ -55,6 +55,7 @@ import { recordSpend } from './flowBook';
 import { alert, condition } from './economy';
 import { fmtClock } from './daynight';
 import { FLARE_EFFECTS } from '../data/spaceWeather';
+import { straightOf } from './simMode';
 
 type Pt = [number, number];
 const isSite = (b: { construction?: number }) => (b.construction ?? 0) > 0;
@@ -234,6 +235,8 @@ function offWeights(w: number[] | undefined, mods: Mods): number[] | undefined {
  *  gates) — and, once the pit is cut, its ramp: the top on the rim, then the
  *  foot where it meets the floor. */
 export function wayIn(s: GameState, t: Target): { area: OffArea | null; via: Pt[] } {
+  // a headless base's units go straight to the face: no gates, no ramp to follow (core/simMode.ts)
+  if (straightOf(s)) return { area: null, via: [] };
   const gates: [number, number][] = [];
   const seen = new Set<number>();
   const add = (z: ZoneState | null | undefined) => {
@@ -330,6 +333,12 @@ const tripMemo = new Map<string, TripEst>();
 export function tripTo(s: GameState, mods: Mods, b: BuildingState, t: Target, night = false): TripEst {
   const type = hubUnit(b.type, SITES[s.siteId]);
   const v = unitSpeed(mods, type, night);
+  // a headless base: the straight line from the hub's door to face 0 at the unit's speed; always connected (no haul road is asked for)
+  if (straightOf(s)) {
+    const from = standPoint(b), face = facePoint(s, t, 0);
+    const d = Math.hypot(face[0] - from[0], face[1] - from[1]);
+    return { t: d / v, roadM: d, offM: 0, connected: true };
+  }
   const pit = pitAt(s, t);
   const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0},${s.zones?.length ?? 0}|${b.id}|${t.key}|${v.toFixed(3)}|${mods.haulOffroadMult}`
     + (pit ? `|${Math.round(pit.R)},${Math.round(pit.A)}` : '');
@@ -497,6 +506,7 @@ export function haulOpts(s: GameState, hub: Pick<BuildingState, 'type' | 'gx' | 
  *  a refused one is asked again a minute later): planned from the hub's door,
  *  merging into the network, to a gate on the hub's side of the target. */
 function askRoad(s: GameState, b: BuildingState, t: Target): string {
+  if (straightOf(s)) return '';
   const hf = heightsOf(s);
   const asks = (b.hub!.roads ??= {});
   const a = asks[t.key];
@@ -856,10 +866,12 @@ function goDig(s: GameState, mods: Mods, u: Hauler, t: Target, face: number) {
  *  at its face; down into `to`'s pit when it goes to a face there. */
 function unitLeg(
   s: GameState, mods: Mods, u: Hauler, b: Pt, hub?: BuildingState, to?: Target | null,
-  where: { t: Target; face: boolean } | null = standsIn(s, u),
+  where?: { t: Target; face: boolean } | null,
 ): { pts: Pt[]; w?: number[] } | null {
   const h = u.haul;
-  const at = where;
+  // a headless base: the straight line to the goal, no road search (core/simMode.ts)
+  if (straightOf(s)) return { pts: [[b[0], b[1]]] };
+  const at = where === undefined ? standsIn(s, u) : where;
   // (docs/19 S4b: by id parity, two units take the two trunks when a base has two)
   const variant = (u.id & 1) as 0 | 1;
   let leg = legTo(s, mods, [h.x, h.z], b, hub, { from: at?.face ? at.t : null, fromFace: !!at?.face, to, variant });

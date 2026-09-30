@@ -47,6 +47,7 @@ import type { GameState, Hauler, HaulState } from './state';
 import { cellAt, cellCentre, cellKey, keyCell, roadMap } from './roads';
 import { drive } from './haul';
 import { footprintRect } from '../buildings/instances';
+import { trafficOff } from './simMode';
 
 type Pt = [number, number];
 
@@ -56,8 +57,9 @@ export interface UnitRef {
   id: number;
 }
 
-/** Tests where timing is not the point (core/game.ts debugInstantTravel): no reservations. */
-export const TRAFFIC = { bypass: false };
+/** Tests where timing is not the point (core/game.ts debugInstantTravel): no reservations.
+ *  The switch lives in core/simMode.ts (`trafficOff(s)` is the per-base answer: a headless base runs without traffic too). */
+export { TRAFFIC } from './simMode';
 
 /** s a unit stays still on a cell a higher-priority unit needs before it steps onto free ground */
 const STILL_ASIDE_S = 3;
@@ -486,7 +488,7 @@ function stepAside(s: GameState, tab: Tab, st: Store, mv: Mv, ground: boolean, f
 export function trafficPlan(s: GameState, ramps: Ramp[] = []) {
   const st = storeOf(s);
   st.extra.clear();
-  if (TRAFFIC.bypass) { st.tab = null; return; }
+  if (trafficOff(s)) { st.tab = null; return; }
   const tab = build(s, ramps);
   st.tab = tab;
   // trim every hauler's claim to its path first (a leg changed since the last tick), then ask in order
@@ -504,7 +506,7 @@ export function trafficPlan(s: GameState, ramps: Ramp[] = []) {
   st.stats.overlaps = overlaps;
 }
 
-const tabOf = (s: GameState): Tab | null => (TRAFFIC.bypass ? null : storeOf(s).tab);
+const tabOf = (s: GameState): Tab | null => (trafficOff(s) ? null : storeOf(s).tab);
 
 /** A unit that stands where a higher-priority one needs to pass, and is not
  *  moving, gives way: into a bay beside it, or after a moment onto the free ground.
@@ -631,7 +633,7 @@ export function release(s: GameState, unit: UnitRef, cells?: readonly number[]):
 }
 
 /** The counters (getRenderInfo().life.traffic.sim). */
-export const trafficStats = (s: GameState) => ({ bypass: TRAFFIC.bypass, ...storeOf(s).stats });
+export const trafficStats = (s: GameState) => ({ bypass: trafficOff(s), ...storeOf(s).stats });
 
 /** Who holds what, for the debug API: each unit's cell and claim, and every reserved cell's holders. */
 export function trafficInfo(s: GameState) {
@@ -652,5 +654,5 @@ export function trafficInfo(s: GameState) {
       });
     }
   }
-  return { bypass: TRAFFIC.bypass, ...st.stats, cells, units };
+  return { bypass: trafficOff(s), ...st.stats, cells, units };
 }
