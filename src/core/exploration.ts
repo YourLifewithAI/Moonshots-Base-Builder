@@ -16,7 +16,7 @@ import {
 import type { Deposit } from '../terrain/heightfield';
 import type { DepositView, LunarOutpostView, LunarProspectView, LunarView } from '../ui/stores';
 import { centerOf, footprintRect } from '../buildings/instances';
-import type { GameState, OutpostState } from './state';
+import type { FieldReward, GameState, OutpostState } from './state';
 import type { Mods, SurveyTier } from './mods';
 import { alert, condition, crewReserve } from './economy';
 import { resolveTech } from './research';
@@ -24,6 +24,7 @@ import { borrowable } from './fleet';
 import { fmtClock } from './daynight';
 import { recordSpend } from './flowBook';
 import { commsDark, holdStream } from './flareEffects';
+import { notify } from '../ui/notify';
 
 export interface ActionResult { ok: boolean; reason: string }
 const OK: ActionResult = { ok: true, reason: '' };
@@ -271,7 +272,7 @@ export function startSurvey(s: GameState, mods: Mods, pid: ProspectId): ActionRe
     r.site = null;
     r.pinned = false;
   }
-  alert(s, `SURVEY LAUNCHED — ${PROSPECTS[pid].short} by ${c.method}, back in ${fmtClock(c.timeS)} · 1 robot lent`, 'info');
+  notify(s, 'field', { text: `SURVEY LAUNCHED — ${PROSPECTS[pid].short} by ${c.method}, back in ${fmtClock(c.timeS)} · 1 robot lent`, action: { map: pid } });
   return OK;
 }
 
@@ -343,7 +344,7 @@ export function claimOutpost(s: GameState, mods: Mods, pid: ProspectId): ActionR
     id: pid, kind, cls, claimedAt: s.simTime, readyAt: s.simTime + oc.deployS,
     live: false, fuelOk: true, upkeepOk: true,
   });
-  alert(s, `OUTPOST CLAIMED — ${PROSPECTS[pid].short} ${KIND_LABEL[kind]} · ${oc.haul} deploys in ${fmtClock(oc.deployS)}`, 'info');
+  notify(s, 'field', { text: `OUTPOST CLAIMED — ${PROSPECTS[pid].short} ${KIND_LABEL[kind]} · ${oc.haul} deploys in ${fmtClock(oc.deployS)}`, action: { map: pid } });
   return OK;
 }
 
@@ -352,7 +353,7 @@ export function abandonOutpost(s: GameState, pid: ProspectId): ActionResult & { 
   const i = s.survey.outposts.findIndex((o) => o.id === pid);
   if (i < 0) return { ok: false, reason: `NO OUTPOST AT ${PROSPECTS[pid]?.short ?? pid}`, wasLive: false };
   const [o] = s.survey.outposts.splice(i, 1);
-  alert(s, `OUTPOST ABANDONED — ${PROSPECTS[pid].short}; the slot is free (no refund)`, 'info');
+  notify(s, 'field', { text: `OUTPOST ABANDONED — ${PROSPECTS[pid].short}; the slot is free (no refund)`, action: { map: pid } });
   return { ok: true, reason: '', wasLive: o.live };
 }
 
@@ -402,12 +403,30 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     const tail = p.kind === 'heritage' ? 'protected heritage site'
       : p.kind === 'anomaly' ? (p.bt ? 'an anomaly worth a breakthrough' : 'nothing to extract')
       : `${KIND_LABEL[p.kind as OutpostKind]} outpost possible`;
-    alert(s, `SURVEY COMPLETE — ${p.name} · +${data}≡ · ${tail}`, 'info');
-    if (p.bt && !s.discoveries.includes(p.bt)) {
+    // the field report (docs/19 S7): a card that names the place, what the ground is, and each reward
+    const rewards: FieldReward[] = [{ tag: 'DATA', text: `+${data}≡ banked` }];
+    if (p.kind !== 'heritage' && p.kind !== 'anomaly') {
+      rewards.push({ tag: 'OUTPOST SITE', text: tail, button: { label: 'Open the map', action: { map: a.id } } });
+    }
+    const firstFind = !!p.bt && !s.discoveries.includes(p.bt);
+    if (p.bt && firstFind) {
+      const era = resolveTech(TECHS[p.bt], s.expedition).era;
+      rewards.push({
+        tag: 'BREAKTHROUGH', text: `${TECHS[p.bt].name} — ${s.era >= era ? 'researchable now' : `researchable in Era ${era}`}`,
+        button: { label: 'In the tree', action: { tech: p.bt } },
+      });
+    }
+    notify(s, 'field', {
+      text: `SURVEY COMPLETE — ${p.name} · +${data}≡ · ${tail}`, action: { map: a.id },
+      report: { title: p.name, geology: p.geology, rewards },
+    });
+    if (p.bt && firstFind) {
       s.discoveries.push(p.bt);
       const era = resolveTech(TECHS[p.bt], s.expedition).era;
-      alert(s, `BREAKTHROUGH — ${TECHS[p.bt].name} found at ${p.name} ` +
-        `(${s.era >= era ? 'researchable now' : `researchable in Era ${era}`})`, 'info');
+      notify(s, 'field', {
+        text: `BREAKTHROUGH — ${TECHS[p.bt].name} found at ${p.name} ` +
+          `(${s.era >= era ? 'researchable now' : `researchable in Era ${era}`})`, action: { tech: p.bt },
+      });
     }
   }
 
@@ -420,7 +439,13 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
       if (s.simTime < o.readyAt) continue;
       o.live = true;
       out.modsChanged = true;
-      alert(s, `OUTPOST ONLINE — ${p.short} ${KIND_LABEL[o.kind]}: ${streamText(o.id, mult)}`, 'info');
+      notify(s, 'field', {
+        text: `OUTPOST ONLINE — ${p.short} ${KIND_LABEL[o.kind]}: ${streamText(o.id, mult)}`, action: { map: o.id },
+        report: {
+          title: `${p.short} · ${KIND_LABEL[o.kind]} outpost online`, geology: p.geology,
+          rewards: [{ tag: 'STREAM', text: streamText(o.id, mult), button: { label: 'Open the map', action: { map: o.id } } }],
+        },
+      });
     }
     const oc = OUTPOST_CLASS[o.cls];
     const upkeep = (oc.upkeepPerDay / CYCLE_S) * dt;
@@ -474,7 +499,16 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
       s.insights.swarmProtocol = Math.min(INSIGHT_MAX, Math.max(s.insights.swarmProtocol ?? 0, ATLAS.insight));
       bonus = `${TECHS.swarmProtocol.name} −${Math.round(ATLAS.insight * 100)}%: the survey net becomes the swarm’s tracking-and-timing network`;
     }
-    alert(s, `ATLAS COMPLETE — SELENOGRAPHER · +${ATLAS.extraSlots} outpost slot · streams ×${ATLAS.streamMult} · ${bonus}`, 'info');
+    notify(s, 'field', {
+      text: `ATLAS COMPLETE — SELENOGRAPHER · +${ATLAS.extraSlots} outpost slot · streams ×${ATLAS.streamMult} · ${bonus}`,
+      report: {
+        title: 'ATLAS COMPLETE · SELENOGRAPHER', geology: `${surveyed} prospects surveyed`,
+        rewards: [
+          { tag: 'SLOT', text: `+${ATLAS.extraSlots} outpost slot` }, { tag: 'STREAMS', text: `every outpost ×${ATLAS.streamMult}` },
+          { tag: 'BONUS', text: bonus },
+        ],
+      },
+    });
   }
   return out;
 }

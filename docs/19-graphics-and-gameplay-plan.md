@@ -42,7 +42,7 @@ Each **stream** is one agent in its own git worktree (`$SP/wt/<name>`, branch `w
 2. **Owned files** are the stream's to restructure. Any other file it touches is **shared**: additive edits only (new exports, cases, fields), never reshaped. Conflicts are resolved as unions.
 3. **Contracts first (W0d).** Interfaces two streams share exist before either stream starts, as *functional* stubs (they forward, draw, return a placeholder), so every stream's spec passes alone.
 4. **Internal milestones (M1…Mn).** Every stream lists them; each ends in a WIP commit with `tsc` and the stream's spec green. They are the safe pause points inside a wave: a stream interrupted by a usage limit resumes from its last milestone via its note.
-5. **Light checks only:** `npx tsc --noEmit`, `npm run docs:check`, the stream's own spec alone. No full suite or pacing probes until Wave 3.
+5. **Working protocol: code through a few checkpoints, then one test round** (the player's rule, 2026-09-30). Streams and merges run only cheap checks: `npx tsc --noEmit` at milestones, the stream's own new spec once at the end, `npm run docs:check` once, and `--reporter=dot 2>&1 | tail -15` for every Playwright run (never `line` or `list`). A checkpoint's gate is `npm run build` plus one quick boot test. Broad regression testing is batched into **test rounds** every two or three checkpoints: **Test round 1 after CP1b** (a full-suite run, the stale-spec repair D1–D4, fixes for real regressions), then code on through Wave 2, then **Test round 2 after CP2** (a full-suite run and fixes). An extra targeted test is run at once only when a merge looks risky (main no longer boots, or an agent reports an unexplained regression). No pacing probes.
 6. **Generated docs (03, 04, 05) are never hand-merged.** On conflict take either side and run `npm run docs`; the coordinator regenerates once per checkpoint.
 7. **No stream edits spec base URLs.** The boot code ignores `nolock`, `lowfx`, `style`, `fx` (only `safe` stays, as the shader-fault fallback). Wave 3 tidies the leftovers. This avoids 30 guaranteed one-line conflicts.
 8. **Screenshots are deliverables:** seed 42, the home preset, day and night, saved under `$SP/shots/<stream>/` and sent to the player at the checkpoint.
@@ -71,8 +71,8 @@ Each **stream** is one agent in its own git worktree (`$SP/wt/<name>`, branch `w
 | **S8** | Outposts made legible | M · 5–6 | CP1b | 5901 |
 | **S9** | Touch and menu pass | M · 5–6 | CP1b | 5911 |
 | **S10** | Docs and art bible | M · 5–6 | CP1b | 5921 |
-| **D1–D4** | Spec repair by group | M · 6–10 each | CP2 | 5931–5961 |
-| **D5** | Full suite | S · 3–4 | D1–D4 | 5971 |
+| **D1–D4** | Spec repair by group (Test round 1) | M · 6–10 each | CP1b | 5931–5961 |
+| **D5** | Full suite (each test round) | S · 3–4 | D1–D4 (TR1); CP2 (TR2) | 5971 |
 
 Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about a day and a half: several days of agent time given limits.
 
@@ -83,10 +83,11 @@ Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about
 | **CP0** | Wave 0 | W0d → W0a → W0b2 → W0b1 | tsc, docs:check, `npm run build`; `render`, `world`, `ui` specs; `smoke` "parts loop" alone; determinism guard | Playable build, old Classic look, fixed camera (Q/E turn, V tilt), no walk mode, unpause fix; day/night "before" shots; the four rotations; both tilts; far zoom; a placement ghost; the HUD paused and after a speed click |
 | **CP1a** | Sub-wave 1A | S7 → S1a → S1b → S3 → S4a | + `look`, `roads`, `notify` and hub-unit traffic specs | The **variant bake-off** (A/B/C, day/night/far; sent as soon as S1a and S1b reach M3, so the pick can arrive mid-wave); the new look; straight roads with gates and bays; the five notification families |
 | **CP1b** | Sub-wave 1B | S2a → S2b → S4b → S5 → S6, then one docs regeneration | + `silhouettes`, `pits`, `traffic`, `grading`, `survey` specs | A pit at three growth stages; two excavators passing at a bay (three-frame strip); a grading job mid-way; a field report; the tree's compass badge; the 29-recipe contact sheet at far zoom |
-| **CP2** | Wave 2 | S8 → S9 → S10 | `lunarmap`, `touch`, `notify`, `survey` specs | The map with outposts, touch at 667×375 and 932×430, the art bible |
-| **CP3** | Wave 3 | D1–D4 in parallel, then D5 | full suite green (known flakes re-run alone), `npm run build` | A final report |
+| **CP2** | Wave 2 | S8 → S9 → S10 | `npm run build` and one boot test (the specs run in Test round 2) | The map with outposts, touch at 667×375 and 932×430, the art bible |
+| **TR1** | after CP1b | D1–D4 in parallel, then D5 | full suite green after repairs (known flakes re-run alone), `npm run build` | A short report: what broke, what was fixed |
+| **TR2** | after CP2 | one D5 run, fixes by the responsible streams | full suite green (known flakes re-run alone), `npm run build` | A final report |
 
-**Cut line if limits bind:** every checkpoint leaves main playable. After CP1b every named complaint is fixed; S8–S10 can wait. Wave 3 must not be skipped: main already carries about 20 stale specs (docs/18 §1).
+**Cut line if limits bind:** every checkpoint leaves main playable. After CP1b every named complaint is fixed; S8–S10 can wait. The test rounds must not be skipped: main already carries about 20 stale specs (docs/18 §1).
 
 ---
 
@@ -304,6 +305,21 @@ Today the tech-finished card (`#discovery-card`, titled "Discovered"), the flare
 - Spec `notify.spec.ts` (new): each family renders in its own container; the pause policy and menu rows; the log lists all five and survives reload; a `{map}` action opens the map at the prospect; the era banner still blocks input.
 - Milestones: M1 containers, families, log; M2 pause policy and menu rows; M3 spec.
 
+#### As shipped: S7
+
+Branch `work/s7`. Everything in the section above shipped; where the code differed from the plan, and the exact shapes later streams code against:
+
+- **Files.** New `src/ui/notifyUi.ts` (the DOM half: the field card, the Log panel, the action runner) and `src/ui/notify.css`; `src/ui/notify.ts` is the pure half (family table, `notify()`, log views, action registry) so core code may import it. Shared, additive edits: `core/state.ts` (`FieldReport`, `FieldReward`, `AlertMsg.report?`, `LogEntry.report?`), `core/economy.ts` (`alert(s, text, kind, action, family, report)`, `alertIn(family)`, `logStamp`), `core/settings.ts` (`pauseDrills`), `audio/sfx.ts` (cues `chirp`, `flare`), `ui/stores.ts` (`$log`, `$fieldCards`, `$logOpen`, `announceHolds`), `core/game.ts` (`publishLog()`, two cue calls, `fieldSeen`), `ui/menu.ts`, `ui/mount.ts`, `ui/lunarMap.ts` and `ui/techTree.ts` (header echo, the open-map event), `ui/weatherPanel.ts`, `ui/weather.css`, `ui/ui.css`, `debug.ts` (`notify(family, card)`), and the alert callers below. Owned and changed: `ui/discovery.ts`, the alerts block of `ui/hud.ts`, the weather panel's LOG.
+- **The families, as containers.** research `#discovery-card` (top centre, `✦`, "Research complete", moves under the flare pop-up when both are up via `--wx-bottom`); field `#field-card` (new; lower left above the first-mine stack or the objectives via `--ms-h`, `◎`, torn top edge, slides in, chirp); era `#era-banner` (full screen, `⚑`, until Continue); weather `#flare-popup` (`☉`, cue `flare`); hazard `#hazard-card` (new; centred, `⚠`, inverted head; holds the pause with a scrim only while `announceHolds`). Every card has `class="nf nf-<family>"` and a 3 px rule (`--nf-research #4a90e2`, `--nf-field #2bb3a3`, `--nf-era` paper, `--nf-weather #e8b422`, `--nf-hazard #e5534b`; notify.css). **Deviation:** the drill's card moved out of `#era-banner` into `#hazard-card` (with HAZARDS ARE LIVE, which always holds); `hazards.spec.ts`'s drill test reads `#hazard-card`.
+- **Field cards.** `notify(s, 'field', { text, kind?, action?, report? })`, `report = { title, geology?, rewards: [{ text, tag?, button?: { label, action } }] }`. **A field card exists only for a field alert that carries a `report`**; a plain field alert is a stack line and a log line (S6 should give each survey report a `report`). `Game.publishLog()` turns a new log entry into a card (a loaded world takes only the baseline; `?debug` runs draw none unless `&tips`, but the chirp always plays); at most 5 wait, the newest shows with "+N earlier", ✕ or a reward button dismisses it. Callers with reports today: survey complete (data, outpost site, breakthrough), outpost online, atlas, and both deposit surveys.
+- **Routing.** `hazards.ts` → hazard; `spaceWeather.ts`, `flareEffects.ts`, `forecast.ts` → weather (each declares `const alert = alertIn('…')` at the top; `alertIn` is a function declaration because these modules load inside an import cycle with `economy.ts`); `research.ts` → research (RESEARCH COMPLETE and INSIGHT carry `{tech}`), `ERA n OPENS` and `MILESTONE` → era; `exploration.ts` (launched, claimed, abandoned, complete, breakthrough, online, atlas), `pits.ts` (deposit surveys) and `game.ts` (DEPOSITS MAPPED, PROSPECT STRUCK) → field, with `{map: pid}` / `{tech}` actions. A critical alert with no family is a hazard (`alert()`), a plain event has none (a `·` glyph, no rule). Not routed: the rest (construction, refusals, hubs' pit states).
+- **Stack and log.** Each `.alert` line is `nf nf-<family|plain>` with an `.alert-g` glyph and the family rule; `#log-btn` shares the stack's 14 px foot with "+N more" (the inspector never moves). The Log (`#notify-log`) lists `s.log` newest first with glyph, ×count, day and a click action, filtered by All or one family; Esc, ✕ or a click outside closes it. The weather panel's LOG is the same rows filtered to `weather` (its old per-flare record lines are gone; the flare's PASSED alert carries the outcome).
+- **Actions** (`runAlertAction`, registered by `mountNotify`): `{panel}`, `{deposit}`, `{select}` as before; `{map}` dispatches `moonshots:open-map` with `detail.prospect` (the map opens with that prospect's sheet up); `{tech}` is `openTechTreeAt`; `{building}` selects a building by id, or the first of a kind standing, or starts placing an unlocked kind. **The map and tree headers echo** their own family (field, research), plain alerts (the refusals their buttons raise) and any critical alert, not the other families.
+- **Pause policy.** never: research, field; until Continue: era banner and HAZARDS ARE LIVE; weather: `pauseFlares` (M and X, All, Off; the pop-up's own pause is `Game.flarePauses`); hazard: the new `pauseDrills` (default on) for the drill card, plus the existing `pauseHazards` and `pauseLethal`. The menu's "Pause on…" block (`#menu-pause`) holds five rows (era fixed, `#menu-pause-flares`, `#menu-pause-drills`, `#menu-pause-hz`, `#menu-pause-lethal`) and a note; "Guidance" keeps only the pop-up switch. `modalUp()` (W0a) counts an announcement through `announceHolds`. `debug` runs pause for flares and hazards only when they ask (`&flarepause`, `&hzpause`), as before.
+- **Sound.** `chirp` (field card arrives) and `flare` (a new flare pop-up; the flare's own `warn` cue is skipped) are new; research keeps `research`, era `era`, the drill card `warn`, hazards `warn`/`crit` by severity.
+- **Spec.** `tests/notify.spec.ts`, 9 tests: the five containers (class, glyph, 3 px rule, distinct colours, the flare/research stacking); the stack's glyphs and classes; the pause policy (era, research, field, C/M/off/all flares, the drill card and its setting); the menu rows; the log (every family, order, filter, weather panel view, save and reload); the `{map}`, `{tech}` and `{building}` actions; and the routing of a real research, survey, flare and drill. `guidance.spec.ts`: 2 of 4 red as before (deposit card text; "Regolith Smelting" is now Pit Mapping), `ui.spec.ts`: 16 of 20, the same four reds as W0a and W0b1. `touch.spec.ts` (not this stream's) has its five older reds and no new one. Screenshots (seed 42, the home preset, day): `$SP/shots/s7/{research-card,field-card,era-banner,flare-popup,hazard-card,log}-day.png`.
+- **For later streams.** S6: give each survey outcome a `report`; the field card is one at a time, so a batch of rewards belongs in one report. S9: the touch layout of `#field-card`, `#hazard-card`, `#notify-log` and `#log-btn` is a first pass (they fit 667×375 but overlap the first-mine guide); the notification families' touch pass is yours. S10: docs/07 gets the family table above and the colour exception.
+
 **CP1a gate and bake-off** as in the checkpoint table. The player's variant pick is recorded in `CEL_VARIANT` before 1B starts.
 
 ---
@@ -375,9 +391,9 @@ Owns `docs/06-art-direction.md`, `docs/07-ui-design.md` (§2–3, §12), `docs/1
 
 ---
 
-## Wave 3 · Diagnostic (4 parallel repair streams, then the full suite)
+## Test rounds (Test round 1 after CP1b; Test round 2 after CP2)
 
-Main already carries about 20 stale specs (docs/18 §1) and every wave above changes more. D-streams repair specs to the new model, never the feature to the old spec; a behaviour bug found is reported (or fixed if one line). They also drop the leftover `&nolock`, `&lowfx`, `&style=` from spec URLs, and retire the camera `info()` aliases.
+Main already carries about 20 stale specs (docs/18 §1) and every wave changes more. **Test round 1** (after CP1b, before Wave 2 starts) is the big one: the D-streams repair specs to the new model, never the feature to the old spec; a behaviour bug found is reported (or fixed if one line). They also drop the leftover `&nolock`, `&lowfx`, `&style=` from spec URLs, and retire the camera `info()` aliases.
 
 | Stream | Specs | Port |
 |---|---|---|
@@ -386,14 +402,14 @@ Main already carries about 20 stale specs (docs/18 §1) and every wave above cha
 | D3 | techtree, research, upgrades, destiny, crew, hazards, flares, forecast | 5951 |
 | D4 | anim, render, look, silhouettes, map, lunarmap, survey, notify, touch, ui, unitpower, hubs, hubview, pits, reserves, grading | 5961 |
 
-**D5** runs `npx playwright test` once on the merged tree, re-runs the known load flakes alone (docs/18 §4), and reports. Order if limits bind: D1 first (the core loop).
+**D5** runs `npx playwright test --reporter=dot` once on the merged tree, re-runs only the failing files and the known load flakes alone (docs/18 §4), and reports. Order if limits bind: D1 first (the core loop). **Test round 2** (after CP2) is the same D5 run: real regressions go back to the responsible stream's agent (or a one-line fix by the coordinator), stale specs are repaired in place, and the round ends when the suite is green apart from re-run flakes.
 
 ---
 
 ## Verification, end to end
 
-- **Per stream (before reporting):** `npx tsc --noEmit`; `npm run docs:check`; its spec alone with `PORT=<port> PWTEST_CACHE_DIR=$SP/pwcache-<name> npx playwright test tests/<spec>.spec.ts --timeout=300000`; the screenshot set for a visual stream.
-- **Per checkpoint (coordinator, merged tree, main checkout):** the gate column above, then a play session on seed 42 (mare, robotic): CP0 10 min (rotate, tilt, Tab does nothing, click 3× while paused); CP1a 15 min (place a smelter and watch its road and gates; read a notification of each family); CP1b 20 min (two diggers pass; drag a grading box and watch a rover level it; let a flare hit; run two surveys at once and read the field reports); CP2 the map and touch; CP3 30 min on each site.
+- **Per stream (before reporting):** `npx tsc --noEmit`; `npm run docs:check` once; its own new spec once with `PORT=<port> PWTEST_CACHE_DIR=$SP/pwcache-<name> npx playwright test tests/<spec>.spec.ts --timeout=300000 --reporter=dot 2>&1 | tail -15`; the screenshot set for a visual stream.
+- **Per checkpoint (coordinator, merged tree, main checkout):** the gate column above (`npm run build` plus one boot test; the broad specs run in the test rounds), then a play session on seed 42 (mare, robotic): CP0 10 min (rotate, tilt, Tab does nothing, click 3× while paused); CP1a 15 min (place a smelter and watch its road and gates; read a notification of each family); CP1b 20 min (two diggers pass; drag a grading box and watch a rover level it; let a flare hit; run two surveys at once and read the field reports); CP2 the map and touch; CP3 30 min on each site.
 - **Determinism guard at every checkpoint:** `terrainHash()` and the hub and pit state after `advanceGameMinutes(60)` on seed 42 are identical across two runs.
 
 ## The agent brief (template every stream launch uses)

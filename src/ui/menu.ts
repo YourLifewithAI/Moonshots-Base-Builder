@@ -138,18 +138,30 @@ export function mountMenu(root: HTMLElement, game: Game) {
               <span>Discovery pop-ups &amp; era explainers</span>
               <button class="btn" data-act="tips" id="menu-tips" aria-pressed="true">On</button>
             </div>
-            <div class="menu-row">
-              <span>Pause on new hazards</span>
-              <button class="btn" data-act="pause-hz" id="menu-pause-hz" aria-pressed="true">On</button>
+          </section>
+          <section id="menu-pause">
+            <span class="label">Pause on…</span>
+            <div class="menu-row" data-family="era">
+              <span><span class="nf-g" aria-hidden="true">⚑</span> Era explainers</span>
+              <span class="mono menu-fixed" id="menu-pause-era">Until Continue</span>
             </div>
-            <div class="menu-row">
-              <span>Pause on every lethal warning</span>
-              <button class="btn" data-act="pause-lethal" id="menu-pause-lethal" aria-pressed="false">Off</button>
-            </div>
-            <div class="menu-row">
-              <span>Pause on flare warnings</span>
+            <div class="menu-row" data-family="weather">
+              <span><span class="nf-g" aria-hidden="true">☉</span> Flare warnings</span>
               <button class="btn" data-act="pause-flares" id="menu-pause-flares" title="M and X · All · Off">M and X</button>
             </div>
+            <div class="menu-row" data-family="hazard">
+              <span><span class="nf-g" aria-hidden="true">⚠</span> Hazard drills</span>
+              <button class="btn" data-act="pause-drills" id="menu-pause-drills" aria-pressed="true">On</button>
+            </div>
+            <div class="menu-row" data-family="hazard">
+              <span><span class="nf-g" aria-hidden="true">⚠</span> New hazards</span>
+              <button class="btn" data-act="pause-hz" id="menu-pause-hz" aria-pressed="true">On</button>
+            </div>
+            <div class="menu-row" data-family="hazard">
+              <span><span class="nf-g" aria-hidden="true">⚠</span> Every lethal warning</span>
+              <button class="btn" data-act="pause-lethal" id="menu-pause-lethal" aria-pressed="false">Off</button>
+            </div>
+            <div class="menu-note">Research ✦ and field ◎ notifications never pause the game.</div>
           </section>
         </div>
         <div class="menu-col">
@@ -214,7 +226,8 @@ export function mountMenu(root: HTMLElement, game: Game) {
     muteBtn.textContent = s.muted ? 'Unmute' : 'Mute';
     muteBtn.classList.toggle('active', s.muted);
     muteBtn.setAttribute('aria-pressed', String(s.muted));
-    for (const [id, on] of [['#menu-tips', s.tips], ['#menu-pause-hz', s.pauseHazards], ['#menu-pause-lethal', s.pauseLethal]] as const) {
+    for (const [id, on] of [['#menu-tips', s.tips], ['#menu-pause-hz', s.pauseHazards], ['#menu-pause-lethal', s.pauseLethal],
+      ['#menu-pause-drills', s.pauseDrills]] as const) {
       const btn = $<HTMLButtonElement>(id);
       btn.textContent = on ? 'On' : 'Off';
       btn.classList.toggle('active', on);
@@ -309,6 +322,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
       }
       case 'pause-hz': saveSettings({ pauseHazards: !loadSettings().pauseHazards }); renderAudio(); break;
       case 'pause-lethal': saveSettings({ pauseLethal: !loadSettings().pauseLethal }); renderAudio(); break;
+      case 'pause-drills': saveSettings({ pauseDrills: !loadSettings().pauseDrills }); renderAudio(); break;
       case 'pause-flares': {
         const next = { mx: 'all', all: 'off', off: 'mx' } as const;
         saveSettings({ pauseFlares: next[loadSettings().pauseFlares] });

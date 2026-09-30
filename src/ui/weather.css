@@ -94,6 +94,8 @@ html.touch #flare-popup.compact .btn { min-height: 44px; font-size: 11px; }
 #weather-panel .wx-proto { display: flex; gap: 3px; align-items: center; margin: 3px 0; flex-wrap: wrap; }
 #weather-panel .wx-proto .mono { min-width: 3.5ch; }
 #weather-panel .wx-log div { padding: 2px 0; border-bottom: 1px dotted rgba(var(--paper-rgb), 0.12); }
+#weather-panel .wx-log .nl-row { padding: 3px 4px 3px 8px; gap: 6px; font-size: 11px; line-height: 15px; }
+#weather-panel .wx-log { max-height: 220px; overflow-y: auto; }
 .wx-insp .wx-ov { flex-wrap: wrap; align-items: center; margin-top: 4px; }
 .wx-insp .wx-ov .label { margin-right: 4px; }
 

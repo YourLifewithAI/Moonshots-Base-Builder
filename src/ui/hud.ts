@@ -11,8 +11,9 @@ import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $menuOpen,
   $milestones,
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
-  $hazards, $hazardMarkers, $placing,
+  $hazards, $hazardMarkers, $placing, $log, $logOpen,
 } from './stores';
+import { familyOf, glyphOf, runAlertAction } from './notify';
 import { counterButton, counterClick } from './hazardsPanel';
 import { touchOn } from '../core/touch';
 
@@ -265,9 +266,21 @@ export function mountHud(root: HTMLElement, game: Game) {
   alerts.id = 'alerts';
   alerts.style.setProperty('--alert-rows', String(ALERTS.shown));
   time.appendChild(alerts);
+  // the foot: '+N more' on the left, the Log button on the right, one 14 px line
+  const foot = el('div', 'alert-foot');
+  alerts.appendChild(foot);
   const more = el('div', 'label alert-more');
-  alerts.appendChild(more);
-  const alertEls = new Map<number, { root: HTMLElement; text: HTMLElement; n: HTMLElement; ctrs: HTMLElement }>();
+  foot.appendChild(more);
+  // the Log: every notification of every family, newest first (ui/notifyUi.ts opens it)
+  const logBtn = el('button', 'btn alert-log', 'Log') as HTMLButtonElement;
+  logBtn.id = 'log-btn';
+  logBtn.title = 'Log — every notification, newest first';
+  logBtn.setAttribute('aria-expanded', 'false');
+  logBtn.addEventListener('click', () => $logOpen.set(!$logOpen.get()));
+  foot.appendChild(logBtn);
+  $logOpen.subscribe((on) => { logBtn.classList.toggle('active', on); logBtn.setAttribute('aria-expanded', String(on)); });
+  $log.subscribe((l) => { logBtn.dataset.n = String(l.length); });
+  const alertEls = new Map<number, { root: HTMLElement; g: HTMLElement; text: HTMLElement; n: HTMLElement; ctrs: HTMLElement }>();
   const RANK = { crit: 0, warn: 1, info: 2 } as const;
   /** rows the stack keeps while a building is inspected (see $selection below) */
   let inspRows = ALERTS.shown;
@@ -286,10 +299,11 @@ export function mountHud(root: HTMLElement, game: Game) {
     shown.forEach((a, i) => {
       let e = alertEls.get(a.id);
       if (!e) {
-        const d = el('div', '', '<span class="alert-text"></span><span class="alert-ctrs"></span><span class="alert-n mono"></span><button class="alert-x" title="Dismiss">✕</button>');
+        const d = el('div', '', '<span class="alert-g" aria-hidden="true"></span><span class="alert-text"></span><span class="alert-ctrs"></span><span class="alert-n mono"></span><button class="alert-x" title="Dismiss">✕</button>');
         d.dataset.id = String(a.id);
         e = {
-          root: d, text: d.querySelector('.alert-text') as HTMLElement, n: d.querySelector('.alert-n') as HTMLElement,
+          root: d, g: d.querySelector('.alert-g') as HTMLElement,
+          text: d.querySelector('.alert-text') as HTMLElement, n: d.querySelector('.alert-n') as HTMLElement,
           ctrs: d.querySelector('.alert-ctrs') as HTMLElement,
         };
         alertEls.set(a.id, e);
@@ -297,16 +311,21 @@ export function mountHud(root: HTMLElement, game: Game) {
       // a hazard's counters ride its alert (the free one included); rebuilt only when they change
       const ctrs = (a.counters ?? []).map(counterButton).join('');
       if (e.ctrs.dataset.sig !== ctrs) { e.ctrs.dataset.sig = ctrs; e.ctrs.innerHTML = ctrs; }
-      const cls = `alert panel ${a.kind}${a.action ? ' actionable' : ''}`;
+      // its family: a glyph and a class (docs/19 S7; the colour rule is notify.css's)
+      const fam = familyOf(a);
+      const cls = `alert panel nf ${fam ? `nf-${fam}` : 'nf-plain'} ${a.kind}${a.action ? ' actionable' : ''}`;
       if (e.root.className !== cls) e.root.className = cls;
+      const g = glyphOf(fam);
+      if (e.g.textContent !== g) e.g.textContent = g;
+      e.root.dataset.family = fam ?? '';
       if (e.text.textContent !== a.text) e.text.textContent = a.text;
       const n = a.count > 1 ? `×${a.count}` : '';
       if (e.n.textContent !== n) e.n.textContent = n;
       e.root.title = `${a.text} — ${a.action ? 'click for details' : 'click to dismiss'}`;
-      if (alerts.children[i] !== e.root) alerts.insertBefore(e.root, alerts.children[i] ?? more);
+      if (alerts.children[i] !== e.root) alerts.insertBefore(e.root, alerts.children[i] ?? foot);
     });
     more.textContent = list.length > shown.length ? `+${list.length - shown.length} more` : '';
-    more.style.display = more.textContent ? 'block' : 'none';
+    more.style.visibility = more.textContent ? 'visible' : 'hidden';
   };
   $alerts.subscribe(renderAlerts);
   // Inspecting: the stack is sized once per building opened — to the alerts
@@ -336,16 +355,10 @@ export function mountHud(root: HTMLElement, game: Game) {
     if (!a) return;
     if (!a.action || target.closest('.alert-x')) {
       game.actions.push({ kind: 'dismissAlert', id });
-    } else if ('panel' in a.action) {
-      $resourcePanel.set(a.action.panel);
-    } else if ('deposit' in a.action) {
-      // a deposit's alert opens its card (docs/17 §13.4)
-      $depositOverlay.set(true);
-      $depositSel.set(a.action.deposit);
-    } else if ('select' in a.action) {
-      game.select(a.action.select);
+    } else {
+      // a panel, a deposit's card, a building, the map at a prospect, the tree at a tech (ui/notifyUi.ts)
+      runAlertAction(a.action);
     }
-    // ({map}, {tech} and {building} open their panels once notify.ts handles them)
   });
 
   // ── milestone goals (the tutorial) — click to expand the whole roadmap ──
