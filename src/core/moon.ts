@@ -16,7 +16,7 @@
  *  Pure and deterministic: every draw is mulberry32((seed ^ K) + index) with the MOON's seed. */
 import type { ProspectId } from '../data/lunarMap';
 import type { SiteId } from '../data/sites';
-import { CYCLE_S } from '../data/balance';
+import { CYCLE_S, RACE } from '../data/balance';
 import { SPACE_WEATHER as W, type FlareClass } from '../data/spaceWeather';
 import { activity, drawClass, migrateFlareSchema, rangeOf, telegraphOf, type ClassCtx } from './spaceWeather';
 import { mulberry32 } from './rng';
@@ -183,6 +183,28 @@ export function copySched(to: SchedFields, from: SchedFields) {
 export interface MoonFaction { siteId: SiteId; landedAt: number; expedition: 'human' | 'robotic'; landed: boolean }
 export interface MoonRaceEntry { launches: number; swarmPct: number; firstLaunchAt: number | null; era: number }
 export type RacePhase = 'solo' | 'pre' | 'lit' | 'closed';
+/** how the race ended for the player (docs/20 §6, `verdictFor`) */
+export type Verdict = 'yours' | 'shared' | 'theirs';
+/** what the standings read at the close (the leaderboard stays live after it, the verdict's table does not) */
+export type MoonRaceFinal = Record<FactionId, { launches: number; firstLaunchAt: number | null }>;
+/** the race's own fields beside the three entries (S6): the phase, the close (`closeAt` combined volleys), and what the close decided */
+export interface MoonRaceMeta {
+  phase: RacePhase;
+  /** combined volleys that close the race (RACE.closeAt; a debug hook may lower it) */
+  closeAt: number;
+  /** the faction with the largest share at the close (ties to the earlier first light) */
+  winner?: FactionId;
+  /** the Moon clock second the race closed */
+  closedAt?: number;
+  /** the player's verdict at the close */
+  verdict?: Verdict;
+  /** the standings at the close, for the verdict's table */
+  final?: MoonRaceFinal;
+  /** the last standings beat reported, as a multiple of RACE.beatEvery of combined volleys */
+  beat?: number;
+  /** who led at the last look (a change is news) */
+  leader?: FactionId;
+}
 
 export interface MoonState {
   version: 2;
@@ -196,7 +218,7 @@ export interface MoonState {
   weather: MoonWeather;
   /** who holds each claimed prospect. A solo game writes none (nobody to claim against). */
   claims: Partial<Record<ProspectId, FactionId>>;
-  race: Record<FactionId, MoonRaceEntry> & { phase: RacePhase; closeAt: number; winner?: FactionId };
+  race: Record<FactionId, MoonRaceEntry> & MoonRaceMeta;
   /** what happened on the Moon, newest last (capped at FEED_MAX): the one place rivals' doings are recorded for the UI. */
   feed?: FeedEvent[];
   /** the last feed id issued */
@@ -265,8 +287,7 @@ export function createMoon(seed: number, o: {
     claims: {},
     race: {
       robots: entry(), accelerationists: entry(), solarpunks: entry(),
-      // TODO: RACE.closeAt from data/balance.ts (S6); 100 combined volleys = 0.01 %
-      phase: o.phase ?? (o.player ? 'pre' : 'solo'), closeAt: o.closeAt ?? 100,
+      phase: o.phase ?? (o.player ? 'pre' : 'solo'), closeAt: o.closeAt ?? RACE.closeAt,
     },
   };
 }
@@ -374,4 +395,112 @@ export const landingSecond = (m: MoonFaction): number => m.landedAt + 90;
 export function dueLandings(moon: MoonState, now: number): FactionId[] {
   if (moon.player === null) return [];
   return FACTION_ORDER.filter((f) => f !== moon.player && !moon.factions[f].landed && now >= landingSecond(moon.factions[f]));
+}
+
+// ─────────────────────────── the race (docs/20 §6, stream S6) ───────────────────────────
+//
+// `moon.race[f]` is each program's line (launches, swarm %, first light, era); `moon.race.phase` runs `pre` (nobody has lit) →
+// `lit` (the first volley of ANY program) → `closed` (the combined volleys reached `closeAt`); a solo game stays `solo`. The
+// player's own line is written by `economy.launchVolley` (through `raceLaunched`), a rival's by the rival runner's report each
+// second; `raceStep` is the one place that turns those lines into the phase, the standings beats and the close. It runs inside the
+// sim tick (Game.stepRivals once a Moon second, and on the player's own volley), reads nothing but the Moon, and draws nothing.
+
+/** All programs' volleys. */
+export const combinedLaunches = (moon: MoonState): number => FACTION_ORDER.reduce((n, f) => n + moon.race[f].launches, 0);
+
+type RaceLines = Record<FactionId, { launches: number; firstLaunchAt: number | null }>;
+
+/** The factions in standing order: more launches first, then the earlier first light, then landing order (the Foundry,
+ *  the Vanguard, the Commons). The RACE panel's ranks, the lead and the close all read this one order. */
+export function standingsOrder(lines: RaceLines): FactionId[] {
+  return [...FACTION_ORDER].sort((a, b) =>
+    lines[b].launches - lines[a].launches
+    || (lines[a].firstLaunchAt ?? Infinity) - (lines[b].firstLaunchAt ?? Infinity)
+    || FACTION_ORDER.indexOf(a) - FACTION_ORDER.indexOf(b));
+}
+
+/** How the race ended for the player. The winner is the largest share (ties to the earlier first light); the VERDICT is
+ *  YOURS when that winner is the player and leads the second by more than `RACE.sharedMargin` of the combined volleys, THEIRS when
+ *  a rival wins and the player is further than the margin behind it, and SHARED otherwise: an equal top share (a tie the first
+ *  light decided), or a photo finish within the margin whoever it favours. */
+export function verdictFor(lines: RaceLines, player: FactionId, margin = RACE.sharedMargin): Verdict {
+  const order = standingsOrder(lines);
+  const total = FACTION_ORDER.reduce((n, f) => n + lines[f].launches, 0);
+  const mine = lines[player].launches;
+  if (total <= 0) return 'shared';
+  if (order[0] === player) {
+    const second = lines[order[1]].launches;
+    return (mine - second) / total <= margin + 1e-9 ? 'shared' : 'yours';
+  }
+  return (lines[order[0]].launches - mine) / total <= margin + 1e-9 ? 'shared' : 'theirs';
+}
+
+/** "Foundry 14 · Vanguard 10 · Commons 6" in standing order (a feed line's tail). */
+const standingsLine = (lines: RaceLines, order: FactionId[]): string =>
+  order.map((f) => `${FACTIONS[f].short} ${lines[f].launches}`).join(' · ');
+
+function closeRace(moon: MoonState, order: FactionId[], total: number): void {
+  const r = moon.race;
+  const lines = Object.fromEntries(FACTION_ORDER.map((f) => [f, { launches: r[f].launches, firstLaunchAt: r[f].firstLaunchAt }])) as MoonRaceFinal;
+  r.phase = 'closed';
+  r.winner = order[0];
+  r.closedAt = moon.clock;
+  r.final = lines;
+  if (moon.player !== null) r.verdict = verdictFor(lines, moon.player);
+  const share = total > 0 ? Math.round((100 * lines[order[0]].launches) / total) : 0;
+  pushFeed(moon, {
+    faction: order[0], kind: 'verdict', n: total,
+    text: `THE RACE CLOSES AT ${total} VOLLEYS — ${FACTION_NAME[order[0]].toUpperCase()} HOLDS THE LARGEST SHARE (${share} %) · ${standingsLine(lines, order)}`,
+  });
+}
+
+/** One look at the race: the first volley of any program lights it (`pre` → `lit`); a standings beat goes on the feed at every
+ *  `RACE.beatEvery` combined volleys and whenever the lead changes; at `closeAt` combined volleys the race closes (the largest
+ *  share wins, `verdict` on the feed once). Idempotent (a second call with nothing new does nothing), deterministic, solo-proof. */
+export function raceStep(moon: MoonState): void {
+  const r = moon.race;
+  if (moon.player === null || r.phase === 'solo' || r.phase === 'closed') return;
+  const total = combinedLaunches(moon);
+  if (r.phase === 'pre') {
+    if (total <= 0) return;
+    r.phase = 'lit';
+  }
+  const order = standingsOrder(moon.race);
+  if (total >= r.closeAt) { closeRace(moon, order, total); return; }
+  const leader = order[0];
+  const changed = r.leader !== undefined && r.leader !== leader;
+  r.leader = leader;
+  const beat = Math.floor(total / RACE.beatEvery) * RACE.beatEvery;
+  const due = beat > (r.beat ?? 0);
+  if (due) r.beat = beat;
+  if (!changed && !due) return;
+  const top = moon.race[leader].launches;
+  const next = moon.race[order[1]].launches;
+  const name = FACTION_NAME[leader].toUpperCase();
+  pushFeed(moon, {
+    faction: leader, kind: 'standing', n: total,
+    text: changed
+      ? `${name} TAKES THE LEAD — ${top} volleys to ${FACTIONS[order[1]].short}'s ${next} · ${total} of ${r.closeAt} combined`
+      : `THE RACE AT ${total} OF ${r.closeAt} VOLLEYS — ${name} ${top > next ? `LEADS BY ${top - next}` : 'LEADS ON THE EARLIER FIRST LIGHT'} · ${standingsLine(moon.race, order)}`,
+  });
+}
+
+/** The player's own volley (economy.launchVolley, after `s.launches` moved): its line of the race, its first light on the feed, every
+ *  fifth volley as the rival runner reports them, and a look at the race (the phase, a beat, the close). A rival's line is the
+ *  runner's, written once a Moon second; a solo game and a Moon with no player do nothing. */
+export function raceLaunched(moon: MoonState, s: Pick<GameState, 'faction' | 'launches' | 'swarmPct' | 'era' | 'simTime'>): void {
+  const f = s.faction;
+  if (!f || moon.player !== f) return;
+  const e = moon.race[f];
+  const first = e.firstLaunchAt === null;
+  e.launches = s.launches;
+  e.swarmPct = s.swarmPct;
+  e.era = s.era;
+  if (first) {
+    e.firstLaunchAt = s.simTime;
+    pushFeed(moon, { faction: f, kind: 'firstLight', era: s.era, n: s.launches, text: `${FACTION_NAME[f].toUpperCase()} — FIRST LIGHT: the first collector volley is away` });
+  } else if (s.launches % 5 === 0) {
+    pushFeed(moon, { faction: f, kind: 'launch', era: s.era, n: s.launches, text: `${FACTION_NAME[f].toUpperCase()} HAS LAUNCHED ${s.launches} VOLLEYS — swarm ${s.swarmPct.toFixed(4)}%` });
+  }
+  raceStep(moon);
 }

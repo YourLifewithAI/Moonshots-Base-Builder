@@ -67,7 +67,7 @@ import { materials } from '../world/materials';
 import { IsoCam, commandKey } from '../player/isoCam';
 import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadSave, clearSave, asV2, isV2, stripForRivalSave, type SaveFile } from './save';
-import { bindMoon, createMoon, scheduleLandings, dueLandings, pushFeed, feedSince, dispatchFeed, type MoonState } from './moon';
+import { bindMoon, createMoon, scheduleLandings, dueLandings, pushFeed, feedSince, dispatchFeed, raceStep, type MoonState } from './moon';
 import { RivalProgram, rivalInfos } from './rival';
 import { raceView } from './raceView';
 import { FACTIONS, FACTION_NAME, FACTION_ORDER, assignSites, factionOfState, type FactionId } from '../data/factions';
@@ -359,19 +359,16 @@ export class Game {
   private stepRivals(now: number) {
     const s = this.state;
     const me = this.moon.player;
-    if (me !== null) {
-      // the player's own line of the race (S6 writes it from `launchVolley`; until then it is mirrored here, once a second)
-      const e = this.moon.race[me];
-      e.launches = s.launches;
-      e.swarmPct = s.swarmPct;
-      e.era = s.era;
-      if (e.firstLaunchAt === null && s.launches > 0) e.firstLaunchAt = s.simTime;
-    }
+    // the player's line of the race (launches, swarm %, first light) is written by `launchVolley` itself (core/moon.ts
+    // `raceLaunched`); its era is the one thing a volley does not carry
+    if (me !== null) this.moon.race[me].era = s.era;
     if (!this.rivalsOn || me === null) return;
     const t0 = performance.now();
     // (a rival that lands this second starts at it: it is created after the others' steps, which bring them up to it)
     for (const r of this.rivals) r.step();
     this.landDue(now);
+    // the rivals' volleys are in the Moon now: the phase, a standings beat, the close (the feed below hands them to the UI)
+    raceStep(this.moon);
     for (const e of feedSince(this.moon, this.feedCursor)) { this.feedCursor = e.id; dispatchFeed(e, { moon: this.moon, player: s }); }
     const ms = performance.now() - t0;
     const p = this.rivalPerf;

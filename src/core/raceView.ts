@@ -8,7 +8,7 @@
 import { CYCLE_S } from '../data/balance';
 import { FACTIONS, FACTION_ORDER, type FactionId } from '../data/factions';
 import { SITES, type SiteId } from '../data/sites';
-import type { FeedEvent, FeedKind, MoonState, RacePhase } from './moon';
+import { standingsOrder, type FeedEvent, type FeedKind, type MoonState, type RacePhase, type Verdict } from './moon';
 import type { RivalProgram } from './rival';
 import { rivalInfos } from './rival';
 import type { GameState } from './state';
@@ -44,6 +44,33 @@ export interface RaceRow {
   last: { id: number; kind: FeedKind; text: string; at: number } | null;
 }
 
+/** One faction's line of the verdict's table: the standings as they stood when the race closed. */
+export interface RaceVerdictRow {
+  faction: FactionId;
+  name: string;
+  short: string;
+  glyph: string;
+  trim: string;
+  player: boolean;
+  rank: number;
+  launches: number;
+  share: number;
+  /** the Moon day of its first volley, or null */
+  firstLightDay: number | null;
+}
+
+/** How the race ended (S6): present once the phase is `closed`. */
+export interface RaceVerdict {
+  kind: Verdict;
+  winner: FactionId;
+  /** the combined volleys at the close */
+  total: number;
+  /** the Moon clock second of the close */
+  closedAt: number;
+  /** in standing order as of the close (the live rows keep moving after it) */
+  rows: RaceVerdictRow[];
+}
+
 export interface RaceView {
   phase: RacePhase;
   closeAt: number;
@@ -58,6 +85,8 @@ export interface RaceView {
   /** the player's standing, 1..3 */
   rank: number;
   winner?: FactionId;
+  /** the verdict, once the race has closed (S6) */
+  verdict?: RaceVerdict;
 }
 
 const ORDINAL = ['', '1st', '2nd', '3rd'];
@@ -98,15 +127,31 @@ export function raceView(moon: MoonState, player: GameState | null, rivals: read
       last: lastOf(f),
     };
   });
-  const order = (a: RaceRow, b: RaceRow) =>
-    b.launches - a.launches
-    || (a.firstLightAt ?? Infinity) - (b.firstLightAt ?? Infinity)
-    || FACTION_ORDER.indexOf(a.faction) - FACTION_ORDER.indexOf(b.faction);
-  rows.sort(order);
+  // the standing order is the Moon's own (core/moon.ts standingsOrder: launches, then the earlier first light, then landing order)
+  const ranked = standingsOrder(moon.race);
+  rows.sort((a, b) => ranked.indexOf(a.faction) - ranked.indexOf(b.faction));
   rows.forEach((r, k) => { r.rank = k + 1; });
   return {
     phase: moon.race.phase, closeAt: moon.race.closeAt, combined, player: me, moonDay: Math.floor(moon.clock / CYCLE_S),
     rows, leader: rows[0].faction, rank: rows.find((r) => r.player)!.rank,
     ...(moon.race.winner ? { winner: moon.race.winner } : {}),
+    ...(moon.race.final && moon.race.verdict && moon.race.winner ? { verdict: verdictView(moon, moon.race.final, moon.race.verdict, moon.race.winner, me) } : {}),
+  };
+}
+
+function verdictView(moon: MoonState, final: NonNullable<MoonState['race']['final']>, kind: Verdict, winner: FactionId, me: FactionId): RaceVerdict {
+  const total = FACTION_ORDER.reduce((n, f) => n + final[f].launches, 0);
+  const order = standingsOrder(final);
+  return {
+    kind, winner, total, closedAt: moon.race.closedAt ?? moon.clock,
+    rows: order.map((f, k) => {
+      const d = FACTIONS[f];
+      const at = final[f].firstLaunchAt;
+      return {
+        faction: f, name: d.name, short: d.short, glyph: d.glyph, trim: d.livery.trim, player: f === me, rank: k + 1,
+        launches: final[f].launches, share: total > 0 ? final[f].launches / total : 0,
+        firstLightDay: at === null ? null : Math.floor(at / CYCLE_S),
+      };
+    }),
   };
 }

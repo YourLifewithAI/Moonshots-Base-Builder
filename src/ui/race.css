@@ -59,6 +59,10 @@ html.touch #briefing .eb-foot { margin-top: 8px; position: sticky; bottom: -8px;
 #race-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
 #race-chip.behind { border-style: dashed; }
 #race-chip.lit { font-weight: 600; }
+/* the race is on (S6): a volley has flown. A rival in front is the dashed, dimmer chip; you in front is the solid, bright one. */
+#race-chip.lit:not(.behind) { border-color: rgba(var(--paper-rgb), 0.75); color: var(--paper); }
+#race-chip.behind { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#race-chip[data-phase="closed"] { font-weight: 600; letter-spacing: 0.04em; }
 html.touch #race-chip { min-height: var(--tap, 44px); }
 #race-panel {
   width: 380px; max-height: 70vh;
@@ -81,3 +85,16 @@ html.touch #race-chip { min-height: var(--tap, 44px); }
 #race-panel .rc-last { margin-top: 3px; font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 #race-panel .rc-ld { font-family: var(--font-mono); font-size: 10px; margin-right: 4px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
 #race-panel .rc-none { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+
+/* ── the swarm meter's three share bars (hud.ts, S6): each faction's launches over the combined volleys, in its trim colour ── */
+#swarm-meter .swarm-race { margin-top: 7px; padding-top: 6px; border-top: var(--hair); display: flex; flex-direction: column; gap: 3px; }
+#swarm-meter .sr-row { display: grid; grid-template-columns: 14px 1fr 3ch 4ch; align-items: center; gap: 6px; font-size: 11px; line-height: 13px; }
+#swarm-meter .sr-g { color: var(--ft); font-size: 12px; line-height: 1; text-align: center; }
+#swarm-meter .sr-bar { position: relative; height: 5px; background: rgba(var(--paper-rgb), var(--op-fill)); border: var(--hair); }
+#swarm-meter .sr-bar i { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--ft); min-width: 0; transition: width 0.4s ease-out; }
+#swarm-meter .sr-row .sr-n { font-size: 11px; text-align: right; color: var(--ink-050); }
+#swarm-meter .sr-row .sr-p { font-size: 10px; text-align: right; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+/* yours is the marked bar: a paper frame round the track, bold figures, a rule in the margin */
+#swarm-meter .sr-row.you .sr-bar { height: 7px; outline: 1px solid rgba(var(--paper-rgb), 0.85); outline-offset: 1px; }
+#swarm-meter .sr-row.you .sr-n, #swarm-meter .sr-row.you .sr-p { font-weight: 700; color: var(--paper); }
+html.touch #swarm-meter .swarm-race { display: none !important; }
