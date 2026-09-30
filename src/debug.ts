@@ -102,6 +102,8 @@ function api(game: Game) {
     setSpeed: (n: number) => game.actions.push({ kind: 'setSpeed', speed: n }),
     setPaused: (p: boolean) => game.actions.push({ kind: 'setPaused', paused: p }),
     advanceGameMinutes: (min: number) => game.debugAdvance(Math.round(min * 60)),
+    /** pause and pin the game clock (and clear the tick accumulator): call right after boot for a deterministic run */
+    settleClock: (at?: number) => game.debugSettleClock(at),
     advanceGameSeconds: (s: number) => game.debugAdvance(Math.round(s)),
     /** one live frame of `realDt` wall-seconds, through the real loop's clamps */
     stepFrame: (realDt: number) => game.debugFrame(realDt),
