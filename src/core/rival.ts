@@ -260,7 +260,7 @@ export class RivalProgram {
    *  not falling), and, until its parts fabricator stands, the parts cache holds 40. An unstable base builds what steadies it (power,
    *  smelter, farm, water, parts, the first lab) and nothing else: growth on a base that is starving for parts, water or air is how a
    *  rival built twenty solar arrays and a fifth lab and died of thirst. */
-  private stable(): boolean {
+  private stable(ignoreNight = false): boolean {
     const s = this.base.state;
     if (s.crew > 0 && s.expedition !== 'robotic') {
       for (const res of ['oxygen', 'food', 'water'] as const) {
@@ -270,7 +270,7 @@ export class RivalProgram {
     }
     // a site with no night sun carries the night on its bank: loads are added only while the bank covers half of it (the lights go out
     // for the farms first, and a crop that goes dark is lost)
-    if (s.expedition !== 'robotic' && SITES[s.siteId].nightSolarFraction < 0.5) {
+    if (!ignoreNight && s.expedition !== 'robotic' && SITES[s.siteId].nightSolarFraction < 0.5) {
       const pb = powerBook(s, this.base.mods);
       if (pb.nightShort > 0 && s.power.capacity < pb.nightShort * NIGHT_S * STABLE_NIGHT) return false;
     }
@@ -281,7 +281,16 @@ export class RivalProgram {
   private gate() {
     const s = this.base.state;
     const ok = this.stable();
-    for (const id of GROWTH_RULES) ruleState(s, id).on = ok;
+    const labs = ok || (this.bankless() && this.stable(true));
+    for (const id of GROWTH_RULES) ruleState(s, id).on = id === 'lab' ? labs : ok;
+    if (labs && !ok) { const r = ruleState(s, 'lab'); r.cap = Math.min(r.cap, BANKLESS_LABS); }
+  }
+
+  /** A crewed base on a site with no night sun and no Battery Storage yet: the night's bank it would wait for cannot exist until the
+   *  labs have researched it, so the first BANKLESS_LABS labs are not held back by it (one lab alone took the whole twelve days to get there). */
+  private bankless(): boolean {
+    const s = this.base.state;
+    return s.expedition !== 'robotic' && SITES[s.siteId].nightSolarFraction < 0.5 && !this.base.mods.unlocked.has('battery');
   }
 
   /** Earth sends 40 parts and 60 metals a lunar day after the order (the player's own Lander action): a base with no parts fabricator yet
@@ -289,7 +298,7 @@ export class RivalProgram {
   private resupply() {
     const s = this.base.state;
     if (s.resupply?.pending || (s.resupply?.ordered ?? 0) >= 2) return;
-    if (s.resources.parts >= 70 || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
+    if (s.resources.parts >= RESUPPLY_PARTS || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
     this.base.apply({ kind: 'orderResupply' });
   }
 
@@ -373,9 +382,10 @@ export class RivalProgram {
     const site = SITES[s.siteId];
     if (this.power()) return;
     const stable = this.stable();
+    const bankless = this.bankless() && this.stable(true);
     for (const o of FACTIONS[this.faction].policy.orders) {
       if (!mods.unlocked.has(o.type)) continue;
-      if (!stable && !STEADYING.includes(o.type) && !(o.type === 'lab' && o.count === 1)) continue;
+      if (!stable && !STEADYING.includes(o.type) && !(o.type === 'lab' && (o.count === 1 || (o.count <= BANKLESS_LABS && bankless)))) continue;
       if (o.when && !o.when(s, mods)) continue;
       if (!handsFor(s, mods, o.type)) continue;
       let have = 0;
@@ -476,6 +486,8 @@ const RULE_TYPE: Partial<Record<AutoRuleId, BuildingId>> = {
 /** the day's supply a rival keeps over its load, and the share of a night's deficit its bank covers */
 const POWER_MARGIN = 1.15;
 const SURVEY_PARTS_FLOOR = 70;
+/** a base with no parts fabricator orders Earth's shipment once its cache falls under this */
+const RESUPPLY_PARTS = 100;
 const STABLE_S = 2400;
 const STABLE_PARTS = 40;
 const STABLE_NIGHT = 0.5;
@@ -484,6 +496,8 @@ const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 
 /** what an unstable base may still order */
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
 const NIGHT_COVER = 0.9;
+/** labs a base may run while it has no bank to carry the night (see `bankless`) */
+const BANKLESS_LABS = 3;
 
 /** a life-support stock that would run out inside this many seconds at its present rate asks for another maker; inside CRISIS_S it may
  *  take the hands a lab needs */
