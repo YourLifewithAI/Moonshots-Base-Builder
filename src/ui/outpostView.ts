@@ -47,7 +47,9 @@ export function outpostChip(lv: LunarView | null): { text: string; title: string
   const say = (n: number, what: string) => (n ? ` · ${n} ${what}` : '');
   const title = `Outposts ${c.total}/${c.slots}${say(c.live, 'live')}${say(c.worn, 'worn: parts short, stream ×0.5')}` +
     `${say(c.grounded, 'grounded: no hopper fuel')}${say(c.off, 'cut off from the Lander')}${say(c.deploying, 'deploying')}` +
-    `${c.free ? ` · ${c.free} slot${c.free === 1 ? '' : 's'} free` : ''} — click for the Lunar Map's outposts`;
+    `${c.free ? ` · ${c.free} slot${c.free === 1 ? '' : 's'} free` : ''}` +
+    // the crowded Moon (docs/20 §5): what the other programs hold, in the same breath
+    `${rivalCountText(lv) ? ` · rivals hold ${rivalCountText(lv)}` : ''} — click for the Lunar Map's outposts`;
   return { text, title, fault: c.worn + c.grounded + c.off > 0 };
 }
 

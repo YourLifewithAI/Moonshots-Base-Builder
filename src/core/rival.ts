@@ -13,7 +13,6 @@ import type { MoonState } from './moon';
 import { hashString } from './rng';
 import type { GameState } from './state';
 import type { RivalInfo } from './exploration';
-import { fleetLists } from './surveyDrones';
 import type { SiteId } from '../data/sites';
 import { FACTIONS, FACTION_NAME, FACTION_ORDER, type FactionId } from '../data/factions';
 
@@ -86,7 +85,7 @@ export function rivalInfos(moon: MoonState, rivals: readonly RivalProgram[]): Ri
     return {
       faction: f, name: FACTION_NAME[f], siteId: m.siteId, landed: m.landed, landedAt: m.landedAt,
       outposts: r ? r.state.survey.outposts.map((o) => o.id) : [], launches: moon.race[f].launches, era: moon.race[f].era,
-      surveying: r ? fleetLists(r.state).flights.map((fl) => fl.id) : [],
+      surveying: r ? (r.state.survey.flights ?? []).map((fl) => fl.id) : [],
     };
   });
 }

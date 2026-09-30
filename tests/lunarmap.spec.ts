@@ -604,3 +604,335 @@ test('outpost alerts are field alerts that open the map at the outpost, and a ho
   await expect(page.locator('.op[data-id="fraMauro"] .op-3')).toHaveText('fuel ✗ · upkeep ✗');
   await expect(page.locator('.op[data-id="fraMauro"]')).toHaveClass(/fault/);
 });
+
+// ───────────────────────────── docs/20 S5: the crowded Moon ─────────────────────────────
+// A faction game has two rival programs on the same Moon: their homes, reach and outposts are on the map, a prospect one
+// holds is refused with CLAIMED BY, the field reports say who is nearby, a claim near home is news, and the faction
+// flavour (the Commons' cheaper outposts, the Vanguard's survey data, the Foundry's drones) rides on the landing techs.
+// Played here as the Commons on the lava tube: the Foundry is on Ilmenite Plains, the Vanguard on the pole. Marius domes
+// (KREEP, 1.7° from home) is the contested prospect. The rival's side goes through the W0i test hooks; the claim's
+// feed event is pushed by the spec only when the rival runner has not written one.
+
+type Faction = 'robots' | 'accelerationists' | 'solarpunks';
+/** the text-presentation selector the map appends to a faction's glyph (⚙ and ❀ must never turn into colour emoji) */
+const TX = '\uFE0E';
+
+/** a faction game on the debug API, paused; the page errors are collected */
+async function bootFaction(page: Page, faction: Faction, site: string) {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto('/?debug&seed=42');
+  await page.waitForFunction(() => window.__game !== undefined);
+  await page.evaluate(([f, s]) => {
+    const G = window.__game;
+    G.selectFaction(f, s);
+    G.setPaused(true);
+    G.advanceGameSeconds(0);
+  }, [faction, site] as const);
+  return errors;
+}
+
+/** The Foundry reaches the near side (Orbital Prospector), is given what a survey costs, and sends its drone to `pid`. */
+const foundrySurveys = (page: Page, pid: string) => page.evaluate((id) => {
+  const G = window.__game;
+  for (const t of ['prospectingRovers', 'orbitalProspector']) G.rivalCompleteTech('robots', t);
+  G.rivalGrant('robots', { metals: 500, parts: 200, chips: 50, oxygen: 400, water: 200 });
+  G.rivalApply('robots', { kind: 'surveyProspect', id });
+  G.advanceGameSeconds(1);
+}, pid);
+
+/** The Foundry claims what it has surveyed, and the Moon's feed says so (the spec writes the event if the rival runner did not). */
+const foundryClaims = (page: Page, pid: string) => page.evaluate((id) => {
+  const G = window.__game;
+  G.rivalApply('robots', { kind: 'claimOutpost', id });
+  if (!G.getMoon().feed?.some((e: any) => e.kind === 'claim' && e.prospect === id)) {
+    G.feedPush({ faction: 'robots', kind: 'claim', text: `THE FOUNDRY CLAIMS ${id.toUpperCase()}`, prospect: id });
+  }
+  G.advanceGameSeconds(2);
+}, pid);
+
+/** the Commons' own map tiers: T1 (a slot), T2 (the near side), T3 (the far side), T4 */
+const tiers = (page: Page, n: number) => complete(page, ['prospectingRovers', 'orbitalProspector', 'farSideRelay', 'deepSounding'].slice(0, n));
+const fieldAlerts = (page: Page, re: RegExp) =>
+  page.evaluate((src) => window.__game.getState().alerts.filter((a: any) => a.family === 'field' && new RegExp(src).test(a.text)), re.source);
+/** the rival marks of the current layer (a mark outside the view window is built but hidden: not counted) */
+const rivalMarks = (page: Page) => page.locator('#map-layers .map-layer.cur').evaluate((l) => ({
+  homes: [...l.querySelectorAll<SVGElement>('.home.rhome')].filter((e) => e.style.display !== 'none').length,
+  reach: l.querySelectorAll('.rcov').length,
+  frames: l.querySelectorAll('.pm.rival .rframe').length, spins: l.querySelectorAll('.pm .rspin').length,
+}));
+
+test('solo: the map carries no rival marks in any view, and no rival line', async ({ page }) => {
+  await boot(page, 'lavatube', 'human');
+  await tiers(page, 4);
+  expect((await g(page, 'getLunar')).rivals).toEqual([]);
+  expect(await g(page, 'getRivals')).toEqual([]);
+  await openMap(page);
+  for (const view of ['site', 'vicinity', 'region', 'near', 'far', 'moon']) {
+    await g(page, 'setMapView', view);
+    await expect(mapScreen(page)).toHaveAttribute('data-view', view);
+    await settled(page);
+    expect(await rivalMarks(page), view).toEqual({ homes: 0, reach: 0, frames: 0, spins: 0 });
+  }
+  await expect(page.locator('#mh-rivals')).toHaveText('');
+  await expect(page.locator('#map-legend')).not.toContainText('rival');
+  const lv = await g(page, 'getLunar');
+  expect(lv.prospects.every((p: any) => p.rival === null)).toBe(true);
+});
+
+test('a faction game: each landed rival has a home marker and its reach on the near views, none on the SITE map', async ({ page }) => {
+  const errors = await bootFaction(page, 'solarpunks', 'lavatube');
+  await tiers(page, 4);
+  const lv = await g(page, 'getLunar');
+  expect(lv.rivals.map((r: any) => [r.faction, r.siteId, r.landed])).toEqual([['robots', 'mare', true], ['accelerationists', 'southpole', true]]);
+  await openMap(page);
+  // SITE: a rival lives on another ground altogether
+  await g(page, 'setMapView', 'site');
+  await expect(mapScreen(page)).toHaveAttribute('data-view', 'site');
+  await settled(page);
+  expect(await rivalMarks(page)).toEqual({ homes: 0, reach: 0, frames: 0, spins: 0 });
+  // the globe views: the landed rivals' homes and reach, each with its own class and its livery's colour. Near and MOON see both
+  // (the pole rides the limb); the far side sees the pole's reach and home only, the Foundry's 27° stays on the near side.
+  for (const [view, homes, reach] of [['near', 2, 2], ['far', 1, 1], ['moon', 2, 2]] as const) {
+    await g(page, 'setMapView', view);
+    await expect(mapScreen(page)).toHaveAttribute('data-view', view);
+    await settled(page);
+    const layer = page.locator('#map-layers .map-layer.cur');
+    expect(await rivalMarks(page), view).toMatchObject({ homes, reach });
+    await expect(layer.locator('.rcov.k-rival-accelerationists .rcov-fill')).toHaveCount(1);
+    await expect(layer.locator('.rcov.k-rival-accelerationists .rcov-edge')).toHaveCount(1);
+    if (view !== 'far') {
+      await expect(layer.locator('.rcov.k-rival-robots .rcov-edge')).toHaveCount(1);
+      expect(await layer.locator('.rhome.k-rival-robots').evaluate((e) => e.getAttribute('style'))).toContain('#e8632b');
+    }
+  }
+  await g(page, 'setMapView', 'near');
+  await settled(page);
+  const foundry = page.locator('#map-layers .map-layer.cur .home.rhome.k-rival-robots');
+  await expect(foundry).toHaveCount(1);
+  await expect(foundry.locator('.rg')).toHaveText(`⚙${TX}`);
+  await expect(foundry.locator('.lbl')).toHaveText('FOUNDRY · ILMENITE PLAINS');
+  await expect(page.locator('#map-layers .map-layer.cur .home.rhome.k-rival-accelerationists .rg')).toHaveText(`▲${TX}`);
+  // the home pin is still the player's own, once
+  await expect(page.locator('#map-layers .map-layer.cur .home:not(.rhome)')).toHaveCount(1);
+  await expect(page.locator('#map-legend')).toContainText('rival outpost');
+  // the regional views: a rival's reach is drawn where it could fall, with no home in sight
+  for (const view of ['vicinity', 'region']) {
+    await g(page, 'setMapView', view);
+    await settled(page);
+    expect((await rivalMarks(page)).homes, view).toBe(0);
+  }
+  expect(errors).toEqual([]);
+});
+
+test('a prospect a rival is surveying spins in its colour; once claimed it is a filled frame with its glyph, and the header counts it', async ({ page }) => {
+  const errors = await bootFaction(page, 'solarpunks', 'lavatube');
+  await tiers(page, 2);
+  await foundrySurveys(page, 'mariusDomes');
+  expect((await g(page, 'getLunar')).rivals[0].surveying).toEqual(['mariusDomes']);
+  await openMap(page);
+  await g(page, 'setMapView', 'near');
+  await settled(page);
+  const dome = marker(page, 'mariusDomes');
+  await expect(dome).toHaveClass(/rsurvey/);
+  await expect(dome).toHaveClass(/k-rsurvey-robots/);
+  await expect(dome.locator('.rspin')).toHaveCount(1);
+  expect(await dome.locator('.rspin').evaluate((e) => e.getAttribute('style'))).toContain('#e8632b');
+  await expect(dome.locator('.rframe')).toHaveCount(0); // not claimed yet
+  await expect(page.locator('#mh-rivals')).toHaveText(` · rivals ⚙${TX} Foundry 0 · ▲${TX} Vanguard 0`);
+
+  // the drone comes home, the Foundry claims: a filled frame in its colour with its glyph on a badge
+  await g(page, 'advanceGameSeconds', 200);
+  await foundryClaims(page, 'mariusDomes');
+  await expect(dome).toHaveClass(/k-rival-robots/);
+  await expect(dome.locator('.rframe')).toHaveCount(1);
+  await expect(dome.locator('.rbadge text')).toHaveText(`⚙${TX}`);
+  await expect(dome.locator('.rspin')).toHaveCount(0);
+  await expect(dome.locator('.frame')).toHaveCount(0); // the hollow frame is ours
+  expect(await dome.evaluate((e) => getComputedStyle(e.querySelector('.rframe')!).fill)).toBe('rgb(232, 99, 43)');
+  await expect(dome.locator('title')).toContainText('rival outpost — The Foundry');
+  await expect(page.locator('#mh-rivals')).toHaveText(` · rivals ⚙${TX} Foundry 1 · ▲${TX} Vanguard 0`);
+  await expect(page.locator('#mh-out')).toHaveText('outposts 0/1'); // our own slots, as ever
+  // the list row wears the holder's badge too
+  await expect(page.locator('.ns-row[data-id="mariusDomes"] .ns-rv')).toHaveText(`⚙${TX}`);
+  expect(await rivalMarks(page)).toMatchObject({ frames: 1, spins: 0 });
+  expect(errors).toEqual([]);
+});
+
+test('the sheet of a rival outpost says whose it is, offers no Claim, and our claim is refused with CLAIMED BY', async ({ page }) => {
+  await bootFaction(page, 'solarpunks', 'lavatube');
+  await tiers(page, 2);
+  await foundrySurveys(page, 'mariusDomes');
+  await g(page, 'advanceGameSeconds', 200);
+  await foundryClaims(page, 'mariusDomes');
+  // the view names the holder; an unsurveyed prospect of theirs is still ours to survey
+  const dome = (await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'mariusDomes');
+  expect(dome.rival).toEqual({ faction: 'robots', name: 'The Foundry' });
+  expect(dome.claimable).toBe(false);
+  await openMap(page);
+  await g(page, 'setMapView', 'near');
+  await settled(page);
+  await pick(page, 'mariusDomes');
+  await expect(page.locator('.ps-name')).toHaveText('Marius Hills domes');
+  await expect(page.locator('.ps-rival')).toContainText('▢ rival outpost — The Foundry');
+  await expect(page.locator('.ps-rival')).toHaveClass(/k-rival-robots/);
+  await expect(page.locator('#ps-claim')).toHaveCount(0);
+  await expect(page.locator('#ps-survey')).toHaveCount(1); // their outpost does not close the survey
+  await expect(page.locator('#ps-survey')).not.toHaveClass(/blocked/);
+  await expect(page.locator('.ps')).not.toContainText('OUTPOST SITE');
+  // we survey it (local: 1.7°), and the sheet gives the refusal
+  await g(page, 'grantPower', 300);
+  await page.locator('#ps-survey').click();
+  await g(page, 'advanceGameSeconds', 70);
+  await expect(page.locator('#ps-claim')).toHaveCount(0);
+  await expect(page.locator('#ps-reason')).toHaveText('✗ CLAIMED BY THE FOUNDRY — its outpost stands there');
+  await expect(page.locator('.ps-rival')).toContainText('▢ rival outpost — The Foundry');
+  await page.screenshot({ path: 'test-results/m3-rival-sheet.png' });
+  // our own claim goes through the sim and is refused in its words (the slot and the resources are there)
+  await g(page, 'grantResources', { metals: 300, parts: 100, chips: 30 });
+  await g(page, 'claimOutpost', 'mariusDomes');
+  await g(page, 'advanceGameSeconds', 1);
+  const refusal = await alertOf(page, /^CLAIMED BY/);
+  expect(refusal?.text).toBe('CLAIMED BY THE FOUNDRY — its outpost stands there');
+  expect((await g(page, 'getState')).survey.outposts).toEqual([]);
+  expect((await g(page, 'getMoon')).claims.mariusDomes).toBe('robots');
+  // the list says so too
+  await page.locator('.ps-back').click();
+  await expect(page.locator('.ns-row.done[data-id="mariusDomes"] .ns-st')).toHaveText('▢ rival outpost — The Foundry');
+});
+
+test('a field report names a rival outpost within 27° of what was surveyed, and a rival-held prospect says so instead of offering the claim', async ({ page }) => {
+  await bootFaction(page, 'solarpunks', 'lavatube');
+  await tiers(page, 2);
+  await foundrySurveys(page, 'mariusDomes');
+  await g(page, 'advanceGameSeconds', 200);
+  await foundryClaims(page, 'mariusDomes');
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.grantResources({ oxygen: 300, water: 100, parts: 50 });
+    G.grantPower(600);
+    G.surveyProspect('reinerGamma'); // 6.9° from home, 6.5° from the Foundry's outpost
+  });
+  await g(page, 'advanceGameSeconds', 80);
+  const report = async (title: string) => (await page.evaluate((t) =>
+    window.__game.getState().alerts.filter((a: any) => a.report && a.report.title === t).pop()?.report ?? null, title));
+  const near = await report('Reiner Gamma swirl');
+  const rival = near.rewards.find((r: any) => r.tag === 'RIVAL');
+  expect(rival.text).toMatch(/^The Foundry holds Marius domes, \d\.\d° away$/);
+  expect(rival.text).toBe('The Foundry holds Marius domes, 6.5° away');
+  expect(rival.button).toEqual({ label: 'On the map', action: { map: 'mariusDomes' } });
+  // now the contested prospect itself: no claim line, only the holder's
+  await g(page, 'surveyProspect', 'mariusDomes');
+  await g(page, 'advanceGameSeconds', 70);
+  const held = await report('Marius Hills domes');
+  expect(held.rewards.map((r: any) => r.tag)).not.toContain('OUTPOST SITE');
+  expect(held.rewards.find((r: any) => r.tag === 'RIVAL')).toEqual({
+    tag: 'RIVAL', text: 'The Foundry holds Marius domes — its outpost stands here; there is nothing to claim',
+    button: { label: 'Open the map', action: { map: 'mariusDomes' } },
+  });
+  // a survey far from every rival outpost carries no RIVAL line (the pole's Shackleton floor is 120° from the dome)
+});
+
+test('a rival claim within 27° of home is a field notification that opens the map; one farther off is not', async ({ page }) => {
+  await bootFaction(page, 'solarpunks', 'lavatube');
+  // the Foundry claims Moltke, beside its own home: 80° from the lava tube
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.feedPush({ faction: 'robots', kind: 'claim', text: 'THE FOUNDRY CLAIMS MOLTKE — ilmenite outpost', prospect: 'moltke' });
+    G.advanceGameSeconds(2);
+  });
+  expect(await fieldAlerts(page, /CLAIMS/)).toEqual([]);
+  // then Marius domes, 1.7° from home
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.feedPush({ faction: 'robots', kind: 'claim', text: 'THE FOUNDRY CLAIMS MARIUS DOMES — KREEP outpost', prospect: 'mariusDomes' });
+    G.advanceGameSeconds(2);
+  });
+  const n = await fieldAlerts(page, /CLAIMS/);
+  expect(n).toHaveLength(1);
+  expect(n[0]).toMatchObject({
+    text: 'THE FOUNDRY CLAIMS MARIUS DOMES — KREEP outpost, 1.7° from your landing site', family: 'field', action: { map: 'mariusDomes' },
+  });
+  // Mons Rümker (26.7°) is inside the regional radius, the Vanguard's claim is news too; Copernicus (36°) is not
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.feedPush({ faction: 'accelerationists', kind: 'claim', text: 'THE VANGUARD CLAIMS MONS RÜMKER', prospect: 'monsRumker' });
+    G.feedPush({ faction: 'accelerationists', kind: 'claim', text: 'THE VANGUARD CLAIMS COPERNICUS', prospect: 'copernicus' });
+    G.advanceGameSeconds(2);
+  });
+  const all = (await fieldAlerts(page, /CLAIMS/)).map((a: any) => a.text);
+  expect(all).toEqual([
+    'THE FOUNDRY CLAIMS MARIUS DOMES — KREEP outpost, 1.7° from your landing site',
+    'THE VANGUARD CLAIMS MONS RÜMKER — KREEP outpost, 26.7° from your landing site',
+  ]);
+  // it is in the stack with the field glyph, and opens the map at the prospect
+  const line = page.locator('#alerts .alert', { hasText: 'THE FOUNDRY CLAIMS MARIUS DOMES' });
+  await expect(line).toHaveClass(/nf-field/);
+  await expect(line.locator('.alert-g')).toHaveText('◎');
+  await line.locator('.alert-text').click();
+  await expect(mapScreen(page)).toBeVisible();
+  await expect(page.locator('.ps-name')).toHaveText('Marius Hills domes');
+});
+
+test('exploration flavour: the Commons claim for metals ×0.85, the Vanguard\'s surveys pay ×1.2 data, the Foundry\'s drones fly ×1.15; solo is unchanged', async ({ page }) => {
+  // the Commons: a regional-or-local claim costs 51 metals, not 60 (parts and chips as ever)
+  await bootFaction(page, 'solarpunks', 'lavatube');
+  expect((await g(page, 'getMods')).outpostCostMult).toBeCloseTo(0.85, 6);
+  await complete(page, ['prospectingRovers']);
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.grantResources({ parts: 100, chips: 30 });
+    G.grantPower(300);
+    G.surveyProspect('mariusDomes');
+    G.advanceGameSeconds(70);
+  });
+  const dome = (await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'mariusDomes');
+  expect(dome.surveyed).toBe(true);
+  expect(dome.claim.cost).toEqual({ metals: 51, parts: 20, chips: 5 });
+  expect(dome.claim.line).toContain('claim 51◆ 20⚙ 5▣');
+  const setMetals = (n: number) => page.evaluate((target) => {
+    const G = window.__game;
+    G.grantResources({ metals: target - G.getState().resources.metals });
+  }, n);
+  await setMetals(50);
+  await g(page, 'claimOutpost', 'mariusDomes');
+  await g(page, 'advanceGameSeconds', 1);
+  expect((await alertOf(page, /^CLAIM NEEDS/))?.text).toMatch(/^CLAIM NEEDS 51◆ — have 50/);
+  await setMetals(51);
+  await g(page, 'claimOutpost', 'mariusDomes');
+  await g(page, 'advanceGameSeconds', 1);
+  expect((await g(page, 'getState')).survey.outposts.map((o: any) => o.id)).toEqual(['mariusDomes']);
+  expect((await g(page, 'getState')).resources.metals).toBeLessThan(1);
+  expect((await g(page, 'getMoon')).claims.mariusDomes).toBe('solarpunks');
+
+  // solo, same ground: 60
+  await boot(page, 'lavatube', 'human');
+  expect((await g(page, 'getMods')).outpostCostMult).toBe(1);
+  await complete(page, ['prospectingRovers']);
+  await page.evaluate(() => {
+    const G = window.__game;
+    G.grantResources({ parts: 100, chips: 30 });
+    G.grantPower(300);
+    G.surveyProspect('mariusDomes');
+    G.advanceGameSeconds(70);
+  });
+  const solo = (await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'mariusDomes');
+  expect(solo.claim.cost).toEqual({ metals: 60, parts: 20, chips: 5 });
+  expect(solo.claim.line).toContain('claim 60◆ 20⚙ 5▣');
+
+  // the Vanguard: the first local survey pays 20 × 1.2; the Foundry's drones: a 60 s flight takes 52
+  await bootFaction(page, 'accelerationists', 'southpole');
+  expect((await g(page, 'getMods')).surveyDataMult).toBeCloseTo(1.2, 6);
+  const floor = (await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'shackletonFloor');
+  expect(floor.data).toBe(24);
+  expect(floor.survey.timeS).toBe(60);
+  await bootFaction(page, 'robots', 'mare');
+  expect((await g(page, 'getMods')).droneRange).toBeCloseTo(1.15, 6);
+  const base = (await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'tranquilityBase');
+  expect(base.survey.timeS).toBe(52);
+  await boot(page, 'mare', 'robotic');
+  expect((await g(page, 'getMods')).surveyDataMult).toBe(1);
+  expect(((await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'tranquilityBase')).survey.timeS).toBe(60);
+  expect(((await g(page, 'getLunar')).prospects.find((p: any) => p.id === 'moltke')).data).toBe(20);
+});
