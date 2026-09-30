@@ -59,7 +59,7 @@ const SPEED = ROVER.speed; // m/s cruise on a sintered road (the sim's, data/roa
 const ACCEL = ROVER.accel; // m/s²
 const CATCH = 1.6;        // × cruise: the most a rover drives to catch up with the sim
 const GAIN = 1.5;         // 1/s: how hard it closes the gap
-const LAG_S = 6;          // s of driving a unit may trail the sim (held up in traffic) before it is set down where the sim has it
+const LAG_S = 6;          // s of driving a drone may trail the sim before it is set down where the sim has it (rovers are never set down)
 const TURN = 2.4;         // rad/s
 const YIELD_S = 4;        // s a rover waits at a refuge before it heads on
 const PIVOT = 1;          // rad: a way that sets off further than this from its heading starts with a turn on the spot
@@ -181,7 +181,6 @@ interface Rover {
   p0: number;
   s0: number;
   /** the sim time it was first seen at work away from its stand (it gets a second to arrive) */
-  dueAt: number | null;
   /** how it moves: along with the sim's trip, held (the sim has not set off yet), or on its own */
   follow: 'sim' | 'hold' | 'free';
   /** where the sim has it along its way (arc, m), and the sim's cruise while it drives */
@@ -290,8 +289,6 @@ export class RoverFleet implements Driver {
   /** the most any rover trailed the sim since the last read (s of driving), and set-downs so far */
   private lagMax = 0;
   private setDowns = 0;
-  /** the last set-downs: who, why (lag s, or due at work), when */
-  private downLog: string[] = [];
 
   constructor(private hf: Heightfield, traffic?: Traffic) {
     this.traffic = traffic ?? new Traffic();
@@ -444,7 +441,7 @@ export class RoverFleet implements Driver {
       id: u.id, unit: u, x, z, yaw, v: 0, home: spot.dock, site: spot.site, spot: onSlot ? spot : null,
       key: onSlot ? spotKey(spot) : '', inside, working: false, phase: u.id * 2.399, yieldUntil: 0,
       revUntil: -Infinity, turning: false, aim: yaw, agent: null!,
-      goal: '', tripId: '', p0: 0, s0: 0, dueAt: null, follow: 'free', target: 0, vSim: 0, survey: !!spot.survey, mode: null,
+      goal: '', tripId: '', p0: 0, s0: 0, follow: 'free', target: 0, vSim: 0, survey: !!spot.survey, mode: null,
     };
     r.agent = {
       kind: 'rover', id: u.id, key: 1e6 + u.id, x, z, fx: Math.sin(yaw), fz: Math.cos(yaw),
@@ -524,9 +521,8 @@ export class RoverFleet implements Driver {
     return true;
   }
 
-  /** How it follows the sim this frame: its target arc along its way, and
-   *  set down where the sim has it if it trails too far, or is not at its
-   *  stand when the sim has it at work. */
+  /** How it follows the sim this frame: its target arc along its way. It is
+   *  never set down where the sim has it for trailing (S4b): it drives on. */
   private follow(r: Rover, spot: RoverSpot, jumped: boolean, dt: number) {
     const u = r.unit!;
     const t = u.trip;
@@ -554,23 +550,6 @@ export class RoverFleet implements Driver {
       if (p && (r.inside ? !(p.there && spot.inside) : true)) lag = Math.hypot(p.x - r.x, p.z - r.z) / Math.max(this.speed, 0.1);
     }
     this.lagMax = Math.max(this.lagMax, lag);
-    // at work in the sim, and not at its stand: it must be seen there — a
-    // second's grace (the tick it arrives in may end before it pulls up), or
-    // the lag cap's while it is visibly driving up, held back by the traffic
-    // (a detour, a yield)
-    const away = arrived(t) && !!u.task && (r.follow === 'sim' || yielding) && (r.inside || Traffic.end(a) - a.s > 0.3 || yielding);
-    const now = this.state?.simTime ?? 0;
-    if (!away) r.dueAt = null;
-    else r.dueAt ??= now;
-    const grace = yielding ? YIELD_S + LAG_S : !r.inside && a.v > 0.3 ? LAG_S : 1;
-    const due = r.dueAt !== null && now - r.dueAt >= grace - 1e-6;
-    // (parked at its dock in the sim, its drive back after giving way is its own: no work waits on it)
-    const trailing = lag > LAG_S && !(arrived(t) && (t.kind === 'dock' || t.kind === 'survey'));
-    if ((trailing || due) && this.setDown(r, spot)) {
-      r.dueAt = null;
-      this.downLog.push(`${r.id}:${due ? 'due' : `lag${lag.toFixed(1)}`}@${Math.round(now)}`);
-      if (this.downLog.length > 24) this.downLog.shift();
-    }
   }
 
   /** Head for a slot: a way along the open road from where it is (or out of
@@ -920,14 +899,11 @@ export class RoverFleet implements Driver {
     return true;
   }
 
-  /** The last resort: back inside its dock (it rolls out again when the door is clear). */
+  /** The last resort: back inside its dock (it rolls out again, where the sim has it, when the door is clear).
+   *  Never set down on the sim's position (docs/19 S4b). */
   rescue(a: Agent) {
     const r = this.byId.get(a.id);
     if (!r) return;
-    // set down where the sim has it, if clear; else back inside its dock
-    const spot = this.spots.get(r.id);
-    this.traffic.drop(a);
-    if (spot && this.setDown(r, spot)) return;
     r.inside = true;
     r.key = '';
     this.traffic.drop(a);
@@ -1105,7 +1081,6 @@ export class RoverFleet implements Driver {
       /** the most any rover trailed the sim since the last read, s of driving; set-downs so far */
       lagMaxS: Math.round(lag * 100) / 100,
       setDowns: this.setDowns,
-      downLog: [...this.downLog],
       /** the hive units, drawn as drones (docs/14 §4.3) */
       drones: this.drones.info(),
     };

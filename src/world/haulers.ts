@@ -446,8 +446,10 @@ export class Haulers implements Driver {
       let want = 0, need = 0;
       const to = Math.min(v.arcCur, a.s + 12);
       for (const o of vs) {
-        if (o === v || o.agent.v > 0.3) continue;
-        const ox = o.x, oz = o.z;
+        // (a unit the sim has standing, or standing aside: where it will be, though the picture may still be driving there)
+        if (o === v || o.arcCur - o.arcPrev > 1e-3) continue;
+        const spot = pointAt(o.agent.pts, o.agent.arcs, o.arcCur);
+        const ox = spot.x, oz = spot.z;
         if ((ox - v.x) * (ox - v.x) + (oz - v.z) * (oz - v.z) > 30 * 30) continue;
         for (let u = a.s; u <= to + 1e-6; u += 1) {
           const p = pointAt(a.pts, a.arcs, u);
