@@ -143,6 +143,9 @@ export class BaseSim {
   private depositsSynced = false;
   /** a load carved the ground (the pits' saved height deltas): the owner's rocks on it go */
   carvedOnLoad = false;
+  /** applied to the mods each time they are recomputed (`refreshMods`, a tech completing, an outpost let go): a rival's
+   *  Builder relaxations ride on it (core/rival.ts). The player's base leaves it unset. */
+  modsHook?: (m: Mods) => void;
 
   /** The sim half of `bootWorld`: the derived mods, the heightfield, and the binds the core reads it through. `flat`: a
    *  headless base's stand-in ground (docs/20 §4.2) and, through `mode`, its stand-in travel (§4.3). */
@@ -257,6 +260,13 @@ export class BaseSim {
     sim.hf.leveled.length = 0;
     sim.out.buildings = true;
     return sim;
+  }
+
+  /** The mods as the state makes them, through the hook (a rival's relaxations); what every recompute below calls. */
+  refreshMods(): Mods {
+    const m = modsFor(this.state);
+    this.modsHook?.(m);
+    return (this.mods = m);
   }
 
   /** One game-second: the clock, then the economy step. The live loop advances the clock by the frame's own share
@@ -515,7 +525,7 @@ export class BaseSim {
       case 'abandonOutpost': {
         const r = abandonOutpost(s, a.id);
         if (!r.ok) alert(s, r.reason, 'warn');
-        else if (r.wasLive) this.mods = modsFor(s); // its link load and any KREEP modifier go with it
+        else if (r.wasLive) this.refreshMods(); // its link load and any KREEP modifier go with it
         break;
       }
       case 'summonRover': {
@@ -1042,7 +1052,7 @@ export class BaseSim {
     const ev = economyTick(this.state, SITES[this.state.siteId], this.mods, 1);
     // Autonomous Cadence fired a volley inside the tick: the rail shows it
     if (this.state.launches > launches) this.out.launches++;
-    if (ev.modsChanged) this.mods = modsFor(this.state);
+    if (ev.modsChanged) this.refreshMods();
     // a hazard wrecked something (docs/14 §3.10): the world forgets it
     if (ev.wrecked?.length) this.out.wrecked.push(...ev.wrecked);
     if (ev.build.length) this.resolveBuild(ev.build);

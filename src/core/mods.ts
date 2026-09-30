@@ -447,15 +447,27 @@ const NEUTRAL_COST: Pick<Mods, 'laneCostMult' | 'pickCostMult'> = Object.freeze(
   laneCostMult: Object.freeze(neutralLanes()) as Record<Lane, number>,
   pickCostMult: Object.freeze({ colony: 1, automation: 1 }) as Record<Side, number>,
 });
+/** the last answer for a techsDone list, while the list is as long and ends as it did (a tech completing grows it): a faction base
+ *  asks every tick (research, the Builder's goods reserve), and the answer only moves when a tech completes */
+const costMemo = new WeakMap<readonly TechId[], { n: number; last: TechId | undefined; site: SiteId; exp: Expedition; faction: FactionId | undefined; value: Pick<Mods, 'laneCostMult' | 'pickCostMult'> }>();
 export function costMults(
   s: { techsDone?: readonly TechId[]; siteId: SiteId; expedition: Expedition; faction?: FactionId | null },
 ): Pick<Mods, 'laneCostMult' | 'pickCostMult'> {
   const done = s.techsDone ?? [];
+  const faction = factionOfState(s);
+  const hit = costMemo.get(done);
+  if (hit && hit.n === done.length && hit.last === done[done.length - 1] && hit.site === s.siteId && hit.exp === s.expedition && hit.faction === faction) return hit.value;
+  const value = computeCostMults(s, done, faction);
+  costMemo.set(done, { n: done.length, last: done[done.length - 1], site: s.siteId, exp: s.expedition, faction, value });
+  return value;
+}
+function computeCostMults(
+  s: { siteId: SiteId; expedition: Expedition }, done: readonly TechId[], faction: FactionId | undefined,
+): Pick<Mods, 'laneCostMult' | 'pickCostMult'> {
   // the hot path (every solo card, every tick): no faction tech done, the shared neutral object
   if (!COST_TECHS.some((t) => done.includes(t))) return NEUTRAL_COST;
   const laneCostMult = neutralLanes();
   const pickCostMult: Record<Side, number> = { colony: 1, automation: 1 };
-  const faction = factionOfState(s);
   for (const tid of COST_TECHS) {
     if (!done.includes(tid)) continue;
     for (const fx of TECHS[tid].effects) {

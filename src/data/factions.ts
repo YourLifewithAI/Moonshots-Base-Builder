@@ -32,6 +32,8 @@ export interface FactionOrder {
   count: number;
   /** omitted: always (once the building is unlocked) */
   when?: (s: GameState, mods: Mods) => boolean;
+  /** the site goes to the head of the robot queue (the milestone buildings: the first smelter, the parts fabricator) */
+  rush?: boolean;
 }
 
 /** What the rival runner (stream S4, core/rival.ts) plays when nobody is at the keys.
@@ -81,10 +83,73 @@ export interface FactionDef {
   policy: FactionPolicy;
 }
 
-/** the empty policy every faction starts with (a fresh object each: S4 edits them apart) */
+/** the empty policy (a fresh object each: a faction edits its own) */
 const noPolicy = (): FactionPolicy => ({
   research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, orders: [],
 });
+
+// ─────────────────────────── the rivals' policies (stream S4) ───────────────────────────
+// What a rival plays when nobody is at the keys (core/rival.ts reads these). Research: destiny picks and doctrines first
+// (they gate the eras), then `research` in order, then the faction's own techs, then whatever is cheapest. The Builder's
+// rules (every one on, at `ruleCaps`) place what the signals ask for; `orders` place what no rule does.
+
+const hasCrew = (s: GameState) => s.expedition !== 'robotic' || s.crew > 0;
+const eraAtLeast = (n: number) => (s: GameState) => s.era >= n;
+/** game-minutes since the base landed */
+const minutes = (s: GameState) => (s.simTime - (s.landedAt ?? 0)) / 60;
+
+/** Labs by the clock: [minutes since landing, labs wanted]. The pacing probe's reasonable player (scripts/probe-pacing.mjs LAB_CLOCK)
+ *  runs a robotic base at 3 labs by minute 14 and eight by 66, a crewed one at 2 by 13 and seven by 64; a rival is that player a
+ *  fifth slower (×`slow`), and a crewed base can only crew them with Construction Robotics (core/rival.ts `handsFor`). */
+const LABS_ROBOTIC: [number, number][] = [[3.2, 1], [4, 2], [14, 3], [22, 4], [32, 5], [42, 6], [54, 7], [66, 8]];
+const LABS_CREWED: [number, number][] = [[3.5, 1], [13, 2], [22, 3], [30, 4], [40, 5], [52, 6], [64, 7]];
+function labsByClock(slow = 1.2): FactionOrder[] {
+  const out: FactionOrder[] = [];
+  for (let n = 1; n <= 8; n++) {
+    out.push({
+      type: 'lab', count: n,
+      when: (s) => {
+        const row = (s.expedition === 'robotic' ? LABS_ROBOTIC : LABS_CREWED).find(([, k]) => k === n);
+        return !!row && minutes(s) >= row[0] * slow;
+      },
+    });
+  }
+  return out;
+}
+
+/** The buildings no standing rule places, in the order a rival wants them (each entry: `count` of the type in all). The first
+ *  of each kind is the rival's own (the rules extend what stands): power, the smelter (the dig), a lab, food and water for a
+ *  crew, the parts fabricator, then what each tech unlocks. */
+function orders(...extra: FactionOrder[]): FactionOrder[] {
+  return [
+    { type: 'solar', count: 2 },
+    { type: 'smelter', count: 1, rush: true },
+    { type: 'lab', count: 1 },
+    { type: 'partsFab', count: 1, rush: true },
+    { type: 'waterPlant', count: 1, when: hasCrew, rush: true },
+    { type: 'solar', count: 3 },
+    { type: 'refinery', count: 1 },
+    { type: 'chipFab', count: 1 },
+    ...extra,
+    ...labsByClock(),
+    { type: 'smelter', count: 2, when: eraAtLeast(2) },
+    { type: 'prospectingBay', count: 1, when: eraAtLeast(3) },
+    { type: 'dataCenter', count: 1, when: eraAtLeast(5) },
+    { type: 'serverMonolith', count: 1 },
+    { type: 'greenhouseRing', count: 1, when: hasCrew },
+    { type: 'droneHive', count: 1 },
+    { type: 'dataCenter', count: 2, when: eraAtLeast(5) },
+    { type: 'foilFactory', count: 1 },
+    { type: 'massDriver', count: 1 },
+    { type: 'propellantPlant', count: 1 },
+    { type: 'gardenDome', count: 1, when: hasCrew },
+    { type: 'dataCenter', count: 3, when: eraAtLeast(6) },
+    { type: 'smelter', count: 3, when: eraAtLeast(5) },
+    { type: 'foilFactory', count: 2, when: eraAtLeast(7) },
+    { type: 'massDriver', count: 2, when: eraAtLeast(8) },
+    { type: 'propellantPlant', count: 2, when: eraAtLeast(8) },
+  ];
+}
 
 export const FACTIONS: Record<FactionId, FactionDef> = {
   robots: {
@@ -111,7 +176,30 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'The bank charges at 75 % and discharges ×1.25 as fast',
     ],
     uniqueBuildings: [], uniqueTechs: [],
-    policy: noPolicy(),
+    policy: {
+      // power, robotics, compute, materials: the landing branch's lanes first
+      research: [
+        'regolithProcessing', 'bifacialCells', 'grizzlyScreens', 'fieldSpectrometers', 'prospectingRovers', 'teleoperation',
+        'partsFabrication', 'batteryStorage', 'constructionRobotics', 'siliconRefining', 'mpptInverters', 'buildOrders',
+        'thermalWadis', 'peakLightMasts', 'skylightHeliostats', 'heatRecoveryJackets',
+        'autoExcavation', 'thoriumPower', 'regenFuelCells', 'stackedCells', 'swarmRobotics', 'heavyConstructors', 'siteSurveyAI',
+        'refluxColumns', 'slagRecycling',
+        'waferFab', 'autoPower', 'roverAutonomy', 'budgetGovernor', 'radHardProcess', 'acceleratorDesign', 'braytonConverters',
+        'cleanroomRobotics', 'orbitalProspector',
+        'lunarDataCenter', 'autoSmelting', 'wingExtensions', 'autonomousHaulage', 'dynamicClocking', 'cryoRadiators',
+        'humanCohabitation', 'autoFabrication', 'predictiveScheduling', 'solidStateCells', 'highBurnupFuel', 'launchSiteSurvey',
+        'foilManufacturing', 'massDriver', 'propellantDepot', 'selfReplication', 'maintenanceAutomation', 'rollToRoll',
+        'swarmProtocol', 'canisterPress', 'railCapacitors', 'cryocoolerHeads', 'vonNeumann', 'powerBeaming',
+      ],
+      destiny: 'automation',
+      doctrines: {
+        smeltDoctrine: 'moltenElectrolysis', nightPower: 'thoriumPower', constructionDoctrine: 'swarmRobotics',
+        chipDoctrine: 'acceleratorDesign', launchArchitecture: 'massDriver', swarmPurpose: 'vonNeumann',
+      },
+      claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
+      ruleCaps: {},
+      orders: orders(),
+    },
   },
   accelerationists: {
     id: 'accelerationists',
@@ -138,7 +226,32 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Colony picks cost ×1.15',
     ],
     uniqueBuildings: [], uniqueTechs: [],
-    policy: noPolicy(),
+    policy: {
+      // compute, materials, robotics: labs run hot and the data is cheap
+      research: [
+        'regolithProcessing', 'grizzlyScreens', 'prospectingRovers', 'fieldSpectrometers', 'iceExtraction', 'regolithVolatiles',
+        'bifacialCells', 'teleoperation',
+        'constructionRobotics', 'moltenElectrolysis', 'partsFabrication', 'batteryStorage', 'siliconRefining', 'benchRobots', 'buildOrders',
+        'mpptInverters', 'heatRecoveryJackets', 'thermalWadis', 'peakLightMasts', 'skylightHeliostats',
+        'autoExcavation', 'siteSurveyAI', 'refluxColumns', 'cryoSampleStore', 'thoriumPower', 'regenFuelCells', 'stackedCells',
+        'swarmRobotics', 'dustMitigation', 'slagRecycling',
+        'waferFab', 'radHardProcess', 'acceleratorDesign', 'budgetGovernor', 'autoPower', 'orbitalProspector', 'waferPolishing',
+        'cleanroomRobotics', 'roverAutonomy',
+        'lunarDataCenter', 'dynamicClocking', 'immersionLitho', 'uplinkDishes', 'scienceCrews', 'autoSmelting', 'cryoRadiators',
+        'autoFabrication', 'predictiveScheduling', 'launchSiteSurvey', 'farSideRelay', 'solarCycleForecasting',
+        'foilManufacturing', 'propellantDepot', 'massDriver', 'rackDensification', 'liquidCooling', 'rollToRoll',
+        'swarmProtocol', 'canisterPress', 'railCapacitors', 'cryocoolerHeads', 'powerBeaming', 'vonNeumann',
+      ],
+      // colony early, automation from Era 5
+      destiny: { 2: 'colony', 3: 'colony', 4: 'colony', 5: 'automation', 6: 'automation', 7: 'automation', 8: 'automation' },
+      doctrines: {
+        smeltDoctrine: 'moltenElectrolysis', nightPower: 'thoriumPower', constructionDoctrine: 'swarmRobotics',
+        chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
+      },
+      claimKinds: ['ice', 'ilmenite', 'radio'],
+      ruleCaps: {},
+      orders: orders(),
+    },
   },
   solarpunks: {
     id: 'solarpunks',
@@ -164,7 +277,31 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Lands last: day 4',
     ],
     uniqueBuildings: [], uniqueTechs: [],
-    policy: noPolicy(),
+    policy: {
+      // habitat, power, compute: a crew that eats well and a base that does not break
+      research: [
+        'regolithVolatiles', 'iceExtraction', 'regolithProcessing', 'bifacialCells', 'prospectingRovers', 'fieldSpectrometers',
+        'grizzlyScreens', 'teleoperation',
+        'constructionRobotics', 'moltenElectrolysis', 'partsFabrication', 'batteryStorage', 'regolithShielding', 'siliconRefining', 'sublimationTents',
+        'mpptInverters', 'buildOrders', 'benchRobots', 'thermalWadis', 'peakLightMasts', 'skylightHeliostats',
+        'waterReclamation', 'bunkRacks', 'thoriumPower', 'regenFuelCells', 'stackedCells', 'autoExcavation', 'siteSurveyAI',
+        'refluxColumns', 'swarmRobotics',
+        'growLights', 'waterElectrolysis', 'waferFab', 'heatedAugers', 'autoPower', 'autoLifeSupport', 'radHardProcess',
+        'braytonConverters', 'pressureTanks', 'orbitalProspector',
+        'crewWellness', 'nutrientRecirculation', 'lunarDataCenter', 'dynamicClocking', 'autoSmelting', 'cryoRadiators',
+        'closedLoopLS', 'safetyProtocols', 'galleyGarden', 'scienceCrews', 'autoFabrication', 'launchSiteSurvey', 'farSideRelay',
+        'foilManufacturing', 'propellantDepot', 'massDriver', 'lowGCourt', 'rollToRoll',
+        'swarmProtocol', 'canisterPress', 'cryocoolerHeads', 'railCapacitors', 'powerBeaming', 'vonNeumann',
+      ],
+      destiny: 'colony',
+      doctrines: {
+        smeltDoctrine: 'moltenElectrolysis', nightPower: 'regenFuelCells', constructionDoctrine: 'swarmRobotics',
+        chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
+      },
+      claimKinds: ['ice', 'volatiles', 'silica'],
+      ruleCaps: {},
+      orders: orders(),
+    },
   },
 };
 

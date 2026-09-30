@@ -85,22 +85,32 @@ export function num(v: number): string {
 }
 const perMin = (perS: number) => num(perS * 60);
 
-/** the tech that unlocks a building, for 'locked — …' */
+/** the tech that unlocks a building, for 'locked — …' (static data: memoised, it is asked every tick a rule stays locked) */
+const unlockerMemo = new Map<BuildingId, string>();
 function unlocker(type: BuildingId): string {
+  const hit = unlockerMemo.get(type);
+  if (hit !== undefined) return hit;
+  let out = 'research';
   for (const t of TECH_ORDER) {
-    if (TECHS[t].effects.some((fx) => fx.kind === 'unlock' && fx.building === type)) return TECHS[t].name;
+    if (TECHS[t].effects.some((fx) => fx.kind === 'unlock' && fx.building === type)) { out = TECHS[t].name; break; }
   }
-  return 'research';
+  unlockerMemo.set(type, out);
+  return out;
 }
 
 /** the tech that unlocks a family's rules (a lane tech, or an Automation
  *  pick that extends the Builder: docs/14 §2.5) */
+const familyTechMemo = new Map<AutoFamily, string>();
 export function familyTech(f: AutoFamily): string {
+  const hit = familyTechMemo.get(f);
+  if (hit !== undefined) return hit;
+  let out = 'a later tech';
   for (const t of TECH_ORDER) {
     if (TECHS[t].effects.some((fx) => (fx.kind === 'autoRule' && fx.family === f) ||
-      (fx.kind === 'builder' && fx.families?.includes(f)))) return TECHS[t].name;
+      (fx.kind === 'builder' && fx.families?.includes(f)))) { out = TECHS[t].name; break; }
   }
-  return 'a later tech';
+  familyTechMemo.set(f, out);
+  return out;
 }
 
 export function ruleState(s: GameState, id: AutoRuleId): RuleState {
@@ -358,9 +368,10 @@ function signalOf(s: GameState, mods: Mods, site: SiteDef, day: DayInfo, id: Aut
       for (const [res, cap] of Object.entries(s.storageCaps ?? {}) as [ResourceId, number][]) {
         if (!cap) continue;
         const f = s.resources[res] / cap;
+        if (f < T || f <= fill) continue; // (the cheap tests first: the queue's goods are summed only for a store that is nearly full)
         const idle = s.buildings.some((b) => b.idleReason === 'full' && (effectiveDef(b.type, mods).outputs[res] ?? 0) > 0);
         const pay = bigPay(res);
-        if (f >= T && idle && cap < 1.5 * pay && f > fill) { fill = f; worst = res; need = pay; }
+        if (idle && cap < 1.5 * pay) { fill = f; worst = res; need = pay; }
       }
       const any = Object.entries(s.storageCaps ?? {}).some(([res, cap]) => cap && s.resources[res as ResourceId] / cap >= H &&
         cap < 1.5 * bigPay(res as ResourceId));
@@ -664,7 +675,8 @@ export function automationTick(s: GameState, site: SiteDef, mods: Mods, day: Day
     const cap = effCap(r, mods);
     const n = count(s, type);
     if (n >= cap) { setPhase(s, id, r, 'capped', `cap ${n}/${cap} ${plural(type, cap)} — raise the cap to let it build more`, dt); return; }
-    if (completeCount(s, type) === 0) {
+    // (a rival's Builder founds the first one itself: `mods.builderFounds`, core/rival.ts)
+    if (completeCount(s, type) === 0 && !mods.builderFounds) {
       setPhase(s, id, r, 'founded', `found the first ${name(type)} yourself — the builder extends what you found`, dt);
       return;
     }

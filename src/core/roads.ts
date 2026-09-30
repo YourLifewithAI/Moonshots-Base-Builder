@@ -833,6 +833,8 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
 // ───────────────────────────── reach (for siting) ─────────────────────────────
 
 const reachMemo = new WeakMap<RoadCell[], { key: string; cells: Uint8Array }>();
+/** cells from the map centre a flat (virtual) ground's reach walk may go */
+const REACH_WINDOW = 64;
 
 /** Every cell a new road could reach from the open network, walked as the A*
  *  walks: footprints, doors, bays and the closed apron are walls, and so is a
@@ -858,12 +860,16 @@ export function roadReach(s: GameState, hf: Heights): Uint8Array {
     };
     const q = openSources(s, doors);
     for (const k of q) out[k] = 1;
+    // a rival's flat ground (docs/20 §4.2) is open from edge to edge, so the walk would fill the whole map at every placement: a rival
+    // builds inside its Lander's 60 m (14 cells at the farthest in a twelve-day run), so the walk stays within REACH_WINDOW cells of the map centre
+    const windowed = (hf as { virtual?: boolean }).virtual === true;
     for (let i = 0; i < q.length; i++) {
       const k = q[i];
       const [x, z] = keyCell(k);
       for (const [dx, dz] of N4) {
         const nx = x + dx, nz = z + dz;
         if (!inMap(nx, nz)) continue;
+        if (windowed && (Math.abs(nx - MAP_CELLS / 2) > REACH_WINDOW || Math.abs(nz - MAP_CELLS / 2) > REACH_WINDOW)) continue;
         const nk = cellKey(nx, nz);
         if (out[nk] || blocked.has(nk)) continue;
         const road = map.get(nk);
