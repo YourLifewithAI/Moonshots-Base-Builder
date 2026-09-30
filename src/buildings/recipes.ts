@@ -856,10 +856,14 @@ function prospectingBay(): Parts {
     cyl(1.35, 1.35, 0.1, TRIM, 0, 0.36, 2.0, 0, 0, 24),
     box(0.16, 0.06, 1.9, LAMP, 0, 0.42, 2.0),
     box(1.0, 0.06, 0.16, LAMP, 0, 0.42, 1.4),
-    // the beacon mast
-    cyl(0.1, 0.16, 6.4, TRIM, 3.1, 3.2, 2.9, 0, 0, 8),
-    box(1.5, 0.12, 0.12, TRIM, 3.1, 5.9, 2.9),
-    dome(0.2, BEACON, 3.1, 6.4, 2.9, 8),
+    // the beacon mast (the identifier, 9 m): blue rings, a blue crossbar and a radar array at its head
+    cyl(0.14, 0.22, 7.8, TRIM, 3.1, 3.9, 2.9, 0, 0, 8),
+    ring(0.22, 2.2, 3.1, 2.9, 0.4, 8), ring(0.18, 4.6, 3.1, 2.9, 0.4, 8),
+    box(2.0, 0.16, 0.16, BAND, 3.1, 6.7, 2.9),
+    box(2.6, 1.3, 0.12, PLATE, 3.1, 7.9, 2.9),
+    box(2.7, 0.14, 0.18, BAND, 3.1, 8.6, 2.9), box(2.7, 0.14, 0.18, BAND, 3.1, 7.2, 2.9),
+    box(0.14, 1.4, 0.18, BAND, 1.8, 7.9, 2.9), box(0.14, 1.4, 0.18, BAND, 4.4, 7.9, 2.9),
+    dome(0.2, BEACON, 3.1, 8.9, 2.9, 8),
     cableTray([2.4, 2.9], [0, 1.0]),
     junction(-3.1, 3.0, 0),
   ];

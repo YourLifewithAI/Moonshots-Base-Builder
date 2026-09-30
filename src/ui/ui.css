@@ -137,7 +137,12 @@
 .bld-btn:hover { background: var(--ink-500); color: var(--paper); }
 .bld-btn.locked { opacity: 0.38; border-style: dashed; cursor: help; }
 .bld-btn.locked:hover { background: var(--ink-700); }
+.bld-btn { position: relative; }
 .bld-btn .icon { font-size: 17px; line-height: 22px; }
+/* the family glyph (docs/19 S2a): the family's accent, and a shape, so colour is never the only signal */
+.fam::before { content: attr(data-g); font-style: normal; }
+.bld-btn .fam { position: absolute; top: 3px; right: 5px; font-size: 11px; line-height: 12px; }
+.tt-name .fam { margin-right: 5px; font-size: 12px; }
 .bld-btn .nm { font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; line-height: 13px; margin-top: 3px; }
 .bld-btn .cost { font-size: 10px; margin-top: 3px; color: rgba(var(--paper-rgb), var(--op-muted)); }
 /* building it now would leave too few metals for the first smelter: a

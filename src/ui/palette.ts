@@ -40,6 +40,13 @@ import {
   $vitals, spawnFloater, $hazards, $touchInfo, $weather, $hubCard,
 } from './stores';
 import { isHubType } from '../data/hubs';
+import { FAMILY_CSS, FAMILY_GLYPH, FAMILY_OF } from '../data/families';
+
+/** A building's family glyph in its accent (docs/19 S2a): the glyph is CSS content, so no text changes. */
+export const familyBadge = (type: BuildingId): string => {
+  const f = FAMILY_OF[type];
+  return `<i class="fam" data-g="${FAMILY_GLYPH[f]}" style="color:${FAMILY_CSS[f]}" title="${CATEGORY_LABEL[BUILDINGS[type].category]}"></i>`;
+};
 
 const ICONS: Record<BuildingId, string> = {
   lander: '⌂', solar: '▤', excavator: '⛏', habitat: '◠', smelter: '▣',
@@ -238,7 +245,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
       const site = SITES[$siteId.get() ?? 'mare'];
       const cost = Object.entries(buildCost(type, site))
         .map(([rid, amt]) => `${amt}${RESOURCES[rid as ResourceId].glyph}`).join(' ');
-      b.innerHTML = `<div class="icon">${ICONS[type]}</div><div class="nm">${def.name}</div><div class="cost mono">${cost}</div>`;
+      b.innerHTML = `${familyBadge(type)}<div class="icon">${ICONS[type]}</div><div class="nm">${def.name}</div><div class="cost mono">${cost}</div>`;
       // touch: no hover — a locked card's first tap shows its card instead
       // (a hub's card lights its deposits either way: docs/17 §6.1)
       if (!touchOn()) {
@@ -618,7 +625,7 @@ export function mountPalette(root: HTMLElement, game: Game) {
     const downlink = isLander && game.mods.actions.has('downlink');
     const overclock = OVERCLOCKABLE.includes(sel.type) && game.mods.actions.has('overclock');
     insp.innerHTML = `
-      <div class="insp-head"><section><div class="tt-name"><span>${ICONS[sel.type]} ${def.name}</span>
+      <div class="insp-head"><section><div class="tt-name"><span>${familyBadge(sel.type)}${ICONS[sel.type]} ${def.name}</span>
         <span class="label">#${sel.id}${sel.auto ? ' · AUTO' : ''}</span></div>
         <span class="label" id="insp-status"></span></section></div>
       <div class="insp-body">
