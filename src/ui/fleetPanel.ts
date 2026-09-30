@@ -225,7 +225,7 @@ export function mountFleetPanel(root: HTMLElement, game: Game) {
     if (next !== jobsSig) {
       jobsSig = next;
       jobs.innerHTML = `<span class="label">Grading</span>` + list.map((j) => `<div class="row grade-job" data-id="${j.id}">
-        <span class="mono grade-job-line" data-focus="${j.id}" title="Click to look at it"></span>
+        <span class="mono grade-job-line" data-focus="${j.id}" style="font-size:11px; cursor:pointer" title="Click to look at it"></span>
         <button class="btn grade-cancel" data-id="${j.id}" title="Stop: the cells not yet levelled refund their stored energy">Cancel</button></div>`).join('');
     }
     for (const j of list) {

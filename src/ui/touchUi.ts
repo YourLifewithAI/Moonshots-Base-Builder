@@ -24,7 +24,7 @@ import { notBuildableHere, orderCard, orderableHere, tooltipHtml, unlockingTech 
 import { openTechTreeAt } from './techTree';
 import {
   $depositOverlay, $depositSel, $fleetTarget, $hazards, $hubLight, $lunar, $menuOpen, $phase, $placing, $research,
-  $resourcePanel, $roadTool, $roverSel, $selection, $swarm, $time, $touchInfo, overlayUp, spawnFloater,
+  $resourcePanel, $roadTool, $gradeTool, $roverSel, $selection, $swarm, $time, $touchInfo, overlayUp, spawnFloater,
 } from './stores';
 import { onLongPress } from './longPress';
 
@@ -119,9 +119,10 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   setPal(true);
   rBuild.addEventListener('click', () => {
     // placing, drawing a road or picking a target: Build ends it, the palette returns
-    if ($placing.get() || $roadTool.get() || $fleetTarget.get()) {
+    if ($placing.get() || $roadTool.get() || $gradeTool.get() || $fleetTarget.get()) {
       game.cancelPlacement();
       game.cancelRoadTool();
+      game.cancelGradeTool();
       game.cancelFleetTarget();
       setPal(true);
       return;
@@ -226,6 +227,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
       case 'tr-lay': game.commitRoad(); break;
       case 'tb-cancel':
         if ($roadTool.get()) game.cancelRoadTool();
+        else if ($gradeTool.get()) game.cancelGradeTool();
         else if ($fleetTarget.get()) game.cancelFleetTarget();
         else game.cancelPlacement();
         break;
@@ -233,7 +235,8 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
   });
   const renderBar = () => {
     const p = $placing.get(), road = $roadTool.get(), target = $fleetTarget.get();
-    const kind = p ? 'place' : road ? 'road' : target ? 'target' : '';
+    // (the grading box is drawn like a road: a one-finger drag, a tap for the 16 m square; docs/19 S9 gives it its own gestures)
+    const kind = p ? 'place' : road || $gradeTool.get() ? 'road' : target ? 'target' : '';
     bar.dataset.kind = kind;
     layer.classList.toggle('t-bar', !!kind);
     bOrder.disabled = !p || p.type === 'grade' || !orderableHere(p.type);
@@ -259,6 +262,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
     renderBar();
   });
   $roadTool.subscribe(renderBar);
+  $gradeTool.subscribe(renderBar);
   $fleetTarget.subscribe(renderBar);
 
   // ── the side sheet: one panel at a time, collapsible to a tab ──

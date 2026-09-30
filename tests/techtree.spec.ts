@@ -562,9 +562,9 @@ test('hover links: none by default; the hovered card draws its page’s links an
 test('site filters: the footer names other-site techs; the pole MRE has no doctrine bracket', async ({ page }) => {
   await boot(page, 'mare', 'robotic');
   await openTree(page);
-  await expect(page.locator('#tech-other-sites')).toHaveText('◬ 6 techs belong to other landing sites');
+  await expect(page.locator('#tech-other-sites')).toHaveText('◬ 5 techs belong to other landing sites');
   const absent: Record<number, string[]> = {
-    1: ['siteGrading', 'iceExtraction'], 2: ['peakLightMasts', 'skylightHeliostats', 'sublimationTents'], 4: ['heatedAugers'],
+    1: ['iceExtraction'], 2: ['peakLightMasts', 'skylightHeliostats', 'sublimationTents'], 4: ['heatedAugers'],
   };
   for (const [era, list] of Object.entries(absent)) {
     await tab(page, Number(era)).click();

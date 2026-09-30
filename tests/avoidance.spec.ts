@@ -566,7 +566,7 @@ test('solar at the pole: a refused spot says why and how to succeed — rough gr
     return { rough, onRoad, pocket, placed, roadIn, inside, edge };
   });
   expect(r.rough, 'a rough pad on screen').toBeTruthy();
-  expect(r.rough.reason).toMatch(/^Terrain too rough \(\d+\.\d m relief > 2\.5 m\) — find flatter ground, or grade it \(Site Grading\)$/);
+  expect(r.rough.reason).toMatch(/^Terrain too rough \(\d+\.\d m relief > 2\.5 m\) — find flatter ground, or grade it \(Grade Site\)$/);
   expect(r.onRoad).toBe('On a road — pick open ground beside it');
   expect(r.pocket, 'a flat 8×8 patch near the Lander').toBeTruthy();
   expect(r.placed.every(Boolean)).toBe(true);

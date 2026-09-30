@@ -24,11 +24,11 @@ import type { Mods } from './mods';
 import { DRONE, isDrone, roverDown, surveyRover, whereIs } from './fleet';
 import { groundSpots, type RoverSpot } from './spots';
 import {
-  cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, offAreaAt, offGround, roadDistances, spurLeft,
+  cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, keyCell, offAreaAt, offGround, roadDistances, spurLeft,
 } from './roads';
 import { centerOf } from '../buildings/instances';
 import { roverStep } from './traffic';
-import { gradeArea, onGradeGround, standOf } from './grading';
+import { GRADE_REACH_M, gradeArea, onGradeGround, standOf } from './grading';
 
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
@@ -376,13 +376,20 @@ export function transitArrive(s: GameState, dt: number): Arrivals {
         [r.x, r.z] = tripPoint(t);
       }
     }
+    if (t.kind === 'grade') {
+      // at its stand on its cell of the job, or on the short hop on to the next cell within a few metres of it: the
+      // blade works as it creeps on (a cell levelled sends it on: it counts again once it is near the next; a
+      // long drive out to the box counts nothing until it has arrived)
+      const j = t.job !== undefined && t.job === r.grade ? s.gradeJobs?.find((q) => q.id === t.job) : undefined;
+      if (j && r.id !== away && !roverDown(s, r) && t.cell === standOf(s, j, r)) {
+        const [sx, sz] = cellCentre(...keyCell(t.cell));
+        if (arrived(t) || (t.local && Math.hypot((r.x ?? sx) - sx, (r.z ?? sz) - sz) < GRADE_REACH_M)) push(out.grade, j.id, r);
+      }
+      continue;
+    }
     if (!arrived(t) || r.id === away || roverDown(s, r)) continue;
     if (t.kind === 'weld' && t.site !== undefined && t.site === r.site) push(out.weld, t.site, r);
-    else if (t.kind === 'grade') {
-      // at the stand on its cell of the job (a cell levelled since sends it on to the next: it counts once there)
-      const j = t.job !== undefined && t.job === r.grade ? s.gradeJobs?.find((q) => q.id === t.job) : undefined;
-      if (j && t.cell === standOf(s, j, r)) push(out.grade, j.id, r);
-    } else if (t.kind === 'front') {
+    else if (t.kind === 'front') {
       // still the frontier: the cell behind it (a drone: over it)
       const drone = isDrone(s, r);
       const cells = t.site !== undefined && t.site === r.site ? s.buildings.find((b) => b.id === t.site)?.spur
@@ -425,7 +432,8 @@ export function transitPlan(s: GameState, mods: Pick<Mods, 'roadSpeedMult' | 'ro
     const t = r.trip;
     if (t && t.goal === g.key && !t.stuck) continue;
     // a step to the next stand at the same work (the frontier's next cell) is no new journey
-    const local = !!t && !t.stuck && arrived(t) && workOf(t) !== '' && workOf(t) === workOf(g);
+    const local = !!t && !t.stuck && workOf(t) !== '' && workOf(t) === workOf(g)
+      && (arrived(t) || (t.kind === 'grade' && g.kind === 'grade')); // a grading rover goes on from cell to cell as it works
     r.trip = planTrip(s, r, g, sv, sa, local);
     if (r.pw !== undefined) r.trip.rate = r.pw; // a new trip on a flat pack waits as the last did
   }

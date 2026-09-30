@@ -68,6 +68,9 @@ export interface GradePlan {
   eta: number;
 }
 
+/** m from the middle of its cell a rover's blade still works it (it creeps on from cell to cell as it grades) */
+export const GRADE_REACH_M = 6;
+
 /** the rate every rover's work runs at: Site Grading doubles it */
 export const gradeRate = (mods: Pick<Mods, 'grading'>): number => (mods.grading ? GRADE_JOB.techMult : 1);
 
@@ -291,7 +294,7 @@ function finishJob(s: GameState, hf: Heightfield, j: GradeJob) {
   s.gradeJobs = (s.gradeJobs ?? []).filter((q) => q !== j);
   for (const r of s.rovers ?? []) if (r.grade === j.id) delete r.grade;
   const nx = x1 - x0, nz = z1 - z0;
-  alert(s, `GRADING DONE — ${nx}×${nz} cells levelled to ${j.h.toFixed(1)} m (${nx * nz * CELL_M * CELL_M} m²)`, 'info');
+  alert(s, `GRADING DONE — ${nx}×${nz} cells levelled (${nx * nz * CELL_M * CELL_M} m²)`, 'info');
 }
 
 /** Rover-seconds of work each cell takes (its own, else an even share of the job's). */

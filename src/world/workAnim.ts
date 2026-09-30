@@ -462,7 +462,9 @@ export class WorkAnim {
     a.seen = this.frame;
     const u = r.unit, spot = r.spot, dt = this.dt;
     const bricked = !!u && (u.brickedUntil ?? 0) > 0;
-    const said = bricked ? null : r.mode !== undefined ? r.mode : u ? this.modeOf(s, u) : null;
+    // (a grading rover levels as it creeps on from cell to cell: the sim's word 'grade' is read from the unit itself,
+    // whether or not the driver has it pulled up at its stand)
+    const said = bricked ? null : u?.task === 'grade' ? 'grade' : r.mode !== undefined ? r.mode : u ? this.modeOf(s, u) : null;
     // the sim says 'sinter' only while it stands behind the frontier: the arm
     // stays down through the hop to the next cell (SINTER_HOLD s)
     if (said === 'sinter') a.sinterAt = this.clock;
@@ -546,15 +548,15 @@ export class WorkAnim {
         const lit = 0.25 + 0.75 * sun;
         for (let j = 0; j < 5; j++) {
           const u = (this.clock / P + j / 5 + hash(r.id * 3.7 + j)) % 1;
-          const fade = Math.sin(PI * u) * 0.5 * lit * gr;
+          const fade = Math.sin(PI * u) * 0.3 * lit * gr;
           const side = (hash(j * 4.3 + r.id) - 0.5) * 1.6;
           const back = 0.3 + 2.4 * u;
           this.v0.set(a.tip.x - ux * back + uz * side, this.hf.sample(a.tip.x, a.tip.z) + 0.25 + 1.3 * u, a.tip.z - uz * back - ux * side);
-          this.bill(this.v0, 0.9 + 2.2 * u, 0.55, 0.5, 0.45, fade);
+          this.bill(this.v0, 0.8 + 1.8 * u, 0.4, 0.36, 0.32, fade);
         }
       }
       // a soft dark smear of turned soil under the blade
-      this.ground(a.tip.x, a.tip.z, Math.atan2(ux, uz), 3.2, 2.6, 0.25, 0.22, 0.2, 0.22 * gr, 0.12);
+      this.ground(a.tip.x, a.tip.z, Math.atan2(ux, uz), 3.2, 2.6, 0.25, 0.22, 0.2, 0.16 * gr, 0.12);
     }
   }
 

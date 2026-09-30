@@ -100,7 +100,7 @@ function nextStep(fx: TechEffect[], s: GameState): string {
           : 'Place a Solar Observatory in the sun: the ☉ chip shows the next flare.';
       case 'launchAction': return 'Launch collectors from the swarm meter at the top of the screen.';
       case 'automation': return 'Stations can run on agents now: toggle Crewed / Autonomous in their panels.';
-      case 'grading': return 'Grade Site is in the Extraction tab: flatten rough ground for large buildings.';
+      case 'grading': return 'Rovers grade a dragged box twice as fast now, and can level tailings heaps: Grade Site is in the Extraction tab.';
       // fleet control (core/fleet.ts, core/haul.ts): the verbs that make these pay
       case 'construction':
         if ((f.rateMult ?? 1) > 1) return 'Every rover builds faster now. To rush one build, select the site and Summon more rovers onto it.';

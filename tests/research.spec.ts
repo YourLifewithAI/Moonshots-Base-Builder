@@ -171,20 +171,20 @@ test('doctrine: a queued pick forecloses its rival until cancelled, a done one f
   expect(hasAlert(chosen.s, /^FORECLOSED — Heavy Constructors — you chose Swarm Robotics$/)).toBe(true);
 });
 
-test('requiresAny: either branch opens the tech; hidden members are never listed', async ({ page }) => {
-  // mare: Site Grading is hidden, so only Construction Robotics is named
+test('requiresAny: either branch opens the tech; both are named (Site Grading is on every site, docs/19 S5)', async ({ page }) => {
+  // mare: Site Grading is on every site now, so both branches are named
   await start(page, 'mare');
   await complete(page, ['regolithProcessing', 'prospectingRovers', 'grizzlyScreens', 'fieldSpectrometers']);
   const mare = await page.evaluate(() => window.__game.getResearch());
   expect(mare.era).toBe(2);
   expect(mare.cards.regolithShielding.state).toBe('requiresAny');
-  expect(mare.cards.regolithShielding.reason).toBe('needs Construction Robotics');
+  expect(mare.cards.regolithShielding.reason).toBe('needs Site Grading OR Construction Robotics');
   // Construction Robotics itself takes either uplink: Rovers is done, Teleoperation is not
   expect(mare.cards.constructionRobotics.state).toBe('available');
-  // the path queues the one missing branch in front of it
+  // the path queues the cheaper missing branch in front of it
   await page.evaluate(() => window.__game.researchPath('regolithShielding'));
   const path = await page.evaluate(() => { window.__game.advanceGameSeconds(0); return window.__game.getState(); });
-  expect(path.researchQueue).toEqual(['constructionRobotics', 'regolithShielding']);
+  expect(path.researchQueue).toEqual(['siteGrading', 'regolithShielding']);
 
   // pole: the grading branch alone is enough
   await start(page, 'southpole');
