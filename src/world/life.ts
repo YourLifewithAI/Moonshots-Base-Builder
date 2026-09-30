@@ -1,8 +1,8 @@
 /** Everything that moves or changes on its own around the base, in one
  *  place so the game loop makes a single call: the rover fleet, the hauling
  *  excavators and what they do at work (world/workAnim.ts), regolith
- *  dust, launch and resupply events, research made visible (berms, the
- *  swarm's glints, cleaner panels), the destiny's links and EVA walkers
+ *  dust, launch and resupply events, research made visible (berms,
+ *  cleaner panels), the destiny's links and EVA walkers
  *  (docs/14 §4.3).
  *
  *  Each part fails soft: an exception disables that part (its objects are
@@ -21,7 +21,6 @@ import { SurveyFlights } from './surveyFlight';
 import { Haulers } from './haulers';
 import { Traffic } from './traffic';
 import { RoadMesh } from './roads';
-import { SwarmGlints } from './swarm';
 import { Links } from '../buildings/links';
 import { Settlers } from './settlers';
 import { WorkAnim } from './workAnim';
@@ -49,7 +48,7 @@ const FILM_TAU_MITIGATED = 60;             // electrostatic curtains
 const NEAR_M = 45;
 const EMPTY: ReadonlySet<number> = new Set();
 
-type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'swarm' | 'film'
+type Part = 'rovers' | 'haulers' | 'traffic' | 'roads' | 'dust' | 'launch' | 'resupply' | 'berms' | 'film'
   | 'links' | 'settlers' | 'work' | 'survey';
 
 export class BaseLife {
@@ -66,7 +65,6 @@ export class BaseLife {
   readonly launch: LaunchFx;
   readonly resupply: ResupplyFx;
   readonly berms: Berms;
-  readonly swarm = new SwarmGlints();
   /** the destiny's links: walkways and conveyor spines (docs/14 §4.3) */
   readonly links: Links;
   /** the Colony's EVA walkers (docs/14 §4.3) */
@@ -99,7 +97,7 @@ export class BaseLife {
     this.haulers.work = this.work;
     this.earthAzim = hf.site.earth.azimDeg * Math.PI / 180;
     this.group.add(this.roads.group, this.rovers.group, this.haulers.group, this.dust.points, this.launch.group, this.resupply.group,
-      this.berms.mesh, this.swarm.group, this.links.group, this.settlers.group, this.work.group, this.survey.group);
+      this.berms.mesh, this.links.group, this.settlers.group, this.work.group, this.survey.group);
   }
 
   update(f: LifeFrame) {
@@ -125,7 +123,6 @@ export class BaseLife {
     this.run('berms', () => this.berms.update(s));
     this.run('links', () => this.links.update(s));
     this.run('settlers', () => this.settlers.update(gdt, s, this.failed.has('links') ? EMPTY : this.links.ground, f.sunDir, f.sunLight));
-    this.run('swarm', () => this.swarm.update(f.camera, f.sunDir, s.swarmPct, f.dt));
     this.run('film', () => this.updateFilm(s, gdt));
     this.run('dust', () => {
       const list: DustEmitter[] = [];
@@ -222,7 +219,7 @@ export class BaseLife {
       console.warn(`[MOONSHOTS] ${part} visuals disabled after an error.`, e);
       const objects: Partial<Record<Part, THREE.Object3D>> = {
         rovers: this.rovers.group, haulers: this.haulers.group, roads: this.roads.group, dust: this.dust.points, launch: this.launch.group,
-        resupply: this.resupply.group, berms: this.berms.mesh, swarm: this.swarm.group,
+        resupply: this.resupply.group, berms: this.berms.mesh,
         links: this.links.group, settlers: this.settlers.group, work: this.work.group, survey: this.survey.group,
       };
       const o = objects[part];
@@ -268,7 +265,6 @@ export class BaseLife {
       launch: this.launch.info(),
       resupply: this.resupply.info(),
       berms: this.berms.count,
-      swarmGlints: this.swarm.count,
       plumes: this.plumes.map((p) => ({ id: p.id, vent: p.vent })),
       links: this.links.info(),
       settlers: this.settlers.info(),

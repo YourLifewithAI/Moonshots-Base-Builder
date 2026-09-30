@@ -321,6 +321,78 @@ test('two rovers on one road the opposite ways pass in their lanes, and both arr
   expect(r.b.legs).toBe(0);
 });
 
+// ───────────────────────────── round a crew standing on the trunk ─────────────────────────────
+
+test('held up by a crew that stands on the trunk, a rover takes the side road round it', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page);
+  // A rover held up 2 s by a unit that is not moving takes another road there (Traffic.detours). A hub unit is a free
+  // driver and never blocks a rover this way (it is asked to make way instead, docs/19 S4b), so what stands still on a
+  // road is rovers: the crew welding a site whose door is on the trunk, no weld parts, both halves of the cell held.
+  const setup = await page.evaluate(() => {
+    const g = window.__game!;
+    g.completeTech('constructionRobotics');
+    g.grantResources({ metals: 3000, parts: 3000 });
+    // a Bay east of the Lander: its trunk runs along row 132 from the Lander's door to the Bay's
+    near('roboticsBay', 40, -2);
+    g.finishConstruction();
+    g.advanceGameSeconds(1);
+    // a Lab facing the trunk (its door is a trunk cell: no road of its own), and one far past the Bay
+    const l1 = g.placeBuilding('lab', 133, 133, 2);
+    near('lab', 70, -2);
+    g.advanceGameSeconds(1);
+    // the side road, two rows off the trunk so that a rover on it holds no cell of the crew's: a rover in its lane a cell
+    // away from a blocker still touches it, and a detour that never gets clear of it is asked again, forever
+    for (const [a, b] of [[[131, 132], [131, 130]], [[131, 130], [136, 130]], [[136, 130], [136, 132]]]) { g.layRoad(a, b); g.advanceGameSeconds(0); }
+    g.finishRoads();
+    const st = g.getState();
+    const bay = st.buildings.find((b: any) => b.type === 'roboticsBay').id;
+    const sites = st.buildings.filter((b: any) => b.construction > 0);
+    const door = sites.find((b: any) => b.gx === 133 && b.gz === 133)?.id;
+    const far = sites.find((b: any) => b.id !== door)?.id;
+    // no weld parts: the sites wait with their crews
+    g.grantResources({ parts: -g.getState().resources.parts });
+    g.summonRover(door);
+    g.advanceGameSeconds(1);
+    const rovers = g.getState().rovers;
+    return {
+      l1, door, far, bay,
+      crew: rovers.filter((r: any) => r.site === door).map((r: any) => r.id),
+      trav: rovers.find((r: any) => r.home !== bay && r.site === null)?.id ?? null,
+      side: g.getState().roads.filter((c: any) => c.gz === 130 && c.gx >= 131 && c.gx <= 136 && c.left <= 0).length,
+    };
+  });
+  expect(setup.l1).toBe(true);
+  expect(setup.crew).toHaveLength(2);
+  expect(setup.trav).not.toBeNull();
+  expect(setup.side, 'the side road is open').toBe(6);
+  const r = await page.evaluate(({ trav, far }) => {
+    const g = window.__game!;
+    const onSide = new Set<string>();
+    let onTrunk = 0;
+    const out = drive(300, (i) => {
+      // the crew has taken the door cell by now: the traveller is sent east past it
+      if (i === 30) g.sendRover(trav, far);
+      const p = roverAt(trav);
+      if (p && !p.inside) {
+        const k = [Math.floor((p.pos[0] + 512) / 4), Math.floor((p.pos[1] + 512) / 4)];
+        if (k[1] === 130 && k[0] >= 131 && k[0] <= 136) onSide.add(k.join(','));
+        if (k[1] === 132 && k[0] >= 133 && k[0] <= 135) onTrunk++;
+      }
+      return i > 30 && !!p && p.site === far && p.legs === 0;
+    });
+    return { ...out, onSide: [...onSide], onTrunk, at: roverAt(trav) };
+  }, { trav: setup.trav, far: setup.far });
+  expect(r.detours, 'a detour').toBeGreaterThan(0);
+  expect(r.detours, 'one, and it got clear').toBeLessThan(5);
+  expect(r.onSide.length, 'along the side road (a cell a second, sampled each second)').toBeGreaterThanOrEqual(2);
+  expect(r.at.site).toBe(setup.far);
+  expect(r.at.legs, 'and there').toBe(0);
+  expect(r.worst, `closest pair ${r.pair}`).toBeGreaterThan(-TOL);
+  expect(r.offroad).toEqual([]);
+  expect(r.rescues).toBe(0);
+});
+
 // ───────────────────────────── getting out of each other's way ─────────────────────────────
 
 test('the hub\'s hopper full: its unit waits at its face, off the road, and a rover leaves its bay, builds and comes home', async ({ page }) => {
