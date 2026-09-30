@@ -21,6 +21,7 @@ import { zoneCells } from './core/zones';
 import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
 import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
 import { $deposits, $hubCard, $hubLight } from './ui/stores';
+import { notify, type NotifyCard, type NotifyFamily } from './ui/notify';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -185,6 +186,9 @@ function api(game: Game) {
     // ── space weather (docs/16) ──
     /** a flare's telegraph now: its class, and whether it is a drill (default: the first of the class, or flare 0) */
     forceFlare: (cls: FlareClass, o: { drill?: boolean } = {}) => game.debugForceFlare(cls, o),
+    /** Raise a notification in a family (ui/notify.ts): a stack line, a log line and, for a field
+     *  card with a `report`, the dispatch card. The state is published at once. */
+    notify: (family: NotifyFamily, card: NotifyCard) => { notify(game.state, family, card); game.publish(); },
     /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
     getSpaceWeather: (slider?: number) => {
       const s = game.state;

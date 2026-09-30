@@ -141,3 +141,7 @@ html.touch #hazard-card .eb-blurb { font-size: 13px; line-height: 18px; margin-b
 html.touch #notify-log { top: var(--content-t, 52px); right: var(--content-r, 60px); width: min(420px, 60vw); max-height: calc(var(--app-h, 100vh) - var(--content-t, 52px) - var(--edge-b, 8px)); }
 html.touch .nl-row { min-height: var(--tap, 44px); align-items: center; }
 html.touch #notify-log .nl-f { min-height: 36px; }
+
+/* ── the menu's "Pause on…" block ── */
+#menu-pause .menu-row .nf-g { margin-right: 6px; opacity: 0.8; }
+#menu-pause .menu-fixed { font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }

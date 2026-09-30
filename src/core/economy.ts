@@ -116,9 +116,11 @@ export function alert(
 }
 
 /** `alert` bound to one notification family: a module whose every alert is one
- *  family's writes `const alert = alertIn('hazard')` and its call sites stay as they are. */
-export const alertIn = (family: NotifyFamily) =>
-  (s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction) => alert(s, text, kind, action, family);
+ *  family's writes `const alert = alertIn('hazard')` and its call sites stay as they are.
+ *  (A function declaration, so a module in an import cycle with this one may call it as it loads.) */
+export function alertIn(family: NotifyFamily) {
+  return (s: GameState, text: string, kind: AlertKind = 'info', action?: AlertAction) => alert(s, text, kind, action, family);
+}
 
 /** conditions raised during the economy tick in progress: key → times */
 let raised: Map<string, number> | null = null;
