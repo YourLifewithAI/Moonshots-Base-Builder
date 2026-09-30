@@ -858,8 +858,10 @@ function dustTick(s: GameState, mods: Mods, dt: number) {
   if (sideTier(s, 'colony') === null) return;
   const types = pressurizedTypes(mods);
   const sources = s.buildings.filter((b) => (b.type === 'excavator' && complete(b) && b.enabled) || (isSite(b) && b.idleReason === 'building'));
-  // hub units at work (docs/19 S11): a unit digging counts at the spot it stands, not while it drives, tips or waits with a full bucket
-  const digging = (s.haulers ?? []).filter((u) => u.haul.phase === 'dig' && !u.haul.full && (u.rebootUntil ?? 0) <= s.simTime);
+  // hub units at work (docs/19 S11): a unit digging counts at the spot it stands, not while it drives, tips or waits with a full
+  // bucket; the alert names the nearest unit that has a face there, digging this second or not, so its text does not flicker
+  const units = s.haulers ?? [];
+  const digging = units.filter((u) => u.haul.phase === 'dig' && !u.haul.full && (u.rebootUntil ?? 0) <= s.simTime);
   const mult = (guard(mods, 'dustScreens') ? HZ.dust.screens : 1) * (guard(mods, 'suitports') ? HZ.dust.suitports : 1);
   for (const b of s.buildings) {
     if (!types.has(b.type) || isSite(b) || !b.enabled) continue;
@@ -873,11 +875,11 @@ function dustTick(s: GameState, mods: Mods, dt: number) {
       if (d < nd) { nd = d; near = `${label(x)} ${isSite(x) ? 'builds' : 'digs'}`; }
     }
     // each digging unit adds what the airlock is near it: full at the door, none at unitM
-    for (const u of digging) {
-      const d = Math.hypot(u.haul.x - bx, u.haul.z - bz);
-      if (d >= HZ.dust.unitM) continue;
-      load += 1 - d / HZ.dust.unitM;
-      if (d < nd) { nd = d; near = `${BUILDINGS[u.type].name} ${UNIT_DEFS[u.type].letter}${u.id} digs`; }
+    for (const u of digging) load += Math.max(0, 1 - Math.hypot(u.haul.x - bx, u.haul.z - bz) / HZ.dust.unitM);
+    for (const u of units) {
+      if (u.target === null) continue;
+      const d = Math.hypot(u.haul.digX - bx, u.haul.digZ - bz);
+      if (d < HZ.dust.unitM && d < nd) { nd = d; near = `${BUILDINGS[u.type].name} ${UNIT_DEFS[u.type].letter}${u.id} digs`; }
     }
     const perDay = (HZ.dust.perSource * n + HZ.dust.perUnit * load + HZ.dust.perEva * s.evaCrew) * mult;
     b.airlockDust = Math.min(1, (b.airlockDust ?? 0) + (perDay / CYCLE_S) * dt);

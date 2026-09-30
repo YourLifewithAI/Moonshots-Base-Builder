@@ -73,6 +73,20 @@ const HELPERS = `(() => {
       }
       return null;
     },
+    /** stake a plain pit for a hub at the first point from r0 to r1 m round (x, z) that keeps the pits' setbacks and is mapped
+     *  (nearest first); returns it, or null */
+    pitNear(hub, x, z, r0, r1) {
+      for (let r = r0; r <= r1; r += 2) for (let k = 0; k < 24; k++) {
+        const a = (k / 24) * Math.PI * 2, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+        if (g.plainPitWhy(px, pz)) continue;
+        const n = g.getState().plainPits.length;
+        g.openPit(hub, px, pz);
+        g.advanceGameSeconds(1);
+        const all = g.getState().plainPits;
+        if (all.length > n) return all[all.length - 1];
+      }
+      return null;
+    },
     live: () => g.getHazards().state.live,
     one: (kind) => g.getHazards().state.live.find((h) => h.kind === kind),
     alerts: () => g.getState().alerts.map((a) => a.text),
@@ -1072,12 +1086,7 @@ test('cabin fever: at 70 the warning carries Commons night and Call home; at 100
   expect(r.deaths).toBe(0); // people quit, they do not die
 });
 
-// BUG: (report, docs/19 D3) dustTick's sources are still `b.type === 'excavator'` buildings, which no longer exist: hub units
-// digging (s.haulers, phase 'dig') add no dust, and with the pits' 12 m setback the faces stand 30–50 m from a habitat, outside
-// HZ.dust.radiusM (30 m) anyway. The digging source is dead, so only construction sites and EVA crews fill the filters, and this
-// test (written for three excavator pads) cannot reach its warning. Needs a design call (count a hub unit by its pit's edge, or
-// widen the radius); left red until then.
-test('dust: airlock filters fill near the digging; the warning carries Clean; clogged, upkeep doubles and the hull wears', async ({ page }) => {
+test('dust: a hub unit digging within 60 m fills the airlock filters, one 100 m off never does; the warning carries Clean; clogged, upkeep doubles and the hull wears', async ({ page }) => {
   await start(page, 'mare', 'human');
   const r = await page.evaluate(() => {
     const g = window.__game;
@@ -1087,9 +1096,34 @@ test('dust: airlock filters fill near the digging; the warning carries Clean; cl
     g.finishConstruction();
     for (let i = 0; i < 2; i++) g.queueUnit(smelter);
     g.setHazardClock(99999);
-    const keep = () => g.grantResources({ oxygen: 300, food: 200, water: 150, parts: 100 });
-    let warn: any = null;
-    for (let t = 0; t < 3000 && !warn; t += 60) { keep(); g.advanceGameSeconds(60); warn = window.hz.alert('DUST IN THE AIRLOCKS'); }
+    const keep = () => { g.grantResources({ oxygen: 300, food: 200, water: 150, parts: 100 }); g.grantPower(50000); };
+    const fp = g.footprintOf(hab);
+    const hx = (fp.x0 + fp.x1) / 2, hz = (fp.z0 + fp.z1) / 2;
+    const units = () => g.getState().haulers;
+    const digging = () => units().filter((u: any) => u.haul.phase === 'dig' && !u.haul.full).map((u: any) => Math.hypot(u.haul.x - hx, u.haul.z - hz));
+    /** every unit (the second is printed a while after the first) digs at this pit */
+    const pin = (p: any) => { for (const u of units()) if (u.target !== 'plain:' + p.id) g.sendUnit(u.id, 'plain:' + p.id); };
+    keep(); g.advanceGameSeconds(30);
+    // a pit 100 m and more off: its units dig, and the filters stay clean for a quarter of an hour
+    const far = window.hz.pitNear(smelter, hx, hz, 116, 130);
+    let farMin = Infinity, farDug = 0;
+    for (let t = 0; t < 900; t += 30) {
+      keep(); pin(far); g.advanceGameSeconds(30);
+      const d = digging();
+      if (d.length) farDug++;
+      farMin = Math.min(farMin, ...d);
+    }
+    const farDust = window.hz.b(hab).airlockDust ?? 0;
+    // a pit at the minimum setback beside the habitat: the same units, and the warning
+    const near = window.hz.pitNear(smelter, hx, hz, 0, 80);
+    let warn: any = null, at = 0, nearMin = Infinity;
+    for (let t = 0; t < 3000 && !warn; t += 30) {
+      keep(); pin(near); g.advanceGameSeconds(30);
+      const d = digging();
+      nearMin = Math.min(nearMin, ...d);
+      warn = window.hz.alert('DUST IN THE AIRLOCKS');
+      at = t + 30;
+    }
     const dust = window.hz.b(hab).airlockDust;
     g.counter('clean', hab);
     g.advanceGameSeconds(1);
@@ -1097,9 +1131,19 @@ test('dust: airlock filters fill near the digging; the warning carries Clean; cl
     for (let t = 0; t < 4000 && (window.hz.b(hab).airlockDust ?? 0) < 1; t += 60) { keep(); g.advanceGameSeconds(60); }
     const w0 = window.hz.b(hab).wear;
     for (let t = 0; t < 1440; t += 60) { g.advanceGameSeconds(60); keep(); }
-    return { warn, dust, cleaned, clogged: window.hz.b(hab).airlockDust, w: [w0, window.hz.b(hab).wear], alert: window.hz.alert('FILTERS CLOGGED') };
+    return {
+      warn, at, dust, cleaned, clogged: window.hz.b(hab).airlockDust, w: [w0, window.hz.b(hab).wear],
+      alert: window.hz.alert('FILTERS CLOGGED'), far: { at: Math.round(Math.hypot(far.x - hx, far.z - hz)), farMin, farDug, farDust }, near: { at: Math.round(Math.hypot(near.x - hx, near.z - hz)), nearMin },
+    };
   });
-  expect(r.warn.text).toMatch(/DUST IN THE AIRLOCKS — Habitat Module #\d+ filters \d+%: Regolith Excavator #\d+ digs \d+ m away/); // hub units, as the pads' excavators did
+  // a pit 100 m and more from the habitat: its units dug (some of the time), never nearer than 100 m, and the filters took nothing
+  expect(r.far.farDug, 'the far units dug').toBeGreaterThan(3);
+  expect(r.far.farMin, 'nearest a far unit dug').toBeGreaterThanOrEqual(100);
+  expect(r.far.farDust, 'nothing 100 m off is dust to the airlocks').toBe(0);
+  // the pit at the minimum setback: within a few game-minutes
+  expect(r.near.nearMin, 'a unit digs within 60 m of the airlock').toBeLessThan(60);
+  expect(r.at, 'seconds to the warning: a few game-minutes, the drive there included').toBeLessThanOrEqual(420);
+  expect(r.warn.text).toMatch(/DUST IN THE AIRLOCKS — Habitat Module #\d+ filters \d+%: Regolith Excavator [A-Z]\d+ digs \d+ m away/); // hub units, as the pads' excavators did
   expect(r.warn.counters.map((c: any) => c.label)).toEqual(['Clean 5⚙']);
   expect(r.dust).toBeGreaterThanOrEqual(0.7);
   expect(r.cleaned).toBeLessThan(0.01);
