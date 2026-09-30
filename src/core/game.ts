@@ -67,7 +67,7 @@ import { materials } from '../world/materials';
 import { IsoCam, commandKey } from '../player/isoCam';
 import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadSave, clearSave, asV2, isV2, stripForRivalSave, type SaveFile } from './save';
-import { bindMoon, createMoon, scheduleLandings, dueLandings, type MoonState } from './moon';
+import { bindMoon, createMoon, scheduleLandings, dueLandings, pushFeed, feedSince, dispatchFeed, type MoonState } from './moon';
 import { RivalProgram, rivalInfos } from './rival';
 import { FACTIONS, FACTION_NAME, FACTION_ORDER, assignSites, type FactionId } from '../data/factions';
 import { loadSettings, saveSettings, RESUME_KEY } from './settings';
@@ -259,6 +259,7 @@ export class Game {
     let sim: BaseSim;
     this.moon = moon;
     this.rivals = [];
+    this.feedCursor = 0;
     this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
     if (faction) {
       const def = FACTIONS[faction];
@@ -268,6 +269,7 @@ export class Game {
       moon.clock = Math.min(...FACTION_ORDER.map((f) => moon.factions[f].landedAt)) + 90;
       // the rivals that land before the player are on the Moon, and it stands at the player's landing second, when the player lands
       this.preRoll(moon, landedAt + 90);
+      this.feedCursor = moon.feedSeq ?? 0; // (the landings before the player's are history, not news)
       // the Lander pre-placed at the map heart with its pad, rovers and drone, and the TOUCHDOWN alert
       sim = BaseSim.create({ siteId, seed, expedition: def.expedition, faction, landedAt, mode: this.playerMode(), moon });
       moon.factions[faction].landed = true;
@@ -295,6 +297,8 @@ export class Game {
   }
   /** how long the last new game's pre-roll took (ms; the debug API reads it) */
   preRollMs = 0;
+  /** the last Moon feed event dispatched to the UI handlers (core/moon.ts onFeed); history before the game began is not replayed */
+  private feedCursor = 0;
 
   /** Rivals whose landing second has come (Moon second `now`) land: their base is created on its site, at its landing day. A
    *  landing after the game began is announced (a `race`-family line in the log once stream S1 lands the family). */
@@ -303,6 +307,8 @@ export class Game {
       const m = this.moon.factions[f];
       this.rivals.push(RivalProgram.land(f, this.moon, m.siteId, m.landedAt));
       m.landed = true;
+      pushFeed(this.moon, { faction: f, kind: 'landed', text: `${FACTION_NAME[f].toUpperCase()} LANDS — at ${SITES[m.siteId].name}`, at: m.landedAt + 90 });
+      // (S1 replaces this line with a `race`-family handler on the feed and deletes it)
       if (announce) alert(this.state, `${FACTION_NAME[f].toUpperCase()} LANDS — at ${SITES[m.siteId].name}`, 'info');
     }
   }
@@ -326,6 +332,7 @@ export class Game {
     // (a rival that lands this second starts at it: it is created after the others' steps, which bring them up to it)
     for (const r of this.rivals) r.step();
     this.landDue(now, true);
+    for (const e of feedSince(this.moon, this.feedCursor)) { this.feedCursor = e.id; dispatchFeed(e, { moon: this.moon, player: s }); }
     const ms = performance.now() - t0;
     const p = this.rivalPerf;
     p.ticks++;
@@ -342,6 +349,7 @@ export class Game {
     this.rivals = save.rivals.map((r) => RivalProgram.fromState(r.faction, r.state, moon));
     this.rivalPerf = { ticks: 0, msLast: 0, msPerTick: 0 };
     this.moon = moon;
+    this.feedCursor = moon.feedSeq ?? 0; // (a loaded game does not replay what the save already had)
     this.bootWorld(sim);
     // (the world was built over the finished ground: the chunks need no rebuild, only the rocks and the horizon the flattens touch)
     this.drain(true);

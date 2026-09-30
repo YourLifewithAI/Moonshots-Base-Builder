@@ -197,6 +197,58 @@ export interface MoonState {
   /** who holds each claimed prospect. A solo game writes none (nobody to claim against). */
   claims: Partial<Record<ProspectId, FactionId>>;
   race: Record<FactionId, MoonRaceEntry> & { phase: RacePhase; closeAt: number; winner?: FactionId };
+  /** what happened on the Moon, newest last (capped at FEED_MAX): the one place rivals' doings are recorded for the UI. */
+  feed?: FeedEvent[];
+  /** the last feed id issued */
+  feedSeq?: number;
+}
+
+// ─────────────────────────── the feed (docs/20 §4.5: the contract between the rival runner and the UI) ───────────────────────────
+
+/** What kinds of thing the Moon records. The rival runner and the race write them; the notification, map and race UI read them. */
+export type FeedKind = 'landed' | 'claim' | 'era' | 'launch' | 'firstLight' | 'lost' | 'hearing' | 'standing' | 'verdict';
+export interface FeedEvent {
+  id: number;
+  /** the Moon clock second it happened */
+  at: number;
+  faction: FactionId;
+  kind: FeedKind;
+  /** one line, ready for a notification or the RACE panel: 'THE FOUNDRY CLAIMS MOLTKE — ilmenite outpost' */
+  text: string;
+  prospect?: ProspectId;
+  era?: number;
+  /** a count that goes with the kind: launches so far, the standing rank (1-3) */
+  n?: number;
+}
+
+export const FEED_MAX = 60;
+
+/** Record something on the Moon. Deterministic (ids count up, `at` is the Moon clock unless given). */
+export function pushFeed(moon: MoonState, e: Omit<FeedEvent, 'id' | 'at'> & { at?: number }): FeedEvent {
+  const feed = (moon.feed ??= []);
+  const ev: FeedEvent = { ...e, id: (moon.feedSeq = (moon.feedSeq ?? 0) + 1), at: e.at ?? moon.clock };
+  feed.push(ev);
+  if (feed.length > FEED_MAX) feed.splice(0, feed.length - FEED_MAX);
+  return ev;
+}
+
+/** The events after `afterId` (a consumer keeps its own cursor). */
+export const feedSince = (moon: MoonState, afterId: number): FeedEvent[] => (moon.feed ?? []).filter((e) => e.id > afterId);
+
+/** Who reacts to the feed: each UI stream registers a handler for the kinds it owns (S1: landed, era, hearing; S5: claim; S6: launch,
+ *  firstLight, standing, verdict). `Game` dispatches every new event once, in order, as the Moon's second passes. A handler gets the
+ *  event and the player's state (null in a solo game, which has no events). */
+export type FeedHandler = (e: FeedEvent, ctx: { moon: MoonState; player: GameState }) => void;
+const feedHandlers = new Map<FeedKind | '*', FeedHandler[]>();
+export function onFeed(kind: FeedKind | '*', fn: FeedHandler): () => void {
+  const list = feedHandlers.get(kind) ?? [];
+  list.push(fn);
+  feedHandlers.set(kind, list);
+  return () => { const i = list.indexOf(fn); if (i >= 0) list.splice(i, 1); };
+}
+export function dispatchFeed(e: FeedEvent, ctx: { moon: MoonState; player: GameState }): void {
+  for (const fn of feedHandlers.get(e.kind) ?? []) fn(e, ctx);
+  for (const fn of feedHandlers.get('*') ?? []) fn(e, ctx);
 }
 
 /** A fresh Moon. `siteId` fills the factions' placeholder entries (a solo game: its own site, nobody landed). */
