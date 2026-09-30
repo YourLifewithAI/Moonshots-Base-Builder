@@ -104,11 +104,17 @@ test('the service worker registers, precaches the build under its hash, and the 
   expect(listed).toContain('./manifest.webmanifest');
   expect(listed.some((f) => /^\.\/assets\/.+\.js$/.test(f))).toBe(true);
   expect(listed.some((f) => f.startsWith('./icons/'))).toBe(true);
-  const cached = await page.evaluate(async () => {
+  const readCache = () => page.evaluate(async () => {
     const keys = await caches.keys();
     const c = await caches.open(keys[0]);
     return { keys, urls: (await c.keys()).map((r) => new URL(r.url).pathname) };
   });
+  // the worker fills the cache in its install step; the page can be controlled a moment before the last entry lands
+  let cached = await readCache();
+  for (let i = 0; i < 40 && listed.some((f) => !cached.urls.includes(f === './' ? '/' : f.slice(1))); i++) {
+    await page.waitForTimeout(500);
+    cached = await readCache();
+  }
   expect(cached.keys).toEqual([cacheName]);
   for (const f of listed) expect(cached.urls, f).toContain(f === './' ? '/' : f.slice(1));
 

@@ -339,8 +339,8 @@ export function mountHud(root: HTMLElement, game: Game) {
     inspId = id;
     if (id !== null) {
       const standing = $alerts.get().filter((a) => !a.quiet).length;
-      // (the era, research and weather rows above the stack leave a 633 px screen one row of alerts)
-      const cap = touchOn() ? 2 : window.matchMedia('(max-height: 660px)').matches ? 1 : window.matchMedia('(max-height: 700px)').matches ? 2 : ALERTS.shown;
+      // (the era, research, weather and outposts rows above the stack leave a 633 px screen one row of alerts, and a 720 px one two)
+      const cap = touchOn() ? 2 : window.matchMedia('(max-height: 660px)').matches ? 1 : window.matchMedia('(max-height: 760px)').matches ? 2 : ALERTS.shown;
       inspRows = Math.max(1, Math.min(cap, standing));
       alerts.style.setProperty('--alert-rows', String(inspRows));
     }
