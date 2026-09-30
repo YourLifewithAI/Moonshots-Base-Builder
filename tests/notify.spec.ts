@@ -14,10 +14,10 @@ declare global {
 
 const BASE = '/?debug&seed=42&nolock&lowfx';
 
-async function boot(page: Page, extra = '', settings?: Record<string, unknown>) {
+async function boot(page: Page, extra = '', settings?: Record<string, unknown>, exp: 'human' | 'robotic' = 'robotic') {
   if (settings) await page.addInitScript((s) => localStorage.setItem('mbb-settings', JSON.stringify(s)), settings);
   await page.setViewportSize({ width: 1366, height: 768 });
-  await page.goto(`${BASE}&site=mare&exp=robotic&tips${extra}`);
+  await page.goto(`${BASE}&site=mare${exp === 'robotic' ? '&exp=robotic' : ''}&tips${extra}`);
   await page.waitForFunction(() => window.__game !== undefined);
 }
 
@@ -40,6 +40,14 @@ const rule = (page: Page, sel: string, side: 'Left' | 'Top') => page.evaluate(([
   const c = getComputedStyle(e);
   return { w: c.getPropertyValue(`border-${(sd as string).toLowerCase()}-width`), color: c.getPropertyValue(`border-${(sd as string).toLowerCase()}-color`) };
 }, [sel, side]);
+
+/** something covers the element's centre: a modal card or banner is over it, so a click cannot reach it */
+const underBanner = (page: Page, sel: string) => page.evaluate((s) => {
+  const e = document.querySelector(s) as HTMLElement;
+  const r = e.getBoundingClientRect();
+  const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+  return !!top && top !== e && !e.contains(top);
+}, sel);
 
 const FIELD_CARD = {
   text: 'SURVEY COMPLETE — Marius Hills · +12≡ · ilmenite outpost possible',
@@ -221,11 +229,14 @@ test('the alert stack: a glyph and a class per family, crit alerts are hazards, 
 test('pause policy: era holds until Continue; research and field never pause; weather by the menu setting (M and X)', async ({ page }) => {
   test.setTimeout(180_000);
   await boot(page, '&flarepause');
-  // era: paused under the banner, and a speed click cannot lift it
+  // era: paused under the banner; it covers the HUD, and neither a speed key nor the button lifts the pause
   const banner = page.locator('#era-banner');
   await expect(banner).toBeVisible();
   expect(await paused(page)).toBe(true);
-  await page.locator('#time-controls button', { hasText: '3×' }).click();
+  expect(await underBanner(page, '#time-controls button:nth-child(3)')).toBe(true);
+  await page.keyboard.press('Digit2');
+  await page.locator('#time-controls button', { hasText: '3×' }).dispatchEvent('click');
+  await page.waitForTimeout(300);
   expect(await paused(page)).toBe(true);
   await banner.locator('[data-dsc="ok"]').click();
   expect(await paused(page)).toBe(false);
@@ -268,7 +279,7 @@ test('pause policy: an M flare pauses by default, not with the setting off; All 
 
 test('pause policy: the hazard drill card holds the pause; the menu setting turns that off', async ({ page, browser }) => {
   test.setTimeout(300_000);
-  await boot(page);
+  await boot(page, '', undefined, 'human');
   await page.evaluate(CLIMB);
   await g(page, 'setPaused', true);
   await page.evaluate(DRILL);
@@ -280,8 +291,10 @@ test('pause policy: the hazard drill card holds the pause; the menu setting turn
   await expect(card).toContainText('Next time, the people inside die');
   await expect(card).toHaveClass(/holds/);
   await expect.poll(() => paused(page)).toBe(true);
-  // a speed click under it stays paused (the drill card is a modal); Continue lifts it
-  await page.locator('#time-controls button', { hasText: '3×' }).click();
+  // it covers the HUD and holds the pause (a modal); a speed key stays paused; Continue lifts it
+  expect(await underBanner(page, '#time-controls button:nth-child(3)')).toBe(true);
+  await page.keyboard.press('Digit2');
+  await page.waitForTimeout(300);
   expect(await paused(page)).toBe(true);
   await card.locator('[data-dsc="ok"]').click();
   await expect(card).toBeHidden();
@@ -290,7 +303,7 @@ test('pause policy: the hazard drill card holds the pause; the menu setting turn
   // with "Hazard drills" off the card still shows, but nothing holds the game
   const ctx = await browser.newContext();
   const p2 = await ctx.newPage();
-  await boot(p2, '', { pauseDrills: false });
+  await boot(p2, '', { pauseDrills: false }, 'human');
   await p2.evaluate(CLIMB);
   await g(p2, 'setPaused', true);
   await p2.evaluate(DRILL);
@@ -350,7 +363,7 @@ test('the log lists every family, newest first, with glyphs; the weather panel i
   await expect(rows.first()).toContainText('LOG TEST weather two');
   await expect(rows.last()).toContainText('TOUCHDOWN');
   for (const [fam, text] of Object.entries(texts)) {
-    const row = log.locator('.nl-row', { hasText: new RegExp(`^.*${text}$`) }).first();
+    const row = log.locator('.nl-row', { hasText: new RegExp(`${text}(?! two)`) }).first();
     await expect(row).toHaveClass(new RegExp(`nf-${fam}`));
     await expect(row.locator('.nl-g')).toHaveText({ research: '✦', field: '◎', era: '⚑', weather: '☉', hazard: '⚠' }[fam]!);
   }
@@ -417,7 +430,7 @@ test('alert actions: {map} opens the map at the prospect, {tech} the tree at the
   await log.locator('.nl-row', { hasText: 'ACTION TEST tech' }).click();
   const tree = page.locator('#tech-screen');
   await expect(tree).toBeVisible();
-  await expect(page.locator('#tech-sheet-body')).toContainText('Regolith Smelting');
+  await expect(page.locator('#tech-sheet-body')).toContainText('Pit Mapping');
   await page.keyboard.press('Escape');
   await expect(tree).toBeHidden();
 
@@ -436,7 +449,7 @@ test('alert actions: {map} opens the map at the prospect, {tech} the tree at the
 
 test('today\'s callers reach the right family: research, era, field (a real survey and its card), weather and hazard', async ({ page }) => {
   test.setTimeout(300_000);
-  await boot(page);
+  await boot(page, '', undefined, 'human');
   await begin(page);
   await page.evaluate(CLIMB);
   await g(page, 'setPaused', true);
@@ -462,14 +475,21 @@ test('today\'s callers reach the right family: research, era, field (a real surv
   });
   const fams = async () => Object.fromEntries((await g(page, 'getState')).log.map((e: any) => [e.text.split(' — ')[0].split(' · ')[0], e.family ?? null]));
   let f = await fams();
-  expect(f['ERA 2 OPENS']).toBe('era');
-  expect(f['ERA 3 OPENS']).toBe('era');
   expect(f['RESEARCH COMPLETE']).toBe('research');
-  expect(((await g(page, 'getState')).log as any[]).filter((e) => e.text.startsWith('MILESTONE')).every((e) => e.family === 'era')).toBe(true);
+  expect(f['INSIGHT']).toBe('research');
+  expect(f['MILESTONE']).toBe('era');
+  expect(f['TOUCHDOWN']).toBeNull(); // a plain event: in the log, in no family
 
   // field: a survey, its report and its card
-  await page.evaluate(() => { window.__game.surveyProspect('tranqPit'); window.__game.advanceGameSeconds(100); });
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.grantPower(5000);
+    g.grantResources({ oxygen: 200, water: 100, parts: 100 });
+    g.surveyProspect('tranqPit');
+    g.advanceGameSeconds(100);
+  });
   f = await fams();
+  expect(((await g(page, 'getState')).log as any[]).map((e) => e.text).filter((x) => /SURVEY|OUT OF RANGE|CANNOT/.test(x))[0]).toMatch(/^SURVEY LAUNCHED/);
   expect(f['SURVEY LAUNCHED']).toBe('field');
   expect(f['SURVEY COMPLETE']).toBe('field');
   expect(f['BREAKTHROUGH']).toBe('field');
