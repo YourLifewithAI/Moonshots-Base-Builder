@@ -80,8 +80,13 @@ html.touch .alert-log { height: auto; min-height: var(--tap, 44px); font-size: 1
 #field-card .fc-txt { flex: 1 1 140px; min-width: 0; }
 #field-card .fc-btn { font-size: 10px; padding: 3px 8px; flex: none; }
 html.touch #field-card {
-  left: var(--content-l, 60px); bottom: var(--edge-b, 8px); width: min(300px, 44vw); max-height: 52vh; font-size: 11px;
+  left: var(--content-l, 60px); bottom: var(--edge-b, 8px); width: min(300px, 44vw); padding: 4px 8px 6px; font-size: 11px; line-height: 14px;
+  max-height: calc(var(--app-h, 100vh) - var(--content-t, 52px) - var(--edge-b, 8px));
 }
+html.touch #field-card .fc-head { margin-top: 2px; }
+html.touch #field-card .fc-title { font-size: 13px; line-height: 16px; margin: 3px 0 1px; }
+html.touch #field-card .fc-geo { margin-bottom: 4px; }
+html.touch #field-card .fc-rewards { gap: 3px; padding-top: 4px; }
 html.touch #field-card .fc-btn { min-height: var(--tap, 44px); }
 html.touch #field-card .fc-x { min-width: var(--tap, 44px); min-height: 38px; }
 
