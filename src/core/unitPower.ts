@@ -28,7 +28,7 @@ import { UNIT_POWER } from '../data/balance';
 import type { BuildingState, GameState, HaulState, Hauler, PackState, RoverUnit } from './state';
 import type { Mods } from './mods';
 import { centerOf } from '../buildings/instances';
-import { isDrone, roverDown, surveyRover } from './fleet';
+import { isDrone, roverDown } from './fleet';
 import { arrived, dronePads, padPoint } from './transit';
 import { bayPoint, hubOf } from './hubs';
 
@@ -65,12 +65,11 @@ export const rpuKW = (kind: PackKind, mods: Pick<Mods, 'rpu'>): number => (mods.
 
 // ───────────────────────────── home and charging ─────────────────────────────
 
-/** Every unit with a pack, in roster order then building order (the lent survey rover and held or bricked ones left out). */
+/** Every unit with a pack, in roster order then building order (held or bricked ones left out). */
 export function packUnits(s: GameState): PackUnit[] {
   const out: PackUnit[] = [];
-  const away = surveyRover(s);
   for (const r of s.rovers ?? []) {
-    if (r.id === away || roverDown(s, r)) continue;
+    if (roverDown(s, r)) continue;
     out.push({ kind: isDrone(s, r) ? 'drone' : 'rover', unit: r, pack: r });
   }
   for (const b of s.buildings) {

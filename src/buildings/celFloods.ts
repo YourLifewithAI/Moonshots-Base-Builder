@@ -1,9 +1,11 @@
-/** Each lit structure's flood as a soft additive pool on the
- *  ground, draped on the heightfield so a pool
- *  follows the slope it falls on instead of cutting into it, and feathered
- *  to nothing at the rim. One merged mesh (a centre and rings every ~3 m);
- *  positions are rebuilt only when the lit set moves, colours whenever a
- *  structure's light level changes (instances.ts, via lightLevel). */
+/** Each lit structure's flood as a flat glow on the ground: a disc of
+ *  three light steps (bright core, a dimmer band, a faint rim — the same
+ *  hard edges as the buildings' ramp, no feathering), additive, draped on
+ *  the heightfield so a pool follows the slope it falls on instead of
+ *  cutting into it. One merged mesh (rings every ~3 m inside each step, the
+ *  step boundaries doubled so the edge is a jump); positions are rebuilt only
+ *  when the lit set moves, colours whenever a structure's light level changes
+ *  (instances.ts, via lightLevel). */
 import * as THREE from 'three';
 import { BUILDINGS } from '../data/buildings';
 import { CELL_M } from '../data/balance';
@@ -11,11 +13,17 @@ import type { BuildingState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from './instances';
 
-const SEGMENTS = 20;
-const RING_M = 3;
+const SEGMENTS = 28;
+const RING_M = 3.5;
 const REACH_M = 7;        // past the footprint's half-width
 const LIFT_M = 0.25;
-const GAIN = 0.16;
+const GAIN = 0.11;
+/** the pool's steps: out to this share of its radius it wears this share of the light */
+const STEPS: readonly { to: number; level: number }[] = [
+  { to: 0.5, level: 1.0 },
+  { to: 0.78, level: 0.5 },
+  { to: 1.0, level: 0.2 },
+];
 const WARM = new THREE.Color(1.0, 0.74, 0.42);
 /** the machines' pools (docs/14 §4.4): the same light as their windows, cold */
 const COLD = new THREE.Color(0.62, 0.84, 1.0);
@@ -49,22 +57,28 @@ export class CelFloods {
       const [cx, cz] = centerOf(b);
       const [w, d] = BUILDINGS[b.type].footprint;
       const R = (Math.max(w, d) * CELL_M) / 2 + REACH_M;
-      const rings = Math.max(3, Math.ceil(R / RING_M));
       const start = pos.length / 3;
       pos.push(cx, this.hf.sample(cx, cz) + LIFT_M, cz);
       fall.push(1);
-      for (let k = 1; k <= rings; k++) {
-        const r = (k / rings) * R;
-        const f = (1 - (k / rings) ** 2) ** 3;
+      // the ring radii, each with its step's level (a boundary is two rings, one either side)
+      const rings: { r: number; f: number }[] = [];
+      let from = 0;
+      for (const st of STEPS) {
+        const to = st.to * R;
+        const n = Math.max(1, Math.ceil((to - from) / RING_M));
+        for (let k = from === 0 ? 1 : 0; k <= n; k++) rings.push({ r: from + ((to - from) * k) / n, f: st.level });
+        from = to;
+      }
+      for (const ring of rings) {
         for (let s = 0; s < SEGMENTS; s++) {
           const a = (s / SEGMENTS) * Math.PI * 2;
-          const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+          const x = cx + Math.cos(a) * ring.r, z = cz + Math.sin(a) * ring.r;
           pos.push(x, this.hf.sample(x, z) + LIFT_M, z);
-          fall.push(f);
+          fall.push(ring.f);
         }
       }
       for (let s = 0; s < SEGMENTS; s++) idx.push(start, start + 1 + ((s + 1) % SEGMENTS), start + 1 + s);
-      for (let k = 1; k < rings; k++) {
+      for (let k = 1; k < rings.length; k++) {
         const r0 = start + 1 + (k - 1) * SEGMENTS, r1 = r0 + SEGMENTS;
         for (let s = 0; s < SEGMENTS; s++) {
           const s1 = (s + 1) % SEGMENTS;

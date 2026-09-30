@@ -28,6 +28,7 @@ import { MAP_CELLS } from '../data/balance';
 import { ROAD } from '../data/roads';
 import { CEL_PALETTE } from '../buildings/celBuilding';
 import { materials } from './materials';
+import { celSurface } from './celSurface';
 import { drape, drapedLine } from './ink';
 
 const LIFT = 0.07;          // m over the ground
@@ -37,7 +38,9 @@ const FILLET = 1.4;         // the radius of a bend's inner corner, m
 const FILLET_SEG = 4;
 const TIERS = ['basaltPaving', 'guidanceBeacons', 'guidewayRails', 'maglevFreight'] as const;
 
-materials.define('road', new THREE.MeshLambertMaterial({
+materials.define('road', celSurface('cel-road', {
+  vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
+}), () => new THREE.MeshLambertMaterial({
   vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
 }));
 

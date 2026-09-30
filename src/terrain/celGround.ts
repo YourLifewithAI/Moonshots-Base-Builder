@@ -17,7 +17,9 @@
  *    pyroclastic glass a dark amber, KREEP a faint rose, mature (volatile-
  *    rich) soil a faint olive-brown. Edges are soft and a little ragged.
  *    Every deposit is tinted, mapped or not — the ground looks like what it
- *    is; the overlay [I] and the survey say what that means. */
+ *    is; the overlay [I] and the survey say what that means. The cel look
+ *    saturates them ×1.4 over the orbital maps' subtlety (DEPOSIT_SATURATE),
+ *    so a deposit reads at the game's zoom. */
 import * as THREE from 'three';
 import { createNoise2D } from 'simplex-noise';
 import { mulberry32 } from '../core/rng';
@@ -35,6 +37,9 @@ export const SITE_GROUND: Record<SiteId, THREE.Color> = {
 };
 
 type Tint = { mul: [number, number, number] } | { toward: [number, number, number]; k: number };
+
+/** the cel look's boost of every deposit tint: a multiplier's departure from 1, a mix's share */
+export const DEPOSIT_SATURATE = 1.4;
 
 /** how each deposit kind colours the ground (linear multipliers, or a mix
  *  toward an absolute colour); strength at the deposit's heart */
@@ -99,9 +104,10 @@ export class CelGround {
       const w = 1 - smooth(0.6, 1.12, Math.hypot(dx, dz) / d.r + 0.12 * noise(x / 9 + 3, z / 9 - 7));
       if (w <= 0) continue;
       if ('mul' in tint) {
-        r *= 1 + (tint.mul[0] - 1) * w; g *= 1 + (tint.mul[1] - 1) * w; b *= 1 + (tint.mul[2] - 1) * w;
+        const a = w * DEPOSIT_SATURATE;
+        r *= 1 + (tint.mul[0] - 1) * a; g *= 1 + (tint.mul[1] - 1) * a; b *= 1 + (tint.mul[2] - 1) * a;
       } else {
-        const k = tint.k * w;
+        const k = Math.min(0.85, tint.k * DEPOSIT_SATURATE) * w;
         r += (tint.toward[0] - r) * k; g += (tint.toward[1] - g) * k; b += (tint.toward[2] - b) * k;
       }
     }

@@ -1,5 +1,6 @@
-/** The destiny's look (docs/14 §4, phase D4) and its sound (§4.6, D5): the
- *  base-wide layers — walkways and conveyor spines that never sit on a road
+/** The cel look (docs/19 S1a): the light ramp, the family accents and the
+ *  night, checked on the drawn frame — then the destiny's look (docs/14 §4,
+ *  phase D4) and its sound (§4.6, D5): the base-wide layers — walkways and conveyor spines that never sit on a road
  *  cell, a door or a bay and cross roads only as skybridges; EVA walkers
  *  that equal the EVA crew and never stand on the carriageway; drones that
  *  fly for the Drone Hive, off the roads and out of the ground traffic —
@@ -23,6 +24,261 @@ async function start(page: Page, exp: 'human' | 'robotic' = 'robotic', extra = '
 
 const g = (page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => window.__game[f as string](...(a as unknown[])), [fn, args] as const);
+
+// ─── The cel look (docs/19 S1a): ramp, palette, night ──────────────────────────
+
+/** Pixel tones (0.2126 R + 0.7152 G + 0.0722 B), as a 64-bin histogram (4 levels a bin) of the warm-white
+ *  hull pixels inside a screen polygon: the paper hull's hue at any step of the ramp (R − B 8…24, R − G 2…9,
+ *  G − B 4…16, bright), so slate roofs, blue glass, accent trim, their antialiased edges and the dark sky
+ *  are out. */
+async function hullTones(page: Page, poly: { x: number; y: number }[]) {
+  const png = await page.screenshot();
+  return page.evaluate(async ([b64, pts]) => {
+    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const bmp = await createImageBitmap(blob);
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(bmp, 0, 0);
+    const xs = pts.map((p) => p.x), ys = pts.map((p) => p.y);
+    const x0 = Math.max(0, Math.floor(Math.min(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys)));
+    const w = Math.min(bmp.width, Math.ceil(Math.max(...xs))) - x0, h = Math.min(bmp.height, Math.ceil(Math.max(...ys))) - y0;
+    const { data } = ctx.getImageData(x0, y0, w, h);
+    // inside a convex polygon: on one side of every edge
+    const inside = (px: number, py: number) => {
+      let sign = 0;
+      for (let i = 0; i < pts.length; i++) {
+        const a = pts[i], b = pts[(i + 1) % pts.length];
+        const cr = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x);
+        if (cr === 0) continue;
+        if (sign === 0) sign = Math.sign(cr); else if (Math.sign(cr) !== sign) return false;
+      }
+      return true;
+    };
+    const hist = new Array<number>(64).fill(0);
+    let n = 0;
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!inside(x0 + x + 0.5, y0 + y + 0.5)) continue;
+        const i = (y * w + x) * 4;
+        const R = data[i], G = data[i + 1], B = data[i + 2];
+        const lum = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+        if (lum >= 120 && R - B >= 8 && R - B <= 24 && R - G >= 2 && R - G <= 9 && G - B >= 4 && G - B <= 16) { hist[Math.min(63, Math.floor(lum / 4))]++; n++; }
+      }
+    }
+    return { n, hist };
+  }, [png.toString('base64'), poly] as const);
+}
+
+/** Tone clusters in a histogram: the bins holding at least 4% of the pixels, joined when within three bins. */
+function toneClusters(t: { n: number; hist: number[] }): number[] {
+  const peaks = t.hist.map((c, i) => (c >= t.n * 0.04 ? i : -1)).filter((i) => i >= 0);
+  const groups: number[][] = [];
+  for (const i of peaks) {
+    const last = groups[groups.length - 1];
+    if (last && i - last[last.length - 1] <= 3) last.push(i); else groups.push([i]);
+  }
+  return groups.map((gr) => gr[0] * 4);
+}
+
+/** The smelter's walls in the frame: its footprint's box, projected. Convex hull of the eight corners. */
+async function wallPolygon(page: Page, id: number, lift = 3.5) {
+  return page.evaluate(([bid, top]) => {
+    const g = window.__game!;
+    const f = g.footprintOf(bid);
+    const pts: { x: number; y: number }[] = [];
+    for (const x of [f.x0, f.x1]) for (const z of [f.z0, f.z1]) for (const l of [0, top]) pts.push(g.screenOf(x, z, l));
+    // convex hull (monotone chain)
+    const P = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+    const cross = (o: any, a: any, b: any) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+    const half = (arr: typeof P) => { const h: typeof P = []; for (const p of arr) { while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop(); h.push(p); } h.pop(); return h; };
+    return [...half(P), ...half(P.slice().reverse())];
+  }, [id, lift] as const);
+}
+
+/** A smelter at a fixed cell, close up from a compass azimuth (degrees), terrain hidden so only the base draws. */
+async function smelterView(page: Page, azimDeg: number) {
+  await page.evaluate(([az]) => {
+    const g = window.__game!;
+    const s = g.getState();
+    const b = s.buildings.find((q: any) => q.type === 'smelter');
+    const f = g.footprintOf(b.id);
+    const x = (f.x0 + f.x1) / 2, z = (f.z0 + f.z1) / 2;
+    const d = 100, p = 32 * Math.PI / 180, a = az * Math.PI / 180;
+    g.setView({ x: x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: z + Math.sin(a) * Math.cos(p) * d }, { x, y: 0, z });
+  }, [azimDeg] as const);
+  await page.evaluate(() => new Promise<void>((done) => { let k = 6; const f = () => (--k <= 0 ? done() : requestAnimationFrame(f)); requestAnimationFrame(f); }));
+  await page.waitForTimeout(1200);
+}
+
+async function smelterBase(page: Page, extra = '') {
+  await start(page, 'robotic', extra);
+  await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
+  return page.evaluate(() => {
+    const g = window.__game!;
+    g.openRoads(true);
+    for (const t of ['regolithProcessing']) g.completeTech(t);
+    g.grantResources({ metals: 5000, parts: 2000 });
+    const ok = g.placeBuilding('smelter', 135, 133);
+    g.finishConstruction();
+    g.advanceGameSeconds(120 - g.getState().simTime); // mid-morning
+    return { ok, id: g.getState().buildings.find((q: any) => q.type === 'smelter')?.id as number };
+  });
+}
+
+test('cel ramp: a building\'s lit faces read as at most three tones (two in variant A), and more than one on some side', async ({ page }) => {
+  test.setTimeout(240_000);
+  for (const [variant, most] of [['B', 3], ['A', 2], ['C', 3]] as const) {
+    const r = await smelterBase(page, `&cel=${variant}`);
+    expect(r.ok).toBe(true);
+    expect((await g(page, 'getRenderInfo')).ramp, `variant ${variant}'s steps`).toBe(most);
+    // only the base draws: no ground, no roads (their tone is the hull's shade to the eye)
+    await page.evaluate(() => { window.__game.setTerrainVisible(false); window.__game.setRoadsVisible(false); });
+    let widest = 0;
+    for (const az of [45, 135, 225]) {
+      await smelterView(page, az);
+      const t = await hullTones(page, await wallPolygon(page, r.id));
+      expect(t.n, `variant ${variant} at ${az}°: the smelter's walls are in view`).toBeGreaterThan(2000);
+      const clusters = toneClusters(t);
+      test.info().annotations.push({ type: 'tones', description: `${variant} ${az}°: ${clusters.join(', ')}` });
+      expect(clusters.length, `variant ${variant} at ${az}°: tones ${clusters}`).toBeLessThanOrEqual(most);
+      widest = Math.max(widest, clusters.length);
+    }
+    // it is a ramp, not one flat tone: some side of the building reads two steps
+    expect(widest, `variant ${variant} shows its steps`).toBeGreaterThanOrEqual(2);
+  }
+});
+
+test('cel palette: a structure\'s trim is its family accent — the smelter\'s is the extraction ochre; the ramp variant is one accessor', async ({ page }) => {
+  await start(page, 'robotic', '&cel=A');
+  const r = await page.evaluate(async () => {
+    const C = await import('/src/buildings/celBuilding.ts');
+    const R = await import('/src/buildings/recipes.ts');
+    const F = await import('/src/data/families.ts');
+    const S = await import('/src/world/celStyle.ts');
+    const K = await import('/src/buildings/meshKit.ts');
+    const Color = C.CEL_COLD.constructor as any;
+    /** the colours the recipe's small trim vertices wear (decks — a trim part with a face over 5 m² — are slate) */
+    const trims = (type: string) => {
+      const geo = R.recipeGeometry(type as any);
+      const col = C.celColors(geo);
+      const c = geo.getAttribute('color'), m = geo.getAttribute('mat');
+      const area = geo.userData.partArea as Float32Array;
+      const seen = new Set<string>();
+      for (let i = 0; i < c.count; i++) {
+        if (C.finishKey(c.getX(i), m.getX(i), m.getY(i), m.getZ(i)) !== 'trim' || area[i] > 5) continue;
+        seen.add([col.getX(i), col.getY(i), col.getZ(i)].map((v) => v.toFixed(4)).join(','));
+      }
+      return [...seen];
+    };
+    const hex = (h: number) => { const c = new Color(h); return [c.r, c.g, c.b].map((v: number) => v.toFixed(4)).join(','); };
+    const families: Record<string, { trims: string[]; accent: string }> = {};
+    for (const id of Object.keys(F.FAMILY_OF)) families[id] = { trims: trims(id), accent: hex(F.FAMILY_ACCENT[F.FAMILY_OF[id]]) };
+    return {
+      variant: S.celVariant(), ramp: S.ramp().steps, ink: S.ink().px, constant: S.CEL_VARIANT,
+      smelter: trims('smelter'), extraction: hex(F.FAMILY_ACCENT.extraction),
+      families, wing: (() => { const geo = R.partGeometry('wing'); C.celColors(geo); return geo.userData.celTrim; })(),
+      kit: K.TRIM.v,
+    };
+  });
+  // ?cel= reaches every reader through the one accessor (the ramp here, S1b's ink there)
+  expect(r).toMatchObject({ variant: 'A', ramp: 2, ink: 2, constant: 'B' });
+  expect(r.smelter, 'the smelter wears one trim colour').toEqual([r.extraction]);
+  const off = Object.entries(r.families).filter(([, f]) => f.trims.length && (f.trims.length > 1 || f.trims[0] !== f.accent)).map(([id]) => id);
+  expect(off, 'buildings whose trim is not their family accent').toEqual([]);
+  expect(Object.values(r.families).filter((f) => f.trims.length).length, 'most recipes carry trim').toBeGreaterThanOrEqual(20);
+  // the moving parts' frames are bare metal, not an accent
+  expect(r.wing).not.toBe(0xd9772b);
+});
+
+test('cel night: earthshine holds the open ground well off black; the frame is one forward pass with no post chain', async ({ page }) => {
+  test.setTimeout(180_000);
+  await start(page, 'robotic');
+  await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.grantResources({ metals: 3000, parts: 1000 });
+    for (const [t, x, z] of [['solar', 132, 126], ['habitat', 126, 132], ['lab', 135, 133], ['storageYard', 121, 132]] as const) g.placeBuilding(t, x, z);
+    g.finishConstruction();
+    g.grantPower(200000);
+    g.advanceGameSeconds(610 - g.getState().simTime); // deep night
+    g.grantPower(200000);
+    g.advanceGameSeconds(1);
+  });
+  await page.waitForTimeout(1500);
+  const png = await page.screenshot();
+  const lums = await page.evaluate(async (b64) => {
+    const blob = await (await fetch(`data:image/png;base64,${b64}`)).blob();
+    const bmp = await createImageBitmap(blob);
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(bmp, 0, 0);
+    const { data } = ctx.getImageData(0, 0, bmp.width, bmp.height);
+    const out: number[] = [];
+    for (let i = 0; i < data.length; i += 4 * 7) out.push(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
+    return out.sort((a, b) => a - b);
+  }, png.toString('base64'));
+  const median = lums[Math.floor(lums.length / 2)];
+  test.info().annotations.push({ type: 'night ground', description: `median luminance ${median.toFixed(1)}/255` });
+  expect(median, 'median ground luminance at night (of 255)').toBeGreaterThanOrEqual(18);
+  const info = await g(page, 'getRenderInfo');
+  expect(info.probes.black, 'the black-frame check reads the night ground as lit').toBe(0);
+  // one pass, straight to the canvas: no post chain, no render targets, no float buffers
+  expect(info).toMatchObject({ style: 'cel', safe: false, ramp: 3 });
+  for (const gone of ['postChain', 'targets', 'sceneRenders', 'fxLevel', 'patches', 'shadowTexel']) expect(info, gone).not.toHaveProperty(gone);
+  expect(info.context).toMatchObject({ antialias: true, shadowMap: false, toneMapping: 0 });
+});
+
+test('cel budget: the seed-42 base draws in at most 80 calls and 300k triangles at home, and 300k triangles at the far zoom', async ({ page }) => {
+  test.setTimeout(240_000);
+  await start(page, 'robotic');
+  await page.addStyleTag({ content: '#ui-root { visibility: hidden !important; }' });
+  await page.evaluate(async () => {
+    const T = await import('/src/data/techs.ts');
+    const g = window.__game!;
+    g.openRoads(true);
+    const taken = new Set<string>();
+    for (const t of T.TECH_ORDER) {
+      const d = T.TECHS[t];
+      if (d.track || d.band) continue;
+      if (d.exclusive) { if (taken.has(d.exclusive)) continue; taken.add(d.exclusive); }
+      if (d.expeditions && !d.expeditions.includes('robotic')) continue;
+      g.completeTech(t);
+    }
+    g.grantResources({ metals: 60000, parts: 20000, silicon: 20000, chips: 10000, regolith: 20000, foils: 500, water: 5000, food: 5000, oxygen: 5000 });
+    const list: [string, number][] = [['solar', 4], ['battery', 2], ['smelter', 1], ['refinery', 1], ['storageYard', 1], ['habitat', 2], ['lab', 1],
+      ['relayMast', 1], ['dataCenter', 1], ['partsFab', 1], ['hydroponics', 1], ['massDriver', 1], ['reactor', 1], ['foilFactory', 1], ['roboticsBay', 1], ['recDome', 1]];
+    const place = (type: string) => {
+      for (let r = 4; r < 40; r++) for (let dx = -r; dx <= r; dx += 2) {
+        for (const [x, z] of [[127 + dx, 127 - r], [127 + dx, 127 + r], [127 - r, 127 + dx], [127 + r, 127 + dx]]) if (g.placeBuilding(type, x, z)) return;
+      }
+    };
+    for (const [t, n] of list) for (let i = 0; i < n; i++) place(t);
+    g.finishConstruction();
+    g.grantPower(500000);
+    g.advanceGameSeconds(120 - g.getState().simTime);
+    g.grantPower(500000);
+    g.advanceGameSeconds(1);
+  });
+  const frame = async () => {
+    await page.evaluate(() => new Promise<void>((done) => { let k = 4; const f = () => (--k <= 0 ? done() : requestAnimationFrame(f)); requestAnimationFrame(f); }));
+    await page.waitForTimeout(600);
+    return (await g(page, 'getRenderInfo')).frame as { calls: number; triangles: number };
+  };
+  const home = await frame();
+  await page.evaluate(() => {
+    const g = window.__game!;
+    const c = g.getCamera(), t = c.target, d = 830, p = 32 * Math.PI / 180, a = c.azimuth;
+    g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, t);
+  });
+  const far = await frame();
+  test.info().annotations.push({ type: 'frame cost', description: JSON.stringify({ home, far }) });
+  for (const [name, f] of Object.entries({ home, far })) {
+    // (at 830 m about forty of the sixty-four terrain chunks are in view, a call each: the far frame gets a
+    // looser bound on calls, the same on triangles)
+    expect(f.calls, `${name}: draw calls`).toBeLessThanOrEqual(name === 'home' ? 80 : 100);
+    expect(f.triangles, `${name}: triangles`).toBeLessThanOrEqual(300_000);
+  }
+});
 
 /** In the page: the lane tree (one doctrine member each), a band's picks and
  *  capstone, stock, and a base placed round the Lander, band district first. */

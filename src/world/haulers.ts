@@ -15,7 +15,7 @@
  *  freezes it. */
 import * as THREE from 'three';
 import { HAUL } from '../data/balance';
-import { UNIT_KEYS, unitKey, type UnitKey } from '../data/families';
+import { UNIT_KEYS, liveryOf, unitKey, type UnitKey } from '../data/families';
 import type { BuildingId } from '../data/buildings';
 import { digsHome, haulSpeed } from '../core/haul';
 import type { GameState, HaulState } from '../core/state';
@@ -777,6 +777,7 @@ export class Haulers implements Driver {
         out.push({ d: Math.hypot(x - cam.x, z - cam.z), e: {
           x, y: this.hf.sample(x, z), z, strength: 0.7,
           vx: c * 0.9, vy: 1.3, vz: -sn * 0.9, hSpread: 0.9, vSpread: 1.1, h0: 0.3, size: 0.06,
+          tint: liveryOf(v.mk).band, // the spoil takes the digger's accent
         } });
       } else if (v.v > 0.6) {
         const k = Math.min(1, v.v / HAUL.speed);

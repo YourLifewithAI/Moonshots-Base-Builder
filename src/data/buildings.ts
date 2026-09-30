@@ -11,6 +11,8 @@ export type BuildingId =
   | 'partsFab' | 'reactor' | 'recDome' | 'chipFab' | 'dataCenter'
   | 'foilFactory' | 'massDriver'
   | 'relayMast' | 'propellantPlant'
+  // the survey-drone fleet (docs/19 S6): a Bay prints and docks map-survey drones
+  | 'prospectingBay'
   // space weather (docs/16 §6.3)
   | 'solarObservatory'
   // extraction hubs and their units (docs/17): the water plant, and the Ice Miner it prints on the ice
@@ -244,6 +246,16 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'LOX/LH₂ rockets launch from any latitude — they steer where rails cannot.',
     con: 'Drinks the crew’s water.',
   },
+  // the survey-drone fleet (docs/19 S6, core/surveyDrones.ts): a Bay prints and docks map-survey drones;
+  // reached off-road like a Relay Mast (its drones fly, nothing drives to it)
+  prospectingBay: {
+    id: 'prospectingBay', name: 'Prospecting Bay', category: 'science', era: 1,
+    footprint: [2, 2], height: 4, buildTime: 50,
+    buildCost: { metals: 30, parts: 10 }, crew: 0, powerKW: -1.5,
+    inputs: {}, outputs: {}, upkeepParts: 0.5, priority: 1,
+    pro: 'Prints and docks survey drones (15◆ 5⚙, 45 s each): every drone flown at once is another survey under way. Two bays a level.',
+    con: 'The drones fly the map, not your ground: it produces nothing, and it needs power.',
+  },
   // space weather (docs/16 §6.3): a field instrument, reached off-road like a Relay Mast
   solarObservatory: {
     id: 'solarObservatory', name: 'Solar Observatory', category: 'science', era: 2,
@@ -324,7 +336,7 @@ export const BUILD_ORDER: BuildingId[] = [
   'solar', 'battery', 'reactor',
   'smelter', 'refinery', 'waterPlant', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
   'habitat', 'hydroponics', 'recDome',
-  'lab', 'relayMast', 'solarObservatory', 'dataCenter',
+  'lab', 'relayMast', 'prospectingBay', 'solarObservatory', 'dataCenter',
   'foilFactory', 'massDriver', 'propellantPlant',
   'droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith',
 ];
