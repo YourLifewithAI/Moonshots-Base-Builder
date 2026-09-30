@@ -110,7 +110,6 @@ interface Mv {
   /** 0 a loaded digger, 1 an empty one, 2 a rover, then its id */
   prio: number;
   h?: HaulState;
-  u?: Hauler;
   /** a rover's position */
   r?: { x?: number; z?: number };
   /** the keys it holds, in the order it drives them (a hauler's is `h.claim`) */
@@ -264,7 +263,7 @@ function build(s: GameState, ramps: Ramp[]): Tab {
   for (const u of s.haulers) {
     if (!hubs.has(u.hub)) continue;
     const uid = uidOf({ kind: 'hauler', id: u.id });
-    const mv: Mv = { uid, kind: 'hauler', id: u.id, prio: (loadedOf(u.haul) ? 0 : 1) * 1e6 + u.id, h: u.haul, u, claim: [] };
+    const mv: Mv = { uid, kind: 'hauler', id: u.id, prio: (loadedOf(u.haul) ? 0 : 1) * 1e6 + u.id, h: u.haul, claim: [] };
     tab.units.set(uid, mv);
     tab.order.push(mv);
     setClaim(tab, mv, u.haul.claim ? [...u.haul.claim] : []);
@@ -436,8 +435,9 @@ function stepAside(s: GameState, tab: Tab, st: Store, mv: Mv, ground: boolean, f
   const [cgx, cgz] = cellAt(h.x, h.z);
   const dir: Pt = h.path.length ? [h.path[0][0] - h.x, h.path[0][1] - h.z] : [0, 0];
   const dl = Math.hypot(dir[0], dir[1]) || 1;
-  const cells = new Set<number>();
-  for (const m of tab.units.values()) { const p = posOf(m); if (p) cells.add(cellKey(...cellAt(p[0], p[1]))); }
+  const at: number[] = [];
+  for (const m of tab.units.values()) { const p = posOf(m); if (p) at.push(cellKey(...cellAt(p[0], p[1]))); }
+  const cells = new Set(at);
   const cands: { k: number; c: Pt; rank: number; perp: number; n: number }[] = [];
   N4.forEach(([dx, dz], n) => {
     const gx = cgx + dx, gz = cgz + dz;
@@ -447,7 +447,7 @@ function stepAside(s: GameState, tab: Tab, st: Store, mv: Mv, ground: boolean, f
     let rank: number;
     if (road) {
       if (road.pass || road.hold) rank = 0;
-      else if (road.bay) { if ([...cells].filter((x) => x === k).length >= ROAD.bayCap) return; rank = 0; }
+      else if (road.bay) { if (at.filter((x) => x === k).length >= ROAD.bayCap) return; rank = 0; }
       // (a free road cell that is not on the way of the unit that needs to pass: a last resort, in a tangle)
       else if (ground && !avoid.has(k) && !cells.has(k) && road.left <= 1e-9) rank = 2;
       else return;
