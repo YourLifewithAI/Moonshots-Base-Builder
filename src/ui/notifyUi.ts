@@ -56,16 +56,18 @@ export function mountNotify(root: HTMLElement, game: Game) {
 
   // ── layout hooks: the families never share a slot ──
   const layout = () => {
-    const ms = document.getElementById('milestones');
+    // the bottom-left slot is the objectives, inside the first-mine guide's stack when that is mounted and showing
+    const ms = [document.getElementById('first-mine-stack'), document.getElementById('milestones')]
+      .find((e) => e && e.offsetParent !== null);
     const fp = document.getElementById('flare-popup');
     const r = root.getBoundingClientRect();
-    root.style.setProperty('--ms-h', `${ms && ms.offsetParent ? Math.ceil(ms.getBoundingClientRect().height) : 0}px`);
+    root.style.setProperty('--ms-h', `${ms ? Math.ceil(ms.getBoundingClientRect().height) : 0}px`);
     const shown = fp && fp.style.display !== 'none' ? fp.getBoundingClientRect() : null;
     root.style.setProperty('--wx-bottom', shown ? `${Math.ceil(shown.bottom - r.top)}px` : '0px');
   };
   const relayout = perFrame(layout);
   const ro = new ResizeObserver(relayout);
-  for (const id of ['milestones', 'flare-popup']) {
+  for (const id of ['first-mine-stack', 'milestones', 'flare-popup']) {
     const e = document.getElementById(id);
     if (e) ro.observe(e);
   }

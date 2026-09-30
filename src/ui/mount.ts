@@ -48,14 +48,14 @@ export function mountUI(game: Game) {
   mountLunarMap(hudLayer, game);
   mountHazardsPanel(hudLayer, game);
   mountWeatherPanel(hudLayer, game);
-  // the field card and the Log, after the flare pop-up and the objectives they sit beside
-  mountNotify(hudLayer, game);
   mountVictory(root, game);
   mountDefeat(root);
   mountSiteSelect(root, game);
   // touch mode: last, so it can re-home what the desktop modules built
   if (touchOn()) mountTouchUi(root, hudLayer, game);
   mountFirstMine(hudLayer, game);
+  // the field card and the Log, after the flare pop-up and the objectives (and the first-mine stack) they sit beside
+  mountNotify(hudLayer, game);
 
   $phase.subscribe((p) => {
     hudLayer.style.display = p === 'playing' ? 'block' : 'none';
