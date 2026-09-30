@@ -33,9 +33,10 @@ import { cellCentre, frontierOf, isOpen } from '../core/roads';
 import { ROAD } from '../data/roads';
 import { BUILDINGS } from '../data/buildings';
 import { UNIT_VID } from '../data/hubs';
+import { liveryOf, unitKey, type UnitKey } from '../data/families';
 import { CELL_M, GRAVITY, MAP_M } from '../data/balance';
 import { BODY, PLATE, TRIM, box, merge, withInstanceState, type Finish } from '../buildings/meshKit';
-import { DIGGER_BOOM, DIGGER_RIG, diggerWheel, type RigBox } from '../buildings/rigs';
+import { DIGGER_BOOM, DIGGER_RIG, ICE_BOOM, diggerWheel, iceDrum, type RigBox } from '../buildings/rigs';
 import { recipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { CEL_PALETTE, CUT_NONE } from '../buildings/celBuilding';
@@ -197,6 +198,9 @@ interface RoverAnim {
 
 interface DroneAnim { id: number; mode: WorkMode | null; spark: boolean; front: RoadCell | null; frontRev: number; frontJob: number; seen: number }
 
+/** the colours the kit's finishes draw, over the kit's BODY */
+type Tints = Record<'body' | 'trim' | 'plate', THREE.Color>;
+
 interface DiggerAnim {
   id: number;
   /** wheel angle, rad (unwrapped), and the boom's dip (rad, + raises) */
@@ -264,6 +268,9 @@ export class WorkAnim {
   private digTechs = -1;
   private digTop = 0;
   private wheel: readonly RigBox[] = diggerWheel('');
+  /** the ice miner's cutter drum, and each hub digger's livery tints (docs/19 S2a) */
+  private drum: readonly RigBox[] = iceDrum('');
+  private livery = new Map<UnitKey, Tints>();
   // cells that opened lately (they cool), and the closed set they came from
   private closed = new Set<number>();
   private roadRev = -1;
@@ -347,7 +354,19 @@ export class WorkAnim {
     };
   }
 
-  private tintOf(f: Finish): THREE.Color { return f === TRIM ? this.tint.trim : f === PLATE ? this.tint.plate : this.tint.body; }
+  private tintOf(f: Finish, t: Tints = this.tint): THREE.Color { return f === TRIM ? t.trim : f === PLATE ? t.plate : t.body; }
+
+  /** A hub digger's rig wears its livery: the band on the trim, the body's own white */
+  private liveryTints(mk: UnitKey): Tints {
+    let t = this.livery.get(mk);
+    if (!t) {
+      const hull = new THREE.Color(CEL_PALETTE.hull), l = liveryOf(mk);
+      const rel = (c: number) => { const k = new THREE.Color(c); return new THREE.Color(k.r / hull.r, k.g / hull.g, k.b / hull.b); };
+      t = { body: rel(l.body), trim: rel(l.band), plate: this.tint.plate };
+      this.livery.set(mk, t);
+    }
+    return t;
+  }
 
   /** The particles (spoil clods, the print plume) are drawn: not in safe mode. */
   get particles(): boolean { return !materials.safeMode; }
@@ -591,6 +610,7 @@ export class WorkAnim {
       this.digTechs = s.techsDone.length;
       this.digKey = upgradeKey('excavator', s.techsDone);
       this.wheel = diggerWheel(this.digKey);
+      this.drum = iceDrum(this.digKey);
       this.digTop = recipeGeometry('excavator', this.digKey).boundingBox?.max.y ?? 4;
     }
     const reveal = materials.custom('building');
@@ -625,7 +645,7 @@ export class WorkAnim {
         : a.driving ? 0.09 : 0;
       a.theta = approach(a.theta, want, BOOM_RATE * dt);
       const hub = byId(s, u.hub);
-      this.rig(a, { wear: u.wear }, flat || !hub?.enabled);
+      this.rig(a, { wear: u.wear }, flat || !hub?.enabled, hub ? unitKey(u.type, hub.type) : undefined);
       if (this.particles && (a.digging || spill)) this.spoil(a, id, a.digging);
     }
     for (const b of s.buildings) {
@@ -674,20 +694,23 @@ export class WorkAnim {
     }
   }
 
-  /** the boom, stay and wheel of one excavator, on the body `mB` */
-  private rig(a: DiggerAnim, b: Pick<BuildingState, 'wear'>, dark: boolean) {
+  /** the boom, stay and wheel of one excavator, on the body `mB`; a hub's digger
+   *  (`mk`) wears its livery, and an ice miner swings its cutter drum */
+  private rig(a: DiggerAnim, b: Pick<BuildingState, 'wear'>, dark: boolean, mk?: UnitKey) {
     const { pivot, stayTop, stayFoot, stayT } = DIGGER_RIG;
+    const t = mk ? this.liveryTints(mk) : this.tint;
+    const ice = mk === 'iceMiner:waterPlant';
     const wear = b.wear ?? 0;
     // boom frame = B · T(pivot) · Rz(θ) · T(−pivot); wheel frame = boom · T(hub) · Rz(φ)
     this.m0.makeRotationZ(a.theta);
     this.mF.multiplyMatrices(this.mB, this.TP).multiply(this.m0).multiply(this.TnP);
     this.m0.makeRotationZ(a.phi % (2 * PI));
     this.mW.multiplyMatrices(this.mF, this.TH).multiply(this.m0);
-    for (const p of DIGGER_BOOM) this.kitRig(this.mF, p, wear, dark);
-    for (const p of this.wheel) this.kitRig(this.mW, p, wear, dark);
+    for (const p of ice ? ICE_BOOM : DIGGER_BOOM) this.kitRig(this.mF, p, wear, dark, t);
+    for (const p of ice ? this.drum : this.wheel) this.kitRig(this.mW, p, wear, dark, t);
     // the stay: from the mast's head to the boom where it dips
     this.v1.subVectors(stayFoot, pivot).applyAxisAngle(ZAXIS, a.theta).add(pivot);
-    this.kitBar(this.mB, stayTop, this.v1, stayT, dark ? this.dimmed(this.tint.trim) : this.tint.trim, wear);
+    this.kitBar(this.mB, stayTop, this.v1, stayT, dark ? this.dimmed(t.trim) : t.trim, wear);
   }
 
   /** Spoil clods off the wheel: flung up and ahead while it digs, spilt
@@ -875,14 +898,14 @@ export class WorkAnim {
   }
 
   /** a rig piece (its kit matrix cached) in frame F */
-  private kitRig(F: THREE.Matrix4, p: RigBox, wear: number, dark: boolean) {
+  private kitRig(F: THREE.Matrix4, p: RigBox, wear: number, dark: boolean, t: Tints = this.tint) {
     let L = this.rigL.get(p);
     if (!L) {
       const o = p.s.clone().multiplyScalar(-KIT_O).applyQuaternion(p.q).add(p.c);
       L = new THREE.Matrix4().compose(o, p.q, p.s);
       this.rigL.set(p, L);
     }
-    const tint = this.tintOf(p.f);
+    const tint = this.tintOf(p.f, t);
     this.kitPut(this.m1.multiplyMatrices(F, L), dark ? this.dimmed(tint) : tint, wear);
   }
 

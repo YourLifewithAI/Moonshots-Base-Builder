@@ -14,8 +14,9 @@ import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
 import { TECHS, type TechId } from '../data/techs';
 import { HIVE_DECK_Y, HIVE_PADS } from '../data/roads';
+import type { UnitKey } from '../data/families';
 import {
-  BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW,
+  BAND, BEACON, BODY, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW,
   antenna, archWall, bands, bar, berm, box, cableTray, circle, cyl, dome, domeBand, door, junction,
   ladder, lathe, lattice, merge, pane, pipe, radiator, rail, vault, windowRing, windowStrip,
 } from './meshKit';
@@ -140,6 +141,89 @@ function excavator(): Parts {
   return p;
 }
 
+// ─── the hubs' diggers (docs/19 S2a) ───
+// All three ride the excavator's frame: the wheel leads +x, the rig rides the
+// +z side of the hull (rigs.ts: boom pivot (0.4, 1.7, 0.7), hub (2.9, 1.45, 0.7))
+// and its stay's head stands at (0.2, 3.6, 0.7); the hull is 3.6 × 2.6 m on
+// tracks 3.8 m long. What differs is what sits on the back deck and the
+// livery (data/families.ts HUB_LIVERY: body, and the band the trim wears).
+
+/** The smelter's digger: the excavator with an OPEN ore bin on its back deck
+ *  (walls, a heap in it) and an ochre band along the hull. */
+function smelterDigger(): Parts {
+  const p = excavator();
+  const bx = 1.05, bz = -0.6;
+  p.push(
+    box(1.5, 0.12, 1.3, PLATE, bx, 1.66, bz),
+    box(1.5, 0.5, 0.1, BODY, bx, 1.95, bz - 0.6), box(1.5, 0.5, 0.1, BODY, bx, 1.95, bz + 0.6),
+    box(0.1, 0.5, 1.3, BODY, bx - 0.7, 1.95, bz), box(0.1, 0.5, 1.3, BODY, bx + 0.7, 1.95, bz),
+    cyl(0.45, 0.68, 0.34, PLATE, bx, 1.86, bz, 0, 0, 7),
+    box(1.6, 0.07, 0.16, BAND, bx, 2.23, bz - 0.6), box(1.6, 0.07, 0.16, BAND, bx, 2.23, bz + 0.6),
+    box(0.16, 0.07, 1.3, BAND, bx - 0.7, 2.23, bz), box(0.16, 0.07, 1.3, BAND, bx + 0.7, 2.23, bz),
+    box(3.62, 0.2, 0.05, BAND, 0, 1.15, -1.31), box(3.62, 0.2, 0.05, BAND, 0, 1.15, 1.31),
+  );
+  return p;
+}
+
+/** The refinery's digger: a COVERED hopper (a gabled lid, hatches, a ridge
+ *  stripe) on the back deck, a domed cab, no radiator or rail; tracks in
+ *  slate, a violet band along the hull. */
+function refineryDigger(): Parts {
+  const bx = 1.05, bz = -0.6;
+  const p: Parts = [
+    box(3.6, 1.0, 2.6, BODY, 0, 1.1, 0),
+    box(3.62, 0.2, 0.05, BAND, 0, 1.15, -1.31), box(3.62, 0.2, 0.05, BAND, 0, 1.15, 1.31),
+    // the cab: a sealed box under a dome, a pane and a lamp
+    box(1.4, 0.9, 1.6, BODY, -1.0, 2.05, -0.4),
+    dome(0.8, BODY, -1.0, 2.5, -0.4, 14),
+    pane(1.0, 0.45, -0.28, 2.2, -0.4, PI / 2),
+    box(0.26, 0.14, 0.1, LAMP, -0.26, 2.7, -0.4, PI / 2),
+    // the covered hopper: a box, its gabled lid, a ridge stripe and two hatches
+    box(1.5, 0.7, 1.3, BODY, bx, 1.95, bz),
+    box(1.6, 0.05, 0.7, BODY, bx, 2.5, bz - 0.28, 0, 0.55),
+    box(1.6, 0.05, 0.7, BODY, bx, 2.5, bz + 0.28, 0, -0.55),
+    box(1.6, 0.1, 0.12, BAND, bx, 2.78, bz),
+    box(0.34, 0.1, 0.34, TRIM, bx - 0.4, 2.4, bz - 0.5), box(0.34, 0.1, 0.34, TRIM, bx + 0.4, 2.4, bz - 0.5),
+    // the mast the stay hangs from, and a whip antenna
+    bar([0.2, 1.6, 0.7], [0.2, 3.6, 0.7], 0.2, TRIM),
+    antenna(-1.6, 2.9, 0.5, 1.4),
+  ];
+  for (const side of [-1, 1]) {
+    p.push(box(3.8, 0.7, 0.7, PLATE, 0, 0.4, side * 1.55));
+    for (const x of [-1.4, -0.47, 0.47, 1.4]) p.push(cyl(0.34, 0.34, 0.74, PLATE, x, 0.36, side * 1.55, PI / 2, 0, 12));
+  }
+  return p;
+}
+
+/** The Ice Miner: a crawler with an insulated foil tank across its back deck
+ *  (cyan straps, domed ends), a small cab at the front-left, and a cutter
+ *  drum for a wheel (rigs.ts iceDrum). Tracks in slate, a cyan band. */
+function iceMiner(): Parts {
+  const p: Parts = [
+    box(3.6, 0.9, 2.6, BODY, 0, 1.05, 0),
+    box(3.62, 0.2, 0.05, BAND, 0, 1.1, -1.31), box(3.62, 0.2, 0.05, BAND, 0, 1.1, 1.31),
+    // the tank: a horizontal foil cylinder, straps, end domes, a filler cap
+    cyl(0.85, 0.85, 2.1, FOIL, -0.85, 2.4, -0.4, 0, PI / 2, 16),
+    [-1.6, -0.85, -0.1].map((x) => cyl(0.89, 0.89, 0.16, BAND, x, 2.4, -0.4, 0, PI / 2, 16, true)),
+    cyl(0.16, 0.2, 0.2, TRIM, -0.85, 3.32, -0.4, 0, 0, 8),
+    // a saddle under it and the cab ahead of it
+    box(2.2, 0.16, 1.5, TRIM, -0.85, 1.58, -0.4),
+    box(1.2, 1.0, 1.1, BODY, 0.85, 2.15, -0.75),
+    box(1.3, 0.1, 1.2, BAND, 0.85, 2.7, -0.75),
+    pane(0.8, 0.45, 1.46, 2.3, -0.75, PI / 2),
+    box(0.24, 0.12, 0.1, LAMP, 1.47, 2.05, -1.1, PI / 2),
+    // the mast the stay hangs from, and a whip antenna
+    bar([0.2, 1.6, 0.7], [0.2, 3.6, 0.7], 0.2, TRIM),
+    antenna(-1.7, 3.2, 0.7, 1.2),
+    pipe([-1.2, 1.9, 0.62], [0.1, 1.75, 0.68], 0.07, PLATE),
+  ];
+  for (const side of [-1, 1]) {
+    p.push(box(3.8, 0.7, 0.7, PLATE, 0, 0.4, side * 1.55));
+    for (const x of [-1.4, -0.47, 0.47, 1.4]) p.push(cyl(0.34, 0.34, 0.74, PLATE, x, 0.36, side * 1.55, PI / 2, 0, 12));
+  }
+  return p;
+}
+
 function habitat(): Parts {
   const p: Parts = [
     cyl(3.1, 3.3, 1.4, TRIM, 0, 0.7, 0, 0, 0, 28),
@@ -206,37 +290,46 @@ function iceHarvester(): Parts {
   ];
 }
 
-/** The Water Management Plant (docs/17 §20): a melt hall with a radiator
- *  pair, three banded water tanks and a sublimation chimney (the full look
- *  and its upgrades come with Phase 8). */
+/** The Water Management Plant (docs/17 §20, docs/19 S2a): nothing of the
+ *  smelter's hall. A frosted cold-trap dome (a foil belt, an ochre band, a lit
+ *  window ring) on the left, the one condenser tower on the right (finned
+ *  plates, three ochre rings, a domed head: 11.5 m, the identifier), a vapour
+ *  line between them, and a water tank on the ground. Door at +z (the dome's
+ *  airlock). */
 function waterPlant(): Parts {
+  const dx = -2.4, dz = -0.3, R = 3.0;       // the dome
+  const tx = 3.4, tz = -1.2;                 // the tower
   const p: Parts = [
-    box(7, 4, 5.4, BODY, -1.2, 2, 0),
-    box(7.2, 0.4, 5.6, TRIM, -1.2, 4.2, 0),
-    rail(rect(3.45, 2.65, -1.2), 4.4, true),
-    door(-1.2, 2.72, 0, 2.2, 2.4),
-    windowStrip(3.0, 4, 0.6, -2.6, 3.0, 2.72, 0),
-    radiator(2.4, 1.8, -3.2, 0.6, -3.45, PI),
-    radiator(2.4, 1.8, 0.8, 0.6, -3.45, PI),
-    cyl(0.5, 0.7, 5.2, TRIM, -3.6, 6.6, -1.2, 0, 0, 16),
-    bands(0.6, -3.6, -1.2, [5.4, 6.8, 8.2]),
-    dome(0.14, BEACON, -3.6, 9.3, -1.2, 8),
-    cableTray([-4.8, 1.8], [-5.6, 1.8]),
-    junction(-5.8, 1.8, -PI / 2),
+    cyl(R + 0.15, R + 0.25, 1.0, TRIM, dx, 0.5, dz, 0, 0, 28),
+    dome(R, RADIATOR, dx, 1.0, dz, 28),
+    domeBand(R + 0.04, 0.62, 0.7, FOIL, dx, 1.0, dz, 28),
+    domeBand(R + 0.05, 1.0, 1.08, BAND, dx, 1.0, dz, 28),
+    windowRing(R + 0.22, 0.55, 0.4, 5, 0.85, PI / 2 + 0.85, PI * 2.5 - 0.85).map((g) => g.translate(dx, 0, dz)),
+    // the airlock at +z
+    box(1.9, 1.9, 1.5, BODY, dx, 0.95, 3.05),
+    box(2.0, 0.14, 1.6, BAND, dx, 1.97, 3.05),
+    door(dx, 3.8, 0, 1.0, 1.5, 0.05),
+    radiator(2.6, 1.8, dx, 0.6, dz - R - 0.5, PI),
+    // the condenser tower: footing, shaft, finned plates, rings, head, ladder
+    cyl(1.15, 1.3, 1.2, TRIM, tx, 0.6, tz, 0, 0, 16),
+    cyl(0.85, 0.95, 9.4, BODY, tx, 5.9, tz, 0, 0, 16),
+    dome(0.85, TRIM, tx, 10.6, tz, 12),
+    dome(0.14, BEACON, tx, 11.5, tz, 8),
+    [2.1, 4.2, 6.6, 9.0].map((y) => cyl(1.4, 1.4, 0.08, RADIATOR, tx, y, tz, 0, 0, 16)),
+    [3.1, 5.4, 7.8].map((y) => cyl(0.99, 0.99, 0.36, BAND, tx, y, tz, 0, 0, 16, true)),
+    ladder(tx, tz + 0.95, 1.2, 9.6, 0),
+    // the vapour line from the dome to the tower, and the drain
+    pipe([dx + 2.8, 2.5, dz + 0.4], [tx - 0.85, 2.3, tz], 0.28, TRIM, 10),
+    pipe([dx + 3.0, 1.3, dz + 0.6], [tx - 0.85, 1.3, tz + 0.4], 0.16, PLATE),
+    // the water tanks, on the ground at +x
+    cyl(0.9, 0.9, 3.0, BODY, 3.9, 0.95, 1.9, PI / 2, 0, 16),
+    [0.7, 1.9, 3.1].map((z) => cyl(0.94, 0.94, 0.14, FOIL, 3.9, 0.95, z, PI / 2, 0, 16, true)),
+    cyl(0.6, 0.6, 2.2, BODY, 5.35, 0.65, 2.0, PI / 2, 0, 12),
+    cableTray([dx - 3.0, 1.0], [dx - 3.4, 1.0]),
+    junction(dx - 3.5, 1.0, -PI / 2),
   ];
-  for (const z of [-2.0, 0, 2.0]) {
-    p.push(
-      cyl(0.8, 0.8, 3.2, BODY, 3.9, 1.6, z, 0, 0, 16),
-      dome(0.8, TRIM, 3.9, 3.2, z, 12),
-      bands(0.8, 3.9, z, [0.8, 1.8, 2.8], TRIM, 0.12, 16),
-    );
-  }
-  p.push(pipe([2.3, 2.4, -2.0], [3.1, 2.4, -2.0], 0.1, TRIM), pipe([2.3, 2.4, 2.0], [3.1, 2.4, 2.0], 0.1, TRIM));
   return p;
 }
-
-/** The Ice Miner: the excavator's tracked hull for now (its own rig and bin come with Phase 8). */
-const iceMiner = (): Parts => excavator();
 
 function hydroponics(): Parts {
   const p: Parts = [
@@ -882,6 +975,33 @@ export function recipeGeometry(id: BuildingId, key = ''): BufferGeometry {
     g = merge(parts);
     g.userData.recipe = id; // the classic palette's per-structure overrides
     cache.set(k, g);
+  }
+  return g;
+}
+
+/** What a hub's digger is drawn with (world/haulers.ts, one mesh per unit key):
+ *  the smelter's, the refinery's and the ice miner's own models, each with the
+ *  upgrade parts of its lane (the excavator's, or the ice miner's) and tagged
+ *  with its unit key, so the cel palette gives it its livery. The legacy pad's
+ *  excavator and a water plant's excavator wear the plain excavator recipe. */
+const UNIT_R: Partial<Record<UnitKey, () => Parts>> = {
+  'excavator:smelter': smelterDigger,
+  'excavator:refinery': refineryDigger,
+  'iceMiner:waterPlant': iceMiner,
+};
+const unitCache = new Map<string, BufferGeometry>();
+export function unitRecipeGeometry(mk: UnitKey, key = ''): BufferGeometry {
+  const lane: BuildingId = mk.startsWith('iceMiner') ? 'iceMiner' : 'excavator';
+  const build = UNIT_R[mk];
+  if (!build) return recipeGeometry(lane, key);
+  const k = `${mk}|${key}`;
+  let g = unitCache.get(k);
+  if (!g) {
+    const parts: Parts = build();
+    for (const u of upgradesIn(lane, key)) if (u.parts) parts.push(...flatten(u.parts()));
+    g = merge(parts);
+    g.userData.recipe = mk;
+    unitCache.set(k, g);
   }
   return g;
 }

@@ -21,7 +21,7 @@ import { digsHome, haulSpeed } from '../core/haul';
 import type { GameState, HaulState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { centerOf } from '../buildings/instances';
-import { recipeGeometry } from '../buildings/recipes';
+import { unitRecipeGeometry } from '../buildings/recipes';
 import { upgradeKey } from '../buildings/upgrades';
 import { withInstanceState } from '../buildings/meshKit';
 import { litChannel } from '../buildings/celBuilding';
@@ -49,20 +49,22 @@ export const UNIT_BODY: Record<UnitType, { hw: number; front: number; back: numb
   iceMiner: { hw: 1.9, front: 4.3, back: 1.9 },
 };
 
-/** The recipe each mesh is built from. Every hub's digger is the excavator's
- *  recipe (and its upgrades) for now; S2a gives each (unit type, hub kind)
- *  its own geometry here and in `unitGeometry`. */
+/** The upgrade lane each mesh wears (buildings/upgrades.ts): the ice miner's
+ *  own, the excavator's for every digger. The models are buildings/recipes.ts
+ *  `unitRecipeGeometry`: the smelter's open-bin digger, the refinery's covered
+ *  hopper, the ice miner's tank and cutter drum; the legacy pad's and a water
+ *  plant's excavator wear the plain excavator. */
 const UNIT_RECIPE: Record<UnitKey, BuildingId> = {
   'excavator:pad': 'excavator',
   'excavator:smelter': 'excavator',
   'excavator:refinery': 'excavator',
   'excavator:waterPlant': 'excavator',
-  'iceMiner:waterPlant': 'excavator',
+  'iceMiner:waterPlant': 'iceMiner',
 };
 
 /** A mesh's geometry with per-instance state, for the upgrades in `key` (a swap keeps the instances' attributes). */
 function unitGeometry(mk: UnitKey, key: string, prev?: THREE.BufferGeometry): THREE.BufferGeometry {
-  return withInstanceState(recipeGeometry(UNIT_RECIPE[mk], key), MAX, prev);
+  return withInstanceState(unitRecipeGeometry(mk, key), MAX, prev);
 }
 
 /** One (unit type, hub kind)'s instanced diggers. */

@@ -42,7 +42,7 @@ import { HIVE_DECK_Y, ROAD, ROVER } from '../data/roads';
 import { arrived, droneGoal, dronePads, padPoint, spotGoal, travelled, tripPoint, tripShare, tripSpeed } from '../core/transit';
 import { TECHS, type TechId } from '../data/techs';
 import {
-  BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
+  BAND, BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
 } from '../buildings/meshKit';
 import { materials } from './materials';
 import { inked } from './ink';
@@ -1186,13 +1186,35 @@ function droneGeometry(key = ''): THREE.BufferGeometry {
   return g;
 }
 
-/** The survey drone (docs/19 S6, world/surveyFlight.ts draws it): for now the
- *  hive drone's quadcopter, its trim the survey teal (the palette override
- *  `surveyDrone`). Contract stream W0d; S2a replaces it with the flat delta
- *  wing, this function's name and signature stay. */
+/** The survey drone (docs/19 S6, world/surveyFlight.ts draws it; docs/19 S2a
+ *  models it): a flat delta wing, nose +z — a paper-white triangle with teal
+ *  leading edges, a teal sensor pod slung underneath (the palette override
+ *  `surveyDrone` gives TRIM and BAND the survey teal), a glazed canopy, two
+ *  canted fins, a nose lamp and a beacon. About 110 △, skids at y 0, scaled
+ *  as the hive's drones. Unlike them it has no rotors: it does not sit on a
+ *  deck, it flies. */
 export function surveyDroneGeometry(key = ''): THREE.BufferGeometry {
-  const g = droneGeometry(key);
-  g.userData.recipe = 'surveyDrone';
+  const lead = Math.atan2(0.82, -1.65);           // the leading edge's yaw, apex to wingtip
+  const wing = (r: number, h: number, f: typeof BODY, y: number) =>
+    cyl(r, r, h, f, 0, y, 0, 0, 0, 3).scale(0.95, 1, 1.15);
+  const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
+    ...dronePackParts(key),
+    wing(1, 0.07, BODY, 0.42),
+    wing(0.93, 0.03, TRIM, 0.375),
+    box(0.06, 0.03, 1.9, BAND, 0.43, 0.465, 0.29, lead), box(0.06, 0.03, 1.9, BAND, -0.43, 0.465, 0.29, -lead),
+    box(0.5, 0.14, 0.8, TRIM, 0, 0.3, 0.05),
+    box(0.3, 0.08, 0.5, GLASS, 0, 0.51, 0.12),
+    box(0.14, 0.06, 0.05, LAMP, 0, 0.44, 1.05),
+    box(0.05, 0.3, 0.42, BODY, 0.42, 0.6, -0.34, 0, -0.25), box(0.05, 0.3, 0.42, BODY, -0.42, 0.6, -0.34, 0, 0.25),
+    dome(0.07, BEACON, 0, 0.5, -0.5, 8),
+  ];
+  const g = merge(parts);
+  g.userData.recipe = 'surveyDrone'; // the cel palette: the survey teal
+  g.computeBoundingBox();
+  g.translate(0, -g.boundingBox!.min.y, 0);
+  g.scale(DRONE_SCALE, DRONE_SCALE, DRONE_SCALE);
+  g.computeBoundingBox();
+  g.computeBoundingSphere();
   return g;
 }
 
