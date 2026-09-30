@@ -1,7 +1,9 @@
 /** The Lunar Map screen (docs/11 §5b; §9 tests 17 and 19, the UI parts): [M]
  *  and Esc, the views each tier opens, the chip that pulses on an unlock and
  *  the zoom out to the new edge, a survey from the sheet with its countdown,
- *  an outpost card, the 1280×720 budget, and the tree's Map button.
+ *  an outpost card, the 1280×720 budget, and the tree's Map button; and docs/19 S8, outposts made
+ *  legible: the OUTPOSTS chip, the producer lines in the resource panels, the outpost alerts, the
+ *  field report's words on the sheet, "Outposts cover", the drone copy.
  *  Screenshots: test-results/m3-*.png. */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
 
@@ -128,7 +130,9 @@ test('at landing only SITE and VICINITY open; VICINITY shows the 2 local prospec
   // the SITE inset stays in every Moon view, and takes you back
   await expect(page.locator('#map-inset')).toBeVisible();
   // "Next surveyable": the site-weakness line, then the two local prospects
-  await expect(page.locator('.ns-weak')).toContainText('Ilmenite Plains lacks water → Cabeus or Haworth ice outpost');
+  await expect(page.locator('.ns-weak .label')).toHaveText('Outposts cover');
+  await expect(page.locator('.ns-weak')).toContainText('water — Ilmenite Plains lacks it: Cabeus or Haworth ice outpost');
+  await expect(page.locator('.ns-weak')).not.toContainText('What this site lacks');
   await expect(page.locator('.ns-row:not(.done)')).toHaveCount(2);
   await expect(page.locator('.ns-foot')).toContainText('T1 Prospecting Drones (Era 1) brings 6 more into range');
   // the ladder: T0 is the current tier, the rest are locked
@@ -202,6 +206,10 @@ test('a survey started from the sheet counts down in place and ends surveyed', a
   await expect(page.locator('.ps-name')).toHaveText('Moltke crater ejecta');
   await expect(page.locator('.ps')).toContainText('a fresh 7 km crater exposing high-Ti basalt');
   await expect(page.locator('.ps')).toContainText('60▮ · flies 1 drone');
+  // the local method reads as the drone fleet does (it was 'lander micro-rover' before the drones)
+  await expect(page.locator('.ps')).toContainText('Survey — short-range drone');
+  await expect(page.locator('.ps')).not.toContainText('micro-rover');
+  await expect(page.locator('#ps-survey')).toHaveAttribute('title', 'Send the short-range drone');
   await expect(page.locator('#ps-pay')).toHaveText('+20≡');
   await expect(page.locator('.ps')).toContainText('+0.20◆ +0.08○/s');
   await expect(page.locator('#ps-reason')).toHaveText('✓ Ready to survey');
@@ -266,7 +274,8 @@ test('claiming an outpost at T2 shows its card; abandoning takes a second click'
   await expect(marker(page, 'moltke').locator('.frame-q')).toBeVisible();
   await page.locator('.ns-row.done[data-id="moltke"]').click();
   await expect(page.locator('#ps-reason')).toHaveText('✓ Ready to claim');
-  await expect(page.locator('.ps')).toContainText('60◆ 20⚙ 5▣ · deploys 4:00');
+  await expect(page.locator('.ps-site')).toContainText('ilmenite +0.20◆ +0.08○/s · claim 60◆ 20⚙ 5▣');
+  await expect(page.locator('.ps')).toContainText(/Deploys\s*4:00/);
 
   await page.locator('#ps-claim').click();
   const card = page.locator('.op[data-id="moltke"]');
@@ -407,4 +416,191 @@ test('the whole Moon at T4: both hemispheres, every prospect, outposts and the a
   await expect(marker(page, 'daedalus')).toHaveClass(/surveying/);
   await expect(page.locator('#mh-out')).toHaveText('outposts 3/3');
   await page.screenshot({ path: 'test-results/m3-moon-t4.png' });
+});
+
+
+// ── docs/19 S8: outposts made legible ──
+
+const chipsOf = (page: Page, key: string) => page.locator(`#resource-strip .chip[data-key="${key}"]`).first();
+/** two real claims, the way a player gets them: Tranquillitatis soil (volatiles, a rover haul) and Fra Mauro (KREEP, a
+ *  hopper that burns 0.02○/s). Nothing else streams oxygen, so with none left the hopper is grounded. */
+async function claimHopperPair(page: Page) {
+  await complete(page, ['prospectingRovers', 'orbitalProspector', 'farSideRelay']); // T3: two slots
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.grantResources({ metals: 400, parts: 100, chips: 40, oxygen: 300, water: 100 });
+    g.grantPower(800);
+    g.surveyProspect('tranqRegolith');
+    g.advanceGameSeconds(105); // 80 s of flight and the drone's 20 s recharge
+    g.surveyProspect('fraMauro');
+    g.advanceGameSeconds(190);
+    g.claimOutpost('tranqRegolith');
+    g.claimOutpost('fraMauro');
+    g.advanceGameSeconds(365);
+  });
+}
+const alertOf = (page: Page, re: RegExp) =>
+  page.evaluate((src) => window.__game.getState().alerts.find((a: any) => new RegExp(src).test(a.text)) ?? null, re.source);
+
+test('the OUTPOSTS chip: hidden with no slot, a free slot, then how many live, worn or grounded, and it opens the strip', async ({ page }) => {
+  await boot(page);
+  const chip = page.locator('#outposts-chip');
+  await expect(chip).toBeHidden(); // T0: no slot and no outpost, nothing to count
+  await complete(page, ['prospectingRovers']); // T1 opens the first slot
+  await expect(chip).toHaveText('▢ OUTPOSTS 1 slot free');
+  await expect(chip).not.toHaveClass(/fault/);
+  // six standing outposts: five rover hauls and Fra Mauro's KREEP hopper, all live
+  await g(page, 'forceOutposts', 6);
+  await expect(chip).toHaveText('▢ OUTPOSTS 6 live');
+  await expect(chip).toHaveAttribute('title', /^Outposts 6\/1 · 6 live/);
+  // no parts for their upkeep: each one is worn (its stream halves), and the chip says so
+  await g(page, 'grantResources', { parts: -(await g(page, 'getState')).resources.parts });
+  await g(page, 'advanceGameSeconds', 2);
+  await expect(chip).toHaveText('▢ OUTPOSTS 6 worn');
+  await expect(chip).toHaveClass(/fault/);
+  expect((await g(page, 'getLunar')).outposts.every((o: any) => o.state === 'worn')).toBe(true);
+  // parts back: all live again
+  await g(page, 'grantResources', { parts: 60 });
+  await g(page, 'advanceGameSeconds', 2);
+  await expect(chip).toHaveText('▢ OUTPOSTS 6 live');
+  await expect(chip).not.toHaveClass(/fault/);
+
+  // it opens the map with the outposts strip outlined for a moment
+  await chip.click();
+  await expect(mapScreen(page)).toBeVisible();
+  await expect(mapScreen(page)).toHaveAttribute('data-focus', 'outposts');
+  await expect(page.locator('#map-outposts')).toHaveClass(/hl/);
+  await expect(page.locator('.op[data-id]')).toHaveCount(6);
+  // closing the map ends the outline
+  await page.keyboard.press('Escape');
+  await expect(mapScreen(page)).toBeHidden();
+  await expect(page.locator('#map-outposts')).not.toHaveClass(/hl/);
+  await expect(mapScreen(page)).not.toHaveAttribute('data-focus', /./);
+});
+
+test('resource panels list outposts under Produced by and Consumed by, and a row opens the map at it', async ({ page }) => {
+  await boot(page);
+  await g(page, 'forceOutposts', 6);
+  await g(page, 'advanceGameSeconds', 2);
+  const panel = page.locator('#res-panel');
+  const row = (text: string) => panel.locator('.row', { hasText: text });
+  // metals: Moltke and Maskelyne ilmenite, 0.20◆/s = 12/min each
+  await chipsOf(page, 'metals').click();
+  await expect(panel).toBeVisible();
+  await expect(row('Moltke · ilmenite outpost')).toContainText('+12/min · live');
+  await expect(row('Maskelyne · ilmenite outpost')).toContainText('+12/min · live');
+  await expect(panel).not.toContainText('Nothing on the Moon makes this yet');
+  // oxygen: their 0.08○/s = 4.8/min each; Fra Mauro's hopper burns 0.02○/s = 1.2/min
+  await chipsOf(page, 'oxygen').click();
+  await expect(row('Moltke · ilmenite outpost')).toContainText('+4.8/min · live');
+  await expect(row('Outposts ×1 · hopper fuel')).toContainText('−1.2/min');
+  // water: Tranquillitatis soil (volatiles) 0.08≈/s, and the dry site's note (mare has no polar ice)
+  await chipsOf(page, 'water').click();
+  await expect(row('Tranquillitatis soil · volatiles outpost')).toContainText('+4.8/min · live');
+  await expect(panel).toContainText('No polar ice at this site: a Water Management Plant digs mature soil instead — 20% of the ice recipe’s water at ×1.5 the power');
+  // parts: every live outpost pays upkeep (5 × 2⚙/day + 1 × 3⚙/day), and a live KREEP outpost cuts reactor upkeep
+  await chipsOf(page, 'parts').click();
+  await expect(row('Outposts ×6 · upkeep')).toContainText('−13/day');
+  await expect(row('KREEP outpost · every reactor’s upkeep')).toContainText('×0.6');
+  // a state shows in the row: no parts, so the stream is halved
+  await g(page, 'grantResources', { parts: -(await g(page, 'getState')).resources.parts });
+  await g(page, 'advanceGameSeconds', 2);
+  await chipsOf(page, 'metals').click();
+  await expect(row('Moltke · ilmenite outpost')).toContainText('+6/min · worn — parts short, stream ×0.5');
+  // a row opens the Lunar Map at that outpost's sheet
+  await row('Moltke · ilmenite outpost').click();
+  await expect(mapScreen(page)).toBeVisible();
+  await expect(page.locator('.ps-name')).toHaveText('Moltke crater ejecta');
+});
+
+test('the power and chips panels list a KREEP outpost, and the ≡ panel its sources: surveys, observatory, flares, radio outposts', async ({ page }) => {
+  await boot(page);
+  await g(page, 'forceOutposts', 6);
+  await g(page, 'advanceGameSeconds', 2);
+  const panel = page.locator('#res-panel');
+  await chipsOf(page, 'power').click();
+  await expect(panel.locator('.row', { hasText: 'Fra Mauro · KREEP outpost' })).toContainText('reactors ×1.15 · live');
+  await expect(panel.locator('.row', { hasText: 'Outposts ×6 · Lander links' })).toContainText('−6.5 kW'); // 5 × 1 + 1.5
+  await chipsOf(page, 'data').click();
+  await expect(panel.locator('.row', { hasText: 'Solar Observatory' })).toBeVisible();
+  await expect(panel.locator('.row', { hasText: 'Solar flares' })).toContainText('+15 · +30 · +60 (C · M · X) each, with a lab running');
+  await expect(panel.locator('.row', { hasText: 'Map surveys' })).toContainText('+20–100 each · 6/34 surveyed');
+  await expect(panel.locator('.row', { hasText: 'Deposit surveys' })).toContainText('+5 each');
+  // no radio outpost yet: the panel says which kind makes data, and where
+  await expect(panel).toContainText('Outposts: survey a radio site on the Lunar Map [M], then claim it');
+});
+
+test('the prospect sheet states the outpost site in the field report’s own words', async ({ page }) => {
+  await boot(page);
+  await complete(page, ['prospectingRovers']);
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.grantResources({ metals: 300, parts: 100, chips: 30, oxygen: 300, water: 100 });
+    g.grantPower(500);
+    g.surveyProspect('moltke');
+    g.advanceGameSeconds(61);
+  });
+  // the report: one OUTPOST SITE line, with a Claim button that opens the map
+  const report = await page.evaluate(() => {
+    const e = window.__game.getState().log.filter((l: any) => l.report).pop();
+    return e.report.rewards.find((r: any) => r.tag === 'OUTPOST SITE');
+  });
+  expect(report.text).toBe('ilmenite +0.20◆ +0.08○/s · claim 60◆ 20⚙ 5▣');
+  expect(report.button).toEqual({ label: 'Claim', action: { map: 'moltke' } });
+  await openMap(page);
+  await settled(page);
+  await page.locator('.ns-row.done[data-id="moltke"]').click();
+  await expect(page.locator('.ps-site .ps-tag')).toHaveText('OUTPOST SITE');
+  await expect(page.locator('.ps-site')).toContainText(report.text); // the same words, from one function
+  await expect(page.locator('.ps')).toContainText(/Deploys\s*4:00/);
+  await expect(page.locator('.ps')).toContainText(/Upkeep\s*2⚙\/day/);
+});
+
+test('"Outposts cover" names what the site lacks and what the standing outposts stream now', async ({ page }) => {
+  await boot(page);
+  await openMap(page);
+  await viewBtn(page, 'vicinity').click();
+  await settled(page);
+  await expect(page.locator('.ns-weak .label')).toHaveText('Outposts cover');
+  await expect(page.locator('.ns-live')).toBeHidden(); // nothing stands yet
+  await g(page, 'forceOutposts', 3); // Moltke and Maskelyne (ilmenite), Tranquillitatis soil (volatiles)
+  await expect(page.locator('.ns-live')).toHaveText('live now: metals +0.40◆/s · oxygen +0.16○/s · water +0.08≈/s');
+});
+
+test('"Outposts cover" at the lava tube names power and the KREEP outposts', async ({ page }) => {
+  await boot(page, 'lavatube');
+  await openMap(page);
+  await viewBtn(page, 'vicinity').click();
+  await settled(page);
+  await expect(page.locator('.ns-weak')).toContainText('power — Marius Hills lacks it: Marius Hills domes or Mons Rümker KREEP outpost');
+});
+
+test('outpost alerts are field alerts that open the map at the outpost, and a hopper with no fuel is grounded on the chip', async ({ page }) => {
+  await boot(page);
+  await claimHopperPair(page);
+  const chip = page.locator('#outposts-chip');
+  await expect(chip).toHaveText('▢ OUTPOSTS 2 live');
+  // no oxygen: the hopper cannot fly, the rover-haul outpost still streams
+  await g(page, 'grantResources', { oxygen: -(await g(page, 'getState')).resources.oxygen });
+  await g(page, 'advanceGameSeconds', 2);
+  await expect(chip).toHaveText('▢ OUTPOSTS 1 live · 1 grounded');
+  await expect(chip).toHaveClass(/fault/);
+  const grounded = await alertOf(page, /^HOPPER GROUNDED — Fra Mauro/);
+  expect(grounded).toMatchObject({ family: 'field', action: { map: 'fraMauro' }, kind: 'warn' });
+  // no parts: worn (a grounded outpost stays grounded)
+  await g(page, 'grantResources', { parts: -(await g(page, 'getState')).resources.parts });
+  await g(page, 'advanceGameSeconds', 2);
+  await expect(chip).toHaveText('▢ OUTPOSTS 1 worn · 1 grounded');
+  const worn = await alertOf(page, /^OUTPOST WORN — Tranquillitatis soil/);
+  expect(worn).toMatchObject({ family: 'field', action: { map: 'tranqRegolith' }, kind: 'warn' });
+  // the stack line carries the field glyph and opens the map at that outpost
+  const line = page.locator('#alerts .alert', { hasText: 'OUTPOST WORN — Tranquillitatis soil' });
+  await expect(line).toHaveClass(/nf-field/);
+  await expect(line.locator('.alert-g')).toHaveText('◎');
+  await line.locator('.alert-text').click();
+  await expect(mapScreen(page)).toBeVisible();
+  await expect(page.locator('.ps-name')).toHaveText('Central Tranquillitatis mature soil');
+  // the strip's grounded card says what is wrong
+  await expect(page.locator('.op[data-id="fraMauro"] .op-3')).toHaveText('fuel ✗ · upkeep ✗');
+  await expect(page.locator('.op[data-id="fraMauro"]')).toHaveClass(/fault/);
 });

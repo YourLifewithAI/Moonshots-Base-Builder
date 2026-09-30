@@ -132,7 +132,7 @@ export function strikeEffect(kind: Deposit['kind'], mods: Mods): string {
     case 'glass': return `smelter O₂ +${Math.round(60 * mods.feedBonus.glass)}%`;
     case 'kreep': return 'reactor fuel make-up · no habitats';
     case 'volatiles': return 'water ×2.5 with Solar-Wind Volatiles';
-    case 'ice': return 'Ice Harvesters can work it';
+    case 'ice': return 'a Water Management Plant’s Ice Miners can work it';
     case 'ridge': return 'solar ×1.2, never shaded';
   }
 }
@@ -402,6 +402,13 @@ export function forceOutposts(s: GameState, n: number) {
 const costText = (cost: Partial<Record<ResourceId, number>>) =>
   Object.entries(cost).map(([r, v]) => `${v}${glyph(r as ResourceId)}`).join(' ');
 
+/** What an outpost at pid would stream and cost, in the words the field report and the prospect sheet share
+ *  (docs/19 S8): `ice +0.20≈/s · claim 60◆ 20⚙ 5▣`. */
+export function outpostSiteLine(siteId: SiteId, pid: ProspectId): string {
+  const p = PROSPECTS[pid];
+  return `${KIND_LABEL[p.kind as OutpostKind]} ${streamText(pid)} · claim ${costText(OUTPOST_CLASS[prospectClass(siteId, pid)].cost)}`;
+}
+
 /** A drone is home: the survey's data, sample cache, breakthrough, outpost site, insight and atlas
  *  progress, in one field report (a card with a line and a button for each: docs/19 S6, S7). */
 function resolveSurvey(s: GameState, mods: Mods, pid: ProspectId) {
@@ -440,11 +447,8 @@ function resolveSurvey(s: GameState, mods: Mods, pid: ProspectId) {
 
   // OUTPOST SITE: what it would stream and what claiming costs, or what a claim waits for
   if (extractable) {
-    const cls = prospectClass(s.siteId, pid);
     const why = claimRefusal(s, mods, pid);
-    const stream = streamText(pid);
-    const claim = `claim ${costText(OUTPOST_CLASS[cls].cost)}`;
-    const line = `${KIND_LABEL[p.kind as OutpostKind]} ${stream} · ${claim}`;
+    const line = outpostSiteLine(s.siteId, pid);
     if (!why) rewards.push({ tag: 'OUTPOST SITE', text: line, button: { label: 'Claim', action: { map: pid } } });
     else {
       const slotWait = why.startsWith('NO OUTPOST SLOT');
@@ -570,11 +574,11 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     const upkeep = (oc.upkeepPerDay / CYCLE_S) * dt;
     o.upkeepOk = s.resources.parts >= upkeep;
     if (o.upkeepOk) move('parts', -upkeep);
-    else condition(s, `outpostWorn:${o.id}`, `OUTPOST WORN — ${p.short} stream ×0.5 (no parts for its upkeep)`, 'warn', { panel: 'parts' });
+    else condition(s, `outpostWorn:${o.id}`, `OUTPOST WORN — ${p.short} stream ×0.5 (no parts for its upkeep)`, 'warn', { map: o.id }, 'field');
     if (o.hacked) continue; // HACKED OUTPOST (docs/14 §3.5): the stream is diverted
     // outposts link to the Lander: an air-gapped Lander cuts their streams (docs/14 §3.5)
     if (s.buildings.some((b) => b.type === 'lander' && b.airGapped)) {
-      condition(s, `gapped:${o.id}`, `OUTPOST OFF THE NETWORK — ${p.short} streams again when the Lander is reconnected`, 'info');
+      condition(s, `gapped:${o.id}`, `OUTPOST OFF THE NETWORK — ${p.short} streams again when the Lander is reconnected`, 'info', { map: o.id }, 'field');
       continue;
     }
     const { res, data } = baseStream(o.id);
@@ -588,7 +592,7 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
     o.fuelOk = !short;
     if (short) {
       condition(s, `grounded:${o.id}`, `HOPPER GROUNDED — ${p.short} needs ${fuelText(o.cls, true)} ` +
-        `(have ${Math.floor(spare(s, mods, short[0]))}${glyph(short[0])})`, 'warn', { panel: short[0] });
+        `(have ${Math.floor(spare(s, mods, short[0]))}${glyph(short[0])})`, 'warn', { map: o.id }, 'field');
       continue;
     }
     // a comms blackout buffers the stream: it lands when the link returns (docs/16 §4.8)
@@ -667,13 +671,24 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
       outpost,
       claim: extractable
         ? { cost: { ...oc.cost }, deployS: oc.deployS, upkeepPerDay: oc.upkeepPerDay,
-          linkKW: OUTPOST_LINK_KW[cost.cls], fuel: fuelText(cost.cls), stream: streamText(id) }
+          linkKW: OUTPOST_LINK_KW[cost.cls], fuel: fuelText(cost.cls), stream: streamText(id), line: outpostSiteLine(s.siteId, id) }
         : null,
     };
   });
+  const cutOff = s.buildings.some((b) => b.type === 'lander' && b.airGapped);
   const outposts: LunarOutpostView[] = s.survey.outposts.map((o) => {
     const oc = OUTPOST_CLASS[o.cls];
     const mult = (s.survey.atlas ? ATLAS.streamMult : 1) * (o.upkeepOk ? 1 : 0.5);
+    // what it is doing (the chip's words and the producer lines'): the sim's own flags, nothing recomputed
+    const state = !o.live ? 'deploying' : o.hacked || cutOff ? 'off' : !o.fuelOk ? 'grounded' : !o.upkeepOk ? 'worn' : 'live';
+    const base = baseStream(o.id);
+    const res: Partial<Record<ResourceId, number>> = {};
+    for (const [rid, v] of Object.entries(base.res) as [ResourceId, number][]) res[rid] = v * mult;
+    const burn: Partial<Record<ResourceId, number>> = {};
+    if (o.live) {
+      burn.parts = oc.upkeepPerDay / CYCLE_S;
+      if (o.fuelOk && !o.hacked && !cutOff) for (const [rid, v] of Object.entries(oc.fuel ?? {}) as [ResourceId, number][]) burn[rid] = v;
+    }
     return {
       id: o.id, kind: o.kind, readyAt: o.readyAt, fuelOk: o.fuelOk, upkeepOk: o.upkeepOk,
       // grounded, it streams nothing and its modifier is off
@@ -681,6 +696,8 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
       name: PROSPECTS[o.id].short, cls: o.cls, live: o.live,
       deployLeft: o.live ? 0 : secsLeft(s, o.readyAt),
       fuel: fuelText(o.cls), upkeep: `${oc.upkeepPerDay}⚙/day`, linkKW: OUTPOST_LINK_KW[o.cls],
+      state, res, data: base.data * mult, burn,
+      modifier: o.kind === 'kreep' ? OUTPOST_KINDS.kreep.modifier ?? '' : '',
     };
   });
   const flights = [...fleetLists(s).flights].sort((x, y) => x.endsAt - y.endsAt)

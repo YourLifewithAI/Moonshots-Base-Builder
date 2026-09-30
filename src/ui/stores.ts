@@ -118,6 +118,8 @@ export interface LunarProspectView {
   claim: {
     cost: Partial<Record<ResourceId, number>>; deployS: number; upkeepPerDay: number;
     linkKW: number; fuel: string; stream: string;
+    /** the field report's own words: `ice +0.20≈/s · claim 60◆ 20⚙ 5▣` (docs/19 S8) */
+    line: string;
   } | null;
 }
 export interface LunarOutpostView {
@@ -133,6 +135,17 @@ export interface LunarOutpostView {
   fuel: string;
   upkeep: string;
   linkKW: number;
+  /** what it is doing (docs/19 S8): online, wearing (parts short: the stream is halved), grounded (hopper
+   *  fuel short), cut off (an air-gapped Lander, or hacked), or still deploying */
+  state: 'deploying' | 'live' | 'worn' | 'grounded' | 'off';
+  /** the stream it makes once online, per second (ATLAS and wear applied); it lands only in `live` and `worn` */
+  res: Partial<Record<ResourceId, number>>;
+  /** research data it makes once online, ≡ per second (same rule) */
+  data: number;
+  /** what it burns while online, per second: hopper fuel and parts upkeep */
+  burn: Partial<Record<ResourceId, number>>;
+  /** a KREEP outpost's modifier line, else '' */
+  modifier: string;
 }
 export interface LunarView {
   tier: 0 | 1 | 2 | 3 | 4;
