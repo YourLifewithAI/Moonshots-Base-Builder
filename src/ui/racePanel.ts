@@ -244,9 +244,9 @@ export function mountRacePanel(root: HTMLElement, game: Game) {
     // centred just above the build palette, wherever its top stands: the top of the screen is the flare pop-up's and the research card's,
     // the lander sits in the middle, the right is the alert stack
     const pal = root.querySelector('#palette') as HTMLElement | null;
-    const top = pal && pal.offsetParent !== null ? pal.getBoundingClientRect().top : window.innerHeight - 100;
-    banner.style.bottom = `${Math.round(window.innerHeight - top + 10)}px`;
+    const base = pal && pal.offsetParent !== null ? pal.getBoundingClientRect().top : window.innerHeight - 100;
     banner.style.display = '';
+    banner.style.top = `${Math.max(8, Math.round(base - 10 - banner.offsetHeight))}px`;
     bannerTimer = window.setTimeout(hideBanner, 20_000);
   });
   banner.addEventListener('click', (e) => {

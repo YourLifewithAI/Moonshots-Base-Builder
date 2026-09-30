@@ -99,15 +99,18 @@ html.touch #race-chip { min-height: var(--tap, 44px); }
 #swarm-meter .sr-row.you .sr-n, #swarm-meter .sr-row.you .sr-p { font-weight: 700; color: var(--paper); }
 html.touch #swarm-meter .swarm-race { display: none !important; }
 
-/* ── a rival's first light: the banner above the build palette (racePanel.ts, S6; `bottom` is set from the palette's top) ── */
+/* ── a rival's first light: the banner above the build palette (racePanel.ts, S6; `top` is set from the palette's top) ── */
 #race-banner {
-  position: absolute; left: 50%; transform: translateX(-50%); z-index: 36;
-  width: min(430px, calc(100vw - 32px)); padding: 10px 8px 10px 14px;
+  position: absolute; left: 50%; z-index: 36;
+  width: min(430px, calc(100vw - 32px)); margin-left: calc(min(430px, 100vw - 32px) / -2); padding: 10px 8px 10px 14px;
   display: flex; align-items: flex-start; gap: 12px;
   background: var(--ink-900, #0e0f11); border: 1px solid rgba(var(--paper-rgb), 0.35); border-left: 4px solid var(--nf);
   animation: rb-in 0.45s var(--ease);
+  /* (paint containment: without it a headless software compositor leaves a black, vertically mirrored box over the paused canvas) */
+  contain: paint;
 }
-@keyframes rb-in { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translateX(-50%); } }
+#race-card .rc-item { contain: paint; }
+@keyframes rb-in { from { opacity: 0; } to { opacity: 1; } }
 #race-banner .rb-g { flex: none; font-size: 30px; line-height: 34px; width: 1.1em; text-align: center; }
 #race-banner .rb-t { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 #race-banner .rb-title { font-size: 14px; letter-spacing: 0.1em; color: var(--paper); }
