@@ -96,12 +96,12 @@ function api(game: Game) {
     selectFaction: (faction: FactionId, site?: SiteId) =>
       game.startNew(site ?? FACTIONS[faction].sites[0], FACTIONS[faction].expedition, faction),
     /** the shared Moon (clone): clock, flare schedule, claims, race, where and when each faction lands */
-    getMoon: () => clone(game.moon),
+    getMoon: () => clone(game.moon ?? null),
     /** the race as the Moon holds it (per faction launches, share, first light, era; phase) */
-    getRace: () => clone(game.moon.race),
+    getRace: () => clone(game.moon?.race ?? null),
     /** the two rival programs of a faction game in landing order (none in a solo game): where and when they land, and what a
      *  landed one holds; an unlanded one has its schedule only */
-    getRivals: () => rivalList(game.moon.player, (f) => game.rivals.find((r) => r.faction === f), game.moon),
+    getRivals: () => (game.moon ? rivalList(game.moon.player, (f) => game.rivals.find((r) => r.faction === f), game.moon) : []),
     /** a landed rival's whole state (clone), or null */
     getRivalState: (faction: FactionId) => clone(game.rivals.find((r) => r.faction === faction)?.state ?? null),
     /** rivals tick with the player's base (default) or are frozen (specs that time the player's loop); a frozen rival does not catch up */
