@@ -15,7 +15,7 @@ import {
   CREW, CREW_ROTATION, CROP_LOSS, CYCLE_S, DOWNLINK, DUSK_WARN_S, NIGHT_S,
   LOW_SUPPLY_S, MORALE, OVERCLOCK, POWER_RELEASE_MARGIN, RATE_SMOOTH_S, RESUPPLY, SOLAR_DUST_MAX,
   SOLAR_DUST_PER_DAY, SOLAR_DUST_RECOVER, UNIT_POWER, WEAR, HAUL,
-  EVA, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, SWARM_PCT_PER_LAUNCH,
+  EVA, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST, NIGHT_VAULT, SWARM_PCT_PER_LAUNCH,
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
@@ -27,7 +27,7 @@ import { computeEra, destinyOf, eraTick, insightTick, producerHint, researchTick
 import { explorationTick } from './exploration';
 import { assignRovers, crewKW, crewParts, crewRate, fleetRefresh, syncRoster } from './fleet';
 import {
-  PackTick, atHome, atSiteStand, chargeKW, chargeOf, driveKW, packCap, packUnits, powerKind, unitKey, unitPriority, type PackUnit,
+  PackTick, atHome, atSiteStand, chargeKW, chargeOf, driveKW, hibernating, packCap, packUnits, powerKind, unitKey, unitPriority, type PackUnit,
 } from './unitPower';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import {
@@ -53,6 +53,7 @@ import {
   attachCounters, evaHeld, growthHeld, hazardBedsOff, hazardDrawMult, hazardDuskLine, hazardMorale, hazardOff,
   hazardOutputMult, hazardTick, hazardUpkeepMult, killCrew, sickCrew, starveCause,
 } from './hazards';
+import { nightVaultStanding, scrutinyPenalty, scrutinyTick, uplinkBonus } from './scrutiny';
 
 const PROD_ORDER: BuildingId[] = [
   'excavator', 'iceHarvester',            // extraction: legacy pads (docs/17 §19); hub units run after them (4.1)
@@ -277,7 +278,11 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const eff = (t: BuildingId) => effectiveDef(t, mods);
   // what each building does this tick, sun, dust and shade aside
   const rateCache = new Map<number, EffectiveRates>();
-  const rateOpts = { robotic, workMult, isNight: day.isNight };
+  // (scrutiny ≥ 50, docs/20 S2: crewed outputs and research data cut; neutral, and absent, in every other game)
+  const penalty = scrutinyPenalty(s);
+  const rateOpts: { robotic: boolean; workMult: number; isNight: boolean; crewedMult?: number; dataMult?: number } =
+    { robotic, workMult, isNight: day.isNight };
+  if (penalty) { rateOpts.crewedMult = penalty.crewed; rateOpts.dataMult = penalty.data; }
   const rates = (b: BuildingState): EffectiveRates => {
     let r = rateCache.get(b.id);
     if (!r) {
@@ -460,6 +465,9 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const unitOf = new Map<RoverUnit, PackUnit>();
   for (const u of units) if (u.kind === 'rover' || u.kind === 'drone') unitOf.set(u.unit, u);
   const onJob = new Set<RoverUnit>();
+  // a Night Vault's docked units hibernate at night (docs/20 S2): their charger draws, and charges, ×0.5
+  const vaultNight = day.isNight && nightVaultStanding(s);
+  const hibernated: PackUnit[] = [];
   for (const team of here.jobs.values()) for (const r of team) onJob.add(r);
   // a rover levelling its cell draws the same as one sintering (docs/19 S5)
   for (const team of here.grade.values()) for (const r of team) onJob.add(r);
@@ -490,8 +498,14 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     const cap = packCap(pk, mods);
     const room = cap - chargeOf(u.pack, cap);
     if (room <= 1e-9) continue;
-    const via = atHome(s, u) ? (u.kind === 'digger' ? u.b.id : u.kind === 'hauler' ? u.h.hub : -1) : atSiteStand(u);
+    const home = atHome(s, u);
+    const via = home ? (u.kind === 'digger' ? u.b.id : u.kind === 'hauler' ? u.h.hub : -1) : atSiteStand(u);
     if (via === null) continue;
+    if (vaultNight && home && hibernating(u)) {
+      hibernated.push(u);
+      wants.push({ b: null, draw: (Math.min(chargeKW(pk) * NIGHT_VAULT.standbyMult, room / dt) / mods.chargeEff) * dt, prio, kind: 3, u, via });
+      continue;
+    }
     wants.push({ b: null, draw: (Math.min(chargeKW(pk), room / dt) / mods.chargeEff) * dt, prio, kind: 3, u, via });
   }
   // a hub's print job draws a construction rover's kW at the hub's priority (docs/17 §4.2)
@@ -506,7 +520,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const drawOrder = (w: Draw) => (w.kind === 1 ? queuePos(w.b!) : w.b ? w.b.id : 0);
   wants.sort((a, b) => a.prio - b.prio || a.kind - b.kind || drawOrder(a) - drawOrder(b));
   if (GRID.dark) supply = 0;
-  let budget = GRID.dark ? 0 : supply * dt + s.powerStored;
+  // (the bank delivers stored ÷ bankDischargeMult: the Foundry's ×1.25 discharge, docs/20 S2)
+  let budget = GRID.dark ? 0 : supply * dt + s.powerStored / mods.bankDischargeMult;
   let supplyLeft = supply * dt;
   let demand = 0; // requested — loads held dark still want their watts
   let drawn = 0;
@@ -594,6 +609,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // else each rover's own pack (its RPU first) — the crew works at the share
   // its packs carry, and a crew out of charge waits for the grid (docs/02 · On-board power) ──
   const packs = new PackTick(mods, dt);
+  for (const u of hibernated) packs.hibernate(u, NIGHT_VAULT.standbyMult);
   for (const b of sites) {
     b.active = false;
     delete b.onPack;
@@ -738,7 +754,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   // settle storage: net energy this tick
   const net = supply * dt - drawn;
   if (net >= 0) s.powerStored = Math.min(capacity, s.powerStored + net * mods.storageEff);
-  else s.powerStored = Math.max(0, s.powerStored + net);
+  else s.powerStored = Math.max(0, s.powerStored + net * mods.bankDischargeMult);
   let construction = 0;
   for (const w of wants) if (w.kind === 1) construction += w.draw / dt;
   s.power = {
@@ -758,7 +774,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   if (!day.isNight && day.phaseLeft <= DUSK_WARN_S) {
     const nightSupply = supply - solarNow + solarFull * site.nightSolarFraction * site.solarDayMult;
     const short = demand - nightSupply;
-    const runway = short > 0 ? s.powerStored / short : Infinity;
+    const runway = short > 0 ? s.powerStored / mods.bankDischargeMult / short : Infinity;
     const lead = `NIGHTFALL IN ${Math.ceil(day.phaseLeft)} s`;
     const wx = duskLine(s); // a flare under way, or the spot-group watch (docs/16 §5.6)
     // the hazards' lines: habitats or Data Centers the bank will not carry (docs/14 §3.4–3.5)
@@ -845,7 +861,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
     (eff(b.type).powerKW >= 0 || powered.has(b.id) || diggerShare.has(b.id));
   // agent-run labs share one DSN link: the share counts every agent lab that
   // runs this tick (labs have no inputs, so each that is powered and staffed runs)
-  const share = uplinkShare((byType.get('lab') ?? []).filter((b) => runs(b) && isAuto(b)).length);
+  const share = uplinkShare((byType.get('lab') ?? []).filter((b) => runs(b) && isAuto(b)).length, uplinkBonus(s));
   let smelterO2 = 0; // this tick's smelter oxygen, for the crew rotation's check
   let ilmeniteDug = false;
   // excavators credit their loads on unload (core/haul.ts): the lumps, and
@@ -1170,7 +1186,12 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   target += hazardMorale(s);
   target = Math.max(0, Math.min(100, target));
   if (unmanned) s.morale = 70; // machines hold steady
-  else s.morale += (target - s.morale) * MORALE.lerp * dt;
+  else {
+    // a fall is ×moraleFallMult as fast (the Vanguard's ×2, docs/20 S2): the target is the same, only the way down
+    let step = (target - s.morale) * MORALE.lerp * dt;
+    if (step < 0 && mods.moraleFallMult !== 1) step = Math.max(target - s.morale, step * mods.moraleFallMult);
+    s.morale += step;
+  }
   if (s.crew > 0) st.minMorale = Math.min(st.minMorale, s.morale);
 
   // ── 8 · space weather (core/spaceWeather.ts, docs/16): the cycle, the
@@ -1182,6 +1203,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const hz = hazardTick(s, site, mods, day, dt);
   if (hz.modsChanged) ev.modsChanged = true;
   if (hz.wrecked.length || wx.removed.length) ev.wrecked = [...hz.wrecked, ...wx.removed];
+  // ── 8.35 · the scrutiny meter (core/scrutiny.ts, docs/20 S2): decay, its warnings and the HEARINGS recall ──
+  scrutinyTick(s, mods, dt);
 
   // ── 8.5 · emergency Earth resupply (the anti-softlock) ─────────────
   // no smelter anywhere and not enough metals to build one = stuck; no
@@ -1362,7 +1385,8 @@ export function nightReserve(s: GameState, mods: Mods, burst: number, day: DayIn
   const nightLoad = !day.isNight && mods.dayDrawMult > 0 ? (load / mods.dayDrawMult) * mods.nightDrawMult : load;
   const short = Math.max(0, nightLoad - (p.supplyNight ?? p.supply));
   const left = day.isNight ? day.phaseLeft : NIGHT_S;
-  return Math.min(short * left, Math.max(0, p.capacity - burst));
+  // (a bank that discharges ×bankDischargeMult as fast needs that much more stored to carry the same night)
+  return Math.min(short * left * mods.bankDischargeMult, Math.max(0, p.capacity - burst));
 }
 
 function autoLaunchTick(s: GameState, mods: Mods, day: DayInfo) {
@@ -1401,6 +1425,14 @@ function crewRotationTick(s: GameState, mods: Mods, smelterO2: number) {
   if (!rot || s.simTime < rot.at) return;
   // the flare's blackout holds the landing (docs/16 §4.8)
   if (commsDark(s)) { condition(s, 'rotation-held', 'CREW ROTATION HELD — the lander waits out the flare’s blackout', 'info', { panel: 'crew' }); return; }
+  // a hearing's recall (docs/20 S2, core/scrutiny.ts): the crew sent to Earth come home to their own beds, whoever is
+  // aboard and whatever the larder holds
+  if (rot.recall) {
+    s.crew += rot.count;
+    s.crewRotation = null;
+    alert(s, `THE RECALLED CREW RETURN — ${rot.count} back aboard from the hearings`, 'info', { panel: 'crew' }, 'hazard');
+    return;
+  }
   if (s.crew > 0) { s.crewRotation = null; return; }
   // grief (docs/14 §3.10): nobody wants to come for a lunar day after a death
   if (growthHeld(s)) {

@@ -18,7 +18,7 @@
  *  hazardDrawMult, sickCrew, evaHeld, growthHeld, hazardMorale,
  *  hazardUpkeepMult, killCrew, hazardDuskLine) and hazardTick as step 8.3. */
 import { BUILDINGS, isCompute, type BuildingId } from '../data/buildings';
-import { CREW, CROP_LOSS, CYCLE_S, DAY_S, DUSK_WARN_S } from '../data/balance';
+import { CREW, CROP_LOSS, CYCLE_S, DAY_S, DUSK_WARN_S, SCRUTINY, SKUNKWORKS_RATE } from '../data/balance';
 import { UNIT_DEFS } from '../data/hubs';
 import { SPACE_WEATHER } from '../data/spaceWeather';
 import { RESOURCES, type ResourceId } from '../data/resources';
@@ -41,6 +41,7 @@ import { buildCostAt, freezeRules, logAuto, postIncidentAudit, ruleBuilding, run
 import { centerOf } from '../buildings/instances';
 import { nextActiveAt, startFlare } from './spaceWeather';
 import { commsDark } from './flareEffects';
+import { countOf, scrutinyAdd } from './scrutiny';
 
 /** every alert here belongs to one notification family (docs/19 S7) */
 const alert = alertIn('hazard');
@@ -384,7 +385,13 @@ export function windowInterval(s: GameState, mods: Mods, n: number): number {
   const era = Math.min(8, Math.max(3, s.era));
   const size = Math.min(HZ.sizeClamp[1], Math.max(HZ.sizeClamp[0], HZ.sizeBase / Math.max(1, structures(s))));
   const jitter = (mulberry32((s.seed ^ 0x4a2d) + n)() - 0.5) * 2 * HZ.jitterDays;
-  return Math.max(0.25, HZ.intervalDays[era] * size / Math.max(0.05, mods.hazardRateMult) + jitter) * CYCLE_S;
+  return Math.max(0.25, HZ.intervalDays[era] * size / Math.max(0.05, mods.hazardRateMult + skunkworksRate(s)) + jitter) * CYCLE_S;
+}
+
+/** Each standing Skunkworks adds to the hazard-event rate multiplier (docs/20 §1; capped): 0 without one. */
+export function skunkworksRate(s: Pick<GameState, 'buildings'>): number {
+  const n = countOf(s, 'skunkworks');
+  return n > 0 ? Math.min(SKUNKWORKS_RATE.cap, SKUNKWORKS_RATE.each * n) : 0;
 }
 
 /** a flare's active phase (its tail too) within 240 s of a hazard opening in `tg` s, or 90 s after one, holds a window */
@@ -499,6 +506,7 @@ export function startHazard(s: GameState, mods: Mods, site: SiteDef, kind: Hazar
   if (kind === 'blight' && h.target !== null) h.hit = [h.target];
   hz.live.push(h);
   hz.lastStartAt = now;
+  if (!drill) scrutinyAdd(s, SCRUTINY.hazard, `${HAZARD_NAME[kind]} struck`); // the Vanguard's meter (docs/20 S2)
   if (drill && !hz.drilled.includes(kind)) hz.drilled.push(kind);
   alert(s, `${SIDE_GLYPH[side]} ${drill ? 'DRILL — ' : ''}${HAZARD_NAME[kind]} WARNING — ${h.targetName}` +
     ` · ${TIER_LABEL[tier]} · ${fmtClock(Math.max(0, h.at - now))} to act`, def.lethal || def.destroys ? 'warn' : 'info',
@@ -528,6 +536,7 @@ export function killCrew(s: GameState, n: number, cause: string, hazard: HazardI
   for (let i = 0; i < n && s.crew > 0; i++) {
     s.crew -= 1;
     s.morale = Math.max(0, s.morale - HZ.grief.now);
+    scrutinyAdd(s, SCRUTINY.death, 'a crew death'); // the Vanguard's meter (docs/20 S2)
     const rec: DeathRecord = { at: s.simTime, cause, hazard, warnedAt };
     (s.deaths ??= []).push(rec);
     (s.grief ??= []).push({ until: s.simTime + HZ.grief.s, amount: HZ.grief.morale });
@@ -543,8 +552,9 @@ export function recordLoss(s: GameState, mods: Mods, rec: Omit<LossRecord, 'at'>
   postIncidentAudit(s, mods, type);
 }
 
-/** Remove a building for good: no refund, nothing salvaged. Game refreshes the world. */
-export function wreckBuilding(s: GameState, id: number, wrecked: number[]) {
+/** Remove a building for good: no refund, nothing salvaged. Game refreshes the world. A hazard's wreck raises the Vanguard's
+ *  scrutiny (docs/20 S2); `hazard` false: a wreck the player cleared (it was counted when it fell). */
+export function wreckBuilding(s: GameState, id: number, wrecked: number[], hazard = true) {
   const i = s.buildings.findIndex((b) => b.id === id);
   if (i < 0 || s.buildings[i].type === 'lander') return;
   const b = s.buildings[i];
@@ -552,6 +562,7 @@ export function wreckBuilding(s: GameState, id: number, wrecked: number[]) {
   s.buildings.splice(i, 1);
   for (const r of s.rovers) if (r.site === id) { r.site = null; r.pinned = false; }
   wrecked.push(id);
+  if (hazard) scrutinyAdd(s, SCRUTINY.wreck, `${BUILDINGS[b.type].name} wrecked`); // the Vanguard's meter (docs/20 S2)
 }
 
 /** a drone: fleet.ts's unit kind (tagged one, or docked at a Drone Hive) — one source of truth */

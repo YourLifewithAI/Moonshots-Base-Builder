@@ -122,6 +122,14 @@ export function atHome(s: GameState, u: PackUnit): boolean {
   return !!t && arrived(t) && t.kind === 'dock';
 }
 
+/** Parked at its dock and plugged in, asleep at night when a Night Vault stands (docs/20 S2): a rover or drone at its
+ *  dock (the caller checked `atHome`), a hub unit in its bay. A legacy excavator pad is a working machine, never parked. */
+export function hibernating(u: PackUnit): boolean {
+  if (u.kind === 'digger') return false;
+  if (u.kind === 'hauler') return u.pack.phase === 'park';
+  return true;
+}
+
 /** At its site's stand (a rover: plugged into the site's feed while the site is served). */
 export function atSiteStand(u: PackUnit): number | null {
   if (u.kind !== 'rover') return null; // a drone hovers: it charges only on its pad
@@ -152,6 +160,8 @@ interface Line { u: PackUnit; cap: number; rpu: number; share: number; paid: boo
  *  what was plugged in and served and sets each unit's share of the next tick. */
 export class PackTick {
   private lines = new Map<PackState, Line>();
+  /** hibernating units' charge rate × (a Night Vault at night; the charger draws the same share) */
+  private slow = new Map<PackState, number>();
   constructor(private mods: PackMods, private dt: number) {}
 
   private line(u: PackUnit): Line {
@@ -162,6 +172,9 @@ export class PackTick {
     }
     return l;
   }
+
+  /** It sleeps this tick: its charger delivers `f` of its rate. */
+  hibernate(u: PackUnit, f: number) { this.slow.set(u.pack, f); }
 
   /** It drew from the grid this tick (its work or its drive was served). */
   grid(u: PackUnit) { this.line(u).used = true; }
@@ -200,7 +213,7 @@ export class PackTick {
       let c = chargeOf(p, l.cap);
       if (l.rpu > 1e-12) c = Math.min(l.cap, c + l.rpu);
       const plugged = charged.has(unitKey(u));
-      if (plugged) c = Math.min(l.cap, c + chargeKW(powerKind(u)) * this.dt);
+      if (plugged) c = Math.min(l.cap, c + chargeKW(powerKind(u)) * this.dt * (this.slow.get(p) ?? 1));
       // a full pack is left absent (no noise in the save); anything less is written
       if (c >= l.cap - 1e-9) delete p.charge; else p.charge = c;
       if (plugged) p.chg = true; else delete p.chg;
