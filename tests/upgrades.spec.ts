@@ -163,8 +163,10 @@ test('site upgrades: pole arrays climb masts and widen; the key follows techs do
   });
   expect(r.ok).toBe(true);
   expect(r.up.meshes.solar.key).toBe('peakLightMasts,wingExtensions');
-  // a 10 m mast: the scaffold and the print reveal read this height
-  expect(r.up.meshes.solar.top).toBeGreaterThan(r.stock.meshes.solar.top + 7);
+  // a 10 m mast: the scaffold and the print reveal read this height (the stock array now
+  // stands 5.6 m with its tall identifier, docs/19 S2a, so the mast adds about 4.8 m)
+  expect(r.up.meshes.solar.top).toBeGreaterThan(10);
+  expect(r.up.meshes.solar.top).toBeGreaterThan(r.stock.meshes.solar.top + 4);
   expect(r.up.trackers.wideWings).toBe(1);
   expect(r.up.trackers.wings).toBe(r.stock.trackers.wings);
 });
