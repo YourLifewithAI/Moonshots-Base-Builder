@@ -373,7 +373,10 @@ export const HZ = {
     reset: 40, morale: 20, crisisS: 360, commonsNight: { food: 30, ease: 20 }, callHome: { data: 60, ease: 25 },
     launchDays: 30, windowDays: 3, leave: 2, minCrew: 2,
   },
-  dust: { perSource: 0.25, perEva: 0.05, radiusM: 30, warnAt: 0.7, clean: 5, clogUpkeep: 2, clogWear: 0.1, screens: 0.4, suitports: 0.5 },
+  // perSource / radiusM: a construction site (and a legacy pad's excavator) within radiusM, a flat rate. perUnit / unitM: a hub
+  // unit digging (docs/19 S11) counts at its own spot, perUnit a day at the airlock falling off linearly to nothing at unitM
+  // (the pits' setbacks keep a face 28-50 m off a hall, so a 30 m radius never saw one)
+  dust: { perSource: 0.25, perEva: 0.05, radiusM: 30, perUnit: 3, unitM: 60, warnAt: 0.7, clean: 5, clogUpkeep: 2, clogWear: 0.1, screens: 0.4, suitports: 0.5 },
   controlPlane: { darkS: 15, output: [0.7, 0.5, 0.4] as const, resumeS: 30, failoverS: 120, holdS: 120 },
   malware: {
     cap: [3, 6, 99] as const, spreadS: [60, 40, 25] as const, output: 0.5, draw: 1.3, linkM: 45, hubM: 60,

@@ -19,6 +19,7 @@
  *  hazardUpkeepMult, killCrew, hazardDuskLine) and hazardTick as step 8.3. */
 import { BUILDINGS, isCompute, type BuildingId } from '../data/buildings';
 import { CREW, CROP_LOSS, CYCLE_S, DAY_S, DUSK_WARN_S } from '../data/balance';
+import { UNIT_DEFS } from '../data/hubs';
 import { SPACE_WEATHER } from '../data/spaceWeather';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
@@ -857,24 +858,33 @@ function dustTick(s: GameState, mods: Mods, dt: number) {
   if (sideTier(s, 'colony') === null) return;
   const types = pressurizedTypes(mods);
   const sources = s.buildings.filter((b) => (b.type === 'excavator' && complete(b) && b.enabled) || (isSite(b) && b.idleReason === 'building'));
+  // hub units at work (docs/19 S11): a unit digging counts at the spot it stands, not while it drives, tips or waits with a full bucket
+  const digging = (s.haulers ?? []).filter((u) => u.haul.phase === 'dig' && !u.haul.full && (u.rebootUntil ?? 0) <= s.simTime);
   const mult = (guard(mods, 'dustScreens') ? HZ.dust.screens : 1) * (guard(mods, 'suitports') ? HZ.dust.suitports : 1);
   for (const b of s.buildings) {
     if (!types.has(b.type) || isSite(b) || !b.enabled) continue;
     const [bx, bz] = centerOf(b);
-    let near: BuildingState | null = null, nd = Infinity, n = 0;
+    let near: string | null = null, nd = Infinity, n = 0, load = 0;
     for (const x of sources) {
       const [sx, sz] = x.type === 'excavator' && x.haul ? [x.haul.digX, x.haul.digZ] : centerOf(x);
       const d = Math.hypot(sx - bx, sz - bz);
       if (d > HZ.dust.radiusM) continue;
       n++;
-      if (d < nd) { nd = d; near = x; }
+      if (d < nd) { nd = d; near = `${label(x)} ${isSite(x) ? 'builds' : 'digs'}`; }
     }
-    const perDay = (HZ.dust.perSource * n + HZ.dust.perEva * s.evaCrew) * mult;
+    // each digging unit adds what the airlock is near it: full at the door, none at unitM
+    for (const u of digging) {
+      const d = Math.hypot(u.haul.x - bx, u.haul.z - bz);
+      if (d >= HZ.dust.unitM) continue;
+      load += 1 - d / HZ.dust.unitM;
+      if (d < nd) { nd = d; near = `${BUILDINGS[u.type].name} ${UNIT_DEFS[u.type].letter}${u.id} digs`; }
+    }
+    const perDay = (HZ.dust.perSource * n + HZ.dust.perUnit * load + HZ.dust.perEva * s.evaCrew) * mult;
     b.airlockDust = Math.min(1, (b.airlockDust ?? 0) + (perDay / CYCLE_S) * dt);
     if (b.airlockDust >= 1) b.wear = Math.min(1, b.wear + (HZ.dust.clogWear / CYCLE_S) * dt);
     if (b.airlockDust >= HZ.dust.warnAt) {
       if (!s.hazards.drilled.includes('dust')) s.hazards.drilled.push('dust');
-      const why = near ? `${label(near)} ${isSite(near) ? 'builds' : 'digs'} ${Math.round(nd)} m away` : 'EVA crews track it in';
+      const why = near ? `${near} ${Math.round(nd)} m away` : 'EVA crews track it in';
       const key = `hz:dust:${b.id}`;
       condition(s, key, b.airlockDust >= 1
         ? `FILTERS CLOGGED — ${label(b)}: upkeep ×2 and the hull wears toward a breach · ${why}`
