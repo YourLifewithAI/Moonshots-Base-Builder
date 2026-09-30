@@ -440,6 +440,7 @@ test('BaseSim: two bases in one page run apart (per-state memos and log stamps),
     // the same two bases again, one second of each in turn
     const a2 = make(42), b2 = make(7);
     for (let i = 0; i < N; i++) { a2.tick(); b2.tick(); }
+    const aAlone = digest(a.state) === digest(a2.state), bAlone = digest(b.state) === digest(b2.state);
     // another base's alert never stirs this one's log stamp
     const before = logStampOf(a2.state).n, beforeB = logStampOf(b2.state).n;
     b2.apply({ kind: 'place', type: 'solar', gx: 1, gz: 1, rot: 0 }); // refused: CANNOT BUILD, an alert on b2 only
@@ -453,7 +454,7 @@ test('BaseSim: two bases in one page run apart (per-state memos and log stamps),
     for (let i = 0; i < 300; i++) { c1.tick(); c2.tick(); }
     return {
       placed: [a.state.buildings.length, b.state.buildings.length],
-      aAlone: digest(a.state) === digest(a2.state), bAlone: digest(b.state) === digest(b2.state),
+      aAlone, bAlone,
       groundsDiffer: a.hf.terrainHash() !== b.hf.terrainHash(),
       stamps, loaded, loadsAgree: digest(c1.state) === digest(c2.state) && c1.hf.terrainHash() === c2.hf.terrainHash(),
       simTime: [a.state.simTime, c1.state.simTime],

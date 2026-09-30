@@ -234,6 +234,16 @@ export class BaseSim {
     return this.econStep();
   }
 
+  /** Forget what the sim did for the world: a base nobody draws (a rival's) empties its mailbox instead of draining it. */
+  clearOut() {
+    const o = this.out;
+    o.buildings = false;
+    o.flattened.length = 0;
+    o.launches = 0;
+    o.wrecked.length = 0;
+    o.placed.length = 0;
+  }
+
   /** The state to write to a save: the pits' height deltas saved into it, the pit zones left out (they come back from the grid),
    *  and `pausedAs` (the pause the player left) in place of the menu's. */
   saveState(pausedAs: boolean | null = null): GameState {
@@ -243,7 +253,7 @@ export class BaseSim {
     return base.zones?.some((z) => z.kind === 'pit') ? { ...base, zones: base.zones.filter((z) => z.kind !== 'pit') } : base;
   }
 
-  /** `apply`: what was `Game.applyAction`. */
+  /** One action: what was `Game.applyAction` (the player's clicks, the debug API, the Builder's place through `placeAuto`). */
   apply(a: Action) {
     const s = this.state;
     switch (a.kind) {
