@@ -29,6 +29,8 @@ import {
 } from './meshKit';
 import { flatten, upgradeTechs, upgradesIn, type Mount, type PartId } from './upgrades';
 import { rigParts, rigTriangles } from './rigs';
+import { lookFaction, lookKey } from './factionLook';
+import { DOOR_MARK, UNIT_MARK, withMark } from './emblem';
 
 export type { Mount, PartId } from './upgrades';
 type Parts = (BufferGeometry | BufferGeometry[])[];
@@ -1118,13 +1120,21 @@ export function mountsFor(id: BuildingId, key = ''): Mount[] {
 
 /** A type's recipe with the upgrade parts its key names ('' = stock). */
 const cache = new Map<string, BufferGeometry>();
+/** `key` is the upgrade key (upgrades.ts). In a faction game (factionLook.ts) the geometry is the
+ *  faction's: the same recipe with the emblem stuck on its door side; a solo game's is untouched. */
 export function recipeGeometry(id: BuildingId, key = ''): BufferGeometry {
-  const k = `${id}|${key}`;
+  const k = `${id}|${key}|${lookKey()}`;
   let g = cache.get(k);
   if (!g) {
     const parts: Parts = R[id]();
     for (const u of upgradesIn(id, key)) if (u.parts) parts.push(...flatten(u.parts()));
     g = merge(parts);
+    const f = lookFaction();
+    if (f) {
+      g = id === 'excavator' || id === 'iceMiner' // the legacy pad diggers are units
+        ? withMark(g, f, UNIT_MARK, { ...UNIT_MARK, ry: 0 })
+        : withMark(g, f, DOOR_MARK, { ...DOOR_MARK, ry: PI / 2 });
+    }
     g.userData.recipe = id; // the classic palette's per-structure overrides
     cache.set(k, g);
   }
@@ -1148,12 +1158,14 @@ export function unitRecipeGeometry(mk: UnitKey, key = ''): BufferGeometry {
   const lane: BuildingId = mk.startsWith('iceMiner') ? 'iceMiner' : 'excavator';
   const build = UNIT_R[mk];
   if (!build) return recipeGeometry(lane, key);
-  const k = `${mk}|${key}`;
+  const k = `${mk}|${key}|${lookKey()}`;
   let g = unitCache.get(k);
   if (!g) {
     const parts: Parts = build();
     for (const u of upgradesIn(lane, key)) if (u.parts) parts.push(...flatten(u.parts()));
     g = merge(parts);
+    const f = lookFaction();
+    if (f) g = withMark(g, f, UNIT_MARK, { ...UNIT_MARK, ry: 0 });
     g.userData.recipe = mk;
     // 3.0 m wide, tracks included (world/haulers.ts UNIT_BODY hw 1.5: two units in their lanes clear each other)
     g.scale(1, 1, UNIT_WIDTH_M / 3.8);
@@ -1180,7 +1192,7 @@ const ghostCache = new Map<string, BufferGeometry>();
 export function ghostGeometry(id: BuildingId, key = ''): BufferGeometry {
   const mounts = mountsFor(id, key);
   if (!mounts.length && !rigTriangles(id, key)) return recipeGeometry(id, key);
-  const k = `${id}|${key}`;
+  const k = `${id}|${key}|${lookKey()}`;
   let g = ghostCache.get(k);
   if (!g) {
     const parts = [recipeGeometry(id, key).clone(), ...rigParts(id, key)];

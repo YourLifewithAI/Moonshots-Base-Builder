@@ -42,9 +42,10 @@ import { FAMILY_ACCENT, FAMILY_OF, UNIT_ACCENT, liveryOf, type UnitKey } from '.
 import { materials } from '../world/materials';
 import { celLightUniforms } from '../world/celLighting';
 import {
-  BAND, BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
+  BAND, BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, MARK, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
 } from './meshKit';
 import type { PartId } from './recipes';
+import { lookKey, lookLivery, type LookLivery } from './factionLook';
 
 /** Cut height meaning "fully built" (no discard, no band); defined in
  *  meshKit.ts (the kit's own instance state needs it) and shared from here. */
@@ -86,7 +87,7 @@ export function lightLevel(b: BuildingState, dark: number): number {
 }
 
 export type PaletteKey = 'hull' | 'radiator' | 'panel' | 'trim' | 'deck' | 'cell' | 'window' | 'lamp' | 'beacon' | 'foil'
-  | 'leaf' | 'road' | 'roadMark';
+  | 'leaf' | 'mark' | 'road' | 'roadMark';
 type Palette = Record<PaletteKey, number>;
 
 /** sRGB, as authored (the renderer does no tone mapping). `trim` is the extraction
@@ -105,6 +106,9 @@ export const CEL_PALETTE: Readonly<Palette> = {
   foil: 0xd8a53a,
   /** foliage under glass (LEAF): the Colony's green (docs/14 §4.4) */
   leaf: 0x3f6f34,
+  /** a faction's own trim (MARK: the emblem, hazard bands, fins, awnings): the player's livery trim in a faction
+   *  game (celColors), never baked in a solo game; this is only the value nothing reads */
+  mark: 0xe8632b,
   /** the roads (world/roads.ts): sintered regolith, and their kerb and centre marks */
   road: 0xa8a299,
   roadMark: 0xe9e4d8,
@@ -129,6 +133,16 @@ export const PALETTE_OVERRIDES: Partial<Record<CelId, Partial<Palette>>> = {
   droneHive: { hull: 0x3a3f46 },
 };
 
+/** What the player's faction adds to a tagged geometry (docs/20 S7): the hull takes the livery's hull colour
+ *  (an EVA walker's its suit, with the livery trim on its TRIM parts), and the MARK parts (emblem, hazard
+ *  bands, fins, awnings) the livery trim. The family TRIM and BAND accents are not touched: the accent still
+ *  says the family, the hull says the faction. Nothing in a solo game. */
+export function factionLayer(id: CelId | undefined, l: LookLivery | null = lookLivery()): Partial<Palette> {
+  if (!l) return {};
+  if (id === 'crew') return { hull: l.suit, trim: l.trim, mark: l.trim };
+  return { hull: l.hull, mark: l.trim };
+}
+
 /** The trim (and, for a hub's digger, the body) a tagged geometry wears:
  *  its family's accent, its unit class's, its livery's; the logistics slate
  *  when nothing says. */
@@ -145,7 +159,7 @@ export function accentOf(id: CelId | undefined): Partial<Palette> {
 
 const FINISHES: [Finish, PaletteKey][] = [
   [BODY, 'hull'], [RADIATOR, 'radiator'], [PLATE, 'panel'], [TRIM, 'trim'], [GLASS, 'cell'],
-  [WINDOW, 'window'], [LAMP, 'lamp'], [BEACON, 'beacon'], [FOIL, 'foil'], [LEAF, 'leaf'],
+  [WINDOW, 'window'], [LAMP, 'lamp'], [BEACON, 'beacon'], [FOIL, 'foil'], [LEAF, 'leaf'], [MARK, 'mark'],
   // an identifier's accent band: trim at any size (never a deck)
   [BAND, 'trim'],
 ];
@@ -167,16 +181,23 @@ export function finishKey(v: number, rough: number, metal: number, emit: number)
   return v < 0.3 ? 'cell' : v > 0.6 ? 'hull' : 'panel';
 }
 
-const colors = new WeakMap<THREE.BufferGeometry, THREE.BufferAttribute>();
+/** per source geometry, per look ('' a solo game, else the faction: the same shared part — a wing, a dish — is
+ *  coloured once for each) */
+const colors = new WeakMap<THREE.BufferGeometry, Map<string, THREE.BufferAttribute>>();
 
-/** The cel colour attribute for a baked geometry (cached per source). */
+/** The cel colour attribute for a baked geometry (cached per source and faction). */
 export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
-  let attr = colors.get(src);
+  const look = lookKey();
+  let perLook = colors.get(src);
+  if (!perLook) { perLook = new Map(); colors.set(src, perLook); }
+  let attr = perLook.get(look);
   if (attr) return attr;
   const col = src.getAttribute('color');
   const mat = src.getAttribute('mat');
   const id = (src.userData.recipe ?? src.userData.part) as CelId | undefined;
-  const pal: Palette = { ...CEL_PALETTE, ...accentOf(id), ...(id ? PALETTE_OVERRIDES[id] : undefined) };
+  const pal: Palette = {
+    ...CEL_PALETTE, ...accentOf(id), ...factionLayer(id), ...(id ? PALETTE_OVERRIDES[id] : undefined),
+  };
   src.userData.celTrim = pal.trim;
   const lin = new Map<PaletteKey, THREE.Color>();
   for (const k of Object.keys(pal) as PaletteKey[]) lin.set(k, new THREE.Color(pal[k]));
@@ -189,7 +210,7 @@ export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
     out[i * 3] = c.r; out[i * 3 + 1] = c.g; out[i * 3 + 2] = c.b;
   }
   attr = new THREE.BufferAttribute(out, 3);
-  colors.set(src, attr);
+  perLook.set(look, attr);
   return attr;
 }
 

@@ -42,6 +42,10 @@ export const PLATE: Finish = { v: 0.42, rough: 0.45, metal: 0.35 };     // bare 
  *  planters, canopies. The cel palette maps its unique signature to the
  *  `leaf` key. */
 export const LEAF: Finish = { v: 0.28, rough: 0.85, metal: 0 };
+/** a faction's own trim (docs/20 S7): the emblem, the hazard bands, the fins, the awnings and
+ *  the banner. The cel palette maps its unique signature to the `mark` key, which is the
+ *  player's faction's livery trim; it is never baked into a solo game's meshes. */
+export const MARK: Finish = { v: 0.56, rough: 0.5, metal: 0.1 };
 
 type V3 = readonly [number, number, number];
 const UP = new THREE.Vector3(0, 1, 0);

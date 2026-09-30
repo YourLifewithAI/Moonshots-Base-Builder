@@ -70,7 +70,8 @@ import { saveGame, loadSave, clearSave, asV2, isV2, stripForRivalSave, type Save
 import { bindMoon, createMoon, scheduleLandings, dueLandings, pushFeed, feedSince, dispatchFeed, type MoonState } from './moon';
 import { RivalProgram, rivalInfos } from './rival';
 import { raceView } from './raceView';
-import { FACTIONS, FACTION_NAME, FACTION_ORDER, assignSites, type FactionId } from '../data/factions';
+import { FACTIONS, FACTION_NAME, FACTION_ORDER, assignSites, factionOfState, type FactionId } from '../data/factions';
+import { setLookFaction } from '../buildings/factionLook';
 import { loadSettings, saveSettings, RESUME_KEY } from './settings';
 import { autoTouch, type TouchChoice } from './touch';
 import { sfx } from '../audio/sfx';
@@ -367,6 +368,8 @@ export class Game {
   private bootWorld(sim: BaseSim) {
     const state = sim.state;
     this.sim = sim;
+    // the look is the player's faction's (docs/20 S7: livery, emblem, suit), set before a single mesh is made
+    setLookFaction(factionOfState(state));
     $unitSel.set(null);
     this.alertClock.clear();
     if (this.worldGroup) this.scene.remove(this.worldGroup);

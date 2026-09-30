@@ -44,6 +44,8 @@ import {
   BAND, BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
 } from '../buildings/meshKit';
 import { materials } from './materials';
+import { lookFaction } from '../buildings/factionLook';
+import { DRONE_MARK, ROVER_MARK, withMark } from '../buildings/emblem';
 import { inked } from './ink';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
@@ -123,7 +125,10 @@ function roverGeometry(key = ''): THREE.BufferGeometry {
       parts.push(bar([x * 0.8, 0.47, z], [x, 0.3, z], 0.06, TRIM));
     }
   }
-  const g = merge(parts);
+  let g = merge(parts);
+  // the player's faction (docs/20 S7): its emblem on both flanks (the palette: hull, MARK)
+  const f = lookFaction();
+  if (f) g = withMark(withMark(g, f, ROVER_MARK), f, { ...ROVER_MARK, ry: -PI / 2, side: -0.5 });
   g.userData.recipe = 'rover'; // the cel palette: the logistics accent
   g.scale(SCALE, SCALE, SCALE);
   g.computeBoundingBox();
@@ -1146,7 +1151,9 @@ function droneGeometry(key = ''): THREE.BufferGeometry {
   }
   // skids' feet
   parts.push(box(0.06, 0.2, 0.06, TRIM, -0.25, 0.3, 0), box(0.06, 0.2, 0.06, TRIM, 0.25, 0.3, 0));
-  const g = merge(parts);
+  let g = merge(parts);
+  const f = lookFaction();
+  if (f) g = withMark(withMark(g, f, DRONE_MARK), f, { ...DRONE_MARK, ry: -PI / 2 });
   g.userData.recipe = 'drone'; // the cel palette: the Drone Hive's accent
   g.translate(0, -0.28, 0); // skids at y 0
   g.scale(DRONE_SCALE, DRONE_SCALE, DRONE_SCALE);
