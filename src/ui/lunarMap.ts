@@ -1456,6 +1456,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       refresh();
     } else {
       delete screen.dataset.open;
+      unfocusOutposts();
       settle();
       game.setMapOpen(false);
       renderChip($lunar.get());
@@ -1474,7 +1475,12 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     screen.dataset.focus = 'outposts';
     outpostsEl.classList.add('hl');
     clearTimeout(hlTimer);
-    hlTimer = window.setTimeout(() => { outpostsEl.classList.remove('hl'); delete screen.dataset.focus; }, 2400);
+    hlTimer = window.setTimeout(unfocusOutposts, 4000);
+  }
+  function unfocusOutposts() {
+    clearTimeout(hlTimer);
+    outpostsEl.classList.remove('hl');
+    delete screen.dataset.focus;
   }
   opChip.addEventListener('click', () => {
     if (!isOpen && !canOpen()) return;
