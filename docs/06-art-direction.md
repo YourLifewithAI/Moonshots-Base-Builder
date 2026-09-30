@@ -49,7 +49,7 @@ another way:
 |---|---|
 | A building's family (trim) | its silhouette and tall identifier; the family glyph on its palette card and the inspector's title (⚡ ⛏ ⚗ ♥ ⚛ ↗ ⇄) |
 | A hub digger's kind | its mesh: an open bin, a covered hopper, a cutter drum and a tank (§7) |
-| A notification's family | the glyph (✦ ◎ ⚑ ☉ ⚠), the card's shape and place (docs/07 §4) |
+| A notification's family | the glyph (✦ ◎ ⚑ ☉ ⚠), the card's shape and place (docs/07 §4a) |
 | A pit's end state (amber, red, green) | the flag's shape (banner, pennant, swallow-tail), the ring's dash pattern and the chip's words (§9) |
 | Placement valid or blocked | pale against dark ghost, and the reason line in `#place-hint` |
 | Deposit kinds | the overlay's rings in their own patterns (docs/17 §6) |
@@ -517,7 +517,7 @@ is in an end state. Shape and pattern say the state as well as colour
 | RECLAIMED | green `#66ad4b` | swallow-tail | 2.4, 2.4 | RECLAIMED |
 
 The hub highlight's label chips take the same colours and keep their words
-(docs/07 §4). The flags are 5.8 m tall with a 0.3 m pole and an ink outline.
+(docs/07 §4a, §4). The flags are 5.8 m tall with a 0.3 m pole and an ink outline.
 A graded pad has no look of its own yet.
 
 ---
