@@ -56,7 +56,7 @@ test('landing order and head start: the Commons land on a Moon the other two hav
       list: g.getRivals().map((x: any) => ({ f: x.faction, site: x.siteId, landed: x.landed, buildings: x.buildings, techs: x.techs, era: x.era, simTime: x.simTime, lost: x.lost })),
       player: g.getState().simTime,
       feed: g.getMoon().feed.map((e: any) => e.kind),
-      stateOf: (f: string) => { const s = g.getRivalState(f); return { seed: s.seed, landedAt: s.landedAt, crew: s.crew, rules: Object.values(s.auto.rules).filter((x: any) => x.on).length, queue: s.researchQueue.length }; },
+      rulesOn: Object.values(g.getRivalState('robots').auto.rules).filter((x: any) => x.on).length,
       foundry: (() => { const s = g.getRivalState('robots'); return { types: [...new Set(s.buildings.map((b: any) => b.type))], labs: s.buildings.filter((b: any) => b.type === 'lab').length, queue: s.researchQueue }; })(),
     };
   });
@@ -77,7 +77,7 @@ test('landing order and head start: the Commons land on a Moon the other two hav
   expect(rivals.foundry.labs, 'more than one lab').toBeGreaterThan(1);
   expect(rivals.foundry.queue.length, 'its research queue is full').toBeGreaterThan(0);
   // every Builder rule is on from the landing, at the faction's caps
-  expect(rivals.stateOf('robots').rules).toBeGreaterThan(15);
+  expect(rivals.rulesOn).toBeGreaterThan(15);
   expect(rivals.feed.filter((k: string) => k === 'landed')).toHaveLength(2);
   // the pre-roll of the slowest start is measured (it runs behind the descent screen in chunks; this direct path runs it whole)
   expect(r.pre, 'pre-roll time recorded').toBeGreaterThan(0);
@@ -128,6 +128,33 @@ test('the day targets on seed 42: Era 2 by day 6, an outpost by day 8, every cre
   expect(r.feed.map((e: any) => e.at), 'the feed is in clock order').toEqual([...r.feed.map((e: any) => e.at)].sort((a, b) => a - b));
   // the race board reads the rivals' eras
   expect(r.race.robots.era).toBe(r.robots!.era);
+});
+
+test('the descent screen path plays the same pre-roll over frames without freezing the page', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    const g = window.__game;
+    const fnv = (str: string) => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
+    const digest = () => g.getRivals().map((x: any) => [x.faction, x.buildings, x.techs, x.terrainHash, fnv(JSON.stringify(g.getRivalState(x.faction)))]);
+    g.selectFaction('solarpunks', 'lavatube');
+    g.setPaused(true);
+    const whole = { rivals: digest(), clock: g.getMoon().clock, pre: g.getPreRollMs() };
+    const gaps: number[] = [];
+    let last = performance.now();
+    let run = true;
+    const frame = () => { const n = performance.now(); gaps.push(n - last); last = n; if (run) requestAnimationFrame(frame); };
+    requestAnimationFrame(frame);
+    await g.selectFactionChunked('solarpunks', 'lavatube');
+    run = false;
+    g.setPaused(true);
+    return { whole, chunked: { rivals: digest(), clock: g.getMoon().clock, pre: g.getPreRollMs() }, maxGap: Math.max(...gaps), frames: gaps.length };
+  });
+  expect(r.chunked.rivals, 'the same rivals whichever way the days are played').toEqual(r.whole.rivals);
+  expect(r.chunked.clock).toBe(r.whole.clock);
+  // spread over frames: the page paints meanwhile (a whole pre-roll is 3-4 s in one task; a chunk is ~40 ms of work)
+  expect(r.frames, 'frames painted during the descent').toBeGreaterThan(8);
+  expect(r.maxGap, `longest frame ${Math.round(r.maxGap)} ms (a whole pre-roll blocks ${Math.round(r.whole.pre)} ms)`).toBeLessThan(Math.max(1500, r.whole.pre * 0.7));
 });
 
 test('a crewed rival that ends its crew is lost: `lost` in the feed, its ticks end; a robotic one cannot fall', async ({ page }) => {

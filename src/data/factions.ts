@@ -117,11 +117,11 @@ function orders(...extra: FactionOrder[]): FactionOrder[] {
     { type: 'partsFab', count: 1, rush: true },
     { type: 'waterPlant', count: 1, when: (s) => hasCrew(s) && s.siteId === 'southpole', rush: true },
     { type: 'solar', count: 3 },
+    { type: 'smelter', count: 2, when: (s) => minutes(s) > 6 }, // (metals are the gate to Era 2 — 450 smelted — and to every build)
     { type: 'refinery', count: 1 },
     { type: 'chipFab', count: 1 },
     ...extra,
     ...labsByClock(),
-    { type: 'smelter', count: 2, when: eraAtLeast(2) },
     { type: 'prospectingBay', count: 1, when: eraAtLeast(3) },
     { type: 'dataCenter', count: 1, when: eraAtLeast(5) },
     { type: 'serverMonolith', count: 1 },

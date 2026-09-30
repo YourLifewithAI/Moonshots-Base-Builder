@@ -96,6 +96,10 @@ function api(game: Game) {
      *  programs take the sites left and the ones that land earlier are already on the Moon. `selectSite` stays a solo game. */
     selectFaction: (faction: FactionId, site?: SiteId) =>
       game.startNew(site ?? FACTIONS[faction].sites[0], FACTIONS[faction].expedition, faction),
+    /** the descent screen's path (`Game.newGame`): the same new faction game with the pre-roll spread over frames, a promise that resolves when
+     *  the player has landed (it clears the saved game first, as the site screen's Land button does) */
+    selectFactionChunked: (faction: FactionId, site?: SiteId) =>
+      game.newGame(site ?? FACTIONS[faction].sites[0], FACTIONS[faction].expedition, faction),
     /** the shared Moon (clone): clock, flare schedule, claims, race, where and when each faction lands */
     getMoon: () => clone(game.moon ?? null),
     /** the race as the Moon holds it (per faction launches, share, first light, era; phase) */
