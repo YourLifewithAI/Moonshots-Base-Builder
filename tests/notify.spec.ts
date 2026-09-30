@@ -1,5 +1,5 @@
 /** One notification system (docs/19 S7): five families (research, field, era,
- *  weather, hazard), each in its own container with its own class, glyph, place,
+ *  weather, hazard; docs/20 S1 adds the sixth, race, at the end of this file), each in its own container with its own class, glyph, place,
  *  colour rule, sound and pause behaviour; the Pause on… rows in the menu; the
  *  Log (every notification, newest first, saved); and the alert actions that
  *  open the map at a prospect, the tree at a tech, or a building. Test runs
@@ -335,13 +335,14 @@ test('the menu\'s Pause on… rows: flares, drills, new hazards, lethal warnings
   const block = page.locator('#menu-pause');
   await expect(block).toBeVisible();
   await expect(block.locator('.label')).toHaveText('Pause on…');
-  await expect(block.locator('.menu-row')).toHaveCount(5);
+  await expect(block.locator('.menu-row')).toHaveCount(6); // (era, flares, drills, new hazards, lethal, and docs/20's race news)
   await expect(block.locator('#menu-pause-era')).toHaveText('Until Continue');
   await expect(block).toContainText('Research ✦ and field ◎ notifications never pause the game');
   await expect(page.locator('#menu-pause-flares')).toHaveText('M and X');
   await expect(page.locator('#menu-pause-drills')).toHaveText('On');
   await expect(page.locator('#menu-pause-hz')).toHaveText('On');
   await expect(page.locator('#menu-pause-lethal')).toHaveText('Off');
+  await expect(page.locator('#menu-pause-race')).toHaveText('Off');
   await page.locator('#menu-pause-drills').click();
   await expect(page.locator('#menu-pause-drills')).toHaveText('Off');
   await page.locator('#menu-pause-flares').click();
@@ -522,4 +523,120 @@ test('today\'s callers reach the right family: research, era, field (a real surv
   expect(log.some((e) => e.family === 'hazard' && /BREACH/.test(e.text))).toBe(true);
   expect(log.some((e) => e.family === 'weather' && /FLARE/.test(e.text))).toBe(true);
   expect(log.filter((e) => e.kind === 'crit' && e.family !== 'hazard' && e.family !== 'weather')).toEqual([]);
+});
+
+// ───────────────────────────── the race family (docs/20 S1) ─────────────────────────────
+
+/** each faction's trim colour (data/factions.ts livery), as the browser computes it */
+const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(47, 95, 208)', solarpunks: 'rgb(95, 159, 63)' } as const;
+const TRIM_GLYPH = { robots: '⚙', accelerationists: '▲', solarpunks: '❀' } as const;
+const edge = (l: import('@playwright/test').Locator) =>
+  l.evaluate((e) => ({ w: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).borderLeftColor }));
+
+test('the race family: its own container (#race-card), the 3 px rule takes the event\'s faction trim, its glyph, its own cue, never pauses, and it is in the log', async ({ page }) => {
+  test.setTimeout(180_000);
+  await boot(page);
+  await begin(page);
+  // a sixth family: glyph ⚑, its own container beside the five, its own cue, a menu setting (off)
+  const fam = await page.evaluate(async () => {
+    const N = await import('/src/ui/notify.ts');
+    return { list: N.NOTIFY_FAMILIES, spec: N.FAMILY.race };
+  });
+  expect(fam.list).toEqual(['research', 'field', 'era', 'weather', 'hazard', 'race']);
+  expect(fam.spec).toMatchObject({ id: 'race', glyph: '⚑', container: 'race-card', cue: 'race', pauses: 'setting' });
+  await expect(page.locator('#race-card')).toHaveCount(1);
+  await expect(page.locator('#race-card')).toBeHidden();
+  const cues = (await played(page)).race;
+  expect(cues).toBe(0);
+
+  // a line about the Vanguard: its glyph on the stack line and the card, its trim on the 3 px rule of both
+  await g(page, 'notify', 'race', { text: 'RACE TEST vanguard', faction: 'accelerationists', action: { panel: 'race' } });
+  const line = page.locator('#alerts .alert', { hasText: 'RACE TEST vanguard' });
+  await expect(line).toHaveClass(/nf-race/);
+  await expect(line.locator('.alert-g')).toHaveText(TRIM_GLYPH.accelerationists);
+  expect(await edge(line)).toEqual({ w: '3px', color: TRIM.accelerationists });
+  const card = page.locator('#race-card .rc-item', { hasText: 'RACE TEST vanguard' });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveClass(/nf-race/);
+  await expect(card.locator('.rc-ig')).toHaveText(TRIM_GLYPH.accelerationists);
+  expect(await edge(card)).toEqual({ w: '3px', color: TRIM.accelerationists });
+  await expect(card.locator('[data-rc="open"]')).toBeVisible(); // its action: the RACE panel
+  // lower right, never over the objectives' corner
+  const box = await page.locator('#race-card').boundingBox();
+  expect(box!.x).toBeGreaterThan(683);
+  expect(box!.y + box!.height).toBeGreaterThan(768 - 60);
+  // its own cue, and it never pauses
+  expect((await played(page)).race).toBeGreaterThan(cues);
+  await page.waitForTimeout(400);
+  expect(await paused(page)).toBe(false);
+
+  // another faction, another colour and glyph; a line that names none wears the family's own
+  await g(page, 'notify', 'race', { text: 'RACE TEST commons', faction: 'solarpunks' });
+  await g(page, 'notify', 'race', { text: 'RACE TEST plain' });
+  const commons = page.locator('#race-card .rc-item', { hasText: 'RACE TEST commons' });
+  const plain = page.locator('#race-card .rc-item', { hasText: 'RACE TEST plain' });
+  await expect(commons.locator('.rc-ig')).toHaveText(TRIM_GLYPH.solarpunks);
+  expect(await edge(commons)).toEqual({ w: '3px', color: TRIM.solarpunks });
+  await expect(plain.locator('.rc-ig')).toHaveText('⚑');
+  await expect(plain.locator('[data-rc="open"]')).toHaveCount(0);
+  const plainRule = await edge(plain);
+  expect(plainRule.w).toBe('3px');
+  expect(new Set([TRIM.accelerationists, TRIM.solarpunks, plainRule.color]).size).toBe(3);
+  // the card takes at most the newest three; ✕ puts one away
+  await g(page, 'notify', 'race', { text: 'RACE TEST robots', faction: 'robots' });
+  await expect(page.locator('#race-card .rc-item')).toHaveCount(3);
+  await expect(page.locator('#race-card .rc-item', { hasText: 'RACE TEST vanguard' })).toHaveCount(0);
+  await page.locator('#race-card .rc-item', { hasText: 'RACE TEST robots' }).locator('[data-rc="x"]').click();
+  await expect(page.locator('#race-card .rc-item')).toHaveCount(2);
+
+  // the log: every line, the faction's glyph and colour, a filter chip of its own
+  const log = (await g(page, 'getState')).log as any[];
+  expect(log.filter((e) => e.family === 'race').map((e) => `${e.faction ?? '-'}|${e.text}`)).toEqual([
+    'accelerationists|RACE TEST vanguard', 'solarpunks|RACE TEST commons', '-|RACE TEST plain', 'robots|RACE TEST robots',
+  ]);
+  await page.locator('#log-btn').click();
+  const panel = page.locator('#notify-log');
+  await expect(panel).toBeVisible();
+  const row = panel.locator('.nl-row', { hasText: 'RACE TEST vanguard' });
+  await expect(row).toHaveClass(/nf-race/);
+  await expect(row).toHaveClass(/actionable/);
+  await expect(row.locator('.nl-g')).toHaveText(TRIM_GLYPH.accelerationists);
+  expect(await edge(row)).toEqual({ w: '3px', color: TRIM.accelerationists });
+  await expect(panel.locator('.nl-row', { hasText: 'RACE TEST plain' }).locator('.nl-g')).toHaveText('⚑');
+  await panel.locator('.nl-f[data-f="race"]').click();
+  await expect(panel.locator('.nl-row')).toHaveCount(4);
+  await expect(panel.locator('.nl-row:not(.nf-race)')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+});
+
+test('the race family pauses only when the menu\'s "Race news" is on (off by default)', async ({ page, browser }) => {
+  test.setTimeout(180_000);
+  await boot(page);
+  await begin(page);
+  await g(page, 'notify', 'race', { text: 'RACE PAUSE default', faction: 'robots' });
+  await expect(page.locator('#race-card .rc-item')).toHaveCount(1);
+  await page.waitForTimeout(500);
+  expect(await paused(page)).toBe(false);
+
+  const ctx = await browser.newContext();
+  const p2 = await ctx.newPage();
+  await boot(p2, '', { pauseRace: true });
+  await begin(p2);
+  expect(await paused(p2)).toBe(false);
+  await g(p2, 'notify', 'race', { text: 'RACE PAUSE on', faction: 'robots' });
+  await expect(p2.locator('#race-card .rc-item')).toHaveCount(1);
+  await expect.poll(() => paused(p2)).toBe(true);
+  // the player resumes it: the news does not hold the game (no Continue)
+  await g(p2, 'setPaused', false);
+  await p2.waitForTimeout(500);
+  expect(await paused(p2)).toBe(false);
+  await ctx.close();
+
+  // the menu row
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#menu-pause-race')).toHaveText('Off');
+  await page.locator('#menu-pause-race').click();
+  await expect(page.locator('#menu-pause-race')).toHaveText('On');
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('mbb-settings') ?? '{}'))).toMatchObject({ pauseRace: true });
+  await page.locator('#menu [data-act="resume"]').click();
 });

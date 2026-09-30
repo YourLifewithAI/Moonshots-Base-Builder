@@ -69,6 +69,7 @@ import { TouchControls, type TouchHost } from '../player/touch';
 import { saveGame, loadSave, clearSave, asV2, isV2, stripForRivalSave, type SaveFile } from './save';
 import { bindMoon, createMoon, scheduleLandings, dueLandings, pushFeed, feedSince, dispatchFeed, type MoonState } from './moon';
 import { RivalProgram, rivalInfos } from './rival';
+import { raceView } from './raceView';
 import { FACTIONS, FACTION_NAME, FACTION_ORDER, assignSites, type FactionId } from '../data/factions';
 import { loadSettings, saveSettings, RESUME_KEY } from './settings';
 import { autoTouch, type TouchChoice } from './touch';
@@ -77,7 +78,7 @@ import {
   modalUp, $alerts, $autoMarkers, $automation, $caps, $counts, $defeat, $depositMarkers, $depositOverlay, $deposits, $depositSel,
   $feed, $hasSave, $ice, $lander, $lostMission, $lunar, $menuOpen, $milestones, $phase, $placeFlash, $placing, $power, $rates,
   $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech, $time, $victory, $vitals, $wearMarkers, overlayUp,
-  spawnFloater, $announce, type Announcement, $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard,
+  spawnFloater, $announce, type Announcement, $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard, $race, $raceCards, type RaceCard,
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather, $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView,
 } from '../ui/stores';
 
@@ -290,7 +291,7 @@ export class Game {
   private preRoll(moon: MoonState, until: number) {
     const t0 = performance.now();
     for (let t = moon.clock; t < until; t++) {
-      this.landDue(t, false);
+      this.landDue(t);
       for (const r of this.rivals) r.step();
     }
     this.preRollMs = performance.now() - t0;
@@ -300,16 +301,16 @@ export class Game {
   /** the last Moon feed event dispatched to the UI handlers (core/moon.ts onFeed); history before the game began is not replayed */
   private feedCursor = 0;
 
-  /** Rivals whose landing second has come (Moon second `now`) land: their base is created on its site, at its landing day. A
-   *  landing after the game began is announced (a `race`-family line in the log once stream S1 lands the family). */
-  private landDue(now: number, announce: boolean) {
+  /** Rivals whose landing second has come (Moon second `now`) land: their base is created on its site, at its landing day, and
+   *  the Moon's feed records it (a landing after the game began reaches the player through the feed's `landed` handler). */
+  private landDue(now: number) {
     for (const f of dueLandings(this.moon, now)) {
       const m = this.moon.factions[f];
       this.rivals.push(RivalProgram.land(f, this.moon, m.siteId, m.landedAt));
       m.landed = true;
+      // (the UI's `landed` handler on the feed, ui/racePanel.ts, tells the player: a `race`-family line; a landing before the game's
+      // first frame is history the feed cursor skips, and the briefing tells that story)
       pushFeed(this.moon, { faction: f, kind: 'landed', text: `${FACTION_NAME[f].toUpperCase()} LANDS — at ${SITES[m.siteId].name}`, at: m.landedAt + 90 });
-      // (S1 replaces this line with a `race`-family handler on the feed and deletes it)
-      if (announce) alert(this.state, `${FACTION_NAME[f].toUpperCase()} LANDS — at ${SITES[m.siteId].name}`, 'info');
     }
   }
 
@@ -331,7 +332,7 @@ export class Game {
     const t0 = performance.now();
     // (a rival that lands this second starts at it: it is created after the others' steps, which bring them up to it)
     for (const r of this.rivals) r.step();
-    this.landDue(now, true);
+    this.landDue(now);
     for (const e of feedSince(this.moon, this.feedCursor)) { this.feedCursor = e.id; dispatchFeed(e, { moon: this.moon, player: s }); }
     const ms = performance.now() - t0;
     const p = this.rivalPerf;
@@ -467,6 +468,7 @@ export class Game {
     this.logRef = null;
     $announce.set([]);
     $fieldCards.set([]);
+    $raceCards.set([]);
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
@@ -1564,6 +1566,8 @@ export class Game {
     if (!loadSettings().tips || (q.has('debug') && !q.has('tips'))) return;
     const add: Announcement[] = [];
     if (!seen) {
+      // a faction game opens on its briefing (who you are, who is on the Moon, what you race for), then the Era 1 explainer
+      if (intro && this.moon.player !== null) add.push({ id: this.announceId++, kind: 'briefing' });
       if (intro) add.push({ id: this.announceId++, kind: 'era', era: 1, intro: true });
     } else {
       for (const tid of s.techsDone.slice(seen.techs)) add.push({ id: this.announceId++, kind: 'tech', tid });
@@ -1951,6 +1955,7 @@ export class Game {
     const ui = this.lunarUi;
     if (ui.open && this.mods.surveyTier > ui.seenTier) ui.view = TIER_VIEW[this.mods.surveyTier];
     $lunar.set(lunarView(s, this.mods, ui, rivalInfos(this.moon, this.rivals)));
+    $race.set(raceView(this.moon, s, this.rivals));
     if (ui.open) ui.seenTier = this.mods.surveyTier;
     $caps.set({ ...(s.storageCaps ?? {}) });
     const counts: Partial<Record<BuildingId, { total: number; active: number; dark: number }>> = {};
@@ -2002,14 +2007,26 @@ export class Game {
     const seen = this.fieldSeen;
     this.fieldSeen = last;
     const fresh: FieldCard[] = [];
+    const news: RaceCard[] = [];
     for (let i = log.length - 1; i >= 0 && log[i].id > seen; i--) {
       const e = log[i];
       if (e.family === 'field' && e.report) fresh.unshift({ id: e.id, text: e.text, report: e.report, action: e.action });
+      // the race family (docs/20 S1): news of the other programs, a small card of its own and its own cue
+      else if (e.family === 'race') news.unshift({ id: e.id, text: e.text, faction: e.faction ?? null, action: e.action });
+    }
+    const q = new URLSearchParams(location.search);
+    const quiet = q.has('debug') && !q.has('tips');
+    if (news.length) {
+      sfx.play('race');
+      if (!quiet) {
+        $raceCards.set([...$raceCards.get(), ...news].slice(-3));
+        // "Race news" in the menu's Pause on… block (off by default): the news holds the game until the player resumes it
+        if (loadSettings().pauseRace && !this.state.paused) this.actions.push({ kind: 'setPaused', paused: true });
+      }
     }
     if (!fresh.length) return;
     sfx.play('chirp');
-    const q = new URLSearchParams(location.search);
-    if (q.has('debug') && !q.has('tips')) return;
+    if (quiet) return;
     $fieldCards.set([...$fieldCards.get(), ...fresh].slice(-5));
   }
 

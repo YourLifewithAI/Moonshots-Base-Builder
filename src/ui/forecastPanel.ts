@@ -11,6 +11,7 @@ import type { Game } from '../core/game';
 import type { ForecastView } from '../core/forecast';
 import type { WeatherView } from '../core/spaceWeather';
 import { fmtClock } from '../core/daynight';
+import { $time } from './stores';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -60,7 +61,7 @@ export function refreshForecast(game: Game, root: ParentNode, v: WeatherView) {
   if (!fc) { hide(sec, true); hide(root.querySelector('.fc-tl-sec'), true); return; }
   hide(sec, false);
   hide(root.querySelector('.fc-tl-sec'), false);
-  const day = Math.floor(game.state.simTime / 720) + 1;
+  const day = $time.get().missionDay; // the mission day (docs/20 §4.4): counted from this base's own landing
   let flare: string;
   if (v.phase !== 'idle') flare = `NEXT FLARE  after this one${fc.tier >= 3 && fc.three[0] ? `: ${fc.three[0].classText} ${fc.three[0].text}` : ''}`;
   else if (fc.tier === 0) flare = `NEXT FLARE  unknown · activity ${v.gauge} ${v.band} (Earth’s bulletin, day ${day})${v.watch ? ' · a big spot group: an X is possible within ½ day' : ''}`;

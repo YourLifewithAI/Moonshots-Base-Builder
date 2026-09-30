@@ -13,7 +13,7 @@ import {
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
   $hazards, $hazardMarkers, $placing, $log, $logOpen,
 } from './stores';
-import { familyOf, glyphOf, runAlertAction, setMissionOrigin } from './notify';
+import { factionTrim, familyOf, glyphOf, runAlertAction, setMissionOrigin } from './notify';
 import { counterButton, counterClick } from './hazardsPanel';
 import { touchOn } from '../core/touch';
 
@@ -314,9 +314,13 @@ export function mountHud(root: HTMLElement, game: Game) {
       const fam = familyOf(a);
       const cls = `alert panel nf ${fam ? `nf-${fam}` : 'nf-plain'} ${a.kind}${a.action ? ' actionable' : ''}`;
       if (e.root.className !== cls) e.root.className = cls;
-      const g = glyphOf(fam);
+      const g = glyphOf(fam, a.faction);
       if (e.g.textContent !== g) e.g.textContent = g;
       e.root.dataset.family = fam ?? '';
+      // a race line: the faction's own trim colour on the rule and the glyph (notify.css reads --nf)
+      const trim = factionTrim(a.faction);
+      if (trim) { e.root.dataset.faction = a.faction; e.root.style.setProperty('--nf', trim); }
+      else { delete e.root.dataset.faction; e.root.style.removeProperty('--nf'); }
       if (e.text.textContent !== a.text) e.text.textContent = a.text;
       const n = a.count > 1 ? `×${a.count}` : '';
       if (e.n.textContent !== n) e.n.textContent = n;

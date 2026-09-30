@@ -17,6 +17,7 @@ import type { HazardId, HazardSide } from '../data/hazards';
 import { emptyFeed, type DepositKind, type FeedGrade } from '../data/deposits';
 import type { SurveyCost } from '../core/exploration';
 import type { FactionId } from '../core/moon';
+import type { RaceView } from '../core/raceView';
 import type { MapView, OutpostKind, ProspectClass, ProspectId, ProspectKind } from '../data/lunarMap';
 
 export type Phase = 'title' | 'site' | 'playing';
@@ -281,6 +282,13 @@ export const $log = atom<LogEntry[]>([]);
 /** field reports waiting on the dispatch card, oldest first; the newest shows (ui/notifyUi.ts) */
 export interface FieldCard { id: number; text: string; report: FieldReport; action?: LogEntry['action'] }
 export const $fieldCards = atom<FieldCard[]>([]);
+/** The race family's card stack (docs/20 S1; ui/racePanel.ts): the newest news of the other programs, at most three. `faction` dresses
+ *  the card: the rule takes its trim colour, the glyph is its own. */
+export interface RaceCard { id: number; text: string; faction: FactionId | null; action?: LogEntry['action'] }
+export const $raceCards = atom<RaceCard[]>([]);
+/** The race (docs/20 §2, §6): one row per faction in standings order, the combined volleys and the close; null in a solo game.
+ *  core/raceView.ts builds it in Game.publish; the RACE chip and panel (ui/racePanel.ts) read it. */
+export const $race = atom<RaceView | null>(null);
 /** the Log panel is open (the alert stack's Log button toggles it) */
 export const $logOpen = atom<boolean>(false);
 /** progress = the earliest open objective's status line ('' = none); hints =
@@ -373,7 +381,9 @@ export type Announcement =
   | { id: number; kind: 'era'; era: number; intro: boolean }
   /** docs/14 §3.10: a side's hazards go live, and the first of a kind (its drill) */
   | { id: number; kind: 'hazardsLive'; side: HazardSide }
-  | { id: number; kind: 'hazard'; hazard: HazardId };
+  | { id: number; kind: 'hazard'; hazard: HazardId }
+  /** docs/20 §2: a faction game's mission briefing, the era banner's sibling that comes before the Era 1 explainer */
+  | { id: number; kind: 'briefing' };
 export const $announce = atom<Announcement[]>([]);
 /** an announcement that holds the game paused until Continue: an era explainer, a hazards-live
  *  banner, and a hazard's drill card unless the menu's "Pause on hazard drills" is off (docs/19 S7) */

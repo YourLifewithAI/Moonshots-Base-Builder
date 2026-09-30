@@ -15,6 +15,8 @@ import { DEP_SURVEY, STRIP } from '../data/ore';
 import { FORECAST } from '../data/forecast';
 import { SURVEY_CLASS, type ProspectId } from '../data/lunarMap';
 import { fmtClock } from '../core/daynight';
+import { scrutinyView, type ScrutinyView } from '../core/scrutiny';
+import { CYCLE_S, SCRUTINY } from '../data/balance';
 import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
 import {
@@ -118,8 +120,23 @@ const NOTES_UNCREWED: Partial<Record<string, string>> = {
   water: `Water Management Plants process their own units’ loads: icy regolith at the pole, mature soil at dry sites. Smelters also recover a trickle. Hydroponics use it now; settlers need reserves after ${TECHS.humanCohabitation.name}.`,
 };
 
+/** The Vanguard's scrutiny meter (docs/20 S2), one block for the crew and morale panels: its value, the two thresholds,
+ *  what each does, and how long until it falls under the one it is over. */
+function scrutinySection(v: ScrutinyView | null): string {
+  if (!v) return '';
+  const days = (sec: number) => `${(Math.round((sec / CYCLE_S) * 10) / 10).toFixed(1)} days`;
+  const down = v.toNextS === null ? 'clear' : v.nextAt > 0 ? `under ${v.nextAt} in ${days(v.toNextS)}` : `clear in ${days(v.toNextS)}`;
+  return `<section><span class="label">Scrutiny</span>
+    ${row('SCRUTINY', `${Math.round(v.value)} / 100${v.tier === 2 ? ' · HEARINGS' : v.tier === 1 ? ' · penalty' : ''}`)}
+    ${row(`From ${v.penaltyAt}`, 'crewed stations ×0.7 · research ×0.8')}
+    ${row(`At ${v.hearingAt}`, 'HEARINGS: a quarter of the crew to Earth for 2 days, the meter back to 40')}
+    ${row('Falls', `${Math.round(v.decayPerDay * 10) / 10} a day${v.missionOps ? ' (Mission Ops ×2)' : ''} · ${down}`)}
+    ${v.recalled ? row('Before Congress', `${v.recalled} crew away · back in ${days(v.backInS)}`) : ''}
+    <div class="goal-hint">A death +40, a building wrecked +10, a hazard striking +15. A second hearing waits ${SCRUTINY.hearingGapDays} days after the last${v.nextHearingS > 0 ? ` (${days(v.nextHearingS)} to go)` : ''}.</div></section>`;
+}
+
 /** the panel's content for `key`, or null when there is none */
-function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
+function panelHtml(key: string, mods: Mods, strip?: StripTerm, scrutiny?: ScrutinyView | null): string | null {
   const v = $vitals.get();
   const t = $tech.get();
   const lsMult = mods.inputMult.habitat;
@@ -153,7 +170,7 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
         ${row('Food', `−${fmt(CREW.foodPerCrew * lsMult * 60)}/min`)}
         ${row('Water', `−${fmt(CREW.waterPerCrew * lsMult * v.waterReclaim * 60)}/min`)}
         <div class="goal-hint">${TECHS.closedLoopLS.name} (Era ${TECHS.closedLoopLS.era}) cuts all three by 40%. ${TECHS.constructionRobotics.name} (Era ${TECHS.constructionRobotics.era}) lets buildings run without crew at ${mult(1 + mods.agentTax)} power.</div>
-      </section>`;
+      </section>${scrutinySection(scrutiny ?? null)}`;
   }
   if (key === 'power') {
     const p = $power.get();
@@ -205,9 +222,11 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
         ${row('… and while it lasts', `−${SPACE_WEATHER.morale.C.target} · −${SPACE_WEATHER.morale.M.target} · −${SPACE_WEATHER.morale.X.target}`)}
         ${row('Earth shipment ordered', `−${RESUPPLY.moraleHit} once`)}
         ${row('Reactor next door', '−5')}
+        ${mods.moraleBase !== 0 ? row('Your program’s morale base', `${mods.moraleBase > 0 ? '+' : '−'}${Math.abs(mods.moraleBase)}`) : ''}
+        ${mods.moraleFallMult !== 1 ? row('Morale falls', `${mult(mods.moraleFallMult)} as fast (the target is the same; only the slide down)`) : ''}
         ${row('Strip mines near homes (pits and heaps)', strip && strip.term < -0.05 ? `${strip.term.toFixed(1).replace('-', '−')}` : `up to −${-STRIP.cap}`)}
         ${strip?.worst ? `<div class="goal-hint">Strip mines ${strip.term.toFixed(1).replace('-', '−')} · worst: ${strip.worst.name}, ${strip.worst.dist} m from ${strip.worst.home}. A plain pit or a dug-out one costs −1 per 1,000 m² of scar within ${STRIP.nearM} m of a home (fading to ${STRIP.farM} m), a working deposit's −0.4, reclaimed ground a fifth.</div>` : ''}
-        <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>`;
+        <div class="goal-hint">Morale multiplies crewed output (×0.5 – ×1.2) and gates settler arrivals (>${CREW.growthMorale}%).</div></section>${scrutinySection(scrutiny ?? null)}`;
   }
   if (key === 'data') {
     const counts = $counts.get();
@@ -320,7 +339,8 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
   let lastHtml = '';
   const render = () => {
     const key = $resourcePanel.get();
-    const html = key ? panelHtml(key, game.mods, key === 'morale' ? stripMorale(game.state) : undefined) : null;
+    const html = key ? panelHtml(key, game.mods, key === 'morale' ? stripMorale(game.state) : undefined,
+      key === 'morale' || key === 'crew' ? scrutinyView(game.state, game.mods) : undefined) : null;
     if (html === null) { panel.style.display = 'none'; lastHtml = ''; return; }
     panel.style.display = ''; // the stylesheet's flex column
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }

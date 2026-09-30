@@ -43,6 +43,8 @@ import { gradeAtPoint } from './core/ore';
 import { effectiveRates } from './core/mods';
 import type { Process } from './data/ore';
 import { predictFlares, trueClass, withForecast } from './core/forecast';
+import { killCrew } from './core/hazards';
+import { scrutinyAdd, scrutinyView } from './core/scrutiny';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -301,6 +303,14 @@ function api(game: Game) {
     /** Raise a notification in a family (ui/notify.ts): a stack line, a log line and, for a field
      *  card with a `report`, the dispatch card. The state is published at once. */
     notify: (family: NotifyFamily, card: NotifyCard) => { notify(game.state, family, card); game.publish(); },
+    /** the Moon's feed so far (clone, newest last) */
+    getFeed: () => clone(game.moon?.feed ?? []),
+    /** set a faction's line of the race (`moon.race[faction]`: launches, swarmPct, firstLaunchAt, era) and publish, so a spec can stage
+     *  a standing; the next Moon second rewrites it from the base it belongs to */
+    raceSet: (faction: FactionId, patch: Partial<{ launches: number; swarmPct: number; firstLaunchAt: number | null; era: number }>) => {
+      Object.assign(game.moon.race[faction], patch);
+      game.publish();
+    },
     /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
     getSpaceWeather: (slider?: number) => {
       const s = game.state;
@@ -343,7 +353,8 @@ function api(game: Game) {
       game.publish();
     },
     /** the next flare's index (its seeded draws: the class, each machine's glitch; tests) */
-    setFlareIndex: (n: number) => { game.state.flare.n = n; game.publish(); },
+    // (the Moon's schedule is the truth a flare starts from: docs/20 W0c mirrors it into every base's `flare`)
+    setFlareIndex: (n: number) => { game.state.flare.n = n; if (game.moon) game.moon.weather.n = n; game.publish(); },
     /** the scarred, worst first (the panel's SCARRED line): kind 'b' a structure, 'r' a rover or drone, 'h' a hub unit */
     flareScarred: () => clone(scarredList(game.state)),
     /** a structure's capability line (σ, capability, scars, Replace's cost, time and payback) */
@@ -647,6 +658,13 @@ function api(game: Game) {
     /** the save as written, and a load of one (the migration tests) */
     saveBlob: () => clone((game as unknown as { saveBlob(): unknown }).saveBlob()),
     loadBlob: (blob: Parameters<Game['loadFrom']>[0]) => game.loadFrom(blob),
+    // ── faction traits (docs/20 S2) ──
+    /** the Vanguard's meter: the raw state and the view the panel reads (null without the trait) */
+    getScrutiny: () => clone({ state: game.state.scrutiny ?? null, view: scrutinyView(game.state, game.mods) }),
+    /** n crew die now (CREW LOST, grief, and the Vanguard's +40 each) */
+    killCrew: (n = 1, cause = 'a debug death') => { killCrew(game.state, n, cause, null, null); game.publish(); },
+    /** raise the Vanguard's meter by n (a no-op on a base with none) */
+    addScrutiny: (n: number) => { scrutinyAdd(game.state, n, 'debug'); game.publish(); },
     // ── hazards (docs/14 §3) ──
     /** the Hazards panel's payload (hazardView) plus the raw state: live, log, meters, deaths, losses, grief */
     getHazards: () => clone({

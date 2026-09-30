@@ -608,6 +608,9 @@ export interface RateOpts {
   q?: number;
   /** agent-run labs' shared DSN share (default 1) */
   uplinkShare?: number;
+  /** scrutiny's penalties (core/scrutiny.ts, docs/20 S2): a crewed station's outputs ×, and every lab's and Data Center's data × */
+  crewedMult?: number;
+  dataMult?: number;
 }
 
 export interface EffectiveRates {
@@ -664,8 +667,12 @@ export function effectiveRates(
     if (electrolysis) powerKW -= 10 * mods.powerMult[type] * tax * oc * dn;
   }
 
+  // The Foundry's night (docs/20 S2): a station that is not a generator shuts down almost completely: at night it
+  // takes in and makes `nightOutputMult` of its nameplate (power generation and storage are not scaled). Only a
+  // caller that says it is night (`isNight`) sees it; the economy, the hub units' digs and their flows all do.
+  const nightK = opts.isNight === true && mods.nightOutputMult !== 1 && def.powerKW <= 0 ? mods.nightOutputMult : 1;
   const inputs: Partial<Record<ResourceId, number>> = {};
-  for (const [r, v] of Object.entries(def.inputs)) inputs[r as ResourceId] = (v ?? 0) * mods.inputMult[type] * oc;
+  for (const [r, v] of Object.entries(def.inputs)) inputs[r as ResourceId] = (v ?? 0) * mods.inputMult[type] * oc * nightK;
   if ((type === 'hydroponics' || type === 'greenhouseRing') && inputs.water !== undefined) {
     inputs.water *= opts.waterReclaim ?? 1;
   }
@@ -673,6 +680,8 @@ export function effectiveRates(
   let outMult = mods.outputMult[type] * oc * wear;
   if (crewed) outMult *= workMult * mods.crewedOutputMult[type];
   else if (agentRun) outMult *= mods.agentOutputMult[type];
+  if (crewed && opts.crewedMult !== undefined) outMult *= opts.crewedMult; // scrutiny ≥ 50 (docs/20 S2)
+  if (nightK !== 1) outMult *= nightK;
   // a branch tech's night output (Long Night Gardens): ×1 for every other building and every solo game
   if (opts.isNight) outMult *= mods.nightBuildingMult[type];
   if (ISRU.includes(type)) outMult *= site.isruMult;
@@ -723,6 +732,10 @@ export function effectiveRates(
     data = DC_DATA_PER_S * mods.outputMult.dataCenter * oc * wear;
   } else if (type === 'serverMonolith') {
     data = MONOLITH.dataPerS * mods.outputMult.serverMonolith * oc * wear;
+  }
+  if (data > 0) {
+    if (nightK !== 1) data *= nightK;
+    if (opts.dataMult !== undefined) data *= opts.dataMult; // scrutiny ≥ 50 (docs/20 S2)
   }
 
   let upkeep = def.upkeepParts * mods.upkeepMult[type] * site.upkeepMult;

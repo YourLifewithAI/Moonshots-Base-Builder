@@ -161,6 +161,10 @@ export function mountMenu(root: HTMLElement, game: Game) {
               <span><span class="nf-g" aria-hidden="true">⚠</span> Every lethal warning</span>
               <button class="btn" data-act="pause-lethal" id="menu-pause-lethal" aria-pressed="false">Off</button>
             </div>
+            <div class="menu-row" data-family="race">
+              <span><span class="nf-g" aria-hidden="true">⚑</span> Race news</span>
+              <button class="btn" data-act="pause-race" id="menu-pause-race" aria-pressed="false" title="A rival lands, reaches an era or faces a hearing">Off</button>
+            </div>
             <div class="menu-note">Research ✦ and field ◎ notifications never pause the game.</div>
           </section>
         </div>
@@ -227,7 +231,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
     muteBtn.classList.toggle('active', s.muted);
     muteBtn.setAttribute('aria-pressed', String(s.muted));
     for (const [id, on] of [['#menu-tips', s.tips], ['#menu-pause-hz', s.pauseHazards], ['#menu-pause-lethal', s.pauseLethal],
-      ['#menu-pause-drills', s.pauseDrills]] as const) {
+      ['#menu-pause-drills', s.pauseDrills], ['#menu-pause-race', s.pauseRace]] as const) {
       const btn = $<HTMLButtonElement>(id);
       btn.textContent = on ? 'On' : 'Off';
       btn.classList.toggle('active', on);
@@ -323,6 +327,7 @@ export function mountMenu(root: HTMLElement, game: Game) {
       case 'pause-hz': saveSettings({ pauseHazards: !loadSettings().pauseHazards }); renderAudio(); break;
       case 'pause-lethal': saveSettings({ pauseLethal: !loadSettings().pauseLethal }); renderAudio(); break;
       case 'pause-drills': saveSettings({ pauseDrills: !loadSettings().pauseDrills }); renderAudio(); break;
+      case 'pause-race': saveSettings({ pauseRace: !loadSettings().pauseRace }); renderAudio(); break;
       case 'pause-flares': {
         const next = { mx: 'all', all: 'off', off: 'mx' } as const;
         saveSettings({ pauseFlares: next[loadSettings().pauseFlares] });

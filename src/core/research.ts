@@ -22,6 +22,8 @@ import { FACTION_NAME, factionOfState, type FactionId } from '../data/factions';
 import { alert as rawAlert, alertIn, crewReserve, moraleWorkMult } from './economy';
 import { CLASS_LABEL, KIND_LABEL, baseStream, outpostSlots, prospectClass, prospectDist, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
+import { dayInfo } from './daynight';
+import { scrutinyPenalty, uplinkBonus } from './scrutiny';
 
 /** research's alerts belong to the research family; an era opening to the era family (docs/19 S7) */
 const alert = alertIn('research');
@@ -544,11 +546,13 @@ export function sanitizeQueue(s: GameState): TechId[] {
 
 // ─────────────────────────── rates & the tick ───────────────────────────
 
-/** E(n)/n: every active agent-run lab gets the same share of the DSN link. */
-export function uplinkShare(agentLabs: number): number {
+/** E(n)/n: every active agent-run lab gets the same share of the DSN link. `bonus` (a standing Mission Ops, docs/20 S2):
+ *  one more lab at full weight, i.e. the weights are read as if the lab count were one less (the first two labs both weigh the
+ *  first weight). */
+export function uplinkShare(agentLabs: number, bonus: 0 | 1 = 0): number {
   if (agentLabs <= 0) return 1;
   let e = 0;
-  for (let i = 0; i < agentLabs; i++) e += LAB_UPLINK_WEIGHTS[Math.min(i, LAB_UPLINK_WEIGHTS.length - 1)];
+  for (let i = 0; i < agentLabs; i++) e += LAB_UPLINK_WEIGHTS[Math.min(Math.max(0, i - bonus), LAB_UPLINK_WEIGHTS.length - 1)];
   return e / agentLabs;
 }
 
@@ -572,14 +576,18 @@ export function researchRates(s: GameState, mods: Mods): ResearchRates {
     if (isLab(b.type)) { labsActive++; if (b.type === 'lab' && isAgentRun(b, s)) agentLabs++; }
     else if (isCompute(b.type)) { dcsActive++; if (b.type === 'serverMonolith') monoliths++; }
   }
-  const share = uplinkShare(agentLabs);
+  const share = uplinkShare(agentLabs, uplinkBonus(s));
   const site = SITES[s.siteId];
   const workMult = unmanned(s) ? 1 : moraleWorkMult(s.morale);
+  // the faction readers (docs/20 S2): scrutiny's data penalty, and the Foundry's night (only its base asks for the clock)
+  const penalty = scrutinyPenalty(s);
+  const night = mods.nightOutputMult !== 1 ? dayInfo(s.simTime, site).isNight : undefined;
   let production = 0;
   for (const b of s.buildings) {
     if (!b.active || (!isLab(b.type) && !isCompute(b.type))) continue;
     production += effectiveRates(b.type, mods, site, b, {
       agentRun: isAgentRun(b, s), robotic: s.expedition === 'robotic', workMult, uplinkShare: share,
+      ...(penalty ? { dataMult: penalty.data } : {}), ...(night !== undefined ? { isNight: night } : {}),
     }).data;
   }
   return {

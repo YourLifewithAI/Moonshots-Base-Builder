@@ -1,4 +1,4 @@
-/* One notification system (docs/19 S7): five families, each its own container,
+/* One notification system (docs/19 S7; the sixth family, race, is docs/20 S1): six families, each its own container,
    class, glyph, place, sound and pause behaviour (ui/notify.ts). docs/07 stays
    greyscale with ONE colour exception: a 3 px family rule on a card (and on a
    stack line or a log row of that family). The glyph always says the family
@@ -8,7 +8,9 @@
      field     #field-card       lower left         ◎   teal     never pauses
      era       #era-banner       full screen        ⚑   paper    until Continue
      weather   #flare-popup      top centre (flare) ☉   amber    M and X (menu)
-     hazard    #hazard-card      centre, the drill  ⚠   red      drills (menu) */
+     hazard    #hazard-card      centre, the drill  ⚠   red      drills (menu)
+     race      #race-card        lower right        ⚑   the EVENT's faction's trim colour, and its glyph
+                                                        never (menu: "Race news", off) */
 
 :root {
   --nf-research: #4a90e2;
@@ -16,12 +18,15 @@
   --nf-era: #f5f7f9;
   --nf-weather: #e8b422;
   --nf-hazard: #e5534b;
+  /* race: a card carries its faction's trim colour (data/factions.ts livery, set per card as --nf); this is the neutral for a line that names none */
+  --nf-race: #f5f7f9;
 }
 .nf-research { --nf: var(--nf-research); }
 .nf-field { --nf: var(--nf-field); }
 .nf-era { --nf: var(--nf-era); }
 .nf-weather { --nf: var(--nf-weather); }
 .nf-hazard { --nf: var(--nf-hazard); }
+.nf-race { --nf: var(--nf-race); }
 .nf-plain { --nf: transparent; }
 .nf-g { color: var(--nf, currentColor); font-size: 1.15em; line-height: 1; }
 
@@ -117,6 +122,27 @@ html.touch #hazard-card .eb-panel { max-height: calc(var(--app-h, 100vh) - var(-
 html.touch #hazard-card .eb-k { margin: 0 -16px 10px; padding: 5px 16px; }
 html.touch #hazard-card .eb-name { font-size: 20px; line-height: 24px; margin: 2px 0 6px; }
 html.touch #hazard-card .eb-blurb { font-size: 13px; line-height: 18px; margin-bottom: 8px; }
+
+/* ── race: the news of the other programs (#race-card, lower right): a small card per item, the rule and the glyph in its faction's
+   colour (--nf set on the item from FACTIONS[f].livery.trim), at most three, each gone after a while and kept in the log ── */
+#race-card {
+  position: absolute; right: var(--gutter); bottom: var(--gutter); width: 320px; max-width: calc(100vw - 32px); z-index: 34;
+  display: flex; flex-direction: column; gap: 6px; pointer-events: none;
+}
+#race-card .rc-item {
+  pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 7px 6px 7px 10px; font-size: 12px; line-height: 16px;
+  background: var(--ink-800); border: 1px solid rgba(var(--paper-rgb), var(--op-hairline)); border-left: 3px solid var(--nf);
+  animation: rc-in 0.35s var(--ease);
+}
+@keyframes rc-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+#race-card .rc-ig { flex: none; width: 1.3em; text-align: center; font-size: 1.25em; }
+#race-card .rc-it { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--ink-050); }
+#race-card .rc-open { flex: none; font-size: 10px; padding: 2px 7px; }
+#race-card .rc-x { flex: none; background: none; border: none; color: inherit; font: inherit; font-size: 11px; opacity: 0.55; cursor: pointer; padding: 0 4px; }
+#race-card .rc-x:hover { opacity: 1; }
+html.touch #race-card { right: var(--content-r, 60px); bottom: var(--edge-b, 8px); width: min(300px, 44vw); }
+html.touch #race-card .rc-open, html.touch #race-card .rc-x { min-height: var(--tap, 44px); }
+@media (prefers-reduced-motion: reduce) { #race-card .rc-item { animation: none; } }
 
 /* ── the Log ── */
 #notify-log {
