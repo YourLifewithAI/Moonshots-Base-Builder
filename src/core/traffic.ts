@@ -34,7 +34,7 @@
  *    (a `pass` or `hold` cell, or a dock bay), else after 3 s onto the free
  *    ground beside the road (or a free road cell off the other's way). Held
  *    20 s a unit lets go of the ground ahead and steps aside; held 60 s (a rover
- *    held 20 s) it drives through, counted. The counters are in
+ *    held 20 s; a unit asked to give way with nowhere to go, 12 s) it drives through, counted. The counters are in
  *    `getRenderInfo().life.traffic.sim`; `getTraffic()` (debug) says who holds what.
  *
  *  Claims are kept on the unit (`HaulState.claim`, a few cell numbers) so a
@@ -65,6 +65,8 @@ const STILL_ASIDE_S = 3;
 const HELD_ASIDE_S = 20;
 /** s held before a unit drives through whoever holds its way */
 const FORCE_S = 60;
+/** s a unit that has been asked to give way, and has nowhere to step aside to, is held before it drives through */
+const ASKED_FORCE_S = 12;
 const HALF = CELL_M / 2;
 /** m the scan of a path looks ahead */
 const SCAN_M = 320;
@@ -389,7 +391,8 @@ function planOnce(s: GameState, tab: Tab, st: Store, mv: Mv, depth: number): Gra
     if (cur === undefined || (tab.units.get(cur)?.prio ?? Infinity) > mv.prio) tab.req.set(holder, mv.uid);
   }
   const heldS = h.held ?? 0;
-  if (heldS >= FORCE_S) {
+  // (a unit that stands in a higher-priority one's way and has no bay or ground to step onto: a gridlock in a tangle of roads)
+  if (heldS >= FORCE_S || (heldS >= ASKED_FORCE_S && (st.ages.get(mv.uid) ?? 0) >= ASKED_FORCE_S)) {
     if (!tab.forced.has(mv.uid)) { tab.forced.add(mv.uid); st.stats.forced++; }
     return { limit: Infinity, blocked, holder };
   }

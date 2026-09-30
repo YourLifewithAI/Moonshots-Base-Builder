@@ -218,26 +218,29 @@ test('a second unit sent to a pit with every face working waits in the holding b
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
-    const { hub, b } = setupPair();
-    const s = g.getState();
+    const { b } = setupPair();
     const z = g.getZones().find((q: any) => q.id === 'ilmenite-0');
     const zc = new Set(z.cells.map((c: number[]) => c.join(',')));
-    const roads = new Map(s.roads.map((c: any) => [c.gx + ',' + c.gz, c]));
     const N4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    const gate = z.gates[0];
-    // the road cell before the gate, and a free cell beside it that is not on the zone's rim: the holding bay
-    let approach: number[] | null = null;
-    for (const [dx, dz] of N4) { const k = (gate[0] + dx) + ',' + (gate[1] + dz); if (roads.has(k) && !zc.has(k)) { approach = [gate[0] + dx, gate[1] + dz]; break; } }
-    let hold: number[] | null = null;
-    for (let d = 1; d <= 3 && !hold; d++) for (const [dx, dz] of N4) {
-      const c = [approach![0] + dx * d, approach![1] + dz * d];
-      if (roads.has(c.join(',')) || zc.has(c.join(','))) continue;
-      if (N4.some(([p, q]) => zc.has((c[0] + p) + ',' + (c[1] + q)))) continue;
-      hold = c; break;
+    const holds = () => g.getState().roads.filter((c: any) => c.hold === 'ilmenite-0');
+    // the haul road the hub laid has a holding bay beside its gate (docs/19 S3); a base without one (an old save) gets a flag by hand
+    const laid = holds().length;
+    if (!laid) {
+      const roads = new Map(g.getState().roads.map((c: any) => [c.gx + ',' + c.gz, c]));
+      const gate = z.gates[0];
+      let approach: number[] | null = null;
+      for (const [dx, dz] of N4) { const k = (gate[0] + dx) + ',' + (gate[1] + dz); if (roads.has(k) && !zc.has(k)) { approach = [gate[0] + dx, gate[1] + dz]; break; } }
+      let hold: number[] | null = null;
+      for (let d = 1; d <= 3 && !hold; d++) for (const [dx, dz] of N4) {
+        const c = [approach![0] + dx * d, approach![1] + dz * d];
+        if (roads.has(c.join(',')) || zc.has(c.join(','))) continue;
+        if (N4.some(([p, q]) => zc.has((c[0] + p) + ',' + (c[1] + q)))) continue;
+        hold = c; break;
+      }
+      g.setRoadFlags([{ gx: hold![0], gz: hold![1], hold: 'ilmenite-0' }]);
     }
-    g.setRoadFlags([{ gx: hold![0], gz: hold![1], hold: 'ilmenite-0' }]);
-    const spot = cellXZ(hold![0], hold![1]);
-    const gateXZ = cellXZ(gate[0], gate[1]);
+    const spots = holds().map((c: any) => cellXZ(c.gx, c.gz));
+    const gates = z.gates.map((c: number[]) => cellXZ(c[0], c[1]));
     g.sendUnit(b, 'dep:ilmenite-0');
     // the new pit has one face: the first unit works it, the sent one waits
     let waited = 0, onGate = 0, arrived = false, strayed = 0, gateHeld = 0;
@@ -247,18 +250,21 @@ test('a second unit sent to a pit with every face working waits in the holding b
       if (ub.face >= 1) break;
       if (ub.haul.wait === 'gate') {
         waited++;
-        const there = Math.hypot(ub.haul.x - spot[0], ub.haul.z - spot[1]) < 1;
+        const there = spots.some(([x, zz]: number[]) => Math.hypot(ub.haul.x - x, ub.haul.z - zz) < 1);
         // once it has got to the holding bay it stays there while it waits
         if (there) arrived = true; else if (arrived) strayed++;
-        if (Math.hypot(ub.haul.x - gateXZ[0], ub.haul.z - gateXZ[1]) < 2.5) onGate++;
+        // (the bay is beside the gate: on its way there it may cross the gate's cell, but it waits in the bay)
+        if (arrived && gates.some(([x, zz]: number[]) => Math.hypot(ub.haul.x - x, ub.haul.z - zz) < 2.5)) onGate++;
       }
-      // the gate cell is never the waiting unit's
-      const holders = sample().cells[gate.join(',')] ?? [];
-      if (holders.includes(b)) gateHeld++;
+      // once it is in the bay, the gate cell is never the waiting unit's
+      const cells = sample().cells;
+      if (arrived) for (const gt of z.gates) if ((cells[gt.join(',')] ?? []).includes(b)) gateHeld++;
     }
     const ub = units().find((u: any) => u.id === b);
-    return { waited, arrived, strayed, onGate, gateHeld, face: ub.face, phase: ub.haul.phase };
+    return { laid, waited, arrived, strayed, onGate, gateHeld, face: ub.face, phase: ub.haul.phase };
   });
+  // (the base the hub laid its own haul road on has the bay flagged: nothing was placed by hand)
+  expect(r.laid).toBeGreaterThan(0);
   expect(r.waited).toBeGreaterThan(20);
   // in the holding bay the whole time it waits, and never on (or holding) the gate
   expect(r.arrived).toBe(true);
@@ -273,7 +279,10 @@ test('a rover waits for a digger\'s reservation and its trip\'s ETA stretches; a
   await start(page, 'mare', 'human');
   const r = await page.evaluate(() => {
     const g = window.__game!;
-    const { a } = setupPair();
+    const { a, b } = setupPair();
+    // the hub's other unit stays in its bay: the digger's road is the rover's alone
+    g.recallUnit(b);
+    g.advanceGameSeconds(5);
     g.grantResources({ metals: 500, parts: 500 });
     // a habitat's rover sets off along the road
     const near = (type: string, x: number, z: number) => {
