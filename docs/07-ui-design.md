@@ -46,7 +46,7 @@ echoes that colour in exactly three places, each beside a shape or a word:
 
 | Where | Colour | The redundant carrier |
 |---|---|---|
-| The **3 px family rule** on a notification card, its stack line and its log row (`notify.css`, `--nf-*`) | research `#4a90e2` · field `#2bb3a3` · era paper `#f5f7f9` · weather `#e8b422` · hazard `#e5534b` | the family glyph (✦ ◎ ⚑ ☉ ⚠) and the card's own shape and place (§4a) |
+| The **3 px family rule** on a notification card, its stack line and its log row, and the tint of its glyph (`notify.css`, `--nf-*`) | research `#4a90e2` · field `#2bb3a3` · era paper `#f5f7f9` · weather `#e8b422` · hazard `#e5534b` | the family glyph (✦ ◎ ⚑ ☉ ⚠) and the card's own shape and place (§4a) |
 | The **family glyph** on a palette card and in the inspector's title (`palette.ts familyBadge`) | the family's accent (`FAMILY_CSS`: power `#e8b422`, extraction `#d9772b`, industry `#7a5cc7`, life `#7cc242`, science `#2f7fd0`, export `#c9302c`, logistics `#8e9197`) | the glyph's shape (⚡ ⛏ ⚗ ♥ ⚛ ↗ ⇄), the tab the card sits under, the card's name |
 | A pit's **end-state chip** on the resource highlight (`.hl-exhausted`, `.hl-boxed`, `.hl-reclaimed`) | amber `#e8a72d` · red `#d9503f` · green `#66ad4b` (border and word) | the words EXHAUSTED · BOXED IN · RECLAIMED, the cross-hatch and the border style |
 
