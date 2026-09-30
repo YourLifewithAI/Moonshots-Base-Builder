@@ -95,8 +95,8 @@ test('data: a pick pair per era, 16 track techs and 3 capstones, each honest and
       blurb8: Object.keys(T.ERA_BLURB_8),
     };
   });
-  expect(r.n).toBe(141); // main's 110 (with the 4 road tiers), the 19 destiny techs, docs/02's 3 on-board power techs, docs/16's 3 forecasting techs, and the 6 extraction/water techs
-  expect(r.track).toBe(16);
+  expect(r.n).toBe(144); // main's 110 (with the 4 road tiers), the 19 destiny techs, docs/02's 3 on-board power techs, docs/16's 3 forecasting techs, the 6 extraction/water techs, and docs/20's 3 faction landings
+  expect(r.track).toBe(19); // 16 picks (the solo landings among them) + the three faction landings
   expect(r.caps).toBe(3);
   for (const [e, c, a] of r.pairs) {
     expect(c.era, `era ${e}`).toBe(e);

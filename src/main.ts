@@ -1,5 +1,9 @@
 /** Boot: parse URL params, create the Game, mount the UI.
  *  ?site=mare|southpole|lavatube  skip site select and land immediately
+ *  ?faction=robots|accelerationists|solarpunks
+ *                                 play as a faction (docs/20): its expedition is derived from it and
+ *                                 wins over ?exp=; with no ?site= it only rides window.__pendingFaction
+ *                                 under ?debug until the faction step of the site screen lands
  *  ?seed=42                       deterministic world + events
  *  ?debug                         expose window.__game
  *  ?safe                          safe render mode (also a menu setting)
@@ -17,6 +21,7 @@ import { Game } from './core/game';
 import { mountUI } from './ui/mount';
 import { attachDebug } from './debug';
 import { SITES, type SiteId } from './data/sites';
+import { FACTIONS, isFactionId } from './data/factions';
 import { RESUME_KEY, loadSettings, storedTouch } from './core/settings';
 import { detectTouch, setTouchMode } from './core/touch';
 import { registerPwa } from './pwa';
@@ -108,8 +113,15 @@ if (game) {
   if (params.has('debug')) attachDebug(game);
 
   const siteParam = params.get('site');
+  const factionParam = params.get('faction');
+  const faction = isFactionId(factionParam) ? factionParam : null;
+  // the parsed faction, for the integrator's specs: only under ?debug (docs/20 W0d; W0i reads it)
+  if (faction && params.has('debug')) (window as unknown as { __pendingFaction?: string }).__pendingFaction = faction;
   if (siteParam && siteParam in SITES) {
-    game.startNew(siteParam as SiteId, params.get('exp') === 'robotic' ? 'robotic' : 'human');
+    // a faction's expedition is derived from it (and wins over ?exp=); ?site= alone stays a solo game
+    const expedition = faction ? FACTIONS[faction].expedition : params.get('exp') === 'robotic' ? 'robotic' : 'human';
+    // TODO(fw0i): pass the faction: game.startNew(site, expedition, faction)
+    game.startNew(siteParam as SiteId, expedition);
   } else if (takeResume()) {
     // a save-and-reload (touch switch, update): pick it straight up
     void game.continueSave();

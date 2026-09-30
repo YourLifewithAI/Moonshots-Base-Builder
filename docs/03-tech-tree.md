@@ -127,6 +127,9 @@ Hazard hooks (`exposure`, `guard`) carry no card line until the hazards ship.
 | **Field Spectrometers** | ▣ | 144 | — | — | +10% output: Research Lab | +20% draw: Research Lab | Research Labs bolt a spectrometer turret onto the roof. |
 | **Crewed Landing**<br><sub>human only · ⌂ COLONY · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | — | — | The Lander flies a flag, and its crew cabin shows a lit window band. |
 | **Robotic Mission**<br><sub>robotic only · ◉ AUTOMATION · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | — | — | The Lander’s cabin windows are blanked, and a rover rides stowed in a cradle on its hull. |
+| **Foundry Landing**<br><sub>robotic only · ⚑ faction-locked: robots · ◉ AUTOMATION · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | builds 10% faster<br>◉ ROBOTS & FAB research ×0.85 cost<br>▣ SILICON & COMPUTE research ×0.85 cost<br>drone range ×1.15: survey flights take 13% less time | solar arrays take ×1.6 flare damage<br>machine reboot, latch and burn ×1.75<br>stations and units run at ×0.25 output at night<br>standby draw ×1.3 at night<br>the bank charges at 75%<br>the bank discharges ×1.25 as fast | The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating. |
+| **Vanguard Landing**<br><sub>human only · ⚑ faction-locked: accelerationists · ⌂ COLONY · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | +35% output: Research Lab<br>+20% output: Data Center<br>▣ SILICON & COMPUTE research ×0.8 cost<br>◆ MATERIALS research ×0.8 cost<br>+100≡ data on landing | −8 morale everywhere<br>morale falls ×2 as fast<br>SCRUTINY: a death, wreck or accident raises a meter; high, it cuts crewed output and research, and hearings recall crew<br>hazard windows ×1.25 as often<br>⌂ COLONY picks ×1.15 cost | The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull. |
+| **Commons Landing**<br><sub>human only · ⚑ faction-locked: solarpunks · ⌂ COLONY · the Era 1 destiny (the landing)</sub> | ★ | 0 | — | — | +10 morale everywhere<br>hazard windows ×0.6 as often<br>Colony hazard warnings last ×1.5<br>⌂ HABITAT research ×0.6 cost<br>settlers arrive ×1.25 as often<br>⌂ COLONY picks ×0.85 cost | ◆ MATERIALS research ×1.3 cost<br>◉ ROBOTS & FAB research ×1.3 cost<br>◎ EXPLORATION research ×1.3 cost<br>builds 30% slower | The Lander wears solar awnings, planter boxes by its door and a green banner. |
 
 ### Era 2 · EARLY CONSTRUCTION
 
@@ -333,7 +336,7 @@ Opens with 4 techs of era 7, or 2 plus the deed: **25▰ manufactured**; one of 
 | 7 | How does a foil reach orbit? | Electromagnetic Mass Driver / Propellant Depot | ILMENITE PLAINS: Driver: the equator gives it ×1.5.<br>SHACKLETON RIM: Propellant: it ignores the pole’s ×0.6.<br>MARIUS HILLS TUBE: A split. |
 | 8 | What is the swarm for? | Power Beaming Return / Von Neumann Foundry | — |
 
-141 techs: 135 researchable from the start of their era (16 of them destiny picks, the two landings
+144 techs: 138 researchable from the start of their era (19 of them destiny picks, the 5 landings
 among them), 3 breakthroughs, 3 destiny capstones; 6 doctrines, 53 insights.
 <!-- END GENERATED -->
 
