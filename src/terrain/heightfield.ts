@@ -49,6 +49,9 @@ export class Heightfield {
   /** cell rects [gx0, gz0, gx1, gz1] the pits changed since the renderer last
    *  took them (terrain/pitCarve.ts takeCarved) */
   readonly carved: number[] = [];
+  /** cell rects [gx0, gz0, gx1, gz1) that grading levelled since the renderer last took them
+   *  (core/grading.ts; game.ts takeTerrain: the chunks rebuild, the rocks on them go) */
+  readonly leveled: number[] = [];
   readonly craters: Crater[] = [];
   /** every local deposit, ice first (index 0 = the guaranteed starter patch) */
   readonly deposits: Deposit[] = [];
@@ -269,8 +272,10 @@ export class Heightfield {
   readonly padMask = new Uint8Array(N * N);
 
   /** Flatten a cell rect [gx0..gx1) x [gz0..gz1) to its mean corner height,
-   *  with a mask-aware two-ring smoothed skirt. Returns pad height. */
-  flatten(gx0: number, gz0: number, gx1: number, gz1: number, forcedH?: number): number {
+   *  with a mask-aware two-ring smoothed skirt (`skirt` false: the samples of
+   *  the rect only, as a grading job levels one cell at a time; the whole
+   *  rect's flatten at its end feathers the skirt once). Returns pad height. */
+  flatten(gx0: number, gz0: number, gx1: number, gz1: number, forcedH?: number, skirt = true): number {
     let sum = 0, n = 0;
     for (let iz = gz0; iz <= gz1; iz++) {
       for (let ix = gx0; ix <= gx1; ix++) { sum += this.h[iz * N + ix]; n++; }
@@ -282,6 +287,7 @@ export class Heightfield {
         this.padMask[iz * N + ix] = 1;
       }
     }
+    if (!skirt) return pad;
     // skirt: feather two rings outward, never touching another pad's samples
     for (let ring = 1; ring <= 2; ring++) {
       const w = ring === 1 ? 0.6 : 0.25; // blend weight toward the pad

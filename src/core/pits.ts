@@ -580,11 +580,11 @@ export function pitRefusal(s: GameState, hf: Heightfield, gx0: number, gz0: numb
   return '';
 }
 
-/** Site Grading on a 4-cell square at (gx, gz): refused over a pit (its
+/** Site Grading on a box of `cells` × `cellsZ` cells at (gx, gz) (a 4-cell square: the old pass): refused over a pit (its
  *  skirt too — grading never fills a hole), '' otherwise. */
-export function gradePitRefusal(s: GameState, hf: Heightfield, gx: number, gz: number, cells: number): string {
+export function gradePitRefusal(s: GameState, hf: Heightfield, gx: number, gz: number, cells: number, cellsZ = cells): string {
   const rec = reclaimedSet(s, hf);
-  for (let iz = gz - 2; iz <= gz + cells + 2; iz++) {
+  for (let iz = gz - 2; iz <= gz + cellsZ + 2; iz++) {
     for (let ix = gx - 2; ix <= gx + cells + 2; ix++) {
       if (ix < 0 || iz < 0 || ix >= N || iz >= N) continue;
       const k = iz * N + ix;

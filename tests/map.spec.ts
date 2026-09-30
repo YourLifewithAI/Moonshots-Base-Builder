@@ -308,9 +308,9 @@ test('large pads: 9+ cells need ≤0.8 m of relief, and Site Grading makes one',
     return { ...spot, graded: g.canPlace('reactor', spot.gx, spot.gz) };
   });
   expect(r).not.toBeNull();
-  expect(r!.reactor).toMatch(/^Too rough for a large pad \(\d\.\d m relief > 0\.8 m\) — grade it \(Site Grading\)$/);
+  expect(r!.reactor).toMatch(/^Too rough for a large pad \(\d\.\d m relief > 0\.8 m\) — grade it \(Grade Site\)$/);
   expect(r!.graded.valid).toBe(true);
-  // on the mare there is no grading: the reason says what to do instead
+  // grading is on every site (docs/19 S5): the mare's reason names it too
   await start(page, 'mare');
   await complete(page, ['massDriver']);
   const mare = await page.evaluate(() => {
@@ -323,7 +323,7 @@ test('large pads: 9+ cells need ≤0.8 m of relief, and Site Grading makes one',
     }
     return '';
   });
-  expect(mare).toMatch(/^Too rough for a large pad \(\d\.\d m relief > 0\.8 m\) — find flatter ground$/);
+  expect(mare).toMatch(/^Too rough for a large pad \(\d\.\d m relief > 0\.8 m\) — grade it \(Grade Site\)$/);
 });
 
 test('survey: pays data, flies a drone (no rover is lent), reveals a breakthrough, and novelty decays', async ({ page }) => {

@@ -12,7 +12,7 @@ import type { SiteDef } from '../data/sites';
 import { TECHS } from '../data/techs';
 import { DEPOSIT_INFO } from '../data/deposits';
 import type { BuildingState, GameState } from '../core/state';
-import type { SurveyTier } from '../core/mods';
+import type { Mods, SurveyTier } from '../core/mods';
 import { beyondNetwork, depositRevealed, groundMapped, inNetwork } from '../core/exploration';
 import type { Heightfield } from '../terrain/heightfield';
 import { ghostGeometry } from './recipes';
@@ -21,7 +21,8 @@ import { centerOf, footprintRect } from './instances';
 import { createGhost, setGhostBlocked } from './ghost';
 import { cellCentre, footprintCells, keyCell, mastStand, planSpur, roadMap, zoneStand } from '../core/roads';
 import { CellPreview } from './cellPreview';
-import { gradeEnergy, gradePitRefusal, pitRefusal } from '../core/pits';
+import { gradeEnergy, pitRefusal } from '../core/pits';
+import { gradePlan, jobRect, squareAt } from '../core/grading';
 import { pitWayWarning } from '../core/hubPreview';
 import { ROAD } from '../data/roads';
 
@@ -253,46 +254,28 @@ export function gradeCost(hf: Heightfield, gx: number, gz: number): number {
   return gradeEnergy(hf, gx, gz, GRADE_CELLS, GRADE_COST_ENERGY);
 }
 
-/** Grading validity: in bounds, inside the build network, no structure on top,
- *  never over a pit (it levels heaps, but cannot fill a hole: docs/17 §11.3),
- *  and enough stored energy for the dozer pass. */
+/** Grading validity of the legacy 4×4 square at (gx, gz) (the debug `canGrade`): the box check of
+ *  core/grading.ts (in bounds, inside the build network, no structure on top, never over a pit, a heap only
+ *  with Site Grading, and enough stored energy). The box tool asks `gradePlan` for any rectangle. */
 export function checkGrade(
   state: GameState,
   hf: Heightfield,
   gx: number,
   gz: number,
+  mods: Pick<Mods, 'grading'> = { grading: true },
 ): { valid: boolean; reason: string } {
-  const gx1 = gx + GRADE_CELLS, gz1 = gz + GRADE_CELLS;
-  if (gx < 1 || gz < 1 || gx1 > MAP_CELLS - 1 || gz1 > MAP_CELLS - 1) {
-    return { valid: false, reason: 'Outside survey area' };
-  }
-  const [cx, cz] = gradeCenter(gx, gz);
-  for (const b of state.buildings) {
-    const o = footprintRect(b);
-    if (gx < o.gx1 && gx1 > o.gx0 && gz < o.gz1 && gz1 > o.gz0) {
-      return { valid: false, reason: 'A structure is in the way' };
-    }
-  }
-  // a hole is refused wherever it is: grading cannot fill it (docs/17 §11.3)
-  const pit = gradePitRefusal(state, hf, gx, gz, GRADE_CELLS);
-  if (pit) return { valid: false, reason: pit };
-  if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };
-  const cost = gradeCost(hf, gx, gz);
-  if (state.powerStored < cost) {
-    return { valid: false, reason: `Need ${cost} stored energy — have ${Math.floor(state.powerStored)}` };
-  }
-  return { valid: true, reason: '' };
+  const plan = gradePlan(state, hf, mods, squareAt(gx, gz));
+  return { valid: plan.ok, reason: plan.reason };
 }
 
 /** Footprints of this many cells (and the mass driver) are large pads. */
 const LARGE_PAD_CELLS = 9;
 
-/** Large pads need gentle ground; the fix is Site Grading where it exists. */
-function largePadRefusal(type: BuildingId, cells: number, relief: number, site: SiteDef): string {
+/** Large pads need gentle ground; the fix is the Grade Site tool (rovers level a dragged box, on every site, docs/19 S5). */
+function largePadRefusal(type: BuildingId, cells: number, relief: number, _site: SiteDef): string {
   if (cells < LARGE_PAD_CELLS && type !== 'massDriver') return '';
   if (relief <= MAX_SLOPE_LARGE) return '';
-  const grading = TECHS.siteGrading;
-  const fix = !grading.sites || grading.sites.includes(site.id) ? `grade it (${grading.name})` : 'find flatter ground';
+  const fix = 'grade it (Grade Site)';
   // rounded up, so a refusal never reads '0.8 m > 0.8 m'
   return `Too rough for a large pad (${(Math.ceil(relief * 10) / 10).toFixed(1)} m relief > ${MAX_SLOPE_LARGE} m) — ${fix}`;
 }
@@ -345,6 +328,13 @@ export function checkPlacement(
       return { valid: false, reason: 'Overlaps a structure' };
     }
   }
+  // a box the rovers are grading (docs/19 S5): nothing goes up on it until they are done
+  for (const j of state.gradeJobs ?? []) {
+    const g = jobRect(j);
+    if (r.gx0 < g[2] && r.gx1 > g[0] && r.gz0 < g[3] && r.gz1 > g[1]) {
+      return { valid: false, reason: 'BEING GRADED — the rovers are levelling this ground; wait for them, or cancel the job' };
+    }
+  }
   // roads: nothing is built on one, and every structure needs one to its door
   // (a field type: one within reach of its field) — core/roads.ts
   const roads = roadMap(state);
@@ -358,9 +348,8 @@ export function checkPlacement(
   const large = largePadRefusal(type, r.w * r.d, relief, site);
   if (large) return { valid: false, reason: large };
   if (relief > MAX_SLOPE_DELTA) {
-    // the numbers and the fix, as for a large pad (grading is era 1 where it exists)
-    const grading = TECHS.siteGrading;
-    const fix = !grading.sites || grading.sites.includes(site.id) ? `find flatter ground, or grade it (${grading.name})` : 'find flatter ground';
+    // the numbers and the fix, as for a large pad (grading is on every site from landing)
+    const fix = 'find flatter ground, or grade it (Grade Site)';
     return { valid: false, reason: `Terrain too rough (${(Math.ceil(relief * 10) / 10).toFixed(1)} m relief > ${MAX_SLOPE_DELTA} m) — ${fix}` };
   }
   if (state.buildings.length > 0 && !inNetwork(state, cx, cz)) return { valid: false, reason: beyondNetwork(state) };

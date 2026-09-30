@@ -328,7 +328,7 @@ test('a building placed later near a pit stops its growth toward it from then on
   expect(r.westAfter).toBeLessThan(r.west0);
 });
 
-test('placement near and on a pit is refused with the words; grading refuses a pit and levels a heap', async ({ page }) => {
+test('placement near and on a pit is refused with the words; grading refuses a pit and a rover job levels a heap', async ({ page }) => {
   test.setTimeout(240_000);
   await start(page);
   const r = await page.evaluate(() => {
@@ -374,14 +374,18 @@ test('placement near and on a pit is refused with the words; grading refuses a p
     g.grantPower(5000);
     const e0 = g.getState().powerStored;
     const relief0 = g.terrainRelief(hx, hz, hx + 4, hz + 4);
-    g.gradeAt(hx, hz);
+    // grading is a rover job (docs/19 S5): the box is queued and paid for, the heap stays until a rover has levelled it
+    g.gradeBox(hx, hz, hx + 4, hz + 4);
     g.advanceGameSeconds(0);
     const spent = e0 - g.getState().powerStored;
+    const queued = (g.getState().gradeJobs ?? []).length;
+    const reliefQueued = g.terrainRelief(hx, hz, hx + 4, hz + 4);
+    for (let t = 0; t < 900 && (g.getState().gradeJobs ?? []).length; t += 5) { g.grantPower(5000); g.advanceGameSeconds(5); }
     const relief1 = g.terrainRelief(hx, hz, hx + 4, hz + 4);
     g.gradeAt(cx, cz);
     g.advanceGameSeconds(0);
     const alerts = g.getState().alerts.map((a: any) => a.text);
-    return { words: [...words], wrong, gradePit, gradeHeap, spent, relief0, relief1, alerts, deep: pit.deep };
+    return { words: [...words], wrong, gradePit, gradeHeap, spent, queued, reliefQueued, relief0, relief1, alerts, deep: pit.deep };
   });
   expect(r.wrong).toEqual([]);
   const heads = r.words.map((w: string) => w.split(' — ')[0]);
@@ -396,8 +400,11 @@ test('placement near and on a pit is refused with the words; grading refuses a p
   expect(r.alerts.some((t: string) => t.startsWith('CANNOT GRADE — a pit'))).toBe(true);
   expect(r.gradeHeap).toEqual({ valid: true, reason: '' });
   expect(r.relief0).toBeGreaterThan(1);
-  expect(r.relief1).toBeLessThan(0.01);
+  // queued and paid for (a heap's cells cost more: × (1 + relief ÷ 2 m)), the ground unchanged until a rover levels it
+  expect(r.queued).toBe(1);
   expect(r.spent).toBeGreaterThan(40);
+  expect(r.reliefQueued).toBeCloseTo(r.relief0, 6);
+  expect(r.relief1).toBeLessThan(0.01);
 });
 
 test('road A* routes round a pit and never crosses it; the road tool stops at its rim', async ({ page }) => {

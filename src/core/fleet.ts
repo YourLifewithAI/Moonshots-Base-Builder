@@ -255,8 +255,8 @@ export function assignRovers(s: GameState): Map<number, number> {
 /** Rovers a grading job takes: one, two above this many cells (docs/19 S5). */
 export const GRADE_BIG_CELLS = 32;
 
-/** Free rovers take the queued grading jobs, oldest first: one a job, two on a big one.
- *  A stub for S5 (core/grading.ts): there are no jobs until the tool makes them. */
+/** Free ground rovers take the queued grading jobs (core/grading.ts), oldest first: one a job, two on a
+ *  big one. A drone has no blade: it never takes one. */
 function dispatchGrade(s: GameState) {
   for (const j of s.gradeJobs ?? []) {
     if (j.left <= 0) continue;
@@ -264,7 +264,7 @@ function dispatchGrade(s: GameState) {
     const on = s.rovers.filter((r) => r.grade === j.id);
     for (let n = on.length; n < want; n++) {
       const r = s.rovers.find((x) => x.site === null && !x.pinned && x.core === undefined
-        && x.grade === undefined && !roverDown(s, x));
+        && x.grade === undefined && !roverDown(s, x) && unitKind(s, x) !== 'drone');
       if (!r) break;
       delete r.road;
       r.grade = j.id;

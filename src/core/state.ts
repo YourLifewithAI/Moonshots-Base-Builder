@@ -403,7 +403,7 @@ export interface RoverUnit extends PackState {
   /** the trip it is on, or last made (arrived: t ≥ dur) */
   trip?: RoverTrip | null;
   /** what it did this tick, at the spot it stands on (the visuals animate it) */
-  task?: 'weld' | 'sinter';
+  task?: 'weld' | 'sinter' | 'grade';
   /** a save from before transit: it settles where its work is, arrived */
   place?: boolean;
   /** a deposit survey it cores (docs/17 §13.2): the deposit's id */
@@ -701,6 +701,12 @@ export interface GradeJob {
   energy: number;
   /** the rovers on it (roster ids) */
   rovers?: number[];
+  /** the rectangle, in cells: [gx0, gz0, gx1, gz1), gx1 and gz1 exclusive (absent: the cells' bounds) */
+  rect?: [number, number, number, number];
+  /** rover-seconds each cell takes, by its place in `cells` (absent: even shares of `total`) */
+  secs?: number[];
+  /** game time it was queued at */
+  at?: number;
 }
 
 /** A flare's phases (docs/16 §3.3): the flash (the telegraph), the protons
@@ -1093,7 +1099,7 @@ export interface GameState {
   buildings: BuildingState[];
   nextBuildingId: number;
   /** flatten history, replayed onto regenerated terrain on load */
-  flattens: { x0: number; z0: number; x1: number; z1: number; h: number }[];
+  flattens: { x0: number; z0: number; x1: number; z1: number; h: number; /** a grading job's single cell: no skirt (docs/19 S5) */ noSkirt?: true }[];
   /** box-drag grading jobs rovers work (docs/19 S5, core/grading.ts), oldest first */
   gradeJobs?: GradeJob[];
   nextGradeJob?: number;
