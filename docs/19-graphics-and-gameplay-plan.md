@@ -4,6 +4,8 @@
 
 > **Status (2026-09-29): planned, not started.** The player approved the plan and asked to hold off on coding until they say go. **Concurrency cap: 5 agents at a time** (the player's choice). Written against main at 6728e54. Related: [17-extraction-hubs.md](17-extraction-hubs.md), [18-follow-ups.md](18-follow-ups.md). `$SP` below means the session scratchpad directory.
 
+> **Status (2026-09-30, end of the program).** Everything in the plan is merged except **S9** (touch and menu pass), which the **player paused**: branch `work/s9` (last commit dd7ac9f) is kept, unmerged, with no spec run on it; docs/18 §4 says exactly where it stands. Every merged stream has an "As shipped" subsection below, and where it differs from the plan the subsection is the truth. The notice above is the state when the plan was approved. Shipped, with the pull request that merged each: W0d #50, W0a #51, W0b2 #52, W0b1 #53 (CP0); S1b #54, S7 #56, S3 #57, S4a #58, S1a #59 (CP1a); S6 #60, S5 #61, S2b #62, S4b #63, S2a #64 (CP1b); D1 #65, D2 #67, D3 #68, D4 #69 (Test round 1); S10 Phase A #66; S8 #70; S11 #71 and D6 #72 (loose ends from the test round and the docs pass, added after the plan). S10 Phase B refreshed docs/18, this block and docs/00. The full-suite result of Test round 2 is docs/18 §1.1.
+
 ## Context
 
 After the extraction-hub and space-weather work (PRs #39–#47, main at 6728e54) the player's verdict is: the graphics are neither good nor stable, and several systems feel janky. Decisions taken in planning (the player's picks in **bold**):
@@ -52,27 +54,29 @@ Each **stream** is one agent in its own git worktree (`$SP/wt/<name>`, branch `w
 
 ## Streams, sizes and dependencies
 
-| Stream | What | Size · agent-h | Needs merged first | Port |
-|---|---|---|---|---|
-| **W0d** | Contracts and mechanical refactors | S · 3–4 | — | 5801 |
-| **W0a** | Walk-mode removal + time controls | S · 5 | W0d | 5811 |
-| **W0b2** | Fixed isometric camera | S · 4–5 | W0d | 5831 |
-| **W0b1** | Renderer collapse | L · 10–12 | W0d; its `game.ts` pass after W0a and W0b2 | 5821 |
-| **S1a** | Cel look: ramp, palette, night | M · 8–10 | CP0 | 5841 |
-| **S1b** | Ink outlines | M · 8–10 | CP0 | 5842 |
-| **S3** | Roads that make sense | L · 12–16 | CP0 | 5861 |
-| **S4a** | Sim reservations, bays, queues | M · 10–12 | CP0 | 5871 |
-| **S7** | One notification system | M · 6–8 | CP0 | 5891 |
-| **S2a** | Silhouettes and units | M · 8–10 | CP1a | 5851 |
-| **S2b** | Pit look | M · 6–8 | CP1a | 5852 |
-| **S4b** | Driver simplification and motion | M · 8–10 | S4a, S3 (CP1a) | 5872 |
-| **S5** | Box-drag grading job | M · 8–12 | S4a (CP1a) | 5876 |
-| **S6** | Survey-drone fleet | L · 12–16 | S7 (CP1a) | 5881 |
-| **S8** | Outposts made legible | M · 5–6 | CP1b | 5901 |
-| **S9** | Touch and menu pass | M · 5–6 | CP1b | 5911 |
-| **S10** | Docs and art bible | M · 5–6 | CP1b | 5921 |
-| **D1–D4** | Spec repair by group (Test round 1) | M · 6–10 each | CP1b | 5931–5961 |
-| **D5** | Full suite (each test round) | S · 3–4 | D1–D4 (TR1); CP2 (TR2) | 5971 |
+| Stream | What | Size · agent-h | Needs merged first | Port | Status |
+|---|---|---|---|---|---|
+| **W0d** | Contracts and mechanical refactors | S · 3–4 | — | 5801 | shipped #50 |
+| **W0a** | Walk-mode removal + time controls | S · 5 | W0d | 5811 | shipped #51 |
+| **W0b2** | Fixed isometric camera | S · 4–5 | W0d | 5831 | shipped #52 |
+| **W0b1** | Renderer collapse | L · 10–12 | W0d; its `game.ts` pass after W0a and W0b2 | 5821 | shipped #53 |
+| **S1a** | Cel look: ramp, palette, night | M · 8–10 | CP0 | 5841 | shipped #59 |
+| **S1b** | Ink outlines | M · 8–10 | CP0 | 5842 | shipped #54 |
+| **S3** | Roads that make sense | L · 12–16 | CP0 | 5861 | shipped #57 |
+| **S4a** | Sim reservations, bays, queues | M · 10–12 | CP0 | 5871 | shipped #58 |
+| **S7** | One notification system | M · 6–8 | CP0 | 5891 | shipped #56 |
+| **S2a** | Silhouettes and units | M · 8–10 | CP1a | 5851 | shipped #64 |
+| **S2b** | Pit look | M · 6–8 | CP1a | 5852 | shipped #62 |
+| **S4b** | Driver simplification and motion | M · 8–10 | S4a, S3 (CP1a) | 5872 | shipped #63 |
+| **S5** | Box-drag grading job | M · 8–12 | S4a (CP1a) | 5876 | shipped #61 |
+| **S6** | Survey-drone fleet | L · 12–16 | S7 (CP1a) | 5881 | shipped #60 |
+| **S8** | Outposts made legible | M · 5–6 | CP1b | 5901 | shipped #70 |
+| **S9** | Touch and menu pass | M · 5–6 | CP1b | 5911 | **PAUSED by the player**; branch `work/s9` kept, not merged, see docs/18 §4 |
+| **S10** | Docs and art bible | M · 5–6 | CP1b | 5921 | Phase A shipped #66; Phase B (docs/18, this status, docs/00) after the test rounds |
+| **D1–D4** | Spec repair by group (Test round 1) | M · 6–10 each | CP1b | 5931–5961 | D1 #65, D2 #67, D3 #68, D4 #69 |
+| **D5** | Full suite (each test round) | S · 3–4 | D1–D4 (TR1); CP2 (TR2) | 5971 | run by the coordinator; result in docs/18 §1.1 |
+| **S11** | Loose ends from the test round and the docs pass (added after the plan; its own section below) | S | TR1 | 5981 | shipped #71 |
+| **D6** | Two specs the full run found (`anim`, `avoidance`; added after the plan) | S | S11 | 5991 | shipped #72 |
 
 Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about a day and a half: several days of agent time given limits.
 
@@ -86,6 +90,8 @@ Rough calendar: Wave 0 about a day, each sub-wave about a day, Waves 2–3 about
 | **CP2** | Wave 2 | S8 → S9 → S10 | `npm run build` and one boot test (the specs run in Test round 2) | The map with outposts, touch at 667×375 and 932×430, the art bible |
 | **TR1** | after CP1b | D1–D4 in parallel, then D5 | full suite green after repairs (known flakes re-run alone), `npm run build` | A short report: what broke, what was fixed |
 | **TR2** | after CP2 | one D5 run, fixes by the responsible streams | full suite green (known flakes re-run alone), `npm run build` | A final report |
+
+**Status:** CP0, CP1a, CP1b and Test round 1 are done; CP2 is done except S9 (paused by the player: docs/18 §4); Test round 2 is the full-suite run, its result in docs/18 §1.1.
 
 **Cut line if limits bind:** every checkpoint leaves main playable. After CP1b every named complaint is fixed; S8–S10 can wait. The test rounds must not be skipped: main already carries about 20 stale specs (docs/18 §1).
 
@@ -516,6 +522,8 @@ Branch `work/s8`. M1–M3 shipped; where the code differed from the plan, and th
 
 ### S9 · Touch and menu pass (port 5911)
 Owns `ui/touchUi.ts`, `touch.css`, the controls table in `menu.ts`. Touch tilt and turn buttons; a two-finger rectangle for the grading box; survey queue and field reports on the side sheet; the notification families at 667×375; the menu's controls table for the single style. Spec: `touch.spec.ts` extended. Milestones: M1 camera and grading gestures; M2 sheets and families; M3 spec.
+
+**Status: paused by the player.** Not merged; the work is on branch `work/s9` (dd7ac9f), untested. docs/18 §4 lists what is done, what is untested and what is left.
 
 ### S10 · Docs and the art bible (port 5921)
 Owns `docs/06-art-direction.md`, `docs/07-ui-design.md` (§2–3, §12), `docs/11-research-and-map-spec.md`, `docs/15-roads.md`, `docs/17-extraction-hubs.md` §20, `docs/18-follow-ups.md`, the README. docs/06 becomes the cel bible (family palette, ramp and ink constants, silhouettes and best sides, the pit palette, night rules, camera presets, cost budget; the ladder and Classic sections go); docs/07 gets the notification families and the colour exception; docs/11 the drone fleet; docs/18 is refreshed with what remains (F4–F6, extraction Phases 6–8, F5's four breakthroughs).

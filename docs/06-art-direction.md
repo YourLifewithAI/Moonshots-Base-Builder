@@ -927,10 +927,10 @@ direction, and `tests/look.spec.ts` holds it.
 
 | Budget | Bound | Where it is asserted, and measured |
 |---|---|---|
-| Draw calls at home (170 m) | ≤ 80 | The seed-42 base with everything unlocked (17 building types): 75 calls, 260 k △ (S2a) with outlines |
-| Draw calls at the far zoom (830 m) | ≤ 100 in the spec | 101 calls, 296 k △ measured at S2a: about forty of the 64 terrain chunks are in view, a call each; S6's survey drone adds two (its mesh and its ink twin), so the spec's far bound is out of date (docs/18) |
-| Triangles | ≤ 300 k, home and far | 260 k home, 296 k far |
-| Era 8 base, each band (Colony, Automation, Concord) | < 90 calls, < 600 k △ at 290 m | measured 74–80 calls (S1b) |
+| Draw calls at home (170 m) | ≤ 80 | The seed-42 base with everything unlocked (17 building types): 73–75 calls, 256–260 k △ with outlines |
+| Draw calls at the far zoom (830 m) | ≤ 105 | 96–101 calls measured (about forty of the 64 terrain chunks are in view, a call each, and S6's survey drone adds two: its mesh and its ink twin); the bound is 105 and a call drifts with sim time |
+| Triangles | ≤ 300 k, home and far | 256–260 k home, 284–288 k far: about 12 k of headroom at the far zoom |
+| Era 8 base, each band (Colony, Automation, Concord) | < 90 calls, < 600 k △ at 290 m | measured 85, 80 and 81 calls: **five calls of headroom** (74–80 before the survey drones) |
 | Post passes, render targets | none | `getRenderInfo()` has no `postChain`, `targets` or `sceneRenders` |
 | Shadow maps, tone mapping | none | context `shadowMap: false`, `toneMapping: 0` |
 | Antialiasing | the context's MSAA | `antialias: true` |

@@ -1,131 +1,102 @@
 # 18 — Follow-ups
 
-## September 27 update: mining and learning
+The hand-off list after the graphics and gameplay program ([19-graphics-and-gameplay-plan.md](19-graphics-and-gameplay-plan.md), PRs #50–#72; main at 0497053). It says what is really open. What shipped is recorded in docs/19's "As shipped" subsections, and the mining and learning work in [19-mining-learning-plan.md](19-mining-learning-plan.md).
 
-The implementation in [19-mining-learning-plan.md](19-mining-learning-plan.md)
-addresses review recommendations 1–3 and 8:
+It covers:
+- the tests: their state, the tests that are sensitive to load, and how to run the suite;
+- the design phases not yet built, and the stand-ins they will replace;
+- open findings the program turned up;
+- the mobile pass, which the player paused;
+- what only the player can do.
 
-- **Research:** Bay Extensions, Hardfaced Teeth, Water Reclamation, Water
-  Electrolysis, Deep Coring and Depot Halls now have working modifiers and
-  reachable prerequisites. Schema 5 preserves Pit Mapping's existing ID and
-  research progress. Deep Coring opens two 2 m benches in Era 4; digging bedrock
-  carries the additional 25% power draw.
-- **Delegation:** the Builder's `hubUnit` rule uses each hub's starvation and
-  checks power, bays, faces, ore and budget before printing. Feed Planner operates
-  on hub-owned units with production, power and night-feed policies. Manual
-  assignments, recalled units, opt-outs and cargo deliveries take priority.
-- **Learning:** the optional First Mine guide handles each landing site's
-  resources, supports replay, and explains the current mining constraint.
-  Resource help now teaches private hoppers, grades and working faces.
-- **Evidence:** 31 research nodes link to 26 primary sources in an engineering
-  notebook with maturity labels, lunar adaptation gaps and explicit game
-  simplifications. Six optional engineering pilots earn saved Insight discounts.
+## 1. The tests
 
-The historical test inventory below still applies to the older standalone-pad
-specs. This change runs targeted integration and existing hub/reserve regression
-checks; the deferred full-suite conversion and pacing pass remain separate.
+### 1.1 State
 
-This is a list of what is left open after the extraction-hub and space-weather work of late September 2026 (PRs #39–#46; main at 063305a). It covers four things:
-- test files that still describe the old game;
-- the design phases not yet built;
-- the stand-ins those phases will replace;
-- the full diagnostic pass that was deferred.
+The specs were repaired to the current game (hub units, the cel style, the fixed camera, the drone fleet, the notification families) in Test round 1 (streams D1 to D4, docs/19) and the follow-up D6. Each file passed alone at the end of its repair. The suite is **508 tests** in 41 files, one worker, serial:
 
-While the features were being built, each piece was checked only with `tsc --noEmit`, `npm run docs:check` and its own spec files, run alone. No full suite or pacing probe has run since PR #39.
-
-## 1. Test files that assume the old excavator and research names
-
-Phases 1–2 of docs/17 (PR #41) replaced the old extraction model. The specs below were written against the old model and were not updated. Expect them to fail until they are.
-
-| Old model (what these specs assume) | New model (what the code does now) |
+| Repaired by | Files (tests) |
 |---|---|
-| An **Excavator building** placed from the palette: `placeBuilding('excavator', …)`, and found by `b.type === 'excavator'` in `state.buildings` | Excavators are **hub units** in `s.haulers` (`Hauler`, `type: 'excavator'`). A hub prints them (`queueUnit(hubId)` in the debug API, the hub inspector's UNITS block). Every hub commissions with one free unit. `getHubs()` returns `{ hubs, units }`. Old-save excavators become units, or `legacy` pads with no hub. |
-| An **Ice Harvester building** (`'iceHarvester'`) | **Ice Miners** (`type: 'iceMiner'`), printed by the new **Water Management Plant** (`'waterPlant'`) on ice sites. |
-| **Regolith Smelting** (`regolithProcessing`) is the tech that unlocks the smelter | The Regolith Smelter is **available from landing** (60◆ 15⚙), and it commissions with one free excavator. `regolithProcessing` keeps its id, slot and cost, but is now **Pit Mapping**: off-road ×1.3, unit power ×1.1. |
-| Regolith (▲) is one base-wide pool, fed straight from excavator pads | ▲ is the pile plus the sum of the hubs' hoppers (315▲ each). Units tip into their own hub's hopper. |
-| Extraction happens on a flat deposit | Units dig strip-mine pits that deform the ground (Phase 3). Placement near a pit is refused within the setbacks. |
+| D1 · the core loop | smoke (41), playability (12), guidance (4), firstMine (5), evidence (2) |
+| D2 · roads, fleet, automation | automation (17), avoidance (13), fleet (15), zones (6), transit (12), roads (8), traffic (10), hubPlanner (7) |
+| D3 · research, destiny, weather | techtree (18), research (21), upgrades (8), destiny (20), crew (3), hazards (33), flares (26), forecast (9), miningResearch (5), miningIntegration (6) |
+| D4 · look, UI, world | look (18), render (20), ui (19), touch (13), map (14), lunarmap (16), pits (12), anim (9), unitpower (10), hubs (16), hubview (7), survey (10), notify (9), silhouettes (6), reserves (8), grading (7), world (9), pwa (4) |
 
-In the table below, each hit count is the number of lines matching `'excavator'`, `iceHarvester`, `regolithProcessing`, `Regolith Smelting` or `'smelter'`. The line numbers mark a typical first place to look.
+D6 fixed two specs the full run found: `anim.spec` (the busy base now sends one ground rover to a site, so a welding rover is certain) and `avoidance.spec` (a gate's hop into its zone counts as ground).
 
-| Spec | Hits | Where it assumes the old model |
-|---|---|---|
-| `tests/anim.spec.ts` | 4 | places an excavator building (l. 86) and finds it by type (l. 88) |
-| `tests/automation.spec.ts` | 46 | researches `regolithProcessing` to unlock the smelter (l. 44), finds excavators by building type (l. 198), and uses the Builder's old excavator rules; also `:599` "no ground a road can serve", seen failing once after unit power merged, still open |
-| `tests/avoidance.spec.ts` | 14 | `regolithProcessing` (l. 145), excavator buildings (l. 258), a "Regolith Smelting" label (l. 756) |
-| `tests/classic.spec.ts` | 1 | places an `'excavator'` building in a style comparison (l. 473) |
-| `tests/crew.spec.ts` | 1 | researches `regolithProcessing` for the smelter (l. 19); Phase 4 also adds a strip-mine term to the morale target |
-| `tests/destiny.spec.ts` | 4 | `regolithProcessing` (l. 37), smelter placement timing (l. 593); tech count raised to 135 by F3 but not re-run |
-| `tests/fleet.spec.ts` | 19 | places and hauls with excavator buildings (l. 333, l. 390) |
-| `tests/guidance.spec.ts` | 3 | the guidance text names Regolith Smelting (l. 96–99) |
-| `tests/hazards.spec.ts` | 13 | `regolithProcessing` (l. 44); the DOSE test was edited by F2b to force an X, since an M can no longer kill |
-| `tests/look.spec.ts` | 8 | `regolithProcessing` (l. 261), smelter placement (l. 68) |
-| `tests/map.spec.ts` | 18 | places an excavator (l. 121) and an ice harvester (l. 170) on deposits |
-| `tests/playability.spec.ts` | 7 | the early-game plan researches Regolith Smelting (l. 231, l. 374) |
-| `tests/render.spec.ts` | 3 | draws `'excavator'` buildings (l. 88, l. 136, l. 179) |
-| `tests/research.spec.ts` | 15 | Regolith Smelting unlocks the smelter (l. 59, l. 244) |
-| `tests/smoke.spec.ts` | 49 | the serial end-to-end plan: excavator buildings (l. 73), Regolith Smelting (l. 503), an ice harvester (l. 1213) |
-| `tests/techtree.spec.ts` | 22 | tree layout and labels name Regolith Smelting (l. 41, l. 416) |
-| `tests/touch.spec.ts` | 6 | `regolithProcessing` (l. 374) |
-| `tests/ui.spec.ts` | 7 | `regolithProcessing` (l. 128), excavator buildings (l. 132) |
-| `tests/unitpower.spec.ts` | 3 | places an excavator building as a pack unit (l. 155) |
-| `tests/zones.spec.ts` | 4 | extractors working inside zones as buildings; since Phase 4, a pit zone's circle updates as the pit grows |
+Test round 2 result: <to be added by the coordinator>
 
-`tests/upgrades.spec.ts` was also touched, with its tech count raised from 132 to 135 by F3, and was not run.
+### 1.2 Tests that are sensitive to load
 
-Specs written for the new model are current, and each passed alone when its piece merged: `hubs`, `pits`, `hubview`, `reserves`, `flares` and `forecast` (`fxcheck` was deleted with the FX ladder, docs/19 W0b1). Use them as the reference for the new helpers, such as `P.excavator()` in `tests/pits.spec.ts`, which places a smelter hub outside a deposit ring.
+Under software GL on a busy machine these can fail with no fault in the game. Re-run each alone with `--timeout=300000` before treating it as a real failure.
 
-Other effects the old specs may trip on:
-- **F2b:** natural M flares now black out comms for 45 s and set back the head research by 3%. Long simulated runs can shift.
-- **F3:** it adds three techs (132 → 135) and the Solar Observatory.
-- **Phase 4:**
-  - Faces are now benches. A new pit starts with one face and gains more as its free rim grows, so a second unit waits for face 2. This affects `automation`, `avoidance` and `fleet`.
-  - Metals follow the cut's grade rather than a fixed ×1.3, and a hub placed right at a ring gets a displaced, lean pit. This affects `smoke`, `playability` and `guidance`.
-  - Several tech cards gained lines: Beneficiation, Sample Caches, Gravimetry, Prospecting Rovers, Neutron Spectrometry and Deep Sounding. This affects `techtree`, `research` and `upgrades`.
-  - Units now stay on a deposit's pit until it is dug out or boxed in, which changes where recalled units return after a flare.
+- `zones.spec` "two hubs' units digging one zone never overlap": each unit's picture trails the sim by its own lag, so the closest pair depends on load (it asserts more than 1.5 m; 1.9 m is the measured minimum, see §3).
+- `pwa.spec` "the service worker registers, precaches the build…": it builds for production and serves the build, and it failed once on a first run.
+- `render.spec` "frame cost" (median frame under 250 ms) and "base life" (needs a dust emitter across two reads): both fail at about 280 ms a frame and pass on a quiet box.
+- `playability.spec` "audio: cues follow the state; the hum sags as the bank runs dry": the brownout drain. The test pauses first, because one live frame can slip a charge in between the drain and the reading.
+- `destiny.spec` "Human Cohabitation: the first Colony pick brings it forward…".
+- `avoidance.spec` (the crowded base) depends on the sim clock's starting phase: boot leaves a fraction of a game-second in the tick accumulator, and it varies with machine load (it failed at .48 and .50 before D6). A red at some other phase is worth a look; it is not a flake to ignore.
+- From the first full runs, before the repairs (load-sensitive then; re-check if a full run goes red): the camera's WASD and easing, clicks at 10×, the WebAudio stubs, the menu's Esc, live numbers, held keys, and techtree "keys and live updates".
+
+### 1.3 How to run the suite
+
+- `playwright.config.ts` has `workers: 1`, and `smoke.spec.ts` is serial: one red stops the rest of that file. Run the whole suite with `npx playwright test --reporter=dot,json`. The JSON goes to stdout unless `PLAYWRIGHT_JSON_OUTPUT_NAME=run.json` names a file. Never use the `line` or `list` reporters on a full run (they print every test name).
+- A full run takes about 1.1 hours on 4 CPUs. One spec file alone takes minutes.
+- Do not run a stream's spec at the same time as a full run: software GL is CPU-bound, and the timing-sensitive tests above fail. Give each checkout its own `PORT` and `PWTEST_CACHE_DIR` if two must share a machine.
+- **Restart the dev server after any edit under `src/`.** Vite's hot reload splits the modules that fixtures load with `import('/src/…')` inside `page.evaluate` into two instances, and the tests then fail for no reason (D2 and D3 both lost time to it). Never edit `src/` while a run is going.
+- The cheap gates are `npx tsc --noEmit`, `npm run docs:check` (docs 03 to 05 are generated: never hand-merge them, run `npm run docs`) and `npm run build`.
+- Pacing is optional and not a target: `node scripts/probe-pacing.mjs --runs=mare:robotic:reasonable,southpole:human:reasonable --seeds=42,7,1234 --minutes=280`, with `--destiny=colony|automation|concord`, `--auto=on`, `--flares=legacy|on` and `--flarePolicy=reasonable|ignore`. Longer runs are fine as long as they are fun.
 
 ## 2. Phases not yet built
 
 | Doc | Phase | What it adds |
 |---|---|---|
 | docs/16 | **F4 · Protection** | Regolith Shielding's σ and docked shelter; Water-Wall Shielding; Fault-Tolerant Avionics; Rad-Hard Cells; kits and domes, the SHELTER block and the Dome tool; Flare Protocols; the Builder's `weatherPlanner`; Maintenance Automation's replacement threshold |
-| docs/16 | **F5 · Benefits** | the four exploration breakthroughs (implantation, the particle annex, the Shield Coil, storm sails and CME sail windows) and the three insights |
-| docs/16 | **F6 · Look and audio** | the speckle, sky flash and aurora, the stow tween, berms, wrecks, repair poses, the `◌` capability marker, domes, the observatory's Sun tracking and slit, the sentinel launch plume, cues and the Geiger bed |
-| docs/16 | F7 · Pacing | deferred to the diagnostic pass, and optional: the player prefers fun over hitting era times |
-| docs/17 | **6 · Remaining test migration** | The research reshuffle, schema 5, milestones and discovery are implemented. Older standalone-pad test fixtures in §1 still need conversion. |
-| docs/17 | **7 · Remaining Builder work** | `hubUnit` and Feed Planner routing are implemented. Siting anchors and ring-keeping, relocation, automatic Site Survey AI surveys and probe metrics remain. Printing requires surveyed reserves; the player can still order a print manually. |
-| docs/17 | **8 · The look and the migration** | recipes for the water plant, ice miner, bays, chutes and stakes; bench lips, bedrock and rubble; the ice miner's rig and work animations; the full old-save migration |
+| docs/16 | **F5 · Benefits** | the four exploration breakthroughs (implantation, the particle annex, the Shield Coil, storm sails and CME sail windows) and the three insights. The survey pipeline is data-driven (`ProspectDef.bt`, docs/11 §5c), so they drop in; they are the richest reward the drone fleet can bring home |
+| docs/16 | **F6 · Look and audio** | the speckle, the stow tween, berms, wrecks, repair poses, the `◌` capability marker, domes, the observatory's Sun tracking and slit, the sentinel launch plume, cues and the Geiger bed. The sky flash and the aurora are **cut**: the fixed camera never looks above the horizon and the scene draws no sky (docs/06 §11, docs/16 §11) |
+| docs/16 | F7 · Pacing | optional: the player prefers fun over hitting era times |
+| docs/17 | **7 · Remaining Builder work** | siting's anchors and ring-keeping (the base chooser still picks by distance to a type's anchor only, `core/siting.ts`), relocation, Site Survey AI's automatic **deposit** surveys (docs/17 §15; S6's AUTO SURVEY flies Lunar Map prospects, not deposits), and the probe bot's metrics |
+| docs/17 | **8 · Remaining look and migration** | the designed-and-not-built rows of docs/17 §20: hub bay charge posts and the depot hall, the hopper chute, survey stake flags and core-hole dots, bedrock rubble, the ramp's gate arm on an exhausted or boxed-in pit, and raked ground for a reclaimed pit or a graded pad. Also the old-save `free` flag that lets a demolished pad's ground be built on again |
 
-## 3. Stand-ins waiting for those phases
+Stand-ins waiting for those phases:
+- **F4:** `setWeatherStub({ arrayHard })` and `setWeatherStub({ sigma })` (debug) stand in for Rad-Hard Cells and the F4 shields in tests; `mods.arrayHardMult` is the hook. Laser Ranging's blackout ×0.5 and Maintenance Automation's replacement threshold wait for F4.
+- **Phase 4 leftovers:** heap dump time (docs/17 Phase 4 notes: units drive the ramp at off-road speed, and a dump costs nothing extra). Cut-corner cells were reported to block roads after Reclaim although placement accepts the ground; the program did not re-check it.
+- **Bays** are done: Bay Extensions permits Level II and Depot Halls Level III, each hub buys its own bay, and Fleet OS adds one bay globally.
 
-- **F4 stand-ins:**
-  - `setWeatherStub({ arrayHard })` and `setWeatherStub({ sigma })` (debug) stand in for Rad-Hard Cells and the F4 shields in tests. `mods.arrayHardMult` is the hook.
-  - Laser Ranging's blackout ×0.5 and Maintenance Automation's replacement threshold wait for F4.
-- **Bay progression implemented:** Bay Extensions permits Level II and Depot Halls permits Level III; each hub buys its own bay. Fleet OS adds one bay globally.
-- **Untested:** the L1 Sentinel's Mass Driver launch path is written but not covered by a test.
-- **Phase 4 leftovers:**
-  - Deep Coring and the bedrock +25% draw are implemented. Heap dump time remains.
-  - Cut-corner cells still block roads after Reclaim, although placement accepts the ground.
+## 3. Open findings
 
-## 4. The full diagnostic pass
+Each is one line: what, where, how to see it.
 
-When the features are complete, do these in order:
-1. `npx tsc --noEmit` and `npm run docs:check`.
-2. Fix the specs in §1 against the new model.
-3. Run the full suite with `npx playwright test`. The smoke spec is serial.
-   Known load-sensitive tests: re-run each alone with `--timeout=300000` before treating it as a real failure.
-   - build-camera WASD and easing;
-   - clicks at 10×;
-   - WebAudio stubs;
-   - menu Esc;
-   - live numbers;
-   - held keys;
-   - the render night ladder and "base life";
-   - techtree "keys and live updates";
-   - the destiny Human Cohabitation alert.
-4. Optionally, pacing: `node scripts/probe-pacing.mjs --runs=mare:robotic:reasonable,southpole:human:reasonable --seeds=42,7,1234 --minutes=280`, with `--destiny=colony|automation|concord`, `--auto=on`, `--flares=legacy|on` and `--flarePolicy=reasonable|ignore`. Longer runs are fine as long as they are fun.
+- **Two hub units of two hubs can come within 1.9 m** when a pit's second face opens (about 12 game-minutes in; the sim keeps units off each other's road cells but not off a pit's ground, and each picture trails by its own lag). Repro: `tests/zones.spec.ts` "two hubs' units digging one zone never overlap" (`drive(900)`, asserts more than 1.5 m); docs/19 S4a and S4b.
+- **The rover detour livelocks when a side road runs in the row next to the trunk.** `world/traffic.ts` (`breakDeadlocks`), docs/19 S11 "known gap": a Lab whose door is a trunk cell, no weld parts, both halves held; the rover is sent round again every 2 s (129 detours in a minute of the probe). The side road two rows off works (`avoidance.spec` "held up by a crew that stands on the trunk…").
+- **Hub-unit airlock dust may want tuning.** `HZ.dust.unitM` 60 and `perUnit` 15 (`src/data/hazards.ts`, `dustTick` in `core/hazards.ts`): a habitat beside a working pit warns about every 5 to 6 game-minutes, and Clean costs 5 parts (`HZ.dust.clean`). At the minimum setback (faces 32 to 40 m away) the DUST warning came 330 s after a smelter's units were sent (docs/19 S11).
+- **`world/traffic.ts`'s wait-cycle breaker deserves a review.** S11 (44e2153) skips a yielder that has yielded three times in 8 s and is still in a cycle, so the next one tries; the jam then clears in about 30 s. It is timing-dependent in a live scene (two page loads do not start on the same game-second).
+- **Dead ice-harvester gating.** Nothing in `BUILD_ORDER` bears `requiresIce` any more (the Ice Harvester is retired), yet the field is still read: `ui/palette.ts:82`, `ui/builderPanel.ts:220`, `core/research.ts:217`, `data/techs.ts:2598` (and the rule filter at `data/techs.ts:2456`), `core/automation.ts:908` (and `automation.ts:620`). Also `OUTPOST_KINDS.ice.sizedAgainst` (`data/lunarMap.ts:198`, "50% of one Ice Harvester") is read by nothing.
+- **The outposts strip cards are cramped and clip with six outposts.** `ui/lunarMap.css` (`#map-outposts`), from the S8 review; not measured.
+- **Draw-call headroom is thin.** `tests/look.spec.ts`: the far-zoom bound is 105 calls (96 to 101 measured; the far frame is about 285 to 288 k of 300 k triangles), and the Era 8 base test allows fewer than 90 calls with 85, 80 and 81 measured, five calls of headroom (docs/06 §14). A new instanced class or a new layer adds one call, or two with its ink twin.
+- **docs/11 §3 and §7 carry design-time numbers.** The tech table counts 47 definitions against 141 `TECH_ORDER` entries, and costs differ (Prospecting Drones 120 there, 100 in `data/techs.ts`); §7's pacing model is the design-time one. Either bring them up to date from docs/03 (generated from `src/data/techs.ts`) or replace the tables with a pointer to docs/03 and say the pacing model is retired.
+- **Not investigated:** a crewed expedition lost the mission at about 1,250 s of sim time in one D2 fixture (an unattended base). It may be expected; nobody looked.
+- **Tidy:** `s.survey.active` (deprecated, null after migration) and `RoverTrip.kind 'survey'` (nothing produces it) are still in the types (docs/19 S6).
+
+## 4. The mobile pass is paused by the player
+
+Stream S9 (touch and menu pass, docs/19) was **paused by the player**. It is **not merged** and no spec has been run on it. The work is on branch `work/s9` (last commit dd7ac9f, tsc clean, not merged with `origin/main`), with the resume note at `$SP/notes/s9.md` (`$SP` is the session scratchpad, as in docs/19).
+
+Done on the branch, untested:
+- grading by touch: the grade hint in the touch bar, a **Pair** toggle for two-finger box grading (one-finger drag stays the box, as D4's test expects; default off), the Cancel button, and a `box` mode in `player/touch.ts`;
+- field reports on the side sheet: opens itself when the sheet is free, else a **◎** button (`#t-report`) waits in the top bar;
+- notification stacking at 667×375: the flare pop-up's compact form and the research card share the top, the drill card docks (`t-dsc`), alerts keep one line so the Log button stays in view, the Log filters scroll in one row;
+- the menu's Controls rows for Grade Site, "a tap resumes when paused" and Log; docs/07 §12 and §13 sentences.
+
+Untested and unfinished:
+- No Playwright spec has been run on the branch: the new `touch.spec` tests ("grading with two fingers", "the fixed camera by touch") and D4's extended grade test have never executed.
+- The Pair test's corner points landed on the alert stack (HUD, not canvas) at 667×375, so the recognizer rightly ignored them; they need canvas points clear of `#hud-right` and the rails.
+- 932×430 is not yet reviewed (the field sheet, the grade bar and Pair, the menu), nor `#grade-jobs` and the SURVEY DRONES section on the sheet.
+
+Left to do when resumed: the notifications test at both sizes, the controls-table test, the Pair test geometry; run the new tests, then `touch.spec.ts` whole; docs/19 "As shipped: S9"; then merge `origin/main`, tsc, `docs:check`. The OUTPOSTS chip is hidden on touch (S8). Resume only when the player asks.
 
 ## 5. For the player
 
 - **Web version:** GitHub Pages isn't enabled yet. Go to Settings → Pages → Source: **GitHub Actions**, then re-run the "Deploy to GitHub Pages" workflow. Until then, deploys fail at `configure-pages`.
-- **High detail** (retired by docs/19 W0b1: there is one renderer now, and no render report; Menu → Graphics has only the safe-mode row).
 - **Unit power:** machines on packs charged from the grid apply to both the crewed and the robotic expedition. This hasn't been confirmed as intended yet.
+- **The art variant** is `CEL_VARIANT = 'B'` in `src/world/celStyle.ts` (three light steps, 1.5 px ink). Add `?cel=A` or `?cel=C` to the address to compare (A: two steps and 2 px ink; C: tinted ink), or change the constant to make a pick permanent.
