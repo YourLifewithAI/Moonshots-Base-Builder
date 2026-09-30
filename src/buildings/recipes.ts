@@ -1,14 +1,21 @@
-/** 21 building silhouettes from the primitive kit, plus the research
- *  upgrades each one grows (upgrades.ts, keyed by upgradeKey). Silhouette-first: in a
- *  monochrome world, shape is identity — dome = life, tank = industry,
- *  rail = export. Detail is load-bearing only: a door frame says "people go
- *  in here", a radiator says "this runs hot", a dish says "we talk to Earth".
- *  Base of every recipe sits at y=0, centered on its footprint, door side +z.
+/** The building silhouettes from the primitive kit (docs/19 S2a: 29 recipes,
+ *  the two hub units among them), plus the research upgrades each one grows
+ *  (upgrades.ts, keyed by upgradeKey). Silhouette-first: in a monochrome world,
+ *  shape is identity — dome = life, tank = industry, rail = export. Detail is
+ *  load-bearing only: a door frame says "people go in here", a radiator says
+ *  "this runs hot", a dish says "we talk to Earth".
+ *  Base of every recipe sits at y=0, centered on its footprint, door side +z:
+ *  the home camera looks from +x, +z, so the door is on one of the two faces
+ *  it sees. Every recipe has ONE tall identifier (a stack, a tower, a mast, a
+ *  cooling tower, a crane: 5 to 16 m) that carries the family accent —
+ *  small TRIM parts, or BAND parts (meshKit.ts: the accent at any size) — so
+ *  the family reads at far zoom.
  *
  *  Parts that move (sun-tracking solar wings, dishes aimed at Earth) are not
  *  in the recipe: MOUNTS places them, and buildings/trackers.ts instances
  *  them separately. Nor are the parts that move while a structure works
- *  (the excavator's boom and bucket wheel): rigs.ts, world/workAnim.ts. */
+ *  (the excavator's boom and bucket wheel, the ice miner's cutter drum):
+ *  rigs.ts, world/workAnim.ts. The hubs' diggers are `unitRecipeGeometry`. */
 import * as THREE from 'three';
 import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
@@ -1118,6 +1125,8 @@ const UNIT_R: Partial<Record<UnitKey, () => Parts>> = {
   'iceMiner:waterPlant': iceMiner,
 };
 const unitCache = new Map<string, BufferGeometry>();
+/** the diggers' overall width, m (the chassis is modelled 3.8 m over its tracks) */
+const UNIT_WIDTH_M = 3.0;
 export function unitRecipeGeometry(mk: UnitKey, key = ''): BufferGeometry {
   const lane: BuildingId = mk.startsWith('iceMiner') ? 'iceMiner' : 'excavator';
   const build = UNIT_R[mk];
@@ -1129,6 +1138,10 @@ export function unitRecipeGeometry(mk: UnitKey, key = ''): BufferGeometry {
     for (const u of upgradesIn(lane, key)) if (u.parts) parts.push(...flatten(u.parts()));
     g = merge(parts);
     g.userData.recipe = mk;
+    // 3.0 m wide, tracks included (world/haulers.ts UNIT_BODY hw 1.5: two units in their lanes clear each other)
+    g.scale(1, 1, UNIT_WIDTH_M / 3.8);
+    g.computeBoundingBox();
+    g.computeBoundingSphere();
     unitCache.set(k, g);
   }
   return g;
