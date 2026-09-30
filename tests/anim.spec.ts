@@ -1,9 +1,9 @@
 /** Work animations (world/workAnim.ts, docs/06 §7): a welding rover's print
  *  arm unfolds, sweeps over its site with a spark at the nozzle and folds
  *  as it leaves; a sintering rover points its arm down, crawls at the
- *  frontier (the hook) and the cells glow and cool; a printing drone sparks; the
- *  excavator's wheel turns and its boom dips while it digs, home or away,
- *  and holds while it drives. Pause freezes all of it, 3× and 10× run it at
+ *  frontier (the hook) and the cells glow and cool; a printing drone sparks; a
+ *  hub's excavator (a unit, docs/17: reported as UNIT_VID + its id) turns its wheel and dips
+ *  its boom while it digs, and holds while it drives. Pause freezes all of it, 3× and 10× run it at
  *  game speed, and it costs three draw calls at most (the kit, its ink
  *  outline, the glow). */
 import { test, expect, type Page } from '@playwright/test';
@@ -12,10 +12,9 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock';
-
-async function start(page: Page, style = 'classic', extra = '') {
-  await page.goto(`${URL_DEBUG}&site=mare&style=${style}${extra}`);
+const URL_DEBUG = '/?debug&seed=42';
+async function start(page: Page, extra = '') {
+  await page.goto(`${URL_DEBUG}&site=mare${extra}`);
   await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
   await page.evaluate(() => {
     const g = window.__game!;
@@ -53,11 +52,11 @@ const span = (page: Page, n: number, dt = 0.05) => page.evaluate(([n, dt]) => {
   return [a, b];
 }, [n, dt] as const);
 
-/** seconds into its current dig (the sim's haul clock) */
-const digT = (page: Page, id: number) => page.evaluate((id) => {
-  const h = window.__game!.getState().buildings.find((b: any) => b.id === id)?.haul;
+/** seconds into its current dig (the sim's haul clock), for a hub unit */
+const digT = (page: Page, unit: number) => page.evaluate((unit) => {
+  const h = window.__game!.getState().haulers.find((u: any) => u.id === unit)?.haul;
   return h?.phase === 'dig' ? h.t : Infinity;
-}, id);
+}, unit);
 
 /** live frames until `pred` holds on the work readout (or the budget runs out) */
 async function until(page: Page, pred: (w: any) => boolean, frames = 1200, batch = 20) {
@@ -69,107 +68,95 @@ async function until(page: Page, pred: (w: any) => boolean, frames = 1200, batch
   return null;
 }
 
-/** An excavator on plain ground near the Lander, complete: it digs its own pad. */
-const EXCAVATOR = () => {
+/** A Regolith Smelter by the guaranteed high-Ti basalt (12 m off its ring toward the Lander, the pits' setback),
+ *  built: its first unit, an excavator, digs the deposit's pit. `vid` is its digger id in getWorkAnim(). */
+const HUB = () => {
   const g = window.__game!;
-  let at: [number, number] | null = null;
-  for (let r = 0; r < 14 && !at; r++) {
-    for (let dx = -r; dx <= r && !at; dx++) {
-      for (const [x, z] of [[118 + dx, 124 - r], [118 + dx, 124 + r]]) {
-        const cx = (x + 1) * 4 - 512, cz = (z + 1) * 4 - 512;
-        if (g.depositAt(cx, cz) === null && g.canPlace('excavator', x, z).valid) { at = [x, z]; break; }
-      }
-    }
+  const z = g.getZones().find((q: any) => q.kind === 'ilmenite');
+  const l = Math.hypot(z.cx, z.cz) || 1, out = z.r + 22;
+  const cx = Math.round((z.cx - (z.cx / l) * out + 512) / 4) - 1, cz = Math.round((z.cz - (z.cz / l) * out + 512) / 4) - 1;
+  let hub = -1;
+  for (let r = 0; r <= 10 && hub < 0; r++) for (let dx = -r; dx <= r && hub < 0; dx++) for (let dz = -r; dz <= r && hub < 0; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+    for (const rot of [0, 1, 2, 3]) if (hub < 0 && g.placeBuilding('smelter', cx + dx, cz + dz, rot)) hub = g.getState().buildings.find((b: any) => b.type === 'smelter').id;
   }
-  g.placeBuilding('excavator', at![0], at![1]);
   g.finishConstruction();
-  return g.getState().buildings.find((b: any) => b.type === 'excavator').id as number;
+  const unit = g.getState().haulers.find((u: any) => u.hub === hub).id as number;
+  return { hub: hub as number, unit, vid: 100000 + unit }; // (data/hubs.ts UNIT_VID)
 };
 
-for (const style of ['cel']) {
-  test(`${style}: a welding rover unfolds its arm and sweeps it over the site, spark on; it folds as it leaves`, async ({ page }) => {
-    test.setTimeout(300_000);
-    await start(page, style);
-    await page.evaluate(() => { const g = window.__game!; g.placeBuilding('habitat', 132, 124); g.finishRoads(); g.advanceGameSeconds(1); });
-    const w0 = await until(page, (w) => w.rovers.some((r: any) => r.spark && r.arm.unfold > 0.99));
-    expect(w0, 'a rover reaches its site and welds').not.toBeNull();
-    const id = w0!.rovers.find((r: any) => r.spark).id;
-    // folded, the other (parked) rover: no spark
-    for (const r of w0!.rovers.filter((x: any) => x.id !== id)) {
-      expect(r.arm.unfold).toBe(0);
-      expect(r.spark).toBe(false);
+test('a welding rover unfolds its arm and sweeps it over the site, spark on; it folds as it leaves', async ({ page }) => {
+  test.setTimeout(300_000);
+  await start(page);
+  await page.evaluate(() => { const g = window.__game!; g.placeBuilding('habitat', 132, 124); g.finishRoads(); g.advanceGameSeconds(1); });
+  const w0 = await until(page, (w) => w.rovers.some((r: any) => r.spark && r.arm.unfold > 0.99));
+  expect(w0, 'a rover reaches its site and welds').not.toBeNull();
+  const id = w0!.rovers.find((r: any) => r.spark).id;
+  // folded, the other (parked) rover: no spark
+  for (const r of w0!.rovers.filter((x: any) => x.id !== id)) {
+    expect(r.arm.unfold).toBe(0);
+    expect(r.spark).toBe(false);
+  }
+  // the sweep: its yaw ranges well over half a radian in 3 s, reaching out over the site
+  const { yaws, sparks, reach } = await page.evaluate((id) => {
+    const g = window.__game!;
+    const out = { yaws: [] as number[], sparks: [] as boolean[], reach: [] as number[] };
+    g.setPaused(false);
+    for (let i = 0; i < 30; i++) {
+      g.stepFrame(0.05); g.stepFrame(0.05);
+      const r = g.getWorkAnim().rovers.find((x: any) => x.id === id);
+      out.yaws.push(r.arm.yaw); out.sparks.push(r.spark); out.reach.push(r.arm.reach);
     }
-    // the sweep: its yaw ranges well over half a radian in 3 s, reaching out over the site
-    const { yaws, sparks, reach } = await page.evaluate((id) => {
-      const g = window.__game!;
-      const out = { yaws: [] as number[], sparks: [] as boolean[], reach: [] as number[] };
-      g.setPaused(false);
-      for (let i = 0; i < 30; i++) {
-        g.stepFrame(0.05); g.stepFrame(0.05);
-        const r = g.getWorkAnim().rovers.find((x: any) => x.id === id);
-        out.yaws.push(r.arm.yaw); out.sparks.push(r.spark); out.reach.push(r.arm.reach);
-      }
-      g.setPaused(true);
-      g.stepFrame(0);
-      return out;
-    }, id);
-    expect(Math.max(...yaws) - Math.min(...yaws), 'the arm sweeps').toBeGreaterThan(0.5);
-    expect(sparks.every(Boolean), 'the spark is on while it welds').toBe(true);
-    expect(Math.min(...reach), 'unfolded, the arm reaches out over the site').toBeGreaterThan(1.3);
-    // the site done: it drives home and the arm folds back over the nose
-    await page.evaluate(() => window.__game!.finishConstruction());
-    const w1 = await until(page, (w) => { const r = w.rovers.find((x: any) => x.id === id); return r && r.arm.unfold === 0; }, 200, 5);
-    expect(w1, 'the arm folds').not.toBeNull();
-    const r1 = w1!.rovers.find((x: any) => x.id === id);
-    expect(r1.spark).toBe(false);
-    expect(r1.arm.reach, 'folded over the nose').toBeLessThan(1);
-    const info = await page.evaluate(() => window.__game!.getRenderInfo());
-    expect(info.style).toBe(style);
-    expect(info.life.failed).toEqual([]);
-  });
+    g.setPaused(true);
+    g.stepFrame(0);
+    return out;
+  }, id);
+  expect(Math.max(...yaws) - Math.min(...yaws), 'the arm sweeps').toBeGreaterThan(0.5);
+  expect(sparks.every(Boolean), 'the spark is on while it welds').toBe(true);
+  expect(Math.min(...reach), 'unfolded, the arm reaches out over the site').toBeGreaterThan(1.3);
+  // the site done: it drives home and the arm folds back over the nose
+  await page.evaluate(() => window.__game!.finishConstruction());
+  const w1 = await until(page, (w) => { const r = w.rovers.find((x: any) => x.id === id); return r && r.arm.unfold === 0; }, 200, 5);
+  expect(w1, 'the arm folds').not.toBeNull();
+  const r1 = w1!.rovers.find((x: any) => x.id === id);
+  expect(r1.spark).toBe(false);
+  expect(r1.arm.reach, 'folded over the nose').toBeLessThan(1);
+  const info = await page.evaluate(() => window.__game!.getRenderInfo());
+  expect(info.style).toBe('cel');
+  expect(info.life.failed).toEqual([]);
+});
 
-  test(`${style}: the excavator's wheel turns and its boom dips while it digs, home and away; still while it drives`, async ({ page }) => {
-    test.setTimeout(300_000);
-    await start(page, style);
-    const id = await page.evaluate(EXCAVATOR);
-    const dig = (w: any) => w.diggers.find((d: any) => d.id === id);
-    const home = await until(page, (w) => dig(w)?.digging && !dig(w).away, 600);
-    expect(home, 'it digs its own pad').not.toBeNull();
-    // one game second of digging: the wheel turns 1.3 rad, the boom dips below its rest
-    const [wa, wb] = await span(page, 20); // 20 × 0.05 s at 1×
-    const a = dig(wa), b = dig(wb);
-    expect(b.wheel - a.wheel, 'the wheel turns (home)').toBeCloseTo(1.3, 1);
-    expect(b.boom, 'the boom dips into the cut').toBeLessThan(-0.03);
-    expect(b.boom).toBeGreaterThan(-0.2);
-    // spoil flies off the wheel
-    const w = wb;
-    expect(w.clods, 'spoil flies off the wheel').toBeGreaterThan(0);
-    expect(w.particles).toBe(true);
-    // Dig at… 50 m north: under way the wheel holds and the boom rides high
-    await page.evaluate((id) => { const g = window.__game!; g.digAt(id, -2, 50); g.grantPower(20000); g.advanceGameSeconds(1); }, id);
-    const drive = await until(page, (w) => dig(w)?.driving && dig(w)?.away, 400, 5);
-    expect(drive, 'it drives off').not.toBeNull();
-    const [da, db] = await span(page, 10);
-    const d0 = dig(da), d1 = dig(db);
-    expect(d0.driving && d1.driving).toBe(true);
-    expect(d1.wheel, 'the wheel is still while it drives').toBe(d0.wheel);
-    expect(d1.boom).toBeGreaterThan(0);
-    // …and digs there: the wheel turns away from its pad too
-    const away = await until(page, (w) => dig(w)?.digging && dig(w)?.away, 2400, 20);
-    expect(away, 'it digs away from its pad').not.toBeNull();
-    const [ea, eb] = await span(page, 20);
-    expect(dig(eb).wheel - dig(ea).wheel, 'the wheel turns (away)').toBeCloseTo(1.3, 1);
-    // the bucket full, it hauls to the Lander and dumps: the boom lifts, the wheel turns back
-    await page.evaluate((id) => {
-      const g = window.__game!;
-      g.setPaused(true);
-      for (let i = 0; i < 70 && g.getState().buildings.find((b: any) => b.id === id).haul.phase === 'dig'; i++) g.advanceGameSeconds(1);
-      g.grantPower(20000);
-    }, id);
-    const dump = await until(page, (w) => dig(w)?.dumping && dig(w).boom > 0.1, 3000, 10);
-    expect(dump, 'it dumps its load').not.toBeNull();
-  });
-}
+test('a hub excavator\'s wheel turns and its boom dips while it digs; still while it drives; the boom lifts to dump', async ({ page }) => {
+  test.setTimeout(300_000);
+  await start(page, '&exp=robotic');
+  const { vid, unit } = await page.evaluate(HUB);
+  const dig = (w: any) => w.diggers.find((d: any) => d.id === vid);
+  const home = await until(page, (w) => dig(w)?.digging, 2400, 20);
+  expect(home, 'its unit drives out and digs the deposit').not.toBeNull();
+  // one game second of digging: the wheel turns 1.3 rad, the boom dips below its rest
+  const [wa, wb] = await span(page, 20); // 20 × 0.05 s at 1×
+  const a = dig(wa), b = dig(wb);
+  expect(a.digging && b.digging).toBe(true);
+  expect(b.wheel - a.wheel, 'the wheel turns').toBeCloseTo(1.3, 1);
+  expect(b.boom, 'the boom dips into the cut').toBeLessThan(-0.03);
+  expect(b.boom).toBeGreaterThan(-0.2);
+  // spoil flies off the wheel
+  expect(wb.clods, 'spoil flies off the wheel').toBeGreaterThan(0);
+  expect(wb.particles).toBe(true);
+  // the bucket full, it drives to its hub: the wheel holds and the boom rides high
+  const drive = await until(page, (w) => dig(w)?.driving, 3000, 10);
+  expect(drive, 'it drives off with its load').not.toBeNull();
+  const [da, db] = await span(page, 10);
+  const d0 = dig(da), d1 = dig(db);
+  expect(d0.driving && d1.driving).toBe(true);
+  expect(d1.wheel, 'the wheel is still while it drives').toBe(d0.wheel);
+  expect(d1.boom).toBeGreaterThan(0);
+  // and dumps at the hub: the boom lifts
+  await page.evaluate(() => window.__game!.grantPower(20000));
+  const dump = await until(page, (w) => dig(w)?.dumping && dig(w).boom > 0.1, 3000, 10);
+  expect(dump, 'it dumps its load').not.toBeNull();
+  expect(unit).toBeGreaterThan(0);
+});
 
 test('a sintering rover points its arm down, the cells glow as they sinter and cool behind it; then it welds', async ({ page }) => {
   test.setTimeout(180_000);
@@ -243,32 +230,33 @@ test('the sim\'s word (Rover.mode): stopped behind the frontier it sinters and c
   expect(r.eased, 'the crawl eases back as it drives on').toBe(true);
 });
 
-test('an excavator waiting with a full bucket (the store full) stands still: no dig, no spoil, no dump', async ({ page }) => {
-  test.setTimeout(180_000);
-  await start(page);
-  const id = await page.evaluate(EXCAVATOR);
-  // the store kept full: its first bucket has nowhere to go, and it waits on its pad
-  const full = await page.evaluate((id) => {
+test('a hub excavator waiting with a full bucket (its hopper full) stands still: no dig, no spoil, no dump', async ({ page }) => {
+  test.setTimeout(300_000);
+  await start(page, '&exp=robotic');
+  const { vid, unit } = await page.evaluate(HUB);
+  // the hopper kept full: the smelter draws the pile first, so a topped-up pile lets the hopper fill, and
+  // the unit's next bucket has nowhere to go; it waits at its face
+  const full = await page.evaluate((unit) => {
     const g = window.__game!;
-    for (let i = 0; i < 200; i++) {
+    for (let i = 0; i < 900; i++) {
       g.grantPower(1000);
-      g.grantResources({ regolith: 5000 });
-      g.advanceGameSeconds(1);
-      const h = g.getState().buildings.find((x: any) => x.id === id).haul;
+      g.grantResources({ regolith: 300 });
+      g.advanceGameSeconds(5);
+      const h = g.getState().haulers.find((x: any) => x.id === unit).haul;
       if (h.full) return h.phase;
     }
     return null;
-  }, id);
+  }, unit);
   expect(full, 'a full bucket, no room').toBe('dig');
-  const [a, b] = await page.evaluate((id) => {
+  const [a, b] = await page.evaluate(() => {
     const g = window.__game!;
     g.setPaused(false);
-    for (let i = 0; i < 40; i++) { if (i % 10 === 0) g.grantResources({ regolith: 5000 }); g.stepFrame(0.05); }
+    for (let i = 0; i < 40; i++) { if (i % 10 === 0) g.grantResources({ regolith: 300 }); g.stepFrame(0.05); }
     const a = g.getWorkAnim();
-    for (let i = 0; i < 40; i++) { if (i % 10 === 0) g.grantResources({ regolith: 5000 }); g.stepFrame(0.05); }
+    for (let i = 0; i < 40; i++) { if (i % 10 === 0) g.grantResources({ regolith: 300 }); g.stepFrame(0.05); }
     return [a, g.getWorkAnim()];
-  }, id);
-  const d0 = a.diggers.find((d: any) => d.id === id), d1 = b.diggers.find((d: any) => d.id === id);
+  });
+  const d0 = a.diggers.find((d: any) => d.id === vid), d1 = b.diggers.find((d: any) => d.id === vid);
   expect(d1.full).toBe(true);
   expect(d1.digging).toBe(false);
   expect(d1.dumping).toBe(false);
@@ -313,10 +301,12 @@ test('drones print with a nozzle spark and a beam down to the site', async ({ pa
 
 test('pause freezes every work animation; 3× and 10× run them at game speed', async ({ page }) => {
   test.setTimeout(180_000);
-  await start(page);
-  const id = await page.evaluate(EXCAVATOR);
+  await start(page); // (a crewed landing: the habitat is open to build)
+  const { vid: id, unit } = await page.evaluate(HUB);
+  // the unit digs (a bucket takes it 60 s); a site for the rovers goes up while it does
+  expect(await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging), 2400, 20), 'its unit digs').not.toBeNull();
   await page.evaluate(() => { const g = window.__game!; g.placeBuilding('habitat', 132, 124); g.finishRoads(); g.advanceGameSeconds(1); });
-  const ready = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging) && w.rovers.some((r: any) => r.spark && r.arm.unfold > 0.99));
+  const ready = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging) && w.rovers.some((r: any) => r.spark && r.arm.unfold > 0.99), 1200, 10);
   expect(ready, 'a rover welds and the excavator digs').not.toBeNull();
 
   // paused: frames still draw, nothing moves
@@ -332,14 +322,14 @@ test('pause freezes every work animation; 3× and 10× run them at game speed', 
   expect(frozen.b.diggers).toEqual(frozen.a.diggers);
   expect(frozen.b.rovers).toEqual(frozen.a.rovers);
   // (a fresh dig, so it digs all through the measures below)
-  await page.evaluate((id) => {
+  await page.evaluate((unit) => {
     const g = window.__game!;
-    const h = () => g.getState().buildings.find((b: any) => b.id === id).haul;
+    const h = () => g.getState().haulers.find((u: any) => u.id === unit).haul;
     if (h().phase === 'dig' && h().t <= 40) return;
     for (let i = 0; i < 300 && !(h().phase === 'dig' && h().t < 3); i++) { g.grantPower(5000); g.advanceGameSeconds(1); }
-  }, id);
+  }, unit);
   expect(await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging), 600)).not.toBeNull();
-  expect(await digT(page, id)).toBeLessThan(45);
+  expect(await digT(page, unit)).toBeLessThan(45);
   // the wheel's turn over the same wall time at 1×, 3× and 10×
   const rate = async (speed: number) => page.evaluate(([speed, id]) => {
     const g = window.__game!;
@@ -362,9 +352,9 @@ test('pause freezes every work animation; 3× and 10× run them at game speed', 
 
 test('safe mode keeps the motion and the glow but drops the particles', async ({ page }) => {
   test.setTimeout(180_000);
-  await start(page, 'cel');
-  const id = await page.evaluate(EXCAVATOR);
-  let w = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging) && w.clods > 0, 600);
+  await start(page, '&exp=robotic');
+  const { vid: id } = await page.evaluate(HUB);
+  let w = await until(page, (w) => w.diggers.some((d: any) => d.id === id && d.digging) && w.clods > 0, 2400, 20);
   expect(w, 'clods fly before safe mode').not.toBeNull();
   await page.evaluate(() => window.__game!.enableSafeMode());
   const a = w!.diggers.find((d: any) => d.id === id).wheel;
@@ -376,7 +366,7 @@ test('safe mode keeps the motion and the glow but drops the particles', async ({
 });
 
 /** A busy base: the Automation's Era 8 set round the Lander (drone hives,
- *  excavators), finished, then three sites the rovers and drones weld. */
+ *  two smelters, each with its excavator), finished, then three sites the rovers and drones weld. */
 async function busyBase(page: Page) {
   return page.evaluate(async () => {
     const T = await import('/src/data/techs.ts');
@@ -402,7 +392,7 @@ async function busyBase(page: Page) {
       }
       return false;
     };
-    for (const [t, n] of [['solar', 6], ['battery', 2], ['excavator', 3], ['smelter', 1], ['roboticsBay', 1], ['droneHive', 2], ['partsFab', 1]] as [string, number][]) {
+    for (const [t, n] of [['solar', 6], ['battery', 2], ['smelter', 2], ['roboticsBay', 1], ['droneHive', 2], ['partsFab', 1]] as [string, number][]) {
       for (let i = 0; i < n; i++) place(t);
     }
     g.finishConstruction();
@@ -413,32 +403,30 @@ async function busyBase(page: Page) {
   });
 }
 
-for (const style of ['cel']) {
-  test(`${style}: on a busy base the work animations cost three draw calls at most`, async ({ page }) => {
-    test.setTimeout(300_000);
-    await start(page, style, '&exp=robotic');
-    await busyBase(page);
-    const w = await until(page, (w) => w.rovers.some((r: any) => r.spark) && w.diggers.some((d: any) => d.digging), 2400, 20);
-    expect(w, 'rovers weld and excavators dig').not.toBeNull();
-    await page.evaluate(() => {
-      const g = window.__game!;
-      g.setPaused(true);
-      const t = { x: 8, z: 8 }, d = 290, p = 32 * Math.PI / 180, a = Math.PI / 4;
-      g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
-    });
-    const frame = async (on: boolean) => {
-      await page.evaluate((on) => { const g = window.__game!; g.setWorkAnimVisible(on); g.stepFrame(0.016); }, on);
-      await page.waitForTimeout(600);
-      return (await page.evaluate(() => window.__game!.getRenderInfo())).frame as { calls: number; triangles: number };
-    };
-    const off = await frame(false), on = await frame(true);
-    const info = await work(page);
-    test.info().annotations.push({ type: 'work anim cost', description: JSON.stringify({ off, on, kit: info.kit, fx: info.fx }) });
-    console.log(`[work anim cost · ${style}]`, JSON.stringify({ off, on, kit: info.kit, fx: info.fx }));
-    // the kit, its ink outline (world/ink.ts, docs/19 S1b) and the glow quads
-    expect(on.calls - off.calls, 'draw calls').toBeLessThanOrEqual(3);
-    expect(on.calls - off.calls).toBeGreaterThanOrEqual(1);
-    expect(on.triangles - off.triangles, 'triangles').toBeLessThan(30_000);
-    expect(info.kit, 'kit boxes in use').toBeGreaterThan(40);
+test('on a busy base the work animations cost three draw calls at most', async ({ page }) => {
+  test.setTimeout(300_000);
+  await start(page, '&exp=robotic');
+  await busyBase(page);
+  const w = await until(page, (w) => w.rovers.some((r: any) => r.spark) && w.diggers.some((d: any) => d.digging), 2400, 20);
+  expect(w, 'rovers weld and excavators dig').not.toBeNull();
+  await page.evaluate(() => {
+    const g = window.__game!;
+    g.setPaused(true);
+    const t = { x: 8, z: 8 }, d = 290, p = 32 * Math.PI / 180, a = Math.PI / 4;
+    g.setView({ x: t.x + Math.cos(a) * Math.cos(p) * d, y: Math.sin(p) * d, z: t.z + Math.sin(a) * Math.cos(p) * d }, { x: t.x, y: 0, z: t.z });
   });
-}
+  const frame = async (on: boolean) => {
+    await page.evaluate((on) => { const g = window.__game!; g.setWorkAnimVisible(on); g.stepFrame(0.016); }, on);
+    await page.waitForTimeout(600);
+    return (await page.evaluate(() => window.__game!.getRenderInfo())).frame as { calls: number; triangles: number };
+  };
+  const off = await frame(false), on = await frame(true);
+  const info = await work(page);
+  test.info().annotations.push({ type: 'work anim cost', description: JSON.stringify({ off, on, kit: info.kit, fx: info.fx }) });
+  console.log('[work anim cost · cel]', JSON.stringify({ off, on, kit: info.kit, fx: info.fx }));
+  // the kit, its ink outline (world/ink.ts, docs/19 S1b) and the glow quads
+  expect(on.calls - off.calls, 'draw calls').toBeLessThanOrEqual(3);
+  expect(on.calls - off.calls).toBeGreaterThanOrEqual(1);
+  expect(on.triangles - off.triangles, 'triangles').toBeLessThan(30_000);
+  expect(info.kit, 'kit boxes in use').toBeGreaterThan(40);
+});
