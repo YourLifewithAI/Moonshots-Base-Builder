@@ -13,7 +13,7 @@ import {
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
   $hazards, $hazardMarkers, $placing, $log, $logOpen,
 } from './stores';
-import { familyOf, glyphOf, runAlertAction } from './notify';
+import { familyOf, glyphOf, runAlertAction, setMissionOrigin } from './notify';
 import { counterButton, counterClick } from './hazardsPanel';
 import { touchOn } from '../core/touch';
 
@@ -245,9 +245,10 @@ export function mountHud(root: HTMLElement, game: Game) {
   let clockHtml = '';
   const renderTime = () => {
     const t = $time.get();
+    setMissionOrigin(t.landedAt); // the log's day tags count from this base's landing
     // a flare rides the ☉ chip now (docs/16 §10.1), not the clock
     const flare = '';
-    const html = `DAY ${t.dayIndex + 1} · <span class="${t.isNight ? 'night' : ''}">${t.isNight
+    const html = `DAY ${t.missionDay} · <span class="${t.isNight ? 'night' : ''}">${t.isNight
       ? `☾ ${fmtClock(t.phaseLeft)} TO DAWN` : `☀ ${fmtClock(t.phaseLeft)} TO DUSK`}</span>${flare}`;
     if (html !== clockHtml) { clockHtml = html; clock.innerHTML = html; }
     clock.title = t.isNight ? 'Lunar night — solar arrays dark until dawn' : 'Lunar day — time left until nightfall';

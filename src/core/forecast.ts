@@ -29,6 +29,7 @@ import type { Mods } from './mods';
 import { alertIn } from './economy';
 import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
+import { weatherSeed } from './moon';
 import {
   activity, bandOf, builderDecides, choiceText, cycleOf, drawClass, feedMargin, flareSeconds, criticalKW, previewChoice,
   rangeOf, stanceChoice, telegraphOf, type ChoicePreview, type ClassCtx, type WeatherResult, type WeatherView,
@@ -96,7 +97,7 @@ export interface Predicted { n: number; cls: FlareClass; drill: boolean; flash: 
  *  its drill and its flash — the same rules endFlare and drawClass apply. */
 export function predictFlares(s: GameState, count: number): Predicted[] {
   const f = s.flare;
-  const seed = s.seed;
+  const seed = weatherSeed(s);
   const era = s.era;
   const ctx: ClassCtx = { seenM: !!f.seen?.M, xCount: f.xCount ?? 0, lastX: f.lastX ?? -1e9, noXUntil: f.noXUntil ?? 0 };
   const out: Predicted[] = [];
@@ -177,16 +178,16 @@ export function forecastTick(s: GameState, site: SiteDef, mods: Mods, day: DayIn
   const win = w.window;
   if (live) {
     if (!win || win.n !== n || win.tier !== tier || win.era !== s.era || win.k !== k) {
-      const { lo, hi } = placeWindow(s.seed, n, k, f.nextAt, now, tier >= 2 ? F.window.t2 : F.window.t1);
+      const { lo, hi } = placeWindow(weatherSeed(s), n, k, f.nextAt, now, tier >= 2 ? F.window.t2 : F.window.t1);
       const cls = trueClass(s, s.era);
-      w.window = { n, lo, hi, range: tier >= 2 ? [cls, cls] : rangeOf(s.seed, n, cls), k, at: now, era: s.era, tier };
+      w.window = { n, lo, hi, range: tier >= 2 ? [cls, cls] : rangeOf(weatherSeed(s), n, cls), k, at: now, era: s.era, tier };
     }
   } else if (win && win.n !== n) {
     // blind, and the forecast was of a flare that has passed: nothing to hold
     delete w.window;
   } else if (win && win.era !== s.era) {
     // blind, and an era opened: the class may have moved, and the range widens to hold it
-    win.range = unionRange(win.range, rangeOf(s.seed, n, trueClass(s, s.era)));
+    win.range = unionRange(win.range, rangeOf(weatherSeed(s), n, trueClass(s, s.era)));
     win.era = s.era;
   }
   void site;
@@ -398,7 +399,7 @@ export function forecastView(s: GameState, mods: Mods, site: SiteDef, day: DayIn
   const w = s.weather ?? defaultWeather();
   const f = s.flare;
   const now = s.simTime;
-  const seed = s.seed;
+  const seed = weatherSeed(s);
   const tier = tierOf(s, mods);
   const lead = leadOf(tier);
   const obs = observatories(s);

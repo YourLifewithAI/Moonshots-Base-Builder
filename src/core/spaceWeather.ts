@@ -35,7 +35,11 @@ import { budgetShort, buildCostAt, ruleState } from './automation';
 import {
   drawMachines, effectsTick, effectsView, migrateScars, onActiveStart, onFlareEnd, replaceDone, resolveScars, type EffectsView,
 } from './flareEffects';
-import { applyAhead, firmAtOf, flareDataMult, forecastDusk, forecastTick, type ForecastView } from './forecast';
+import { applyAhead, flareDataMult, forecastDusk, forecastTick, type ForecastView } from './forecast';
+import {
+  copySched, isDriver, moonCatchUp, moonCtx, moonOf, schedActive, schedCme, schedDue, schedEnd, schedStart, schedTail, schedWatch,
+  weatherSeed, type MoonState, type SchedCtx, type SchedFields,
+} from './moon';
 
 /** every alert here belongs to one notification family (docs/19 S7) */
 const alert = alertIn('weather');
@@ -84,16 +88,18 @@ export function classOdds(a: number, era: number, xAllowed = true): { C: number;
 export interface ClassCtx { seenM: boolean; xCount: number; lastX: number; noXUntil: number }
 
 /** The class of flare n if its telegraph came now, in this era (§3.4's rules). */
-export function drawClass(s: GameState, n: number, at: number, era: number, ctx?: ClassCtx): FlareClass {
+export function drawClass(s: { seed: number; flare?: FlareState }, n: number, at: number, era: number, ctx?: ClassCtx): FlareClass {
   const f = s.flare;
   if (n === 0) return 'C'; // rule 1: the first is a C drill
-  const c: ClassCtx = ctx ?? { seenM: !!f.seen?.M, xCount: f.xCount ?? 0, lastX: f.lastX ?? -1e9, noXUntil: f.noXUntil ?? 0 };
+  // the Moon's seed when the base is on one (a bare `{ seed }` is the schedule's own: moon.ts)
+  const seed = weatherSeed(s);
+  const c: ClassCtx = ctx ?? { seenM: !!f?.seen?.M, xCount: f?.xCount ?? 0, lastX: f?.lastX ?? -1e9, noXUntil: f?.noXUntil ?? 0 };
   const O = W.odds;
   const T = at / CYCLE_S;
-  const a = activity(s.seed, T);
+  const a = activity(seed, T);
   const lastXDay = c.lastX / CYCLE_S;
   const graced = at < c.noXUntil;
-  const u = mulberry32((s.seed ^ W.keys.cls) + n)();
+  const u = mulberry32((seed ^ W.keys.cls) + n)();
   const gapOk = T - lastXDay >= O.xGapDays;
   const pX = !graced && era >= O.xEra && gapOk ? O.xPerA2 * a * a : 0;
   const pM = era >= O.mEra ? O.mBase + O.mPerA * a : 0;
@@ -101,7 +107,7 @@ export function drawClass(s: GameState, n: number, at: number, era: number, ctx?
   // rule 2: the first flare from Era 2 is an M
   if (era >= O.mEra && !c.seenM && cls !== 'X') cls = 'M';
   const xs = c.xCount;
-  const { tMax } = cycleOf(s.seed, 0);
+  const { tMax } = cycleOf(seed, 0);
   // rule 4: at least one X, by the maximum
   if (!graced && cls !== 'X' && era >= O.xEra && xs === 0 && T >= tMax - 1) cls = 'X';
   // rule 5: a second X once Era 5 is open and the Sun is busy
@@ -706,37 +712,30 @@ const emptyTally = (s: GameState, f: FlareState): FlareLogEntry => ({
   stowed: 0, running: 0, destroyed: 0, scarred: 0, scar: 0, damaged: 0, repairParts: 0, repairS: 0, solarLost: 0, data: 0,
 });
 
-/** Start a flare's telegraph now (the schedule, a migration, debug.forceFlare, a forced DOSE).
- *  `flashAt`: the flash the schedule set; a forecast's lead starts the telegraph that much
- *  before it (docs/16 §6.1). Unset: the flash comes after the base's lead, from now. */
-export function startFlare(s: GameState, site: SiteDef, cls: FlareClass, o: { drill?: boolean; flashAt?: number } = {}) {
+/** The schedule's inputs for a solo game: its own seed, era, clock, forecast lead and tier. */
+const soloCtx = (s: GameState): SchedCtx => ({
+  seed: s.seed, era: s.era, now: s.simTime, lead: s.weather?.lead ?? 0, tier: s.weather?.tier ?? 0,
+});
+
+/** The first of its class, for the FIRST FLARE card: on the schedule in a solo game, and in a faction's game the
+ *  first this BASE has met (a base that lands after the Moon's first flares still gets its card). */
+function firstForBase(s: GameState, cls: FlareClass, onSchedule: boolean): boolean {
+  if (!s.faction) return onSchedule;
+  const w = weatherOf(s);
+  const seen = (w.intro ??= {});
+  const first = !seen[cls];
+  seen[cls] = true;
+  return first;
+}
+
+/** What a base does at a flare's telegraph, its own half of `startFlare`: a fresh choice and exposure, its tally,
+ *  the choice made ahead, the first-of-its-class card. */
+function startLocal(s: GameState, cls: FlareClass, first: boolean) {
   const f = s.flare;
-  const n = f.n ?? 0;
-  const lead = o.flashAt !== undefined ? Math.max(0, o.flashAt - s.simTime) : (s.weather?.lead ?? 0);
-  const flashAt = s.simTime + lead;
-  f.phase = 'telegraph';
-  f.cls = cls;
-  f.drill = o.drill ?? (n === 0 || (cls === 'X' && (f.xCount ?? 0) === 0));
-  f.timer = lead + telegraphOf(cls, f.drill);
-  f.startedAt = s.simTime;
-  f.flashAt = flashAt;
-  f.firmAt = firmAtOf(s, flashAt);
-  f.activeAt = s.simTime + f.timer;
-  f.range = rangeOf(s.seed, n, cls);
-  f.a = activity(s.seed, flashAt / CYCLE_S);
-  f.watch = false;
-  delete f.nextCls;
   delete f.choice;
   delete f.decidedBy;
   delete f.plan;
   f.exposure = {};
-  f.seen ??= { C: false, M: false, X: false, xReal: false };
-  const first = !f.seen[cls];
-  f.seen[cls] = true;
-  if (cls === 'X') {
-    f.xCount = (f.xCount ?? 0) + 1;
-    f.lastX = flashAt;
-  }
   f.tally = emptyTally(s, f);
   applyAhead(s); // 'Arrays: choose now…' answers this telegraph (core/forecast.ts)
   if (first && !s.weather?.legacy) {
@@ -747,7 +746,31 @@ export function startFlare(s: GameState, site: SiteDef, cls: FlareClass, o: { dr
     };
     alert(s, intro[cls], cls === 'C' ? 'info' : 'warn', { panel: 'weather' });
   }
+}
+
+/** Start a flare's telegraph now (a forced DOSE, debug.forceFlare; the schedule itself starts it in `weatherTick`).
+ *  `flashAt`: the flash the schedule set; a forecast's lead starts the telegraph that much
+ *  before it (docs/16 §6.1). Unset: the flash comes after the base's lead, from now.
+ *  On a Moon the flare is the Moon's: every base on it sees it begin. */
+export function startFlare(s: GameState, site: SiteDef, cls: FlareClass, o: { drill?: boolean; flashAt?: number } = {}) {
+  const moon = moonOf(s);
+  if (moon) {
+    moonCatchUp(moon, s.simTime);
+    const first = schedStart(moon.weather, { ...moonCtx(moon, s.simTime), lead: s.weather?.lead ?? 0, tier: s.weather?.tier ?? 0 }, cls, o);
+    moon.weather.first = first;
+    syncFlare(s, moon);
+    startLocal(s, cls, firstForBase(s, cls, first));
+    return;
+  }
+  startLocal(s, cls, schedStart(s.flare, soloCtx(s), cls, o));
   void site;
+}
+
+/** Mirror the Moon's flare schedule into this base's `s.flare` (phase, timer, index, class, drill, range, flash, firm
+ *  and proton times, the counters, the watch, the CME), so hazards, the forecast and the HUD read it as they always
+ *  did. Everything the base does about a flare (choice, plan, exposure, tally, log) is its own and is not touched. */
+export function syncFlare(s: GameState, moon: MoonState) {
+  copySched(s.flare, moon.weather);
 }
 
 /** Economy step 8. */
@@ -766,82 +789,159 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
     alert(s, `WRECK CLEARED — ${label(b)} salvaged for +${back}◆; its pad is free`, 'info');
   }
   if (w.legacy) { legacyTick(s, site, day, dt); return out; }
-  if (f.nextAt === 0) f.nextAt = W.firstAtDay * CYCLE_S;
+  const moon = moonOf(s);
+  if (!moon && f.nextAt === 0) f.nextAt = W.firstAtDay * CYCLE_S;
   const now = s.simTime;
   forecastTick(s, site, mods, day, dt); // the tier, its lead, the window (docs/16 §6)
 
-  switch (f.phase) {
+  if (moon) moonPhases(s, site, mods, day, dt, moon);
+  else switch (f.phase) {
     case 'idle': {
-      const n = f.n ?? 0;
+      const c = soloCtx(s);
       // the spot-group watch: half a day ahead, the next flare's class is looked at; an X is locked in
-      if (f.watchN !== n && now >= f.nextAt - W.watchDays * CYCLE_S) {
-        f.watchN = n;
-        f.nextCls = drawClass(s, n, f.nextAt, s.era);
-        f.watch = f.nextCls === 'X';
-        if (f.watch) {
-          alert(s, 'BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day · stow, dock and shield before it', 'warn', { panel: 'weather' });
-        }
+      if (schedWatch(f, c)) {
+        alert(s, 'BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day · stow, dock and shield before it', 'warn', { panel: 'weather' });
       }
       // a forecast's lead starts the telegraph early; the flash (and the protons) keep the schedule's time
-      if (now >= f.nextAt - (w.lead ?? 0)) {
-        const flashAt = Math.max(now, f.nextAt);
-        let cls = drawClass(s, n, flashAt, s.era);
-        // never an X without its watch; a watched X comes
-        if (cls === 'X' && f.nextCls !== 'X') cls = 'M';
-        if (f.nextCls === 'X') cls = 'X';
-        startFlare(s, site, cls, { flashAt });
-      }
+      const due = schedDue(f, c);
+      if (due) startFlare(s, site, due.cls, { flashAt: due.flashAt });
       break;
     }
     case 'telegraph': {
       f.timer -= dt;
-      const cls = f.cls ?? 'C';
-      // the plan follows the choice until the arrays start to move
-      const { choice, by } = resolveChoice(s, mods);
-      if (!f.plan?.locked) {
-        f.choice = choice;
-        f.decidedBy = by;
-      }
-      if (!f.plan?.locked && f.timer <= W.stowS) lockPlan(s, mods, day, cls);
+      telegraphTick(s, mods, day);
       if (f.timer <= 0) beginActive(s, site, mods, day);
       break;
     }
     case 'active': {
       f.timer -= dt;
-      tallyExposure(s, day, dt);
-      if (f.choice?.mode === 'feed') holdFeed(s, mods, day, f.timer + (f.cls === 'X' ? W.classes.X.tailS : 0) + W.stowS);
+      activeTick(s, mods, day, dt);
       if (f.timer <= 0) {
-        resolveArrays(s, mods, day, 'flash');
-        resolveScars(s, site, mods, 'flash');
+        flashOver(s, site, mods, day);
         if ((f.cls ?? 'C') === 'X') {
-          f.phase = 'tail';
-          f.timer = W.classes.X.tailS;
-          f.exposure = {};
-          // the tail: the machines draw again, as a C (§4.2)
-          drawMachines(s, site, mods, 'tail');
+          schedTail(f);
+          tailStart(s, site, mods);
         } else endFlare(s, mods, site);
       }
       break;
     }
     case 'tail': {
       f.timer -= dt;
-      tallyExposure(s, day, dt);
-      if (f.choice?.mode === 'feed') holdFeed(s, mods, day, f.timer + W.stowS);
+      tailTick(s, mods, day, dt);
       if (f.timer <= 0) {
-        resolveArrays(s, mods, day, 'tail');
-        resolveScars(s, site, mods, 'tail');
+        tailOver(s, site, mods, day);
         endFlare(s, mods, site);
       }
       break;
     }
   }
+  void now;
+  finishPhases(s, site, mods, day, dt);
+  return out;
+}
+
+// ── the phase bodies every base runs (a solo game's switch above and a Moon's edges below share them) ──
+
+/** The telegraph: the plan follows the choice until the arrays start to move (10 s before the protons). */
+function telegraphTick(s: GameState, mods: Mods, day: DayInfo) {
+  const f = s.flare;
+  const cls = f.cls ?? 'C';
+  const { choice, by } = resolveChoice(s, mods);
+  if (!f.plan?.locked) {
+    f.choice = choice;
+    f.decidedBy = by;
+  }
+  if (!f.plan?.locked && f.timer <= W.stowS) lockPlan(s, mods, day, cls);
+}
+
+/** The protons: the exposure counts, and 'all but the critical feed' holds its feed. */
+function activeTick(s: GameState, mods: Mods, day: DayInfo, dt: number) {
+  const f = s.flare;
+  tallyExposure(s, day, dt);
+  if (f.choice?.mode === 'feed') holdFeed(s, mods, day, f.timer + (f.cls === 'X' ? W.classes.X.tailS : 0) + W.stowS);
+}
+
+/** The flash is over: the arrays and the scars pay for it. */
+function flashOver(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
+  resolveArrays(s, mods, day, 'flash');
+  resolveScars(s, site, mods, 'flash');
+}
+
+/** An X's tail begins: a fresh exposure, and the machines draw again, as a C (§4.2). */
+function tailStart(s: GameState, site: SiteDef, mods: Mods) {
+  s.flare.exposure = {};
+  drawMachines(s, site, mods, 'tail');
+}
+
+function tailTick(s: GameState, mods: Mods, day: DayInfo, dt: number) {
+  const f = s.flare;
+  tallyExposure(s, day, dt);
+  if (f.choice?.mode === 'feed') holdFeed(s, mods, day, f.timer + W.stowS);
+}
+
+function tailOver(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
+  resolveArrays(s, mods, day, 'tail');
+  resolveScars(s, site, mods, 'tail');
+}
+
+// ── a base on a Moon: the schedule is the Moon's, the rest of each flare is the base's ──
+
+const NEXT_PHASE = (p: FlareState['phase'], cls: FlareClass): FlareState['phase'] =>
+  p === 'idle' ? 'telegraph' : p === 'telegraph' ? 'active' : p === 'active' ? (cls === 'X' ? 'tail' : 'idle') : 'idle';
+
+/** Economy step 8 on a Moon. The Moon's machine has already run this second (whoever reaches a second first
+ *  drives it, `moonCatchUp`); this base mirrors its schedule and does its own half at each edge, in the order
+ *  the solo switch does: the phase's body, the end's per-base half on the fields as they were, the mirror,
+ *  the start's per-base half on the fields as they are. A base that lands mid-flare sits it out. */
+function moonPhases(s: GameState, site: SiteDef, mods: Mods, day: DayInfo, dt: number, moon: MoonState) {
+  const f = s.flare;
+  const w = s.weather!;
+  const mw = moon.weather;
+  // the player's forecast is the one the shared telegraph follows (the class odds use the player's era)
+  if (isDriver(s, moon)) { mw.era = s.era; mw.lead = w.lead ?? 0; mw.tier = w.tier ?? 0; }
+  moonCatchUp(moon, s.simTime);
+  const prev = f.phase;
+  // landed after this flare's telegraph began: it never saw it, and sits it out as if quiet
+  if (mw.phase !== 'idle' && prev === 'idle' && (mw.startedAt ?? 0) <= (s.landedAt ?? 0) + 90) {
+    syncFlare(s, moon);
+    f.phase = 'idle';
+    f.timer = 0;
+    return;
+  }
+  const cur = mw.phase;
+  // the timer the phase's body sees: the Moon has already counted this second down
+  f.timer = cur === prev ? mw.timer : f.timer - dt;
+  if (prev === 'telegraph') telegraphTick(s, mods, day);
+  else if (prev === 'active') activeTick(s, mods, day, dt);
+  else if (prev === 'tail') tailTick(s, mods, day, dt);
+  // the edges this base has to cross to reach the Moon's phase (one, unless it missed some seconds)
+  const hops: [FlareState['phase'], FlareState['phase']][] = [];
+  for (let p = prev; p !== cur && hops.length < 4;) { const nx = NEXT_PHASE(p, mw.cls ?? f.cls ?? 'C'); hops.push([p, nx]); p = nx; }
+  // the end of a flare: the arrays and scars pay, and the base writes its log, before the schedule moves on
+  for (const [from, to] of hops) {
+    if (from === 'active') flashOver(s, site, mods, day);
+    else if (from === 'tail') tailOver(s, site, mods, day);
+    if (to === 'idle' && from !== 'idle') endFlare(s, mods, site, mw.lastDays ?? 0);
+  }
+  // the spot-group watch: locked half a day ahead, told once
+  const watched = cur === 'idle' && prev === 'idle' && !!mw.watch && !f.watch;
+  syncFlare(s, moon);
+  if (watched) alert(s, 'BIG SPOT GROUP ON THE DISC — an X-class flare is possible within ½ day · stow, dock and shield before it', 'warn', { panel: 'weather' });
+  for (const [from, to] of hops) {
+    if (from === 'idle') startLocal(s, f.cls ?? 'C', firstForBase(s, f.cls ?? 'C', !!mw.first));
+    else if (to === 'active') activeStart(s, site, mods, day);
+    else if (to === 'tail') tailStart(s, site, mods);
+  }
+}
+
+/** What every tick ends with, flare or not: the wings, repairs, the Builder's stance, the conditions, and §4 beyond
+ *  the arrays (core/flareEffects.ts): the machines' draw, the scars' count, reboots, re-flashes, warm-ups. */
+function finishPhases(s: GameState, site: SiteDef, mods: Mods, day: DayInfo, dt: number) {
   moveWings(s, dt);
   repairTick(s, mods);
   stanceTick(s, mods, site);
   raiseConditions(s, mods, site, day);
-  // §4 beyond the arrays (core/flareEffects.ts): the machines' draw, the scars' count, reboots, re-flashes, warm-ups
   effectsTick(s, site, mods);
-  return out;
 }
 
 /** The wings turn toward their target, 10 s end to end; a shut-down array stows through a flare. */
@@ -921,13 +1021,18 @@ function tallyExposure(s: GameState, day: DayInfo, dt: number) {
   }
 }
 
-/** The protons in: morale, heliophysics data, the insight's count, the CME. */
+/** The protons in, a solo game's whole step: the schedule, the base's half, the CME. */
 function beginActive(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
+  const c = soloCtx(s);
+  schedActive(s.flare, c);
+  activeStart(s, site, mods, day);
+  schedCme(s.flare, c);
+}
+
+/** The protons in, the base's half: morale, heliophysics data, the insight's count. */
+function activeStart(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
   const f = s.flare;
   const cls = f.cls ?? 'C';
-  f.phase = 'active';
-  f.timer = W.classes[cls].activeS;
-  f.activeAt = s.simTime;
   f.exposure = {};
   if (!f.plan?.locked) lockPlan(s, mods, day, cls);
   // the arrays still moving at the protons finish now: the last seconds were the motion
@@ -946,12 +1051,6 @@ function beginActive(s: GameState, site: SiteDef, mods: Mods, day: DayInfo) {
   if (!site.tubeShelter && s.buildings.filter((b) => b.active && b.type !== 'lander').length >= 6) s.stats.flaresWithSix += 1;
   // §4 beyond the arrays: the blackout, crew indoors, the head tech, wear, an X's batch (core/flareEffects.ts)
   onActiveStart(s, site, mods);
-  // the CME: every X, one M in three, 0.4 lunar day after the flash
-  const n = f.n ?? 0;
-  if (cls === 'X' || (cls === 'M' && mulberry32((s.seed ^ W.keys.cme) + n)() < W.cme.mShare)) {
-    const at = (f.flashAt ?? f.startedAt ?? s.simTime) + W.cme.delayDays * CYCLE_S;
-    f.cme = { at, until: at + W.cme.sailS };
-  }
 }
 
 /** The flash or the tail has passed: the arrays pay for it (§4.3). */
@@ -1014,8 +1113,9 @@ function resolveArrays(s: GameState, mods: Mods, day: DayInfo, part: 'flash' | '
   void day;
 }
 
-/** Quiet again: arrays unstow, repairs queue, the log line, the next flare scheduled. */
-function endFlare(s: GameState, mods: Mods, site: SiteDef) {
+/** Quiet again: arrays unstow, repairs queue, the log line, the next flare scheduled. `days`: on a Moon the schedule
+ *  has moved on already (its interval to the next flare); a solo game's schedule moves here. */
+function endFlare(s: GameState, mods: Mods, site: SiteDef, days?: number) {
   const f = s.flare;
   const w = weatherOf(s);
   const cls = f.cls ?? 'C';
@@ -1041,17 +1141,9 @@ function endFlare(s: GameState, mods: Mods, site: SiteDef) {
   // the machines, research, crew, fabs and scars (core/flareEffects.ts)
   bits.push(...onFlareEnd(s).map((x) => x.replace(/\*\*/g, '')));
   // the next
-  const a = f.a ?? activity(s.seed, s.simTime / CYCLE_S);
-  const u = mulberry32((s.seed ^ W.keys.interval) + (f.n ?? 0))();
-  const days = (W.interval.base - W.interval.slope * a) * (1 + (u - 0.5) * 2 * W.interval.jitter);
-  f.nextAt = s.simTime + days * CYCLE_S;
-  f.n = (f.n ?? 0) + 1;
-  f.phase = 'idle';
-  f.timer = 0;
+  if (days === undefined) days = schedEnd(f, soloCtx(s));
   delete f.plan;
   delete f.exposure;
-  delete f.watch;
-  delete f.nextCls;
   const text = bits.length ? `☉ ${cls} PASSED — ${bits.join(' · ')} · the next in ~${days.toFixed(1)} lunar days`
     : `☉ ${cls} PASSED — everything was docked, stowed or shielded · the next in ~${days.toFixed(1)} lunar days`;
   alert(s, text, wrecks || (t.lost ?? 0) > 0 ? 'warn' : 'info', { panel: 'weather' });
@@ -1225,7 +1317,7 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
   const f = s.flare;
   const w = s.weather ?? defaultWeather();
   const T = s.simTime / CYCLE_S;
-  const a = activity(s.seed, T);
+  const a = activity(weatherSeed(s), T);
   const band = bandOf(a);
   const cls = shownClass(s);
   const ranged = f.phase === 'telegraph' && !!f.range && s.simTime < (f.firmAt ?? 0);
@@ -1292,7 +1384,7 @@ export function weatherView(s: GameState, mods: Mods, site: SiteDef, day: DayInf
     if (b.fix && b.idleReason === 'building') working++;
   }
   return {
-    legacy: !!w.legacy, band, gauge: gaugeOf(band), a, rising: activity(s.seed, T + 0.25) >= a,
+    legacy: !!w.legacy, band, gauge: gaugeOf(band), a, rising: activity(weatherSeed(s), T + 0.25) >= a,
     chip, chipShape, phase: f.phase, cls, classText, firmIn: Math.max(0, (f.firmAt ?? 0) - s.simTime),
     timer: f.timer, drill: !!f.drill, watch: !!f.watch, night: day.sunFactor <= 0.01,
     popup, last: f.log?.length ? f.log[f.log.length - 1] : null, log: [...(f.log ?? [])].reverse().slice(0, 8),

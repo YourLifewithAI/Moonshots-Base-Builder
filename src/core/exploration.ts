@@ -14,7 +14,7 @@ import {
   type MapView, type OutpostKind, type ProspectClass, type ProspectId,
 } from '../data/lunarMap';
 import type { Deposit } from '../terrain/heightfield';
-import type { DepositView, LunarOutpostView, LunarProspectView, LunarView } from '../ui/stores';
+import type { DepositView, LunarOutpostView, LunarProspectView, LunarRivalView, LunarView } from '../ui/stores';
 import { centerOf, footprintRect } from '../buildings/instances';
 import type { FieldReward, GameState, OutpostState } from './state';
 import type { Mods, SurveyTier } from './mods';
@@ -26,6 +26,7 @@ import { fmtClock } from './daynight';
 import { recordSpend } from './flowBook';
 import { commsDark, holdStream } from './flareEffects';
 import { notify } from '../ui/notify';
+import { claimantOf, factionName, moonOf, type FactionId } from './moon';
 
 export interface ActionResult { ok: boolean; reason: string }
 const OK: ActionResult = { ok: true, reason: '' };
@@ -337,6 +338,9 @@ export function claimRefusal(s: GameState, mods: Mods, pid: ProspectId): string 
   if (p.kind === 'heritage') return 'PROTECTED HERITAGE SITE — survey only';
   if (p.kind === 'anomaly') return 'NOTHING TO EXTRACT — anomaly';
   if (s.survey.outposts.some((o) => o.id === pid)) return `OUTPOST ALREADY CLAIMED — ${p.short}`;
+  // another program's outpost on the shared Moon (docs/20 §4.4): a prospect is held by whoever claimed it first
+  const holder = moonOf(s)?.claims[pid];
+  if (holder && holder !== claimantOf(s)) return `CLAIMED BY ${factionName(holder).toUpperCase()} — its outpost stands there`;
   const slots = outpostSlots(mods, s);
   const used = s.survey.outposts.length;
   if (slots === 0) return `NO OUTPOST SLOT — ${tierTech(1, s)}`;
@@ -367,6 +371,7 @@ export function claimOutpost(s: GameState, mods: Mods, pid: ProspectId): ActionR
     id: pid, kind, cls, claimedAt: s.simTime, readyAt: s.simTime + oc.deployS,
     live: false, fuelOk: true, upkeepOk: true,
   });
+  holdClaim(s, pid);
   notify(s, 'field', { text: `OUTPOST CLAIMED — ${PROSPECTS[pid].short} ${KIND_LABEL[kind]} · ${oc.haul} deploys in ${fmtClock(oc.deployS)}`, action: { map: pid } });
   return OK;
 }
@@ -376,16 +381,36 @@ export function abandonOutpost(s: GameState, pid: ProspectId): ActionResult & { 
   const i = s.survey.outposts.findIndex((o) => o.id === pid);
   if (i < 0) return { ok: false, reason: `NO OUTPOST AT ${PROSPECTS[pid]?.short ?? pid}`, wasLive: false };
   const [o] = s.survey.outposts.splice(i, 1);
+  releaseClaim(s, pid);
   notify(s, 'field', { text: `OUTPOST ABANDONED — ${PROSPECTS[pid].short}; the slot is free (no refund)`, action: { map: pid } });
   return { ok: true, reason: '', wasLive: o.live };
 }
 
+/** This base's faction now holds pid on the Moon (a solo game files no claims). */
+function holdClaim(s: GameState, pid: ProspectId) {
+  const moon = moonOf(s);
+  const me = claimantOf(s);
+  if (moon && me) moon.claims[pid] = me;
+}
+
+/** The claim on pid is let go, if this base's faction held it. */
+function releaseClaim(s: GameState, pid: ProspectId) {
+  const moon = moonOf(s);
+  if (moon && moon.claims[pid] === claimantOf(s)) delete moon.claims[pid];
+}
+
 /** Test and probe shortcut: exactly n live outposts, at the nearest
- *  prospects worth claiming (surveyed for free, nothing paid). */
+ *  prospects worth claiming (surveyed for free, nothing paid). On a Moon it lets go of this faction's claims,
+ *  skips what another faction holds, and claims the rest. */
 export function forceOutposts(s: GameState, n: number) {
+  for (const o of s.survey.outposts) releaseClaim(s, o.id);
+  const moon = moonOf(s);
+  const me = claimantOf(s);
   const ids = PROSPECT_IDS.filter((id) => !['heritage', 'anomaly'].includes(PROSPECTS[id].kind))
+    .filter((id) => !moon?.claims[id] || moon.claims[id] === me)
     .sort((a, b) => prospectDist(s.siteId, a) - prospectDist(s.siteId, b))
     .slice(0, Math.max(0, n));
+  for (const id of ids) holdClaim(s, id);
   s.survey.outposts = ids.map((id): OutpostState => ({
     id, kind: PROSPECTS[id].kind as OutpostKind, cls: prospectClass(s.siteId, id),
     claimedAt: s.simTime, readyAt: s.simTime, live: true, fuelOk: true, upkeepOk: true,
@@ -642,8 +667,18 @@ export function explorationTick(s: GameState, mods: Mods, _site: SiteDef, dt: nu
  *  tier the player has seen (a higher one pulses the chip and animates). */
 export interface LunarUi { open: boolean; view: MapView; seenTier: number }
 
-export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
+/** What the caller knows of a rival program (the Moon and its base): `lunarView` adds the home and the claims' holders. */
+export interface RivalInfo {
+  faction: FactionId; name: string; siteId: SiteId; landed: boolean; landedAt: number;
+  outposts: ProspectId[]; launches: number; era: number;
+}
+
+/** The $lunar view. `rivals`: the other programs on this Moon (absent in a solo game: the view is as it always was);
+ *  a prospect another faction holds names it in `rival`, whether or not `rivals` lists it. */
+export function lunarView(s: GameState, mods: Mods, ui: LunarUi, rivals?: readonly RivalInfo[]): LunarView {
   const tier = mods.surveyTier;
+  const moon = moonOf(s);
+  const me = claimantOf(s);
   const slots = outpostSlots(mods, s);
   const prospects: LunarProspectView[] = PROSPECT_IDS.map((id) => {
     const p = PROSPECTS[id];
@@ -660,6 +695,9 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
       : claimWhy;
     const extractable = p.kind !== 'heritage' && p.kind !== 'anomaly';
     const oc = OUTPOST_CLASS[cost.cls];
+    const holder = moon?.claims[id];
+    const rival = holder && holder !== me
+      ? { faction: holder, name: rivals?.find((r) => r.faction === holder)?.name ?? factionName(holder) } : null;
     return {
       id, cls: cost.cls, dist: Math.round(prospectDist(s.siteId, id) * 10) / 10, visible,
       surveyed: !!rec, kind: p.kind, bt: p.bt ?? null,
@@ -669,6 +707,7 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
       data: rec ? rec.data : surveyPayout(s, mods, id),
       survey: cost,
       outpost,
+      rival,
       claim: extractable
         ? { cost: { ...oc.cost }, deployS: oc.deployS, upkeepPerDay: oc.upkeepPerDay,
           linkKW: OUTPOST_LINK_KW[cost.cls], fuel: fuelText(cost.cls), stream: streamText(id), line: outpostSiteLine(s.siteId, id) }
@@ -714,6 +753,10 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
     surveyedCount: Object.keys(s.survey.prospects).length,
     atlas: s.survey.atlas,
     prospects,
+    rivals: (rivals ?? []).map((r): LunarRivalView => ({
+      faction: r.faction, name: r.name, siteId: r.siteId, home: { ...SITES[r.siteId].home },
+      landed: r.landed, landedAt: r.landedAt, outposts: [...r.outposts], launches: r.launches, era: r.era,
+    })),
     // the soonest flight (the map's header and busy line); `flights` is every drone out
     active: flights[0] ? { id: flights[0].id, remaining: flights[0].remaining } : null,
     flights,
