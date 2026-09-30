@@ -22,7 +22,7 @@ import { activity, drawClass, migrateFlareSchema, rangeOf, telegraphOf, type Cla
 import { mulberry32 } from './rng';
 import type { FlareState, GameState } from './state';
 
-import { FACTION_NAME, type FactionId } from '../data/factions';
+import { FACTIONS, FACTION_NAME, FACTION_ORDER, type FactionId } from '../data/factions';
 export type { FactionId };
 
 /** The words a refusal or a line uses for a faction: 'The Foundry'. */
@@ -160,13 +160,18 @@ export function schedEnd(sc: SchedFields, c: SchedCtx): number {
   return days;
 }
 
-/** Copy the schedule fields of `from` onto `to` (deleting what `from` lacks; arrays and objects copied). */
+const SCHED_SET: ReadonlySet<string> = new Set(SCHED_KEYS);
+
+/** Copy the schedule fields of `from` onto `to` (deleting what `from` lacks; arrays and objects copied). A key `to` does not
+ *  have yet is added in `from`'s own order, so the mirror's keys come in the order the machine wrote them (a solo base's
+ *  `s.flare` is that object itself, and its saved JSON and digests read the same either way). */
 export function copySched(to: SchedFields, from: SchedFields) {
   const t = to as unknown as Record<string, unknown>;
   const f = from as unknown as Record<string, unknown>;
-  for (const k of SCHED_KEYS) {
-    if (f[k] === undefined) delete t[k];
-    else t[k] = Array.isArray(f[k]) ? [...(f[k] as unknown[])] : f[k];
+  for (const k of SCHED_KEYS) if (f[k] === undefined) delete t[k];
+  for (const k of Object.keys(f)) {
+    if (!SCHED_SET.has(k) || f[k] === undefined) continue;
+    t[k] = Array.isArray(f[k]) ? [...(f[k] as unknown[])] : f[k];
   }
   if (from.seen) to.seen = { ...from.seen };
   if (from.cme) to.cme = { ...from.cme }; else delete to.cme;
@@ -297,3 +302,24 @@ export function moonFromState(s: GameState): MoonState {
 
 /** The claimant a base's claims are filed under: its faction (a solo game files none). */
 export const claimantOf = (s: { faction?: FactionId }): FactionId | null => s.faction ?? null;
+
+// ─────────────────────────── the landing schedule (docs/20 §4.5) ───────────────────────────
+
+/** A faction game's schedule: where each faction lands and on which Moon clock second its landing day begins
+ *  (`landsAtDay × CYCLE_S`); nobody has landed yet (the caller marks `landed` as it creates each base). */
+export function scheduleLandings(moon: MoonState, sites: Record<FactionId, SiteId>): void {
+  for (const f of FACTION_ORDER) {
+    const d = FACTIONS[f];
+    moon.factions[f] = { siteId: sites[f], landedAt: d.landsAtDay * CYCLE_S, expedition: d.expedition, landed: false };
+  }
+}
+
+/** The landed-at second plus the mid-morning offset: the second a base's own clock starts at (createInitialState's `+ 90`). */
+export const landingSecond = (m: MoonFaction): number => m.landedAt + 90;
+
+/** Rival factions that have not landed and whose landing second is at or before `now` (the Moon clock, whole seconds), in
+ *  landing order. The player's faction is never a rival; a solo Moon (no player) has none. */
+export function dueLandings(moon: MoonState, now: number): FactionId[] {
+  if (moon.player === null) return [];
+  return FACTION_ORDER.filter((f) => f !== moon.player && !moon.factions[f].landed && now >= landingSecond(moon.factions[f]));
+}

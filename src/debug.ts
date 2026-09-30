@@ -6,8 +6,14 @@ import { TECHS, TECH_ALIASES, TRACKS, auditTechs, techRelevanceMatrix, type Era,
 import type { SiteId } from './data/sites';
 import type { ResourceId } from './data/resources';
 import type { GameStats, HubPolicy } from './core/state';
-import { destinyOf, gateProgress, researchView } from './core/research';
-import { GRID, volleyTerms } from './core/economy';
+import { destinyOf, gateProgress, onTechComplete, researchView } from './core/research';
+import { GRID, missionLost, refreshDerived, volleyTerms } from './core/economy';
+import { FACTIONS, FACTION_ORDER, type FactionId } from './data/factions';
+import { isHubType } from './data/hubs';
+import type { Action } from './core/actions';
+import type { RivalProgram } from './core/rival';
+import { BaseSim } from './core/baseSim';
+import { HEADLESS_MODE } from './core/simMode';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
 import { upgradeKey } from './buildings/upgrades';
 import type { UpgradeInfo } from './buildings/instances';
@@ -52,6 +58,31 @@ function techId(id: string): TechId | null {
 
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
 
+/** `getRivals()`: the non-player factions of a faction game in landing order (empty in a solo game; `player` null). */
+function rivalList(player: FactionId | null, find: (f: FactionId) => RivalProgram | undefined, moon: Game['moon']) {
+  if (player === null) return [];
+  const round = (v: number) => Math.round(v * 1000) / 1000;
+  return FACTION_ORDER.filter((f) => f !== player).map((f) => {
+    const m = moon.factions[f];
+    const r = find(f);
+    const head = { faction: f, siteId: m.siteId, landedAt: m.landedAt, landed: m.landed, lost: !!r && missionLost(r.state) };
+    if (!r) {
+      return { ...head, era: 0, techs: 0, techsDone: [] as string[], buildings: 0, hubs: 0, units: 0, launches: 0, swarmPct: 0,
+        resources: null as Record<string, number> | null, outposts: [] as string[], pits: [] as { id: number; R: number }[],
+        terrainHash: null as string | null, simTime: null as number | null };
+    }
+    const s = r.state;
+    return {
+      ...head, era: s.era, techs: s.techsDone.length, techsDone: [...s.techsDone], buildings: s.buildings.length,
+      hubs: s.buildings.filter((b) => isHubType(b.type)).length, units: s.haulers.length,
+      launches: s.launches, swarmPct: s.swarmPct,
+      resources: Object.fromEntries(Object.entries(s.resources).map(([k, v]) => [k, round(v)])),
+      outposts: s.survey.outposts.map((o) => o.id as string), pits: (s.pits ?? []).map((p) => ({ id: p.id, R: round(p.R) })),
+      terrainHash: r.base.hf.terrainHash(), simTime: s.simTime,
+    };
+  });
+}
+
 function api(game: Game) {
   const withTech = (id: string, fn: (t: TechId) => void) => {
     const t = techId(id);
@@ -60,6 +91,56 @@ function api(game: Game) {
   return {
     getState: () => JSON.parse(JSON.stringify(game.state ?? null)),
     selectSite: (site: SiteId, exp: 'human' | 'robotic' = 'human') => game.startNew(site, exp),
+    /** a new FACTION game (docs/20): the player lands as `faction` at `site` (default: its first preferred site), the other two
+     *  programs take the sites left and the ones that land earlier are already on the Moon. `selectSite` stays a solo game. */
+    selectFaction: (faction: FactionId, site?: SiteId) =>
+      game.startNew(site ?? FACTIONS[faction].sites[0], FACTIONS[faction].expedition, faction),
+    /** the shared Moon (clone): clock, flare schedule, claims, race, where and when each faction lands */
+    getMoon: () => clone(game.moon ?? null),
+    /** the race as the Moon holds it (per faction launches, share, first light, era; phase) */
+    getRace: () => clone(game.moon?.race ?? null),
+    /** the two rival programs of a faction game in landing order (none in a solo game): where and when they land, and what a
+     *  landed one holds; an unlanded one has its schedule only */
+    getRivals: () => (game.moon ? rivalList(game.moon.player, (f) => game.rivals.find((r) => r.faction === f), game.moon) : []),
+    /** a landed rival's whole state (clone), or null */
+    getRivalState: (faction: FactionId) => clone(game.rivals.find((r) => r.faction === faction)?.state ?? null),
+    /** rivals tick with the player's base (default) or are frozen (specs that time the player's loop); a frozen rival does not catch up */
+    setRivalsEnabled: (on: boolean) => { game.rivalsOn = on; },
+    /** how long the last new game's pre-roll (the rivals that landed before the player) took, ms */
+    getPreRollMs: () => game.preRollMs,
+    /** a standalone headless base on the stand-in ground (docs/20 §4.2: flat, virtual pits, straight legs, no traffic), outside
+     *  the game: a Lander, run `seconds` of game time. What the CP0 gate asks: a flat base runs 10 minutes. */
+    debugHeadless: (site: SiteId = 'mare', seconds = 600, exp: 'human' | 'robotic' = 'robotic') => {
+      const sim = BaseSim.create({ siteId: site, seed: 42, expedition: exp, mode: HEADLESS_MODE, flat: true });
+      const t0 = performance.now();
+      for (let i = 0; i < seconds; i++) { sim.tick(); sim.clearOut(); }
+      const ms = performance.now() - t0;
+      return { simTime: sim.state.simTime, terrainHash: sim.hf.terrainHash(), buildings: sim.state.buildings.length, ms, msPerTick: seconds ? ms / seconds : 0 };
+    },
+    /** test hooks on a landed rival's base: an action (the Builder's and the player's action set), resources, a finished tech */
+    rivalApply: (faction: FactionId, a: Action) => {
+      const r = game.rivals.find((x) => x.faction === faction);
+      if (!r) return false;
+      r.base.apply(a);
+      r.base.clearOut();
+      return true;
+    },
+    rivalGrant: (faction: FactionId, map: Partial<Record<ResourceId, number>>) => {
+      const r = game.rivals.find((x) => x.faction === faction);
+      if (!r) return false;
+      for (const [rid, amt] of Object.entries(map)) r.state.resources[rid as ResourceId] += amt ?? 0;
+      return true;
+    },
+    rivalCompleteTech: (faction: FactionId, id: TechId) => {
+      const r = game.rivals.find((x) => x.faction === faction);
+      if (!r || !TECHS[id] || r.state.techsDone.includes(id)) return false;
+      r.state.techsDone.push(id);
+      onTechComplete(r.state, id);
+      r.base.mods = refreshDerived(r.state);
+      r.base.syncDeposits(false);
+      r.base.clearOut();
+      return true;
+    },
     placeBuilding: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) =>
       game.debugPlace(type, gx, gz, rot),
     grantResources: (map: Partial<Record<ResourceId, number>>) => {
