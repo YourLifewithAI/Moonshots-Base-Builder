@@ -13,6 +13,7 @@ import { mountHazardsPanel } from './hazardsPanel';
 import { mountWeatherPanel } from './weatherPanel';
 import { mountDepositCard } from './depositCard';
 import { mountDiscovery } from './discovery';
+import { mountNotify } from './notifyUi';
 import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
 import { mountMenu } from './menu';
@@ -53,6 +54,8 @@ export function mountUI(game: Game) {
   // touch mode: last, so it can re-home what the desktop modules built
   if (touchOn()) mountTouchUi(root, hudLayer, game);
   mountFirstMine(hudLayer, game);
+  // the field card and the Log, after the flare pop-up and the objectives (and the first-mine stack) they sit beside
+  mountNotify(hudLayer, game);
 
   $phase.subscribe((p) => {
     hudLayer.style.display = p === 'playing' ? 'block' : 'none';

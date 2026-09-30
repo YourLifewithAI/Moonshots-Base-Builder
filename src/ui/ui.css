@@ -89,6 +89,7 @@
    standing then, at least one, fewer on a short screen */
 #hud-layer #hud-right.inspecting #alerts {
   --alert-row: 28px;
+  /* rows and the 14 px foot: the '+N more' line and the Log button (notify.css) */
   height: calc(var(--alert-rows, 4) * (var(--alert-row) + 4px) + 14px);
   overflow: hidden;
 }

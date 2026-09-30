@@ -50,10 +50,13 @@ import {
 } from './ore';
 import type { Mods } from './mods';
 import { footprintRect } from '../buildings/instances';
-import { bumpRoads, cellAt, cellCentre, cellKey, doorCell } from './roads';
+import { bumpRoads, cellAt, cellCentre, cellKey, doorCell, gatesOf, regate } from './roads';
 import { mulberry32 } from './rng';
-import { alert } from './economy';
+import { alert as rawAlert, alertIn } from './economy';
 import { depositRevealed, networkRadius } from './exploration';
+
+/** deposit surveys are field reports (docs/19 S7) */
+const alert = alertIn('field');
 
 const N = MAP_CELLS + 1;
 /** the heap's volume per m³ of pit: 70% of the mass, stacked loose */
@@ -204,13 +207,49 @@ const heapPlanR = () => heapRadius(PIT.planM3 * HEAP_PER_PIT);
 export function blockersOf(s: GameState): Blockers {
   const pads = s.buildings.map((b) => { const r = footprintRect(b); return { gx0: r.gx0, gz0: r.gz0, gx1: r.gx1, gz1: r.gz1 }; });
   const cells: number[] = [];
-  for (const c of s.roads ?? []) cells.push(cellKey(c.gx, c.gz));
+  // a haul road's tail inside its pit's full-size ring is the pit's to eat (docs/19 S3,
+  // docs/17 §11.4): no wall for its cut; a heap still keeps off it (`soft`)
+  const soft: number[] = [];
+  for (const c of s.roads ?? []) (c.sacrificial ? soft : cells).push(cellKey(c.gx, c.gz));
   for (const b of s.buildings) {
     if (FIELD_TYPES.has(b.type)) continue;
     const d = doorCell(b);
     if (d) cells.push(cellKey(d[0], d[1]));
   }
-  return { pads, cells };
+  return { pads, cells, ...(soft.length ? { soft } : {}) };
+}
+
+/** The full-size ring a target's pit is planned to reach (docs/17 §8.4, the ground `stake` keeps free):
+ *  its centre and radius, world m. A cut pit: where it is now, at least as wide. Null: no terrain bound.
+ *  A haul road keeps its tail inside it sacrificial and other roads keep out of it (core/roads.ts). */
+export function ringOf(s: GameState, key: string): { x: number; z: number; r: number } | null {
+  const hf = terrains.get(s);
+  if (!hf) return null;
+  // (a key that names no deposit or staked pit — a ghost's trial pit — has no ring)
+  if (key.startsWith('plain:') ? !s.plainPits.some((q) => q.id === Number(key.slice(6))) : !key.startsWith('dep:')) return null;
+  const cut = (s.pits ?? []).find((p) => p.key === key && p.anchor >= 0 && p.state !== 'reclaimed');
+  const dep = key.startsWith('dep:') ? hf.deposits.find((d) => d.id === key.slice(4)) : undefined;
+  const [x, z] = keyPoint(hf, key, s);
+  const range = looseRange(dep?.kind, s.siteId);
+  const L = cut ? looseLayer(s, cut) : dep ? profileOf(s, dep).L : (range[0] + range[1]) / 2;
+  const plan = Math.max(pitRadius(PIT.planM3, L), dep ? dep.r * 1.3 : 0);
+  return cut ? { x: cut.cx, z: cut.cz, r: Math.max(plan, cut.R) } : { x, z, r: plan };
+}
+
+/** The zone a target key names (a deposit's or a plain pit's zone id). */
+const zoneIdOf = (key: string): string => (key.startsWith('dep:') ? key.slice(4) : key);
+
+/** The direction (unit) from (x, z) to the gate of the zone `key` names that is nearest it; null with no gate. */
+function gateDir(s: GameState, key: string, x: number, z: number): [number, number] | null {
+  const zone = s.zones?.find((q) => q.id === zoneIdOf(key));
+  if (!zone) return null;
+  let best: [number, number] | null = null, bd = Infinity;
+  for (const g of gatesOf(s, zone)) {
+    const [gx, gz] = cellCentre(g[0], g[1]);
+    const d = Math.hypot(gx - x, gz - z);
+    if (d < bd - 1e-9) { bd = d; best = [gx - x, gz - z]; }
+  }
+  return best && bd > 1e-6 ? [best[0] / bd, best[1] / bd] : null;
 }
 
 function shapeOf(s: GameState, p: PitState): PitShape {
@@ -277,6 +316,8 @@ export function pitsStep(s: GameState, dt: number, mods?: Pick<Mods, 'pitBedrock
   }
   if (!carved.size) return;
   s.terrain.rev++;
+  // a haul road's sacrificial tail the cut has reached goes, and its gate steps back (docs/19 S3)
+  regate(s, hf);
   syncPitZones(s, hf, carved);
 }
 
@@ -369,6 +410,9 @@ function stake(s: GameState, hf: Heightfield, p: PitState, bl: Blockers): boolea
   const gl = Math.hypot(gx, gz);
   p.ux = gl > 1e-6 ? gx / gl : 1;
   p.uz = gl > 1e-6 ? gz / gl : 0;
+  // docs/19 S3: the ramp faces the gate the units come in by, so gate → ramp top never crosses the pit
+  const toGate = gateDir(s, p.key, cx, cz);
+  if (toGate) { p.ux = toGate[0]; p.uz = toGate[1]; }
   p.A = 0;
   const h = stakeHeap(hf, { ...bl, discs }, { x: cx, z: cz, gateX: p.ux, gateZ: p.uz }, planR, heapPlanR());
   p.heap = { x: h.x, z: h.z, Rh: 0, anchor: -1 };
@@ -380,6 +424,13 @@ function stake(s: GameState, hf: Heightfield, p: PitState, bl: Blockers): boolea
  *  carve that cuts nothing with a batch owed (or no free rim left) boxes the
  *  pit in; one that cuts nothing on bedrock has cut its benches. */
 function carve(s: GameState, hf: Heightfield, p: PitState, bl: Blockers, owe: number): boolean {
+  // the ramp faces the nearest gate; while the cut is shallow (no bench yet) it turns to a gate laid or moved since
+  if (p.rockR === undefined && p.deep < PIT.bench) {
+    const to = gateDir(s, p.key, p.cx, p.cz);
+    if (to && to[0] * p.ux + to[1] * p.uz < Math.cos((25 * Math.PI) / 180)) {
+      p.ux = to[0]; p.uz = to[1]; p.ox = p.cx; p.oz = p.cz; p.A = 0;
+    }
+  }
   const sh = shapeOf(s, p);
   const rock = p.rockR !== undefined;
   const dR = rock ? 0 : Math.max(0, pitRadius(p.dugM3, sh.L) - pitRadius(p.cutM3, sh.L));
@@ -928,7 +979,11 @@ export function oreSurveyStep(s: GameState, mods: Mods, dt: number) {
         if (!mods.mastSurveyKinds.has(d.kind) || sv.done[d.id] || Math.hypot(d.cx - mx, d.cz - mz) - d.r > r) continue;
         sv.done[d.id] = { at: s.simTime, precision: mods.surveyPrecision };
         sv.jobs = sv.jobs.filter((j) => j.id !== d.id);
-        alert(s, `SURVEYED BY RELAY MAST #${b.id} — ${pitName(s, { key: `dep:${d.id}`, id: 0, deposit: d.id })}: ${surveyLine(s, d.id)}`, 'info', { deposit: d.id });
+        const name = pitName(s, { key: `dep:${d.id}`, id: 0, deposit: d.id });
+        rawAlert(s, `SURVEYED BY RELAY MAST #${b.id} — ${name}: ${surveyLine(s, d.id)}`, 'info', { deposit: d.id }, 'field', {
+          title: `${name} · surveyed by Relay Mast #${b.id}`, geology: surveyLine(s, d.id),
+          rewards: [{ tag: 'DEPOSIT', text: 'ore, grade and faces are on its card', button: { label: 'Open the card', action: { deposit: d.id } } }],
+        });
       }
     }
   }
@@ -945,6 +1000,13 @@ export function oreSurveyStep(s: GameState, mods: Mods, dt: number) {
     sv.jobs = sv.jobs.filter((x) => x !== j);
     delete r.core;
     s.data += DEP_SURVEY.data;
-    alert(s, `SURVEYED — ${pitName(s, { key: `dep:${j.id}`, id: 0, deposit: j.id })}: ${surveyLine(s, j.id)} · +${DEP_SURVEY.data}≡`, 'info', { deposit: j.id });
+    const name = pitName(s, { key: `dep:${j.id}`, id: 0, deposit: j.id });
+    rawAlert(s, `SURVEYED — ${name}: ${surveyLine(s, j.id)} · +${DEP_SURVEY.data}≡`, 'info', { deposit: j.id }, 'field', {
+      title: `${name} · surveyed`, geology: surveyLine(s, j.id),
+      rewards: [
+        { tag: 'DATA', text: `+${DEP_SURVEY.data}≡ banked` },
+        { tag: 'DEPOSIT', text: 'ore, grade and faces are on its card', button: { label: 'Open the card', action: { deposit: j.id } } },
+      ],
+    });
   }
 }

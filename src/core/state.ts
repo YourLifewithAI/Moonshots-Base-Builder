@@ -856,6 +856,24 @@ export interface AlertMsg {
   counters?: AlertCounter[];
   /** docs/19: the notification family it belongs to (absent: not yet classed) */
   family?: NotifyFamily;
+  /** a field report's card body (docs/19 S7): a title, a geology line, one line per reward */
+  report?: FieldReport;
+}
+
+/** One reward line of a field report: what came back, and (optionally) a button that opens it. */
+export interface FieldReward {
+  text: string;
+  /** a short label in front ('DATA', 'BREAKTHROUGH', 'OUTPOST SITE'), shown as a tag */
+  tag?: string;
+  button?: { label: string; action: AlertAction };
+}
+
+/** The rich body of a field card (docs/19 S7): 'dispatch' cards render title, geology and rewards. */
+export interface FieldReport {
+  title: string;
+  /** what the ground is: one line under the title */
+  geology?: string;
+  rewards: FieldReward[];
 }
 
 /** One line of the notification log (docs/19 S7): every event raised, newest last, capped and saved. */
@@ -869,6 +887,8 @@ export interface LogEntry {
   action?: AlertAction;
   /** times raised (merged repeats) */
   count: number;
+  /** a field report's card body, kept so the log can show it again */
+  report?: FieldReport;
 }
 
 /** a counter button on an alert: the counter action it pushes */

@@ -35,10 +35,10 @@ import type { BuildingState, GameState, HaulState, Hauler, HubJob, HubState, Pit
 import { effectiveDef, effectiveRates, refineryFeed, smelterFeed, waterFeed, type EffectiveRates, type Mods } from './mods';
 import {
   bumpRoads, cellAt, cellCentre, cellKey, doorCell, frontDir, gatesOf, groundWay, hasRoads, isOpen, jobOpen, keyCell,
-  layJob, planLink, roadMap, type Heights, type OffArea,
+  layJob, planLink, roadMap, type Heights, type LinkOpts, type OffArea, type Ring,
 } from './roads';
 import {
-  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pitRefusal, pushFill, releasePit, reservesOf, targetGrade, terrainOf,
+  digInto, faceCapacity, floorDepth, pitFor, pitName, pitOf, pitOreLeft, pitRefusal, pushFill, releasePit, reservesOf, ringOf, targetGrade, terrainOf,
 } from './pits';
 import { GRADE } from '../data/ore';
 import { groundOf, plainQ, processOf } from './ore';
@@ -462,8 +462,37 @@ function reachRefusal(s: GameState, mods: Mods, b: BuildingState, t: Target, sen
   return '';
 }
 
+/** Where a haul road to a target aims (docs/19 S3): its pit's ramp top once cut, else the zone's
+ *  centre. The road stops at a gate on the zone's rim, on the hub's side of it, and the pit's ramp
+ *  will face that gate; the drive on from the gate is short whichever face it is. */
+export function haulEnd(s: GameState, t: Target): Pt {
+  const via = wayIn(s, t).via[0];
+  if (via) return via;
+  const [gx, gz] = cellAt(t.cx, t.cz);
+  return !t.zone || zoneOfCell(s, gx, gz)?.id === t.zone.id ? [t.cx, t.cz] : facePoint(s, t, 0);
+}
+
+/** What a hub's haul road to `t` is planned with (core/roads.ts planLink): from the hub's door,
+ *  keeping out of the other wanted pits' full-size rings, the tail of it inside its own ring
+ *  sacrificial. */
+export function haulOpts(s: GameState, hub: Pick<BuildingState, 'type' | 'gx' | 'gz' | 'rot'>, t: Target): LinkOpts {
+  const site = SITES[s.siteId];
+  const wanted = new Set<DepositKind>();
+  for (const def of Object.values(HUB_DEFS)) for (const k of def!.wants(site)) wanted.add(k);
+  const rings: Ring[] = [];
+  for (const z of s.zones ?? []) {
+    if (z.kind === 'pit') continue;
+    const key = z.kind === 'plain' ? z.id : depKey(z.id);
+    if (key === t.key || (z.kind !== 'plain' && !wanted.has(z.kind))) continue;
+    const r = ringOf(s, key);
+    if (r) rings.push(r);
+  }
+  return { hub, rings, ring: ringOf(s, t.key) };
+}
+
 /** Lay the haul road to a target no road reaches yet (a free-rover job, once;
- *  a refused one is asked again a minute later). */
+ *  a refused one is asked again a minute later): planned from the hub's door,
+ *  merging into the network, to a gate on the hub's side of the target. */
 function askRoad(s: GameState, b: BuildingState, t: Target): string {
   const hf = heightsOf(s);
   const asks = (b.hub!.roads ??= {});
@@ -472,10 +501,10 @@ function askRoad(s: GameState, b: BuildingState, t: Target): string {
   if (a && a.job > 0) return '';
   if (a && s.simTime - a.at < 60) return a.why ?? '';
   if (!hf) return 'no heights';
-  const face = wayIn(s, t).via[0] ?? facePoint(s, t, 0);
-  const plan = planLink(s, hf, null, cellAt(face[0], face[1]));
+  const end = haulEnd(s, t);
+  const plan = planLink(s, hf, null, cellAt(end[0], end[1]), haulOpts(s, b, t));
   if (plan.reason) { asks[t.key] = { job: 0, at: s.simTime, why: `NO HAUL ROAD — ${plan.reason}` }; return asks[t.key].why!; }
-  const job = plan.cells.length ? layJob(s, plan, 'haul', b.id) : 0;
+  const job = layJob(s, plan, 'haul', b.id);
   asks[t.key] = { job, at: s.simTime };
   return '';
 }

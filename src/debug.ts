@@ -16,11 +16,12 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, bumpRoads, doorCell, gatesOf, mastStand, openAll, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, bumpRoads, cellAt, doorCell, gatesOf, holdOf, mastStand, openAll, planLink, planPath, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
-import { choicesFor, hubOf, plainPitRefusal, unitsOf } from './core/hubs';
+import { choicesFor, haulEnd, haulOpts, heightsOf, hubOf, plainPitRefusal, targetOf, unitsOf } from './core/hubs';
 import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
 import { $deposits, $hubCard, $hubLight } from './ui/stores';
+import { notify, type NotifyCard, type NotifyFamily } from './ui/notify';
 import { SITES } from './data/sites';
 import type { AutoFamily, AutoRuleId } from './data/automation';
 import type { CounterId, HazardId, Tier } from './data/hazards';
@@ -190,6 +191,9 @@ function api(game: Game) {
     // ── space weather (docs/16) ──
     /** a flare's telegraph now: its class, and whether it is a drill (default: the first of the class, or flare 0) */
     forceFlare: (cls: FlareClass, o: { drill?: boolean } = {}) => game.debugForceFlare(cls, o),
+    /** Raise a notification in a family (ui/notify.ts): a stack line, a log line and, for a field
+     *  card with a `report`, the dispatch card. The state is published at once. */
+    notify: (family: NotifyFamily, card: NotifyCard) => { notify(game.state, family, card); game.publish(); },
     /** the $weather payload (chip, pop-up, panel), with an optional slider share for its previews */
     getSpaceWeather: (slider?: number) => {
       const s = game.state;
@@ -367,7 +371,11 @@ function api(game: Game) {
     /** a hub ghost's whole HUB block at (gx, gz, rot): headline, lines, warning, stake, lit entries (docs/17 §5.2) */
     hubBlock: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => {
       const b = ghostBlock(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot });
-      return { headline: b.headline, lines: [...b.lines], warn: b.warn, stake: b.stake, entries: b.light?.entries ?? [] };
+      return {
+        headline: b.headline, lines: [...b.lines], warn: b.warn, stake: b.stake, entries: b.light?.entries ?? [],
+        // the dashed haul road it would plan from its door (docs/19 S3): [gx, gz] cells
+        road: (b.road ?? []).map((k) => [k % 256, Math.floor(k / 256)]),
+      };
     },
     /** the highlight a selected hub (its id) or a hub card (its type) would light */
     hubLightOf: (src: number | BuildingId) =>
@@ -581,8 +589,35 @@ function api(game: Game) {
       game.publish();
       return true;
     },
+    /** the haul road a hub would plan to a target now (docs/19 S3): its whole route from the door, the
+     *  gate, the holding bay, the passing bays and the sacrificial cells (cell [gx, gz] lists) */
+    planHaul: (hub: number, key: string) => {
+      const s = game.state, hf = heightsOf(s);
+      const b = s.buildings.find((x) => x.id === hub), t = targetOf(s, key);
+      if (!b || !t || !hf) return null;
+      const end = haulEnd(s, t);
+      const plan = planLink(s, hf, null, cellAt(end[0], end[1]), haulOpts(s, b, t));
+      const xy = (k: number): [number, number] => [k % 256, Math.floor(k / 256)];
+      return {
+        reason: plan.reason, end, route: (plan.route ?? []).map(xy), gate: plan.gate ? { cell: xy(plan.gate.key), zone: plan.gate.zone } : null,
+        hold: plan.hold !== undefined ? xy(plan.hold) : null, pass: (plan.pass ?? []).map(xy), sacrificial: (plan.sacrificial ?? []).map(xy),
+        cells: plan.cells.map(xy), fresh: plan.fresh.map(xy),
+      };
+    },
+    /** the road the tool would lay from an open road cell through waypoints to a cell (docs/19 S3): why not, and its cells */
+    planRoad: (from: [number, number], to: [number, number], via: [number, number][] = []) => {
+      const s = game.state, hf = heightsOf(s);
+      if (!hf) return null;
+      const plan = via.length ? planPath(s, hf, from, [...via, to]) : planLink(s, hf, from, to);
+      return { reason: plan.reason, cells: plan.cells.map((k) => [k % 256, Math.floor(k / 256)]) };
+    },
+    /** the holding bay of a zone's gate, [gx, gz] (or null) */
+    holdOf: (zone: string, gate: [number, number]) => {
+      const z = game.state.zones?.find((q) => q.id === zone);
+      return z ? holdOf(game.state, z, gate) : null;
+    },
     /** the road tool's actions: a road from an open road cell to a cell; remove cells */
-    layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
+    layRoad: (from: [number, number], to: [number, number], via?: [number, number][]) => game.actions.push({ kind: 'layRoad', from, to, ...(via?.length ? { via } : {}) }),
     removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),
   };
 }

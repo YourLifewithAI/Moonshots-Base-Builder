@@ -36,6 +36,8 @@ const BIG = 1e12;
 export interface Blockers {
   pads: readonly { gx0: number; gz0: number; gx1: number; gz1: number }[];
   cells: readonly number[];
+  /** road cells a pit may dig over but a heap may not bury (a haul road's sacrificial tail, docs/19 S3) */
+  soft?: readonly number[];
   /** discs no stake may take (other pits' and heaps' planned ground), world m */
   discs?: readonly { x: number; z: number; r: number }[];
 }
@@ -193,6 +195,12 @@ function buildMask(hf: Heightfield, win: Win, bl: Blockers, mode: 'dig' | 'dump'
   for (const key of bl.cells) {
     const gx = key % MAP_CELLS, gz = Math.floor(key / MAP_CELLS);
     stamp(win, gx - rr, gz - rr, gx + 1 + rr, gz + 1 + rr);
+  }
+  if (mode === 'dump' && bl.soft) {
+    for (const key of bl.soft) {
+      const gx = key % MAP_CELLS, gz = Math.floor(key / MAP_CELLS);
+      stamp(win, gx - rr, gz - rr, gx + 1 + rr, gz + 1 + rr);
+    }
   }
   if (discs && bl.discs) {
     for (const d of bl.discs) {

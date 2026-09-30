@@ -6,7 +6,8 @@ import type { ResourceId } from '../data/resources';
 import type { BuildingId } from '../data/buildings';
 import type { TechId } from '../data/techs';
 import type { SiteId } from '../data/sites';
-import type { AlertMsg, BuildingState, HubPolicy } from '../core/state';
+import type { AlertMsg, BuildingState, FieldReport, HubPolicy, LogEntry } from '../core/state';
+import { loadSettings } from '../core/settings';
 import type { DestinyView, ResearchView } from '../core/research';
 import type { AutomationView } from '../core/automation';
 import type { HazardView } from '../core/hazards';
@@ -231,6 +232,13 @@ export const $depositMarkers = atom<{
 export const $feed = atom<FeedGrade>(emptyFeed());
 
 export const $alerts = atom<AlertMsg[]>([]);
+/** the saved notification log, oldest first (docs/19 S7; ui/notifyUi.ts's Log panel and the weather panel's view) */
+export const $log = atom<LogEntry[]>([]);
+/** field reports waiting on the dispatch card, oldest first; the newest shows (ui/notifyUi.ts) */
+export interface FieldCard { id: number; text: string; report: FieldReport; action?: LogEntry['action'] }
+export const $fieldCards = atom<FieldCard[]>([]);
+/** the Log panel is open (the alert stack's Log button toggles it) */
+export const $logOpen = atom<boolean>(false);
 /** progress = the earliest open objective's status line ('' = none); hints =
  *  each objective's hint for this run (expedition and doctrine applied) */
 export const $milestones = atom<{ done: string[]; total: number; progress: string; hints: Record<string, string> }>({
@@ -269,7 +277,7 @@ export const $placing = atom<{
   hubBlock?: string[];
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
-export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);
+export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean; waypoints?: number } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 /** a victory or defeat overlay is up: the world's screens and keys wait under it */
@@ -277,7 +285,7 @@ export const overlayUp = () => $victory.get() || $defeat.get();
 /** something that holds the game paused for the player's answer is up: a victory or defeat
  *  overlay, an era or hazard banner (ui/discovery.ts; a tech card is not one), or the menu.
  *  A speed click or key resumes a paused game only when none of these is up. */
-export const modalUp = () => overlayUp() || $menuOpen.get() || ($announce.get()[0]?.kind ?? 'tech') !== 'tech';
+export const modalUp = () => overlayUp() || $menuOpen.get() || announceHolds($announce.get()[0]);
 
 /** ice survey state (legacy saves) */
 export const $ice = atom<{ hasIce: boolean; surveyed: boolean }>({ hasIce: false, surveyed: false });
@@ -313,6 +321,10 @@ export type Announcement =
   | { id: number; kind: 'hazardsLive'; side: HazardSide }
   | { id: number; kind: 'hazard'; hazard: HazardId };
 export const $announce = atom<Announcement[]>([]);
+/** an announcement that holds the game paused until Continue: an era explainer, a hazards-live
+ *  banner, and a hazard's drill card unless the menu's "Pause on hazard drills" is off (docs/19 S7) */
+export const announceHolds = (a: Announcement | undefined) =>
+  !!a && a.kind !== 'tech' && !(a.kind === 'hazard' && !loadSettings().pauseDrills);
 
 /** touch mode's info card (ui/touchUi.ts): a building type's tooltip, for
  *  a long-press or a tap on a palette card; null = closed */

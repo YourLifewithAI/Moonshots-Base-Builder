@@ -362,11 +362,10 @@ test('drill: the first of a kind is minor, warns 60 s longer and cannot kill eve
   expect(r.h2.drill).toBe(false);
   expect(r.crew2).toBe(r.crew0 - 1);
   expect(r.drilled).toContain('breach');
-  // the NEW HAZARD card (it pauses): what the counters do, and what the next one will do
+  // the NEW HAZARD card (the hazard family's own card, #hazard-card; it pauses): what the counters do, and what the next one will do
   // click through the cards queued before it (the landing, the era explainers), one a beat
   for (let i = 0; i < 80; i++) {
-    const t = (await page.locator('#era-banner').textContent()) ?? '';
-    if (/NEW HAZARD/.test(t) && await page.locator('#era-banner').isVisible()) break;
+    if (await page.locator('#hazard-card').isVisible() && /NEW HAZARD/.test((await page.locator('#hazard-card').textContent()) ?? '')) break;
     await page.evaluate(() => {
       const q = document.querySelector<HTMLElement>('#era-banner [data-dsc="ok"]:not([hidden])');
       const c = document.querySelector<HTMLElement>('#discovery-card [data-dsc="ok"]');
@@ -375,8 +374,8 @@ test('drill: the first of a kind is minor, warns 60 s longer and cannot kill eve
     });
     await page.waitForTimeout(150);
   }
-  await expect(page.locator('#era-banner')).toContainText('NEW HAZARD');
-  await expect(page.locator('#era-banner')).toContainText('Next time, the people inside die');
+  await expect(page.locator('#hazard-card')).toContainText('NEW HAZARD');
+  await expect(page.locator('#hazard-card')).toContainText('Next time, the people inside die');
 });
 
 /** In-page: advance to `before` s ahead of the next dusk (or dawn with 'dawn'). */

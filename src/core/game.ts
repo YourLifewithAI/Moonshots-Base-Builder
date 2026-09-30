@@ -17,7 +17,7 @@ import { createInitialState, type AlertMsg, type BuildingState, type GameState }
 import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveDef, effectiveRates, waterReclaimFactor } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
-  boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction,
+  boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, logStamp, computeMods, landerAction,
   missionLost, orderDelayS, queuePos, settlersWelcome, type Mods,
   launchVolley, volleyTerms,
 } from './economy';
@@ -42,10 +42,10 @@ import { crewParts, fleetRefresh, releaseRover, sendRover, summonRover, unpinRov
 import { TRANSIT, freeReach, siteTransit, transitPlan } from './transit';
 import { TRAFFIC, trafficInfo, trafficStats } from './traffic';
 import { digAtHome, digRefusal, setDigSite } from './haul';
-import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, keyCell, layApron, laySpur, migrateRoads, planLink, planSpur } from './roads';
+import { accessCell, bumpRoads, cellAt, dropSpur, hasRoads, joinCell, layApron, layPlan, laySpur, migrateRoads, planLink, planSpur } from './roads';
 import { zonesFrom } from './zones';
 import {
-  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, facePoint, hopperRoom, migrateHubs, newHubState, openPit,
+  assignPit, autoUnit, bindHeights, cancelJob, choicesFor, dispatchUnit, haulEnd, haulOpts, hopperRoom, migrateHubs, newHubState, openPit,
   plainZones, queueJob, recallUnit, sendUnit, stakeHubPit,
 } from './hubs';
 import { UNIT_VID, isHubType } from '../data/hubs';
@@ -97,7 +97,7 @@ import {
   $iceOverlay, $lander, $lostMission, $lunar, $menuOpen, $milestones, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
-  $fleet, $fleetTarget, $roverSel, $unitSel,
+  $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard,
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather,
   $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView,
 } from '../ui/stores';
@@ -416,7 +416,10 @@ export class Game {
     this.announceSeen = null;
     this.announceDrilled = null;
     this.hazardSeen = null;
+    this.fieldSeen = null;
+    this.logRef = null;
     $announce.set([]);
+    $fieldCards.set([]);
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
@@ -485,7 +488,13 @@ export class Game {
           // the Hazards panel (docs/14 §3.8): risks, counters, the network
           $resourcePanel.set($resourcePanel.get() === 'hazards' ? null : 'hazards');
           break;
+        case 'Backspace':
+          // drawing a road: the last waypoint back
+          if (this.roadTool.active) { e.preventDefault(); this.roadTool.undo(); }
+          break;
         case 'Enter': case 'NumpadEnter':
+          // drawing a road: lay it through its waypoints (docs/19 S3)
+          if (this.roadTool.active) { e.preventDefault(); this.roadTool.commit(); break; }
           // while placing: let the rovers choose the site for this one
           if (this.placement.active && this.placement.probe && this.placement.probe.type !== 'grade') {
             e.preventDefault();
@@ -655,6 +664,8 @@ export class Game {
     this.roadTool.begin();
   }
   cancelRoadTool() { this.roadTool?.cancel(); }
+  /** ✓ Lay on the touch bar (Enter): the road through its waypoints */
+  commitRoad() { this.roadTool?.commit(); }
   debugRoadTool() { return this.roadTool.info(); }
 
   beginPlacement(type: PlaceableType) {
@@ -1288,15 +1299,15 @@ export class Game {
     b.hub = newHubState();
     if (!choicesFor(s, this.mods, site, b, 1).some((c) => c.inReach && !c.target.plain)) stakeHubPit(s, this.mods, site, b);
     const best = choicesFor(s, this.mods, site, b, 1).find((c) => c.inReach);
-    if (!best || best.trip.connected || !hasRoads(s)) return;
-    const [fx, fz] = facePoint(s, best.target, 0);
-    const plan = planLink(s, this.hf, null, cellAt(fx, fz));
+    if (!best || !hasRoads(s)) return;
+    const [fx, fz] = haulEnd(s, best.target);
+    const plan = planLink(s, this.hf, null, cellAt(fx, fz), haulOpts(s, b, best.target));
     (b.hub.roads ??= {})[best.target.key] = { job: 0, at: s.simTime, ...(plan.reason ? { why: `NO HAUL ROAD — ${plan.reason}` } : {}) };
-    if (plan.reason || !plan.cells.length) return;
+    if (plan.reason || !(plan.cells.length || plan.gate)) return;
+    // planned from its door: its own spur's cells lead the plan, then the road on from the network
     const open = this.debugOpenRoads;
-    for (const k of plan.fresh) { const [gx, gz] = keyCell(k); s.roads!.push({ gx, gz, left: open ? 0 : ROAD.cellS }); }
+    layPlan(s, plan, open);
     if (!open) b.spur = [...(b.spur ?? []), ...plan.cells.filter((k) => !(b.spur ?? []).includes(k))];
-    bumpRoads(s);
   }
 
   /** b.deposit: the deposit under the footprint centre (placement and load);
@@ -1339,7 +1350,7 @@ export class Game {
     this.revealedIds.add(d.id);
     this.rebuildDepositOverlay();
     alert(s, `PROSPECT STRUCK — ${BUILDINGS[b.type].name} #${b.id} is on ${DEPOSIT_INFO[d.kind].name} ` +
-      `(${strikeEffect(d.kind, this.mods)})`, 'info', { select: b.id });
+      `(${strikeEffect(d.kind, this.mods)})`, 'info', { select: b.id }, 'field');
   }
 
   /** After a tick, a tech or a load: completed masts map their ground, and
@@ -1358,7 +1369,7 @@ export class Game {
     const count = new Map<DepositKind, number>();
     for (const d of fresh) count.set(d.kind, (count.get(d.kind) ?? 0) + 1);
     const list = [...count].map(([k, n]) => `${DEPOSIT_INFO[k].name}${n > 1 ? ` ×${n}` : ''}`).join(' · ');
-    alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info');
+    alert(s, `DEPOSITS MAPPED — ${list} · overlay [I]`, 'info', undefined, 'field');
   }
 
   /** The extraction zones are the deposits the player sees (core/zones.ts):
@@ -1756,6 +1767,8 @@ export class Game {
       const p = this.placement.probe!;
       const block = p.valid && p.type !== 'grade' && isHubType(p.type)
         ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : null;
+      // a hub ghost also shows the haul road its units would take on from the network (dashed)
+      this.placement.haulPreview.show(block?.road?.length ? block.road : undefined, false, true);
       $placing.set({
         type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
         road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,
@@ -1929,7 +1942,8 @@ export class Game {
     for (const a of s.alerts) {
       const was = seen.alerts.get(a.id);
       if (a.kind === 'crit' && was !== 'crit') crit = fresh(a.key, 15_000) || crit;
-      else if (a.kind === 'warn' && was === undefined) warn = fresh(a.key, 30_000) || warn;
+      // a flare's warning has its own cue (the pop-up's, docs/19 S7)
+      else if (a.kind === 'warn' && was === undefined && a.family !== 'weather') warn = fresh(a.key, 30_000) || warn;
     }
     if (crit) sfx.play('crit');
     else if (warn) sfx.play('warn');
@@ -2301,6 +2315,7 @@ export class Game {
     $research.set(researchView(s, this.mods));
     $automation.set(automationView(s, this.mods));
     $alerts.set([...s.alerts]);
+    this.publishLog();
     const next = MILESTONES.find((m) => !s.milestonesDone.includes(m.id));
     $milestones.set({
       done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
@@ -2360,6 +2375,39 @@ export class Game {
     this.flarePauses();
   }
 
+  /** the newest log id the dispatch card has seen (null: take the baseline, as a loaded world does) */
+  private fieldSeen: number | null = null;
+  /** the log array $log last copied, and the stamp it copied at */
+  private logRef: GameState['log'] | null = null;
+  private logStampSeen = -1;
+
+  /** The notification log to the UI, and each new field report to the dispatch card
+   *  (ui/notifyUi.ts). A loaded world takes only the baseline; test runs (?debug) draw
+   *  no card unless they ask (&tips), as for the discovery cards. */
+  private publishLog() {
+    const s = this.state;
+    const log = (s.log ??= []);
+    if (this.logRef !== log || this.logStampSeen !== logStamp.n) {
+      this.logRef = log;
+      this.logStampSeen = logStamp.n;
+      $log.set([...log]);
+    }
+    const last = log.length ? log[log.length - 1].id : 0;
+    if (this.fieldSeen === null) { this.fieldSeen = last; return; }
+    const seen = this.fieldSeen;
+    this.fieldSeen = last;
+    const fresh: FieldCard[] = [];
+    for (let i = log.length - 1; i >= 0 && log[i].id > seen; i--) {
+      const e = log[i];
+      if (e.family === 'field' && e.report) fresh.unshift({ id: e.id, text: e.text, report: e.report, action: e.action });
+    }
+    if (!fresh.length) return;
+    sfx.play('chirp');
+    const q = new URLSearchParams(location.search);
+    if (q.has('debug') && !q.has('tips')) return;
+    $fieldCards.set([...$fieldCards.get(), ...fresh].slice(-5));
+  }
+
   /** the flare pop-up last seen (the pause-on setting fires once a flare) */
   private flareSeen = -1;
   /** Pause on flare warnings (docs/16 §5.2, §10.4): the full pop-up pauses M
@@ -2372,6 +2420,7 @@ export class Game {
     if (!p) return;
     if (this.flareSeen === p.n) return;
     this.flareSeen = p.n;
+    sfx.play('flare');
     const q = new URLSearchParams(location.search);
     if (q.has('debug') && !q.has('flarepause')) return;
     const set = loadSettings().pauseFlares;
