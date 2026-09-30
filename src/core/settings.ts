@@ -33,11 +33,13 @@ export interface Settings {
   pauseFlares: 'mx' | 'all' | 'off';
   /** notifications (docs/19 S7): a hazard's first-of-its-kind drill card holds the game paused until Continue */
   pauseDrills: boolean;
+  /** notifications (docs/20 S1): the `race` family's news (a rival lands, reaches an era, faces a hearing) pauses the game; off by default */
+  pauseRace: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   safe: false, volume: 0.7, music: 0.7, effects: 1, muted: false, tips: true,
-  pauseHazards: true, pauseLethal: false, pauseFlares: 'mx', pauseDrills: true,
+  pauseHazards: true, pauseLethal: false, pauseFlares: 'mx', pauseDrills: true, pauseRace: false,
 };
 
 const clamp01 = (v: unknown, d: number) =>
@@ -59,6 +61,7 @@ function read(): Settings {
       pauseLethal: raw.pauseLethal === true,
       pauseFlares: raw.pauseFlares === 'all' || raw.pauseFlares === 'off' ? raw.pauseFlares : 'mx',
       pauseDrills: raw.pauseDrills !== false,
+      pauseRace: raw.pauseRace === true,
       touch: isTouchChoice(raw.touch) ? raw.touch : undefined,
     };
   } catch {

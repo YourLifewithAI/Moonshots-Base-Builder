@@ -843,9 +843,9 @@ export type AlertAction =
   | { panel: string } | { select: number } | { deposit: string }
   | { map: ProspectId } | { tech: TechId } | { building: BuildingId | number };
 
-/** The five notification families (docs/19 S7): each has its own shape,
+/** The six notification families (docs/19 S7; `race` is docs/20 S1): each has its own shape,
  *  colour rule, position, sound and pause behaviour. */
-export type NotifyFamily = 'research' | 'field' | 'era' | 'weather' | 'hazard';
+export type NotifyFamily = 'research' | 'field' | 'era' | 'weather' | 'hazard' | 'race';
 
 /** One line of the alert stack. A condition (cond) is re-raised by every
  *  economy tick while it holds and leaves soon after it stops; an event is
@@ -871,6 +871,8 @@ export interface AlertMsg {
   family?: NotifyFamily;
   /** a field report's card body (docs/19 S7): a title, a geology line, one line per reward */
   report?: FieldReport;
+  /** the `race` family (docs/20 S1): whose doing it is; the card's rule takes that faction's trim colour, its glyph the faction's */
+  faction?: FactionId;
 }
 
 /** One reward line of a field report: what came back, and (optionally) a button that opens it. */
@@ -902,6 +904,8 @@ export interface LogEntry {
   count: number;
   /** a field report's card body, kept so the log can show it again */
   report?: FieldReport;
+  /** the faction of a `race` line (see AlertMsg) */
+  faction?: FactionId;
 }
 
 /** a counter button on an alert: the counter action it pushes */

@@ -6,6 +6,7 @@ import { FACTIONS, FACTION_ORDER, assignSites, isFactionId, type FactionId } fro
 import type { Game } from '../core/game';
 import { el } from './hud';
 import { esc } from './notify';
+import { siteWords } from '../core/raceView';
 import { $siteId as $siteIdAtom } from './stores';
 import { $counts, $defeat, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
@@ -18,9 +19,6 @@ function rate(n: number): string {
 }
 
 // ─────────────────────────── site selection ───────────────────────────
-
-/** a site's name in words: SHACKLETON RIM → Shackleton Rim (the briefing, the faction cards and the RACE panel say it so) */
-export const siteTitle = (id: SiteId): string => SITES[id].name.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
 
 /** `?faction=` on the URL (docs/20 §2): it opens the faction step on that faction when there is no `?site=` to land on */
 function urlFaction(): FactionId | null {
@@ -92,7 +90,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       const gap = r.landsAtDay - d.landsAtDay;
       const when = gap < 0 ? `${-gap} day${gap === -1 ? '' : 's'} before you` : `${gap} day${gap === 1 ? '' : 's'} after you`;
       return `<div class="fc-rival" data-rival="${x}"><span class="fc-rg" style="color:${r.livery.trim}" aria-hidden="true">${r.glyph}</span> ` +
-        `${esc(r.name)} · ${esc(siteTitle(where[x]))} · day ${r.landsAtDay} <span class="fc-gap">(${when})</span></div>`;
+        `${esc(r.name)} · ${esc(siteWords(where[x]))} · day ${r.landsAtDay} <span class="fc-gap">(${when})</span></div>`;
     }).join('');
     return `<div class="site-card faction-card${faction === f ? ' sel' : ''}" data-faction="${f}" style="--ft:${d.livery.trim}" ` +
       `role="button" tabindex="0" aria-pressed="${faction === f}">
