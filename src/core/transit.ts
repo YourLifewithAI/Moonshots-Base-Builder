@@ -286,12 +286,14 @@ function wayTo(s: GameState, x: number, z: number, g: Goal): { pts: Pt[]; w?: nu
   let to = g.off ? offAreaAt(s, g.x, g.z) ?? offGround(s, g.x, g.z) : null;
   // a grading job's stand (docs/19 S5) on open ground: the box is its own area with one gate (the road cell nearest it),
   // so a rover hopping from cell to cell stays on it and one arriving drives in from that road cell
-  if (g.kind === 'grade' && g.job !== undefined && g.off && !offAreaAt(s, g.x, g.z)) {
+  // (inside an extraction zone with a gate the zone's own way is used; a zone with none yet has no way, so the box's own)
+  const open = (a: { gates: unknown[] } | null) => !a || a.gates.length === 0;
+  if (g.kind === 'grade' && g.job !== undefined && g.off && open(offAreaAt(s, g.x, g.z))) {
     const j = s.gradeJobs?.find((q) => q.id === g.job);
     const area = j ? gradeArea(s, j) : null;
     if (j && area) {
       to = area;
-      if (onGradeGround(j, x, z) && !offAreaAt(s, x, z)) from = area;
+      if (onGradeGround(j, x, z) && open(offAreaAt(s, x, z))) from = area;
       // a hop on from cell to cell across ground the blade has just levelled: at road speed
       if (from && from.id === area.id) return { pts: [[x, z], [g.x, g.z]] };
     }
