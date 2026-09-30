@@ -47,7 +47,6 @@ export const isV2 = (b: SaveFile): b is SaveBlobV2 => (b as SaveBlobV2).version 
  *  rivals and race phase 'solo'). A v2 is returned as it is. */
 export function asV2(file: SaveFile): SaveBlobV2 {
   if (isV2(file)) return file;
-  file.state.landedAt ??= 0;
   return { version: 2, moon: moonFromState(file.state), player: file.state, rivals: [], camera: file.camera, savedAt: file.savedAt };
 }
 

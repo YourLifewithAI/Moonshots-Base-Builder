@@ -1023,9 +1023,9 @@ export interface GameState {
   /** the absolute Moon clock (docs/20 §4.4): game-seconds since the first landing (day 0). A solo
    *  game lands at 0, so this is also the time since its own landing; `sinceLanding(s)` is the latter. */
   simTime: number;
-  /** the Moon clock this base landed at (0 for a solo game; a later landing's `landsAtDay × CYCLE_S`):
-   *  the mission day counts from it, nothing else does */
-  landedAt: number;
+  /** the Moon clock this base landed at (a later landing's `landsAtDay × CYCLE_S`): the mission day counts from it,
+   *  nothing else does. ABSENT reads as 0, and a solo game carries no key, so its saves and digests are as they were. */
+  landedAt?: number;
   /** which program this base is (docs/20 §1); absent in a solo game */
   faction?: FactionId;
   speed: number;             // 1 | 3 | 10
@@ -1215,7 +1215,7 @@ export function createInitialState(
     siteId,
     seed,
     expedition,
-    landedAt,
+    ...(landedAt ? { landedAt } : {}),
     simTime: landedAt + 90, // land mid-morning: the first thing you see is sunlit regolith
     speed: 1,
     paused: false,
@@ -1359,8 +1359,6 @@ function researchDefaults() {
 export function fillStateDefaults(s: GameState): GameState {
   const legacy = s as Partial<GameState> & GameState;
   const d = researchDefaults();
-  // saves from before the shared Moon (docs/20): landed on day 0, a solo game
-  legacy.landedAt ??= 0;
   legacy.insights ??= d.insights;
   legacy.discoveries ??= d.discoveries;
   legacy.researchStalled ??= d.researchStalled;

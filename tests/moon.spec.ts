@@ -233,7 +233,7 @@ test('a v1 blob loads as solo: race phase solo, no rivals; a v2 round-trips; riv
       version: v2.moon.version, phase: v2.moon.race.phase, player: v2.moon.player, rivals: v2.rivals.length, clock: v2.moon.clock === st.simTime,
       seed: v2.moon.seed === st.seed, nextAt: v2.moon.weather.nextAt === st.flare.nextAt, n: v2.moon.weather.n === st.flare.n,
       claims: Object.keys(v2.moon.claims).length, landed: Object.values(v2.moon.factions).some((f: any) => f.landed),
-      playerIsState: v2.player.simTime === st.simTime, isV2: isV2(v2), v1IsV2: isV2(blob), landedAt: st.landedAt,
+      playerIsState: v2.player.simTime === st.simTime, isV2: isV2(v2), v1IsV2: isV2(blob), landedAt: st.landedAt ?? 0, noKey: !('landedAt' in st),
     };
     // the store: a v1 comes back as v1 (and through loadGame too), a v2 as v2 (and loadGame collapses it)
     await saveGame(blob);
@@ -275,7 +275,7 @@ test('a v1 blob loads as solo: race phase solo, no rivals; a v2 round-trips; riv
   });
   expect(r.solo).toMatchObject({
     version: 2, phase: 'solo', player: null, rivals: 0, clock: true, seed: true, nextAt: true, n: true, claims: 0, landed: false,
-    playerIsState: true, isV2: true, v1IsV2: false, landedAt: 0,
+    playerIsState: true, isV2: true, v1IsV2: false, landedAt: 0, noKey: true,
   });
   expect(r.strip).toEqual({ log: 0, alerts: 0, flattens: 0, delta: '', zones: true, fl: 0, hl: 0, al: 0, keeps: true, untouched: true });
   expect(r.v1).toEqual({ isV2: false, same: true, g: true });
@@ -299,14 +299,15 @@ test('the mission day counts from the base’s own landing; a solo game shows da
     const late = S.createInitialState('mare', 42, 'human', 2 * day);
     const at = (s: any, t: number) => { s.simTime = t; return S.missionDay(s); };
     return {
-      soloStart: [S.sinceLanding(solo), solo.landedAt, solo.simTime, S.missionDay(solo)],
+      soloStart: [S.sinceLanding(solo), solo.landedAt ?? 0, solo.simTime, S.missionDay(solo), 'landedAt' in solo],
       lateStart: [S.sinceLanding(late), late.landedAt, late.simTime, S.missionDay(late)],
       lateDay2: at(late, 3 * day + 90), lateDay1Edge: at(late, 3 * day - 1),
       tags: [N.dayTag(2 * day + 90, 2 * day), N.dayTag(3 * day + 90, 2 * day), N.dayTag(3 * day + 90)],
-      filled: (() => { const old: any = { ...solo }; delete old.landedAt; return S.fillStateDefaults(old).landedAt; })(),
+      filled: (() => { const old: any = { ...solo }; return S.fillStateDefaults(old).landedAt ?? 0; })(),
     };
   });
-  expect(r.soloStart).toEqual([90, 0, 90, 1]);
+  // (a solo game carries no `landedAt` key: its saves and digests are as they were; absent reads as 0)
+  expect(r.soloStart).toEqual([90, 0, 90, 1, false]);
   // a base landing on day 2 starts at mid-morning of its own day 1, on the absolute clock's day 3
   expect(r.lateStart).toEqual([90, 2 * 720, 2 * 720 + 90, 1]);
   expect(r.lateDay2).toBe(2);
