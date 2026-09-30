@@ -781,6 +781,7 @@ test('the sheet of a rival outpost says whose it is, offers no Claim, and our cl
   await expect(page.locator('#ps-survey')).toHaveCount(1); // their outpost does not close the survey
   await expect(page.locator('#ps-survey')).not.toHaveClass(/blocked/);
   await expect(page.locator('.ps')).not.toContainText('OUTPOST SITE');
+  await expect(page.locator('#ps-reason')).toHaveText('✓ Ready to survey · CLAIMED BY THE FOUNDRY — its outpost stands there');
   // we survey it (local: 1.7°), and the sheet gives the refusal
   await g(page, 'grantPower', 300);
   await page.locator('#ps-survey').click();

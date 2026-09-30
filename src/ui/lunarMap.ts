@@ -1164,7 +1164,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       // another program's outpost stands here (docs/20 §5): whose, and why it is not yours to claim
       ? `<div class="ps-rival k-rival-${rv.faction}" style="--fc:${factionColour(rv.faction)}"><span class="ps-rg">${factionGlyph(rv.faction)}</span>` +
         `<b>▢ rival outpost — ${esc(rv.name)}</b></div>` +
-        `<div class="ps-none">${esc(claimedByText(rv.name))}. Its stream is theirs; a survey here still pays its data.</div>`
+        `<div class="ps-none">Its stream is theirs: no claim here, and a survey still pays its data.</div>`
       : x
       ? `<div class="ps-site"><span class="ps-tag mono">OUTPOST SITE</span><span class="mono">${esc(x.line)}</span></div>` +
         `<div class="io"><span class="k">Deploys</span><span class="mono">${fmtClock(x.deployS)}</span>` +
@@ -1202,7 +1202,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     let t: string, ok = false;
     if (fl) t = `◌ Surveying — drone ${fl.drone} back in ${fmtClock(fl.remaining)}`;
     else if (p.outpost) { t = doneStatus(p); ok = true; }
-    else if (!p.surveyed) { ok = p.surveyable; t = ok ? '✓ Ready to survey' : `✗ ${p.reason}`; }
+    else if (!p.surveyed) { ok = p.surveyable; t = ok ? `✓ Ready to survey${p.rival ? ` · ${claimedByText(p.rival.name)}` : ''}` : `✗ ${p.reason}`; }
     else if (!p.claim) { t = p.kind === 'heritage' ? '⌂ Surveyed — survey only' : '✓ Surveyed — the data is in'; ok = true; }
     else { ok = p.claimable; t = ok ? '✓ Ready to claim' : `✗ ${p.reason}`; }
     if (reason.textContent !== t) reason.textContent = t;
