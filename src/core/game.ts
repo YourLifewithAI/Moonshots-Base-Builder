@@ -2990,6 +2990,16 @@ export class Game {
     return true;
   }
 
+  /** Tests: a deterministic clock. Pauses, sets the game clock to `at` and clears the tick accumulator, so two page loads
+   *  that ran a different number of frames before this call start the same game-second (the live loop leaves a fractional
+   *  second that depends on load). Meant for the moment right after boot, before the base has anything stamped with a time. */
+  debugSettleClock(at = 90) {
+    this.state.paused = true;
+    this.state.simTime = at;
+    this.econAcc = 0;
+    this.publish();
+  }
+
   /** run one frame of play as if `realDt` wall-seconds had passed (no render) */
   debugFrame(realDt: number) {
     if (this.playing) this.step(realDt);
