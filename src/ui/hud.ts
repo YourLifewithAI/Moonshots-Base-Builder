@@ -266,15 +266,18 @@ export function mountHud(root: HTMLElement, game: Game) {
   alerts.id = 'alerts';
   alerts.style.setProperty('--alert-rows', String(ALERTS.shown));
   time.appendChild(alerts);
+  // the foot: '+N more' on the left, the Log button on the right, one 14 px line
+  const foot = el('div', 'alert-foot');
+  alerts.appendChild(foot);
   const more = el('div', 'label alert-more');
-  alerts.appendChild(more);
+  foot.appendChild(more);
   // the Log: every notification of every family, newest first (ui/notifyUi.ts opens it)
   const logBtn = el('button', 'btn alert-log', 'Log') as HTMLButtonElement;
   logBtn.id = 'log-btn';
   logBtn.title = 'Log — every notification, newest first';
   logBtn.setAttribute('aria-expanded', 'false');
   logBtn.addEventListener('click', () => $logOpen.set(!$logOpen.get()));
-  alerts.appendChild(logBtn);
+  foot.appendChild(logBtn);
   $logOpen.subscribe((on) => { logBtn.classList.toggle('active', on); logBtn.setAttribute('aria-expanded', String(on)); });
   $log.subscribe((l) => { logBtn.dataset.n = String(l.length); });
   const alertEls = new Map<number, { root: HTMLElement; g: HTMLElement; text: HTMLElement; n: HTMLElement; ctrs: HTMLElement }>();
@@ -319,10 +322,10 @@ export function mountHud(root: HTMLElement, game: Game) {
       const n = a.count > 1 ? `×${a.count}` : '';
       if (e.n.textContent !== n) e.n.textContent = n;
       e.root.title = `${a.text} — ${a.action ? 'click for details' : 'click to dismiss'}`;
-      if (alerts.children[i] !== e.root) alerts.insertBefore(e.root, alerts.children[i] ?? more);
+      if (alerts.children[i] !== e.root) alerts.insertBefore(e.root, alerts.children[i] ?? foot);
     });
     more.textContent = list.length > shown.length ? `+${list.length - shown.length} more` : '';
-    more.style.display = more.textContent ? 'block' : 'none';
+    more.style.visibility = more.textContent ? 'visible' : 'hidden';
   };
   $alerts.subscribe(renderAlerts);
   // Inspecting: the stack is sized once per building opened — to the alerts

@@ -39,12 +39,15 @@
 .alert.nf-plain .alert-g { opacity: 0.45; }
 .alert.nf-plain { border-left-width: 1px; }
 .alert.crit .alert-g { color: var(--nf-hazard); opacity: 1; }
+.alert-foot { display: flex; justify-content: space-between; align-items: center; align-self: stretch; height: 14px; gap: 8px; }
+.alert-foot .alert-more { flex: 1 1 auto; min-width: 0; white-space: nowrap; }
 .alert-log {
-  align-self: flex-end; font-size: 10px; line-height: 14px; padding: 2px 8px; margin-top: 2px;
+  flex: none; box-sizing: border-box; height: 14px; font-size: 9px; line-height: 12px; padding: 0 7px;
 }
 .alert-log::after { content: attr(data-n); margin-left: 6px; opacity: 0.6; font-family: var(--font-mono); }
 .alert-log[data-n="0"]::after, .alert-log:not([data-n])::after { content: ''; margin: 0; }
-html.touch .alert-log { min-height: var(--tap, 44px); font-size: 11px; padding: 4px 12px; }
+html.touch .alert-foot { height: auto; }
+html.touch .alert-log { height: auto; min-height: var(--tap, 44px); font-size: 11px; padding: 4px 12px; }
 
 /* ── field: the dispatch card (lower left, above the objectives, a torn top edge) ── */
 #field-card {
