@@ -5,7 +5,7 @@ import { test, expect, type Page } from '@playwright/test';
 declare global { interface Window { __game?: any } }
 
 async function boot(page: Page, site = 'mare', extra = '') {
-  await page.goto(`/?debug&seed=42&nolock&lowfx&site=${site}&exp=robotic${extra}`);
+  await page.goto(`/?debug&seed=42&site=${site}&exp=robotic${extra}`);
   await page.waitForFunction(() => window.__game?.getState());
   await page.evaluate(() => {
     window.__game.setPaused(true);
@@ -42,7 +42,7 @@ test('first mine: shows mapped ore, teaches pit clearance, and starts a preview 
 });
 
 test('first mine: polar crew mission teaches plain regolith, not nonexistent basalt', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&lowfx&site=southpole&exp=human');
+  await page.goto('/?debug&seed=42&site=southpole&exp=human');
   await page.waitForFunction(() => window.__game?.getState());
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   await page.locator('#first-mine-toggle').click();
@@ -52,7 +52,7 @@ test('first mine: polar crew mission teaches plain regolith, not nonexistent bas
   await expect(guide).toContainText('mapped plain ground');
   await guide.locator('[data-fm="hide"]').click();
   // Guidance is enabled on this launch: the saved Hide choice must still win.
-  await page.goto('/?debug&seed=42&nolock&lowfx&site=southpole&exp=human&tips');
+  await page.goto('/?debug&seed=42&site=southpole&exp=human&tips');
   await page.waitForFunction(() => window.__game?.getState());
   await expect(page.locator('#era-banner')).toBeVisible();
   await page.locator('#era-banner [data-dsc="ok"]').click();

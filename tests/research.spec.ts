@@ -7,7 +7,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
@@ -64,6 +64,9 @@ const TO_ERA_5 = [
   'regenFuelCells', 'swarmRobotics', 'stackedCells', 'slagRecycling', 'droneHives',
   'waferFab', 'acceleratorDesign', 'waferPolishing', 'oreSorting', 'lightsOutFabs',
 ];
+/** the migration's "EXPANDED" alert counts every tech the 47-tech tree lacked */
+const newTechs = (page: Page) =>
+  page.evaluate(async () => (await import('/src/data/techs.ts')).TECH_ORDER.length - 47);
 /** ERA_COST_SCALE as the page runs it (costs below are base × scale) */
 const costScale = (page: Page) =>
   page.evaluate(async () => (await import('/src/data/balance.ts')).ERA_COST_SCALE as Record<number, number>);
@@ -72,7 +75,7 @@ test('charter by deed: two era-1 techs plus 450◆ smelted open Era 2', async ({
   await start(page, 'mare');
   await complete(page, ['regolithProcessing']);
   await page.evaluate(() => window.__game.grantResources({ metals: 200 }));
-  await placeNear(page, [['solar', 2], ['excavator', 3], ['smelter', 2], ['lab', 1]]);
+  await placeNear(page, [['solar', 2], ['smelter', 2], ['lab', 1]]); // each smelter commissions with its own excavator
   const r = await page.evaluate(() => {
     const g = window.__game!;
     g.finishConstruction();
@@ -83,7 +86,7 @@ test('charter by deed: two era-1 techs plus 450◆ smelted open Era 2', async ({
       eraWhileShort = Math.max(eraWhileShort, s.era);
       powered(10);
       s = g.getState();
-      // keep the yard from filling, so the smelters never stand by
+      // keep the yard from filling, so the smelters never stand by (the pile feeds them first)
       if (s.resources.metals > 150) g.grantResources({ metals: 100 - s.resources.metals });
     }
     const oneTech = { era: g.getState().era, gate: g.getResearch().gates[0] };
@@ -179,7 +182,7 @@ test('requiresAny: either branch opens the tech; both are named (Site Grading is
   expect(mare.era).toBe(2);
   expect(mare.cards.regolithShielding.state).toBe('requiresAny');
   expect(mare.cards.regolithShielding.reason).toBe('needs Site Grading OR Construction Robotics');
-  // Construction Robotics itself takes either uplink: Rovers is done, Teleoperation is not
+  // Construction Robotics itself takes either uplink: Drones is done, Teleoperation is not
   expect(mare.cards.constructionRobotics.state).toBe('available');
   // the path queues the cheaper missing branch in front of it
   await page.evaluate(() => window.__game.researchPath('regolithShielding'));
@@ -223,30 +226,35 @@ test('goods stall: a tech short of chips waits while the queue flows past it', a
 
 test('cancel is transitive: dependents drop with alerts and never finish', async ({ page }) => {
   await start(page, 'mare');
-  await complete(page, ['teleoperation', 'prospectingRovers', 'grizzlyScreens', 'fieldSpectrometers']); // Era 2 without smelting
+  // Era 2 without Prospecting Drones (nothing in the tree needs Pit Mapping any more, the
+  // smelter is known from landing): Sample Caches and Heliophysics build on Drones, and Neutron
+  // Spectrometry builds on Sample Caches, so the drop takes two passes
+  await complete(page, ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers']);
   await placeNear(page, [['solar', 1], ['lab', 1]]);
   const r = await page.evaluate(() => {
     const g = window.__game!;
-    for (const t of ['regolithProcessing', 'siliconRefining', 'partsFabrication']) g.research(t);
+    for (const t of ['prospectingRovers', 'sampleCaches', 'neutronSpectrometry', 'heliophysicsForecasting']) g.research(t);
     g.advanceGameSeconds(0);
     const queued = g.getState().researchQueue;
-    g.cancelResearch('regolithProcessing');
+    g.cancelResearch('prospectingRovers');
     g.advanceGameSeconds(0);
     const cancelled = g.getState();
     g.grantData(500);
     g.advanceGameSeconds(600);
     return { queued, cancelled, later: g.getState() };
   });
-  expect(r.queued).toEqual(['regolithProcessing', 'siliconRefining', 'partsFabrication']);
+  expect(r.queued).toEqual(['prospectingRovers', 'sampleCaches', 'neutronSpectrometry', 'heliophysicsForecasting']);
   expect(r.cancelled.researchQueue).toEqual([]);
   const drops = r.cancelled.alerts.filter((a: any) => a.text.startsWith('RESEARCH DROPPED'));
   expect(drops.map((a: any) => a.text).sort()).toEqual([
-    'RESEARCH DROPPED — Parts Fabrication needs Regolith Smelting',
-    'RESEARCH DROPPED — Silicon Refining needs Regolith Smelting',
+    'RESEARCH DROPPED — Heliophysics Forecasting needs Prospecting Drones',
+    'RESEARCH DROPPED — Neutron Spectrometry needs Sample-Return Caches',
+    'RESEARCH DROPPED — Sample-Return Caches needs Prospecting Drones',
   ]);
-  expect(r.later.techsDone).not.toContain('siliconRefining');
-  expect(r.later.techsDone).not.toContain('partsFabrication');
-  expect(r.later.techsDone).not.toContain('regolithProcessing');
+  expect(r.later.techsDone).not.toContain('neutronSpectrometry');
+  expect(r.later.techsDone).not.toContain('sampleCaches');
+  expect(r.later.techsDone).not.toContain('heliophysicsForecasting');
+  expect(r.later.techsDone).not.toContain('prospectingRovers');
 });
 
 test('overclock: ×1.5 draw and output, then it trips itself at WORN', async ({ page }) => {
@@ -459,8 +467,8 @@ test('tech mods reach the grid: Lander comms loads, agent tax, night draw, const
   await placeNear(page, [['lab', 1]]);
   const tax = await page.evaluate(() => {
     const g = window.__game!;
-    g.finishRoads(); // its road open: built by 80 s (docs/15)
-    g.advanceGameSeconds(80);
+    g.finishRoads(); // its road open: built by 90 s (the lab's rover drives out first; docs/15)
+    g.advanceGameSeconds(90);
     // the lab's draw: the grid's demand less the fleet's own (a rover driving home, charging: docs/02, On-board power)
     const draw = () => { g.advanceGameSeconds(1); const p = g.getState().power; return p.demand - (p.fleet ?? 0); };
     const base = draw();
@@ -533,13 +541,13 @@ test('save migration: a 34-tech save loads with retired ids refunded and the que
   const s = await page.evaluate(() => window.__game.getState());
   expect(s.techsDone).toEqual(['landingCrew', 'regolithProcessing']); // the landing is the Era 1 destiny (docs/14 §7)
   expect(s.researchQueue).toEqual([]);
-  expect(s.techSchema).toBe(4);
+  expect(s.techSchema).toBe(5);
   // 40 + 640 + 260 for the three done, plus the 50 banked on a queued one
   expect(s.data - legacy.data).toBeCloseTo(990, 6);
   expect(s.stats.produced.metals).toBe(0);
   expect(s.survey.outposts).toEqual([]);
   expect(hasAlert(s, /^RESEARCH TREE UPDATED — 5 retired techs refunded 990≡$/)).toBe(true);
-  expect(hasAlert(s, /^RESEARCH TREE EXPANDED — 85 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(hasAlert(s, new RegExp(`^RESEARCH TREE EXPANDED — ${await newTechs(page)} new techs; nothing you researched is lost$`))).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -579,13 +587,13 @@ test('save migration: a 47-tech save keeps its era, research and queue; the new 
   await page.locator('#btn-continue').click();
   await page.waitForFunction(() => (window.__game?.getState()?.buildings?.length ?? 0) > 0);
   const r = await page.evaluate(() => ({ s: window.__game.getState(), v: window.__game.getResearch() }));
-  expect(r.s.techSchema).toBe(4);
+  expect(r.s.techSchema).toBe(5);
   expect(r.s.era).toBe(5);
   expect(r.s.techsDone).toEqual(['landingRobotic', ...old]);
   expect(r.s.researchQueue).toEqual(['lunarDataCenter']);
   expect(r.s.researchSpent.lunarDataCenter).toBe(120);
   expect(r.s.data).toBe(legacy.data); // nothing refunded, nothing lost
-  expect(hasAlert(r.s, /^RESEARCH TREE EXPANDED — 85 new techs; nothing you researched is lost$/)).toBe(true);
+  expect(hasAlert(r.s, new RegExp(`^RESEARCH TREE EXPANDED — ${await newTechs(page)} new techs; nothing you researched is lost$`))).toBe(true);
   // new techs appear in their eras: the open ones researchable, the rest era-locked
   expect(r.v.cards.bifacialCells.state).toBe('available');
   expect(r.v.cards.deployableRadiators.state).toBe('available');
@@ -673,7 +681,7 @@ test('goods leave the crew’s reserve: Fuel Cells wait until 80≈ is spare, an
     powered(Math.ceil(g.getResearch().cards.regenFuelCells.cost.data / 0.8) + 20);
     const dry = g.getState();
     const dryCard = g.getResearch().cards.regenFuelCells;
-    g.completeTech('regolithVolatiles'); // excavators sweat water now
+    g.completeTech('regolithVolatiles'); // the Water Management Plant is unlocked (it made water all along)
     g.grantResources({ water: 83 - g.getState().resources.water });
     g.advanceGameSeconds(1);
     const held = g.getState();
@@ -685,13 +693,14 @@ test('goods leave the crew’s reserve: Fuel Cells wait until 80≈ is spare, an
   // seven crew drink 0.035≈/s: five minutes of it, 10.5≈, is the reserve
   expect(r.dry.crew).toBe(7);
   expect(r.dry.researchStalled).toEqual(['regenFuelCells']);
-  expect(r.dryCard.stalledNeed).toMatch(/^80≈ water \(have \d+, 11 held for the crew\) · nothing here makes water yet$/);
-  expect(hasAlert(r.dry, /^RESEARCH WAITING — Regenerative Fuel Cells needs 80≈ water \(have \d+, 11 held for the crew\) · nothing here makes water yet$/)).toBe(true);
+  // the Water Management Plant makes water from any soil (docs/17 §14), locked or not: it is named
+  expect(r.dryCard.stalledNeed).toMatch(/^80≈ water \(have \d+, 11 held for the crew\) · made by Water Management Plant$/);
+  expect(hasAlert(r.dry, /^RESEARCH WAITING — Regenerative Fuel Cells needs 80≈ water \(have \d+, 11 held for the crew\) · made by Water Management Plant$/)).toBe(true);
   // 82 in the tanks covers 80, but not 80 above the crew's 10.5: it waits, and says so
   expect(r.held.resources.water).toBeCloseTo(82.965, 6);
   expect(r.held.researchStalled).toEqual(['regenFuelCells']);
   expect(r.held.techsDone).not.toContain('regenFuelCells');
-  expect(r.heldCard.stalledNeed).toBe('80≈ water (have 82, 11 held for the crew) · made by Regolith Excavator');
+  expect(r.heldCard.stalledNeed).toBe('80≈ water (have 82, 11 held for the crew) · made by Water Management Plant');
   // 90.965 after the crew drinks: 80 above the reserve, and the reserve stays
   expect(r.done.techsDone).toContain('regenFuelCells');
   expect(r.done.resources.water).toBeCloseTo(10.965, 6);
@@ -715,9 +724,12 @@ test('producers follow the recipes: the held rotation names what really makes wa
     return { none, outpost, volatiles: g.getState() };
   });
   const held = (s: any) => s.alerts.filter((a: any) => a.text.startsWith('CREW ROTATION HELD')).map((a: any) => a.text);
-  expect(held(r.none)).toEqual(['CREW ROTATION HELD — needs 8 water (have 0) · nothing here makes water yet']);
-  expect(held(r.outpost)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · claim an ice outpost');
-  expect(held(r.volatiles)).toContain('CREW ROTATION HELD — needs 8 water (have 0) · build Regolith Excavator');
+  // the Water Management Plant makes water from any soil (docs/17 §14), so a building is always the answer:
+  // an outpost is named only for a resource no building makes, and the plant is named before and after its unlock
+  const build = 'CREW ROTATION HELD — needs 8 water (have 0) · build Water Management Plant';
+  expect(held(r.none)).toEqual([build]);
+  expect(held(r.outpost)).toContain(build);
+  expect(held(r.volatiles)).toContain(build);
 });
 
 test('insight: none for a tech a done doctrine rival has foreclosed for good', async ({ page }) => {

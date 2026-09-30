@@ -1,13 +1,16 @@
 /** Full-loop smoke test: site select → build → economy ticks →
  *  tech tree → night survival → launch → victory → save/reload restore.
- *  Drives the sim through window.__game (?debug&nolock) plus real UI clicks. */
+ *  Drives the sim through window.__game (?debug) plus real UI clicks.
+ *  The smelter is known from landing and commissions with its first excavator:
+ *  a hub prints, docks and sends its own units (docs/17), so no test places an
+ *  excavator; the smelter stands in for it wherever one was a load or a site. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function game(page: Page) {
   await page.waitForFunction(() => window.__game !== undefined);
@@ -67,33 +70,31 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // check lands on the same tick however slowly the page renders
   await page.evaluate(() => window.__game.setPaused(true));
 
-  // place via debug API on the flat mare next to the lander
+  // place via debug API on the flat mare next to the lander; the smelter needs
+  // no research and comes with its first excavator (docs/17)
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
 
   const before = await page.evaluate(() => window.__game.getState());
-  // the excavator stands at ~80 s; its first bucket lands at the Lander a
-  // haul cycle later (regolith is credited on unload)
+  await page.evaluate(() => window.__game.advanceGameMinutes(3)); // the smelter stands at ~120 s; its unit is digging
+  const mid = await page.evaluate(() => window.__game.getState());
+  expect(mid.power.supply).toBeGreaterThan(0);
+  expect(mid.haulers.length).toBe(1);
+  // its first bucket lands in the hub's hopper a haul cycle later (▲ is the
+  // pile plus the hoppers), and the smelter turns it into metals
   await page.evaluate(() => window.__game.advanceGameMinutes(3));
   const after = await page.evaluate(() => window.__game.getState());
   expect(after.resources.regolith).toBeGreaterThan(before.resources.regolith);
-  expect(after.power.supply).toBeGreaterThan(0);
+  expect(after.buildings.find((b: any) => b.type === 'smelter').hub.hopper).toBeGreaterThan(0);
+  expect(after.resources.metals).toBeGreaterThan(mid.resources.metals);
+  expect(after.resources.oxygen).toBeGreaterThan(mid.resources.oxygen); // its byproduct outruns the crew's breathing
 
-  // smelter needs research → complete tech, place, verify metals + oxygen byproduct
-  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
-  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
-  const m0 = await page.evaluate(() => window.__game.getState());
-  await page.evaluate(() => window.__game.advanceGameMinutes(3)); // build 96s, then smelt
-  const m1 = await page.evaluate(() => window.__game.getState());
-  expect(m1.resources.metals).toBeGreaterThan(m0.resources.metals);
-
-  // night on Mare with no batteries: industry idles by priority — the lander's
-  // trickle keeps the small excavator alive; the hungry smelter goes dark.
+  // night on Mare with no batteries: industry idles by priority — the hungry
+  // smelter goes dark, the Lander's trickle keeps the rest alive.
   // Only priority-2 industry is idled, so this is load shedding, not a brownout
-  // t≈630s: the bank is spent, and the regolith yard not yet full (a full
-  // yard stands the excavator by, and the smelter then runs on its share)
-  await page.evaluate(() => window.__game.advanceGameMinutes(3));
+  // t≈660s: the bank is spent (it lasts ~5 s of the night at the Lander's 6 kW), and dawn is at 720 s
+  await page.evaluate(() => window.__game.advanceGameMinutes(3.5));
   const night = await page.evaluate(() => window.__game.getState());
   expect(night.wasNight).toBe(true);
   const smelter = night.buildings.find((b: any) => b.type === 'smelter');
@@ -109,9 +110,9 @@ test('power: dark loads count as demand; load shed vs brownout; power returns in
   await game(page);
   // no solar: the lander's 6 kW and its bank are the whole grid
   expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 126))).toBe(true);   // 4 kW, prio 0
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true); // 6 kW, prio 2
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);   // 12 kW, prio 2, with its excavator
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);       // 5 kW, prio 3
-  await page.evaluate(() => window.__game.advanceGameSeconds(130)); // all three built
+  await page.evaluate(() => { window.__game.finishConstruction(); window.__game.advanceGameSeconds(5); }); // all three built
   // empty the bank and tick in one evaluate, so the live frame loop can't
   // slip in extra ticks of trickle charge
   const drainAndRun = (secs: number) => page.evaluate((n) => {
@@ -123,10 +124,10 @@ test('power: dark loads count as demand; load shed vs brownout; power returns in
   const shed = await drainAndRun(3);
   const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
   expect(by(shed, 'habitat').idleReason).toBe('');
-  // the excavator's grid draw is held dark: it digs on its own pack for now (docs/02, On-board power)
-  expect(by(shed, 'excavator').idleReason).toBe('');
-  expect(by(shed, 'excavator').onPack).toBe(true);
-  expect(by(shed, 'excavator').haul.src).toBe('pack');
+  // the smelter's draw is held dark; its hub's excavator digs on its own pack for now (docs/02, On-board power)
+  expect(by(shed, 'smelter').idleReason).toBe('power');
+  expect(shed.haulers.length).toBe(1);
+  expect(shed.haulers[0].haul.src).toBe('pack');
   expect(by(shed, 'lab').idleReason).toBe('power');
   // requested demand keeps counting the loads held dark
   expect(shed.power.demand).toBeGreaterThanOrEqual(15);
@@ -230,14 +231,14 @@ test('tech tree: research queues, completes, unlocks buildings, gates eras', asy
   await page.screenshot({ path: 'test-results/05-techtree.png' });
 
   // era 1 tech is clickable; era 2 techs locked until 4 era-1 techs are done
-  const smelting = page.locator('.tech-card[data-tech="regolithProcessing"]');
+  const pitMapping = page.locator('.tech-card[data-tech="regolithProcessing"]'); // Pit Mapping (the old Regolith Smelting slot)
   const battery = page.locator('.tech-card[data-tech="batteryStorage"]');
-  await expect(smelting).toHaveClass(/available/);
+  await expect(pitMapping).toHaveClass(/available/);
   await expect(battery).toHaveCount(0);
   await page.keyboard.press('BracketRight');
   await expect(battery).toHaveClass(/locked/);
   await page.keyboard.press('BracketLeft');
-  await smelting.click();
+  await pitMapping.click();
   await page.evaluate(() => window.__game.grantData(80));
   await page.evaluate(() => window.__game.advanceGameSeconds(5));
   const mid = await page.evaluate(() => window.__game.getState());
@@ -305,7 +306,7 @@ test('construction robots gate concurrent builds', async ({ page }) => {
   // three sites, two robots: only two build, the third queues
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 126))).toBe(true);
   await page.evaluate(() => window.__game.advanceGameSeconds(2));
   const s = await page.evaluate(() => window.__game.getState());
   const reasons = s.buildings.filter((b: any) => b.construction > 0).map((b: any) => b.idleReason).sort();
@@ -317,8 +318,8 @@ test('construction robots gate concurrent builds', async ({ page }) => {
   // when a robot frees up, the queued site starts
   await page.evaluate(() => window.__game.advanceGameSeconds(40)); // solars done at 32s
   const s2 = await page.evaluate(() => window.__game.getState());
-  const excavator = s2.buildings.find((b: any) => b.type === 'excavator');
-  expect(excavator.idleReason).toBe('building');
+  const smelter = s2.buildings.find((b: any) => b.type === 'smelter');
+  expect(smelter.idleReason).toBe('building');
 });
 
 test('construction stalls without welding parts and resumes on delivery', async ({ page }) => {
@@ -344,9 +345,9 @@ test('construction stalls without welding parts and resumes on delivery', async 
 test('construction sites draw power at their own priority; a dark site is never a brownout', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
-  // no solar: the lander's 6 kW carries one 6 kW excavator OR one 4 kW site
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
-  await page.evaluate(() => window.__game.advanceGameSeconds(50)); // built at 48s
+  // no solar: the lander's 6 kW carries one 5 kW lab OR one 4 kW site
+  expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
+  await page.evaluate(() => window.__game.advanceGameSeconds(80)); // built at 72s
   expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 126))).toBe(true);
   const run = (secs: number, prios: [string, number][] = []) => page.evaluate(([n, ps]) => {
     const g = window.__game!;
@@ -361,22 +362,22 @@ test('construction sites draw power at their own priority; a dark site is never 
   }, [secs, prios] as const);
   const by = (s: any, t: string) => s.buildings.find((b: any) => b.type === t);
   // the habitat site welds at the habitat's priority 0, ahead of priority-2 industry
-  const first = await run(2);
+  // (the lab stands in for it: it is the smelter's 12 kW that no longer fits one lander)
+  const first = await run(2, [['lab', 2]]);
   expect(by(first, 'habitat').construction).toBeGreaterThan(0);
   expect(by(first, 'habitat').idleReason).toBe('building');
   expect(by(first, 'habitat').onPack).toBeUndefined(); // on the grid
-  // the excavator's grid draw is dark (it digs on its pack for now: docs/02, On-board power)
-  expect(by(first, 'excavator').onPack).toBe(true);
+  // the industry's grid draw is dark
+  expect(by(first, 'lab').idleReason).toBe('power');
   expect(first.power.shed).toBe(true);
   expect(first.power.brownout).toBe(false);
   // the player's priority governs the site: at 3 its draw goes dark before the
-  // excavator's (its rover welds on its own pack meanwhile)
+  // lab's (its rover welds on its own pack meanwhile)
   const demoted = await run(2, [['habitat', 3]]);
   expect(by(demoted, 'habitat').onPack).toBe(true);
-  expect(by(demoted, 'excavator').idleReason).toBe('');
-  expect(by(demoted, 'excavator').onPack).toBeUndefined();
+  expect(by(demoted, 'lab').idleReason).toBe('');
   // a critical-priority site held dark is shed load, not a life-support brownout
-  const critical = await run(2, [['habitat', 1], ['excavator', 0]]);
+  const critical = await run(2, [['habitat', 1], ['lab', 0]]);
   expect(by(critical, 'habitat').onPack).toBe(true);
   expect(critical.power.brownout).toBe(false);
   expect(critical.power.shed).toBe(true);
@@ -385,10 +386,10 @@ test('construction sites draw power at their own priority; a dark site is never 
 test('robot queue: Build next jumps the line, a paused site frees its robot, demolish refunds what was paid', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
-  // three sites, two robots: the excavator waits its turn
+  // three sites, two robots: the smelter waits its turn
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 130))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 126))).toBe(true);
   const q = await page.evaluate(() => {
     const g = window.__game!;
     const ids = g.getState().buildings.filter((b: any) => b.type !== 'lander').map((b: any) => b.id);
@@ -398,7 +399,7 @@ test('robot queue: Build next jumps the line, a paused site frees its robot, dem
     };
     g.advanceGameSeconds(1);
     const placed = reasons();
-    // Build next: the excavator takes the robot of the last site in line
+    // Build next: the smelter takes the robot of the last site in line
     g.buildNext(ids[2]);
     g.advanceGameSeconds(1);
     const jumped = reasons();
@@ -432,14 +433,14 @@ test('robot queue: Build next jumps the line, a paused site frees its robot, dem
   // demolish returns what the site actually cost on the mare (×0.8): all of it
   // for a site no robot has touched, half of it once welding has begun
   expect(await page.evaluate(() => window.__game.placeBuilding('lab', 135, 133))).toBe(true);
-  const refunds = await page.evaluate((excavatorId) => {
+  const refunds = await page.evaluate((smelterId) => {
     const g = window.__game!;
     const lab = g.getState().buildings.find((b: any) => b.type === 'lab');
     const r0 = g.getState().resources;
     g.demolish(lab.id);
     g.advanceGameSeconds(0);
     const r1 = g.getState().resources;
-    g.demolish(excavatorId);
+    g.demolish(smelterId);
     g.advanceGameSeconds(0);
     const r2 = g.getState().resources;
     return {
@@ -450,8 +451,8 @@ test('robot queue: Build next jumps the line, a paused site frees its robot, dem
   // (parts carry fractional welding draw, so compare those to a tolerance)
   expect(refunds.untouched.metals).toBe(24); // lab: 30◆ 10⚙ × 0.8
   expect(refunds.untouched.parts).toBeCloseTo(8, 6);
-  expect(refunds.started.metals).toBe(8);    // excavator: ½ of 16◆ 4⚙
-  expect(refunds.started.parts).toBeCloseTo(2, 6);
+  expect(refunds.started.metals).toBe(24);   // smelter (its excavator priced in): ½ of 48◆ 12⚙
+  expect(refunds.started.parts).toBeCloseTo(6, 6);
 });
 
 test('honest research path: lab is buildable from start and carries the tech tree', async ({ page }) => {
@@ -465,25 +466,27 @@ test('honest research path: lab is buildable from start and carries the tech tre
   // the lab is built first, then 48≡ (30 × the era-1 cost scale) flows in
   await page.evaluate(() => window.__game.advanceGameMinutes(7));
   const s = await page.evaluate(() => window.__game.getState());
-  expect(s.techsDone).toContain('regolithProcessing');
-  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 119, 131))).toBe(true);
+  expect(s.techsDone).toContain('regolithProcessing'); // Pit Mapping: the smelter itself never waited on it
 });
 
 test('placement warns before metals for the first smelter run out', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=southpole`);
   await game(page);
-  // 77 metals on the pole (×1.25): a 38◆ lab leaves 39, short of the 50◆ smelter
+  // 100 metals on the pole (×1.25): a 38◆ lab leaves 62, short of the 75◆ smelter
+  // (60◆ at the pole's ×1.25: it comes with its first excavator, and is known from landing)
   await page.evaluate(() => {
     const g = window.__game!;
     g.setPaused(true);
     g.advanceGameSeconds(0);
-    g.grantResources({ metals: 77 - g.getState().resources.metals });
+    g.grantResources({ metals: 100 - g.getState().resources.metals });
   });
   const lab = await page.evaluate(() => window.__game.canPlace('lab', 132, 126));
   expect(lab.valid).toBe(true); // a warning, never a block
-  expect(lab.warn).toBe('Leaves 39◆ — keep 50◆ for your first Regolith Smelter; research Regolith Smelting to unlock it');
+  // (a spot in a deposit's pit way adds its own line: ' · IN THE PIT'S WAY — …')
+  expect(lab.warn).toMatch(/^Leaves 62◆ — keep 75◆ for your first Regolith Smelter( · |$)/);
+  expect(lab.warn).not.toContain('research'); // nothing to unlock: the smelter is there from the start
   const solar = await page.evaluate(() => window.__game.canPlace('solar', 132, 126));
-  expect(solar.warn).toBe(''); // 19◆ leaves 58: room for the smelter
+  expect(solar.warn).not.toContain('Leaves'); // 19◆ leaves 81: room for the smelter
   // the ghost's hint carries it
   await page.locator('#palette .cats .btn', { hasText: 'Science' }).click();
   await page.locator('.bld-btn', { hasText: 'Research Lab' }).click();
@@ -492,13 +495,10 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   const pad = await page.evaluate(() => window.__game.screenOf(20, -4));
   expect(pad.visible).toBe(true);
   await page.mouse.move(pad.x, pad.y);
-  await expect(page.locator('#place-hint')).toContainText('Leaves 39◆ — keep 50◆ for your first Regolith Smelter');
+  await expect(page.locator('#place-hint')).toContainText('Leaves 62◆ — keep 75◆ for your first Regolith Smelter');
   await page.keyboard.press('Escape');
   // once a smelter stands (even as a site), spending metals is no longer a trap
-  await page.evaluate(() => {
-    window.__game.completeTech('regolithProcessing');
-    window.__game.grantResources({ metals: 50 });
-  });
+  await page.evaluate(() => window.__game.grantResources({ metals: 75 }));
   const smelterPlaced = await page.evaluate(() => {
     const g = window.__game!;
     for (let gx = 116; gx <= 138; gx += 2) {
@@ -511,7 +511,7 @@ test('placement warns before metals for the first smelter run out', async ({ pag
   expect(smelterPlaced).toBe(true);
   const after = await page.evaluate(() => window.__game.canPlace('lab', 132, 126));
   expect(after.valid).toBe(true);
-  expect(after.warn).toBe('');
+  expect(after.warn).not.toContain('Leaves');
 });
 
 test('metal deadlock triggers an Earth resupply a full day out', async ({ page }) => {
@@ -592,18 +592,20 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
   // a greedy opening that burns the spares cache before the fab is researched
-  // (five labs and four excavators: the cache is sized for a reasonable one);
-  // only placements and research — no grants, no completeTech, no orderResupply
+  // (five labs and a second excavator printed at the smelter's hub: the cache is
+  // sized for a reasonable one); only placements, prints and research — no grants,
+  // no completeTech, no orderResupply
   const run = await page.evaluate(() => {
     const g = window.__game!;
     const plan: [string, number, number][] = [
-      ['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133], ['excavator', 120, 126],
-      ['smelter', 120, 132], ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
-      ['excavator', 116, 126], ['lab', 116, 132], ['solar', 140, 126],
-      ['lab', 112, 126], ['lab', 118, 116], ['excavator', 114, 120], ['excavator', 120, 120],
+      ['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133], ['smelter', 120, 132],
+      ['unit', 0, 0], // the hub's second excavator, printed once it stands
+      ['solar', 136, 126], ['lab', 126, 138], ['solar', 136, 130],
+      ['lab', 116, 120], ['solar', 140, 126],
+      ['lab', 112, 126], ['lab', 118, 116],
       ['partsFab', 138, 129], // (a cell south of 128: an array's road runs there now, docs/15)
     ];
-    // an era opens with four techs of the one before
+    // an era opens with four techs of the one before (Pit Mapping is the first)
     const research = ['regolithProcessing', 'teleoperation', 'grizzlyScreens', 'fieldSpectrometers',
       'partsFabrication', 'siliconRefining'];
     let dryWithoutRemedy = 0;
@@ -617,14 +619,17 @@ test('parts loop: an honest robotic run never softlocks on parts, no shipment bu
       // a pit the excavators dug since (docs/17 Phase 3) can take a planned cell:
       // the structure goes to the nearest ground beside it, as a player's would
       const pitWords = /^(ON A PIT|ON SPOIL|TOO CLOSE TO A PIT) — /;
-      if (next && pitWords.test(g.canPlace(next[0], next[1], next[2]).reason)) {
+      if (next && next[0] !== 'unit' && pitWords.test(g.canPlace(next[0], next[1], next[2]).reason)) {
         search: for (let r = 1; r <= 12; r++) for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
           if (pitWords.test(g.canPlace(next[0], next[1] + dx, next[2] + dz).reason)) continue;
           if (g.canPlace(next[0], next[1] + dx, next[2] + dz).valid) { next[1] += dx; next[2] += dz; break search; }
         }
       }
-      if (next && g.canPlace(next[0], next[1], next[2]).valid) {
+      if (next && next[0] === 'unit') {
+        const hub = s.buildings.find((b: any) => b.type === 'smelter' && b.construction <= 0);
+        if (hub) { g.queueUnit(hub.id); plan.shift(); }
+      } else if (next && g.canPlace(next[0], next[1], next[2]).valid) {
         g.placeBuilding(next[0], next[1], next[2]);
         plan.shift();
       }
@@ -707,9 +712,8 @@ test('life support first: a farm never drinks the crew dry', async ({ page }) =>
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
   await page.evaluate(() => window.__game.completeTech('hydroponicFarming'));
-  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
   for (const spot of [['solar', 132, 126], ['solar', 132, 130], ['solar', 136, 126],
-    ['excavator', 120, 126], ['smelter', 120, 132], ['hydroponics', 116, 126]]) {
+    ['smelter', 120, 132], ['hydroponics', 116, 126]]) {
     expect(await page.evaluate(([t, x, z]) => window.__game.placeBuilding(t, x, z), spot)).toBe(true);
   }
   for (let m = 0; m < 25; m++) {
@@ -726,33 +730,40 @@ test('life support first: a farm never drinks the crew dry', async ({ page }) =>
 test('net rates are the economy\'s smoothed flow; housing counts only powered beds', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
-  expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  // no solar: the lander's 6 kW cannot carry the smelter's 12, and the bank is
+  // emptied every second, so the smelter stands dark and its hopper only fills:
+  // the excavator digs on and tips (▲ is the pile plus the hoppers)
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
   const flow = await page.evaluate(() => {
     const g = window.__game!;
-    // regolith lands a bucket at a time (credited on unload): measure one
-    // whole haul cycle, unload to unload, against the smoothed rate
+    g.finishConstruction();
+    g.advanceGameSeconds(1);
+    const sec = () => { g.grantPower(-g.getState().powerStored); g.advanceGameSeconds(1); };
+    // regolith lands a bucket at a time (credited on tipping): measure one
+    // whole haul cycle, tip to tip, against the smoothed rate
     const nextLoad = () => {
       const r0 = g.getState().resources.regolith;
-      for (let i = 0; i < 200 && g.getState().resources.regolith <= r0 + 1; i++) g.advanceGameSeconds(1);
+      for (let i = 0; i < 300 && g.getState().resources.regolith <= r0 + 1; i++) sec();
       return g.getState();
     };
-    const s1 = nextLoad(); // the first bucket, ~70 s after the excavator stands at 48 s
+    const s1 = nextLoad(); // the first bucket, ~90 s after the hub commissions
     const s2 = nextLoad();
-    g.advanceGameSeconds(20); // however far a probe skips, the rate stays per game-second
+    for (let i = 0; i < 20; i++) sec(); // however far a probe skips, the rate stays per game-second
     const s3 = g.getState();
     return {
       r2: s2.rates.regolith, r3: s3.rates.regolith, regolith: s3.resources.regolith,
+      dark: s3.buildings.find((b: any) => b.type === 'smelter').idleReason,
       measured: (s2.resources.regolith - s1.resources.regolith) / (s2.simTime - s1.simTime),
     };
   });
-  expect(flow.regolith).toBeLessThan(290); // below the yard cap: nothing spilled
+  expect(flow.dark).toBe('power'); // held dark: nothing draws the hopper down
+  expect(flow.regolith).toBeLessThan(315); // below the hopper's cap: the unit was never left waiting
   expect(flow.r2).toBeGreaterThan(0.5);
   expect(Math.abs(flow.r2 - flow.measured)).toBeLessThan(0.05 * flow.measured);
   expect(Math.abs(flow.r3 - flow.r2)).toBeLessThan(0.05 * flow.r2);
 
   // paying for a building is not a flow: paused, a habitat's price leaves the
-  // metals panel at net 0/min (no smelter, nothing makes or burns metals)
+  // metals panel at net 0/min (the smelter is held dark: nothing makes or burns metals)
   await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
   expect(await page.evaluate(() => window.__game.placeBuilding('habitat', 132, 130))).toBe(true);
   await page.locator('#resource-strip .chip[data-key="metals"]').click();
@@ -780,7 +791,7 @@ test('HUD: chip and inspector clicks register at 10× while the economy ticks', 
   await page.goto(`${URL_DEBUG}&site=mare`);
   await game(page);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
-  expect(await page.evaluate(() => window.__game.placeBuilding('excavator', 120, 126))).toBe(true);
+  expect(await page.evaluate(() => window.__game.placeBuilding('smelter', 120, 132))).toBe(true);
   // count every time the strip or the inspector is rebuilt
   await page.evaluate(() => {
     const w = window as any;
@@ -953,9 +964,8 @@ for (const vp of [{ width: 1366, height: 768 }, { width: 1600, height: 900 }]) {
 test('night: the clock counts to dusk, a warning names the runway, the bank chip counts it down', async ({ page }) => {
   await page.goto(`${URL_DEBUG}&site=mare&exp=robotic`);
   await game(page);
-  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
   for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['lab', 135, 133],
-    ['excavator', 120, 126], ['smelter', 120, 132]] as const) {
+    ['smelter', 120, 132]] as const) {
     expect(await page.evaluate(([tt, xx, zz]) => window.__game.placeBuilding(tt, xx, zz), [t, x, z] as const)).toBe(true);
   }
   const clock = page.locator('#time-controls .clock');
@@ -999,8 +1009,10 @@ test('info panels: live values, life support in seconds, shipments and construct
   const panel = page.locator('#res-panel');
   await expect(panel).toContainText('Crew ×7');
   await expect(panel).toContainText(/empties in \d+:\d\d/);
-  await expect(panel.locator('.row', { hasText: 'Ice Harvester' })).toHaveCount(0); // no ice on the mare
-  await expect(panel).toContainText('No ice at this site');
+  await expect(panel.locator('.row', { hasText: 'Ice Harvester' })).toHaveCount(0); // retired: a water plant and its miners do it
+  // the water plant is what makes it here: its excavators bake mature soil where there is no ice
+  await expect(panel).toContainText('Water Management Plant');
+  await expect(panel).toContainText('Water Management Plants own their mining units');
   // metals: construction and the Earth shipment are part of the picture
   await page.locator('#resource-strip .chip[data-key="metals"]').click();
   await expect(panel).toContainText('Earth shipment');
@@ -1169,9 +1181,10 @@ test('full stockpiles: producers stand by, tanks cap, shipment overflow is repor
     /^RESUPPLY LANDED .* \d+ metals.* lost to full storage$/.test(a.text) && a.kind === 'warn')).toBe(true);
 });
 
-test('ice survey gates harvesters and maps deposits', async ({ page }) => {
-  // the survey radius maps deposits by itself (spec §5a): harvesters need ice
-  // the base has confirmed, and the old Lander survey is a no-op that says so
+test('ice survey: the pole\'s starter ice is mapped from landing, and water plants (not harvesters) work it', async ({ page }) => {
+  // the survey radius maps deposits by itself (spec §5a): a Water Management Plant's
+  // ice miners work ice the base has confirmed, and the old Lander survey is a
+  // no-op that says so. The Ice Harvester is retired: hubs print the miners.
   await page.goto(`${URL_DEBUG}&site=southpole`);
   await game(page);
   await page.evaluate(() => window.__game.completeTech('iceExtraction'));
@@ -1186,9 +1199,24 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   // inside the 120 m landing-site survey it is mapped from the start: no survey needed
   const mapped = await page.evaluate(() => window.__game.getDeposits());
   expect(mapped.find((d: any) => d.id === dep.id).revealed).toBe(true);
-  const onIce = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
-  expect(onIce.valid).toBe(true); // the starter patch takes a harvester with no habitat chain
-  expect(onIce.note).toBe('On confirmed ice');
+  const harvester = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), cell);
+  expect(harvester.valid).toBe(false);
+  expect(harvester.reason).toMatch(/^HUBS PRINT THEM/);
+  // a plant with its front on the deposit's ring is refused; one just outside takes the starter patch
+  // with no habitat chain (the ghost notes the confirmed ice under it)
+  const plant = await page.evaluate((c) => {
+    const g = window.__game!;
+    for (let r = 0; r <= 12; r++) {
+      for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const chk = g.canPlace('waterPlant', c.gx + dx, c.gz + dz);
+        if (chk.valid && chk.note) return chk;
+      }
+    }
+    return null;
+  }, cell);
+  expect(plant).not.toBeNull();
+  expect(plant!.note).toBe('On confirmed ice');
   // the retired Lander survey spends nothing and points at the map
   const before = await page.evaluate(() => window.__game.getState());
   await page.evaluate(() => window.__game.surveyIce());
@@ -1198,14 +1226,13 @@ test('ice survey gates harvesters and maps deposits', async ({ page }) => {
   expect(after.powerStored).toBe(before.powerStored);
   expect(after.alerts.some((a: any) =>
     a.text === 'Deposits are mapped automatically inside your survey radius — open the map [M]')).toBe(true);
-  // ice beyond the survey radius is unconfirmed until the survey reaches it
+  // ice beyond the survey radius stays a lead until the survey reaches it
   const far = mapped.find((d: any) => d.kind === 'ice' && !d.revealed);
-  const farCell = { gx: Math.round((far.x + 512) / 4 - 1), gz: Math.round((far.z + 512) / 4 - 1) };
-  const unconfirmed = await page.evaluate((c) => window.__game.canPlace('iceHarvester', c.gx, c.gz), farCell);
-  expect(unconfirmed.reason).toMatch(/^ICE UNCONFIRMED — extend your survey/);
-  // off-deposit near the lander: blocked for the right reason
-  const offIce = await page.evaluate(() => window.__game.canPlace('iceHarvester', 140, 126));
-  expect(offIce.reason).toContain('No ice beneath');
+  expect(far.lead).not.toBeNull();
+  expect(far.label).toBe('? cold trap');
+  // a plant with no mapped cold trap in reach says so on its ghost (hubview.spec walks the whole ghost)
+  const block = await page.evaluate(() => window.__game.hubBlock('waterPlant', 20, 20, 0));
+  expect(block.warn).toMatch(/^NO ICE IN REACH/);
 });
 
 test('fast-forwarding follows the sun: terrain shade comes and goes inside one advance', async ({ page }) => {
@@ -1260,17 +1287,26 @@ test('site grading: era-1 tech flattens rough terrain for construction', async (
     return fallback;
   });
   expect(target).not.toBeNull();
-  // advanceGameSeconds(0) applies the queued grade without an economy tick,
-  // and one evaluate keeps the live frame loop from ticking in between — so
-  // no recharge muddies the reading
-  const { before, after } = await page.evaluate((t) => {
+  // grading is a rover job (docs/19 S5; grading.spec walks the drive and the dozing): the
+  // bank pays for the box at once, and nothing is levelled until the job is worked.
+  // advanceGameSeconds(0) applies the queued box without an economy tick, and one
+  // evaluate keeps the live frame loop from ticking in between — so no recharge
+  // muddies the reading. finishGrading stands in for the rovers' work.
+  const { before, queued, after } = await page.evaluate((t) => {
     const g = window.__game!;
     const before = g.getState();
-    g.gradeAt(t.gx, t.gz);
+    g.gradeBox(t.gx, t.gz, t.gx + 4, t.gz + 4);
     g.advanceGameSeconds(0);
-    return { before, after: g.getState() };
+    const queued = g.getState();
+    g.finishGrading();
+    g.advanceGameSeconds(0);
+    return { before, queued, after: g.getState() };
   }, target!);
-  // grading spends stored energy, banks the dozed spoil, and records the cut
+  expect(queued.gradeJobs.length).toBe(1);
+  expect(queued.flattens.length).toBe(before.flattens.length); // not levelled yet
+  expect(queued.powerStored).toBeCloseTo(before.powerStored - 40, 5);
+  // finished: the cut is recorded and the dozed spoil banked
+  expect(after.gradeJobs ?? []).toHaveLength(0);
   expect(after.flattens.length).toBe(before.flattens.length + 1);
   expect(after.powerStored).toBeCloseTo(before.powerStored - 40, 5);
   expect(after.resources.regolith).toBeGreaterThanOrEqual(before.resources.regolith + 5);
@@ -1410,14 +1446,13 @@ test('settlers board only a base that can keep one more alive', async ({ page })
 
   // production that covers the newcomer lifts the hold with only a few
   // minutes of oxygen in the tanks
-  await page.evaluate(() => window.__game.completeTech('regolithProcessing'));
   for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['solar', 136, 126],
-    ['excavator', 120, 126], ['smelter', 120, 132]] as const) {
+    ['smelter', 120, 132]] as const) {
     expect(await page.evaluate(([tt, xx, zz]) => window.__game.placeBuilding(tt, xx, zz), [t, x, z] as const)).toBe(true);
   }
   await page.evaluate(() => {
     const g = window.__game!;
-    g.advanceGameSeconds(200); // smelter online at ~130s, its flow settled
+    g.advanceGameSeconds(300); // smelter online at ~120 s, its first bucket in the hopper by ~210 s, its flow settled
     g.grantResources({ oxygen: 30 - g.getState().resources.oxygen });
     g.advanceGameSeconds(1);
   });

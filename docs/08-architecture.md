@@ -15,8 +15,8 @@ no web workers, zero binary assets. `npm run build` runs `tsc --noEmit` then
 
 ```
 src/
-  main.ts                 boot: URL params (?site ?seed ?debug ?lowfx ?style), create Game, mount UI;
-                          after a menu style switch, continue the saved game
+  main.ts                 boot: URL params (?site ?seed ?debug ?safe ?touch; ?cel is read by world/celStyle.ts),
+                          create Game, mount UI; a touch switch saves, reloads and continues the saved game
   debug.ts                window.__game test API (attached with ?debug)
   core/
     game.ts               orchestrator: owns GameState + Three scene, rAF loop, input,
@@ -62,7 +62,13 @@ src/
     flowBook.ts           per-resource made / want / spend averages (supply against demand)
     roads.ts              the road network (docs/15): cells, doors, spurs (A*), routes, haul roads, old-save roads;
                           zone gates and ground ways (road, then off-road inside a zone)
-    roadActions.ts        the road tool's actions (lay, remove) and their alerts
+    traffic.ts            the sim's reservations (docs/15 §6, docs/19 S4a): road cells, pit ramps, runs to the next
+                          bay, two-phase tick, priority, waiting and stepping aside; claims kept on the unit
+    grading.ts            box-drag grading as a rover job (docs/19 S5): gradePlan and its refusals, GradeJob per
+                          cell, economy step 2.65, cancel and refund, gradeView
+    surveyDrones.ts       the survey-drone fleet (docs/11 §5c, docs/19 S6): the Lander's drone, Prospecting Bay
+                          prints, recharge, flights in parallel, migrateSurveySchema, the fleet panel's view
+    roadActions.ts        the road tool's actions (lay, remove, waypoints via `via`) and their alerts
     spots.ts              where each rover stands: its bay, a site's door, a road's frontier (that road's crew
                           first), off-road at a site inside a zone; the sim and the visuals read the same slots
     daynight.ts           compressed lunar clock → DayInfo {sunFactor, elevation, night}
@@ -84,20 +90,25 @@ src/
                           (SPACE_WEATHER); the legacy flare (LEGACY_FLARE); the rest of §4 (FLARE_EFFECTS: scars,
                           machines, crew, labs, fabs, compute, the blackout, wear, Replace and Re-print)
     forecast.ts           the forecast tiers, leads, window widths, the observatory's data, the sentinel (FORECAST)
-    roads.ts              road tuning (sintering, slope limit, lanes), field and dock types, the Lander's apron
+    roads.ts              road tuning (sintering, slope limit, lanes, turn cost, bays), field and dock types, the Lander's apron
+    families.ts           the seven building families, their accents and glyphs, unit accents and hub liveries
+                          (FAMILY_OF, FAMILY_ACCENT, FAMILY_GLYPH, UNIT_ACCENT, HUB_LIVERY: docs/06 §2)
   terrain/
     heightfield.ts        257² analytic heightfield: fBm + crater math, sample/flatten/raycast; the pits' delta grid
                           (base, delta, skirt mask, setDelta, noRoad)
     pitCarve.ts           the height-delta grid's writers (docs/17 §11): masks, distance transform, carvePit and
-                          dumpHeap (volume-solved, monotone), stakes, pit cells, the cut's tone, the sparse codec
+                          dumpHeap (volume-solved, monotone), stakes, pit cells, the sparse codec
+    pitLook.ts            the pit's look baked into the chunks (docs/06 §9): bench bands and contours, the ramp's
+                          tread and arrow, the heap's outline and hatch (`decorate`, `cutTone`)
     chunks.ts             8×8 render chunks, faceted, coloured by celGround, ≤4-chunk rebuilds; the pits'
                           rebuild queue (one a frame, two a second); the `decorate` hook (pitCarve.ts)
-    celGround.ts          cel ground colour (site tint, relief, craters, deposits) + facet()
+    celGround.ts          cel ground colour (site tint, relief, craters, deposits ×1.4) + facet()
     horizon.ts            far horizon ring continuing the terrain to ~12 km, compressed curvature
     rocks.ts              instanced boulder scatter (power-law sizes, crater blocks)
   buildings/
     meshKit.ts            parametric kit + detail helpers; bakes value + per-vertex finish (`mat`)
-    recipes.ts            25 building silhouettes (the 4 destiny buildings too) + moving-part mounts (cached)
+    recipes.ts            the 29 building silhouettes, each with one tall identifier and its family accent, the hub
+                          units' meshes (`unitRecipeGeometry`) + moving-part mounts (cached)
     upgrades.ts           research you can see: each tech's parts per type, the upgrade key
     destinyParts.ts       the destiny's parts (docs/14 §4.1): 16 picks, 3 capstones, the 4 new types' lists
     look.ts               the destiny's lean (−1 ◉ … +1 ⌂) and each structure's light warmth (iWarm)
@@ -121,18 +132,25 @@ src/
   world/
     renderer.ts           WebGLRenderer (MSAA canvas, no shadow map, no tone mapping, DPR ≤ 1.5) + camera;
                           drawFrame() and the black-frame probeGround()
+    celStyle.ts           the look's constants: the ramp and ink presets A/B/C, CEL_VARIANT, `?cel=` (docs/06 §3)
     celLighting.ts        one key light + hemisphere fill: day by the sun, night by earthshine; sunStep()
-    cel.ts                the cel style's registry materials (stock Lambert, stock points); installCel()
+    celSurface.ts         the ground program: vertex colours, faceted normals, a two-step ramp, posterised tone
+                          (terrain, ring, berms, rocks, roads, the ghost)
+    cel.ts                the cel style's registry materials (the ground program, the ghost, stock points); installCel()
+    ink.ts                the ink: an inverted-hull outline twin per instanced class (`inked`), and drapedLine
+                          (bench, rim, grade, road lines on the ground)
     materials.ts          material registry: define/get/custom/replace, safe-mode unlit twins
     life.ts               the motion layer, one call per frame; each part fails soft
     rovers.ts             construction-robot fleet: bays, slots, lane ways along the roads, following the sim's
                           trips (core/transit.ts); and DroneFlight, the Drone Hive's units flying straight at
                           6–10 m, off the roads and out of traffic, following theirs
     settlers.ts           EVA walkers (⌂): one per EVA crew, on free cells only (never a road), home at night
-    haulers.ts            excavators away from their pads, following the sim's road legs
+    haulers.ts            the hub units (one InstancedMesh per unit key): replaying the sim's path a tick late
     depositHighlight.ts   a hub's lit deposits on the ground (docs/17 §6.1): draped ribbons in the kind's pattern,
                           fills, full-size rings, pit rims, hatched ore, cross-hatch
-    traffic.ts            units on the road cells: lane holds, excavator gates, queues, the deadlock breaker
+    traffic.ts            the picture's lanes: rovers' holds, queues, the deadlock breaker; hub units are free agents
+    surveyFlight.ts       the survey drones perched and in flight (one InstancedMesh and its ink twin)
+    gradeMarks.ts         a grading site's dashed outline, stakes and plates
     roads.ts              the road mesh: merged draped strips, markings by tier, beacon posts, pending cells
     dust.ts               regolith grains: pooled emitter slots, static puffs placed on the CPU
     events.ts             mass-driver launch and Earth-resupply landing visuals (read from state)
@@ -140,7 +158,8 @@ src/
   player/
     isoCam.ts             the fixed isometric camera: 20° lens, 90° yaw steps (Q/E), two tilts 32°/55° (V), continuous zoom 100–830 m;
                           its preset (step, tilt, dist) is saved as SaveBlob.camera; owns commandKey and CommandCam
-    roadTool.ts           the road tool [N]: drag out a road from the network, Alt-drag removes
+    roadTool.ts           the road tool [N]: drag out a road from the network, click waypoints and Enter, Alt-drag removes
+    gradeTool.ts          the Grade tool: press-drag a box (or click a 16 m square), preview, release queues a job
   audio/
     sfx.ts                procedural cues, suit radio, hum; buses, limiter, meter; the destiny's
                           layers (docs/14 §4.6): rotor hum, walkers' squelch, greenhouse air, modem chirp
@@ -153,6 +172,8 @@ src/
     mount.ts              assembles the DOM overlay
     hud.ts / palette.ts / screens.ts   HUD regions, build palette + tooltip + inspector,
                           site select + tech tree + victory screens
+    notify.ts / notifyUi.ts / notify.css   the five notification families (docs/07 §4a): the pure half (family
+                          table, log views, actions) and the DOM half (field card, log panel, action runner)
     builderPanel.ts       the [B] Builder panel and the resource panels' BUILDER section
     hubPanel.ts           the hub inspector (UNITS, QUEUE, ROBOTS, PITS IN REACH) and the unit inspector
     hazardsPanel.ts       the [G] Hazards panel, the HUD hazard chip, counter buttons (alerts, inspector)
@@ -174,8 +195,8 @@ clock at full speed):
 
 1. **Drain the action queue** — every frame, before anything else, so UI
    commands feel immediate even when paused.
-2. **Camera update** — the command camera (the free MapControls one in High
-   detail, the isometric one in Classic; plus the placement ghost raycast).
+2. **Camera update** — the fixed isometric command camera (`IsoCam`), plus
+   the placement ghost raycast.
 3. **Game-time accumulation** — if not paused, `simTime += simDt × speed`
    (speeds 1/3/10).
 4. **Fixed 1 Hz economy ticks** — an accumulator fires `econStep()` for each
@@ -189,8 +210,8 @@ clock at full speed):
 5. **Publish to stores** — once per frame *if* any economy tick ran or any
    action was applied (§4). Victory flips `$victory` after publish so the
    overlay reads fresh stats.
-6. **Sun + shadow focus** — `lighting.setSun(elev, azim, focus)` from the
-   day clock, focus following the active camera.
+6. **Sun** — `lighting.setSun(elev, azim, nightFactor)` from the day clock
+   (the key light, the fill and the clear colour; docs/06 §3.2).
 7. **Autosave** — every 60 real seconds, plus on `visibilitychange` →
    hidden.
 
@@ -306,7 +327,6 @@ UI state that isn't economy output (`$placing` per frame during placement) is se
 - **The chunk rebuild queue.** The frame takes the carved boxes (`takeCarved`), and
   their chunks join a queue.
   - The queue rebuilds at most one chunk a frame and two a second of frame time.
-  - It asks for shadows at most every 2 s.
   - A debug advance or a load rebuilds each changed chunk at once.
   - Rocks on cut or heaped cells go.
 
@@ -332,11 +352,23 @@ UI state that isn't economy output (`$placing` per frame during placement) is se
   classes and times on the same era times (`tests/flares.spec.ts`).
 - `Math.random` appears only in `main.ts` to pick a seed when none is given.
 
-## 8. (retired)
+## 8. Picking and reservations
 
-This section described the walk-mode collision (`player/walk.ts`), removed
-with walk mode (docs/19 W0a). The number stays so the references to §9
-onward hold.
+There is no player body and nothing to collide with in the view: the command
+camera flies over the ground. What collides is the sim's units, and what is
+picked is the ground and the instances.
+
+- **Picking** raycasts the terrain (`hf.raycast`) and the instanced meshes:
+  a building or a moving part by instance (`instances.pick`, a tracker part
+  maps back to its building), a hub unit through `haulers.pick`, a rover by
+  instance or within 14 px of the click (they are small; a rover near the
+  click beats open ground, never a structure). The outline twins are never
+  hit (`InkMesh.raycast` is a no-op).
+- **Reservations** keep units apart in the sim (`core/traffic.ts`, docs/15
+  §6): one unit a road cell, a pit ramp one at a time, runs granted whole or not
+  at all, priority loaded digger > empty digger > rover. The picture replays
+  the sim's positions a tick late (`world/haulers.ts`), so what is drawn is
+  what the sim did.
 
 ## 9. Save format (`core/save.ts`)
 
@@ -443,9 +475,9 @@ SaveBlob = {
   3. Replay the flattens.
   4. Rebuild the pit zones, the chunk meshes (once each), the rocks, the
      instances.
-  5. The `player` block that saves from before walk mode's removal carry
-     (pose and mode) is ignored: a save made on foot loads in the command
-     view.
+  5. An old save's `player` block (a pose and mode, from before the player
+     stopped walking) is ignored: every save loads in the command view. The
+     camera preset comes from `SaveBlob.camera` when the save has one.
 
 ## 10. Debug API (`debug.ts`) — the testability keystone
 
@@ -497,14 +529,15 @@ Replace worst: the buttons' action) · `flareScarred()` · `flareCapability(id)`
 `setCapability(kind, id, cap)` · `setFlareIndex(n)`; `getSpaceWeather()` carries `fx`.
 `&hzpause` lets the pause-on settings pause a debug run, and `&flarepause`
 the flare pop-up's; without them they never do.
-The render path adds `getRenderInfo()` ·
-`getRenderReport()` (the menu's report, as data) · `fxCheckNext()` /
-`getFxChecks()` / `getFxCheckImages()` (the FX self-check on the next frame,
-its results with a `seq`, its two images) · `setFxCheckAuto(on)` ·
-`debugBreakFx(level, 'player' | 'zero' | 'nan')` (a level draws wrong the way
-a faulty GPU would; `null` mends it) · `setFxSanitize(on)` /
-`setFxHardening(on)` · `holdBlackFrameCheck(on)` (only the self-check
-sees a break) · `probeNext()`.
+The render path adds `getRenderInfo()` (the one renderer's report: `style`,
+`safe`, `drawCalls`, `triangles`, `camera`, `outlines`, `ramp`, `ink`,
+`frame`, `life`) · `enableSafeMode()` / `disableSafeMode()` ·
+`holdBlackFrameCheck(on)` · `probeNext()` · `breakInk()` (the outline program
+fails to compile on the next frame) · `setInkVariant('A' | 'B' | 'C' | null)`.
+The roads, traffic, grading and survey streams add `planHaul`, `planRoad`,
+`layRoad`, `holdOf`, `setRoadFlags`, `getTraffic()`, `patchHauler`,
+`trafficBypass(on)`, `gradeBox`, `finishGrading`, `getGrading()`,
+`getPitLook()` and `getPitMarks()` (see docs/19's "As shipped" subsections).
 
 **Why it exists**: real-time waits make tests slow and flaky.
 `advanceGameMinutes` makes hours of economy synchronous. Every Playwright
@@ -528,34 +561,34 @@ boots it; a preinstalled Chromium is used when present). Screenshots
 
 ## 12. The renderer (`world/renderer.ts`, `world/materials.ts`, `world/cel.ts`)
 
-One way to draw the world: the **cel style** (docs/19). There is no second
-style, no FX ladder, no post chain, no shadow map and no render report: the
-old Classic path is the base, and the High detail path (post.ts, fxcaps,
-fxcheck, fxguard, lighting.ts, sky.ts, floodlights.ts, the terrain and
-building shader patches) was deleted whole. The simulation, the heightfield,
-the building kit, picking, overlays, the HUD and the save format did not
-change.
+One way to draw the world: the **cel style** (docs/06). There is no style
+switch, no quality ladder, no post chain, no shadow map and no render report.
+The renderer only reads the state: the simulation, the heightfield, the
+building kit, picking, overlays, the HUD and the save format do not depend on
+it.
 
 | | The cel renderer |
 |---|---|
 | Renderer | MSAA canvas, no shadow map, no tone mapping, sRGB out, DPR ≤ 1.5 |
 | Frame | one forward render straight to the canvas (`drawFrame()`); a throwing scene render skips the frame and is reported once |
-| Materials | the registry (`materials.define`): stock Lambert for the terrain, ring, berms, rocks, roads and the ghost, stock points for dust, and one small custom building shader (`celBuilding.ts`: palette, glow, beacons, print reveal) |
+| Materials | the registry (`materials.define`): the ground program (`celSurface.ts`: vertex colours, faceted normals, two light steps) for the terrain, ring, berms, rocks, roads and the ghost, stock points for dust, one small building shader (`celBuilding.ts`: palette, three-step ramp, glow, beacons, print reveal), and the ink program (`ink.ts`: an inverted-hull outline twin of every instanced class) |
 | Lights | `CelLighting`: one key + one hemisphere fill; the base's own light is `iGlow` windows and draped pools at each structure's darkness |
 | Command camera | `IsoCam` (the only camera) |
-| Safety | the black-frame check (`probeGround`) reads frames wherever the ground cannot be black; a black frame or a compile error in any program but the building's turns **safe mode** on (unlit twins of every material, no dust; kept in `mbb-settings`, one menu row); a compile error in the cel building program swaps in stock Lambert in the same palette (`celFallbackMaterial`, `materials.replace`) |
+| Safety | the black-frame check (`probeGround`) reads frames wherever the ground cannot be black; a black frame or a compile error in any program but the cel and ink ones turns **safe mode** on (unlit twins of every material, no dust, no outlines; kept in `mbb-settings`, one menu row); a compile error in a cel program swaps in stock Lambert in the same palette for all of them (`materials.replaceCustom`); a compile error in the ink program hides the outlines (docs/06 §15) |
 
 **How the meshes get their material.** Every creator asks the registry
 (`materials.get(key)`, keys `building | terrain | rock | ghost | dust | road`),
 so a fault fallback or safe mode reaches meshes made at any time. The cel
 palette and per-instance light level are installed as a hook on
 `withInstanceState()` (`installCel()`), so trackers, rovers, hub units and the
-cargo lander pick them up. `getRenderInfo()` reports `style: 'cel'`, `safe`,
-`drawCalls`, `triangles`, `camera: {rot, tilt, zoom}` (from `IsoCam.info()`),
-`outlines` and `ramp` (stubs until S1a and S1b), the last frame (`frame`) and
-the context attributes, beside the fields the older specs read (`life`,
-`base`, `rocks`, `terrain`, `buildingMaterials`, `probes`, `firstFrame`).
-`?style`, `?fx` and `?lowfx` in the address are ignored.
+cargo lander pick them up (and `inked()` adds each class's outline twin).
+`getRenderInfo()` reports `style: 'cel'`, `safe`, `drawCalls`, `triangles`,
+`camera: {rot, tilt, zoom}` (from `IsoCam.info()`), `outlines` (the outline
+meshes drawing), `ramp` (the steps of the light ramp), `ink`, the last frame
+(`frame`) and the context attributes, beside the fields the older specs read
+(`life`, `base`, `rocks`, `terrain`, `buildingMaterials`, `probes`,
+`firstFrame`). `?style`, `?fx` and `?lowfx` in the address are ignored;
+`?cel=A|B|C` picks a look variant (docs/06 §3.1).
 
 ## 13. Known limitations (accepted for the slice)
 
@@ -571,9 +604,7 @@ the context attributes, beside the fields the older specs read (`life`,
   cost, but thousand-building saves want incremental bookkeeping.
 - **Single save slot, no migration** — `version !== 1` saves are ignored,
   not upgraded.
-- **Fixed shadow frustum (±260 m)** follows the camera focus; structures far
-  outside it fall out of shadow range at extreme zoom-out.
-- **Classic contact decals and flood pools follow footprints**, rebuilt when
+- **Contact decals and flood pools follow footprints**, rebuilt when
   the set of structures changes; a structure that moves on its own each
   frame would leave its decal at its pad.
 

@@ -13,7 +13,7 @@ declare global {
   interface Window { __game?: any; fx?: any }
 }
 
-const URL_DEBUG = '/?debug&nolock&lowfx';
+const URL_DEBUG = '/?debug';
 
 async function pauseAtAttach(page: Page) {
   await page.addInitScript(() => {

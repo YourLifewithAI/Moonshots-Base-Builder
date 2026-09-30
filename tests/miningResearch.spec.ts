@@ -4,7 +4,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 async function modules(page: Page) {
-  await page.goto('/?debug&site=mare&exp=robotic&seed=42&nolock&lowfx');
+  await page.goto('/?debug&site=mare&exp=robotic&seed=42');
   await page.waitForFunction(() => !!window.__game);
   await page.evaluate(async () => {
     window.__game.setPaused(true);
@@ -104,7 +104,7 @@ test('deep research has fair prerequisites; schema 5 preserves paid Pit Mapping 
         return m.techAvailability('waterElectrolysis', w).state;
       }) };
   });
-  expect(result.missing).toContain('Prospecting Rovers');
+  expect(result.missing).toContain('Prospecting Drones');
   expect(result.ready).toBe('available');
   expect(result.depth).toBe(3);
   expect(result.rockPower).toBeCloseTo(result.loosePower * 1.25, 8);

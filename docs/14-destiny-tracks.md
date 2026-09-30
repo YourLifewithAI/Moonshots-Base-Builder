@@ -44,7 +44,7 @@ unless marked *scaled*.
 | Stakes | **Colony hazards can kill crew**: a cascade, a breach with people inside, a lethal dose on EVA, poisoned water. **Automation hazards can destroy machines for good**: bricked rovers and drones lost, buildings wrecked by rogue drones, burned-out racks, banked data wiped, stock wasted by a runaway rule. Deaths bring grief. On a crewed landing, losing the last settler ends the mission, as today. | The user: "In real life they would and we should simulate it as such." The two sides are symmetric. |
 | Fairness | Every hazard is **telegraphed**, **names its target** and **offers a counter**, and its kind and target are deterministic. **Deaths and losses happen only when the warning is ignored, or its counter fails or starts too late**, and never without a visible clock. Every lethal hazard has a free counter that saves the people, though not the thing. The first of each kind is a drill that cannot kill. | "Never a random loss": a death is always a warning that went unanswered. |
 | Flares and wear | **Unchanged, and common to both.** Two hazards (EVA dose and bit flips) ride on the flare's own telegraph. | The user's rule. |
-| Look | Pick parts are mesh parts added through `upgrades.ts`. There are **4 new buildings**, a **links layer** (walkways or conveyor spines), **EVA walkers** and **drones**. The Classic style gets **one new palette key (`leaf`)**. | The two endings must look different. |
+| Look | Pick parts are mesh parts added through `upgrades.ts`. There are **4 new buildings**, a **links layer** (walkways or conveyor spines), **EVA walkers** and **drones**. The cel palette gets **one new key (`leaf`)**. | The two endings must look different. |
 | Ending | FIRST LIGHT stays the goal. The Era 8 pick changes how you launch, and each of the 3 bands has its own victory text and Era 8 blurb. | The user's rule. |
 | Pacing | Pure Colony, pure Automation and Concord each reach FIRST LIGHT at **210 ± 25** game-min on robotic mare, and within **8%** of each other. | Neither destiny is the fast one. |
 
@@ -695,7 +695,7 @@ The title screen's line becomes `✕ Mission lost — ILMENITE PLAINS, day 14: H
 - **Greenhouse Ring:** eight `vault` segments of GLASS on BODY sills round a `dome` hub. Beds of LEAF inside, LAMP grow strips on the vault ribs, and a door porch at +z.
 - **Garden Dome:** a 10 m `dome` in GLASS with TRIM `bands`, and a BODY ring wall of lit WINDOW terraces (three tiers). Inside, LEAF tree canopies (low-segment domes on TRIM trunks), path PLATE, and LAMP posts.
 - **Drone Hive:** a hex-cell honeycomb wall, 3 × 4 cells in BODY and PLATE, each with a LAMP at its mouth. A landing deck of PLATE with a BEACON, and a RADIATOR on the back.
-- **Server Monolith:** a 2×2 × 16 m slab in BODY, which Classic overrides to near-black, with a vertical LAMP stripe, a RADIATOR fin stack at the rear and a BEACON on top. It has no windows.
+- **Server Monolith:** a 2×2 × 16 m slab in BODY, which the cel palette overrides to near-black, with a vertical LAMP stripe, a RADIATOR fin stack at the rear and a BEACON on top. It has no windows.
 
 ### 4.3 Base-wide layers
 
@@ -707,21 +707,20 @@ The title screen's line becomes `✕ Mission lost — ILMENITE PLAINS, day 14: H
 | **Drones** (◉) | `world/rovers.ts` variant | rovers docked at a Drone Hive | A quadcopter mesh instead of the rover. It flies straight at 6–10 m. In the fleet sim, hive units travel straight at 6 m/s (`fleet.ts`: unit kind `drone`). |
 | **Shutters** (◉) | pick parts | `lightsOutFabs`, `lightsOutCharter` | Windows covered: the base goes dark from the outside. |
 
-### 4.4 Palette (Classic) and the High-detail style
+### 4.4 Palette (the cel style, docs/06 §2)
 
-- **One new palette key: `leaf` (greenhouse green, `0x5f8f3f`)**, from one new finish, `LEAF = { v: 0.28, rough: 0.85, metal: 0 }`. Its signature is unique in `finishKey`.
+- **One new palette key: `leaf` (foliage under glass, a deep forest green, `0x3f6f34`)**, from one new finish, `LEAF = { v: 0.28, rough: 0.85, metal: 0 }`. Its signature is unique in `finishKey`.
   - **Why it is needed:** the Colony's signature is green under glass on *mixed* structures (the galley trellis, terrace planters, the dome's trees). `PALETTE_OVERRIDES` can only recolour a whole finish on a whole type.
   - **The fallback is safe:** without the key, `finishKey` maps v < 0.3 to `cell` (dark blue glass).
-  - **In High detail** it is a dark foliage gray and stays monochrome, as docs/06 requires.
+  - The life family's accent is a lime (`#7cc242`), so a greenhouse's trim and ribs separate from its leaves at every step of the light ramp (docs/06 §2.1).
 - **Server cyan needs no new key:**
-  - The Classic window and lamp glow gets a per-instance **`iWarm`** attribute (0 cold … 1 warm, beside `iGlow`, set in `instances.ts`). The shader mixes `CLASSIC_WARM` (≈ #ffd494, as today) with a new `CLASSIC_COLD` (≈ #bfe9ff).
+  - The cel window and lamp glow gets a per-instance **`iWarm`** attribute (0 cold … 1 warm, beside `iGlow`, set in `instances.ts`). The shader mixes `CEL_WARM` (≈ #ffd494) with `CEL_COLD` (≈ #bfe9ff).
   - Colony types (habitat, hydroponics, recDome, greenhouseRing, gardenDome, and the Lander while crewed) are always warm.
   - Machine types (dataCenter, serverMonolith, droneHive, chipFab, partsFab, roboticsBay, relayMast) are always cold.
   - Everything else follows the lean.
   - This is an instance attribute, not a mat code.
-  - High detail uses the same attribute, from warm white to cold white.
 - **Per-structure overrides** (the existing mechanism):
-  - `serverMonolith: { hull: 0x23262b, window: 0x0f3a44 }`
+  - `serverMonolith: { hull: 0x23262b, cell: 0x23262b, window: 0x0f3a44 }`
   - `droneHive: { hull: 0x3a3f46 }`
   - `gardenDome: { trim: 0xc4c8ce }` (silver ribs)
 
@@ -733,7 +732,7 @@ The title screen's line becomes `✕ Mission lost — ILMENITE PLAINS, day 14: H
 | Between buildings | lit glazed walkways | conveyor spines with cold chevrons |
 | Motion | EVA walkers, rovers on the ground | drones in the air, rovers; no one walks |
 | Night | warm windows, park lamps, festival strings (Commonwealth) | shuttered hulls, cold stripes and beacons |
-| Classic colour | green under glass, warm light | near-black slabs, teal glass, cold light |
+| Colour | green under glass, warm light | near-black slabs, teal glass, cold light |
 | Launch | a glazed blockhouse and a gallery | a guidance monolith |
 
 ### 4.6 Audio (`audio/music.ts`, `sfx.ts`)
@@ -1202,7 +1201,7 @@ merge, this becomes the next step after theirs.
 - The links mesh appears only after its pick and stays ≤ 12 k △ at 40 segments.
 - Walkers equal the EVA crew. A hive's rovers render as drones.
 
-**`tests/classic.spec.ts`** (additions).
+**`tests/render.spec.ts`** (additions; formerly `classic.spec.ts`).
 - `LEAF` maps to `leaf`.
 - `iWarm` is 1 on habitats and 0 on Data Centers, whatever the lean.
 - The monolith override applies.
@@ -1296,7 +1295,7 @@ Implementation starts once **work/tree**, **work/fleet** and **work/auto** have 
 - `src/world/rovers.ts`: the drone variant, with the `drone` unit kind in `src/core/fleet.ts`.
 - `src/buildings/celBuilding.ts` (was `classicBuilding.ts`): the `leaf` key, `CEL_COLD`, `iWarm`, the overrides.
 - `src/buildings/instances.ts`: `iWarm` per type and lean.
-- `tests/upgrades.spec.ts`, `tests/classic.spec.ts`.
+- `tests/upgrades.spec.ts`, `tests/render.spec.ts` (was `classic.spec.ts`).
 
 **D5 · Audio.** ✓ **SHIPPED** on `work/look`. `src/audio/music.ts` (`setDestiny`), `src/audio/sfx.ts` (chirp, squelch, rotor), `src/core/game.ts` wiring.
 
@@ -1480,8 +1479,8 @@ this section and §4 disagree, this one describes the code.
   EVA crew, on free cells only.
 - **Drones** (`world/rovers.ts` `DroneFlight`; `core/fleet.ts` `unitKind`,
   `DRONE`): a Drone Hive's units fly, off the roads and out of the traffic.
-- **Palette**: `LEAF` (`meshKit.ts`) → the Classic `leaf` key (`#5f8f3f`);
-  `CLASSIC_COLD` (`#bfe9ff`); per-instance `iWarm` in both styles
+- **Palette**: `LEAF` (`meshKit.ts`) → the cel `leaf` key (`#3f6f34`);
+  `CEL_COLD` (`#bfe9ff`); per-instance `iWarm`
   (`buildings/look.ts`, `instances.ts`); the overrides of §4.4.
 - **Hazard hook**: per-instance `iAlarm`, filled from
   `BuildingInstances.alarmOf(b)`; its windows and lamps flicker red.
@@ -1501,24 +1500,23 @@ this section and §4 disagree, this one describes the code.
 - **Tests**: `tests/look.spec.ts` (new: links, walkers, drones, light, the
   Era 8 frame budget in both styles, audio), `tests/upgrades.spec.ts` (every
   pick's and capstone's part on the types it names, the new recipes' lists and
-  budgets, a pick's part and ghost live), `tests/classic.spec.ts` (`LEAF`, the
-  overrides, the new buildings on the classic program).
+  budgets, a pick's part and ghost live), `tests/render.spec.ts` (`LEAF`, the
+  overrides, the new buildings on the cel program; since folded into `render.spec.ts` and `look.spec.ts`).
 
-**Cost** (a big Era 8 base on robotic mare, the same core in every band,
-Classic at 290 m, `getRenderInfo().frame`; main is the same scene on
-6221421, with the D2 placeholder recipes):
+**Cost** (a big Era 8 base on robotic mare, the same core in every band, at 290 m,
+`getRenderInfo().frame`; main is the same scene on 6221421, with the D2
+placeholder recipes; measured before the ink outlines and the family look,
+docs/06 §14 has the current budget):
 
-| Band | Classic calls (main → look) | Classic △ | High detail calls | High detail △ | Layers drawn |
-|---|---|---|---|---|---|
-| ⌂ Colony | 51 → 54 | 248 k → 258 k | 97 → 100 | 296 k → 306 k | 15 walkways (2.6 k △, 13 bridge cells), 4 walkers |
-| ◉ Automation | 48 → 51 | 227 k → 237 k | 94 → 97 | 277 k → 287 k | 7 spines (1.7 k △, 8 bridge cells), 12 drones (3 flying) |
-| Concord | 51 → 53 | 227 k → 232 k | 97 → 99 | 276 k → 282 k | 8 drones |
+| Band | Calls (main → look) | △ | Layers drawn |
+|---|---|---|---|
+| ⌂ Colony | 51 → 54 | 248 k → 258 k | 15 walkways (2.6 k △, 13 bridge cells), 4 walkers |
+| ◉ Automation | 48 → 51 | 227 k → 237 k | 7 spines (1.7 k △, 8 bridge cells), 12 drones (3 flying) |
+| Concord | 51 → 53 | 227 k → 232 k | 8 drones |
 
 +2 to +3 draw calls (a layer mesh and its decals, only while they exist) and
 +2.5 % to +4 % triangles, mostly the destiny recipes' own detail and the
-parts. The Classic frame-cost test's small base is unchanged (no destiny
-yet). `tests/look.spec.ts` holds a big base under 90 calls and 600 k △ in
-Classic (160 and 1.2 M in High detail).
+parts. `tests/look.spec.ts` holds a big base under 90 calls and 600 k △.
 
 **Deviations, and why.**
 
@@ -1528,7 +1526,7 @@ Classic (160 and 1.2 M in High detail).
 | Extra parts | §4.1 table | + Greenhouse Rings (a farm's seed bank), Garden Domes (bulkheads on habitats and rings), Replicator Stacks (a hive's drone printer), Commonwealth (the rings' lamps), and Liquid Cooling, Cryogenic Radiators, Rack Densification on the Monolith | every pick adds a part; every Data Center tech is a Monolith tech in `mods.ts` |
 | Greenhouse Ring | GLASS vaults, LEAF beds inside | LEAF vault shells with a glazed crown and ribs | the kit is opaque: beds inside glass would never show; green under glass must read from outside |
 | Garden Dome | trees inside, a PLATE path | a LEAF canopy band in the dome's lower glass; lamp posts at the pad's corners | same: nothing inside an opaque dome is seen |
-| Server Monolith | BODY, Classic overrides it near-black | black GLASS; Classic's override covers its `hull` and `cell` (`#23262b`), teal status slits (`window`) | a BODY slab would stand white in High detail, and the machines' skyline is black in both styles |
+| Server Monolith | BODY, the palette overrides it near-black | black GLASS; the cel palette's override covers its `hull` and `cell` (`#23262b`), teal status slits (`window`, `#0f3a44`) | a BODY slab would stand white, and the machines' skyline is black |
 | Drone Hive | 3 × 4 cells | 5-4-5 staggered hex prisms (14) | a honeycomb reads by its stagger |
 | Hydroponic Commons | galley end with long tables | a glazed, lit arch end behind the door | tables inside a vault are invisible |
 | Walkways | from Crew Rotation Charter (§4.3) / with Garden Domes (§2.2) | from Crew Rotation Charter; glazed with a lit window strip from Garden Domes | reconciles the two sections |
@@ -1538,7 +1536,7 @@ Classic (160 and 1.2 M in High detail).
 | Drones in the sim | "hive units travel straight at 6 m/s (`fleet.ts`)" | `unitKind` classifies; 6 m/s is the drones' drawn flight speed | the fleet sim has no travel time for any unit; adding one would change pacing |
 | Drones' parking | the hive's bays (docs/15) | its deck's four pads; the bays stay | a drone lands on a pad; the dock layout is unchanged |
 | "Follows the lean" | — | `warm = clamp(0.75 + lean)`, lean = the band's (±1, Concord 0), else (C − A)/4 | the human landing keeps today's warm base; −¾ is fully cold |
-| Classic floods | warm | take the structure's warmth too | the machines' night must read cold, not only their windows |
+| Flood pools | warm | take the structure's warmth too | the machines' night must read cold, not only their windows |
 | Type budget | ≤ 7,500 △ with every upgrade | the heaviest set one run can hold | the Lander's six destiny parts come in exclusive pairs |
 | Pad detune | Colony widens to ±7 ¢ | Colony ±11, Concord ±7 (as today), Automation ±2 | ±7 is today's score |
 | Bells | "glassier FM index" | Colony index 0.55× f (from 1.1×), Automation 1.9× f at ratio 2.76 | — |

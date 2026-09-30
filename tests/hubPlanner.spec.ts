@@ -3,7 +3,7 @@ import { test, expect, type Page } from '@playwright/test';
 /** Deterministic simulation fixtures run through the same Vite modules as the
  * game. A small road lattice isolates planning from terrain/render timing. */
 async function prepare(page: Page) {
-  await page.goto('/?nolock&lowfx');
+  await page.goto('/');
   await page.evaluate(async () => {
     const S = await import('/src/core/state.ts');
     const M = await import('/src/core/mods.ts');
