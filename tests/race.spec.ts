@@ -119,6 +119,9 @@ test('a faction game: the player\'s volleys write the Moon\'s line, the first vo
   expect(box!.y + box!.height).toBeLessThanOrEqual(pal!.y);
   await expect(page.locator('#alerts .alert', { hasText: 'THE FOUNDRY — FIRST LIGHT' })).toHaveClass(/nf-race/);
   await expect(page.locator('#race-card .rc-item', { hasText: 'FIRST LIGHT' })).toHaveCount(0);
+  // the banner goes when dismissed (it would also go by itself after 20 real seconds)
+  await banner.locator('[data-rb="x"]').click();
+  await expect(banner).toBeHidden();
   // the chip: a volley has flown (`.lit`), a rival leads it (`.behind`)
   const chip = page.locator('#race-chip');
   await expect(chip).toHaveClass(/\blit\b/);
@@ -131,9 +134,6 @@ test('a faction game: the player\'s volleys write the Moon\'s line, the first vo
   expect(await page.locator('#swarm-race .sr-row[data-faction="robots"] .sr-bar i').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(TRIM.robots);
   expect(await page.locator('#swarm-race .sr-row[data-faction="accelerationists"] .sr-bar i').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(TRIM.accelerationists);
   expect(await page.locator('#swarm-race .sr-row[data-faction="robots"] .sr-bar i').evaluate((e) => parseFloat(e.style.width))).toBeCloseTo(66.67, 1);
-  // the banner goes when dismissed
-  await banner.locator('[data-rb="x"]').click();
-  await expect(banner).toBeHidden();
 
   // seven more volleys of ours: the lead changes once (a beat of its own), combined 10 brings the next; nothing else is a beat
   await volleys(page, 7);

@@ -223,7 +223,7 @@ export function mountRacePanel(root: HTMLElement, game: Game) {
   };
   $raceCards.subscribe(renderCards);
 
-  // ── the banner above the palette (S6): a rival's first light, in its colours; it stays 14 real seconds or until dismissed ──
+  // ── the banner above the palette (S6): a rival's first light, in its colours; it stays 20 real seconds or until dismissed ──
   const banner = el('div', 'interactive nf nf-race');
   banner.id = 'race-banner';
   banner.style.display = 'none';
@@ -247,7 +247,7 @@ export function mountRacePanel(root: HTMLElement, game: Game) {
     const top = pal && pal.offsetParent !== null ? pal.getBoundingClientRect().top : window.innerHeight - 100;
     banner.style.bottom = `${Math.round(window.innerHeight - top + 10)}px`;
     banner.style.display = '';
-    bannerTimer = window.setTimeout(hideBanner, 14_000);
+    bannerTimer = window.setTimeout(hideBanner, 20_000);
   });
   banner.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('[data-rb]');
