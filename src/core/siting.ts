@@ -331,8 +331,9 @@ export function chooseSite(
   }
   scored.sort((a, b) => a.score - b.score || a.gz - b.gz || a.gx - b.gx || a.rot - b.rot);
 
-  // Site Survey AI: re-rank the head by planned path length
-  if (q.survey && !q.intent.edge && scored.length) {
+  // Site Survey AI: re-rank the head by planned path length. (A rival's flat ground has straight legs, docs/20 §4.3: a path there is the
+  // distance the score already holds, and two dozen A* plans a placement were a quarter of a late rival's time.)
+  if (q.survey && !q.intent.edge && scored.length && !(ground as { virtual?: boolean }).virtual) {
     const rects = s.buildings.map(worldRect);
     const head = scored.slice(0, 24);
     for (const c of head) {

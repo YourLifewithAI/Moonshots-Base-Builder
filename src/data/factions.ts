@@ -51,6 +51,8 @@ export interface FactionPolicy {
   claimKinds: OutpostKind[];
   /** caps on the Builder's standing rules, by rule id */
   ruleCaps: Partial<Record<AutoRuleId, number>>;
+  /** caps the Builder's rules are raised to once the base is past Era 6 (S4; `RIVAL_LATE_ERA` in core/rival.ts) */
+  lateCaps: Partial<Record<AutoRuleId, number>>;
   orders: FactionOrder[];
 }
 
@@ -85,13 +87,16 @@ export interface FactionDef {
 
 /** the empty policy (a fresh object each: a faction edits its own) */
 const noPolicy = (): FactionPolicy => ({
-  research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, orders: [],
+  research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, lateCaps: {}, orders: [],
 });
 
 // ─────────────────────────── the rivals' policies (stream S4) ───────────────────────────
 // What a rival plays when nobody is at the keys (core/rival.ts reads these). Research: destiny picks and doctrines first
 // (they gate the eras), then `research` in order, then the faction's own techs, then whatever is cheapest. The Builder's
-// rules (every one on, at `ruleCaps`) place what the signals ask for; `orders` place what no rule does.
+// rules (every one on, at `ruleCaps`) place what the signals ask for; `orders` place what no rule does. `lateCaps`: a base past Era 6 draws
+// 400–800 kW and its bank has to carry a volley's 400 (Autonomous Cadence), so batteries 10 and reactors 4 (the defaults, 6 and 1, leave
+// the bank empty for ever: the Foundry sat at Era 8 for a fortnight without one volley). Earlier they would only take the metals and silicon
+// the first outpost and the crew's life support need.
 
 const hasCrew = (s: GameState) => s.expedition !== 'robotic' || s.crew > 0;
 const eraAtLeast = (n: number) => (s: GameState) => s.era >= n;
@@ -191,6 +196,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       },
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
       ruleCaps: {},
+      lateCaps: { battery: 10, reactor: 4 },
       orders: orders(),
     },
   },
@@ -246,6 +252,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       },
       claimKinds: ['ice', 'ilmenite', 'radio'],
       ruleCaps: { food: 2 },
+      lateCaps: { battery: 10, reactor: 4 },
       orders: orders(),
     },
   },
@@ -300,6 +307,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       },
       claimKinds: ['ice', 'volatiles', 'silica'],
       ruleCaps: { food: 2 },
+      lateCaps: { battery: 10, reactor: 4 },
       orders: orders(),
     },
   },

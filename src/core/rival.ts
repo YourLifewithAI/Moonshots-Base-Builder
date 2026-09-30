@@ -51,7 +51,7 @@ function groundWorks(siteId: SiteId, seed: number): boolean {
 }
 
 /** How often a rival thinks, in Moon seconds (offsets keep the three from landing on one tick). */
-export const RIVAL_CADENCE = { research: 30, orders: 20, ordersAt: 5, claims: 60, claimsAt: 40, life: 30, lifeAt: 10 } as const;
+export const RIVAL_CADENCE = { research: 30, orders: 20, ordersAt: 5, claims: 60, claimsAt: 40, life: 30, lifeAt: 10, hazards: 10, hazardsAt: 3 } as const;
 
 /** The relaxations a rival's mods carry (`BaseSim.modsHook`): every Builder family (the rules the player unlocks one lane tech at a
  *  time), rules that may build destiny buildings, rules that found the first building of a kind, and Autonomous Cadence. */
@@ -141,8 +141,9 @@ export class RivalProgram {
   private think() {
     const s = this.base.state;
     const t = Math.round(s.simTime - (s.landedAt ?? 0));
-    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.capHands(); this.rationParts(); this.gate(); this.resupply(); }
+    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.capHands(); this.lateCaps(); this.rationParts(); this.gate(); this.resupply(); }
     if (t % RIVAL_CADENCE.life === RIVAL_CADENCE.lifeAt) this.life();
+    if (t % RIVAL_CADENCE.hazards === RIVAL_CADENCE.hazardsAt) this.hazards();
     if (t % RIVAL_CADENCE.orders === RIVAL_CADENCE.ordersAt) this.orders();
     if (t % RIVAL_CADENCE.claims === RIVAL_CADENCE.claimsAt) this.claims();
   }
@@ -256,6 +257,17 @@ export class RivalProgram {
     }
   }
 
+  /** Past Era RIVAL_LATE_ERA the base's night and a volley's burst need a bigger bank and baseload than the Builder's stock caps allow
+   *  (`policy.lateCaps`: the caps only ever go up). */
+  private lateCaps() {
+    const s = this.base.state;
+    if (s.era < RIVAL_LATE_ERA) return;
+    for (const [id, cap] of Object.entries(FACTIONS[this.faction].policy.lateCaps) as [AutoRuleId, number][]) {
+      const r = ruleState(s, id);
+      r.cap = Math.max(r.cap, Math.min(RULES[id].capRange[1], Math.max(RULES[id].capRange[0], Math.round(cap))));
+    }
+  }
+
   /** Is the base standing on its own feet? A crewed base's three life-support stocks would each last 40 minutes at their present rate (or are
    *  not falling), and, until its parts fabricator stands, the parts cache holds 40. An unstable base builds what steadies it (power,
    *  smelter, farm, water, parts, the first lab) and nothing else: growth on a base that is starving for parts, water or air is how a
@@ -334,6 +346,24 @@ export class RivalProgram {
       if (!handsFor(s, mods, type, crisis)) continue;
       if (orderRefusal(s, mods, site, type) || budgetShort(s, mods, site, type, { by: 'order' })) continue;
       b.apply({ kind: 'order', type, count: 1 });
+    }
+  }
+
+  /** The answers to the two hazards that kill a crew and have a free or cheap counter (docs/14 §3.7): a fouled water loop is flushed (it
+   *  would poison one of the crew a lunar day until then), a breach is sealed (a rover and a few parts) or, when that is refused, the
+   *  building evacuated. The player's panel shows the same buttons. A drill (the first of a kind) cannot kill and is left alone. */
+  private hazards() {
+    const b = this.base;
+    const s = b.state;
+    if (s.crew <= 0 || !s.hazards?.live.length) return;
+    for (const h of [...s.hazards.live]) {
+      if (h.drill) continue;
+      if (h.kind === 'contamination' && h.phase === 'active' && h.used.flush === undefined) {
+        b.apply({ kind: 'counter', counter: 'flush' });
+      } else if (h.kind === 'breach' && h.used.seal === undefined && h.used.evacuate === undefined) {
+        b.apply({ kind: 'counter', counter: 'seal', id: h.id });
+        if (h.used.seal === undefined) b.apply({ kind: 'counter', counter: 'evacuate', id: h.id });
+      }
     }
   }
 
@@ -496,6 +526,8 @@ const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 
 /** what an unstable base may still order */
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
 const NIGHT_COVER = 0.9;
+/** the era from which `policy.lateCaps` apply */
+const RIVAL_LATE_ERA = 6;
 /** labs a base may run while it has no bank to carry the night (see `bankless`) */
 const BANKLESS_LABS = 3;
 
