@@ -163,7 +163,14 @@ test('the five families: each renders in its own container, with its own class, 
   rules.field = fr.color;
   const fb = await field.boundingBox();
   expect(fb!.x).toBeLessThan(60);
-  expect(fb!.y + fb!.height).toBeGreaterThan(768 * 0.55); // the lower half, on the left
+  // on the left, above the objectives (inside the first-mine guide's stack while that stands), never over them
+  const below = await page.evaluate(() => {
+    const e = [document.getElementById('first-mine-stack'), document.getElementById('milestones')].find((x) => x && x.offsetParent !== null);
+    return e ? e.getBoundingClientRect().top : 768;
+  });
+  expect(fb!.y).toBeGreaterThan(0);
+  expect(fb!.y + fb!.height).toBeLessThanOrEqual(below + 1);
+  expect(fb!.y + fb!.height).toBeGreaterThan(below - 40);
   expect((await played(page)).chirp).toBeGreaterThan(chirps);
   expect(await paused(page)).toBe(false);
 
