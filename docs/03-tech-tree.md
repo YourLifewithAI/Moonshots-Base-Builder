@@ -1,6 +1,6 @@
 # 03 · Tech Tree
 
-The research tree is **129 technologies in 7 swimlanes across 8 eras**, built
+The research tree is **168 technologies in 7 swimlanes across 8 eras** (24 of them a faction's own, [12-tree-expansion.md](12-tree-expansion.md) §12), built
 around the realistic rollout of lunar construction: robots land and build
 first, and humans arrive only once the machines have made the base worth
 inhabiting. Most eras hold two or three big unlocks and a run of small,
