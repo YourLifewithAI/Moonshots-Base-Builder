@@ -13,7 +13,7 @@
  *  - Jobs: roads the player draws and haul roads to a dig, sintered by free rovers.
  *  - Routes: shortest open paths, cached on the network's revision. */
 import { BUILDINGS, type BuildingId } from '../data/buildings';
-import { CELL_M, MAP_CELLS, MAP_M } from '../data/balance';
+import { CELL_M, MAP_CELLS, MAP_M, PIT } from '../data/balance';
 import { APRON, DOCK_TYPES, FIELD_TYPES, OFFROAD_TYPES, ROAD } from '../data/roads';
 import type { BuildingState, GameState, RoadCell, RoadJob, ZoneState } from './state';
 import { footprintRect } from '../buildings/instances';
@@ -193,22 +193,31 @@ function fieldReached(s: GameState, b: Placed): boolean {
 
 // ───────────────────────────── planning ─────────────────────────────
 
-/** A binary min-heap keyed on f (ties: the lower cell key: stable). */
+/** A binary min-heap keyed on f, then on `t` (the nearer to its target first:
+ *  equal-cost routes are walked straight on before they fan out), then the
+ *  lower state id (stable). */
 class Heap {
   private f: number[] = [];
+  private t: number[] = [];
   private k: number[] = [];
   get size() { return this.k.length; }
-  private less(i: number, j: number) { return this.f[i] < this.f[j] || (this.f[i] === this.f[j] && this.k[i] < this.k[j]); }
-  private swap(i: number, j: number) { [this.f[i], this.f[j]] = [this.f[j], this.f[i]]; [this.k[i], this.k[j]] = [this.k[j], this.k[i]]; }
-  push(f: number, k: number) {
-    this.f.push(f); this.k.push(k);
+  private less(i: number, j: number) {
+    return this.f[i] < this.f[j] || (this.f[i] === this.f[j] && (this.t[i] < this.t[j] || (this.t[i] === this.t[j] && this.k[i] < this.k[j])));
+  }
+  private swap(i: number, j: number) {
+    [this.f[i], this.f[j]] = [this.f[j], this.f[i]];
+    [this.t[i], this.t[j]] = [this.t[j], this.t[i]];
+    [this.k[i], this.k[j]] = [this.k[j], this.k[i]];
+  }
+  push(f: number, t: number, k: number) {
+    this.f.push(f); this.t.push(t); this.k.push(k);
     for (let i = this.k.length - 1; i > 0;) { const p = (i - 1) >> 1; if (!this.less(i, p)) break; this.swap(i, p); i = p; }
   }
   pop(): number {
     const top = this.k[0];
-    const lf = this.f.pop()!, lk = this.k.pop()!;
+    const lf = this.f.pop()!, lt = this.t.pop()!, lk = this.k.pop()!;
     if (this.k.length) {
-      this.f[0] = lf; this.k[0] = lk;
+      this.f[0] = lf; this.t[0] = lt; this.k[0] = lk;
       for (let i = 0; ;) {
         const l = 2 * i + 1, r = l + 1;
         let m = i;
@@ -222,27 +231,47 @@ class Heap {
   }
 }
 
-const MAX_EXPAND = 40000;
+const MAX_EXPAND = 60000;
+/** a walk's state is a cell and the way it faces (0–3: N4's steps; 4: none yet) */
+const NODE = 5;
+const NONE = 4;
+
+export interface SearchOpts {
+  /** a cost on reaching each target (a zone's rim: the drive on from it); the walk then ends past the targets */
+  sink?: Map<number, number>;
+  /** the way the walk starts facing (a door's front): going straight on is free, a turn out of the door costs a bend */
+  facing?: Cell;
+  /** an extra cost for each new cell entered (the soft cost inside a pit's full-size ring) */
+  soft?: (k: number) => number;
+}
 
 /** A* on cells: from `sources` (cost 0) to any of `targets`. New cells cost 1
  *  plus the height step; closed road cells (being sintered) 0.5; open road
- *  free (it is a source anyway). Footprints, bays and steps steeper than
- *  ROAD.maxStep are walls. `sink`: a cost to add on reaching each target (a
- *  zone's rim: the off-road drive on from it). Returns the cells after the
- *  source, in order. */
+ *  0.05 (a road that merges into the network rides it nearly free). Every
+ *  change of direction on a cell that is not already road costs ROAD.turn, so
+ *  Manhattan-equal staircases no longer tie: a route is a trunk with a couple
+ *  of bends, and among equal routes the walk that is nearer its target goes
+ *  first. Footprints, bays and steps steeper than ROAD.maxStep are walls.
+ *  `opts.sink`: a cost to add on reaching each target. Returns the cells after
+ *  the source, in order, and the target it ended at (the source itself when
+ *  no step was needed). */
 function search(
-  s: GameState, hf: Heights, sources: number[], targets: Set<number>, blocked: Set<number>,
-  seed?: Map<number, number>, sink?: Map<number, number>,
-): number[] | null {
+  s: GameState, hf: Heights, sources: number[], targets: Set<number>, blocked: Set<number>, opts: SearchOpts = {},
+): { path: number[]; end: number } | null {
   if (!sources.length || !targets.size) return null;
-  if (sink) return sinkSearch(s, hf, sources, targets, blocked, sink);
+  const { sink, soft } = opts;
   const map = roadMap(s);
   const tcells = [...targets].map(keyCell);
+  const hMemo = new Map<number, number>();
   const h = (k: number) => {
-    const [x, z] = keyCell(k);
-    let best = Infinity;
-    for (const [tx, tz] of tcells) best = Math.min(best, Math.abs(tx - x) + Math.abs(tz - z));
-    return best;
+    let v = hMemo.get(k);
+    if (v === undefined) {
+      const [x, z] = keyCell(k);
+      v = Infinity;
+      for (const [tx, tz] of tcells) v = Math.min(v, Math.abs(tx - x) + Math.abs(tz - z));
+      hMemo.set(k, v);
+    }
+    return v;
   };
   const height = new Map<number, number>();
   const hAt = (k: number) => {
@@ -250,118 +279,70 @@ function search(
     if (v === undefined) { const [x, z] = keyCell(k); v = hf.sample(...cellCentre(x, z)); height.set(k, v); }
     return v;
   };
+  const start = opts.facing ? Math.max(0, N4.findIndex(([dx, dz]) => dx === opts.facing![0] && dz === opts.facing![1])) : NONE;
+  const SINK = -2;
   const cost = new Map<number, number>();
   const from = new Map<number, number>();
   const done = new Set<number>();
   const open = new Heap();
-  // (a start the partner cannot reach by road weighs as much as the farthest that it can)
-  const far = seed ? seedFar(seed) : 0;
+  const reach = (id: number, k: number, g: number) => {
+    const t = sink!.get(k);
+    if (t === undefined) return;
+    if (g + t < (cost.get(SINK) ?? Infinity)) { cost.set(SINK, g + t); from.set(SINK, id); open.push(g + t, 0, SINK); }
+  };
   for (const k of [...sources].sort((a, b) => a - b)) {
-    if (targets.has(k)) return [];
-    const g0 = seed ? seed.get(k) ?? far : 0;
-    cost.set(k, g0);
-    from.set(k, -1);
-    open.push(g0 + h(k), k);
+    if (!sink && targets.has(k)) return { path: [], end: k };
+    const id = k * NODE + start;
+    cost.set(id, 0);
+    from.set(id, -1);
+    open.push(h(k), h(k), id);
+    if (sink && targets.has(k)) reach(id, k, 0);
   }
   let found = -1, n = 0;
   while (open.size && n++ < MAX_EXPAND) {
-    const k = open.pop();
-    if (done.has(k)) continue;
-    done.add(k);
-    if (targets.has(k)) { found = k; break; }
+    const id = open.pop();
+    if (done.has(id)) continue;
+    done.add(id);
+    if (id === SINK) break;
+    const k = Math.floor(id / NODE), d = id % NODE;
+    const g = cost.get(id)!;
+    if (targets.has(k)) {
+      if (!sink) { found = id; break; }
+      reach(id, k, g);
+    }
     const [x, z] = keyCell(k);
-    for (const [dx, dz] of N4) {
-      const nx = x + dx, nz = z + dz;
+    // a bend is charged where the way turns off a cell that is not road already
+    const bend = !isOpen(map.get(k));
+    for (let nd = 0; nd < 4; nd++) {
+      if (d !== NONE && nd === (d ^ 1)) continue; // never straight back
+      const nx = x + N4[nd][0], nz = z + N4[nd][1];
       if (!inMap(nx, nz)) continue;
       const nk = cellKey(nx, nz);
-      if (done.has(nk) || blocked.has(nk)) continue;
+      if (blocked.has(nk)) continue;
+      const nid = nk * NODE + nd;
+      if (done.has(nid)) continue;
       const road = map.get(nk);
       if (road?.bay || road?.closed) continue;
       // roads never cross a pit or a heap (docs/17 §11.4): the road tool stops at the rim
       if (!road && hf.noRoad?.(nx, nz)) continue;
       const step = Math.abs(hAt(nk) - hAt(k));
       if (step > ROAD.maxStep) continue;
-      const c = cost.get(k)! + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step;
-      if (c < (cost.get(nk) ?? Infinity)) {
-        cost.set(nk, c);
-        from.set(nk, k);
-        open.push(c + h(nk), nk);
+      const c = g + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step
+        + (bend && d !== NONE && d !== nd ? ROAD.turn : 0) + (!road && soft ? soft(nk) : 0);
+      if (c < (cost.get(nid) ?? Infinity)) {
+        cost.set(nid, c);
+        from.set(nid, id);
+        open.push(c + h(nk), h(nk), nid);
       }
     }
   }
-  if (found < 0) return null;
+  const end = sink ? (done.has(SINK) ? from.get(SINK)! : -1) : found;
+  if (end < 0) return null;
   const out: number[] = [];
-  for (let k = found; from.get(k) !== -1; k = from.get(k)!) out.push(k);
-  return out.reverse();
-}
-
-/** search() with a cost on reaching each target: the cheapest road to a
- *  zone's rim plus the drive on from there (a virtual sink past the targets). */
-function sinkSearch(
-  s: GameState, hf: Heights, sources: number[], targets: Set<number>, blocked: Set<number>, sink: Map<number, number>,
-): number[] | null {
-  const map = roadMap(s);
-  const SINK = -2;
-  const tcells = [...targets].map(keyCell);
-  const h = (k: number) => {
-    if (k === SINK) return 0;
-    const [x, z] = keyCell(k);
-    let best = Infinity;
-    for (const [tx, tz] of tcells) best = Math.min(best, Math.abs(tx - x) + Math.abs(tz - z));
-    return best;
-  };
-  const height = new Map<number, number>();
-  const hAt = (k: number) => {
-    let v = height.get(k);
-    if (v === undefined) { const [x, z] = keyCell(k); v = hf.sample(...cellCentre(x, z)); height.set(k, v); }
-    return v;
-  };
-  const cost = new Map<number, number>();
-  const from = new Map<number, number>();
-  const done = new Set<number>();
-  const open = new Heap();
-  const reach = (k: number, g: number) => {
-    const t = sink.get(k);
-    if (t === undefined) return;
-    if (g + t < (cost.get(SINK) ?? Infinity)) { cost.set(SINK, g + t); from.set(SINK, k); open.push(g + t, SINK); }
-  };
-  for (const k of [...sources].sort((a, b) => a - b)) {
-    cost.set(k, 0);
-    from.set(k, -1);
-    open.push(h(k), k);
-    if (targets.has(k)) reach(k, 0);
-  }
-  let n = 0;
-  while (open.size && n++ < MAX_EXPAND) {
-    const k = open.pop();
-    if (done.has(k)) continue;
-    done.add(k);
-    if (k === SINK) break;
-    if (targets.has(k)) reach(k, cost.get(k)!);
-    const [x, z] = keyCell(k);
-    for (const [dx, dz] of N4) {
-      const nx = x + dx, nz = z + dz;
-      if (!inMap(nx, nz)) continue;
-      const nk = cellKey(nx, nz);
-      if (done.has(nk) || blocked.has(nk)) continue;
-      const road = map.get(nk);
-      if (road?.bay || road?.closed) continue;
-      // roads never cross a pit or a heap (docs/17 §11.4): the road tool stops at the rim
-      if (!road && hf.noRoad?.(nx, nz)) continue;
-      const step = Math.abs(hAt(nk) - hAt(k));
-      if (step > ROAD.maxStep) continue;
-      const c = cost.get(k)! + (isOpen(road) ? 0.05 : road ? 0.5 : 1) + ROAD.slopeCost * step;
-      if (c < (cost.get(nk) ?? Infinity)) {
-        cost.set(nk, c);
-        from.set(nk, k);
-        open.push(c + h(nk), nk);
-      }
-    }
-  }
-  if (!done.has(SINK)) return null;
-  const out: number[] = [];
-  for (let k = from.get(SINK)!; from.get(k) !== -1; k = from.get(k)!) out.push(k);
-  return out.reverse();
+  let id = end;
+  for (; from.get(id) !== -1; id = from.get(id)!) out.push(Math.floor(id / NODE));
+  out.reverse();
+  return { path: out, end: out.length ? out[out.length - 1] : Math.floor(id / NODE) };
 }
 
 // ───────────────────────────── zones (core/zones.ts) ─────────────────────────────
@@ -375,23 +356,47 @@ const offCost = (k: number, x: number, z: number) => {
   return 0.9 * Math.hypot(cx - x, cz - z) / CELL_M;
 };
 
+/** A road cell that is neither a bay nor part of the closed apron, nor a
+ *  passing or holding bay (docs/19 S3: those are plain open cells beside a
+ *  road, never a gate). */
+const throughCell = (c: RoadCell | undefined) => !c || !(c.bay || c.closed || c.pass || c.hold);
+
 /** Where an auto road into zone `zone` may stop, for a drive on to (x, z):
- *  its rim's free cells, each with that drive's cost. */
-function rimTargets(s: GameState, zone: ZoneState, blocked: Set<number>, x: number, z: number): Map<number, number> {
+ *  its rim's free cells and its gates already laid, each with that drive's
+ *  cost — and, with a hub to serve (`hub`, world m), ROAD.hubSide per 90°
+ *  between the cell and the hub seen from the zone's centre, so the gate lies
+ *  on the hub's side (docs/19 S3). */
+function rimTargets(
+  s: GameState, zone: ZoneState, blocked: Set<number>, x: number, z: number, hub?: readonly [number, number],
+): Map<number, number> {
   const map = roadMap(s);
   const out = new Map<number, number>();
-  for (const k of [...rimOf(s, zone).keys()].sort((a, b) => a - b)) {
+  const keys = new Set<number>(rimOf(s, zone).keys());
+  for (const c of s.roads ?? []) if (c.gate === zone.id) keys.add(cellKey(c.gx, c.gz));
+  const ha = hub ? Math.atan2(hub[1] - zone.cz, hub[0] - zone.cx) : 0;
+  for (const k of [...keys].sort((a, b) => a - b)) {
     const [gx, gz] = keyCell(k);
-    if (!inMap(gx, gz) || blocked.has(k) || map.get(k)?.bay || map.get(k)?.closed) continue;
-    out.set(k, offCost(k, x, z));
+    if (!inMap(gx, gz) || blocked.has(k) || !throughCell(map.get(k))) continue;
+    let cost = offCost(k, x, z);
+    if (hub) {
+      const [px, pz] = cellCentre(gx, gz);
+      let d = Math.abs(Math.atan2(pz - zone.cz, px - zone.cx) - ha);
+      if (d > Math.PI) d = 2 * Math.PI - d;
+      cost += ROAD.hubSide * d / (Math.PI / 2);
+    }
+    out.set(k, cost);
   }
   return out;
 }
 
 const gateMemo = new WeakMap<RoadCell[], { key: string; gates: Map<string, Cell[]> }>();
 
-/** A zone's gates: the open road cells on its rim (a road stops there; units
- *  go on off-road). In cell-key order; memoised on the network and the zones. */
+/** A zone's gates: where a road stops and units go on off-road. A road
+ *  laid to the zone marks its last cell (`RoadCell.gate` = the zone's id,
+ *  docs/19 S3), and those open cells are its gates; with none marked (a save
+ *  from before, a road the player drew) every open road cell on the rim is
+ *  one, passing and holding bays and the apron aside. In cell-key order;
+ *  memoised on the network and the zones. */
 export function gatesOf(s: GameState, zone: ZoneState): Cell[] {
   const list = s.roads ?? [];
   const key = `${s.roadRev ?? 0},${list.length}|${s.zones?.length ?? 0}`;
@@ -399,19 +404,29 @@ export function gatesOf(s: GameState, zone: ZoneState): Cell[] {
   if (!m || m.key !== key) { m = { key, gates: new Map() }; gateMemo.set(list, m); }
   let g = m.gates.get(zone.id);
   if (!g) {
-    const map = roadMap(s);
-    g = [...rimOf(s, zone).keys()].sort((a, b) => a - b)
-      .filter((k) => { const c = map.get(k); return isOpen(c) && !c!.bay; }).map(keyCell);
+    const marked = list.filter((c) => c.gate === zone.id && isOpen(c) && !c.bay)
+      .map((c) => cellKey(c.gx, c.gz)).sort((a, b) => a - b);
+    if (marked.length) g = marked.map(keyCell);
+    else {
+      const map = roadMap(s);
+      g = [...rimOf(s, zone).keys()].sort((a, b) => a - b)
+        .filter((k) => { const c = map.get(k); return isOpen(c) && throughCell(c); }).map(keyCell);
+    }
     m.gates.set(zone.id, g);
   }
   return g;
 }
 
-/** Is this cell a gate (an open road cell on a zone's rim)? */
+/** Is this cell a gate (an open road cell where a zone's road stops)? */
 export function isGate(s: GameState, gx: number, gz: number): boolean {
   const k = cellKey(gx, gz);
   const cells = zoneCells(s);
   if (cells.has(k)) return false;
+  const marked = roadMap(s).get(k)?.gate;
+  if (marked !== undefined) {
+    const z = s.zones?.find((q) => q.id === marked);
+    if (z && gatesOf(s, z).some(([x, y]) => x === gx && y === gz)) return true;
+  }
   for (const [dx, dz] of N4) {
     const i = cells.get(cellKey(gx + dx, gz + dz));
     if (i !== undefined && gatesOf(s, s.zones![i]).some(([x, z]) => x === gx && z === gz)) return true;
@@ -663,56 +678,6 @@ function doorKeys(s: GameState, skip?: Placed): Set<number> {
   return out;
 }
 
-/** An excavator's spur, or a regolith consumer's, joins the network where
- *  the haul between them is shortest: each start cell costs its distance by
- *  road to the partner's door (the nearest consumer — a smelter or refinery,
- *  else the Lander — for an excavator; the nearest excavator for a consumer),
- *  a cell of haul road weighed as a new cell. Null: no partner. */
-const HAUL_PAIRS: Partial<Record<BuildingId, readonly BuildingId[]>> = {
-  excavator: ['smelter', 'refinery'],
-  smelter: ['excavator'],
-  refinery: ['excavator'],
-};
-const seedMemo = new Map<string, Map<number, number>>();
-const seedFar = (m: Map<number, number>) => { let v = 0; for (const d of m.values()) v = Math.max(v, d); return v + 1; };
-function haulSeed(s: GameState, b: Placed): Map<number, number> | undefined {
-  const kinds = HAUL_PAIRS[b.type];
-  if (!kinds) return undefined;
-  const r = footprintRect(b);
-  const [cx, cz] = [(r.gx0 + r.gx1) / 2, (r.gz0 + r.gz1) / 2];
-  let pool = s.buildings.filter((o) => kinds.includes(o.type));
-  if (!pool.length && b.type === 'excavator') pool = s.buildings.filter((o) => o.type === 'lander');
-  let best: Placed | null = null, bd = Infinity;
-  for (const o of pool) {
-    const q = footprintRect(o);
-    const d = Math.hypot((q.gx0 + q.gx1) / 2 - cx, (q.gz0 + q.gz1) / 2 - cz);
-    if (d < bd) { bd = d; best = o; }
-  }
-  const door = best ? doorCell(best) : null;
-  if (!door) return undefined;
-  const key = `${s.roadRev ?? 0},${s.roads?.length ?? 0}|${door[0]},${door[1]}`;
-  const hit = seedMemo.get(key);
-  if (hit) return hit;
-  // distances by open road from the partner's door, in cells
-  const map = roadMap(s);
-  const dist = new Map<number, number>([[cellKey(door[0], door[1]), 0]]);
-  const q = [cellKey(door[0], door[1])];
-  for (let i = 0; i < q.length; i++) {
-    const [x, z] = keyCell(q[i]);
-    for (const [dx, dz] of N4) {
-      const nk = cellKey(x + dx, z + dz);
-      if (dist.has(nk)) continue;
-      const c = map.get(nk);
-      if (!c || !isOpen(c) || c.bay) continue;
-      dist.set(nk, dist.get(q[i])! + 1);
-      q.push(nk);
-    }
-  }
-  if (seedMemo.size > 64) seedMemo.clear();
-  seedMemo.set(key, dist);
-  return dist;
-}
-
 export interface SpurPlan {
   /** the road from the open network to the door, in order (cells already open left out) */
   cells: number[];
@@ -722,6 +687,8 @@ export interface SpurPlan {
   bays: number[];
   /** why the spot has no road ('' = it has one, or needs none) */
   reason: string;
+  /** a spur into an extraction zone ends at its gate (docs/19 S3): the cell and the zone's id */
+  gate?: { key: number; zone: string };
 }
 
 const planMemo = new Map<string, SpurPlan>();
@@ -783,10 +750,10 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
     if (FIELD_TYPES.has(b.type) && inZone.gate) return { cells: [], fresh: [], bays: [], reason: '' };
     const sink = rimTargets(s, inZone.zone, blocked, inZone.x, inZone.z);
     if (!sink.size) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — no ground on the rim of its zone for a road to stop at' };
-    const path = search(s, hf, sources, new Set(sink.keys()), blocked, undefined, sink);
-    if (!path) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — no road can reach the rim of its zone (walled in, or too steep)' };
-    const cells = path.filter((k) => !isOpen(map.get(k)));
-    return { cells, fresh: cells.filter((k) => !map.has(k)), bays: [], reason: '' };
+    const found = search(s, hf, sources, new Set(sink.keys()), blocked, { sink });
+    if (!found) return { cells: [], fresh: [], bays: [], reason: 'NO ROAD ROUTE — no road can reach the rim of its zone (walled in, or too steep)' };
+    const cells = found.path.filter((k) => !isOpen(map.get(k)));
+    return { cells, fresh: cells.filter((k) => !map.has(k)), bays: [], reason: '', gate: { key: found.end, zone: inZone.zone.id } };
   }
   if (FIELD_TYPES.has(b.type)) {
     if (fieldReached(s, b)) return { cells: [], fresh: [], bays: [], reason: '' };
@@ -802,7 +769,8 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
     blocked.delete(dk);
     targets = [dk];
   }
-  const path = search(s, hf, sources, new Set(targets), blocked, haulSeed(s, b));
+  const found = search(s, hf, sources, new Set(targets), blocked);
+  const path = found?.path;
   if (!path) {
     const field = FIELD_TYPES.has(b.type);
     return { cells: [], fresh: [], bays: [], reason: !sources.length
@@ -911,6 +879,8 @@ export function laySpur(s: GameState, hf: Heights, b: BuildingState, open = fals
     s.roads!.push({ gx, gz, left: open ? 0 : ROAD.cellS, bay: true });
   }
   if (open) for (const k of p.cells) { const c = map.get(k); if (c) c.left = 0; }
+  // a spur into a zone ends at its gate, marked (docs/19 S3)
+  if (p.gate) { const c = roadMap(s).get(p.gate.key); if (c && throughCell(c)) c.gate = p.gate.zone; }
   b.spur = open ? [] : [...p.cells, ...p.bays];
   bumpRoads(s);
   return b.spur.length;
@@ -970,10 +940,14 @@ export function spurSeconds(s: GameState, b: BuildingState): number {
   return t;
 }
 
-/** Where sintering goes on along a list of cells: the first closed one, and
- *  the open cell a rover works it from. */
+/** Where sintering goes on along a list of cells: the first closed one a rover
+ *  can work (one with open road beside it, its predecessor's first), and the
+ *  open cell it is worked from. A haul road planned from a hub's door lists
+ *  its cells door first, so a cell that waits on the ones after it is skipped;
+ *  with none workable, the first closed cell and no cell to work it from. */
 export function frontierOf(s: GameState, cells: readonly number[]): { cell: RoadCell; from: Cell | null } | null {
   const map = roadMap(s);
+  let first: { cell: RoadCell; from: Cell | null } | null = null;
   for (let i = 0; i < cells.length; i++) {
     const c = map.get(cells[i]);
     if (!c || isOpen(c)) continue;
@@ -987,9 +961,10 @@ export function frontierOf(s: GameState, cells: readonly number[]): { cell: Road
         if (n && isOpen(n) && !n.bay) { from = [n.gx, n.gz]; break; }
       }
     }
-    return { cell: c, from };
+    if (from) return { cell: c, from };
+    first ??= { cell: c, from: null };
   }
-  return null;
+  return first;
 }
 
 /** Sinter along `cells` for `amount` rover-seconds; true if a cell opened. */
@@ -1008,63 +983,268 @@ export function sinter(s: GameState, cells: readonly number[], amount: number): 
 
 // ───────────────────────────── jobs: drawn roads, haul roads ─────────────────────────────
 
-export interface LinkPlan { cells: number[]; fresh: number[]; reason: string }
+export interface Ring { x: number; z: number; r: number }
+
+export interface LinkPlan {
+  /** the cells still to lay or sinter, in order from the network (the bays of a haul road last) */
+  cells: number[];
+  /** of those, the cells not yet laid (the rest are another site's, still closed) */
+  fresh: number[];
+  reason: string;
+  // ── a road into an extraction zone (docs/19 S3) ──
+  /** the whole route, its source (a hub's door) first: open cells included */
+  route?: number[];
+  /** where it stops: the cell that becomes the zone's gate */
+  gate?: { key: number; zone: string };
+  /** a new holding bay beside the gate; new passing bays beside the route (both also in `cells`) */
+  hold?: number;
+  pass?: number[];
+  /** the new cells inside the pit's full-size ring: the pit consumes them */
+  sacrificial?: number[];
+}
+
+/** What a road is planned with. */
+export interface LinkOpts {
+  /** a haul road: planned from this structure's door (its front is the way out), merging into the
+   *  network at 0.05 a cell, not from wherever on the open network building is cheapest */
+  hub?: Placed;
+  /** the full-size pit rings of the other targets: a new cell inside one costs ROAD.ringSoft (docs/17 §5.3) */
+  rings?: readonly Ring[];
+  /** the target's own full-size ring: the tail cells of the road inside it are sacrificial (docs/17 §11.4) */
+  ring?: Ring | null;
+}
 
 /** A road from road cell `a` to cell `b`: the road tool's (`a` given: the
- *  player may draw it anywhere, into a zone too), or an auto road from the
- *  network (`a` null: a haul road) — which never runs inside an extraction
- *  zone and, for a `b` inside one, stops at the zone's rim (the dig is
- *  reached off-road from there; core/zones.ts). */
-export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell): LinkPlan {
-  if (!hasRoads(s)) return { cells: [], fresh: [], reason: 'NO ROADS ON THIS BASE' };
+ *  player may draw it anywhere, into a zone too), or an auto road (`a` null:
+ *  a haul road) — from the network, or from a hub's door (`opts.hub`) — which
+ *  never runs inside an extraction zone and, for a `b` inside one, stops at the
+ *  zone's rim on the hub's side (the dig is reached off-road from there;
+ *  core/zones.ts): the plan carries its gate, holding bay and passing bays. */
+export function planLink(s: GameState, hf: Heights, a: Cell | null, b: Cell, opts: LinkOpts = {}): LinkPlan {
+  const fail = (reason: string): LinkPlan => ({ cells: [], fresh: [], reason });
+  if (!hasRoads(s)) return fail('NO ROADS ON THIS BASE');
   const map = roadMap(s);
   const blocked = occupied(s);
   const doors = doorKeys(s);
   const bk = cellKey(b[0], b[1]);
-  if (!inMap(b[0], b[1])) return { cells: [], fresh: [], reason: 'OUTSIDE THE SURVEY AREA' };
-  if (doors.has(bk) || map.get(bk)?.closed) return { cells: [], fresh: [], reason: 'AT A DOOR — a door is the end of its own road; end beside it' };
-  if (blocked.has(bk)) return { cells: [], fresh: [], reason: 'UNDER A STRUCTURE — end the road on open ground' };
+  if (!inMap(b[0], b[1])) return fail('OUTSIDE THE SURVEY AREA');
+  if (doors.has(bk) || map.get(bk)?.closed) return fail('AT A DOOR — a door is the end of its own road; end beside it');
+  if (blocked.has(bk)) return fail('UNDER A STRUCTURE — end the road on open ground');
   const zone = a ? null : zoneOfCell(s, b[0], b[1]);
   if (!a) for (const k of zoneCells(s).keys()) if (!map.has(k)) blocked.add(k);
+  // a haul road leaves its hub's door (a door that is on the road)
+  const door = !a && opts.hub ? doorCell(opts.hub) : null;
+  const from = door && map.has(cellKey(door[0], door[1])) ? cellKey(door[0], door[1]) : -1;
+  const facing = from >= 0 ? frontDir(opts.hub!) : undefined;
+  const hubPt = door ? cellCentre(door[0], door[1]) : undefined;
+  const rings = opts.rings ?? [];
+  const soft = rings.length ? (k: number) => {
+    const [x, z] = cellCentre(...keyCell(k));
+    let c = 0;
+    for (const r of rings) if (Math.hypot(x - r.x, z - r.z) < r.r) c += ROAD.ringSoft;
+    return c;
+  } : undefined;
   if (zone) {
     for (const k of doors) blocked.add(k);
     const [bx, bz] = cellCentre(b[0], b[1]);
-    const sink = rimTargets(s, zone, blocked, bx, bz);
-    const path = sink.size ? search(s, hf, openSources(s, doors), new Set(sink.keys()), blocked, undefined, sink) : null;
-    if (!path) return { cells: [], fresh: [], reason: 'NO ROAD ROUTE — no road can reach the rim of its zone (walled in, or too steep)' };
+    const sink = rimTargets(s, zone, blocked, bx, bz, hubPt);
+    const found = sink.size ? search(s, hf, from >= 0 ? [from] : openSources(s, doors), new Set(sink.keys()), blocked, { sink, facing, soft }) : null;
+    if (!found) return fail('NO ROAD ROUTE — no road can reach the rim of its zone (walled in, or too steep)');
+    const path = found.path;
     const cells = path.filter((k) => !isOpen(map.get(k)));
-    return { cells, fresh: cells.filter((k) => !map.has(k)), reason: '' };
+    const fresh = cells.filter((k) => !map.has(k));
+    const route = from >= 0 ? [from, ...path] : path.length ? path : [found.end];
+    const ex = haulExtras(s, hf, route, zone, blocked, opts.ring ?? null, new Set(fresh));
+    return {
+      cells: [...cells, ...(ex.hold >= 0 ? [ex.hold] : []), ...ex.pass],
+      fresh: [...fresh, ...(ex.hold >= 0 ? [ex.hold] : []), ...ex.pass],
+      reason: '', route, gate: { key: found.end, zone: zone.id },
+      ...(ex.hold >= 0 ? { hold: ex.hold } : {}), pass: ex.pass, sacrificial: ex.sacrificial,
+    };
   }
   let sources: number[];
   if (a) {
     const ak = cellKey(a[0], a[1]);
     const c = map.get(ak);
-    if (!c || c.bay) return { cells: [], fresh: [], reason: 'START ON A ROAD — drag out from an open road cell' };
-    if (c.closed || doors.has(ak)) return { cells: [], fresh: [], reason: 'START ELSEWHERE — no road branches off a door or the Lander’s apron' };
+    if (!c || c.bay) return fail('START ON A ROAD — drag out from an open road cell');
+    if (c.closed || doors.has(ak)) return fail('START ELSEWHERE — no road branches off a door or the Lander’s apron');
     sources = [ak];
   } else {
-    sources = openSources(s, doors);
+    sources = from >= 0 ? [from] : openSources(s, doors);
   }
   for (const k of doors) if (k !== bk) blocked.add(k);
-  const path = search(s, hf, sources, new Set([bk]), blocked);
-  if (!path) return { cells: [], fresh: [], reason: 'NO ROAD ROUTE — walled in, or too steep for a road' };
-  const cells = path.filter((k) => !isOpen(map.get(k)));
+  const found = search(s, hf, sources, new Set([bk]), blocked, { facing, soft });
+  if (!found) return fail('NO ROAD ROUTE — walled in, or too steep for a road');
+  const cells = found.path.filter((k) => !isOpen(map.get(k)));
   return { cells, fresh: cells.filter((k) => !map.has(k)), reason: '' };
+}
+
+/** A route from open road cell `a` through `via` (waypoints) to the last: one
+ *  road, each leg planned from the end of the one before (the road tool's
+ *  waypoints, docs/19 S3). A leg may run over the legs before it. */
+export function planPath(s: GameState, hf: Heights, a: Cell, via: readonly Cell[]): LinkPlan {
+  let cur = s;
+  let at = a;
+  const cells: number[] = [], fresh: number[] = [];
+  for (const b of via) {
+    const leg = planLink(cur, hf, at, b);
+    if (leg.reason) return leg;
+    for (const k of leg.cells) if (!cells.includes(k)) cells.push(k);
+    for (const k of leg.fresh) if (!fresh.includes(k)) fresh.push(k);
+    if (leg.cells.length) {
+      // the next leg starts on this one: its new cells stand in as open road
+      cur = { ...cur, roads: [...(cur.roads ?? []), ...leg.fresh.map((k) => { const [gx, gz] = keyCell(k); return { gx, gz, left: 0 }; })] };
+    }
+    at = b;
+  }
+  return { cells, fresh, reason: '' };
+}
+
+/** The extras of a haul road (docs/19 S3): a holding bay beside its gate; a
+ *  passing bay beside about every 10th cell of its route and beside the gate's
+ *  approach; the tail of new cells inside the pit's full-size ring, which the
+ *  pit consumes. Bays are plain open cells beside the road, never `bay`. */
+function haulExtras(
+  s: GameState, hf: Heights, route: number[], zone: ZoneState, blocked: Set<number>, ring: Ring | null, fresh: Set<number>,
+): { hold: number; pass: number[]; sacrificial: number[] } {
+  const map = roadMap(s);
+  const onRoute = new Set(route);
+  const taken = new Set<number>();
+  const at = (gx: number, gz: number) => hf.sample(...cellCentre(gx, gz));
+  /** a free cell beside `near`: on the map, open ground, level enough for a road */
+  const free = (gx: number, gz: number, near: number) => {
+    if (!inMap(gx, gz)) return false;
+    const k = cellKey(gx, gz);
+    if (blocked.has(k) || map.has(k) || onRoute.has(k) || taken.has(k)) return false;
+    if (hf.noRoad?.(gx, gz)) return false;
+    const [nx, nz] = keyCell(near);
+    return Math.abs(at(gx, gz) - at(nx, nz)) <= ROAD.maxStep;
+  };
+  const step = (a: number, b: number): Cell => { const [ax, az] = keyCell(a), [bx, bz] = keyCell(b); return [Math.sign(bx - ax), Math.sign(bz - az)]; };
+  /** the cells either side of `k` across the way `d` runs */
+  const beside = (k: number, d: Cell): number[] => {
+    const [x, z] = keyCell(k);
+    return [cellKey(x - d[1], z + d[0]), cellKey(x + d[1], z - d[0])];
+  };
+  const n = route.length;
+  const G = route[n - 1];
+  let hold = -1;
+  let holdSide = 0;
+  // the gate's approach: the way the last step ran (or, reaching a gate laid already, from the road it stands on)
+  let prev = n > 1 ? route[n - 2] : -1;
+  if (prev < 0) {
+    const [gx, gz] = keyCell(G);
+    for (const [dx, dz] of N4) {
+      const k = cellKey(gx + dx, gz + dz);
+      const c = map.get(k);
+      if (c && isOpen(c) && throughCell(c) && !zoneCells(s).has(k)) { prev = k; break; }
+    }
+  }
+  if (prev >= 0) {
+    const d = step(prev, G);
+    const heldAlready = N4.some(([dx, dz]) => { const [gx, gz] = keyCell(G); return map.get(cellKey(gx + dx, gz + dz))?.hold === zone.id; });
+    if (!heldAlready) {
+      for (const base of [G, prev]) {
+        const opts = beside(base, d);
+        const side = opts.findIndex((k) => { const [x, z] = keyCell(k); return free(x, z, base); });
+        if (side >= 0) { hold = opts[side]; holdSide = side ? -1 : 1; taken.add(hold); break; }
+      }
+    }
+  }
+  const pass: number[] = [];
+  const isPass = (k: number) => map.get(k)?.pass === true || pass.includes(k);
+  const covered = route.map((k) => beside(k, [1, 0]).concat(beside(k, [0, 1])).some((q) => isPass(q)));
+  const place = (i: number): boolean => {
+    if (i < 1 || i > n - 2) return false;
+    const d = step(route[i - 1], route[i]), e = step(route[i], route[i + 1]);
+    if (d[0] !== e[0] || d[1] !== e[1]) return false;
+    for (const q of beside(route[i], d)) {
+      const [x, z] = keyCell(q);
+      if (!free(x, z, route[i])) continue;
+      pass.push(q); taken.add(q); covered[i] = true;
+      return true;
+    }
+    return false;
+  };
+  // beside the gate's approach: the far side from the holding bay
+  if (n >= 3 && !covered[n - 2] && !covered[n - 3]) {
+    const d = step(route[n - 3], route[n - 2]);
+    const opts = beside(route[n - 2], d);
+    const order = holdSide > 0 ? [opts[1], opts[0]] : [opts[0], opts[1]];
+    for (const q of order) {
+      const [x, z] = keyCell(q);
+      if (!free(x, z, route[n - 2])) continue;
+      pass.push(q); taken.add(q); covered[n - 2] = true;
+      break;
+    }
+  }
+  // along the way: one about every ROAD.passEvery cells, slid to a straight cell with room beside it
+  let gap = 0;
+  for (let i = 2; i < n - 3; i++) {
+    if (covered[i]) { gap = 0; continue; }
+    if (++gap < ROAD.passEvery) continue;
+    for (const o of [0, -1, 1, -2, 2]) {
+      if (Math.abs(o) > ROAD.passSlide || i + o < 2 || i + o >= n - 3) continue;
+      if (place(i + o)) { gap = Math.max(0, -o); break; }
+    }
+  }
+  // the new cells inside the pit's full-size ring: the pit eats them, the gate steps back
+  const sacrificial: number[] = [];
+  if (ring) {
+    const reach = ring.r + (PIT.roadRings + 1) * CELL_M;
+    const inside = (k: number) => { const [x, z] = cellCentre(...keyCell(k)); return Math.hypot(x - ring.x, z - ring.z) < reach; };
+    for (let i = n - 1; i >= 0 && fresh.has(route[i]) && inside(route[i]); i--) sacrificial.push(route[i]);
+    for (const k of [...(hold >= 0 ? [hold] : []), ...pass]) if (inside(k)) sacrificial.push(k);
+  }
+  return { hold, pass, sacrificial };
+}
+
+/** Lay a plan's cells, and its marks: the gate (an open cell laid before may
+ *  become one), the holding bay, the passing bays and the sacrificial tail.
+ *  `open`: sintered already (tests and the debug switch). */
+export function layPlan(s: GameState, plan: LinkPlan, open = false) {
+  if (!hasRoads(s) || plan.reason) return;
+  const sac = new Set(plan.sacrificial ?? []);
+  const pass = new Set(plan.pass ?? []);
+  for (const k of plan.fresh) {
+    const [gx, gz] = keyCell(k);
+    const c: RoadCell = { gx, gz, left: open ? 0 : ROAD.cellS };
+    if (k === plan.hold && plan.gate) c.hold = plan.gate.zone;
+    if (pass.has(k)) c.pass = true;
+    if (sac.has(k)) c.sacrificial = true;
+    s.roads!.push(c);
+  }
+  if (plan.gate) {
+    const c = roadMap(s).get(plan.gate.key);
+    if (c && throughCell(c)) c.gate = plan.gate.zone;
+  }
+  bumpRoads(s);
 }
 
 /** Lay a job's road; returns its id (0: nothing to lay). */
 export function layJob(s: GameState, plan: LinkPlan, kind: RoadJob['kind'], by?: number): number {
-  if (!hasRoads(s) || plan.reason || !plan.cells.length) return 0;
-  for (const k of plan.fresh) {
-    const [gx, gz] = keyCell(k);
-    s.roads!.push({ gx, gz, left: ROAD.cellS });
-  }
+  if (!hasRoads(s) || plan.reason) return 0;
+  layPlan(s, plan);
+  if (kind === 'draw' && plan.cells.length) markDrawnGate(s, plan.cells[plan.cells.length - 1]);
+  if (!plan.cells.length) return 0;
   s.roadJobs ??= [];
   s.nextRoadJob ??= 1;
   const id = s.nextRoadJob++;
   s.roadJobs.push({ id, kind, cells: [...plan.cells], ...(by !== undefined ? { by } : {}) });
   bumpRoads(s);
   return id;
+}
+
+/** A road the player drew that stops on a zone's rim ends at its gate. */
+function markDrawnGate(s: GameState, last: number) {
+  const [gx, gz] = keyCell(last);
+  const c = roadMap(s).get(last);
+  const cells = zoneCells(s);
+  if (!c || cells.has(last) || !throughCell(c) || c.gate) return;
+  for (const [dx, dz] of N4) {
+    const i = cells.get(cellKey(gx + dx, gz + dz));
+    if (i !== undefined) { c.gate = s.zones![i].id; return; }
+  }
 }
 
 /** Jobs whose road is all open are done: dropped from the list. */
