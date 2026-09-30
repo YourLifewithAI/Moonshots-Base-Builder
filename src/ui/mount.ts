@@ -13,6 +13,7 @@ import { mountHazardsPanel } from './hazardsPanel';
 import { mountWeatherPanel } from './weatherPanel';
 import { mountDepositCard } from './depositCard';
 import { mountDiscovery } from './discovery';
+import { mountNotify } from './notifyUi';
 import { mountDefeat, mountSiteSelect, mountVictory } from './screens';
 import { mountTechTree } from './techTree';
 import { mountMenu } from './menu';
@@ -47,6 +48,8 @@ export function mountUI(game: Game) {
   mountLunarMap(hudLayer, game);
   mountHazardsPanel(hudLayer, game);
   mountWeatherPanel(hudLayer, game);
+  // the field card and the Log, after the flare pop-up and the objectives they sit beside
+  mountNotify(hudLayer, game);
   mountVictory(root, game);
   mountDefeat(root);
   mountSiteSelect(root, game);

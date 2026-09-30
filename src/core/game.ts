@@ -17,7 +17,7 @@ import { createInitialState, type AlertMsg, type BuildingState, type GameState }
 import { OVERCLOCKABLE, canToggleCrew, crewToggleRule, effectiveDef, effectiveRates, waterReclaimFactor } from './mods';
 import { ActionQueue, type Action } from './actions';
 import {
-  boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, computeMods, landerAction,
+  boardingShortfall, downlinkCost, economyTick, currentDay, refreshDerived, alert, logStamp, computeMods, landerAction,
   missionLost, orderDelayS, queuePos, settlersWelcome, type Mods,
   launchVolley, volleyTerms,
 } from './economy';
@@ -95,7 +95,7 @@ import {
   $iceOverlay, $lander, $lostMission, $lunar, $menuOpen, $milestones, $phase, $placeFlash,
   $placing, $power, $rates, $resourcePanel, $resources, $research, $selection, $siteId, $swarm, $tech,
   $time, $victory, $vitals, $wearMarkers, overlayUp, spawnFloater, $announce, type Announcement,
-  $fleet, $fleetTarget, $roverSel, $unitSel,
+  $fleet, $fleetTarget, $roverSel, $unitSel, $log, $fieldCards, type FieldCard,
   $destiny, $hazards, $hazardMarkers, $lossStory, $weather,
   $hubCard, $hubLight, $touchInfo, type DepositView, type HubLightView,
 } from '../ui/stores';
@@ -411,7 +411,10 @@ export class Game {
     this.announceSeen = null;
     this.announceDrilled = null;
     this.hazardSeen = null;
+    this.fieldSeen = null;
+    this.logRef = null;
     $announce.set([]);
+    $fieldCards.set([]);
     $phase.set('playing');
     $siteId.set(state.siteId);
     $victory.set(false);
@@ -1909,7 +1912,8 @@ export class Game {
     for (const a of s.alerts) {
       const was = seen.alerts.get(a.id);
       if (a.kind === 'crit' && was !== 'crit') crit = fresh(a.key, 15_000) || crit;
-      else if (a.kind === 'warn' && was === undefined) warn = fresh(a.key, 30_000) || warn;
+      // a flare's warning has its own cue (the pop-up's, docs/19 S7)
+      else if (a.kind === 'warn' && was === undefined && a.family !== 'weather') warn = fresh(a.key, 30_000) || warn;
     }
     if (crit) sfx.play('crit');
     else if (warn) sfx.play('warn');
@@ -2281,6 +2285,7 @@ export class Game {
     $research.set(researchView(s, this.mods));
     $automation.set(automationView(s, this.mods));
     $alerts.set([...s.alerts]);
+    this.publishLog();
     const next = MILESTONES.find((m) => !s.milestonesDone.includes(m.id));
     $milestones.set({
       done: [...s.milestonesDone], total: MILESTONES.length, progress: next?.progress?.(s) ?? '',
@@ -2340,6 +2345,39 @@ export class Game {
     this.flarePauses();
   }
 
+  /** the newest log id the dispatch card has seen (null: take the baseline, as a loaded world does) */
+  private fieldSeen: number | null = null;
+  /** the log array $log last copied, and the stamp it copied at */
+  private logRef: GameState['log'] | null = null;
+  private logStampSeen = -1;
+
+  /** The notification log to the UI, and each new field report to the dispatch card
+   *  (ui/notifyUi.ts). A loaded world takes only the baseline; test runs (?debug) draw
+   *  no card unless they ask (&tips), as for the discovery cards. */
+  private publishLog() {
+    const s = this.state;
+    const log = (s.log ??= []);
+    if (this.logRef !== log || this.logStampSeen !== logStamp.n) {
+      this.logRef = log;
+      this.logStampSeen = logStamp.n;
+      $log.set([...log]);
+    }
+    const last = log.length ? log[log.length - 1].id : 0;
+    if (this.fieldSeen === null) { this.fieldSeen = last; return; }
+    const seen = this.fieldSeen;
+    this.fieldSeen = last;
+    const fresh: FieldCard[] = [];
+    for (let i = log.length - 1; i >= 0 && log[i].id > seen; i--) {
+      const e = log[i];
+      if (e.family === 'field' && e.report) fresh.unshift({ id: e.id, text: e.text, report: e.report, action: e.action });
+    }
+    if (!fresh.length) return;
+    sfx.play('chirp');
+    const q = new URLSearchParams(location.search);
+    if (q.has('debug') && !q.has('tips')) return;
+    $fieldCards.set([...$fieldCards.get(), ...fresh].slice(-5));
+  }
+
   /** the flare pop-up last seen (the pause-on setting fires once a flare) */
   private flareSeen = -1;
   /** Pause on flare warnings (docs/16 §5.2, §10.4): the full pop-up pauses M
@@ -2352,6 +2390,7 @@ export class Game {
     if (!p) return;
     if (this.flareSeen === p.n) return;
     this.flareSeen = p.n;
+    sfx.play('flare');
     const q = new URLSearchParams(location.search);
     if (q.has('debug') && !q.has('flarepause')) return;
     const set = loadSettings().pauseFlares;

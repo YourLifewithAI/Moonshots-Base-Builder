@@ -80,6 +80,11 @@ export function familyOf(a: { family?: NotifyFamily; kind: AlertMsg['kind'] }): 
   return a.family ?? (a.kind === 'crit' ? 'hazard' : undefined);
 }
 
+/** Does a screen that covers the HUD (the map, the tree) echo this alert in its header? Its own
+ *  family, a plain alert (the refusals its own buttons raise) and any critical one; not the rest. */
+export const echoes = (own: NotifyFamily, a: { family?: NotifyFamily; kind: AlertMsg['kind'] }) =>
+  a.kind === 'crit' || a.family === undefined || a.family === own;
+
 export const glyphOf = (f: NotifyFamily | undefined) => (f ? FAMILY[f].glyph : PLAIN_GLYPH);
 
 /** Tell the player something, filed under `family`: a line in the alert stack and
