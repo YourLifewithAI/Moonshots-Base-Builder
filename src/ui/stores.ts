@@ -288,6 +288,9 @@ export const $fieldCards = atom<FieldCard[]>([]);
  *  the card: the rule takes its trim colour, the glyph is its own. */
 export interface RaceCard { id: number; text: string; faction: FactionId | null; action?: LogEntry['action'] }
 export const $raceCards = atom<RaceCard[]>([]);
+/** A rival's first light (docs/20 §6, S6): the big race banner under the swarm meter; ui/racePanel.ts raises and clears it. */
+export interface RaceBanner { id: number; faction: FactionId; title: string; text: string }
+export const $raceBanner = atom<RaceBanner | null>(null);
 /** The race (docs/20 §2, §6): one row per faction in standings order, the combined volleys and the close; null in a solo game.
  *  core/raceView.ts builds it in Game.publish; the RACE chip and panel (ui/racePanel.ts) read it. */
 export const $race = atom<RaceView | null>(null);
@@ -344,8 +347,10 @@ export interface GradeToolHint {
 export const $gradeTool = atom<GradeToolHint | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
-/** a victory or defeat overlay is up: the world's screens and keys wait under it */
-export const overlayUp = () => $victory.get() || $defeat.get();
+/** the race's verdict screen is up (docs/20 §6, S6: ui/screens.ts mountVerdict; the race feed's `verdict` handler sets it, Continue clears it) */
+export const $verdict = atom<boolean>(false);
+/** a victory, defeat or verdict overlay is up: the world's screens and keys wait under it */
+export const overlayUp = () => $victory.get() || $defeat.get() || $verdict.get();
 /** something that holds the game paused for the player's answer is up: a victory or defeat
  *  overlay, an era or hazard banner (ui/discovery.ts; a tech card is not one), or the menu.
  *  A speed click or key resumes a paused game only when none of these is up. */

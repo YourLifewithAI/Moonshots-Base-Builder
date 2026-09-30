@@ -3,7 +3,8 @@
 import { RESOURCE_ORDER, RESOURCES, type ResourceId } from '../data/resources';
 import { BUILDINGS } from '../data/buildings';
 import { MILESTONES, type MilestoneDef } from '../data/milestones';
-import { ALERTS, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LOW_SUPPLY_S } from '../data/balance';
+import { ALERTS, LOW_SUPPLY_S } from '../data/balance';
+import { FACTIONS, FACTION_ORDER } from '../data/factions';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import type { Game } from '../core/game';
@@ -11,7 +12,7 @@ import {
   $alerts, $caps, $depositMarkers, $depositOverlay, $depositSel, $floaters, $ice, $iceOverlay, $menuOpen,
   $milestones,
   $autoMarkers, $power, $resourcePanel, $resources, $selection, $siteId, $swarm, $time, $vitals, $wearMarkers,
-  $hazards, $hazardMarkers, $placing, $log, $logOpen,
+  $hazards, $hazardMarkers, $placing, $log, $logOpen, $race,
 } from './stores';
 import { factionTrim, familyOf, glyphOf, runAlertAction, setMissionOrigin } from './notify';
 import { counterButton, counterClick } from './hazardsPanel';
@@ -182,6 +183,9 @@ export function mountHud(root: HTMLElement, game: Game) {
   meter.innerHTML = `
     <div class="label">Dyson Swarm · <span class="mono" id="swarm-pct"></span><span id="swarm-volleys"></span></div>
     <div class="bar"><i id="swarm-fill" style="width:0%"></i></div>
+    <div class="swarm-race" id="swarm-race" style="display:none" role="group" aria-label="Share of the combined swarm">${FACTION_ORDER.map((f) =>
+      `<div class="sr-row" data-faction="${f}" style="--ft:${FACTIONS[f].livery.trim}"><span class="sr-g" aria-hidden="true">${FACTIONS[f].glyph}\uFE0E</span>` +
+      `<span class="sr-bar"><i></i></span><span class="sr-n mono">0</span><span class="sr-p mono">—</span></div>`).join('')}</div>
     <div class="launch-row" id="launch-row" style="display:none">
       <button class="btn primary" id="btn-launch">▲ Launch collectors</button>
       <span class="cap mono" id="launch-cost"></span>
@@ -201,8 +205,9 @@ export function mountHud(root: HTMLElement, game: Game) {
     mRow.style.display = s.armed ? 'flex' : 'none';
     mBtn.disabled = !s.canLaunch;
     // each part of a volley, held against what it takes: the disabled button explains itself
+    // (what the next volley takes under these mods — Cooperative Swarm's foils, Crewed Control's and the launch techs' capacity — from volleyTerms)
     const parts: [string, number, number][] = [
-      ['foils', s.foils, LAUNCH_COST_FOILS], ['launch', s.launch, LAUNCH_CAP_PER_VOLLEY], ['stored', s.stored, s.burst],
+      ['foils', s.foils, s.needFoils], ['launch', s.launch, s.needLaunch], ['stored', s.stored, s.burst],
     ];
     // capacity carries its ↑ so "0/3" never reads as a count of launches
     const cost = parts.map(([n, have, need]) =>
@@ -211,6 +216,29 @@ export function mountHud(root: HTMLElement, game: Game) {
     const missing = parts.filter(([, have, need]) => have < need)
       .map(([n, have, need]) => `${fmt(need - have)} more ${n === 'stored' ? 'stored energy' : n === 'launch' ? 'launch capacity' : n}`);
     mBtn.title = missing.length ? `Needs ${missing.join(', ')}` : 'Launch a collector volley';
+  });
+
+  // the three share bars of a faction game (docs/20 §6): each program's launches over the combined volleys, in its livery's trim
+  const mRace = meter.querySelector('#swarm-race') as HTMLElement;
+  const srRows = new Map(FACTION_ORDER.map((f) => [f, mRace.querySelector(`.sr-row[data-faction="${f}"]`) as HTMLElement]));
+  let srSig = '';
+  $race.subscribe((v) => {
+    mRace.style.display = v ? '' : 'none';
+    meter.classList.toggle('racing', !!v);
+    if (!v) { srSig = ''; return; }
+    const sig = `${v.player}|${v.closeAt}|${v.phase}|${v.rows.map((r) => `${r.faction}:${r.launches}`).join(',')}`;
+    if (sig === srSig) return;
+    srSig = sig;
+    for (const r of v.rows) {
+      const row = srRows.get(r.faction)!;
+      const pct = Math.round(r.share * 100);
+      (row.querySelector('.sr-bar i') as HTMLElement).style.width = `${r.launches ? Math.max(3, r.share * 100) : 0}%`;
+      (row.querySelector('.sr-n') as HTMLElement).textContent = String(r.launches);
+      (row.querySelector('.sr-p') as HTMLElement).textContent = v.combined ? `${pct}%` : '—';
+      row.classList.toggle('you', r.player);
+      row.classList.toggle('lead', v.combined > 0 && r.rank === 1);
+      row.title = `${r.name}${r.player ? ' (you)' : ''} — ${r.launches} of ${v.combined} combined volleys${v.phase === 'closed' ? ' · the race is closed' : ` · the race closes at ${v.closeAt}`}`;
+    }
   });
 
   // right column: time controls and alerts, the inspector beneath them.

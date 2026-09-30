@@ -4,14 +4,16 @@
  *
  *  Everything is read from `$race` (core/raceView.ts, built in Game.publish from `moon.factions`, `moon.race`, the rival bases
  *  and the feed): the panel lists each faction in standings order with its glyph, site, landing day, era, launches, first light,
- *  outposts and its last event. The swarm meter's three share bars and the verdict are stream S6's (they read the same `$race`). */
+ *  outposts and its last event. S6 adds the feed's race beats (a rival's first light as a banner under the swarm meter, the standings,
+ *  the verdict); the swarm meter's three share bars are in hud.ts and the verdict screen in screens.ts (both read the same `$race`). */
 import './race.css';
 import type { Game } from '../core/game';
-import { onFeed, type FeedEvent } from '../core/moon';
-import { ordinal, type RaceRow, type RaceView } from '../core/raceView';
+import { onFeed, standingsOrder, type FeedEvent } from '../core/moon';
+import { ordinal, ordinalWord, VERDICT_TITLE, verdictLine, verdictView, type RaceRow, type RaceView } from '../core/raceView';
 import { CYCLE_S } from '../data/balance';
+import { FACTIONS, FACTION_ORDER } from '../data/factions';
 import { el } from './hud';
-import { $race, $raceCards, $resourcePanel, $time, type RaceCard } from './stores';
+import { $race, $raceBanner, $raceCards, $resourcePanel, $time, $verdict, type RaceBanner, type RaceCard } from './stores';
 import { esc, glyphOf, factionTrim, notify, runAlertAction } from './notify';
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
@@ -28,8 +30,10 @@ export function raceChip(v: RaceView | null): { text: string; title: string } | 
   const standings = v.rows.map((r) => `${ordinal(r.rank)} ${r.short}${r.player ? ' (you)' : ''} ${plural(r.launches, 'volley')}`).join(' · ');
   const title = `The race — ${standings} · ${v.combined}/${v.closeAt} combined volleys — the RACE panel`;
   if (v.phase === 'closed') {
+    // how it ended for you (the verdict), then the standings as they are now: the leaderboard stays live after the close
     const w = v.rows.find((r) => r.faction === v.winner) ?? lead;
-    return { text: `⚑ RACE CLOSED · ${w.player ? 'you win' : `${w.short} wins`}`, title };
+    const how = v.verdict?.kind === 'yours' ? 'yours' : v.verdict?.kind === 'shared' ? 'shared' : w.player ? 'you win' : `${w.short} wins`;
+    return { text: `⚑ RACE CLOSED · ${how}`, title: `${title} · ${v.verdict ? VERDICT_TITLE[v.verdict.kind].toLowerCase() : 'closed'}` };
   }
   if (v.combined === 0) return { text: '⚑ RACE · no first light yet', title: `The race — no volley has flown yet · ${v.closeAt} combined volleys close it — the RACE panel` };
   const text = lead.player
@@ -65,7 +69,8 @@ function rowHtml(r: RaceRow, v: RaceView): string {
 
 /** The panel's body (exported for the spec's reading of it). */
 export function raceBody(v: RaceView, missionDay: number): string {
-  const close = v.phase === 'closed' ? 'The race is closed.'
+  const close = v.phase === 'closed'
+    ? `The race closed at ${v.verdict?.total ?? v.closeAt} combined volleys${v.verdict ? ` — ${VERDICT_TITLE[v.verdict.kind]}` : ''}. The standings below stay live.`
     : v.combined === 0 ? `First light is open: the first volley any program flies. The race closes at ${v.closeAt} combined volleys.`
     : `${v.combined} of ${v.closeAt} combined volleys — the largest share wins at ${v.closeAt}; a tie goes to the earlier first light.`;
   return `<section class="rc-top"><div class="tt-name"><span>⚑ THE RACE</span><span class="label">Moon day ${v.moonDay} · your mission day ${missionDay}</span></div>` +
@@ -90,7 +95,45 @@ export function registerRaceFeed() {
   onFeed('era', (e, { player }) => { if (player && e.faction !== player.faction) notify(player, 'race', card(e)); });
   // your own hearing is already a hazard-family alert on the base (core/scrutiny.hearing): only a rival's is news here
   onFeed('hearing', (e, { player }) => { if (player && e.faction !== player.faction) notify(player, 'race', card(e)); });
+
+  // ── the race itself (S6) ──
+  // A rival's FIRST LIGHT is a banner above the palette (your own has its screen): who lit, which to light, where you stand. The
+  // line also goes in the log and the alert stack like any race news; its small card would say it twice, so the stack skips it.
+  onFeed('firstLight', (e, { moon, player }) => {
+    if (!player || e.faction === player.faction) return;
+    const lit = FACTION_ORDER.filter((f) => moon.race[f].firstLaunchAt !== null)
+      .sort((a, b) => moon.race[a].firstLaunchAt! - moon.race[b].firstLaunchAt! || FACTION_ORDER.indexOf(a) - FACTION_ORDER.indexOf(b));
+    const theirs = lit.indexOf(e.faction) + 1;
+    const mine = player.faction ? lit.indexOf(player.faction) + 1 : 0;
+    const day = dayOf(moon.race[e.faction].firstLaunchAt ?? e.at);
+    const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
+    const you = mine > 0 ? `You lit ${ordinalWord(mine)}.` : 'You have not lit: your share starts with your first volley.';
+    const text = `${cap(ordinalWord(theirs))} of ${FACTION_ORDER.length} to light, on Moon day ${day}. ${you} ` +
+      `The race closes at ${moon.race.closeAt} combined volleys.`;
+    bannered.add(e.text);
+    notify(player, 'race', card(e, 'warn'));
+    $raceBanner.set({ id: e.id, faction: e.faction, title: `FIRST LIGHT · ${FACTIONS[e.faction].name.toUpperCase()}`, text });
+  });
+  // A standings beat (every RACE.beatEvery combined volleys, and a change of lead): the feed's line and where you stand in it
+  onFeed('standing', (e, { moon, player }) => {
+    if (!player) return;
+    const me = player.faction;
+    const rank = me ? standingsOrder(moon.race).indexOf(me) + 1 : 0;
+    const tail = !me || e.faction === me ? '' : ` — you are ${ordinal(rank)}`;
+    notify(player, 'race', card({ ...e, text: e.text + tail }));
+  });
+  // The close: one race line for the record, and the verdict screen (ui/screens.ts mountVerdict reads `$verdict` and `$race.verdict`)
+  onFeed('verdict', (e, { moon, player }) => {
+    const r = moon.race;
+    if (!player || !player.faction || !r.verdict || !r.final || !r.winner) return;
+    const v = verdictView(moon, r.final, r.verdict, r.winner, player.faction);
+    notify(player, 'race', { text: `${VERDICT_TITLE[v.kind]} — ${verdictLine(v)}`, kind: 'warn', faction: e.faction, action: { panel: 'race' } });
+    $verdict.set(true);
+  });
 }
+
+/** texts a banner has taken over from the card stack (a rival's first light) */
+const bannered = new Set<string>();
 
 // ─────────────────────────── the mount ───────────────────────────
 
@@ -172,12 +215,48 @@ export function mountRacePanel(root: HTMLElement, game: Game) {
     for (const c of list) if (!timers.has(c.id)) timers.set(c.id, window.setTimeout(() => drop(c.id), CARD_MS));
     for (const id of [...timers.keys()]) if (!list.some((c) => c.id === id)) { window.clearTimeout(timers.get(id)); timers.delete(id); }
     const next = list.map((c) => c.id).join(',');
-    stack.style.display = list.length ? '' : 'none';
+    const shown = list.filter((c) => !bannered.has(c.text));
+    stack.style.display = shown.length ? '' : 'none';
     if (next === sig) return;
     sig = next;
-    stack.innerHTML = list.map(itemHtml).join('');
+    stack.innerHTML = shown.map(itemHtml).join('');
   };
   $raceCards.subscribe(renderCards);
+
+  // ── the banner above the palette (S6): a rival's first light, in its colours; it stays 20 real seconds or until dismissed ──
+  const banner = el('div', 'interactive nf nf-race');
+  banner.id = 'race-banner';
+  banner.style.display = 'none';
+  banner.setAttribute('role', 'status');
+  root.appendChild(banner);
+  let bannerTimer = 0;
+  const hideBanner = () => { window.clearTimeout(bannerTimer); if ($raceBanner.get()) $raceBanner.set(null); };
+  $raceBanner.subscribe((b: RaceBanner | null) => {
+    window.clearTimeout(bannerTimer);
+    if (!b || !$race.get()) { banner.style.display = 'none'; banner.innerHTML = ''; return; }
+    const d = FACTIONS[b.faction];
+    banner.dataset.faction = b.faction;
+    banner.style.setProperty('--nf', d.livery.trim);
+    banner.innerHTML = `<span class="rb-g nf-g" aria-hidden="true">${d.glyph}\uFE0E</span>` +
+      `<div class="rb-t"><b class="rb-title">${esc(b.title)}</b><span class="rb-text">${esc(b.text)}</span></div>` +
+      `<button class="btn rb-open" data-rb="open" title="Open the RACE panel">Race ▸</button>` +
+      `<button class="rc-x" data-rb="x" title="Dismiss" aria-label="Dismiss">✕</button>`;
+    // centred just above the build palette, wherever its top stands: the top of the screen is the flare pop-up's and the research card's,
+    // the lander sits in the middle, the right is the alert stack
+    const pal = root.querySelector('#palette') as HTMLElement | null;
+    const base = pal && pal.offsetParent !== null ? pal.getBoundingClientRect().top : window.innerHeight - 100;
+    banner.style.display = '';
+    banner.style.top = `${Math.max(8, Math.round(base - 10 - banner.offsetHeight))}px`;
+    bannerTimer = window.setTimeout(hideBanner, 20_000);
+  });
+  banner.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest<HTMLElement>('[data-rb]');
+    if (!t) return;
+    if (t.dataset.rb === 'open') $resourcePanel.set('race');
+    hideBanner();
+  });
+  // a new game or a solo game has no banner
+  $race.subscribe((v) => { if (!v && $raceBanner.get()) $raceBanner.set(null); });
   stack.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest<HTMLElement>('[data-rc]');
     const item = (e.target as HTMLElement).closest<HTMLElement>('.rc-item');

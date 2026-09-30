@@ -6,9 +6,10 @@ import { FACTIONS, FACTION_ORDER, assignSites, isFactionId, type FactionId } fro
 import type { Game } from '../core/game';
 import { el } from './hud';
 import { esc } from './notify';
-import { siteWords } from '../core/raceView';
+import { firstLightStanding, numberWord, ordinalWord, siteWords, VERDICT_TITLE, verdictLine } from '../core/raceView';
+import { CYCLE_S, SWARM_PCT_PER_LAUNCH } from '../data/balance';
 import { $siteId as $siteIdAtom } from './stores';
-import { $counts, $defeat, $descent, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
+import { $counts, $defeat, $descent, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory, $race, $verdict } from './stores';
 import { clearSave } from '../core/save';
 import { DESTINY_SUBTITLE } from './expeditionCopy';
 import { BAND_ENDING, BAND_LABEL, type Band } from '../data/techs';
@@ -253,15 +254,33 @@ export function mountVictory(root: HTMLElement, game: Game) {
       body = `${people}${machines} on ${rail} sent it together.<br/>The swarm stands at ${pct} — day ${t.missionDay}.<br/><br/>` +
         'A Dyson swarm is not built. It is <i>begun</i>.';
     }
+    // a faction game (docs/20 §6): where this first light stands among the programs', and what is left of the race. Solo: nothing.
+    const race = $race.get();
+    const fl = firstLightStanding(race);
+    let standing = '';
+    let keep = 'Keep launching. Watch the curve bend.';
+    if (race && fl) {
+      const me = race.rows.find((r) => r.player)!;
+      const who = (r: { name: string }) => r.name.replace(/^The /, 'the ');
+      const before = fl.before.length === 0
+        ? 'no other program has lit before you'
+        : fl.before.map((r) => `${who(r)} lit on Moon day ${r.firstLightDay}`).join(', ');
+      standing = `<div id="victory-standing" data-rank="${fl.rank}" style="--ft:${me.trim}"><span class="vs-g" aria-hidden="true">${me.glyph}\uFE0E</span>` +
+        `<b>${ordinalWord(fl.rank).toUpperCase()} OF ${numberWord(fl.of).toUpperCase()} TO LIGHT</b> · ${before}<br/>` +
+        `<span class="label">You lit on Moon day ${me.firstLightDay} · your mission day ${t.missionDay}</span></div>`;
+      keep = `Keep launching: from here every volley is share. The race closes at ${race.closeAt} combined volleys ` +
+        `(${(race.closeAt * SWARM_PCT_PER_LAUNCH).toFixed(2)} % of the swarm), and the largest share wins.`;
+    }
     screen.style.display = 'flex';
     screen.innerHTML = `
       <div class="sub" id="victory-lead">${lead}</div>
       <h1>FIRST LIGHT</h1>
+      ${standing}
       <div class="label" id="victory-band" data-band="${band ?? ''}">${band ? `${BAND_ENDING[band]} · ${BAND_LABEL[band]} ` : ''}<span
         class="mono" id="victory-pips">${destinyPips(d)}</span></div>
       <div class="stats" id="victory-body">
         ${body}<br/>
-        Keep launching. Watch the curve bend.
+        ${keep}
       </div>
       <button class="btn primary" id="btn-victory-continue">Continue operations</button>`;
     screen.querySelector('#btn-victory-continue')?.addEventListener('click', () => {
@@ -269,4 +288,62 @@ export function mountVictory(root: HTMLElement, game: Game) {
       void game.doSave();
     });
   });
+}
+
+// ─────────────────────────── the verdict (docs/20 §6, S6) ───────────────────────────
+
+/** The race has closed: THE SWARM IS YOURS / A SHARED SWARM / THE SWARM IS THEIRS, with the standings as they stood at the close.
+ *  The race feed's `verdict` event raises it (`$verdict`; ui/racePanel.ts) and it reads `$race.verdict`; it waits for the FIRST LIGHT
+ *  screen when that is up (your own first volley can close a short race), holds the game paused under it, and Continue lets play go on
+ *  with the leaderboard live. It is raised once (the feed cursor never replays a verdict after a load). */
+export function mountVerdict(root: HTMLElement, game: Game) {
+  const screen = el('div', 'screen interactive');
+  screen.id = 'verdict-screen';
+  screen.style.display = 'none';
+  root.appendChild(screen);
+  trapTab(screen);
+  let shown = false;
+  let pausedByUs = false;
+
+  const render = () => {
+    const v = $race.get()?.verdict;
+    const up = $verdict.get() && !$victory.get() && !$defeat.get() && !!v;
+    if (!up || !v) {
+      // (hidden for now: not raised, the FIRST LIGHT screen is up, or Continue was pressed: it is built afresh when it comes back)
+      shown = false;
+      screen.style.display = 'none';
+      return;
+    }
+    if (shown) return;
+    shown = true;
+    if (game.state && !game.state.paused) { game.actions.push({ kind: 'setPaused', paused: true }); pausedByUs = true; }
+    const pct = (x: number) => `${Math.round(x * 100)} %`;
+    const day = Math.floor(v.closedAt / CYCLE_S);
+    const top = v.rows[0];
+    const flavour = v.kind === 'yours' ? 'The swarm will fly your colours.'
+      : v.kind === 'shared' ? 'It belongs to no single program, not yet.'
+      : `The swarm will fly ${top.name.replace(/^The /, 'the ')}’s colours. The Moon is still yours to build on.`;
+    const rows = v.rows.map((r) => `<tr class="vt-row${r.player ? ' you' : ''}" data-faction="${r.faction}" data-rank="${r.rank}" style="--ft:${r.trim}">` +
+      `<td class="vt-rank mono">${r.rank}</td><td class="vt-g" aria-hidden="true">${r.glyph}\uFE0E</td>` +
+      `<td class="vt-name">${esc(r.name)}${r.player ? '<span class="vt-you">you</span>' : ''}</td>` +
+      `<td class="vt-volleys mono">${r.launches}</td><td class="vt-share mono">${pct(r.share)}</td>` +
+      `<td class="vt-fl mono">${r.firstLightDay === null ? '<span class="vt-none">—</span>' : `day ${r.firstLightDay}`}</td></tr>`).join('');
+    screen.style.display = 'flex';
+    screen.innerHTML = `
+      <div class="sub" id="verdict-lead">THE RACE IS OVER · MOON DAY ${day} · ${v.total} COMBINED VOLLEYS</div>
+      <h1 id="verdict-title" data-verdict="${v.kind}">${VERDICT_TITLE[v.kind]}</h1>
+      <div class="stats" id="verdict-body">${esc(verdictLine(v).replace(/^./, (c) => c.toUpperCase()))}<br/>${flavour}</div>
+      <table id="verdict-table"><thead><tr><th></th><th></th><th>Program</th><th>Volleys</th><th>Share</th><th>First light</th></tr></thead><tbody>${rows}</tbody></table>
+      <button class="btn primary" id="btn-verdict-continue">Continue</button>`;
+    screen.querySelector('#btn-verdict-continue')?.addEventListener('click', () => {
+      $verdict.set(false);
+      if (pausedByUs && game.state?.paused) game.actions.push({ kind: 'setPaused', paused: false });
+      pausedByUs = false;
+      void game.doSave();
+    });
+  };
+  $verdict.subscribe(render);
+  $race.subscribe(render);
+  $victory.subscribe(render);
+  $defeat.subscribe(render);
 }

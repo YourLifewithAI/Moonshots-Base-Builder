@@ -26,7 +26,7 @@ import type { Action } from '../core/actions';
 import { el, fmt } from './hud';
 import { echoes } from './notify';
 import {
-  $alerts, $counts, $defeat, $lunar, $phase, $research, $resources, $siteId, $swarm, $time, $victory, $vitals, overlayUp,
+  $alerts, $counts, $defeat, $lunar, $phase, $research, $resources, $siteId, $swarm, $time, $verdict, $victory, $vitals, overlayUp,
 } from './stores';
 import {
   DEPENDENTS, GEO, computePageLayout, isPlaceholder, isVisible,
@@ -1297,6 +1297,6 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     if (p !== 'playing') toggle(false);
   });
   // under a victory or defeat overlay the tree is shut
-  for (const store of [$victory, $defeat]) store.subscribe((up) => { if (up && open) toggle(false); });
+  for (const store of [$victory, $defeat, $verdict]) store.subscribe((up) => { if (up && open) toggle(false); });
   renderChip(null);
 }

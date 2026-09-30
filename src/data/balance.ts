@@ -208,6 +208,13 @@ export const LAUNCH_POWER_BURST = 400; // stored energy drained per launch
 export const SWARM_PCT_PER_LAUNCH = 0.0001;
 export const BEAM_KW_PER_LAUNCH = 4;   // power-beaming return per volley launched
 
+/** The race for the swarm (docs/20 §6; core/moon.ts raceStep): in a faction game the race CLOSES when the combined volleys of
+ *  all three programs reach `closeAt` (100 volleys = 0.01 % of the swarm at SWARM_PCT_PER_LAUNCH); the largest share wins, a tie
+ *  goes to the earlier first light. `sharedMargin`: the verdict reads "A SHARED SWARM" when the player holds an equal top share
+ *  or is within this share of the combined volleys (0.05 = 5 points: 5 volleys at the default close) of the winner.
+ *  `beatEvery`: a standings beat on the feed at every this many combined volleys (and whenever the lead changes). */
+export const RACE = { closeAt: 100, sharedMargin: 0.05, beatEvery: 10 };
+
 export const AUTOSAVE_S = 60;          // real seconds
 
 // ─── research tree & lunar map (docs/11-research-and-map-spec.md) ───
