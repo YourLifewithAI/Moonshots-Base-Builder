@@ -190,7 +190,7 @@ export function prospectClass(siteId: SiteId, pid: ProspectId): ProspectClass {
   return Math.abs(p.lon) <= 90 || Math.abs(p.lat) >= 80 ? 'near' : 'far';
 }
 
-const CLASS_LABEL: Record<ProspectClass, string> = {
+export const CLASS_LABEL: Record<ProspectClass, string> = {
   local: 'local', regional: 'regional', near: 'near side', far: 'far side', subsurface: 'subsurface',
 };
 
@@ -338,7 +338,9 @@ export function claimRefusal(s: GameState, mods: Mods, pid: ProspectId): string 
   const used = s.survey.outposts.length;
   if (slots === 0) return `NO OUTPOST SLOT — ${tierTech(1, s)}`;
   if (used >= slots) {
-    const next = mods.surveyTier < 4 ? `${tierTech(mods.surveyTier + 1, s)} adds one`
+    // the next tier that adds a slot (T1 has the first: docs/19 S6)
+    const grow = [2, 3, 4].find((t) => t > mods.surveyTier && SURVEY_TIERS[t].slots > SURVEY_TIERS[mods.surveyTier].slots);
+    const next = grow !== undefined ? `${tierTech(grow, s)} adds one`
       : !s.survey.atlas ? `ATLAS COMPLETE adds one (T4 + ${ATLAS.surveys} surveyed)`
       : 'abandon one to free it';
     return `NO OUTPOST SLOT — ${used}/${slots} in use · ${next}`;
@@ -472,9 +474,9 @@ function resolveSurvey(s: GameState, mods: Mods, pid: ProspectId) {
       button: { label: 'In the tree', action: { tech: t } },
     });
   }
-  // ATLAS: progress toward the survey net's completion
+  // ATLAS: progress toward the survey net's completion, once the far tiers are near (T3 and up)
   const surveyed = Object.keys(s.survey.prospects).length;
-  if (!s.survey.atlas) {
+  if (!s.survey.atlas && mods.surveyTier >= ATLAS.minTier - 1) {
     rewards.push({
       tag: 'ATLAS', text: `${Math.min(surveyed, ATLAS.surveys)}/${ATLAS.surveys}` +
         (mods.surveyTier < ATLAS.minTier ? ` · needs T${ATLAS.minTier} ${tierTech(ATLAS.minTier, s)}` : ''),

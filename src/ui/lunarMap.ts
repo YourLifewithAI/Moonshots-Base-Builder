@@ -1297,10 +1297,10 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     if (osig !== outSig) {
       outSig = osig;
       if (!lv.slots && !lv.outposts.length) {
-        const tid = TIER_TECH[2] as TechId;
+        const tid = TIER_TECH[1] as TechId;
         const card = rv?.cards[tid];
         outpostsEl.innerHTML = `<div class="op-none"><div class="label">Outposts · 0 slots</div>` +
-          `T2 ${esc(card?.name ?? TECHS[tid].name)}${card ? ` (Era ${card.era})` : ''} opens the first slot. Survey a deposit, then claim it: its stream comes home continuously.</div>`;
+          `T1 ${esc(card?.name ?? TECHS[tid].name)}${card ? ` (Era ${card.era})` : ''} opens the first slot. Survey a deposit, then claim it: its stream comes home continuously.</div>`;
       } else {
         const cards = lv.outposts.map((o) =>
           `<div class="op" data-id="${o.id}" title="${esc(o.name)} ${KIND_LABEL[o.kind]} — ${esc(o.stream)} · upkeep ${esc(o.upkeep)}${o.fuel ? ` · hopper fuel ${esc(o.fuel)}` : ''} · link ${String(o.linkKW).replace('-', '−')} kW">` +

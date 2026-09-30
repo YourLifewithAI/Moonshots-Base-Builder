@@ -2308,7 +2308,7 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       if (fx.tier) {
         const t = SURVEY_TIERS[fx.tier];
         const detail = fx.tier === 1 ? 'local reveal 320 m, Moon map ≤27°, drone surveys, first outpost slot'
-          : fx.tier === 2 ? 'whole local map, near side, +1 outpost slot'
+          : fx.tier === 2 ? 'whole local map, near side'
           : fx.tier === 3 ? 'far side, +1 outpost slot'
           : 'subsurface prospects, +1 outpost slot, enables ATLAS';
         out.push(pro(`MAP T${fx.tier} ${t.label}: ${detail}`, fx.tier, 'count'));

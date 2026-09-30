@@ -289,9 +289,9 @@ export const PIT = {
 export const SURVEY_TIERS = [
   { label: 'LANDING SITE', revealM: 120, slots: 0 },
   { label: 'REGIONAL', revealM: 320, slots: 1 },
-  { label: 'NEAR SIDE', revealM: MAP_M, slots: 2 },
-  { label: 'FAR SIDE', revealM: MAP_M, slots: 3 },
-  { label: 'SUBSURFACE', revealM: MAP_M, slots: 4 },
+  { label: 'NEAR SIDE', revealM: MAP_M, slots: 1 },
+  { label: 'FAR SIDE', revealM: MAP_M, slots: 2 },
+  { label: 'SUBSURFACE', revealM: MAP_M, slots: 3 },
 ] as const;
 
 /** The survey-drone fleet (docs/19 S6, core/surveyDrones.ts). The Lander carries one drone from landing;

@@ -1042,7 +1042,7 @@ export interface GameState {
    *  − upkeep − spillage; deliveries and research goods are not flow) */
   rates: Partial<Record<ResourceId, number>>;
   /** construction-rover fleet, derived from `rovers` each tick: total = the
-   *  roster less one lent to a survey, busy = rovers at construction sites */
+   *  roster, busy = rovers at construction sites */
   bots: { total: number; busy: number };
   /** the construction rovers, one per dock slot (core/fleet.ts) */
   rovers: RoverUnit[];

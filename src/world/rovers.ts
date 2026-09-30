@@ -1069,7 +1069,7 @@ export class RoverFleet implements Driver {
     const lag = this.lagMax;
     this.lagMax = 0;
     return {
-      /** the ground rovers in the fleet (the one lent to a survey is not) */
+      /** the ground rovers in the fleet */
       count: this.rovers.length,
       moving: this.rovers.filter((r) => r.v > 0.1).length,
       working: this.rovers.filter((r) => r.working).length,

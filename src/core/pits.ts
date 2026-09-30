@@ -912,7 +912,7 @@ const HUB_FOR: Record<string, string> = { H2: 'smelter', plag: 'refinery', ice: 
 export function surveyRefusal(s: GameState, mods: Mods, depId: string): string {
   const d = terrains.get(s)?.deposits.find((x) => x.id === depId);
   if (!d) return 'NO SUCH DEPOSIT';
-  if (!depositRevealed(s, d, mods.surveyTier)) return 'UNMAPPED — map it first (Prospecting Rovers, a Relay Mast)';
+  if (!depositRevealed(s, d, mods.surveyTier)) return 'UNMAPPED — map it first (Prospecting Drones, a Relay Mast)';
   if (!profileOf(s, d).process) return 'NO ORE BED — KREEP soil and peaks of light hold no ore to measure';
   const done = s.oreSurvey?.done[depId];
   if (done) return `ALREADY SURVEYED (±${Math.round(done.precision * 100)}%)`;
