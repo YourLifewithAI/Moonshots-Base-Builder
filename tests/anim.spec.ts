@@ -366,7 +366,10 @@ test('safe mode keeps the motion and the glow but drops the particles', async ({
 });
 
 /** A busy base: the Automation's Era 8 set round the Lander (drone hives,
- *  two smelters, each with its excavator), finished, then three sites the rovers and drones weld. */
+ *  two smelters, each with its excavator), finished, then three sites the units weld. The sim hands each
+ *  site to whichever free unit reaches it soonest (a drone flies straight, a rover drives the road), so a
+ *  hive near a site takes it and the layout decides whether any ground rover welds at all: a ground rover
+ *  the haul roads have not taken is sent to one site (the player's Send), so a welding rover is certain. */
 async function busyBase(page: Page) {
   return page.evaluate(async () => {
     const T = await import('/src/data/techs.ts');
@@ -399,6 +402,12 @@ async function busyBase(page: Page) {
     g.grantPower(500000);
     g.advanceGameSeconds(2);
     for (const t of ['habitat', 'lab', 'hydroponics']) place(t);
+    g.advanceGameSeconds(1);
+    const F = await import('/src/core/fleet.ts');
+    const st = g.getState();
+    const rover = st.rovers.find((u: any) => F.unitKind(st, u) === 'rover' && u.site === null && u.road === undefined && !u.pinned);
+    const site = st.buildings.find((b: any) => (b.construction ?? 0) > 0);
+    if (rover && site) g.sendRover(rover.id, site.id);
     g.advanceGameSeconds(1);
   });
 }
