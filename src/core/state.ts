@@ -458,8 +458,8 @@ export interface RoverTrip {
   local?: boolean;
   /** no road there: it waits where it is and asks again each tick */
   stuck?: boolean;
-  /** game-seconds it has been held up on the way by another unit's reservation
-   *  (docs/19 S4a; the inspector reads it, the trip's own clock is unchanged) */
+  /** game-seconds in a row it has been held up on the way by a digger's reservation (docs/19 S4a,
+   *  core/traffic.ts roverStep): its clock waits, so the trip's ETA stretches; the inspector reads it */
   held?: number;
   /** the share of the clock it drives on now (core/unitPower.ts): 0 flat,
    *  between on an RPU's trickle; absent: 1 (the visuals read it too) */

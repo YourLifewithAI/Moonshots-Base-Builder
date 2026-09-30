@@ -261,13 +261,11 @@ function build(s: GameState, ramps: Ramp[]): Tab {
     setClaim(tab, mv, u.haul.claim ? [...u.haul.claim] : []);
   }
   for (const r of s.rovers ?? []) {
+    // (a rover holds no ground of its own: it waits for a digger's, core/traffic.ts roverStep)
     const uid = uidOf({ kind: 'rover', id: r.id });
     const mv: Mv = { uid, kind: 'rover', id: r.id, prio: 2e6 + r.id, r, claim: [] };
     tab.units.set(uid, mv);
     tab.order.push(mv);
-    // a rover holds the cell it stands in (its claims are one step: core/transit.ts)
-    const p = posOf(mv);
-    if (p) { const k = keyAt(tab, p[0], p[1], new Set()); if (k !== null && kindOf(tab, k) !== 'soft') setClaim(tab, mv, [k]); }
   }
   tab.order.sort((a, b) => a.prio - b.prio);
   return tab;
@@ -369,8 +367,7 @@ function plan(s: GameState, tab: Tab, st: Store, mv: Mv, depth = 0): Grant {
     if (cur === undefined || (tab.units.get(cur)?.prio ?? Infinity) > mv.prio) tab.req.set(holder, mv.uid);
   }
   const heldS = h.held ?? 0;
-  const byRover = !!H && H.kind === 'rover';
-  if (heldS >= FORCE_S || (byRover && heldS >= HELD_ASIDE_S)) {
+  if (heldS >= FORCE_S) {
     if (!tab.forced.has(mv.uid)) { tab.forced.add(mv.uid); st.stats.forced++; }
     return { limit: Infinity, blocked, holder };
   }
@@ -526,26 +523,25 @@ export function go(s: GameState, u: Hauler, speed: number, t: number): number {
 }
 
 /** A rover's step (core/transit.ts): may the one-second stretch of its trip
- *  from `from` through `pts` to where it ends up be driven? A diggers' claim
- *  holds it back; it holds the cell it ends in. Held 20 s it drives through.
- *  `held`: the seconds it has been held. */
+ *  from `from` through `pts` be driven? Rovers come last: a digger's claim
+ *  holds one back (it waits where it stands, its trip's ETA stretches) and a
+ *  digger is never held up by a rover (the rovers' lanes pass in the visuals).
+ *  Held 20 s in a row (`held`) it drives through, counted. */
 export function roverStep(s: GameState, id: number, from: Pt, pts: readonly Pt[], held: number): 'go' | 'held' | 'forced' {
   const tab = tabOf(s);
   const mv = tab?.units.get(uidOf({ kind: 'rover', id }));
   if (!tab || !mv) return 'go';
-  const items = itemsAlong(tab, from[0], from[1], pts, new Set());
+  const own = keyAt(tab, from[0], from[1], new Set());
   let blocked = false;
-  for (const it of items) {
-    if (it.kind === 'soft' || mv.claim.includes(it.key)) continue;
-    if (holds(tab, it.key, mv.uid).some((x) => tab.units.get(x)?.kind === 'hauler')) { blocked = true; break; }
+  for (const it of itemsAlong(tab, from[0], from[1], pts, new Set())) {
+    if (it.kind === 'soft' || it.key === own) continue;
+    if (holds(tab, it.key, mv.uid).length) { blocked = true; break; }
   }
+  if (!blocked) return 'go';
+  if (held < HELD_ASIDE_S) return 'held';
   const st = storeOf(s);
-  if (blocked && held < HELD_ASIDE_S) return 'held';
-  if (blocked) { if (!tab.forced.has(mv.uid)) { tab.forced.add(mv.uid); st.stats.forced++; } }
-  const last = pts.length ? pts[pts.length - 1] : from;
-  const k = keyAt(tab, last[0], last[1], new Set());
-  setClaim(tab, mv, k !== null && kindOf(tab, k) !== 'soft' ? [k] : []);
-  return blocked ? 'forced' : 'go';
+  if (!tab.forced.has(mv.uid)) { tab.forced.add(mv.uid); st.stats.forced++; }
+  return 'forced';
 }
 
 // ───────────────────────────── holding bays ─────────────────────────────
