@@ -43,6 +43,7 @@ import { hubName, hubOf, jobCost, jobTime, recallUnit, targetOf, tripTo, unitTag
 import { HUB } from '../data/hubs';
 import { centerOf } from '../buildings/instances';
 import { WEATHER_STUB, flareStorm } from './spaceWeather';
+import { shedCover } from './scrutiny';
 
 /** every alert here belongs to one notification family (docs/19 S7) */
 const alert = alertIn('weather');
@@ -105,6 +106,13 @@ const diggerOut = (b: BuildingState) => b.type === 'excavator' && !isSite(b) && 
 
 const droneOf = (s: GameState, r: RoverUnit) => s.buildings.find((b) => b.id === r.home)?.type === 'droneHive';
 
+/** Where a rover stands (world metres): where the sim has it, else at its dock. */
+function roverAt(s: GameState, r: RoverUnit): [number, number] {
+  if (r.x !== undefined && r.z !== undefined) return [r.x, r.z];
+  const dock = s.buildings.find((b) => b.id === r.home);
+  return dock ? centerOf(dock) : [0, 0];
+}
+
 /** A hub unit out of its bay (docs/17 §4.3): digging, driving, tipping; parked in its bay it is docked. */
 export const unitOpen = (u: Hauler) => u.haul.phase !== 'park';
 
@@ -155,18 +163,24 @@ export function drawMachines(s: GameState, site: SiteDef, mods: Mods, part: 'fla
   const now = s.simTime;
   const t = tallyOf(s);
   let rebooted = 0, latched = 0, lost = 0;
-  const pick = (id: number, open: boolean, sigma: number): '' | 'reboot' | 'latch' | 'burn' => {
+  // the Foundry's machines are more fragile (mods.machineFlareMult, each probability clamped to 1); a standing Faraday Shed
+  // shields the machines within 40 m (docs/20 S2). Neutral: both 1, and the products below are then exactly the old ones.
+  const vuln = mods.machineFlareMult;
+  const shed = shedCover(s);
+  const pick = (id: number, open: boolean, sigma: number, at?: readonly [number, number]): '' | 'reboot' | 'latch' | 'burn' => {
     const u = mulberry32((s.seed ^ W.keys.machine) + n * 4096 + id + (part === 'tail' ? 2048 : 0))();
-    const pBurn = open ? M.burn[key] * rh : 0;
-    const pLatch = open ? M.latch[key] * rh : 0;
-    const pReboot = M.reboot[key] * (1 - sigma);
+    const k = vuln * (shed && at ? shed(at[0], at[1]) : 1);
+    const scale = (p: number) => (k === 1 ? p : Math.min(1, p * k));
+    const pBurn = open ? scale(M.burn[key] * rh) : 0;
+    const pLatch = open ? scale(M.latch[key] * rh) : 0;
+    const pReboot = scale(M.reboot[key] * (1 - sigma));
     const out = u < pBurn ? 'burn' : u < pBurn + pLatch ? 'latch' : u < pBurn + pLatch + pReboot ? 'reboot' : '';
     // the first X is a drill in its permanent parts (§4.11): what would burn out latches up
     return out === 'burn' && drillX ? 'latch' : out;
   };
   for (const r of [...s.rovers].sort((a, b) => a.id - b.id)) {
     const open = inOpen(s, r);
-    const out = pick(r.id, open, open ? 0 : M.dockSigma);
+    const out = pick(r.id, open, open ? 0 : M.dockSigma, shed ? roverAt(s, r) : undefined);
     if (!out) continue;
     // the bit flips bricked it first (docs/16 §9.3): only a burn-out is worse
     if ((r.brickedUntil ?? 0) > 0 && out !== 'burn') continue;
@@ -190,7 +204,7 @@ export function drawMachines(s: GameState, site: SiteDef, mods: Mods, part: 'fla
   for (const u of [...s.haulers]) {
     if (u.latch) continue;
     const open = unitOpen(u);
-    const out = pick(700 + u.id, open, open ? 0 : M.dockSigma);
+    const out = pick(700 + u.id, open, open ? 0 : M.dockSigma, shed ? [u.haul.x, u.haul.z] : undefined);
     if (part === 'flash' && open && E.machineWear[cls] > 0) u.wear = Math.min(1, u.wear + E.machineWear[cls]);
     if (!out) continue;
     if (out === 'reboot') {
@@ -214,7 +228,7 @@ export function drawMachines(s: GameState, site: SiteDef, mods: Mods, part: 'fla
   // a legacy pad's excavator: a digger out working glitches as a rover in the open does; parked (powered off), it does not
   for (const b of s.buildings) {
     if (!diggerOut(b) || b.latch) continue;
-    const out = pick(1400 + b.id, true, 0);
+    const out = pick(1400 + b.id, true, 0, shed ? centerOf(b) : undefined);
     if (part === 'flash' && E.machineWear[cls] > 0) b.wear = Math.min(1, b.wear + E.machineWear[cls]);
     if (!out) continue;
     if (out === 'reboot') {
@@ -397,6 +411,7 @@ export function resolveScars(s: GameState, site: SiteDef, mods: Mods, part: 'fla
   const ex = f.scarEx ?? {};
   const rh = mods.guards.has('radHard') ? E.radHard : 1;
   const t = tallyOf(s);
+  const shed = shedCover(s); // a machine within 40 m of a standing Faraday Shed scars ×0.4 (docs/20 S2)
   let nB = 0, sumB = 0, nM = 0, sumM = 0;
   const crossed: string[] = [];
   const scar = <T extends { cap?: number; scars?: number; capWarned?: boolean }>(x: T, cut: number, name: string, fix: string): number => {
@@ -424,11 +439,12 @@ export function resolveScars(s: GameState, site: SiteDef, mods: Mods, part: 'fla
     } else {
       // a machine: docked, it is behind its dock's σ and prepared
       const docked = (1 - E.machines.dockSigma) ** 2 * E.prep;
-      const cut = rate * ((open + prep * docked) / tot);
+      let cut = rate * ((open + prep * docked) / tot);
       const id = Number(k.slice(1));
       if (k[0] === 'r') {
         const r = s.rovers.find((x) => x.id === id);
         if (!r) continue;
+        if (shed) { const [rx, rz] = roverAt(s, r); cut *= shed(rx, rz); }
         const name = `${droneOf(s, r) ? 'drone' : 'rover'} #${r.id}`;
         const d = scar(r, cut, name, `Re-print ${E.reprint.metals}◆ ${E.reprint.parts}⚙ at its dock`);
         if (d > 0) { nM++; sumM += cut; }
@@ -437,6 +453,7 @@ export function resolveScars(s: GameState, site: SiteDef, mods: Mods, part: 'fla
         const u = s.haulers.find((x) => x.id === id);
         const hb = u ? hubOf(s, u) : undefined;
         if (!u) continue;
+        if (shed) cut *= shed(u.haul.x, u.haul.z);
         const name = `unit ${unitTag(u)}`;
         const d = scar(u, cut, name, `Re-print ${hb ? `${costText(jobCost(hb, 'reprint', site))} at ${hubName(hb)}` : 'at its hub'}`);
         if (d > 0) { nM++; sumM += cut; }

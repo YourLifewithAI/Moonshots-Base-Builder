@@ -958,6 +958,15 @@ export interface LossRecord {
   name: string; cause: string; hazard: HazardId | 'flare'; warnedAt: number; amount?: number;
 }
 export interface GriefRecord { until: number; amount: number }
+/** The scrutiny meter: 0..100; `tier` 0 · 1 at the penalty threshold · 2 at HEARINGS (for the rising edge's warning);
+ *  `hearingsUntil` the second the recalled crew are due back, `lastHearingAt` the last hearing's second (−1e9 before one) */
+export interface ScrutinyState {
+  value: number;
+  tier?: 0 | 1 | 2;
+  hearingsUntil: number;
+  lastHearingAt: number;
+  log: { at: number; text: string; value: number }[];
+}
 /** crew with no bed breathing suit air, from `from` */
 export interface SuitAir { hazard: number; from: number; n: number; until: number; nextDeath: number }
 export interface HazardState {
@@ -1106,8 +1115,9 @@ export interface GameState {
   /** last tick's excavator feed shares — kept while nothing is dug */
   feed: FeedGrade;
   downlinks: number;
-  /** robotic Human Cohabitation: settlers board at `at` if the base can keep them */
-  crewRotation: { at: number; count: number } | null;
+  /** robotic Human Cohabitation: settlers board at `at` if the base can keep them. `recall` (docs/20 S2, a hearing):
+   *  these are crew sent to Earth, back at `at` whoever is aboard and whatever the larder holds */
+  crewRotation: { at: number; count: number; recall?: boolean } | null;
   survey: SurveyState;
 
   buildings: BuildingState[];
@@ -1193,6 +1203,9 @@ export interface GameState {
   losses: LossRecord[];
   /** each death's grief: −10 on the morale target until then */
   grief: GriefRecord[];
+  /** The Vanguard's scrutiny meter (docs/20 S2, core/scrutiny.ts): created by the first tick with `mods.scrutiny`, so a
+   *  solo game and any other faction carry no key */
+  scrutiny?: ScrutinyState;
 
   victoryShown: boolean;
   defeatShown: boolean;
