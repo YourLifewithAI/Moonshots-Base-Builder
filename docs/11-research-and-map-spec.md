@@ -948,7 +948,7 @@ All other existing kinds are unchanged. There is no `launch` kind and no `buildC
 **Other reveals**
 - A completed Relay Mast reveals everything within 45 m.
 - Placing a building on an unrevealed deposit reveals it on placement (`s.survey.struck`): `PROSPECT STRUCK — Excavator #9 is on ilmenite-rich basalt (smelter feed +30%)`.
-- An Ice Harvester needs **revealed** ice: `ICE UNCONFIRMED — extend your survey (Prospecting Drones) or place a Relay Mast nearby`.
+- The Ice Harvester's revealed-ice placement rule (`ICE UNCONFIRMED`) went with the retired building (docs/19 S8): the placement code no longer carries it. Ice is worked by a Water Management Plant's miners, and only on mapped ground.
 
 **Legibility**
 - **Placement ghost line**, one per kind:
@@ -1013,16 +1013,16 @@ The slot counts are `SURVEY_TIERS.slots` (0, 1, 1, 2, 3), and T2 adds none: the 
 |---|---|---|
 | Header | 40 px | `LUNAR MAP · T2 NEAR SIDE · 9/34 surveyed · outposts 1/1 · survey: Cabeus 1:20`; the rule line *Look, visit, settle.*; view buttons `SITE · VICINITY · REGION · NEAR · FAR · MOON` (locked ones read `🔒 T2 Orbital Prospector`); close `[M]` |
 | Main SVG | 836×600 at x 12–848, y 52–652 | the current view |
-| Right panel | 408 px, x 860–1268 | the selected prospect's sheet, or a **"Next surveyable"** list sorted by class then distance, headed by the site-weakness line |
+| Right panel | 408 px, x 860–1268 | the selected prospect's sheet, or a **"Next surveyable"** list sorted by class then distance, headed by **"Outposts cover"**: the site-weakness line, and under it what the standing outposts stream now (`live now: metals +0.40◆/s · water +0.08≈/s`) |
 | Bottom strip | 56 px | the tier ladder (T0 … T4, ATLAS, each with its tech and status) plus outpost mini-cards: stream, fuel ✓/✗, upkeep ✓/✗ |
 
-**Site-weakness framing** (top of the "Next surveyable" list)
+**"Outposts cover"** (top of the "Next surveyable" list; `SITE_WEAKNESS`, docs/19 S8: it was "What this site lacks")
 
 | Site | Line |
 |---|---|
-| Mare | `Ilmenite Plains lacks water → Cabeus or Haworth ice outpost (near side, T2) · Tranquillitatis mature soil (regional)` |
-| Pole | `Shackleton lacks metals and launch geometry → Maskelyne or Moltke ilmenite (near side) · pick Propellant Depot` |
-| Lava tube | `Marius Hills lacks power → Marius Hills domes or Mons Rümker KREEP outpost (reactor upkeep ×0.6, output ×1.15)` |
+| Mare | `water — Ilmenite Plains lacks it: Cabeus or Haworth ice outpost (near side, T2) · Tranquillitatis mature soil (regional)` |
+| Pole | `metals and launch geometry — Shackleton lacks them: Maskelyne or Moltke ilmenite (near side) · pick Propellant Depot` |
+| Lava tube | `power — Marius Hills lacks it: Marius Hills domes or Mons Rümker KREEP outpost (reactor upkeep ×0.6, output ×1.15)` |
 
 **Basemap** (`MARIA` in `src/data/lunarMap.ts`)
 - Each mare is a projected spherical cap of 48 vertices, filled `ink-600` over `ink-700` highlands, with a 30° graticule.
@@ -1068,7 +1068,7 @@ The slot counts are `SURVEY_TIERS.slots` (0, 1, 1, 2, 3), and T2 adds none: the 
 
 | Class | Needs | Method | Stored energy | O₂ | Water | Parts | Time | Base data |
 |---|---|---|---|---|---|---|---|---|
-| local | T0 | lander micro-rover | 60 | 0 | 0 | 0 | 60 s | 20 |
+| local | T0 | short-range drone | 60 | 0 | 0 | 0 | 60 s | 20 |
 | regional | T1 | hopper | 60 | min(200, 20 + 1.0·d) | min(40, 4 + 0.2·d) | 5 | min(420, 60 + 3·d) s | 30 |
 | near side | T2 | hopper | 100 | same formula | same formula | 5 | same formula | 50 |
 | far side | T3 | relay-guided hopper | 150 | same formula | same formula | 10 | same formula | 80 |
@@ -1180,11 +1180,13 @@ The map header shows `9/34 surveyed · ATLAS needs T4 + 12`.
 $lunar = { tier, view, maxView, justExpanded, slots, used, surveyedCount, atlas,
            prospects: [{id, cls, dist, visible, surveyed, kind, bt, claimable, reason}],
            flights: [{id, drone, remaining, total, short}], drones, active: soonest flight | null,
-           outposts: [{id, kind, readyAt, fuelOk, upkeepOk, stream}] }
+           outposts: [{id, kind, readyAt, fuelOk, upkeepOk, stream, state, res, data, burn, modifier}] }  // state: deploying | live | worn | grounded | off
 $deposits = [{id, kind, x, z, r, revealed, lead: {x, z} | null, inNetwork}]
 ```
 
 **HUD chip** (under the era chip): `◎ MAP [M] · T2 NEAR SIDE · survey 1:20 +1` (the soonest flight, and how many more are out).
+
+**OUTPOSTS chip** (under the map chip, `#outposts-chip`, docs/19 S8): `▢ OUTPOSTS 2 live · 1 worn`, listing only the states that occur (`live`, `worn`: no parts, stream ×0.5; `grounded`: no hopper fuel; `cut off`: an air-gapped Lander or a hack; `deploying`), or `▢ OUTPOSTS 1 slot free` while a slot stands empty. It is hidden with neither a slot nor an outpost, dashed while anything is worn, grounded or cut off, and a click opens the map with the outposts strip outlined. **Producer lines:** every resource panel lists the standing outposts under "Produced by" (`+12/min · live`; a KREEP outpost's `Chip Fabs ×1.1` on chips and `reactors ×1.15` on power) and their hopper fuel and upkeep under "Consumed by"; the ≡ panel adds the Solar Observatory, flares, map and deposit surveys and radio outposts; a row opens the map at that outpost. `outpostSiteLine()` writes the `OUTPOST SITE` line the field report and the prospect sheet share (`ice +0.20≈/s · claim 60◆ 20⚙ 5▣`). The worn, grounded and off-the-network alerts are field alerts with a `{map}` action.
 
 ### 5c · The survey-drone fleet, field reports and the compass (as shipped: docs/19 S6)
 
@@ -1449,7 +1451,7 @@ Every case stays within 130, except lava tube with a single DC at 133.8, which i
 | 5–11 | Smelter (online 6.3). Survey Moltke (6.0). Ride out the first night, 8.0–12.0. | Rovers (10.9) → Era 2 | Night brownout → `INSIGHT — Battery Banks −40%` | **Zooms out to REGION**: 6 pins, hopper arcs |
 | 11–21 | Parts first (14.3; fab online 16.4). Masts toward a '?' lead. See the smelt doctrine side by side. | Silicon (21.3) → Era 3 | Tranquillitatis pit survey (12.6) → `BREAKTHROUGH — Lava-Tube Caverns`; Taurus–Littrow (17.1) → Volcanic Glass | Leads resolve into volatiles soil |
 | 21–33 | Batteries (26.2), bays. Doctrines: thorium vs fuel cells, swarm vs heavy. | 150◇ deed → Era 4 (32.6) | Maskelyne pays only 15 (novelty ×0.5) | Region fully pinned |
-| 33–47 | Reactor online (37.1), wadis, wafer fab (42.2), chip doctrine | Orbital Prospector (47.0) → Era 5 | — | **Zooms out to the NEAR SIDE disc**; first slot; `Ilmenite Plains lacks water → Cabeus ice` |
+| 33–47 | Reactor online (37.1), wadis, wafer fab (42.2), chip doctrine | Orbital Prospector (47.0) → Era 5 | — | **Zooms out to the NEAR SIDE disc**; first slot; `Outposts cover: water → Cabeus ice` |
 | 47–63 | Claim the first outpost; LDC (57.1); Chip Fab #2 (60.4); DC#1 (62.2); overclock toggles | Clocking (62.7) → Era 6 | `OUTPOST ONLINE` | Hopper arc to the pole |
 | 63–75 | Cabeus survey (67.2); DC#2 (72.2); Cohabitation | Cohab + outpost day → Era 7 (75.2) | `BREAKTHROUGH — Cold-Trap Chemistry` | — |
 | 75–91 | Crew rotation (+4 min), crew toggles, Science Crews, Condition Tuning, Far-Side Relay (82.5), radio outpost, DC#3 | Foils (91.4) → Era 8 | `CREW ROTATION — 2 settlers aboard` | **Near/far toggle**; far side unshrouded |
@@ -1566,7 +1568,7 @@ Every case stays within 130, except lava tube with a single DC at 133.8, which i
 15. **Deposits and feed.**
     - At the start on mare there is a revealed ilmenite deposit ≤ 55 m out, and at least one '?' lead beyond 120 m.
     - An excavator on it plus a smelter: after 60 s the inspector feed reads 100% high-Ti, and smelter metals/s is 1.30 ± 0.03 × the same layout with the excavator moved off the deposit.
-    - On the pole, a harvester on unrevealed ice is rejected with `ICE UNCONFIRMED`.
+    - On the pole, the retired Ice Harvester is never placed, whatever the ground (`HUBS PRINT THEM`); a hub's miners dig only mapped ground.
     - On the lava tube, a habitat on KREEP is rejected with `RADIATION`.
     - Placing on an unrevealed deposit alerts `PROSPECT STRUCK`.
 16. **Relay Mast.** Placement at 95 m fails with `Too far`. After a mast at 55 m completes, placement at 95 m succeeds, and deposits within 45 m of the mast are revealed.

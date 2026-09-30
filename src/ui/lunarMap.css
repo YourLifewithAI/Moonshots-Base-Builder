@@ -193,6 +193,8 @@
   padding: 8px 10px; border: var(--hair); border-left: 3px solid var(--paper);
   font-size: 12px; line-height: 16px; color: var(--ink-050);
 }
+.ns-live { margin-top: 4px; font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.ns-live:empty { display: none; }
 .ns-cap { margin: 12px 0 4px; display: flex; justify-content: space-between; }
 .ns-row {
   display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: 8px; align-items: start;
@@ -231,6 +233,13 @@
 .ps section { padding: 8px 0; border-bottom: var(--hair); }
 .ps section .label { margin-bottom: 3px; }
 .ps .io { grid-template-columns: 58px 1fr; font-size: 12px; }
+/* the outpost site line, in the field report's words (exploration.outpostSiteLine) */
+.ps-site { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; margin-bottom: 4px; font-size: 12px; line-height: 16px; }
+.ps-site .mono { font-size: 11px; }
+.ps-tag {
+  font-size: 9px; letter-spacing: 0.08em; padding: 1px 5px; border: 1px solid rgba(var(--paper-rgb), 0.4); border-radius: 1px;
+  color: rgba(var(--paper-rgb), var(--op-secondary)); white-space: nowrap;
+}
 .ps .io .mono { font-size: 11px; }
 .ps-geo { font-size: 12px; line-height: 16px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
 .ps-none { font-size: 12px; line-height: 16px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
@@ -289,6 +298,14 @@
 /* ── HUD chip, under the era chip ── */
 #map-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
 #map-chip.pulse { animation: map-pulse 0.9s var(--ease) infinite alternate; }
+/* the OUTPOSTS chip under it (docs/19 S8): dashed when an outpost is worn, grounded or cut off, as the strip's cards are */
+#outposts-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+#outposts-chip.fault { border-style: dashed; font-weight: 600; }
+html.touch #outposts-chip { display: none !important; }
+#map-outposts.hl { outline: 2px solid var(--paper); outline-offset: 3px; }
+/* an outpost's row in a resource panel opens the map at it */
+.row.op-row { cursor: pointer; }
+.row.op-row:hover { background: rgba(var(--paper-rgb), 0.06); }
 @keyframes map-pulse {
   from { background: var(--paper); color: var(--ink-900); }
   to { background: rgba(14, 15, 17, 0.88); color: var(--ink-100); }

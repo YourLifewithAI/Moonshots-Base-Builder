@@ -13,7 +13,7 @@ import { TECHS } from '../data/techs';
 import { DEPOSIT_INFO } from '../data/deposits';
 import type { BuildingState, GameState } from '../core/state';
 import type { Mods, SurveyTier } from '../core/mods';
-import { beyondNetwork, depositRevealed, groundMapped, inNetwork } from '../core/exploration';
+import { beyondNetwork, depositRevealed, inNetwork } from '../core/exploration';
 import type { Heightfield } from '../terrain/heightfield';
 import { ghostGeometry } from './recipes';
 import { upgradeKey } from './upgrades';
@@ -306,16 +306,9 @@ export function checkPlacement(
   if (r.gx0 < 1 || r.gz0 < 1 || r.gx1 > MAP_CELLS - 1 || r.gz1 > MAP_CELLS - 1) {
     return { valid: false, reason: 'Outside survey area' };
   }
-  if (def.requiresIce && !site.hasIce) return { valid: false, reason: 'No ice deposits at this site' };
   const [cx, cz] = centerOf(probe);
   const dep = hf.depositAt(cx, cz);
   const known = dep && depositRevealed(state, dep, tier) ? dep : null;
-  if (def.requiresIce && known?.kind !== 'ice') {
-    // unmapped ground says nothing either way, so the ghost never hints at hidden ice
-    return groundMapped(state, cx, cz, tier)
-      ? { valid: false, reason: 'No ice beneath this spot — check the deposit overlay [I]' }
-      : { valid: false, reason: 'ICE UNCONFIRMED — extend your survey (Prospecting Drones) or place a Relay Mast nearby' };
-  }
   if (type === 'habitat' && dep?.kind === 'kreep') {
     return { valid: false, reason: 'RADIATION — KREEP soil: no habitats here' };
   }

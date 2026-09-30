@@ -130,7 +130,7 @@ let raised: Map<string, number> | null = null;
  *  wording; it clears itself shortly after it stops being raised. A
  *  dismissed condition is snoozed rather than re-raised the next tick. */
 export function condition(
-  s: GameState, key: string, text: string, kind: AlertKind, action?: AlertAction,
+  s: GameState, key: string, text: string, kind: AlertKind, action?: AlertAction, family?: NotifyFamily,
 ) {
   if ((s.alertSnooze?.[key] ?? 0) > s.simTime) return;
   const n = (raised?.get(key) ?? 0) + 1;
@@ -139,7 +139,7 @@ export function condition(
   if (!live) {
     s.alerts.push({
       id: s.nextAlertId++, text, kind, at: s.simTime, key, cond: true, count: 1,
-      ttl: ALERTS.lingerTicks, action,
+      ttl: ALERTS.lingerTicks, action, ...(family ? { family } : {}),
     });
     return;
   }
@@ -150,6 +150,7 @@ export function condition(
   live.count = n;
   live.ttl = ALERTS.lingerTicks;
   live.action = action;
+  if (family) live.family = family;
 }
 
 /** clicking an alert about Earth traffic opens the Lander */

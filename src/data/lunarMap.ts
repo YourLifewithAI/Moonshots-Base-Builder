@@ -144,7 +144,7 @@ export const SURVEY_CLASS: Record<ProspectClass, {
   /** fixed duration for non-hopper methods */
   timeS: number; data: number;
 }> = {
-  local: { tier: 0, method: 'lander micro-rover', energy: 60, hopper: false, parts: 0, timeS: 60, data: 20 },
+  local: { tier: 0, method: 'short-range drone', energy: 60, hopper: false, parts: 0, timeS: 60, data: 20 },
   regional: { tier: 1, method: 'hopper', energy: 60, hopper: true, parts: 5, timeS: 0, data: 30 },
   near: { tier: 2, method: 'hopper', energy: 100, hopper: true, parts: 5, timeS: 0, data: 50 },
   far: { tier: 3, method: 'relay-guided hopper', energy: 150, hopper: true, parts: 10, timeS: 0, data: 80 },
@@ -212,11 +212,11 @@ export const TIER_VIEW: MapView[] = ['vicinity', 'region', 'near', 'far', 'moon'
 /** The tech that raises coverage to each tier (T0 is the landing). */
 export const TIER_TECH: (TechId | null)[] = [null, 'prospectingRovers', 'orbitalProspector', 'farSideRelay', 'deepSounding'];
 
-/** what each site lacks, and the outposts that answer it (header of "Next surveyable") */
+/** what each site lacks and the outposts that cover it, under "Outposts cover" (the header of "Next surveyable") */
 export const SITE_WEAKNESS: Record<SiteId, string> = {
-  mare: 'Ilmenite Plains lacks water → Cabeus or Haworth ice outpost (near side, T2) · Tranquillitatis mature soil (regional)',
-  southpole: 'Shackleton lacks metals and launch geometry → Maskelyne or Moltke ilmenite (near side) · pick Propellant Depot',
-  lavatube: 'Marius Hills lacks power → Marius Hills domes or Mons Rümker KREEP outpost (reactor upkeep ×0.6, output ×1.15)',
+  mare: 'water — Ilmenite Plains lacks it: Cabeus or Haworth ice outpost (near side, T2) · Tranquillitatis mature soil (regional)',
+  southpole: 'metals and launch geometry — Shackleton lacks them: Maskelyne or Moltke ilmenite (near side) · pick Propellant Depot',
+  lavatube: 'power — Marius Hills lacks it: Marius Hills domes or Mons Rümker KREEP outpost (reactor upkeep ×0.6, output ×1.15)',
 };
 
 /** Basemap maria: projected spherical caps (48 vertices each); a ring is an
