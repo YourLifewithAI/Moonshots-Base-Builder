@@ -90,7 +90,7 @@ export interface TrafficStats {
   stepAsides: number;
   /** drove through the ground another held, after waiting FORCE_S (a rover in the way: 20 s) */
   forced: number;
-  /** cells held by two units at the end of a tick's plan (parked pairs excepted) */
+  /** road cells held by two units at the end of a tick's plan (a forced pass, or a unit set down on another) */
   overlaps: number;
 }
 
@@ -110,6 +110,8 @@ interface Mv {
   r?: { x?: number; z?: number };
   /** the keys it holds, in the order it drives them (a hauler's is `h.claim`) */
   claim: number[];
+  /** what its last plan said (the debug API reads it) */
+  last?: { limit: number; holder: number; key?: number };
 }
 
 interface Tab {
@@ -171,6 +173,7 @@ function setClaim(tab: Tab, mv: Mv, next: number[]) {
   if (mv.h) { if (next.length) mv.h.claim = next; else delete mv.h.claim; }
 }
 
+const driving = (h: HaulState) => h.phase === 'toDig' || h.phase === 'toBay' || h.phase === 'toDrop';
 const loadedOf = (h: HaulState) => (h.cargo.regolith ?? 0) > 1e-6 || h.phase === 'toDrop' || h.phase === 'unload';
 
 function posOf(mv: Mv): Pt | null {
@@ -189,8 +192,8 @@ function onRamp(r: Ramp, x: number, z: number): boolean {
 }
 
 /** The reservable key at a point: a ramp, or a road cell (or one of the unit's own aside cells). */
-function keyAt(tab: Tab, x: number, z: number, mine: ReadonlySet<number>): number | null {
-  for (const r of tab.ramps) if (onRamp(r, x, z)) return rampKey(r.pit);
+function keyAt(tab: Tab, x: number, z: number, mine: ReadonlySet<number>, noRamp = false): number | null {
+  if (!noRamp) for (const r of tab.ramps) if (onRamp(r, x, z)) return rampKey(r.pit);
   const [gx, gz] = cellAt(x, z);
   const k = cellKey(gx, gz);
   return tab.map.has(k) || mine.has(k) ? k : null;
@@ -225,13 +228,14 @@ const N4: Pt[] = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 /** The reservable stretches along a path from (x, z), in the order it drives
  *  them: each with the metres to where it is entered. */
-function itemsAlong(tab: Tab, x: number, z: number, path: readonly Pt[], mine: ReadonlySet<number>): Item[] {
+function itemsAlong(tab: Tab, x: number, z: number, path: readonly Pt[], mine: ReadonlySet<number>, rest = false): Item[] {
   const out: Item[] = [];
   const push = (px: number, pz: number, d: number) => {
-    const key = keyAt(tab, px, pz, mine);
+    // (a unit digging at a face by the ramp's foot is not on the ramp)
+    const key = keyAt(tab, px, pz, mine, rest && d === 0);
     if (key === null) return;
     if (out.length && out[out.length - 1].key === key) return;
-    out.push({ key, enter: out.length ? Math.max(0, d - 0.5) : 0, kind: kindOf(tab, key) });
+    out.push({ key, enter: d === 0 ? 0 : Math.max(0.01, d - 0.5), kind: kindOf(tab, key) });
   };
   let px = x, pz = z, dist = 0;
   push(px, pz, 0);
@@ -271,18 +275,29 @@ function build(s: GameState, ramps: Ramp[]): Tab {
   return tab;
 }
 
+/** The cell a unit has just left, still held behind it (a body is longer than a cell): only along a
+ *  road, and never a cell its path goes back to (a unit that stepped aside gives its road back). */
+function tailOf(tab: Tab, mv: Mv, items: Item[]): number | null {
+  if (!items.length || items[0].enter !== 0 || items[0].kind !== 'road') return null;
+  const cur = items[0].key;
+  const at = mv.claim.indexOf(cur);
+  if (at <= 0) return null;
+  const tail = mv.claim[at - 1];
+  if (tail === cur || kindOf(tab, tail) !== 'road') return null;
+  return items.some((it, i) => i > 0 && it.key === tail) ? null : tail;
+}
+
 /** After a move: the claim shrinks to the cell it stands in, the one it left and the run still ahead
  *  (what follows the cell it stands in, in the order it drives them). */
 function trim(tab: Tab, mv: Mv, items: Item[]) {
-  const cur = items.length && items[0].enter === 0 && items[0].kind !== 'soft' ? items[0].key : null;
-  const at = cur !== null ? mv.claim.indexOf(cur) : -1;
-  const ahead = new Set(at >= 0 ? mv.claim.slice(at + 1) : mv.claim);
-  let tail: number | null = null;
-  // (only along a road: the cell a unit stepped aside from is given back)
-  if (cur !== null && at > 0) {
-    tail = mv.claim[at - 1];
-    if (tail === cur || kindOf(tab, tail) !== 'road' || kindOf(tab, cur) !== 'road') tail = null;
-  }
+  // (a dock bay stood in counts for where the claim goes on from, though it is never held)
+  const here = items.length && items[0].enter === 0 ? items[0].key : null;
+  const cur = here !== null && items[0].kind !== 'soft' ? here : null;
+  const at = here !== null ? mv.claim.indexOf(here) : -1;
+  // a unit standing in a bay holds nothing ahead: it asks again for its whole run when it can go
+  const inBay = here !== null && items[0].kind !== 'road' && items[0].kind !== 'ramp';
+  const ahead = new Set(inBay ? [] : at >= 0 ? mv.claim.slice(at + 1) : mv.claim);
+  const tail = tailOf(tab, mv, items);
   const out: number[] = [];
   if (tail !== null) out.push(tail);
   for (const it of items) {
@@ -305,14 +320,20 @@ function sameWay(tab: Tab, holderUid: number, items: Item[], i: number): boolean
   return (prevH !== undefined && prevH === prevU) || (nextH !== undefined && nextH === nextU);
 }
 
-interface Grant { limit: number; blocked: number; holder: number }
+interface Grant { limit: number; blocked: number; holder: number; key?: number }
 
 /** Plan one unit's claim: keep what it holds ahead, ask for the rest of its run,
  *  and say how far along its path it may go (metres; Infinity: to the end). */
 function plan(s: GameState, tab: Tab, st: Store, mv: Mv, depth = 0): Grant {
+  const g = planOnce(s, tab, st, mv, depth);
+  mv.last = { limit: g.limit, holder: g.holder, ...(g.key !== undefined ? { key: g.key } : {}) };
+  return g;
+}
+
+function planOnce(s: GameState, tab: Tab, st: Store, mv: Mv, depth: number): Grant {
   const h = mv.h!;
   const mine0 = new Set(mv.claim);
-  const items = itemsAlong(tab, h.x, h.z, h.path, mine0);
+  const items = itemsAlong(tab, h.x, h.z, h.path, mine0, !driving(h));
   trim(tab, mv, items);
   if (!items.length) return { limit: Infinity, blocked: -1, holder: -1 };
   const mine = new Set(mv.claim);
@@ -343,11 +364,8 @@ function plan(s: GameState, tab: Tab, st: Store, mv: Mv, depth = 0): Grant {
   const got = new Set<number>(blocked < 0 || convoy ? need : []);
   if (got.size) {
     const out: number[] = [];
-    const cur = items[0].enter === 0 && items[0].kind !== 'soft' ? items[0].key : null;
-    if (cur !== null) {
-      const i = mv.claim.indexOf(cur);
-      if (i > 0 && kindOf(tab, mv.claim[i - 1]) === 'road' && kindOf(tab, cur) === 'road') out.push(mv.claim[i - 1]);
-    }
+    const tail = tailOf(tab, mv, items);
+    if (tail !== null) out.push(tail);
     for (const it of items) {
       if (it.kind === 'soft') continue;
       if (!mine.has(it.key) && !got.has(it.key)) break;
@@ -377,13 +395,13 @@ function plan(s: GameState, tab: Tab, st: Store, mv: Mv, depth = 0): Grant {
     setClaim(tab, mv, mv.claim.filter((k, i) => k === cur || (cur !== null && i < mv.claim.indexOf(cur))));
     st.asided.set(mv.uid, heldS);
     // (standing on the carriageway, not in a bay: that is the one that blocks)
-    if (H && H.prio < mv.prio && items[0].enter === 0 && items[0].kind === 'road' && stepAside(s, tab, st, mv, true)) return plan(s, tab, st, mv, depth + 1);
+    if (H && H.prio < mv.prio && items[0].enter === 0 && items[0].kind === 'road' && stepAside(s, tab, st, mv, true, H)) return plan(s, tab, st, mv, depth + 1);
   }
   // it may go as far as the ground it holds reaches
   const held = new Set(mv.claim);
   let stop = blocked;
   for (let i = 0; i < blocked; i++) if (items[i].kind !== 'soft' && !held.has(items[i].key)) { stop = i; break; }
-  return { limit: Math.max(0, items[stop].enter - HALF), blocked, holder };
+  return { limit: Math.max(0, items[stop].enter - HALF), blocked, holder, key };
 }
 
 const posKey = (tab: Tab, mv: Mv): number | null => {
@@ -405,8 +423,11 @@ const buildingAt = (s: GameState, gx: number, gz: number): boolean => {
  *  holding bay (or a free dock bay) first, else (`ground`) the free ground
  *  beside it. The way there and back is put in front of its path; its claim
  *  takes the cell. False: nowhere to go. */
-function stepAside(s: GameState, tab: Tab, st: Store, mv: Mv, ground: boolean): boolean {
+function stepAside(s: GameState, tab: Tab, st: Store, mv: Mv, ground: boolean, forWhom?: Mv): boolean {
   const h = mv.h!;
+  // the cells the unit it gives way to will drive (a free road cell beside it is no place to wait there)
+  const avoid = new Set<number>();
+  if (forWhom?.h) for (const it of itemsAlong(tab, forWhom.h.x, forWhom.h.z, forWhom.h.path, new Set(forWhom.claim), !driving(forWhom.h))) avoid.add(it.key);
   const [cgx, cgz] = cellAt(h.x, h.z);
   const dir: Pt = h.path.length ? [h.path[0][0] - h.x, h.path[0][1] - h.z] : [0, 0];
   const dl = Math.hypot(dir[0], dir[1]) || 1;
@@ -422,6 +443,8 @@ function stepAside(s: GameState, tab: Tab, st: Store, mv: Mv, ground: boolean): 
     if (road) {
       if (road.pass || road.hold) rank = 0;
       else if (road.bay) { if ([...cells].filter((x) => x === k).length >= ROAD.bayCap) return; rank = 0; }
+      // (a free road cell that is not on the way of the unit that needs to pass: a last resort, in a tangle)
+      else if (ground && !avoid.has(k) && !cells.has(k) && road.left <= 1e-9) rank = 2;
       else return;
     } else {
       if (!ground || cells.has(k) || buildingAt(s, gx, gz)) return;
@@ -461,14 +484,15 @@ export function trafficPlan(s: GameState, ramps: Ramp[] = []) {
   // trim every hauler's claim to its path first (a leg changed since the last tick), then ask in order
   for (const mv of tab.order) {
     if (mv.kind !== 'hauler') continue;
-    trim(tab, mv, itemsAlong(tab, mv.h!.x, mv.h!.z, mv.h!.path, new Set(mv.claim)));
+    trim(tab, mv, itemsAlong(tab, mv.h!.x, mv.h!.z, mv.h!.path, new Set(mv.claim), !driving(mv.h!)));
   }
   for (const mv of tab.order) if (mv.kind === 'hauler') plan(s, tab, st, mv);
   // who has been asked to move aside for how many ticks
   for (const k of [...st.ages.keys()]) if (!tab.req.has(k)) st.ages.delete(k);
   for (const k of tab.req.keys()) st.ages.set(k, (st.ages.get(k) ?? 0) + 1);
   let overlaps = 0;
-  for (const [k, l] of tab.owners) if (l.length > 1 && kindOf(tab, k) !== 'soft') overlaps++;
+  // (roads only: at a pit's foot, where the floor is a few metres across, two units can be in the ramp's mouth at once)
+  for (const [k, l] of tab.owners) if (l.length > 1 && !isRamp(k) && kindOf(tab, k) !== 'soft') overlaps++;
   st.stats.overlaps = overlaps;
 }
 
@@ -488,8 +512,9 @@ export function yieldAside(s: GameState, u: Hauler): boolean {
   const waiting = (h.held ?? 0) > 0 || (h.phase === 'toDig' && h.wait === 'gate' && !h.path.length);
   if (!waiting) return false;
   const st = storeOf(s);
-  if (stepAside(s, tab, st, mv, false)) return true;
-  if ((st.ages.get(uid) ?? 0) >= STILL_ASIDE_S) return stepAside(s, tab, st, mv, true);
+  const asker = tab.units.get(tab.req.get(uid)!);
+  if (stepAside(s, tab, st, mv, false, asker)) return true;
+  if ((st.ages.get(uid) ?? 0) >= STILL_ASIDE_S) return stepAside(s, tab, st, mv, true, asker);
   return false;
 }
 
@@ -517,7 +542,7 @@ export function go(s: GameState, u: Hauler, speed: number, t: number): number {
     st.stats.maxHeldS = Math.max(st.stats.maxHeldS, h.held);
     t = 0;
   }
-  const p = itemsAlong(tab, h.x, h.z, h.path, new Set(mv.claim));
+  const p = itemsAlong(tab, h.x, h.z, h.path, new Set(mv.claim), !driving(h));
   trim(tab, mv, p);
   return t;
 }
@@ -605,13 +630,16 @@ export function trafficInfo(s: GameState) {
   const st = storeOf(s);
   const tab = st.tab;
   const cells: Record<string, number[]> = {};
-  const units: { kind: string; id: number; cell: Pt | null; claim: Pt[]; held: number; prio: number }[] = [];
+  const units: { kind: string; id: number; cell: Pt | null; claim: Pt[]; held: number; prio: number; limit: number; by: number | null; key: Pt | null }[] = [];
   if (tab) {
     for (const [k, l] of tab.owners) cells[isRamp(k) ? `ramp:${RAMP_BASE - k}` : keyCell(k).join(',')] = l.map((x) => (x >= 0 ? x : -x - 1));
     for (const mv of tab.order) {
       const p = posOf(mv);
       units.push({
         kind: mv.kind, id: mv.id, cell: p ? cellAt(p[0], p[1]) : null, held: mv.h?.held ?? 0, prio: mv.prio,
+        limit: mv.last ? (Number.isFinite(mv.last.limit) ? mv.last.limit : -1) : -2,
+        key: mv.last?.key !== undefined ? keyCell(mv.last.key) : null,
+        by: mv.last && mv.last.holder !== -1 ? (mv.last.holder >= 0 ? mv.last.holder : -mv.last.holder - 1) : null,
         claim: mv.claim.filter((k) => !isRamp(k)).map((k) => keyCell(k)),
       });
     }
