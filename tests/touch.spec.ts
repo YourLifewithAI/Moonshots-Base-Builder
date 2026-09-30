@@ -378,6 +378,35 @@ test('the road tool by drag: from a road cell out, laid as a job; Remove replace
   expect((await g(page, 'getTouch')).roadRemove).toBe(false);
 });
 
+test('the grade tool by touch (docs/19 S5): a one-finger drag is a box, a tap grades the 16 m square, ✕ leaves', async ({ page }) => {
+  await boot(page);
+  await g(page, 'grantPower', 800);
+  const f = await fingers(page);
+  await page.locator('#palette .cats .btn', { hasText: 'Extraction' }).tap();
+  await page.locator('#grade-btn').tap();
+  await expect(page.locator('#touch-bar')).toBeVisible();
+  // (the grade hint is not in the bar as the road tool's is: S9's touch pass)
+  expect((await g(page, 'getGrading')).tool.active).toBe(true);
+  // a drag over open ground east of the Lander: a box, queued on release (the camera stays)
+  const cam0 = await g(page, 'getCamera');
+  await f.drag([520, 180], [640, 240], 12, 300);
+  await expect.poll(async () => (await g(page, 'getGrading')).jobs.length).toBe(1);
+  const one = (await g(page, 'getGrading')).jobs[0];
+  expect(one.cells, 'a box of several cells').toBeGreaterThan(4);
+  const cam1 = await g(page, 'getCamera');
+  expect(Math.hypot(cam1.target.x - cam0.target.x, cam1.target.z - cam0.target.z), 'the drag did not pan').toBeLessThan(0.5);
+  // the tool stays on: a tap without a drag grades the 16 m square (4 × 4 cells) centred on the cell
+  expect((await g(page, 'getGrading')).tool.active).toBe(true);
+  await f.tap(730, 215);
+  await expect.poll(async () => (await g(page, 'getGrading')).jobs.length).toBe(2);
+  expect((await g(page, 'getGrading')).jobs.map((j: any) => j.cells).sort((a: number, b: number) => a - b)).toContain(16);
+  // ✕ in the bar leaves the tool and brings the palette back; the jobs stand
+  await page.locator('#tb-cancel').tap();
+  await expect(page.locator('#touch-bar')).toBeHidden();
+  expect((await g(page, 'getGrading')).tool.active).toBe(false);
+  expect((await g(page, 'getGrading')).jobs.length).toBe(2);
+});
+
 // ───────────────────────────── the research tree ─────────────────────────────
 
 test('research tree by touch: the rail opens it, tabs change page, a tap shows, a second queues, a hold queues the path', async ({ page }) => {
