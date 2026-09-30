@@ -671,10 +671,12 @@ test('no ground a road can serve: the solar rule says why in [B] and in a warnin
     const plan = G.planSite('solar');
     until(() => rule('solar').phase === 'nosite', 900, 5);
     const first = rule('solar');
-    // a lunar stretch: while the margin cannot be read, the rule still says it has no ground
+    // a lunar stretch: while the margin cannot be read, the rule still says it has no ground. The warning
+    // stands once the refusal has held AUTO.refusalAlertS (60 s): 20 dark samples of 5 s leave room to spare
+    // whichever second of the day the run began in
     const seen: string[] = [];
     let dark = 0;
-    for (let i = 0; i < 480 && dark < 12; i++) {
+    for (let i = 0; i < 480 && dark < 20; i++) {
       G.grantPower(5000); G.advanceGameSeconds(5);
       if (!(await fullSun())) { dark++; seen.push(rule('solar').phase); }
     }
