@@ -188,6 +188,8 @@ test('audio: cues follow the state; the hum sags as the bank runs dry', async ({
   await g(page, 'setPriority', lab.id, 0);
   await g(page, 'finishConstruction');
   await g(page, 'advanceGameSeconds', 490 - (await g(page, 'getState')).simTime);
+  // paused, so no live frame slips a tick of trickle charge in between the drain and the reading
+  await g(page, 'setPaused', true);
   await g(page, 'grantPower', -(await g(page, 'getState')).powerStored);
   await g(page, 'advanceGameSeconds', 2);
   expect((await g(page, 'getState')).power.brownout).toBe(true);
