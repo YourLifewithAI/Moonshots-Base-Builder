@@ -315,12 +315,17 @@ export function roverSpots(s: GameState): Map<number, RoverSpot> {
     });
     const order = homed.get(dock.id) ?? [];
     const left: number[] = [];
+    const away: number[] = [];
     for (const id of list) {
       const i = order.indexOf(id);
       const st = stands[i >> 1];
-      if (!st || !take(id, st, null, undefined, (i & 1) as 0 | 1)) left.push(id);
+      // more rovers than the bays hold (a dock with one bay cell and three rovers): the extra one stays inside whoever
+      // is out. It never takes the slot of one that is away, which that one would find held when it came home and
+      // could not get by (the bay is a stub: the one backing out of it waits on the one beside it, and both on the door)
+      if (!st) away.push(id);
+      else if (!take(id, st, null, undefined, (i & 1) as 0 | 1)) left.push(id);
     }
-    for (const id of along(left, stands, null)) {
+    for (const id of [...along(left, stands, null), ...away]) {
       // no bay left: inside the dock
       const [x, z] = cellCentre(...centreCell(dock));
       out.set(id, { gx: d[0], gz: d[1], side: 0, axis: 'x', x, z, face: 0, shuffle: [1, 0], site: null, dock: dock.id, inside: true });
