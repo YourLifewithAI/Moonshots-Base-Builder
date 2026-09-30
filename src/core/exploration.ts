@@ -223,6 +223,10 @@ export function surveyCost(siteId: SiteId, pid: ProspectId): SurveyCost {
   };
 }
 
+/** A flight's length under the drones' range (Orbital Prospector: ×1.5 = a third shorter); ×1 leaves the table's seconds. */
+export const flightS = (timeS: number, mods: Pick<Mods, 'droneRange'>) =>
+  mods.droneRange === 1 ? timeS : Math.max(1, Math.round(timeS / mods.droneRange));
+
 /** Data a survey of pid pays if it completes now: base × novelty (1st, 2nd,
  *  3rd+ of its kind), anomalies without a breakthrough +20 first, × Science
  *  Crews while enough crew are aboard. */
@@ -283,8 +287,7 @@ export function startSurvey(s: GameState, mods: Mods, pid: ProspectId, by: 'play
   s.resources.parts -= c.parts;
   recordSpend(s, { oxygen: c.oxygen, water: c.water, parts: c.parts });
   const drone = readyDrone(s)!;
-  // range shortens the flight (Orbital Prospector: ×1.5); ×1 leaves the table's seconds as they are
-  const timeS = mods.droneRange === 1 ? c.timeS : Math.max(1, Math.round(c.timeS / mods.droneRange));
+  const timeS = flightS(c.timeS, mods);
   launchFlight(s, drone, pid, timeS);
   const n = fleetCount(s, mods);
   notify(s, 'field', {
@@ -640,7 +643,8 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi): LunarView {
   const slots = outpostSlots(mods, s);
   const prospects: LunarProspectView[] = PROSPECT_IDS.map((id) => {
     const p = PROSPECTS[id];
-    const cost = surveyCost(s.siteId, id);
+    const cost0 = surveyCost(s.siteId, id);
+    const cost = { ...cost0, timeS: flightS(cost0.timeS, mods) };
     const rec = s.survey.prospects[id];
     const visible = tier >= cost.tier;
     const outpost = s.survey.outposts.some((o) => o.id === id);

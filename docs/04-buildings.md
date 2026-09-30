@@ -225,6 +225,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Recreation Dome | 1,824 | 1,948 | 1 |
 | Research Lab | 1,680 | 3,376 | 7 |
 | Relay Mast | 1,616 | 2,220 | 4 |
+| Prospecting Bay | 580 | 580 | 0 |
 | Solar Observatory | 865 | 1,829 | 2 |
 | Data Center | 1,604 | 3,256 | 11 |
 | Foil Factory | 1,416 | 2,446 | 6 |
@@ -242,7 +243,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Tech | Era | What changes | △ |
 |---|---|---|---|
 | Earth Teleoperation | 1 | The Lander raises a second, larger Earth dish for the teleoperators. | 124 + 740 ↻ |
-| Prospecting Rovers | 1 | A rover charging dock appears beside the Lander, and Relay Masts can rise. | 200 |
+| Prospecting Drones | 1 | A Prospecting Bay can be built to print survey drones, and Relay Masts can rise. | 200 |
 | Sample-Return Caches | 1 | A sample-cache carousel stands beside the Lander’s ladder. | 384 |
 | Orbital Prospector | 4 | The Lander adds a tracking dish for the polar orbiter. | 240 + 740 ↻ |
 | Gravity Gradiometry | 5 | The Lander raises a gravimeter mast. | 234 |

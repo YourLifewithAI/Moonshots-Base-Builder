@@ -91,7 +91,7 @@ export function ensureFleet(s: GameState, mods: Pick<Mods, 'surveyBayLevel'>) {
   const dk = docks(s, mods);
   const lander = dk.find((d) => d.b.type === 'lander');
   const bayOf = new Map(dk.map((d) => [d.b.id, d.bays]));
-  // homes in the building set: fewest homes first is not needed, ids are stable
+  // each dock holds its bays' worth of drones, lowest ids first; the rest look for a free bay elsewhere
   const held = new Map<number, number>();
   const orphans: SurveyDrone[] = [];
   for (const d of [...drones].sort((a, b) => a.id - b.id)) {
