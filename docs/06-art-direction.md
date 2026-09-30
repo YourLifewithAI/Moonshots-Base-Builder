@@ -1,1153 +1,724 @@
-# 06 · Art Direction — The Apollo Photography Bible
+# 06 · Art Direction — The Cel Bible
 
-> **Superseded by the cel style (docs/19, W0b1).** The game now draws in one
-> style: cel-shaded, one renderer, MSAA canvas, no post chain, no shadow map,
-> no FX ladder, N8AO, bloom, self-check or render report (§12's Classic
-> path is the base, with `classic*` renamed `cel*`: `world/cel.ts`,
-> `celBuilding.ts`, `celLighting.ts`, `terrain/celGround.ts`, `celFloods.ts`).
-> The High detail sections (§1–11 wherever they describe the post chain, the
-> ladder, shader patches, `lighting.ts`, `sky.ts`, `floodlights.ts`,
-> `terrainShader.ts`, `buildingShader.ts`) describe deleted code and stay only
-> as history. S10 rewrites this file as the cel bible (family palette, ramp
-> and ink constants, silhouettes, night rules, camera presets).
+> Flat family colours, three light steps and a line of ink round everything
+> that stands or moves. If a model cannot be read in silhouette at the far
+> zoom, the model is wrong.
 
-> The Moon is already monochrome. We do not desaturate a colorful world;
-> we light a gray one correctly.
+This document is the art bible for MOONSHOTS: the one style, the family
+palette, the light ramp and the ink, the silhouettes and their best sides,
+the units, the ground and the pits, the night rules, the fixed camera, the
+safety net for a GPU that cannot draw it, and the cost the look must stay
+inside. Every number here is quoted from the implementation
+(`src/world/*`, `src/terrain/*`, `src/buildings/*`, `src/data/families.ts`,
+`src/player/isoCam.ts`); if code and doc disagree, the code wins.
 
-This document is the art bible for MOONSHOTS' grayscale look: the thesis, the
-exact palette and lighting values as shipped, the sky, the post-processing
-chain and its degradation ladder, the procedural terrain and building
-vocabulary, the things that move, the research you can see, the two cameras,
-and the art items deliberately deferred. Every number here is quoted from the
-implementation (`src/world/*`, `src/terrain/*`, `src/buildings/*`,
-`src/player/*`); if code and doc disagree, the code wins.
-
-**Two render styles.** The game draws in one of two styles, chosen in the
-Esc menu (Graphics → Style) and fixed for a session:
-
-- **Classic** — *the default*: flat colours on faceted Lambert, a fixed
-  isometric camera in the SimCity 2000/3000 manner, no post chain, no
-  shadow map. Made to run well on any GPU and any browser. §12.
-- **High detail** — the Apollo-photograph look this document describes in
-  §1–11: PBR-monochrome, AgX, N8AO, bloom, fitted sun shadows, shader
-  patches on the FX ladder, the free orbit camera.
-
-Everything below §12 is the High detail path unless it says otherwise;
-the procedural geometry (terrain heights, the building kit, the things that
-move) is shared.
+**One style, one renderer.** There is no style switch and no quality ladder.
+The canvas is the only render target: MSAA on the context, no shadow map, no
+tone mapping (the palette is authored as the colours you see, sRGB out), no
+post chain, no float buffers, pixel ratio at most 1.5 (`world/renderer.ts`).
+Three small shader programs do all the drawing that is not stock (the
+buildings' cel program, the ground program, the ink program), and each has a
+stock fallback (§15).
 
 ---
 
-## 1. Design thesis: physics over filters
+## 1. Design thesis: readable first
 
-The reference is **Apollo surface photography** — the Hasselblad 70 mm frames:
-blinding regolith, ink-black sky, razor shadows, a horizon that curves away too
-soon. Those photographs are not "stylized." They are what airless, single-source
-lighting *looks like*. So the renderer is **PBR-monochrome, not toon**:
-
-- Materials are physically plausible standard materials with **near-neutral
-  albedo**; nothing in the world carries saturated color.
-- Contrast comes from **one hard light source** and real shadowing, not from a
-  grading LUT. There is no grayscale post filter anywhere in the chain.
-- The single permitted chroma is **Earth's blue** — the earthshine fill light
-  and the distant Earth disc. Home is the only colorful thing on the Moon, and
-  that is the emotional point.
-
-Corollaries that follow from the thesis:
+The reference is the old city builders and the Nintendo school of clarity:
+**a clear silhouette, one accent colour per family, and every item readable
+at every zoom.** The Moon stays a quiet place (warm paper hulls on a grey
+regolith, a black sky), so the few saturated things on screen are the ones
+that mean something: a family's trim, a unit's livery, a pit's state.
 
 | Rule | Consequence |
 |---|---|
-| No filters, only light | AgX tonemapping does the "film" work; albedo stays neutral |
-| Shape is identity | Buildings must read by silhouette, never by hue (§6) |
-| The sky is black | UI panels are dark so the *world* is the bright element (see 07) |
-| Vacuum physics | Dust flies in clean parabolas and falls; no fog, no smoke, no twinkle |
-| Zero binary assets | Every texture-like effect is vertex color, noise, a texture generated at boot, or post |
+| One accent per family | A structure's trim is `FAMILY_ACCENT[FAMILY_OF[recipe]]`; the palette tabs, the inspector's title and the notification glyphs carry the same family (§2.1) |
+| Shape is identity | Every recipe has its own bounding box and one tall identifier that carries the accent (§5). Colour says which family, shape says which building |
+| Colour is never the only signal | Every colour has a glyph, a shape, a pattern or a word beside it (below) |
+| Three light steps | A face wears its own colour × 1.0 / 0.72 / 0.5 by its angle to the key (§3.1): forms read by their lit and shaded sides, with no shadow map |
+| Ink draws the line | Every instanced class has an outline of constant screen width (§4); the ground's lines are 1 px ink (§4.3) |
+| The sky is black | The clear colour is the sky. The UI panels are dark so the world is the bright element (docs/07) |
+| Vacuum motion | Ejecta is a short low puff: no fog, no smoke, no twinkle |
+| Zero binary assets | Every model is the parametric kit (§6), every colour a constant, every texture a generated one or none |
+
+**Colour is never the only signal** (the colour-blind rule; docs/07 §2 has the
+UI half). Where the game uses a saturated colour it also says the same thing
+another way:
+
+| Colour carries | Also carried by |
+|---|---|
+| A building's family (trim) | its silhouette and tall identifier; the family glyph on its palette card and the inspector's title (⚡ ⛏ ⚗ ♥ ⚛ ↗ ⇄) |
+| A hub digger's kind | its mesh: an open bin, a covered hopper, a cutter drum and a tank (§7) |
+| A notification's family | the glyph (✦ ◎ ⚑ ☉ ⚠), the card's shape and place (docs/07 §4) |
+| A pit's end state (amber, red, green) | the flag's shape (banner, pennant, swallow-tail), the ring's dash pattern and the chip's words (§9) |
+| Placement valid or blocked | pale against dark ghost, and the reason line in `#place-hint` |
+| Deposit kinds | the overlay's rings in their own patterns (docs/17 §6) |
 
 ---
 
 ## 2. Palette — the values actually shipped
 
-All world surfaces are **vertex-colored grayscale floats** baked at geometry
-build time. Nominal hex equivalents from the design palette are given for
-reference; the floats are canonical.
+Colours are sRGB as authored (`0xRRGGBB`); three.js converts them to linear
+when it builds the buffers. The kit bakes each part's finish (a grey value and
+a surface code) into its vertices; the cel palette maps a finish to a colour
+in the instanced view's own `color` attribute (`buildings/celBuilding.ts
+celColors`), so the recipe buffers stay the kit's greys.
 
-| Element | Value (code) | ≈ Hex | Where |
+### 2.1 Families (`src/data/families.ts`)
+
+`FAMILY_OF` is the palette tab (`BuildingDef.category`); every new building
+must be filed there (it is a `Record`).
+
+| Family | Accent | Glyph | Buildings |
 |---|---|---|---|
-| Regolith base | site `terrain.albedo`: mare **0.125**, lava tube **0.135**, south-pole highland **0.17** | — | `data/sites.ts` → `terrain/chunks.ts` vertex colors |
-| Regolith mottle, broad | `× (1 ± 0.08)` noise @ 1/55 m | — | simplex, seeded `0xc0ffee` |
-| Regolith mottle, fine | `× (1 ± 0.054)` noise @ 1/11 m | — | second simplex octave |
-| Crater floor (basalt) | `− 0.134 × (1−d)` for d < 0.9 | — | darkens toward bowl center |
-| Crater rim/ejecta (fresh) | `+ 0.18 × (1.35−d)` for d < 1.35 | — | bright ring |
-| Regolith clamp | `0.54 … 1.29 ×` albedo | — | keeps each site inside its own band |
-| Regolith micro-detail | `× (1 ± ~0.15)` from the detail tile | — | `terrain/terrainShader.ts`, per pixel (§5) |
-| Regolith cool bias | blue channel `× 1.005` | — | a whisper, not a tint |
-| Boulders | albedo × **1.2–1.7** (background), × **1.5–2.2** (fresh crater blocks) | — | `terrain/rocks.ts` instance colors: unweathered rock outshines gardened soil |
-| Regolith berms | regolith albedo × **0.9** | — | `buildings/berms.ts` — turned soil, a shade under the surface |
-| Building BODY | `0.81` | `#cfcfcf` | `meshKit.ts` — hull panels (also radiators, MLI foil, lamps, beacons: same value, other finish) |
-| Building TRIM | `0.42` | `#6b6b6b` | `meshKit.ts` — frames, struts, stacks, rails, bare metal |
-| Building GLASS | `0.07` | `#121212` | `meshKit.ts` — PV cells and windows (dark glass, roughness 0.18) |
-| Building LEAF | `0.28` | `#474747` | `meshKit.ts` — foliage under glass (docs/14 §4.4): trellises, planters, the rings' vaults, the dome's canopy band; a dark matte foliage gray, roughness 0.85 |
-| Rovers, cargo lander | the building finishes (BODY / TRIM / GLASS / PLATE, LAMP, BEACON) | — | `world/rovers.ts`, `world/events.ts` — no new values |
-| Window / print band / floods | `#fff4e0`-ish warm white (`1.0, 0.955, 0.88`) | — | the only light the base makes; neutral enough to stay "gray" |
-| Machines' window and lamp light | cold white (`0.8, 0.92, 1.0`) | — | per instance by `iWarm` (0 cold … 1 warm, §13): Data Centers, Monoliths, fabs, bays, hives, masts; everything else by the destiny's lean |
-| Dust grains | linear gray `0.015 + 0.45 × sun`, opacity 0.9 | — | `world/life.ts` → `world/dust.ts`; sunlit grains catch the light brighter than the ground they leave |
-| Rover contact shadow | black @ 0.5 × sun | — | `world/rovers.ts` decal |
-| Launch capsule | white × **9** (HDR) + additive glow sprite; trail 0 → 2.2 additive | — | `world/events.ts`: blooms at FX 0, clips white below |
-| Descent plume | additive gray ≤ **0.14** | — | a faint frustum, not a flame: exhaust is nearly invisible in vacuum |
-| Swarm glints | 0.22 idle, flashes to **3.0** (HDR) | — | `world/swarm.ts` |
-| Earthshine (sky fill) | `#2a3a55` | — | `HemisphereLight` sky color — **the only color** |
-| Earth disc | `#8fa8c8`, clouds toward `#dfe6ee` | — | vertex-colored sphere, re-lit by the sun (§3) |
-| Stars | luminance × `(0.86, 0.88, 0.90)` | — | near-neutral, never pure white |
-| Sky | `#000000` | — | `scene.background` |
-| Ghost, valid | `#f5f7f9` @ opacity 0.42 | — | placement preview (pale = yes); FX 0–2 add half-Lambert from the sun + fresnel rim |
-| Ghost, blocked | `#14161a` @ opacity 0.60 | — | placement preview (dark = no); FX 0–2 add a 45° screen-space hatch — pattern, never hue |
+| power | `#e8b422` amber | ⚡ | Solar Array, Battery Bank, Reactor |
+| extraction | `#d9772b` ochre | ⛏ | Regolith Smelter, Silicon Refinery, Water Management Plant (and their units: the Excavator, the Ice Miner; the retired Ice Harvester) |
+| industry | `#7a5cc7` violet | ⚗ | Storage Yard, Robotics Bay, Parts Fabricator, Chip Fab, Drone Hive |
+| life | `#7cc242` lime | ♥ | the Lander, Habitat, Hydroponics, Recreation Dome, Greenhouse Ring, Garden Dome |
+| science | `#2f7fd0` blue | ⚛ | Lab, Data Center, Relay Mast, Prospecting Bay, Solar Observatory, Server Monolith |
+| export | `#c9302c` red | ↗ | Foil Factory, Mass Driver, Propellant Plant |
+| logistics | `#8e9197` slate | ⇄ | no building: roads, rovers, the fleet; also what any untagged geometry wears |
 
-Material response (the other half of "palette" in a PBR world):
+The life accent is a lime, not the foliage's green (`LEAF`, `#3f6f34`, a deep
+forest), so a greenhouse's ribs and trim separate from its leaves at every
+step of the ramp. The glyphs are shapes the game's font already draws and none
+is a building's own icon.
 
-- **Regolith**: `roughness 0.96, metalness 0.0` — bone-dry powder, no specular
-  glint, so form reads through shading alone. Berms share the terrain
-  material; boulders are `0.92 / 0`, flat-shaded.
-- **Buildings**: per-vertex finishes (the kit's `mat` attribute, read by the
-  building patch): hull `0.55 / 0.15` satin aluminum, trim `0.62 / 0.2`,
-  glass `0.18 / 0`, radiators `0.9 / 0`, MLI foil `0.3 / 0.45`, bare metal
-  `0.45 / 0.35` (roughness / metalness). With no environment map metalness
-  only darkens, so it stays low everywhere. FX 3 and safe mode run the stock
-  material (`0.55 / 0.15` on everything) and keep the values.
+### 2.2 Units and liveries
 
-**Value structure.** The regolith is dark (real maria reflect 7–12%, highlands
-about twice that) and the sun is hot, so the ground renders mid-gray while
-sunlit hulls read about 2.3× brighter in linear luminance (measured: ground
-median sRGB 123, lit building faces 183 in the mare overview). The base is
-the brightest thing on the Moon, as the LM is in every Apollo frame. Glass
-sits below the ground (0.07 vs 0.125), so solar wings and window bands read
-as dark cut-outs in bright hulls, with a sharp sun glint at low roughness.
+A moving thing wears its unit class's accent (`UNIT_ACCENT`); a hub's digger
+wears a livery, a body colour and a band (`HUB_LIVERY`, keyed by the unit's
+mesh key `type:hub`).
 
-Three values per building is a hard limit: BODY carries mass, TRIM carries
-detail, GLASS carries function (power and people). Finishes vary roughness
-and metalness, never value; there is no per-building tint.
-
----
-
-## 3. Light and sky (`src/world/lighting.ts`, `src/world/sky.ts`)
-
-One sun, one fill and the base's own lamps:
-
-| Light | Values |
+| Unit | Accent / livery |
 |---|---|
-| Sun | `DirectionalLight #fffdf8`, intensity **5.4** (physically hot; AgX rolls it off) |
-| Sun shadows | `PCFShadowMap`, radius 1, **2048²** map fitted to the visible ground each frame (see below); bias 0.04 m, normalBias ½ texel |
-| Earthshine | `HemisphereLight #2a3a55` sky, driven per-frame to **0.30 (day) → 1.0 (night)** (the eye adapting) |
-| Earthshine floor | landscape only (terrain, horizon ring, rocks, berms): `#2a3a55` × 0.11 luminance of irradiance × night, in the shader patches — open ground reads **~9/255** at night (was 0) without turning hulls navy. Night only: a shadowed crater by day keeps the day's earthshine and bounce |
-| Floods | shader array of up to **32** mast-top lamps (`world/floodlights.ts`), warm white, intensity 6.2 × the structure's darkness *k*; one per powered structure, 2.5 m out from its door side at `clamp(height + 2, 7, 12)` m |
-| Regolith bounce | the same light's ground color: neutral gray = 0.6 × the sunlit ground's exitance (sun × sin elev × albedo), 0 at night |
-| Tonemapping | **AgX**, exposure **1.1**, sRGB output — in the final effect pass on FX 0–2, in the materials on FX 3 |
+| Construction rover (`rover`) | logistics slate `#8e9197` |
+| Drone Hive drone (`drone`) | industry violet `#7a5cc7` |
+| Survey drone (`surveyDrone`) | teal `#2fb3a6` |
+| EVA crew (`crew`) | life lime `#7cc242` |
+| Smelter digger (`excavator:smelter`) | body `#ebe6dc`, band ochre `#d9772b` |
+| Refinery digger (`excavator:refinery`) | body `#f4f3ee` quartz white, band violet `#7a5cc7` |
+| Ice miner (`iceMiner:waterPlant`) | body `#5fc4d6`, band cyan `#3bb6c9` |
+| Legacy pad digger, a water plant's excavator | `LIVERY_DEFAULT`: body `#ebe6dc`, band ochre |
 
-Dynamics, driven by the day/night clock (`core/daynight.ts`):
+### 2.3 Finishes to colours (`CEL_PALETTE`)
 
-- The sun's elevation sweeps a low arc (up to ~32°, deliberately **low and
-  dramatic** — long Apollo shadows all day) and its intensity fades over a
-  short dusk window (`t = (elev + 0.03)/0.1`), so night is earthshine and
-  stars only. Polar sites keep a grazing 0.05 rad sun all night — their
-  "peak of eternal light" rendered literally.
-- **Shadows are fitted, snapped, and change-driven** (`Lighting.fitShadow`).
-  The four frustum-corner rays are intersected with the ground plane through
-  the focus (clamped to 2.2 × camera distance), the box is padded for 20 m-tall receivers, and its size steps in
-  9% increments with hysteresis. The window is snapped to whole texels in
-  light space, so edges hold still while panning. Typical texels: 0.06 m in
-  a close build view, 0.12–0.18 m in the default overview (the
-  old fixed ±460 m window was 0.45 m). The map is re-rendered only when the
-  sun turns a step (0.1° up to 3×, growing with speed past that: 0.33° at
-  10×), the view leaves the window it was drawn for (the window stands while
-  the visible ground stays inside it — slack is 6 m or 3% of its extent), or
-  casters change (placements, construction rise, terrain flattening, berms,
-  a resupply lander touching down or lifting off) — at most every 0.1 s of
-  real time, and never at night. The solar wings re-aim on the same step and
-  *before* the fit, so a re-aim joins that frame's shadow render instead of
-  forcing another one. Measured at a simulated 60 fps (three buildings, two
-  wings): 2.5 renders/s at 1× (was 6.7), 7.5 at 3× (18.9), 7.9 at 10× (45.2),
-  3.0 while panning (60, every frame), 7.8 while orbiting (60), 0 when paused
-  and still. `Lighting.requestShadowUpdate()` is the hook for anything that
-  moves; things that move *continuously* (rovers, a descending lander, dust)
-  stay out of the shadow map instead (§7).
-- **Terrain casts shadows.** Back faces fill the shadow map (three's default
-  `shadowSide`), so lit slopes never self-shadow; crater walls and ridges
-  throw Apollo-black shadow at low sun, and a solar array the economy marks
-  as terrain-shaded now visibly sits in shadow.
+| Finish | Colour | Note |
+|---|---|---|
+| Hull (`BODY`) | warm paper `#efeae0` | |
+| Radiators | white `#f3f2ed` | |
+| Panels (`PLATE`) | cool slate `#828b99` | bare machined metal |
+| Trim (`TRIM`, `BAND`) | the tagged accent (§2.1, §2.2) | the work kit's default is the extraction ochre |
+| Decks: `TRIM` parts with a face over 5 m² (`DECK_AREA`) | deep slate `#5d6675` | roofs, plinths, big stacks: the accent stays an accent |
+| PV cells (`GLASS`) | dark blue `#1d3a6c` | dust greys them (`iState.y`) |
+| Windows (`WINDOW`) | dark blue glass `#2a4c80` by day | glow at night (§13) |
+| Lamps (`LAMP`) | warm white `#fff1d6` | |
+| Beacons (`BEACON`) | red `#b02a22`, blinking | 0.2 s every 2 s, phase per instance, on the shader's own clock (`uBldTime`, real time) |
+| MLI foil (`FOIL`) | gold `#d8a53a` | |
+| Foliage (`LEAF`) | forest `#3f6f34` | |
+| Roads | sintered regolith `#a8a299`, marks `#e9e4d8` | `world/roads.ts` |
 
-### The base's own light (`buildings/darkness.ts`, `world/floodlights.ts`, `buildings/instances.ts`)
+Exceptions, per recipe (`PALETTE_OVERRIDES`): the solar wings' and dishes'
+frames stay bare silver (`#c4c8ce`, panels `#aeb2b8`; dishes `#b7bbc1`); the
+Server Monolith is near-black (`#23262b`) with teal glass (`#0f3a44`); the
+Drone Hive's hull is dark (`#3a3f46`); the survey drone's trim is its teal.
+`BAND` is the trim finish at another grey (0.44): the palette paints it the
+accent at any size, which is how a ring round a tower carries the family
+colour.
 
-Wherever it stands dark the base lights itself, not only at night: at the
-pole the sun sits a few degrees up and the rim's shadow covers the base while
-the clock says day. It lights only where the grid is live:
+**Window and lamp light** is mixed per instance between two colours by
+`iWarm` (§12.2): warm sodium `CEL_WARM` (linear 1.0, 0.66, 0.29 ≈ `#ffd494`)
+and server cyan `CEL_COLD` (linear 0.52, 0.815, 1.0 ≈ `#bfe9ff`).
 
-- **Darkness per structure, *k* ∈ 0..1** (`buildings/darkness.ts`, visual
-  only and renderer-independent: `darkness.of(id)`). The target is the
-  largest of the night factor; the sky, 1 once the sun has set (1 − the
-  sun's light), and a grazing sun counting partly dark, **0.5 at 2°** of
-  elevation and below, easing to **0 by 8°** (walls catch it, the ground
-  barely does); and terrain shadow, a march through the heightfield toward
-  the sun from **mid-height** of the structure (reach 900 m, about what the
-  shadow map holds) on the game's 0.5 s shading pass. *k* follows its
-  target with a **0.5 s** time constant of real time, so lights fade over a
-  second or two instead of popping, paused or not. `b.shaded` stays the
-  economy's solar test; nothing the sim reads changes.
-- **Floods are shader data**, not scene lights: one `uniform vec4
-  uFlood[32]` (xyz = lamp, w = reach + darkness) evaluated in the terrain,
-  rock and building patches: `k × N·L × (1 − (d/r)⁴)² / (1 + d²/81)`. Each
-  slot packs its structure's *k* into the fraction of w (`floor(r) +
-  min(k, 0.999)`), so a structure's pool lights when it stands dark, in a
-  crater's shadow at noon as at night, and a sunlit one lays none. There is
-  no second array, so the terrain's fragment-uniform budget is unchanged.
-  Pools drape over slopes and crater walls (no flat discs cutting through
-  the ground), and never jump between buildings while the camera pans.
-- **Filled once per economy tick from every powered structure** (complete,
-  enabled, not browned out). A brownout turns that structure's pool *and*
-  its windows, lamps and beacons off at any *k*: the cause is visible. Past
-  32 structures, lamps merge into grid clusters (24 m cells, growing)
-  instead of being dropped; a cluster takes its darkest member's *k*. Per
-  frame, only while some *k* moves, the values are written into the slots
-  and the instances: nothing re-clusters and nothing is allocated.
-- **Zero cost in the light**: the count uniform runs only through the last
-  slot darker than 0.03, so a sunlit base's loop exits at once; the slot
-  count is fixed per FX level (32 at FX 0–1, 16 at FX 2), so dusk (or a
-  shadow) never recompiles anything.
-- **Windows, not hulls, glow**: the lit channel `iState.x` carries the
-  darkness (0 unlit · 1 lit at the night's, for rovers, the cargo lander and
-  the tracker parts · 2 + *k*). `WINDOW` parts emit warm white × lit ×
-  max(*k*, 0.1) × 1.6, a faint glow by day. `LAMP` parts (emit class 3) × lit
-  × *k* × 2.6: they light with their flood, rover headlights with the night.
-  Beacons blink (0.2 s every 2 s, phase per instance, on the building
-  shader's own clock) whenever powered, at 1 + 3*k* + 2 × night: readable in
-  daylight shadow, brighter still at night.
-- **Fallback** (FX 3, a patch fault, safe mode): the old path, per structure.
-  Additive discs under lit structures, each tinted by its *k*; 8 PointLights
-  (60 cd × *k*) over the dark structures nearest the camera; and the
-  whole-hull glow 0.09, still at night only. The PointLights leave the scene
-  while the shader floods run, so the lit programs don't carry
-  `NUM_POINT_LIGHTS` all day.
+### 2.4 Ground (`terrain/celGround.ts`)
 
-### The sky (`world/sky.ts`, `world/swarm.ts`)
+One function colours every piece of ground, so chunks, the horizon ring, berms
+and boulders agree where they meet. Vertex colours, faceted.
 
-The sky is a group re-centred on the camera every frame, so nothing in it
-parallaxes. Every piece is a stock unlit material — the sky adds no shader
-program of its own. All but the glare draw first in the opaque pass with
-depth writes off (group order −1), so the ground paints over them wherever it
-stands; the glare is additive, drawn last, and fades when terrain hides the
-sun.
+| Term | Rule |
+|---|---|
+| Site tint | mare `#857d73` (darker, warmer), lava tube `#847a6e` (a shade redder), south-pole highland `#aeaca6` (lighter, cooler) |
+| Mottle | ±9% at 55 m, ±5% at 11 m, a ±3% warm/cool drift at 140 m (faded where the caller's sample spacing cannot hold it) |
+| Height | × (1 ± 6%) from low to high ground |
+| Slope | steep, fresher walls up to +10% |
+| Craters | floors −13% toward the centre, a bright rim (+15%), a faint ejecta apron; a pit deeper than 0.4 r (the lava tube's skylight) × (1 − 0.78 (1 − d⁴)), its walls falling into the dark long before the floor |
+| Deposits | soft, slightly ragged patches (full at 0.6 r, gone by 1.1 r), tinted below and **saturated ×1.4** (`DEPOSIT_SATURATE`) so a deposit reads at the game's zoom |
 
-- **Stars**: 4,200 field stars plus 2,600 crowding a tilted galactic band,
-  magnitudes −1.4 … 6.5 drawn from N(<m) ∝ 10^0.45m (≈ ×2.8 per magnitude),
-  flux 2.512^−m compressed for display, in three pixel-size buckets
-  (2.8 / 1.8 / 1.0 px, the brightest round). **No twinkle** — there is no
-  air. Exposure follows the sun: by day the field drops to **0.6%** (Apollo
-  film shows none), at night it is full.
-- **Milky Way**: a vertex-coloured back-face sphere, gaussian in galactic
-  latitude (e-folding at 0.15 rad) with noise clumping and a dark lane, brightest
-  toward a galactic centre ~35° up; faded with the stars.
-- **Sun**: a 0.63° disc at ×30 (AgX clips it white, FX-0 bloom catches it)
-  and a soft additive glare sprite (~14°, opacity 0.35 × sun), both faded
-  with the sun's light; the glare eases out when a ridge or the horizon
-  ring hides the disc (a march through the heightfield every 0.2 s).
-- **Earth**: a 1.9° sphere whose vertex colours (blue, drifting cloud) are
-  re-lit from the sun direction as it moves, so its lit side faces the sun
-  you see and the phase follows — crescent near noon, gibbous at night.
-  Placed per site, with a slow libration bob:
+| Deposit | Tint (linear multiplier, or mix) before ×1.4 |
+|---|---|
+| High-Ti basalt (ilmenite) | darker and bluer × (0.82, 0.84, 0.93) |
+| Highland anorthosite | brighter × (1.22, 1.21, 1.18) |
+| Cold-trap ice | bluish white: 45% toward (0.70, 0.79, 0.93) (mix capped at 0.85 after the boost) |
+| Pyroclastic glass | dark amber × (0.97, 0.88, 0.74) |
+| KREEP | faint rose × (1.06, 0.95, 0.96) |
+| Mature soil (volatiles) | faint olive-brown × (0.94, 0.94, 0.88) |
+| Peak of light | none |
 
-  | Site | Earth elevation | Azimuth | Libration |
-  |---|---|---|---|
-  | Mare (near-side) | 60° | 175° | ± 1.5° |
-  | Lava tube (Marius Hills) | 33° | 15° | ± 1.5° |
-  | South pole (Shackleton) | 2.5° — on the ridge line, partly hidden | 250° | ± 2° |
+Every deposit is tinted, mapped or not: the ground looks like what it is; the
+overlay [I] and the surveys say what it means. Boulders take the ground's
+colour under them, greyed 30% and lifted 15–40% (fresh crater blocks the most);
+berms are the ground's own colour and program.
 
-- **Swarm glints** (the Dyson swarm, §8): points on a thin ellipse through
-  the sun (±9° along its path, ±1.3° across), camera-centred in the same sky
-  slot.
+### 2.5 Ghost and other fixed colours
+
+| Element | Value |
+|---|---|
+| Placement ghost, valid | `#f5f7f9` at opacity 0.42 (pale = yes) |
+| Placement ghost, blocked | `#14161a` at opacity 0.60 (dark = no) |
+| Ghost shading | the buildings' three-step ramp on the tint, with an emissive `#2a2c30` floor: the form reads like the structure it will become |
+| Rover and unit contact shadow | black at 0.5 (rovers) or 0.45 (hub units) × the sun's light, smeared down-sun |
+| Dust grains | the regolith grey, 75% of the way to the digging unit's accent while it digs (§11) |
+| Grading site | dashed ink outline, four stakes with an ochre flag (`FAMILY_ACCENT.extraction`), a pale plate on every cell not yet levelled (`world/gradeMarks.ts`) |
+| Pit palette and end-state flags | §9 |
 
 ---
 
-## 4. Post chain and the degradation ladder (`src/world/post.ts`, `src/world/materials.ts`)
+## 3. Light
 
-`EffectComposer` (HalfFloat at FX 0) in this exact order:
+### 3.1 The ramp (`world/celStyle.ts`, `buildings/celBuilding.ts`, `world/celLighting.ts`)
 
-1. **RenderPass** — the scene.
-2. **N8AO** (`N8AOPostPass`) — `aoRadius 3.0, intensity 2.5, distanceFalloff
-   1.0`, quality "Medium" at **half resolution** with depth-aware upsampling
-   (cheaper than the old full-res "Low"). AO is what makes white-on-gray
-   forms legible: contact shadows glue buildings to the regolith and carve
-   panel joins without edge lines. Transparent decals (rover
-   shadows, the ghost) write no depth and stay out of it. N8AO's automatic
-   transparency detection is off: left on, the first transparent material
-   in the scene turned its transparency pass on — two more renders of the
-   whole scene every frame. Every level draws the scene once a frame.
-3. **Bloom** (FX 0 only, its own pass) — mipmap blur, luminance threshold
-   **2.0**, intensity 0.6. A sunlit hull peaks near 1.5 in the HDR buffer,
-   so only emissives, the sun disc, launch capsules and glint flashes glow.
-4. **Final pass** — one `EffectPass`:
-   **SMAA** first (it re-reads the input buffer at edges, which would drop
-   any effect merged ahead of it), then **AgX tone mapping** (render targets
-   bypass the renderer's own), **grain** (`NoiseEffect`, OVERLAY,
-   premultiplied, opacity **0.14** — the film-stock cue that also dithers
-   long gray gradients) and **vignette** (offset **0.28**, darkness **0.52** —
-   Hasselblad frame falloff).
+A building's colour is `albedo × uLightFull × q(n·l)`, evaluated **per
+fragment** (so a dome's terminator is a curve, not a jag): `n·l` is the
+face's normal against the key light and `q` steps by the variant's ramp.
+`uLightFull` is the key × 0.85 plus the sky fill × 0.35, so a top-step face
+shows its own colour at noon and dusk and earthshine dim it.
 
-**Degradation ladder.** Not every GPU runs everything; the game walks down
-until something renders, and the working level persists to `localStorage`.
-Scene shader patches ride the same ladder through the material registry.
-Safe mode is not a rung but a switch beside the ladder: it draws the plain
-forward path with unlit twins from the first frame (the composer is never
-built while it is on), and leaving it returns to the ladder's level. Feature
-by feature:
-
-| Feature | FX 0 | FX 1 | FX 2 (`?lowfx`) | FX 3 | Safe mode |
+| Variant | Steps | Levels (brightest first) | Edges (n·l where each step below the top begins) | Soft | Ink |
 |---|---|---|---|---|---|
-| Frame buffers | half-float | 8-bit | 8-bit | none (forward) | none (forward) |
-| Ambient occlusion | N8AO, half-res | N8AO, half-res | — | — | — |
-| Bloom | ✓ | — | — | — | — |
-| SMAA · AgX · grain · vignette | final pass | final pass | final pass | AgX in the materials | AgX in the materials |
-| Sun shadows | ✓ | ✓ | ✓ | ✓ | off |
-| Regolith shader (terrain, ring, berms) | `regolith-2`: both detail scales, lunar photometry | `regolith-2` | `regolith-1`: coarse scale | stock | unlit twin |
-| Floods (slots) | 32 | 32 | 16 | discs + 8 PointLights | discs + 8 PointLights |
-| Earthshine floor | ✓ | ✓ | ✓ | — | — |
-| Building shader | `bldg-2`: finishes, seams, windows, beacons, print reveal | `bldg-2` | `bldg-1`: no seams | stock: squash-rise, hull glow | unlit twin |
-| Shadow-depth cut | `bldg-depth` | `bldg-depth` | `bldg-depth` | stock | stock copy (no shadows drawn) |
-| Placement ghost | `ghost-lit`: half-Lambert, rim, hatch | `ghost-lit` | `ghost-lit` | flat fill | stock copy |
-| Rocks | floods, full density | full | ½ small rocks | ¼ small rocks | unlit, ¼ small rocks |
-| Horizon ring | as terrain | as terrain | as terrain | stock | unlit twin |
-| Sky: stars, sun, Earth, glints | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Sky: Milky Way, glare | ✓ | ✓ | ✓ | ✓ | — |
-| Rovers | building shader | building shader | building shader | stock | unlit twin |
-| Dust | `dust-gpu`: vertex-shader ballistics | `dust-gpu` | `dust-gpu` | static puffs placed on the CPU | none |
-| Launch capsule / trail / glow | ✓ (capsule blooms) | ✓ | ✓ | ✓ | capsule only |
-| Resupply lander / plume | ✓ | ✓ | ✓ | stock lander | unlit lander, no plume |
-| Berms | regolith shader | regolith shader | regolith shader | stock | unlit twin |
-| Rover shadows | ✓ | ✓ | ✓ | ✓ | ✓ |
+| A | 2 | 1.0 / 0.62 | 0.05 | 0.02 | 2 px flat |
+| **B (the default, `CEL_VARIANT`)** | 3 | 1.0 / 0.72 / 0.5 | 0.3 / −0.15 | 0.02 | 1.5 px flat |
+| C | 3 | 1.0 / 0.72 / 0.5 | 0.3 / −0.15 | 0.02 | 1.5 px, tinted (§4) |
 
-**The registry contract** (every scene shader patch, including the ones
-added for motion): a patch checks its injection anchors against the stock
-three.js templates before claiming a variant, so an upgrade that moves an
-anchor leaves the stock shader — and its fallbacks — in charge rather than a
-variant that never injected. Every patched program carries the
-`MBB_PATCHED` define. Every mesh creator takes its material from the registry
-(`materials.get(key)`), so safe mode also covers meshes created after it
-switched on. A shader that fails to compile is caught by
-`renderer.debug.onShaderError`: if it carries a patch, every patch is
-stripped back to the stock shader (remembered across launches until an FX
-level is chosen explicitly) and the player sees an alert; any other program
-steps the post ladder down. The black-frame sentinel reads a 4×4 grid of the
-drawing buffer and judges only the samples whose view ray hits terrain, so a
-single failed terrain program is caught even with buildings on screen. It
-reads only frames whose ground cannot legitimately be black: by day under a
-risen sun (≥ 75% of its light — the economy's solar factor stays high for a
-while after the disc has set, and a set sun is no black frame); at night at
-FX 0–2, where the earthshine floor holds open ground at ~30 r+g+b against a
-cut of ≤ 2 (FX 3 nights read ~5 and are not probed); and at any hour in safe
-mode, whose unlit twins do not dim. Dusk, dawn, FX 3 nights, views with
-fewer than three ground samples and frames under the tech tree or Lunar Map
-(which are not drawn at all) are inconclusive and re-checked ~120 frames
-on; a healthy frame re-checks in 900. A black frame steps the ladder down,
-then turns safe mode on; in safe mode, with nothing simpler to fall back to,
-it can at most store FX 3 for good. **A raise is a trial** — a menu pick,
-`?fx=`, or leaving safe mode: the new level runs at once, but the level it
-left stays stored (so a reload never boots into it unchecked) until the
-next readable frame passes; a black one goes straight back (to the old
-level, or to safe mode) with an alert. Levels that failed a check are kept
-in the settings across launches, and the menu asks twice before raising to
-one; a level that later draws is cleared. Safe mode the sentinel turned on
-is stored apart from the player's own choice and holds at the next launch
-until the player turns it off. A composer that throws is blamed only if a
-plain render of the same frame succeeds; a throwing scene skips the frame
-(reported once) and never stops the loop.
-**FX 0's own safety net** (`world/fxguard.ts`, `world/fxcaps.ts`,
-`world/fxcheck.ts`). The scene shaders are the same at FX 0 and FX 1. What
-FX 0 adds is half-float storage and bloom. Half-float keeps what 8-bit
-buffers clamp away on every store: NaN, ±Inf, negatives, values past 1.
-Real GPUs make NaN where SwiftShader often does not. One NaN pixel fed to
-bloom's mip chain spreads over hundreds; in our test a few NaN hulls turned
-the whole FX 0 frame black, while FX 1 lost only the hulls. So a fault can
-show at FX 0 alone, and the black-frame sentinel may not see it (the
-player's report: black ground outside the pools, flat grey hulls). Four
-parts answer it:
+`?cel=A|B|C` in the address overrides the constant for that page load (read
+once; anything else is ignored), which is how the variants are photographed.
+On the default frame a roof and the wall to the sun read as the top step, a
+wall square to the key's azimuth as the middle one and a wall turned away as
+the last. The tests hold it: at most three luminance clusters on a building's
+lit faces (two in A).
 
-| Part | What it does | Where |
+**The ground** (terrain chunks, the horizon ring, berms, boulders, roads, one
+small program, `world/celSurface.ts`) keeps its vertex colours and faceted
+normals and uses **two** steps in every variant (`GROUND_RAMP`): a face wears
+the top step, and `shade` 0.8 once it turns from the key by more than `drop`
+0.14 measured from level ground's own `n·l`. Plains stay one tone; crater
+walls, berms, pit cuts and the far side of a boulder read as bands. The
+terrain and the ring also **posterise** the brightness in linear steps of
+0.014 (hue untouched, each edge a hair soft), so the ground reads as painted
+patches instead of a smear.
+
+### 3.2 The key and the fill (`world/celLighting.ts`)
+
+One `DirectionalLight` key and one `HemisphereLight` fill; nothing else. No
+shadow map, no point lights. Levels in albedo units.
+
+| | Day | Night |
 |---|---|---|
-| Sanitiser | NaN or Inf in any channel → opaque black; the rest clamped to 0 … 32 000 (bloom's +0.6× on top stays under the half-float ceiling of 65 504; AgX saturates near 16, so the clamp is invisible). The test reads the exponent bits, so no fast-math compiler can fold it away | inside N8AO's composite, which already reads the scene once per pixel; a pass of its own at FX 0 when N8AO is absent or its anchors moved |
-| N8AO hardening | the fog factor starts at 0 (N8AO reads it uninitialised when the scene has no fog — ours has none); a NaN AO value or upsample weight leaves the pixel unoccluded, not black | same patch, re-applied whenever N8AO rebuilds its composite |
-| Shader guards | the regolith normal never normalises a zero vector; `sqrt` and the flood falloff never see a negative or 0/0 | `terrainShader.ts`, `floodlights.ts` |
-| Capability floor | boots below FX 0 when this GPU cannot run it (below) | `fxcaps.ts`, at boot |
+| Key | the sun's azimuth, elevation lifted into **22–48°** (the game's sun never climbs past 32° and grazes the pole; with no shadows to betray it a higher light reads the relief better); warm white (1.0, 0.97, 0.92) × 1.05, golden (1.0, 0.80, 0.58) while the true sun is under about 14° | earthshine from Earth's side of the sky (lifted to ≥ 35°), (0.16, 0.22, 0.38) |
+| Fill (sky / ground) | (0.34, 0.37, 0.43) / (0.24, 0.215, 0.19) | (0.06, 0.085, 0.15) / (0.018, 0.024, 0.04) |
+| Clear colour (the sky) | `#020306` | `#010204` |
 
-With nothing wrong, the hardened chain draws exactly the stock chain's
-frame (`setFxHardening(false)` in tests).
+The two blend on the night factor, the key's direction weighted by the two
+strengths. The true sun still drives the day/night clock, the solar wings and
+the rover decals. The clear colour is kept under the black-frame probe's
+r+g+b ≤ 12 (`BLACK_SUM`), so a frame with no ground still probes black.
 
-**The capability floor.** Extensions say what a driver claims. FX 0's needs
-are also tried once at boot: a 4×1 half-float target is drawn with values
-past 1 and a small one, blended on, sampled between two texels with linear
-filtering, and read back. Two tiny draws.
+### 3.3 Blob shadows
 
-| Level | Needs | Missing → boot at |
-|---|---|---|
-| FX 0 | `EXT_color_buffer_float` (or `_half_float`) and the half-float probe: render, blend, linear filter, read back | FX 1 |
-| FX 0–1 | `EXT_color_buffer_float`: N8AO's R32F depth and RGBA16F targets | FX 2 |
-| FX 2 | WebGL2 only | — |
+The game draws no shadow map, so soft dark blobs ground things:
 
-`OES_texture_float_linear` is not needed by any level: the only 32-bit
-float texture (N8AO's depth) is sampled nearest, and linear filtering of
-half-float is core WebGL2. The report lists it. A floor never marks a level
-failed or changes the stored level; the menu says why the level is lower.
-
-**The FX self-check** (`world/fxcheck.ts`). The sentinel knows only black.
-The self-check compares instead. It runs on the first frames of play, after
-every level change (so a failed rung's successor is checked too) and on
-leaving safe mode, at FX 0–2:
-
-1. **Chain** — the frame on the canvas, copied to a texture, mipmapped on
-   the GPU, one mip level read back (~80 px wide, box-filtered).
-2. **Plain** — the same scene, camera and shader programs drawn straight
-   into a small 8-bit sRGB target at 4× that size (no AO, no bloom, no
-   half-float), box-filtered, then tone-mapped on the CPU as the final pass
-   does: exposure 1.1, AgX, the grain's mean, the vignette. Same programs:
-   nothing compiles.
-3. **HDR** — the same again into a half-float target, read back as floats:
-   the scene buffer's own NaN, Inf and negative shares and its peak.
-
-Compared in 6×6-pixel tiles. A level fails on any of:
-
-| Test | Fails when |
-|---|---|
-| NaN / Inf | ≥ 0.5% of the scene buffer |
-| Black where plain is lit | ≥ 25% of the tiles plain lights (≥ 6/255) drawn near-black (< 3/255 and < 30% of plain) |
-| Bright where plain is dark | ≥ 8% of tiles drawn > 2 × plain + 30/255 (plain < 150/255) |
-| Flat where plain has detail | ≥ 35% of the tiles with spread ≥ 8 drawn with spread < 1.5 |
-| Mean luminance | outside × 0.35 … × 3 of plain |
-| Histogram | 8-bin L1 distance > 1.1 |
-
-Fewer than 4 lit and 4 detailed tiles is inconclusive, retried in 120
-frames. A failure is a failed level, as a black frame is: a raise on trial
-goes back, anything else steps one rung down, with the console line
-`[MOONSHOTS] FX self-check: level N failed (…)`. The thresholds leave wide
-margins on SwiftShader's correct FX 0–2:
-
-| | lost | flat | mean × | histogram |
-|---|---|---|---|---|
-| Correct, day / dusk / night, 4 views × FX 0–2 | 0 | ≤ 0.03 | 0.87 – 0.99 | ≤ 0.14 |
-| `player` break (black ground, grey hulls) | 0.46 – 0.78 | — | 0.38 – 0.67 | ≤ 1.65 |
-| `zero` break (black landscape) | 0.58 – 0.92 | ≤ 0.5 | 0.09 – 0.29 | ≤ 1.83 |
-| `nan` break (NaN hulls) | NaN 1–7% of the buffer | | | |
-
-Cost: two small scene renders and three small readbacks, once. The readback
-waits for the frame, so it drops about one frame on a real GPU (1–4 s on
-SwiftShader, which draws on the CPU).
-
-**The render report.** Menu → Graphics → *Copy render report* puts JSON on
-the clipboard and prints it to the console (`[MOONSHOTS] Render report`):
-
-- the GPU strings (the context's own, and the unmasked ones where the
-  browser gives them) and the user agent;
-- WebGL2, the chain's extensions (each true or false), shader float
-  precision, texture and sample limits, context attributes;
-- the level, the ladder, the stored level, the player's pick, failed
-  levels and why, the trial, the sanitiser's place, the capability floor
-  and the half-float probe's reading;
-- safe mode, the patch variants, a patch fault;
-- the last 8 self-check results, the black-frame verdicts;
-- the render log: a ring of 40 — three.js shader errors and warnings, GL
-  errors (polled at each check and at the report), level changes and
-  self-check results.
-
-`tests/fxcheck.spec.ts` holds all of this: the self-check passes FX 0 at
-boot, by day, at dusk and at night; the `player` and `zero` breaks (with the
-sentinel held off) step FX 0 → 1 → 2, logged, each rung checked; NaN stays
-on the hulls with the sanitiser and blackens the frame without it; the
-hardened chain draws the stock chain's frame; the floor boots at FX 1 when
-the half-float probe fails and at FX 2 without float targets; and the menu
-button's JSON carries every field above.
-
-Moving things (§7) add exactly one patch (`dust`); everything else reuses
-existing programs or stock unlit materials, and each part of the motion
-layer fails soft — an exception hides that part and the game carries on.
-`tests/render.spec.ts` walks all five rungs, by day and by night, and checks
-the motion layer at FX 0, FX 3 and in safe mode, and the base's own light
-(a pole structure in the rim's shadow lit by day, discs on the stock path,
-a sunlit mare base with no flood live, the fade at nightfall, an unpowered
-structure dark at any *k*); it also holds the safety
-contract above — safe mode plain with the sentinel on, a return to a patched
-level with live uniforms (FX 0 → 3 → 0, then night), night and dusk probes,
-raise trials and the remembered failures, one scene render a frame, and the
-page a browser without WebGL2 gets.
+- **Structures**: contact decals (`buildings/contactDecals.ts`), one merged
+  mesh, a nine-slice per footprint (full from 1.2 m inside it, feathered to 0
+  by 1.0 m outside), black at 30%, draped on the ground.
+- **Rovers and hub units**: a decal smeared down-sun, `min(7 m, 1.4 m / tan
+  elev)` long, 0.5 × the sun's light (0.45 for a hub unit).
+- **Boulders**: a soft radial blob under every rock (one instanced draw per
+  rock set).
 
 ---
 
-## 5. Terrain: real crater geometry (`src/terrain/heightfield.ts`)
+## 4. Ink (`world/ink.ts`)
+
+### 4.1 Outlines
+
+Every instanced class has an outline: buildings, rovers, drones, survey
+drones, hub units (per unit key), EVA walkers, the cargo lander, the work kit,
+the trackers (solar wings, dishes) and the links. It is an **inverted hull**,
+not a screen-space pass: no render target, MSAA kept.
+
+| Constant | Value |
+|---|---|
+| Width | `px` of the variant (B: 1.5), constant on screen: the push is `px · depth · 2·tan(fov/2) / viewportH` metres (about 0.10 m at the 170 m home distance, 0.49 m at 830 m), made in world space so the kit's scaled pieces get the same width |
+| Ink by day | `#141618` |
+| Ink by night | `#06080b`, lerped in with the building night level (`uBldNight`) |
+| Variant C | each vertex's own cel colour darkened 60%, so trim keeps its family accent in the line |
+| Detail fade | a part's ink is `smoothstep(2, 10, part size on screen in px)` (`FADE_PX`): rails, ladders and window frames become lines and a far building is not a black blot; big parts always get the full width |
+| Corners | `oDir`, the mitre of the faces meeting at a vertex, moves each face by exactly one width (capped at two), so box corners do not open |
+| Print cut | the outline keeps the source's print cut, so a half-printed building shows its hollow interior in ink up to the cut and grows no full-height line |
+
+The twin is a child of its source (`inked(mesh, 'label')`): it hides, moves and
+is removed with it, and it reads the source's geometry, matrices and count
+through live getters, so a geometry swap for an upgrade needs no re-pointing. A
+new instanced class adds one line. `__game.setInkVariant('A'|'B'|'C'|null)`
+overrides the constant for screenshots and tests.
+
+### 4.2 Cost and fault
+
+Outlines add one draw call per structure type present plus one per other
+instanced class, and about 13% triangles (§16). They are not frustum-culled
+(the source's own draw is), so an off-screen structure still pays its
+vertices. The program carries `MBB_INK`; if it fails to compile the outlines
+are hidden for the session and the game carries on (§15). Safe mode hides them
+too.
+
+### 4.3 Lines on the ground
+
+`drapedLine(points, kind)` draws a real 1 px line (`THREE.Line`), draped on
+the heightfield a little proud of it, depth-tested and never written.
+
+| Kind | Used for | Colour |
+|---|---|---|
+| `bench` | pit bench lines | the cut's own dark `#3a2c1a` |
+| `rim` | a pit's rim in the deposit highlight (§9) | ink, recoloured white by the highlight |
+| `grade` | a grading site's dashed outline | ink |
+| `road` | the road network's edge, one line a boundary loop | ink |
+
+---
+
+## 5. Silhouettes and best sides (`buildings/recipes.ts`)
+
+Zero modeled assets: every one of the **29 building recipes** (26 of them
+placeable: the Excavator and the Ice Miner are hub units and the Ice Harvester
+is retired) is merged from the parametric kit (§6), and the survey drone is the
+thirtieth model. `tests/silhouettes.spec.ts` walks `Object.keys(BUILDINGS)`
+and asserts the rules below.
+
+**Best side.** A recipe's base sits at y = 0, centred on its footprint, and
+its **front is +z**: `frontDir` (`core/roads.ts`) is +z rotated by the
+building's `rot`, the road ends at the door cell on that face, and the home
+camera (yaw 45° + k·90°, looking from +x, +z at rotation 0) sees it. Most
+recipes put their airlock there; the refinery's, lab's and mass driver's door
+meshes are on the −x end and the reactor's annex door faces −z (the road door
+is `doorCell`, not the mesh). A recipe's tall identifier is on the camera's
+side of the footprint where it can be.
+
+**One tall identifier per recipe**, 5 to 16 m, readable at far zoom, carrying
+the family accent on small `TRIM` parts or `BAND` parts (rings round a tower, a
+roof stripe, a hull band). The spec asserts each recipe's own bounding box (no
+two within half a metre on every axis), that its trim is exactly its family's
+accent, that an accent vertex reaches into the top half of the recipe, and
+that it stands at least 4.4 m.
+
+| Recipe (family) | Footprint | Height (m) | Identifier |
+|---|---|---|---|
+| Lander (life) | 3×3 | 14.9 | green bands on the hull, the antenna mast |
+| Solar Array (power) | 2×2 | 5.6 | a sun-sensor mast with an amber pennant (the wings are separate trackers) |
+| Battery Bank (power) | 2×1 | 6.2 | the middle cabinet stacks to three blocks |
+| Reactor (power) | 3×3 | 11.8 | a hyperbolic cooling tower with a white plume |
+| Regolith Smelter (extraction) | 3×2 | 10.3 | twin stacks, ochre bands |
+| Silicon Refinery (extraction) | 3×2 | 7.9 | three domed columns, their bands the accent |
+| Water Management Plant (extraction) | 3×2 | 11.6 | a frosted cold-trap dome and one condenser tower with ochre rings (§7) |
+| Storage Yard (industry) | 2×2 | 9.2 | a tower crane |
+| Robotics Bay (industry) | 2×2 | 8.8 | a print-arm tower |
+| Parts Fabricator (industry) | 2×2 | 10.0 | an exhaust stack |
+| Chip Fab (industry) | 3×2 | 9.2 | twin stacks rising to 9 m |
+| Drone Hive (industry) | 3×3 | 8.8 | a landing mast over the honeycomb |
+| Habitat (life) | 2×2 | 9.3 | a lamp spire |
+| Hydroponics Farm (life) | 2×3 | 11.3 | a nutrient silo |
+| Recreation Dome (life) | 3×3 | 14.0 | a flag mast |
+| Greenhouse Ring (life) | 4×4 | 11.2 | a sun tower over the ring |
+| Garden Dome (life) | 5×5 | 12.0 | green terrace bands on a 10 m dome |
+| Lab (science) | 2×2 | 7.8 | a dish on a lattice tower (`MOUNTS.lab` at y 7.75) |
+| Data Center (science) | 3×3 | 12.3 | a chiller tower |
+| Relay Mast (science) | 1×1 | 12.3 | a mast with rings |
+| Prospecting Bay (science) | 2×2 | 10.5 | a mast with a blue radar array |
+| Solar Observatory (science) | 2×2 | 6.9 | a slit dome on a 5 m pier |
+| Server Monolith (science) | 2×2 | 16.0 | blue bands across a near-black slab |
+| Foil Factory (export) | 3×3 | 13.2 | a foil-drawing tower with a gold spool |
+| Mass Driver (export) | 6×2 | 6.9 | accent stripes across the rail, its muzzle ring (22.9 m long) |
+| Propellant Plant (export) | 3×2 | 10.9 | a flare stack |
+
+(The Excavator, the Ice Miner and the Ice Harvester recipes are the legacy
+pad models: 4.4, 5.3 and 6.7 m.) Heights are the base recipe; research parts
+grow on top of it and sit where they did (`buildings/upgrades.ts`).
+
+**Silhouette grammar.** The accent says the family; the outline says the
+building:
+
+| Silhouette | Reads as | Examples |
+|---|---|---|
+| Dome | life | Habitat, Recreation Dome, Garden Dome |
+| Stack, tower and column | industry and extraction | Smelter's twin stacks, Refinery's columns, the fabs |
+| Vault | growth | Hydroponics, the Greenhouse Ring's vaults |
+| Tilted plane | power | the Solar Array's wings |
+| Cooling tower and stacked blocks | power | Reactor, Battery Bank |
+| Rail | export | the Mass Driver, where the capsules leave |
+| Dish and mast | science | Lab, Relay Mast, Data Center, Prospecting Bay |
+| Spire | arrival | the Lander, the tallest thing you own on day one |
+| Low box on tracks or wheels | work | rovers and diggers: small, many, always moving |
+
+**Restraint rules** (Rams, applied to geometry):
+
+- Greebles are load-bearing only: a chimney says furnace, an airlock box says
+  "people enter here", a mast says comms. No detail that does not explain the
+  building.
+- Bases sit on a flattened pad with a smoothed 1-sample skirt, so a building
+  meets the ground the way the LM footpads do: flat object, soft transition.
+- A part is at least 1 m tall or wide, so it reads from the home distance
+  (docs/13 §4).
+
+---
+
+## 6. Parametric building language (`buildings/meshKit.ts`, `recipes.ts`)
+
+Every recipe is merged from a small kit:
+
+- **Primitives**: `box`, `cyl` (cylinder, cone, tank), `dome`, `domeBand`
+  (window belts, skylights), `vault` (half-pipe greenhouse), `archWall`,
+  `berm`, `lathe` (dish shells, cooling towers), `bar` and `pipe` (members
+  between two points), `strut`.
+- **Load-bearing details** built from them: `door` (frame, recessed leaf,
+  porthole, lamp, sill), `pane`, `windowStrip`, `windowRing`, `rail`
+  (handrails with posts and knee rails), `radiator`, `antenna` (with a
+  blinking beacon), `lattice` (masts, derricks), `ladder`, `cableTray` and
+  `junction`, `bands`, `ring` (an accent ring round a tower).
+- Each part is baked with a **Finish**: its grey value into vertex colours,
+  its response and emissive id into a per-vertex `mat` attribute. UVs are
+  deleted (no textures), normals recomputed. One geometry plus one material is
+  **one `InstancedMesh` per building type: one draw call per type** (cap 96
+  instances a type). A recipe is 370 to 2,450 triangles at the base. The
+  rovers and the cargo lander are built from the same kit and draw with the
+  same program.
+- **Moving parts** are instanced apart (`buildings/trackers.ts`): solar wings
+  yaw to the sun's azimuth and tilt to its elevation every time it turns
+  0.1°, and dishes on the Lander, Lab, Relay Mast and Data Center hold on
+  Earth. Picking maps a hit on a part back to its building.
+- **The building program** (`celBuilding.ts`) reads per-instance state
+  `iState = (lit, dust, wear, cut)`: dust greys the PV glass, wear darkens
+  (−30% at full wear), windows and lamps glow at their light level `iGlow`
+  (−1 = follow the night, for rovers and moving parts), and `iAlarm` flickers
+  them red (§12.2).
+- **Construction is a 3D print**: fragments above the cut height (progress ×
+  recipe height) are discarded under a warm band 0.14 m deep at the print head, and the outline
+  keeps the same cut
+  (§4.1). A line scaffold stands over the site and a construction rover works
+  at its wall (§10).
+
+---
+
+## 7. Units (`buildings/recipes.ts unitRecipeGeometry`, `world/haulers.ts`, `world/rovers.ts`)
+
+The hubs' diggers and the survey drone are their own models, told apart by
+shape first and livery second. A hub unit is drawn by `world/haulers.ts`, one
+`InstancedMesh` per **unit key** (`excavator:pad`, `excavator:smelter`,
+`excavator:refinery`, `excavator:waterPlant`, `iceMiner:waterPlant`), each
+with its ink twin. All are scaled to **3.0 m across the tracks**
+(`UNIT_WIDTH_M`, `UNIT_BODY.hw` 1.5) and keep the excavator's frame (the
+wheel leads +x, the rig rides z = +0.7), so the rig's motion is shared.
+
+| Unit | Model | Livery |
+|---|---|---|
+| **Smelter digger** (`excavator:smelter`, 944 △) | the excavator with an open ore bin on its back deck and a heap in it | paper body, ochre band along the hull |
+| **Refinery digger** (`excavator:refinery`, 870 △, 5.4 m tall) | a covered hopper with a gabled lid, a ridge stripe and hatches, a domed cab, a taller whip, slate tracks | quartz-white body, violet band |
+| **Ice miner** (`iceMiner:waterPlant`, 848 △, 5.3 m tall) | a cyan crawler with an insulated foil tank across the back, cyan straps, a cab at the front left, slate tracks; its rig is a broad boom and a ten-slat cutter drum (`ICE_BOOM`, `iceDrum`), a second row of teeth with Heated Augers | cyan body, cyan band |
+| Legacy pad digger and a water plant's excavator (784 △) | the plain excavator | `LIVERY_DEFAULT` |
+| **Survey drone** (`surveyDroneGeometry`, about 160 △) | a flat delta wing, nose +z, paper-white top with teal leading edges and a teal sensor pod slung under it, a glazed canopy, two canted fins, a nose lamp; no rotors: it flies, it does not perch on a deck | teal `#2fb3a6` |
+| Construction rover | a low box on wheels with a print arm | logistics slate |
+| Drone Hive drone | a quadcopter, cold light, a hover and a circle | industry violet |
+
+The two hub diggers and the ice miner differ in **triangles and bounds**
+(`silhouettes.spec` asserts it), and each carries its lane's upgrade parts
+(dust skirts, a cold-trap canister, a heater pack and a sensor mast for the
+ice miner, `LANE.iceMiner`). A digger's rig wears its livery: the band on the
+trim, the body's white.
+
+---
+
+## 8. Terrain: real crater geometry (`src/terrain/heightfield.ts`)
 
 The heightfield is 257×257 samples over a 1,024 m map (4 m cells), fBm base
-plus **explicit craters using real simple-crater morphology** — the terrain is
-not "noise that looks lunar," it is parameterized crater physics:
+plus **explicit craters using real simple-crater morphology**: the terrain is
+parameterised crater physics, and the same list drives the colour (§2.4), so
+floors darken and rims brighten from one source.
 
 | Component | Formula (as shipped) |
 |---|---|
 | Rolling regolith | 4-octave fBm @ 1/700 m, amplitude `9 × site.roughness`, + 2-octave detail @ 1/90 m |
-| Crater sizes | power law: `r = 8 + rng^2.2 × (craterMaxD/2)` — many small, few large |
+| Crater sizes | power law: `r = 8 + rng^2.2 × (craterMaxD/2)`: many small, few large |
 | Bowl | parabolic: `h += depth × (d² − 1)` for d < 1, where `depth = D/5 × 0.35` (true depth ≈ D/5, scaled 0.35 so slopes stay walkable at game scale) |
 | Rim | gaussian: `h += rimH × exp(−(d−1)²/(2·0.12²))`, where `rimH = 4% of D × 0.6` |
-| Ejecta blanket | `h += rimH × d⁻³` for 1 < d < 3 — the real radial falloff law |
-| Landing-zone exclusion | crater centers rejected within `90 m + r` of map center (up to 20 retries), so every site opens with a buildable heart |
+| Ejecta blanket | `h += rimH × d⁻³` for 1 < d < 3, the real radial falloff law |
+| Landing-zone exclusion | crater centres rejected within `90 m + r` of the map centre (up to 20 retries), so every site opens with a buildable heart |
 | Lava-tube skylight | one authored deep pit (r 34 m, depth 26 m, rim 2.5 m) at (150, 110) on the Marius Hills site |
 
-The same crater list drives the **albedo** (§2): floors darken (mare basalt),
-rims brighten (freshly exposed ejecta) — geometry and color always agree
-because they come from the same source.
-
-Chunking (`terrain/chunks.ts`): 8×8 chunks that share edge samples with
-their neighbors, so flattening a building pad rebuilds at most 4 chunk meshes
-and never opens a crack. The chunks cast and receive sun shadows (§3).
-
-**Regolith shader** (`terrain/terrainShader.ts`, patched in through
-`onBeforeCompile`, so the stock shader is always one removal away):
-
-- **Micro-relief** — at first use a 512² tiling texture is generated: three
-  octaves of value-noise grain plus 1,600 craterlets with a cumulative
-  N(>r) ∝ r⁻² size law (bowl + gaussian rim; fresh ones get dark floors and
-  bright rims). It holds detail slopes and an albedo offset and is sampled
-  at two world scales — a 41 m tile (rotated 37°) for 0.2–3.5 m craterlets
-  and a 7.3 m tile for grain and pits — perturbing the normal and albedo.
-  Each scale fades out by pixel footprint (`fwidth`) and distance before it
-  can shimmer.
-- **Lunar photometry** — the direct diffuse term is McEwen's lunar-Lambert
-  (Lambert blended with Lommel–Seeliger by phase angle, which gives the Moon
-  its flat, limb-bright look) times a Hapke-style opposition surge
-  (B₀ 0.8, h 0.07): the bright halo around the anti-solar point, i.e. around
-  your own shadow. μ is floored at 0.05 so the blend never divides by zero
-  at grazing view angles. It applies to every direct light.
+**Chunks** (`terrain/chunks.ts`): 8×8 chunks (32×32 cells, 2,048 triangles
+each: 64 chunks, 131 k triangles) that share edge samples with their
+neighbours, so flattening a pad rebuilds at most four chunk meshes and opens no
+crack. Every vertex *is* its heightfield sample and every triangle its own
+three vertices with a face normal: the faceting comes from the geometry, not
+from derivative shading. Measured against `hf.sample`, seed 42, the
+triangulated surface departs from the bilinear sample by at most 0.12 m on the
+mare, 0.22 m at the pole and 0.23 m in the lava tube (on crater walls), and by
+nothing on pads. At the end of `buildGeometry` a `decorate` hook
+(`terrain/pitLook.ts`, §9) adds what a cut or a heap paints; a chunk with
+nothing carved returns at once.
 
 **Horizon ring** (`terrain/horizon.ts`): one mesh from the map's square edge
-out to ~12 km that continues the analytic terrain (fBm, the map's craters,
-plus three far-only craters per map crater), so the world ends in a horizon
-instead of a lip. Its inner row *is* the map edge — the same grid samples,
-heights, normals and albedo as the border chunks — so the seam is watertight
-with nothing overlapping (no z-fighting, no discard shader). Rows step
-outward geometrically (×1.13; 4 m at the edge, ~0.8 km at the rim) and thin
-from 1,024 to 256 around: one draw call, ~43 k triangles. Past the edge the
-ground drops by d²/2R with R = 50 km — the Moon's curvature compressed ~35×,
-so the horizon "curves away too soon," as in the Apollo frames.
+out to about 12 km that continues the analytic terrain (fBm, the map's
+craters, plus three far-only craters per map crater), so the world ends in a
+horizon instead of a lip. Its inner row *is* the map edge (the same samples,
+heights, normals and colour as the border chunks), so the seam is watertight.
+Rows step outward geometrically (×1.13; 4 m at the edge, about 0.8 km at the
+rim) and thin from 1,024 to 256 around: one draw call, about 43 k triangles.
+Past the edge the ground drops by d²/2R with R = 50 km, the Moon's curvature
+compressed about 35×, so the horizon curves away too soon.
 
-**Boulder scatter** (`terrain/rocks.ts`): instanced procedural rocks for
-scale and depth cueing in a fog-free world. Two noise-displaced polyhedra
-(a 36-facet dodecahedron below 1 m, an 80-facet icosahedron above), varied
-by rotation, squash (0.6–0.95) and albedo; tilted partly with the slope and
-buried on the downhill side. Sizes follow truncated power laws — a background
-field (0.25–2 m, N(>D) ∝ D⁻²) swept thin within 45 m of the landing site, and
-blocks crowding every crater (`2 × rockiness × r^1.3` of them, 0.4 m up to
-`min(4, 0.3 + 0.06 r)` m, N(>D) ∝ D⁻¹·⁷) — most just outside the rim, 15%
-slumped down the wall. Small rocks are refilled within 300 m of the camera
-(every 20 m of travel); large ones are static and the only ones that cast
-shadows. Pads and graded patches clear what they cover and resettle the rocks
-on their skirts. Two draw calls, one more in the shadow pass.
+**Boulder scatter** (`terrain/rocks.ts`): instanced procedural rocks for scale
+and depth cueing. Two noise-displaced polyhedra (a 36-facet dodecahedron below
+1 m, an 80-facet icosahedron above), varied by rotation, squash (0.6–0.95) and
+colour. Sizes follow truncated power laws: a background field (0.25–2 m) swept
+thin within 45 m of the landing site, and blocks crowding every crater. Small
+rocks (under 1 m) are refilled within 300 m of the camera every 20 m of travel
+and at half density; large ones are static. Two draw calls, two more for their
+blobs. Pads and graded patches clear what they cover and resettle the rocks on
+their skirts.
 
 ---
 
-## 6. Parametric building language (`src/buildings/meshKit.ts`, `recipes.ts`)
+## 9. The pit look (`terrain/pitLook.ts`, `world/depositHighlight.ts`, `data/balance.ts PIT`)
 
-Zero modeled assets. Every one of the 25 structures (24 buildable, the four
-destiny buildings among them, + the Lander) is merged from a tiny parametric
-kit:
+A pit must stand out from the ground it was cut from, and say what state it
+is in. Everything is **baked into the chunk's vertex buffers** (no extra draw
+call: `terrain.chunks` stays 64) and rides the pits' rebuild queue; a 40,000 m³
+pit rebuilds in about 40 ms.
 
-- **Primitives**: `box`, `cyl` (cylinder/cone/tank), `dome` (half-sphere),
-  `domeBand` (window belts, skylights), `vault` (half-pipe greenhouse),
-  `archWall`, `berm`, `lathe` (dish shells), `bar`/`pipe` (members between
-  two points), `strut`.
-- **Load-bearing details** built from them: `door` (frame, recessed leaf,
-  porthole, lamp, sill), `pane`/`windowStrip`/`windowRing`, `rail`
-  (handrails with posts and knee rails), `radiator`, `antenna` (with a
-  blinking beacon), `lattice` (masts, derricks), `ladder`, `cableTray` +
-  `junction`, `bands`.
-- Each part is baked with a **Finish**: its value into vertex colors, its
-  roughness / metalness / emissive id into a per-vertex `mat` attribute.
-  UVs deleted (no textures anywhere), normals recomputed. The destiny adds
-  one finish, `LEAF` (foliage under glass; §13). One geometry + one
-  shared material = **one `InstancedMesh` per building type = one draw call
-  per type** (cap 96 instances/type). 500–2,800 triangles per building. The
-  rovers (436 triangles) and the cargo lander (720) are built from the same
-  kit and draw with the same material and program.
-- **Moving parts** are instanced apart (`buildings/trackers.ts`): solar
-  wings yaw to the sun's azimuth and tilt to its elevation every time it
-  turns 0.1° (near-vertical under the pole's grazing sun, folded flat below
-  the horizon), and dishes on the Lander, Lab, Relay Mast and Data Center
-  hold on Earth. Picking maps a hit on a part back to its building.
-- **Building shader** (`buildings/buildingShader.ts`, FX 0–2): per-vertex
-  finishes; fwidth-antialiased panel seams every 1.2 m in object space on
-  the face-tangent axes (−12%, faded under a pixel and past 80–160 m);
-  per-instance state `iState = (lit, dust, wear, cut)`: dust grays and
-  mattes the glass, wear darkens, windows and lamps glow when lit and the
-  structure stands dark (§3, the base's own light), beacons blink on a clock
-  the frame loop advances (`uBldTime`, real time, so they keep blinking
-  while the game is paused).
-- **Construction is a 3D print**: fragments above the cut height
-  (progress × recipe height) are discarded with a warm band at the cut, and
-  a matching patched `customDepthMaterial` cuts the shadow the same way. A
-  line scaffold (standards, a ledger every 2 m lift, alternating braces)
-  stands over the site, and a construction rover works at its wall (§7).
-  FX 3 and safe mode keep the squash-rise + dim.
+| Part | Look |
+|---|---|
+| Benches | the cut is split on the odd metres of depth (1, 3, 5 …, the mid-wall of each 2 m bench step) and coloured flat by band: **ochre `#c9a06a`** for odd bands, **dark ochre `#a7833f`** for even ones, band 0 keeping the ground's colour. The two are 32/255 of luminance apart and survive the ground's two steps and its 0.014 posterising by day and at night |
+| Floor | `#8f7a5a`: the pit's flat floor triangles. It is close to the mare's ground by design (20/255 apart) and sits inside ochre walls |
+| Contours | an ink ribbon `PIT.benchBand` 0.25 m wide, `PIT.contourLift` 0.05 m proud of the face, along every cut, in `#3a2c1a`: one ring per bench, so the ribbons' levels number the benches. The width is a world constant: about 3.7 px at the home zoom, under 1 px at 830 m, where the palette carries the bench |
+| Ramp | a causeway the sim leaves standing (1:4, `rampHalfW` 4.5 m either side of its line), drawn as a lighter tread `#dcc48e` edged in contour ink, carrying an arrow (`#141618`, a shaft and a head at most 14 m long, lifted 0.07 m) pointing down the ramp; a tread under 4.5 m has none |
+| Heap | `#6f665c`, outlined in `#2b2722` where it is 0.5 m high (`heapFootH`) and cross-hatched in `#43392f` every 3.6 m along the world diagonals (`hatchM`, `hatchW` 0.13), continuous across triangles and chunks; graded spoil is plain ground again |
+| Rim | in the deposit highlight, `drapedLine(…, 'rim')` along the real cut contour (the outermost point of the first bench's line, 96 rays), white; its heap's outline is the real foot, dashed. The circle is the fallback when the grid holds no cut there |
 
-**Silhouette-first identity.** In a monochrome world, shape is the only
-nameplate, and the shape grammar is consistent:
+The cut differs from the ground it was cut from by at least 40/255 in one
+channel for nine samples in ten (measured: the 10th percentile 48, the median
+72; the floor is the exception).
 
-| Silhouette | Meaning | Examples |
-|---|---|---|
-| Dome | life | Habitat, Recreation Dome, reactor cap |
-| Tank / stack | industry | Smelter chimneys, Refinery columns, Reactor drum |
-| Vault | growth | Hydroponics half-pipe |
-| Tilted plane | power | Solar Array wing |
-| Rail | export | Mass Driver's inclined rail — the endgame, and where the capsules leave |
-| Spire | arrival | The Lander's stacked cone + antenna, tallest thing you own on day one |
-| Low box on wheels | work | the construction rovers — small, many, always moving |
+**End states** (`PitMarks`, always on, whatever is selected). A pit in state
+`exhausted`, `boxed` or `reclaimed` carries a dashed ring 3.5 m outside its
+rim and a flag beside the ramp, on the rim: two meshes in all, none when no pit
+is in an end state. Shape and pattern say the state as well as colour
+(`PIT_END`):
 
-**Restraint rules** (Rams, applied to geometry):
+| State | Colour | Flag | Ring dash (on, off in m) | Chip |
+|---|---|---|---|---|
+| EXHAUSTED | amber `#e8a72d` | banner | 3, 2 | EXHAUSTED |
+| BOXED IN | red `#d9503f` | pennant | 1.2, 1.2 | BOXED IN |
+| RECLAIMED | green `#66ad4b` | swallow-tail | 2.4, 2.4 | RECLAIMED |
 
-- Three values per building, ever (§2).
-- Greebles are load-bearing only: a chimney says furnace, an airlock box says
-  "people enter here," a mast says comms. No detail that doesn't explain the
-  building. Chamfer/bevel detail was considered and deferred with the edge
-  pass (§11) — at gameplay camera distance, AO in the primitive intersections
-  does the work.
-- Bases sit at y = 0 and are placed on a flattened pad with a smoothed 1-sample
-  skirt, so buildings meet the ground the way the LM footpads do: flat object,
-  soft ground transition.
+The hub highlight's label chips take the same colours and keep their words
+(docs/07 §4). The flags are 5.8 m tall with a 0.3 m pole and an ink outline.
+A graded pad has no look of its own yet.
 
 ---
 
-## 7. Motion and life (`src/world/life.ts`)
+## 10. Motion and life (`src/world/life.ts`)
 
-A base that only casts shadows reads as a diorama. Everything that moves on
-its own is one module the frame loop calls once, and every motion is a
-visible *game rule* — the fleet size, who is building what, which machines
-are running, when a volley or a shipment happens. Nothing here changes the
-simulation; it only reads the state.
+A base that only sits reads as a diorama. Everything that moves on its own is
+one module the frame loop calls once, and every motion is a visible *game
+rule*: the fleet size, who is building what, which machines are running, when
+a volley or a shipment happens. Nothing here changes the simulation; it only
+reads the state.
 
 **Construction rovers** (`world/rovers.ts`). One instanced rover per unit in
-the sim's roster (`state.rovers`), docked at the structures that supply them
-(two at the Lander, three per Robotics Bay). A docked rover parks nose in on
-a bay beside its dock's door, two to a bay cell, each in its own slot; a dock
-out of bays keeps the rest inside. A rover with work drives out along the
-roads (docs/15) in the right-hand lane — 4.5 m/s cruise on a sintered road,
-faster with each roadway tier, 3 m/s², 2.4 rad/s turn limit — backing out of
-its bay first and turning on the spot where its way sets off away from its
-heading. It works at its site's door (or at the frontier of the road it
-sinters), and the work shows (§7.1) — and drives home to park when the work
-is done. The ground traffic
-(`world/traffic.ts`) shares the road cells out, so rovers queue, pass in
-opposite lanes and give way to excavators. The chassis sits on the
-heightfield, pitched and rolled to the ground under its wheels. Motion runs
-on game time: pause freezes the fleet, ×10 speeds it up with everything else.
+the sim's roster, docked at the structures that supply them (two at the
+Lander, three per Robotics Bay). A docked rover parks nose in on a bay beside
+its dock's door, two to a bay cell. A rover with work drives out along the
+roads (docs/15) in the right-hand lane (4.5 m/s cruise on a sintered road,
+faster with each roadway tier, 3 m/s²), backing out of its bay first and
+turning on the spot where its way sets off away from its heading. It works at
+its site's door (or at the frontier of the road it sinters, or on the next
+cell of a grading box), and the work shows (§10.1); it drives home to park
+when the work is done. The ground traffic (`world/traffic.ts`) shares the
+road cells out: rovers queue, pass in opposite lanes and make way for the hubs'
+diggers, which follow the sim's own positions (docs/17 §16.2). The chassis sits
+on the heightfield, pitched and rolled to the ground. Motion runs on game
+time: pause freezes the fleet, ×10 speeds it up with everything else.
 
-- Rovers never enter the shadow map (a moving caster would re-render it every
-  frame). A soft contact decal smeared down-sun — `min(7 m, 1.4 m / tan
-  elev)` long, 0.5 × sun opacity — grounds them instead.
+**Hub units** (`world/haulers.ts`) replay the sim's own path a tick late,
+exactly, so a unit the sim holds stands where the sim stopped it. Yaw turns at
+most 90°/s, ramps are 6 m/s² up and 10 m/s² down, a 0.3 s settle on arrival
+comes before the dig or the dump shows, and no pose moves more than 1 m a
+frame at 1×.
 
-**Drones and EVA walkers** (docs/14 §4.3; §13 here). A Drone Hive's units
-fly as quadcopters, straight at 6–10 m, off the roads and out of the ground
-traffic; the Colony's EVA crew walk as suited figures on open ground only.
-The links (walkways, conveyor spines) join the buildings, bridging the roads.
+**Drones, survey drones and EVA walkers** (docs/14 §4.3; §12 here). A Drone
+Hive's units fly as quadcopters, straight at 6–10 m, off the roads and out of
+the ground traffic. **Survey drones** (docs/11 §3) lift from their Prospecting
+Bay or the Lander, fly on the prospect's bearing to the map's edge, vanish and
+return: one instanced mesh, one ink twin. The Colony's EVA crew walk as suited
+figures on open ground only. The links (walkways, conveyor spines) join the
+buildings, bridging the roads.
 
-**Regolith dust** (`world/dust.ts`). One Points cloud of 1,920 grains in 20
-pooled emitter slots (96 grains each). Each grain flies a closed-form vacuum
-ballistic — `p = p₀ + v·t + ½·g·t²`, **g = 1.62 m/s², no drag, no billowing**
-— so arcs are the long clean parabolas of the Apollo rover rooster tails,
-and every grain comes back down. The vertex shader derives each grain's
-launch from a hash of (grain, cycle), so the CPU only writes three `vec4`
-uniforms per slot (ground point and density; base velocity and horizontal
-spread; vertical spread, launch height and grain size). A moving emitter's
-grains fly relative to it — exact for a rover at steady speed whose ejecta
-keep its velocity plus a kick. Grains are 1.6–3.5 px round points that fade in
-over 50 ms and out over the last 30% of their flight. Emitters, nearest the
-camera first:
+**Regolith dust** (`world/dust.ts`). One `Points` cloud of 1,920 grains in 20
+pooled emitter slots (96 grains each), 2 px static grains from the stock points
+material, each live slot's grains parked in a low puff placed on the CPU: no
+shader program of its own. A digging unit's spoil takes its accent (75% of the
+way from the regolith grey, `TINT_SHARE`): the smelter's ochre, the refinery's
+violet, the ice miner's cyan. Safe mode shows no dust. Emitters, nearest the
+camera first: rover wheels above 0.6 m/s, a rover's print head, the hubs'
+bucket wheels while they dig, the resupply landing sheet below 28 m.
 
-| Source | When | Kick (m/s) |
-|---|---|---|
-| Rover wheels | driving > 0.6 m/s | 1.3 back (× speed), 0.9–2.3 up, ±0.7 |
-| Rover print head | welding a site: under the nozzle (§7.1) | 0.4 ahead, 0.7–2.2 up, ±1.1 |
-| Excavator bucket wheel | the excavator is running | 0.9 forward, 1.3–2.4 up, ±0.9, from 0.3 m |
-| Resupply landing sheet | engine below 28 m (six slots) | radial 5–17.5, only 0.2–2.6 up: flat and fast, as in the Apollo descent films |
-
-At FX 0–2 the motion is the `dust-gpu` patch; at FX 3 (or after a patch
-fault) the stock points material shows static puffs placed on the CPU around
-the live emitters; safe mode shows no dust.
-
-**Beacons** blink on the building shader's clock (§6) — antennas, the mass
+**Beacons** blink on the building shader's clock (§6): antennas, the mass
 driver's muzzle, rover masts, the cargo lander.
 
 **Mass-driver launch** (`world/events.ts`, fired from `Game.doLaunch` after a
-volley leaves). A white-hot capsule (×9 HDR) accelerates up the rail at
-55 m/s² (≈ 0.8 s, 44 m/s at the muzzle), lights a kick motor (30 m/s²) and
-pitches up from the rail's 10° to 36° into the black over ~1 s, for 7 s of
-flight. It drags a 1.3 s trail (a 48-vertex additive line along the flight's
-own precomputed path) and wears a constant-size glow sprite, so it stays a
-bright point after it has shrunk past a pixel. Up to three volleys fly at
-once. Real time, frozen while paused.
+volley leaves). A white capsule (an unlit colour ×9: it clips to white)
+accelerates up the rail at 55 m/s² (about 0.8 s, 44 m/s at the muzzle), lights
+a kick motor (30 m/s²) and pitches up from the rail's 10° to 36° into the black
+over about 1 s, for 7 s of flight. It drags a 1.3 s trail (a 48-vertex
+additive line along the flight's own precomputed path) and wears a
+constant-size glow sprite, so it stays a bright point after it has shrunk
+past a pixel. Up to three volleys fly at once. Real time, frozen while paused.
 
-**Earth resupply** (from `state.resupply`, whichever path ordered it). A
-cargo lander appears 12 game seconds before `arriveAt`, 220 m up and 170 m
-out on Earth's side, on a braking burn: altitude ∝ u², approach ∝ u^2.2
-(u = time left / 12 s), leaning back against its approach (up to 0.32 rad)
-and upright at touchdown. A faint additive plume frustum hangs under the
-bell (length = altitude + 0.3 m, ≤ 9 m, widening in ground effect below
-10 m); under 28 m the radial dust sheet builds. It touches down exactly when
-the economy credits the shipment, stands for 30 s — the only time it casts a
-shadow (two shadow-map requests in all) — and lifts off for 12 s. Every frame
-is a pure function of `simTime − arriveAt`, so saves, pauses and time jumps
-all land on the right frame. The pad is picked beside the Lander toward
-Earth: the first spot 36–90 m out that is 7 m clear of every footprint and
-level to 1.2 m.
+**Earth resupply** (from `state.resupply`). A cargo lander appears 12 game
+seconds before `arriveAt`, 220 m up and 170 m out on Earth's side, on a
+braking burn: altitude ∝ u², approach ∝ u^2.2 (u = time left / 12 s), leaning
+back against its approach (up to 0.32 rad) and upright at touchdown. A faint
+additive plume frustum hangs under the bell; under 28 m the radial dust sheet
+builds. It touches down exactly when the economy credits the shipment, stands
+for 30 s and lifts off for 12 s. Every frame is a pure function of `simTime −
+arriveAt`, so saves, pauses and time jumps all land on the right frame. The
+pad is picked beside the Lander toward Earth: the first spot 36–90 m out that
+is 7 m clear of every footprint and level to 1.2 m.
 
-### 7.1 Work (`world/workAnim.ts`, `buildings/rigs.ts`)
+### 10.1 Work (`world/workAnim.ts`, `buildings/rigs.ts`)
 
 > "There's also no animation for the excavators or the rovers when they're
 > working."
 
 Every machine at work shows what it does. The motion and the light are sized
-for Classic's isometric zooms (170 and 290 m), not for a close-up.
+for the isometric zooms (100 to 830 m), not for a close-up.
 
 | Unit | At work | Otherwise |
 |---|---|---|
-| Rover welding a site | The print arm unfolds off the nose (1.2 s) and reaches 1.6–2 m out over the site. It sweeps ±0.5 rad (3.4 s), telescopes ±0.3 m (5.3 s) and bobs the nozzle. A spark at the nozzle; a warm pool at night; a regolith plume. The old shuffle, bob and wobble stay. | The arm folds back over the nose as it leaves. |
-| Rover sintering a road cell | The arm points down at the nose. A hot spot under the head, a strip cooling behind it. Stopped at the frontier, it crawls toward it (0.4 m/s, ≤ 1.2 m) and eases back as it drives on. The frontier cell glows orange as it fills; a cell that opens cools to dull red over ~8 s. | — |
-| Drone printing | Its hover and circle, a spark under the nozzle, a beam down to the print, a spark and pool where it lands. On a road job: an orange beam to the frontier, the cell glowing. | Perched: nothing. |
-| Excavator digging, home or away | The wheel turns 1.3 rad/s (a bucket every 0.6 s). The boom dips 0.05–0.13 rad into the cut and rises again (6.5 s). Spoil clods fly off the wheel's face. | Driving: the wheel still, the boom carried 0.09 rad up. |
-| Excavator unloading | A 3.2 s dump: the boom lifts 0.3 rad and falls back, the wheel turns back, clods spill off its face. | — |
+| Rover welding a site | The print arm unfolds off the nose (1.2 s) and reaches 1.6–2 m out over the site. It sweeps ±0.5 rad (3.4 s), telescopes ±0.3 m (5.3 s) and bobs the nozzle. A spark at the nozzle; a warm pool at night; a regolith plume. The old shuffle, bob and wobble stay | The arm folds back over the nose as it leaves |
+| Rover sintering a road cell | The arm points down at the nose. A hot spot under the head, a strip cooling behind it. Stopped at the frontier, it crawls toward it (0.4 m/s, ≤ 1.2 m) and eases back as it drives on. The frontier cell glows orange as it fills; a cell that opens cools to dull red over about 8 s | — |
+| Rover grading a cell | The arm swings down and forward with a blade plate on its tip and the rover creeps along the cell's row as the blade drags; a dust cloud drifts up behind it and a soft dark smear lies under the blade | The arm folds back |
+| Drone printing | Its hover and circle, a spark under the nozzle, a beam down to the print, a spark and pool where it lands. On a road job: an orange beam to the frontier, the cell glowing | Perched: nothing |
+| Digger digging (smelter, refinery, legacy) | The wheel turns 1.3 rad/s (a bucket every 0.6 s). The boom dips 0.05–0.13 rad into the cut and rises again (6.5 s). Spoil clods, in the digger's livery, fly off the wheel's face | Driving: the wheel still, the boom carried 0.09 rad up |
+| Ice miner digging | The cutter drum swings and turns on its own boom, spoil in cyan | Driving: the drum still |
+| Digger unloading | A 3.2 s dump: the boom lifts 0.3 rad and falls back, the wheel turns back, clods spill off its face | — |
 
 **The spark.** A hot core with a scale pulse, a four-point glint that turns as
 it flickers, a halo. It flickers 17 steps a second and stutters on 7% of them.
-Classic has no bloom: the core is a bright unlit colour and the pulse does the
-work. High detail's core is HDR (× 6): it blooms.
+There is no bloom: the core is a bright unlit colour and the pulse does the
+work.
 
-**Weld or sinter: the sim's word.** The sim says what each unit does at its
-stand (core/transit.ts, `RoverUnit.task`: set in the tick it welds or
-sinters, and only then). The visuals carry it on the unit:
-
-| Where | Field | Set when |
-|---|---|---|
-| `rovers.ts` `Rover.mode` | `'weld' \| 'sinter' \| null` | it stands at its stand, stopped, following the sim, and the sim has it at work |
-| `DroneFlight` `Drone.mode` | the same | it hovers over its work, and the sim has it at work |
-
-- Both reach the animations through the hooks (`roverBody`, `droneAt`) and
-  win over `WorkAnim.modeOf`. They are also `getRenderInfo().life.rovers.modes`
-  and `.drones.modes`.
-- `modeOf` (`workModeOf`) is the fallback for a unit without a mode: its
-  site's `idleReason` (`'road'` sinter, `'building'` weld, else none), or an
-  open road job (sinter).
-- No task, no work: a site waiting on power, parts or its turn, a rover on its
-  way — arm folded, no spark.
-- A rover sinters only while it stands behind the frontier, then drives on to
-  the next cell. Its arm stays down through that hop (2.5 s), and the crawl
-  eases back while it drives.
-
-**Excavators** read the haul state (core/haul.ts):
-
-| Haul | Drawn |
-|---|---|
-| `dig`, running, stopped | digging: the wheel turns, the boom dips, spoil |
-| `dig` with `full` (no room in the store: it waits at its dig spot) | still: no dig, no spoil |
-| `toDig`, `toDrop` (by road, or off-road inside a zone) | driving: the wheel still, the boom high |
-| `unload`, stopped at the unload cell | the dump |
+**The sim's word.** The sim says what each unit does at its stand
+(`core/transit.ts`, `RoverUnit.task`: `'weld'`, `'sinter'`, `'grade'`, set in
+the tick it works, and only then). The visuals carry it on the unit
+(`Rover.mode`, `Drone.mode`) and it wins over `workModeOf`, the fallback read
+from the site's `idleReason` or an open road job. No task, no work: a site
+waiting on power, parts or its turn, a rover on its way: arm folded, no spark.
+A grading rover's blade stays down while it creeps on between cells. Hub
+diggers read the haul state: `dig` running is digging, `dig` with `full` (no
+room in the store) is still, `toDig` and `toDrop` are driving, `unload` at the
+unload cell is the dump.
 
 **Two meshes for all of it.**
 
 | Mesh | Holds | Material |
 |---|---|---|
-| Kit | one unit box, ≤ 4,096 instances: rover arms (3 boxes each), excavator rigs (23; 31 with Autonomous Haulage), spoil clods (≤ 10 a digger) | the building material, both styles, safe-mode twin included; tinted per instance (trim, plate, soil), dimmed with a brownout, worn with the structure |
+| Kit | one unit box, ≤ 4,096 instances: rover arms and blades, excavator and ice-miner rigs, spoil clods (≤ 10 a digger) | the building program, tinted per instance (trim, plate, soil), dimmed with a brownout, worn with the structure; it has an ink twin |
 | Glow | one quad, ≤ 1,024 instances: sparks, glints, halos, pools, beams, sinter patches, plume puffs | unlit; light added over what it covers: `src + dst · (1 − a)` |
 
 - The glow's quad is two quads wound opposite ways. One carries a radial glow
   that only adds (sparks, pools, puffs). The other carries a soft slab that
   also covers what is under it (sinter patches, beams), so a patch reads
-  orange on a sunlit road, not just paler. Its cover fades with its colour.
-  A mirrored instance turns one quad away and the other to the camera: one
-  draw call carries both.
+  orange on a sunlit road, not just paler. A mirrored instance turns one quad
+  away and the other to the camera: one draw call carries both.
 - Each mesh draws only while it holds something, and uploads only the part in
-  use.
-- Nothing is allocated per frame. Nothing is random: every motion is a
+  use. Nothing is allocated per frame. Nothing is random: every motion is a
   function of the game clock and each unit's id. Pause freezes it; 3× and 10×
   run it at game speed.
-- Moving parts cast no shadow-map shadow (as the rovers).
+- The digger's rig (boom, stay, wheel) is boxes of the kit (`rigs.ts`); the
+  mast stays in the recipe. On a site the rig stands once the print passes its
+  top (3.6 m). Safe mode keeps the motion and the glow and drops the
+  particles (clods, plume).
 
-**The excavator's rig.** The boom, its stay and the bucket wheel left the
-recipe for `rigs.ts`, as boxes of the kit. The mast stays in the recipe.
-
-- On its pad the building instance still draws the body (its shadow, floods,
-  decal), and the rig stands on the pad's pose. Away, `haulers.ts` reports
-  the digger's pose and the rig rides it.
-- On a site the rig stands once the print passes its top (3.6 m).
-- The rest pose is merged into the placement ghost and counted in the
-  triangle budget (docs/04). Autonomous Haulage's wider bucket lips turn with
-  the wheel.
-
-**Hooks in the units** (kept small; the logic lives in `workAnim.ts`):
-
-| Where | Hook |
-|---|---|
-| `rovers.ts` draw | `roverOffset` (the weld's shuffle, the sinter's crawl) before a rover is composed; `roverBody` after |
-| `DroneFlight.draw` | `droneAt` per drone |
-| `haulers.ts` draw | `diggerAt` per digger away from its pad |
-| `life.ts` | `begin` before the units draw, `end` after; a fault drops the hooks and the units draw as before |
-
-**Styles and fallbacks.**
-
-| | Classic | High detail |
-|---|---|---|
-| Spark | bright unlit colour, scale pulse | HDR × 6: it blooms; 1.5 × the size (the 55° lens draws it smaller at the same framing) |
-| Patches, beams, pools | as authored | × 1.8 |
-| Kit | the classic palette: orange arms and rims, grey buckets, soil clods | the same finishes, lit |
-| Clods | 0.22–0.42 m cubes | × 0.85 |
-
-Safe mode and `?lowfx`: the motion and the glow stay, the particles (clods,
-plume) drop. The dust emitters fly wherever dust is on.
-
-**Cost** (measured). A busy Automation base on robotic mare (3 excavators
-digging, a rover welding, 2 drones printing, 2 drone hives, a Robotics Bay),
-Classic at 290 m and High detail at the look.spec view, `getRenderInfo().frame`;
-main = the same scene on d51e543:
-
-| | Draw calls | Triangles | Kit / glow instances | CPU (`end()`) |
-|---|---|---|---|---|
-| Classic | 45 → 47 | 176.2 k → 176.6 k | 141 / 19 | 0.09 ms |
-| High detail FX 0 | 136 → 138 | 351.7 k → 351.0 k | 141 / 19 | 0.10 ms |
-
-`tests/anim.spec.ts` holds the cost at ≤ 2 draw calls and < 30 k △ (the
-meshes hidden against shown) on a busy base, in both styles.
+`tests/anim.spec.ts` holds the cost at three draw calls at most (the kit, its
+ink twin and the glow) and under 30 k triangles, the meshes hidden against
+shown, on a busy base.
 
 ---
 
-## 8. Research you can see
+## 11. Research you can see
 
-Techs change numbers; a few now also change the world, the way the audit
-asked ("research has no visible consequences"). All visual only.
+Techs change numbers; a few also change the world. All visual only.
 
 - **Regolith Shielding → berms** (`buildings/berms.ts`). Once the tech is
   done, every shielded structure (habitats, domes, hydroponics, labs,
-  industry, the reactor, batteries — not solar arrays, masts, the mass
-  driver, diggers, storage yards or the Lander, and the Data Center keeps
-  the berms its recipe already has) gets
-  a bulldozed berm round its footprint: 1.15 m high, steep against the wall
-  (0.7 m in the first 0.2 m), a 1.3 m outer slope, the corners swept round.
-  It opens at the doors — the gaps come from the recipes' door positions —
-  tapering to the ground over 1.3 m. One merged mesh, draped on the
-  heightfield (it follows later pads' skirts) in the terrain's own material
-  and albedo, so it shades, catches the floods and falls back exactly like the
-  ground it was pushed up from. It casts shadows and is rebuilt only when the
-  set of shielded structures or the ground under them changes.
-- **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors
-  glint on a thin ellipse through the sun (the ring seen nearly edge-on):
-  `n = 12 + 40 · log10(1 + swarm% · 10⁴)` points (cap 400), so the first
-  volley already shows (24) and growth stays legible from 0.0001% to 100%.
-  Each idles dim (0.22) and flashes (`sin²⁴` of its own slow clock) to 3.0
-  HDR as its foil catches the sun — FX 0 blooms the flash. The ellipse
-  drifts slowly; the ground paints over it at sunset like the stars.
+  industry, the reactor, batteries; not solar arrays, masts, the mass driver,
+  diggers, storage yards or the Lander, and the Data Center keeps the berms its
+  recipe already has) gets a bulldozed berm round its footprint: 1.15 m high,
+  steep against the wall (0.7 m in the first 0.2 m), a 1.3 m outer slope, the
+  corners swept round. It opens at the doors, the gaps coming from the
+  recipes' door positions, tapering to the ground over 1.3 m. One merged mesh,
+  draped on the heightfield (it follows later pads' skirts) in the ground's own
+  program and colour × 0.9, so it shades like the ground it was pushed up from.
+  Rebuilt only when the set of shielded structures or the ground under them
+  changes.
+- **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors glint
+  on a thin ellipse through the sun: `n = 12 + 40 · log10(1 + swarm% · 10⁴)`
+  points (cap 400). They live in the sky slot, and **the fixed camera never
+  looks above the horizon** (§14), so they are not seen in play; the swarm's
+  progress reads in the HUD meter.
 - **Dust Mitigation → cleaner panels**. Base traffic settles a thin film on
   every solar wing's glass: `dF/dt = gain − F/τ`, gain 0.25 per lunar day
-  (doubled within 45 m of a running excavator or an active site), F ≤ 0.35.
-  Uncleaned, τ is a lunar day, so arrays gray and matte over a day or two of
-  work (F ≈ 0.25). With the electrostatic curtains τ = 60 s: the film
-  never settles and the wings stay dark glass. Shown through the wing's
-  `iState` dust channel (the larger of this film and the economy's own
-  `b.dust`); the economy never sees it.
+  (doubled within 45 m of a running digger or an active site), F ≤ 0.35.
+  Uncleaned, τ is a lunar day, so arrays grey and matte over a day or two of
+  work (F ≈ 0.25). With the electrostatic curtains τ = 60 s: the film never
+  settles and the wings stay dark glass. Shown through the wing's `iState` dust
+  channel (the larger of this film and the economy's own `b.dust`); the economy
+  never sees it.
 
 ---
 
-## 9. The camera: command view
-
-**Command view** (`player/buildCam.ts`): MapControls — left-drag pan,
-right-drag orbit, wheel zoom toward the cursor — plus WASD/arrows (pan at
-0.75 camera distances per second) and Q/E (orbit, 1.5 rad/s). The orbit
-target rides the terrain (eased onto the ground at 5/s), the camera never
-sinks below 4 m over the highest ground under it, distance stays within
-18–700 m and the polar angle under 0.44 π. Home (H) frames the Lander from
-90 m, ~22° above the horizon — the landing site with its horizon; F glides to
-the selection (0.6 s). Lens: **55°**, near plane 0.5 m.
-
----
-
-## 10. Performance budget
-
-The look must hold at 60 fps on integrated GPUs; the budget is part of the art
-direction, not an afterthought:
-
-| Budget | Target | Shipped reality |
-|---|---|---|
-| Draw calls | < 100 typical | worst case with every chunk in view: 64 terrain chunks + horizon + 2 rock meshes + ≤21 building types + 2 moving-part meshes + scaffold + 7 sky layers + ghost (pre-pass + colour) + grid/rings/bracket ≈ **103**; the motion layer adds 5 (rovers, rover shadows, dust, glints, berms) and events add ≤ 11 while in flight (3 per volley, 2 for a resupply); the destiny adds ≤ 4 building types and ≤ 6 layer meshes, each only while it exists (walkways, spines; walkers and their decals; drones and theirs); the work animations add ≤ 2 (the kit, the glow: §7.1), each only while it holds something |
-| Triangles | ~1 M | terrain 131 k; horizon ring ~43 k; buildings 0.5–2.8 k each (≈40 k for a 25-building base); rovers 380 each (+ 36 of print arm in the work kit); an excavator's rig 276 (372 with the wider lips); drones ~200, walkers ~100; links ≤ 12 k |
-| Shadow maps | 1 × 2048² | single cascade fitted to the view; re-rendered only on change (sun step, the view leaving the window, terrain, large rocks, buildings, berms, a landed resupply), ≤ 10/s: 2.5/s at 1×, 7.9/s at 10×, 3/s panning (§3) |
-| Lights | 1 sun + 1 hemisphere | 8 PointLights join only on the stock path |
-| Post passes | ≤ 4 | render + half-res AO + bloom + (SMAA·AgX·grain·vignette) at FX 0; 2 with `?lowfx`; none in safe mode. One scene render a frame at every level (N8AO's transparency pass off), none while the tech tree or Lunar Map covers the world |
-| Per-frame CPU | small and flat | ≤ 64 rover matrices, ≤ 48 drone and ≤ 24 walker matrices, 20 × 3 dust uniforms, ≤ 400 glint colours; the work kit's and glow's matrices in use (only that part uploaded: ~0.1 ms for 160 on a busy base); paths planned only on (re)assignment; berms and links rebuilt only on change (a numeric signature) |
-| Pixel ratio | ≤ 2 | clamped `devicePixelRatio` |
-| Assets | 0 bytes binary | all procedural; fonts are system stacks (07) |
-
----
-
-## 11. Deferred art items
-
-Designed during research, deliberately cut from the slice (sequencing in
-[09-roadmap.md](09-roadmap.md)):
-
-1. **Hairline edge/outline post pass** — a depth/normal-discontinuity line
-   pass that would ink building silhouettes like a technical drawing and
-   marry the world to the blueprint UI. Designed (it slots between AO and
-   grain), cut for slice scope; AO + SMAA carry legibility meanwhile.
-2. **Blue-noise dither upgrade** — the shipped grain is white-noise
-   `NoiseEffect`; a tiled blue-noise texture would dither gradients with less
-   visible crawl at the same 0.14 opacity.
-3. **Rover tracks** — wheel ruts in an instanced ring buffer; the
-   dust already says where they drive. (The turning bucket wheel shipped
-   with the work animations, §7.1.)
-4. **Moving casters in the shadow map** — rovers and a descending lander
-   would need a second, small shadow map (or per-frame re-renders of the one
-   we have); the contact decal carries it for now.
-
----
-
-## 12. Classic — the default look
-
-> A readable colour model of the base, the way the old city builders drew
-> one: white hulls, gold foil, blue cells, orange trim, a tinted ground and
-> warm windows in a blue-black night — on any GPU.
-
-**Why.** On an older laptop the High detail path fell all the way down its
-ladder (half-float buffers, then AO, then every effect) and what was left
-was flat mid-gray ground with no shading. Classic is designed from the start
-for that machine: the cheapest lit shading three.js has, colour doing the
-work that AO, shadows and tone mapping do in High detail, and nothing that
-can fail silently. It is the default; High detail stays in the menu.
-
-### 12.1 Render path (`world/renderer.ts`, `world/post.ts`, `world/classic.ts`)
-
-| | Classic |
-|---|---|
-| Target | the canvas, and only the canvas: no `EffectComposer`, no N8AO, no bloom, no render target of any kind (the debug API records every target bound: none) |
-| Antialiasing | the context's own MSAA (`antialias: true`) |
-| Shadows | none — the shadow map is off; a soft contact decal grounds each footprint (§12.4) |
-| Tone mapping | none: the palette is authored as the colours you see, sRGB output |
-| Pixel ratio | ≤ 1.5 (a HiDPI laptop does not quadruple the fill) |
-| Materials | stock `MeshLambertMaterial` for the ground, ring, berms, rocks and placement ghost; one small `ShaderMaterial` for everything on the building material; stock points for dust. No `onBeforeCompile` patch, no FX variant — but one line in the work glow's stock `MeshBasicMaterial` (§7.1: a slab's cover fades with its colour; no anchor, no line, it still compiles) |
-| FX ladder, stored level | untouched: classic never builds, reads, stores or steps a level, so it raises no "RENDER —" alert unless a frame genuinely fails to draw |
-| Black-frame check | still reads frames (by day, and at night: the classic night keeps open ground well off black); a black frame turns safe mode's unlit twins on, as in High detail |
-| Shader fault | the classic building program carries `MBB_CLASSIC`; if it fails to compile, every building, part and rover takes stock Lambert in the same palette (glow and print reveal go) with one alert |
-
-The style is read at boot — `?style=classic|detailed` for one launch, else
-the menu's setting, else classic — because the canvas's context attributes
-(`antialias`) are fixed when it is created. Switching in the menu saves the
-game, stores the choice and reloads straight back into it.
-
-### 12.2 Palette (sRGB as authored; `buildings/classicBuilding.ts`)
-
-The kit bakes each part's finish (gray value in `color`, roughness /
-metalness / emissive id in `mat`); classic maps each finish to a colour in
-the instanced view's own `color` attribute (the shared recipe buffers stay
-High detail's):
-
-| Finish | Classic colour | ≈ Hex |
-|---|---|---|
-| Hull (`BODY`) | warm white | `#ebe6dc` |
-| Radiator | white | `#f3f2ed` |
-| Panels (`PLATE`) | mid gray | `#8e9197` |
-| Trim (`TRIM`) | orange accent | `#d9772b` |
-| Decks — trim parts with a face over 5 m² (roofs, plinths, stacks) | slate, so the orange stays an accent | `#6f747c` |
-| PV cells (`GLASS`) | dark blue | `#1d3a6c` |
-| Windows (`WINDOW`) | dark blue glass by day | `#2a4c80` |
-| Lamps | warm white | `#fff1d6` |
-| Beacons | red, blinking | `#b02a22` → bright red flash |
-| MLI foil (`FOIL`) | gold | `#d8a53a` |
-| Foliage (`LEAF`) | greenhouse green | `#5f8f3f` |
-| Window / lamp light, warm | warm sodium yellow (linear 1.0, 0.66, 0.29) | ≈ `#ffd494` |
-| Window / lamp light, cold (`CLASSIC_COLD`) | server cyan (linear 0.52, 0.815, 1.0) | ≈ `#bfe9ff` |
-
-Per structure: the solar wings' frames are silver (`#c4c8ce`, panels
-`#aeb2b8`), the solar array's mast and the dishes silver-gray (`#b7bbc1`),
-and the Foil Factory's trim gold (`#cf9d36`). The destiny buildings (§13):
-the Server Monolith's hull near-black (`#23262b`) with teal glass
-(`#0f3a44`), the Drone Hive's hull dark (`#3a3f46`), the Garden Dome's ribs
-silver (`#c4c8ce`). Rovers, drones, walkers and the cargo lander use the
-default mapping (white body, orange trim, blue roof cells).
-
-Each instance mixes its windows' and lamps' light between the warm and the
-cold colour by its `iWarm` (§13); its flood pool takes the same mix
-(`classicFloods.ts`: warm `(1.0, 0.74, 0.42)` … cold `(0.62, 0.84, 1.0)`).
-
-### 12.3 Terrain, ring, rocks (`terrain/classicGround.ts`)
-
-- **Geometry**: the same 4 m grid as High detail — every vertex *is* its
-  heightfield sample — with every triangle its own three vertices and a face
-  normal. Faceting comes from the geometry, not from derivative (`dFdx`)
-  shading. 64 chunks, 131 k triangles; the horizon ring (43 k) and berms
-  are faceted the same way. Measured against `hf.sample` (which buildings and
-  rovers stand on), seed 42, 4,000 points: every vertex 0 m
-  off; the triangulated surface departs from the bilinear sample by at most
-  0.12 m on the mare, 0.22 m at the pole and 0.23 m in the lava tube
-  (on crater walls), 1.5–5 mm on average — and on pads, where buildings
-  stand, by nothing. A coarser mesh was not needed: triangles are not what
-  an old GPU runs out of.
-- **Colour** (vertex colours, one function for chunks, ring, berms and
-  boulders so they agree where they meet):
-
-  | Term | Rule |
-  |---|---|
-  | Site tint | mare `#857d73` (darker, warmer), lava tube `#847a6e` (a shade redder), south-pole highland `#aeaca6` (lighter, cooler) |
-  | Mottle | ± 9% at 55 m, ± 5% at 11 m, a ± 3% warm/cool drift at 140 m (faded where the sample spacing cannot hold it) |
-  | Height | × (1 ± 6%) from low to high ground |
-  | Slope | steep, fresher walls up to +10% |
-  | Craters | floors −13% toward the centre, a bright rim (+15%), a faint ejecta apron; a pit deeper than 0.4 r (the lava tube's skylight) × (1 − 0.78 (1 − d⁴)), its walls falling into the dark long before the floor |
-  | Deposits | soft, slightly ragged patches (full at 0.6 r, gone by 1.1 r) |
-
-  Deposit tints, as orbital colour-ratio maps show them — every deposit,
-  mapped or not (the ground looks like what it is; the overlay [I] and the
-  surveys say what it means):
-
-  | Deposit | Tint (linear multiplier, or mix) |
-  |---|---|
-  | High-Ti basalt (ilmenite) | darker and bluer × (0.82, 0.84, 0.93) |
-  | Highland anorthosite | brighter × (1.22, 1.21, 1.18) |
-  | Cold-trap ice | bluish white: 45% toward (0.70, 0.79, 0.93) |
-  | Pyroclastic glass | dark amber × (0.97, 0.88, 0.74) |
-  | KREEP | faint rose × (1.06, 0.95, 0.96) |
-  | Mature soil (volatiles) | faint olive-brown × (0.94, 0.94, 0.88) |
-  | Peak of light | none |
-
-- **Rocks**: stock flat Lambert (the polyhedra are faceted already), each
-  boulder the ground's colour under it, greyed by 30% and lifted 15–40%
-  (fresh crater blocks the most); half the
-  small rocks (the FX 2 density), drawn round the isometric view's focus and
-  not at all from the two farthest zoom levels, where they would be specks.
-
-### 12.4 Buildings and night lights (`buildings/classicBuilding.ts`, `classicFloods.ts`, `contactDecals.ts`)
-
-- **The classic building shader**, per vertex, with no loops, no
-  derivatives and no extensions: Lambert from the key light plus the
-  hemisphere fill (the kit's parts are flat or smooth by geometry), times
-  the per-instance colour (brownout dimming); dust greys the PV glass, wear
-  darkens (−30% at full wear), fragments above the print cut are discarded
-  under a warm band — the 3D-print reveal, kept.
-- **Lights key on one function**, `lightLevel(building, nightFactor)`:
-  a complete, enabled, powered structure lights with the night; anything
-  else is 0. Each instance's level rides in `iGlow`; windows fade from their
-  daylight blue to the warm light at that level, lamps add it, beacons blink
-  (0.2 s every 2 s, phase per instance) whenever powered. Rovers and moving
-  parts follow the night factor (`iGlow = −1`). Unpowered — shut down or
-  browned out — means dark windows and no beacon.
-- **Floods** are cheap additive pools on the ground: one merged mesh, per
-  lit structure a disc (centre + rings every ~3 m, reaching 7 m past the
-  footprint) draped on the heightfield, warm `(1.0, 0.74, 0.42)` × 0.16 ×
-  its light level, feathered to nothing at the rim by `(1 − (d/R)²)³`.
-  Positions rebuild when the lit set moves, colours when a level changes.
-  No scene light joins the scene at night (no PointLights, no spot lamp).
-- **Contact decals** stand in for the shadow map: one merged mesh, a
-  nine-slice per footprint (full from 1.2 m inside it, feathered to 0 by
-  1.0 m outside), black at 30%, draped on the ground.
-
-### 12.5 Light and sky (`world/classicLighting.ts`)
-
-One `DirectionalLight` key and one `HemisphereLight` fill; nothing else.
-Levels in albedo units (three's lights take them × π; the building shader
-reads the same values):
-
-| | Day | Night |
-|---|---|---|
-| Key | the sun's azimuth, elevation lifted into 22–48° (the game's sun never climbs past 32° and grazes the pole; with no shadows to betray it, a higher light reads the relief better); warm white `(1.0, 0.97, 0.92)` × 1.05, golden `(1.0, 0.80, 0.58)` while the true sun is under ~14° | earthshine from Earth's side of the sky (lifted to ≥ 35°), `(0.16, 0.22, 0.38)` |
-| Fill (sky / ground) | `(0.34, 0.37, 0.43)` / `(0.24, 0.215, 0.19)` | `(0.06, 0.085, 0.15)` / `(0.018, 0.024, 0.04)` |
-
-The two blend on the night factor, the key's direction weighted by the two
-strengths. The result is a blue-black night where
-every building reads by its lit and shaded faces and the base's own lights
-carry the rest. The true sun still drives the sky, the solar wings and the
-rover decals. The sky is High detail's own stock-material sky — stars,
-Milky Way, sun disc, Earth; the isometric view never looks above the
-horizon, so classic draws none.
-
-### 12.6 The isometric camera (`player/isoCam.ts`)
-
-| | |
-|---|---|
-| Lens | perspective, **20°** vertical — near-orthographic, so picking, `screenOf` and the overlays work unchanged |
-| Tilt | two fixed tilts, **32°** (low, the default framing: the top of the frame looks 22° down, never the sky) and **55°** (high); V flips them in a 0.35 s ease-in-out |
-| Yaw | **45° + k·90°**; Q / E turn one step in a 0.35 s ease-in-out; presses queue, a held key turns once |
-| Zoom | the wheel and a pinch zoom **continuously** between 100 m and 830 m from the target (≈ 63 … 520 m of ground across a 16:9 view at the low tilt), eased; a mouse notch is ×1.7; home is 170 m, F closes to 100 m |
-| Pan | W A S D / arrows at 1.1 view heights a second; right- or middle-drag, the ground following the pointer. The left button stays select / place / target |
-| F / H | F glides to the selection (0.6 s) and closes to the nearest level; H glides home to the Lander at the home level |
-| Limits | the target rides the terrain and stays 40 m inside the map; the camera never sits under 4 m of clearance; the clip planes track the zoom (near 0.2 d, far 6 d + 800 m) |
-
-### 12.7 Cost (measured)
-
-The mare starter base (Lander + 6 structures) at each style's home view,
-1920 × 1080, per frame with every pass summed (`getRenderInfo().frame`):
-
-| | Draw calls (day / night) | Triangles (day / night) | Render targets |
-|---|---|---|---|
-| Classic | **24 / 24** | 110 k / 112 k | none |
-| High detail FX 0 | 97 / 71 | 226 k / 177 k | half-float composer, N8AO, shadow map |
-| High detail FX 3 | 46 / 45 | 136 k / 145 k | shadow map |
-
-Classic draws each building type once, the terrain chunks in view, the ring,
-two rock meshes, the decals and pools, and nothing for the sky (the
-isometric view never sees it); no shadow pass, no post pass, one render a
-frame. Under software GL on a loaded test machine the median frame was
-~200 ms classic against ~2.4 s at FX 0 (`tests/classic.spec.ts` · frame
-cost records both); on a GPU the fragment work per pixel is one Lambert
-term and a colour-space conversion.
-
-### 12.8 Browser notes
-
-Classic asks for nothing a WebGL2 implementation may lack, so it behaves the
-same in Firefox, Chrome and Edge, on ANGLE (D3D11 or WARP), on native
-drivers and on software rasterizers:
-
-- WebGL2 core only; no `EXT_*` or `OES_*` extension is required (none is
-  requested: no float or half-float render targets, no anisotropic
-  filtering, no texture-float linear filtering);
-- the context's `antialias` attribute and nothing more — no multisampled
-  renderbuffers or resolve blits (a context without MSAA simply draws
-  aliased edges);
-- shaders are plain GLSL ES 3.0 (three's own Lambert, and one small program
-  of our own) with constant loop bounds, no derivatives and no texture
-  lookups in the building program;
-- no Chromium-only API anywhere in the render path;
-- a software context (`failIfMajorPerformanceCaveat` style, SwiftShader,
-  WARP, llvmpipe) still draws — slower, never black or blank: the frame is
-  a handful of draw calls with trivial fragment work, and the black-frame
-  check has safe mode's unlit twins to fall back to.
-
----
-
-## 13. Destinies: two bases by Era 8 (docs/14 §4)
+## 12. Destinies: two bases by Era 8 (docs/14 §4)
 
 > "They should look very different visually by the time we arrive at the
 > final era."
 
-⌂ Colony grows green under glass, lit tubes and people on foot. ◉ Automation
-grows black slabs, honeycombs, conveyors and drones, and its lights go cold.
-Both styles, one mechanism: parts, four recipes, base-wide layers, and the
-colour of each structure's light.
+⌂ Colony grows green under glass, lit tubes and crew in EVA suits. ◉
+Automation grows black slabs, honeycombs, conveyors and drones, and its lights
+go cold. One mechanism: parts, four recipes, base-wide layers, and the colour
+of each structure's light.
 
-### 13.1 Parts and recipes
+### 12.1 Parts and recipes
 
 - **Picks are techs, so they carry parts** (`buildings/destinyParts.ts`,
   appended to each type's list in `upgrades.ts`). All 16 track techs (the
   landing included) and the 3 capstones add at least one; the full list is
   generated into docs/04 ("Research you can see").
-- **Colony parts are lived in**: porches with round windows, a hab-ring
-  collar and suit-port, terraces with LEAF planters, a glazed galley, bulkheads,
-  a launch blockhouse, festival lamps, a flag.
-- **Automation parts are for machines**: whips and node lamps, shutters (BODY a
-  hair proud of the panes: the base goes dark from outside), cable trays,
+- **Colony parts are lived in**: porches with round windows, a hab-ring collar
+  and suit-port, terraces with `LEAF` planters, a glazed galley, bulkheads, a
+  launch blockhouse, festival lamps, a flag.
+- **Automation parts are for machines**: whips and node lamps, shutters (`BODY`
+  a hair proud of the panes: the base goes dark from outside), cable trays,
   black monolith annexes and guidance slabs, antenna farms, drone perches,
   second fab storeys, fin crowns.
-- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded — the
-  heaviest set one run can hold (one side of each era's pick, one capstone);
-  the four new stock recipes ≤ 3,500 △.
+- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (the heaviest
+  set one run can hold: one side of each era's pick, one capstone); the four
+  destiny recipes ≤ 3,500 △.
 
 | Recipe | △ | Reads as |
 |---|---|---|
-| Greenhouse Ring (4×4) | 1,764 | eight LEAF vaults on BODY sills in a ring, ribbed, a glazed crown and grow lamps; a GLASS hub dome; a porch at +z |
-| Garden Dome (5×5) | 2,156 | a 10 m dome: GLASS crown on silver ribs over a LEAF canopy band; three stepped BODY terraces, each a lit WINDOW band; park lamps |
-| Drone Hive (3×3) | 1,536 | a honeycomb of hex docks (dark hull), a LAMP at each mouth; a PLATE deck with four pads (where its drones perch); a RADIATOR at the back |
-| Server Monolith (2×2) | 516 | a 16 m near-black slab, a cold LAMP stripe, thin teal status slits, a RADIATOR fin stack behind |
+| Greenhouse Ring (4×4) | 1,952 | eight `LEAF` vaults on `BODY` sills in a ring, ribbed, a glazed crown and grow lamps; a `GLASS` hub dome; a sun tower and a porch at +z |
+| Garden Dome (5×5) | 2,156 | a 10 m dome: `GLASS` crown on silver ribs over a `LEAF` canopy band; three stepped `BODY` terraces, each a lit `WINDOW` band, green terrace bands |
+| Drone Hive (3×3) | 1,684 | a honeycomb of hex docks (dark hull), a `LAMP` at each mouth; a `PLATE` deck with four pads (where its drones perch); a `RADIATOR` at the back; a landing mast |
+| Server Monolith (2×2) | 516 | a 16 m near-black slab, a cold `LAMP` stripe, thin teal status slits, blue bands, a `RADIATOR` fin stack behind |
 
-### 13.2 Light: `iWarm`
+### 12.2 Light: `iWarm`
 
 - A per-instance attribute beside `iState` (`meshKit.withInstanceState`), 0
   cold … 1 warm, set per type and lean on every rebuild (`buildings/look.ts`).
@@ -1156,14 +727,15 @@ colour of each structure's light.
   Monoliths, Drone Hives, Chip Fabs, Parts Fabricators, Robotics Bays, Relay
   Masts. **The rest** follow the lean: `warm = clamp(0.75 + lean)`.
 - **The lean**: −1 ◉ … +1 ⌂. The band's once the Era 8 pick settles it
-  (Concord 0), else `(C − A) / 4`, clamped. A human landing (+¼) keeps
-  today's warm base; a robotic one (−¼) starts half-cold.
-- Classic mixes `CLASSIC_WARM` and `CLASSIC_COLD` in its shader, and its flood
-  pools take the same mix. High detail mixes the warm white with a cold
-  white in the building patch; its floods stay warm white (monochrome).
+  (Concord 0), else `(C − A) / 4`, clamped. A human landing (+¼) keeps today's
+  warm base; a robotic one (−¼) starts half-cold.
+- The building program mixes `CEL_WARM` and `CEL_COLD` by `iWarm`; a structure's
+  flood pool takes the same mix (warm (1.0, 0.74, 0.42), cold (0.62, 0.84, 1.0),
+  `celFloods.ts`).
 - **The hazards' hook**: `iAlarm` (0 calm … 1), filled from
   `BuildingInstances.alarmOf(b)` on every rebuild; above 0 the windows and
-  lamps flicker red in both styles. Unset, every structure is calm.
+  lamps flicker red (about 2.3 flashes a second, day or night). Unset, every
+  structure is calm.
 - **The hazards' look** (`hazardView().fx`, read on every rebuild through
   `instances.fxOf` and `life.fxOf`), at no draw-call cost:
 
@@ -1176,76 +748,230 @@ colour of each structure's light.
   | a bricked rover or drone (`brickedUntil`) | parked (the sim gives it no work), its lamps and beacon off |
   | a held drone (`heldUntil`) | set down where it is, waiting; freed, back to work |
 
-### 13.3 The links layer (`buildings/links.ts`)
+### 12.3 The links layer (`buildings/links.ts`)
 
 | Layer | From | Joins | Looks |
 |---|---|---|---|
-| Walkways ⌂ | Crew Rotation Charter | habitats, farms, the Recreation Dome, labs, rings, domes (+ fabs and bays with Pressure-Rated Halls) | BODY tubes (r 0.9 m) on short legs with TRIM ribs; a PLATE strip each side, glazed (lit WINDOW) from Garden Domes; warm |
-| Spines ◉ | Lights-Out Fabs | excavator pads, smelters, refineries, fabs, foil factories, storage yards | box-truss conveyors at 1.2 m: a PLATE belt on a TRIM truss with rails; cold LAMP chevrons each cell from Replicator Stacks; cold |
+| Walkways ⌂ | Crew Rotation Charter | habitats, farms, the Recreation Dome, labs, rings, domes (+ fabs and bays with Pressure-Rated Halls) | `BODY` tubes (r 0.9 m) on short legs with `TRIM` ribs; a `PLATE` strip each side, glazed (lit `WINDOW`) from Garden Domes; warm |
+| Spines ◉ | Lights-Out Fabs | excavator pads, smelters, refineries, fabs, foil factories, storage yards | box-truss conveyors at 1.2 m: a `PLATE` belt on a `TRIM` truss with rails; cold `LAMP` chevrons each cell from Replicator Stacks; cold |
 
 - **Routes**: straight or one L-bend on the 4 m grid, from a free cell beside
-  one footprint to one beside the other (walkways ≤ 4 cells apart, spines
-  ≤ 6). Never through a footprint, an excavator's dig or another link. Pairs
-  join nearest first as a spanning forest (no loops), ≤ 40 a layer.
+  one footprint to one beside the other (walkways ≤ 4 cells apart, spines ≤ 6).
+  Never through a footprint, an excavator's dig or another link. Pairs join
+  nearest first as a spanning forest (no loops), ≤ 40 a layer.
 - **The crossing rule** (one rule, both layers): a link never touches a road
-  cell. It crosses a road only straight across, ≤ 2 road cells at a time, as
-  a **skybridge** 5.4 m up (the tube's underside ≥ 4.5 m: an excavator's
-  mast passes under). Its gantry posts stand on the free cells either side;
-  where the road runs along a building's wall, a **riser** tower inside the
-  footprint carries that end. Door cells, bays and the Lander's apron are
-  never crossed, not even from above; no bend is made over a road.
-- **Cost**: one merged `InstancedMesh` of one instance per layer on the
-  building material (2 draw calls at most), rebuilt only when a numeric
-  signature changes (structures, roads, digs, the layer techs). A big Era 8
-  base: 15 walkways ≈ 2.6 k △, 7 spines ≈ 1.7 k △ (test cap 12 k).
+  cell. It crosses a road only straight across, ≤ 2 road cells at a time, as a
+  **skybridge** 5.4 m up (the tube's underside ≥ 4.5 m: a digger's mast passes
+  under). Its gantry posts stand on the free cells either side; where the road
+  runs along a building's wall, a **riser** tower inside the footprint carries
+  that end. Door cells, bays and the Lander's apron are never crossed, not even
+  from above; no bend is made over a road.
+- **Cost**: one merged `InstancedMesh` per layer on the building program (with
+  its ink twin), rebuilt only when a numeric signature changes (structures,
+  roads, digs, the layer techs). A big Era 8 base: 15 walkways ≈ 2.6 k △, 7
+  spines ≈ 1.7 k △ (test cap 12 k).
 
-### 13.4 EVA walkers (`world/settlers.ts`)
+### 12.4 EVA walkers (`world/settlers.ts`)
 
 - **Walkers = EVA crew** (`s.evaCrew`, economy step 3), ≤ 24 drawn. They step
-  out of a habitat's suit-port (its +x side), lope to the arrays, a worn
-  machine or a site, work 12–24 s, and go on; at night (no EVA crew) they
-  walk home and go in.
-- **Never on the carriageway**: they move on a grid of free cells — not a
-  road cell (carriageway, bays, apron), not a footprint, not a link's leg, not
-  a dig — cell centre to cell centre plus a fixed offset (±0.6 m) inside the
-  cell. A target reachable only across a road is skipped, so walkers never
-  meet the ground traffic.
-- **Cost**: one instanced suited figure (~100 △, building material, warm) and
-  one decal mesh; routes by BFS only when a walker sets off; nothing
-  allocated per frame.
+  out of a habitat's suit-port (its +x side), lope to the arrays, a worn machine
+  or a site, work 12–24 s, and go on; at night (no EVA crew) they walk home and
+  go in. They are third-person figures: the player never walks.
+- **Never on the carriageway**: they move on a grid of free cells (not a road
+  cell, not a footprint, not a link's leg, not a dig), cell centre to cell
+  centre plus a fixed offset (±0.6 m). A target reachable only across a road is
+  skipped, so walkers never meet the ground traffic.
+- **Cost**: one instanced suited figure (about 100 △, the building program,
+  warm, lime accent) and one decal mesh; routes by BFS only when a walker sets
+  off; nothing allocated per frame.
 
-### 13.5 Drones (`world/rovers.ts`, `DroneFlight`)
+### 12.5 Drones (`world/rovers.ts`, `DroneFlight`)
 
-- A roster unit docked at a Drone Hive is a **drone** (`core/fleet.ts`
-  `unitKind`). The sim treats it as any rover (it has no travel time); the
+- A roster unit docked at a Drone Hive is a **drone** (`core/fleet.ts
+  unitKind`). The sim treats it as any rover (it has no travel time); the
   visuals fly it.
 - Parked, it perches on one of its hive's four deck pads. Sent to a site it
-  climbs, flies straight at 6 m/s at its cruise height (6–10 m, by id),
-  hovers over the site and prints from the air (print dust below); on a road
-  job it hovers over the frontier.
+  climbs, flies straight at 6 m/s at its cruise height (6–10 m, by id), hovers
+  over the site and prints from the air (print dust below); on a road job it
+  hovers over the frontier.
 - **Off the roads**: drones take no road slot (`spots.ts` sees only ground
-  rovers) and are never enlisted in `world/traffic.ts`; ground rovers keep
-  the roads-only rule.
-- **Cost**: one instanced quadcopter (~200 △, cold light) and one decal mesh
-  (fainter with height), ≤ 48 drawn; no shadow-map shadow.
+  rovers) and are never enlisted in `world/traffic.ts`.
+- **Cost**: one instanced quadcopter (about 200 △, cold light, violet accent)
+  and one decal mesh (fainter with height), ≤ 48 drawn.
 
-### 13.6 Cost of a big Era 8 base (measured)
+---
 
-A big Era 8 base on robotic mare, the same core in every band, Classic at
-290 m (`getRenderInfo().frame`; main = the same scene on 6221421):
+## 13. Night rules
 
-| Band | Classic calls | Classic △ | High detail calls | High detail △ |
-|---|---|---|---|---|
-| ⌂ Colony | 51 → 54 | 248 k → 258 k | 97 → 100 | 296 k → 306 k |
-| ◉ Automation | 48 → 51 | 227 k → 237 k | 94 → 97 | 277 k → 287 k |
-| Concord | 51 → 53 | 227 k → 232 k | 97 → 99 | 276 k → 282 k |
+Night is light colour and intensity, not exposure, and the base carries its
+own light.
 
-The layers cost a draw call each (and one for their decals) only while they
-exist; `tests/look.spec.ts` holds the big base under 90 calls and 600 k △
-in Classic.
+- **The frame is never black.** The key turns to earthshine (§3.2) and open
+  ground sits well off black (the test holds a median ground luminance of at
+  least 18/255 at night), with no post chain, no render target and no black
+  probe. Every building still reads by its lit and shaded faces.
+- **Darkness per structure, *k* ∈ 0..1** (`buildings/darkness.ts`): the largest
+  of the night factor; the sky (1 once the sun has set, and a grazing sun
+  counting partly dark: 0.5 at 2° of elevation and below, easing to 0 by 8°);
+  and terrain shadow (a march through the heightfield toward the sun from
+  mid-height of the structure, reach 900 m, on the game's 0.5 s shading pass).
+  *k* follows its target with a 0.5 s time constant of real time, so lights fade
+  over a second or two instead of popping, paused or not. So at the pole a base
+  in the rim's shadow lights itself while the clock says day. `b.shaded` stays
+  the economy's solar test; nothing the sim reads changes.
+- **Windows, lamps and floods answer to *k*, and only where the grid is
+  live** (`lightLevel`: complete, enabled, not browned out). Windows fade from
+  their daylight blue to the warm or cold light at that level (`window × max(k,
+  0.1) × 1.6`, a faint glow by day), lamps add `lamp 2.6 × k`, beacons blink
+  whenever powered at `1 + 3k + 2 × night`. Rovers and moving parts follow the
+  night factor (`iGlow = −1`). Unpowered, shut down or browned out means dark
+  windows, no beacon and no pool: the cause is visible.
+- **Floods are flat glows on the ground** (`buildings/celFloods.ts`): one
+  merged additive mesh, per lit structure a 28-sided disc reaching 7 m past the
+  footprint in **three hard steps** (1.0 to half the radius, 0.5 to 0.78, 0.2
+  to the rim: the same hard edges as the buildings' ramp, no feathering),
+  `GAIN` 0.11, draped on the heightfield so a pool follows the slope it falls
+  on. Positions rebuild when the lit set moves, colours when a level changes.
+- **Ink lerps to the night ink** `#06080b` (§4.1); the contact decals and
+  blobs stay.
+- **Dust and the sky**: dust grains take the digging unit's accent by night as
+  by day; the sky is the clear colour (`#010204` at night), no stars, because
+  the fixed camera never sees above the horizon.
+- **Pits at night** keep their palette: the two benches stay distinct through
+  the ground's ramp (§9), and a pit's flag and ring stay drawn.
+
+---
+
+## 14. The camera: fixed isometric (`player/isoCam.ts`)
+
+One camera, a near-orthographic perspective in the SimCity 2000/3000 manner: a
+**20° vertical lens**, so picking, `screenOf` and the overlays work unchanged.
+The player never walks and never free-orbits: the view is a preset.
+
+| | |
+|---|---|
+| Rotations | **4**: yaw = 45° + k·90°. **Q / E** turn one step in a 0.35 s ease-in-out; presses queue (two quick taps turn 180°), a held key turns once |
+| Tilts | **2**: **32°** (low, the default framing: the top of the frame looks 22° below the horizon, never the sky) and **55°** (high: 45° below). **V** flips them in a 0.35 s ease-in-out from wherever the pitch is, so a quick second press reverses. Forward pan keys are scaled by sin 32° ÷ sin(pitch), so the screen pace is the same at both tilts |
+| Zoom | continuous between **100 m** and **830 m** from the target (≈ 63 … 520 m of ground across a 16:9 view at the low tilt), eased (`ISO_MIN_DIST`, `ISO_MAX_DIST`); a mouse notch is ×1.7, one event moves the zoom by at most 300 deltaY; a pinch may pass the clamps by 15% while the fingers are down and eases back inside on release |
+| Home | H glides to the Lander at 170 m and the low tilt; a new view starts there |
+| Focus | F glides to the selection (0.6 s) and closes to 100 m |
+| Pan | W A S D and the arrows at 1.1 view heights a second; right- or middle-drag, the ground following the pointer. The left button stays select, place, target |
+| Limits | the target rides the terrain and stays 40 m inside the map; the camera never sits under 4 m of clearance; the clip planes track the zoom (near 0.2 d, far 6 d + 800 m) |
+| Save | the preset (`step`, `tilt`, `dist`) is `SaveBlob.camera`; a load restores it and an old save loads with the default view |
+
+Touch: one finger drags the ground, a pinch zooms and stays where the fingers
+leave it, a twist past about 40° turns one step, and the ⟲ ⟳ ▱ buttons turn
+and tilt (docs/07 §13). Because the camera never looks above the horizon, the
+scene draws no sky, no stars and no Earth: the clear colour is the sky (§3.2).
+`getRenderInfo().camera` reports `{ rot, tilt, zoom }`; the debug `view()`
+snaps to the nearest of the five old levels (100, 170, 290, 490, 830) and keeps
+the current tilt, for framing determinism in tests.
+
+---
+
+## 15. Safe mode and shader faults
+
+Some drivers fail shader compilation silently and draw pure black, or throw on
+a program. The look has three custom programs, each with a stock fallback, and
+one last resort. It is the only safety net, and it is built to be quiet.
+
+| Fault | Response |
+|---|---|
+| The cel building or ground program fails to compile (`MBB_CEL` marker) | `materials.replaceCustom` swaps stock Lambert in the same palette for **all** cel programs: the ramp, the glow and the print reveal go, the colours stay. One alert: `RENDER — building lights disabled (GPU limitation), plain materials` |
+| The ink program fails to compile (`MBB_INK`) | the outlines are hidden for the session (`inkFaulted()`), one alert `RENDER — outlines disabled (GPU limitation)`; the game is untouched. The material's `visible` is the one switch, so hidden outlines cost no draw calls |
+| Any other program fails, or a frame is black | **safe mode** |
+
+**Safe mode** draws the plain forward path with **unlit vertex-colour twins**
+from the first frame: no outlines, no dust, a quarter of the small rocks, no
+blended launch and plume layers. It is `?safe` for one launch, the menu's
+Graphics row ("Safe render mode", `#menu-safe`), or automatic. The render
+check turns it on by itself and says so (`SAFE RENDER MODE — simplified
+visuals (GPU issue detected)`); it is stored as `safe: true` in the settings
+(an old blob's `safeAuto` reads as `safe`) and only the session remembers it
+was automatic. Turning it off is a **trial**: lit rendering runs at once, is
+kept once a probe draws a healthy frame, and goes straight back to safe mode if
+the frame comes out black.
+
+**The black-frame sentinel** (`renderer.ts probeGround`, `game.ts probeFrame`)
+reads a 4×4 grid of the drawing buffer and judges only the samples whose view
+ray hits terrain (fewer than three is inconclusive). A sample is black at
+r+g+b ≤ `BLACK_SUM` (12), and a frame is black when 75% of the ground samples
+are. It reads only frames whose ground cannot legitimately be black: under a
+risen sun (at least 75% of its light), at night (night factor ≥ 0.9, where the
+earthshine key holds the ground well off black) and at any hour in safe mode.
+Dusk, dawn and views with too little ground are re-checked about 120 frames on;
+a healthy frame re-checks in 900. A black frame turns safe mode on; in safe
+mode, with nothing simpler to fall back to, it can do no more. A frame that
+throws is skipped and reported once, and never stops the loop.
+
+A browser without WebGL2 gets a page saying the game needs it, that hardware
+acceleration must be on, and that Chrome or Edge is recommended on Windows. The
+cel style asks for nothing else: WebGL2 core, no `EXT_*` or `OES_*` extension,
+no float or half-float targets, plain GLSL ES 3.0 with constant loop bounds, no
+derivatives, no texture lookups in the building program, and no Chromium-only
+API. A software context (SwiftShader, WARP, llvmpipe) still draws, slower and
+never blank.
+
+`getRenderInfo()` reports `{ style: 'cel', safe, drawCalls, triangles, camera,
+outlines, ramp }` and `getRenderInfo().ink` reports `{ on, faulted, meshes,
+drawn, instances, variant, px, tinted, k, list }`; `tests/render.spec.ts` holds
+the one-renderer contract (no render targets, no post chain, MSAA on, no shadow
+map, no tone mapping), the fallback and safe mode, at boot and at runtime.
+
+---
+
+## 16. Performance budget
+
+The look must hold on an integrated GPU; the budget is part of the art
+direction, and `tests/look.spec.ts` holds it.
+
+| Budget | Bound | Where it is asserted, and measured |
+|---|---|---|
+| Draw calls at home (170 m) | ≤ 80 | The seed-42 base with everything unlocked (17 building types): 75 calls, 260 k △ (S2a) with outlines |
+| Draw calls at the far zoom (830 m) | ≤ 100 in the spec | 101 calls, 296 k △ measured at S2a: about forty of the 64 terrain chunks are in view, a call each; S6's survey drone adds two (its mesh and its ink twin), so the spec's far bound is out of date (docs/18) |
+| Triangles | ≤ 300 k, home and far | 260 k home, 296 k far |
+| Era 8 base, each band (Colony, Automation, Concord) | < 90 calls, < 600 k △ at 290 m | measured 74–80 calls (S1b) |
+| Post passes, render targets | none | `getRenderInfo()` has no `postChain`, `targets` or `sceneRenders` |
+| Shadow maps, tone mapping | none | context `shadowMap: false`, `toneMapping: 0` |
+| Antialiasing | the context's MSAA | `antialias: true` |
+| Pixel ratio | ≤ 1.5 | `renderer.setPixelRatio(min(devicePixelRatio, 1.5))` |
+| Lights | 1 key + 1 hemisphere | no point lights |
+| Assets | 0 bytes binary | all procedural; fonts are system stacks (docs/07) |
+
+What a frame is made of: the terrain chunks in view (a call each, 64 in all),
+the horizon ring, two rock meshes and two blob meshes, the roads, one instanced
+mesh per structure type present (each with an ink twin), the moving-part
+trackers, the rovers, the hub units (per unit key), the survey drones, the work
+kit and glow, the contact decals and floods, the berms and links layers while
+they exist, dust, and the pit's marks only while a pit is in an end state.
+Outlines add about 5 to 10 calls and 13% triangles on the seed-42 base (a rich
+colony base is 73 calls and 305 k △). Terrain: 131 k triangles (64 chunks, more
+where pits are cut); ring about 43 k; a recipe 370–2,450; a hub unit 800–950;
+the survey drone about 160; links ≤ 12 k. Per-frame CPU stays small and flat:
+≤ 64 rover, ≤ 48 drone and ≤ 24 walker matrices, the work kit's and glow's
+matrices in use, paths planned only on (re)assignment, berms and links rebuilt
+only on change.
+
+---
+
+## 17. Deferred art items
+
+Designed, deliberately cut (sequencing in [09-roadmap.md](09-roadmap.md)):
+
+1. **A raked look for graded ground.** A finished pad has no look of its own
+   yet; it would ride `padMask` (docs/19 S5).
+2. **A permanent chip on a pit with no overlay up.** The flag and ring stand
+   alone there (§9).
+3. **Rover tracks**: wheel ruts in an instanced ring buffer; the dust already
+   says where they drive.
+4. **Ink for the ground's lines at far zoom.** The bench ribbons are a world
+   constant (under 1 px at 830 m); a screen-constant width would need the line
+   in a shader.
 
 ---
 
 *Related: [07-ui-design.md](07-ui-design.md) (the HUD that sits over this
 world) · [08-architecture.md](08-architecture.md) (where each system lives) ·
-[10-slice-scope.md](10-slice-scope.md) (why these cuts).*
+[10-slice-scope.md](10-slice-scope.md) (why these cuts) ·
+[15-roads.md](15-roads.md) (the roads' look) ·
+[17-extraction-hubs.md](17-extraction-hubs.md) §20 (the hubs' look).*
