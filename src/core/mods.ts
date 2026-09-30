@@ -3,7 +3,8 @@
  *  tech defs every tick; effectiveDef/effectiveRates give every reader (sim,
  *  palette, inspector, previews) the same numbers. */
 import { BUILDINGS, type BuildingDef, type BuildingId } from '../data/buildings';
-import { TECHS, effectApplies, type Expedition, type RecipeOverride, type TechId } from '../data/techs';
+import { TECHS, TECH_ORDER, effectApplies, type Expedition, type Lane, type RecipeOverride, type Side, type TechId } from '../data/techs';
+import { factionOfState, type FactionId } from '../data/factions';
 import type { GuardId, HazardId } from '../data/hazards';
 import type { SiteDef, SiteId } from '../data/sites';
 import type { ResourceId } from '../data/resources';
@@ -167,7 +168,26 @@ export interface Mods {
   arrayHardMult: number;
   /** the forecast tier research allows (docs/16 §6; core/forecast.ts adds the hardware: the observatory, the sentinel) */
   forecastTier: 0 | 1 | 2 | 3;
+  // ── factions (docs/20 §3; neutral in a solo game) ──
+  /** research cost × per lane and per destiny side: read by research.techCost */
+  laneCostMult: Record<Lane, number>;
+  pickCostMult: Record<Side, number>;
+  /** machine reboot / latch / burn × this in a flare (flareEffects.drawMachines; the reader is stream S2's) */
+  machineFlareMult: number;
+  /** stations and units' output × this at night (economy, hubs, haul: stream S2's) */
+  nightOutputMult: number;
+  /** storage discharge × this (economyTick's settle: stream S2's) */
+  bankDischargeMult: number;
+  /** morale falls × this as fast (economy's morale update: stream S2's) */
+  moraleFallMult: number;
+  /** the scrutiny meter runs (core/scrutiny.ts: stream S2's) */
+  scrutiny: boolean;
+  /** the Builder founds what a player's first build would (automation.ts 'founded' check): a rival's; stream S4 sets it */
+  builderFounds: boolean;
 }
+
+const LANE_IDS: Lane[] = ['power', 'materials', 'robotics', 'compute', 'habitat', 'exploration', 'export'];
+const neutralLanes = () => Object.fromEntries(LANE_IDS.map((l) => [l, 1])) as Record<Lane, number>;
 
 const IDS = Object.keys(BUILDINGS) as BuildingId[];
 const fill = (v: number) => Object.fromEntries(IDS.map((b) => [b, v])) as Record<BuildingId, number>;
@@ -177,6 +197,8 @@ export function computeMods(
   expedition: Expedition = 'human',
   siteId: SiteId | null = null,
   outposts: readonly OutpostState[] = [],
+  /** the state's faction (none in a solo game): effects with a `factions` filter apply only on theirs */
+  faction?: FactionId | null,
 ): Mods {
   const m: Mods = {
     outputMult: fill(1), inputMult: fill(1), powerMult: fill(1), upkeepMult: fill(1),
@@ -220,6 +242,8 @@ export function computeMods(
     volleyCap: LAUNCH_CAP_PER_VOLLEY, volleyMorale: 0, volleyMinCrew: 0, autoLaunch: false, launchBurstMult: 1,
     moraleBase: 0, hazardRateMult: 1, guards: new Set(), exposure: new Map(),
     stowShield: 0, arrayHardMult: 1, forecastTier: 0,
+    laneCostMult: neutralLanes(), pickCostMult: { colony: 1, automation: 1 },
+    machineFlareMult: 1, nightOutputMult: 1, bankDischargeMult: 1, moraleFallMult: 1, scrutiny: false, builderFounds: false,
   };
 
   // a Server Monolith counts as a Data Center wherever one is read (docs/14
@@ -231,7 +255,7 @@ export function computeMods(
     const def = TECHS[tid];
     if (!def) continue; // retired id on an unmigrated save
     for (const fx of def.effects) {
-      if (!effectApplies(fx, siteId, expedition, techsDone)) continue;
+      if (!effectApplies(fx, siteId, expedition, techsDone, faction)) continue;
       switch (fx.kind) {
         case 'unlock': m.unlocked.add(fx.building); break;
         case 'outputMult': {
@@ -369,6 +393,23 @@ export function computeMods(
           break;
         }
         case 'morale': m.moraleDelta[fx.building] += fx.delta; break;
+        // ── factions (docs/20 §3) ──
+        case 'laneCost': m.laneCostMult[fx.lane] *= fx.mult; break;
+        case 'pickCost': m.pickCostMult[fx.side] *= fx.mult; break;
+        case 'flareVuln':
+          m.arrayHardMult *= fx.arrayHard ?? 1;
+          m.machineFlareMult *= fx.machine ?? 1;
+          break;
+        case 'nightMode':
+          m.nightOutputMult *= fx.output ?? 1;
+          m.nightDrawMult *= fx.standby ?? 1;
+          // absolute, and the worse of it and the grid's: a later `storage` tech's efficiency still replaces it
+          if (fx.chargeEff !== undefined) m.storageEff = Math.min(m.storageEff, fx.chargeEff);
+          m.bankDischargeMult *= fx.discharge ?? 1;
+          break;
+        case 'moraleDynamics': m.moraleFallMult *= fx.fallMult; break;
+        case 'scrutiny': m.scrutiny = fx.on; break;
+        case 'grant': break; // research.onTechComplete acts on it once
       }
     }
   }
@@ -395,7 +436,35 @@ export function computeMods(
 
 /** computeMods for a live state (site, expedition and outposts included). */
 export function modsFor(s: GameState): Mods {
-  return computeMods(s.techsDone, s.expedition, s.siteId, s.survey?.outposts ?? []);
+  return computeMods(s.techsDone, s.expedition, s.siteId, s.survey?.outposts ?? [], factionOfState(s));
+}
+
+/** The research-cost multipliers alone (what techCost needs), without building a whole Mods: only the
+ *  few techs that carry a laneCost / pickCost are scanned, so a state with none is neutral at once. */
+const COST_TECHS = TECH_ORDER.filter((t) => TECHS[t].effects.some((fx) => fx.kind === 'laneCost' || fx.kind === 'pickCost'));
+/** shared and frozen: a caller reads it */
+const NEUTRAL_COST: Pick<Mods, 'laneCostMult' | 'pickCostMult'> = Object.freeze({
+  laneCostMult: Object.freeze(neutralLanes()) as Record<Lane, number>,
+  pickCostMult: Object.freeze({ colony: 1, automation: 1 }) as Record<Side, number>,
+});
+export function costMults(
+  s: { techsDone?: readonly TechId[]; siteId: SiteId; expedition: Expedition; faction?: FactionId | null },
+): Pick<Mods, 'laneCostMult' | 'pickCostMult'> {
+  const done = s.techsDone ?? [];
+  // the hot path (every solo card, every tick): no faction tech done, the shared neutral object
+  if (!COST_TECHS.some((t) => done.includes(t))) return NEUTRAL_COST;
+  const laneCostMult = neutralLanes();
+  const pickCostMult: Record<Side, number> = { colony: 1, automation: 1 };
+  const faction = factionOfState(s);
+  for (const tid of COST_TECHS) {
+    if (!done.includes(tid)) continue;
+    for (const fx of TECHS[tid].effects) {
+      if (fx.kind !== 'laneCost' && fx.kind !== 'pickCost') continue;
+      if (!effectApplies(fx, s.siteId, s.expedition, done, faction)) continue;
+      if (fx.kind === 'laneCost') laneCostMult[fx.lane] *= fx.mult; else pickCostMult[fx.side] *= fx.mult;
+    }
+  }
+  return { laneCostMult, pickCostMult };
 }
 
 // ─────────────────────────── effective definitions ───────────────────────────

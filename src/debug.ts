@@ -87,6 +87,9 @@ function api(game: Game) {
     moveResearch: (id: TechId, delta: -1 | 1) => game.actions.push({ kind: 'moveResearch', tech: id, delta }),
     /** the $research payload: cards, gates, queue, rates */
     getResearch: () => clone(researchView(game.state, game.mods)),
+    /** the live Mods (docs/20 W0d), JSON-safe: Sets become arrays, the exposure Map an object of arrays */
+    getMods: () => JSON.parse(JSON.stringify(game.mods, (_k, v) =>
+      v instanceof Set ? [...v] : v instanceof Map ? Object.fromEntries([...v].map(([k, x]) => [k, [...x]])) : v)),
     auditTechs: () => clone(auditTechs()),
     /** every objective as this run reads it: its hint (doctrine, expedition) and status line */
     getObjectives: () => MILESTONES.map((m) => ({

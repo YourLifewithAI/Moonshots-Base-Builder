@@ -115,6 +115,7 @@ function renderTechs(T) {
       }
       if (d.sites) tags.push(`sites: ${d.sites.map((s) => SITES[s].name).join(', ')}`);
       if (d.expeditions) tags.push(`${d.expeditions.join('/')} only`);
+      if (d.factions) tags.push(`⚑ faction-locked: ${d.factions.join(' / ')}`);
       if (d.crewTech) tags.push('crew tech (robotic: after Cohabitation)');
       if (d.track) tags.push(`${d.track.side === 'colony' ? '⌂ COLONY' : '◉ AUTOMATION'} · the Era ${d.track.era} destiny${d.track.landing ? ' (the landing)' : ''}`);
       if (d.band) tags.push(`destiny capstone · the ${d.band === 'concord' ? 'Concord' : d.band === 'colony' ? '⌂ Colony' : '◉ Automation'} band only`);
@@ -156,7 +157,8 @@ function renderTechs(T) {
   const bts = TECH_ORDER.filter((id) => TECHS[id].breakthrough).length;
   const tracks = TECH_ORDER.filter((id) => TECHS[id].track).length;
   const caps = TECH_ORDER.filter((id) => TECHS[id].band).length;
-  L(`${total} techs: ${total - bts - caps} researchable from the start of their era (${tracks} of them destiny picks, the two landings`);
+  const landings = TECH_ORDER.filter((id) => TECHS[id].track?.landing).length;
+  L(`${total} techs: ${total - bts - caps} researchable from the start of their era (${tracks} of them destiny picks, the ${landings} landings`);
   L(`among them), ${bts} breakthroughs, ${caps} destiny capstones; ${Object.keys(DOCTRINES).length} doctrines, ${INSIGHTS.length} insights.`);
   L();
   return lines.join('\n');
