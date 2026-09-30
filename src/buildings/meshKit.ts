@@ -26,6 +26,11 @@ export interface Finish {
 // three values only — hull, trim, glass; finishes differ in response
 export const BODY: Finish = { v: 0.81, rough: 0.55, metal: 0.15 };      // satin aluminum hull
 export const TRIM: Finish = { v: 0.42, rough: 0.62, metal: 0.2 };       // frames, struts, stacks
+/** an identifier's accent band (docs/19 S2a): the trim finish at another
+ *  gray, so the cel palette paints it the family accent at ANY size (a TRIM
+ *  part with a face over 5 m² reads as a deck, celBuilding.ts): rings round
+ *  a tower, a roof stripe, a hull band. */
+export const BAND: Finish = { v: 0.44, rough: 0.62, metal: 0.2 };
 export const GLASS: Finish = { v: 0.07, rough: 0.18, metal: 0 };        // PV cells, dark glass
 export const WINDOW: Finish = { ...GLASS, emit: 1 };
 export const LAMP: Finish = { v: 0.81, rough: 0.4, metal: 0, emit: 3 };  // work lamp lens

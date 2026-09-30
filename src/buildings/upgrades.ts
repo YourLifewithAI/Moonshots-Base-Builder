@@ -1097,13 +1097,38 @@ const hubWorkshop: Upgrade[] = [
   { tech: 'depotHalls', parts: () => [bar([-2.6, 6.2, -1.0], [2.6, 6.2, -1.0], 0.2, TRIM), box(0.9, 0.4, 0.6, BODY, 0, 6.15, -1.0)] },
 ];
 LANE.excavator = [...excavator, ...miningTools];
-LANE.iceMiner = [...excavator.filter((u) => ['dustMitigation', 'regolithProcessing'].includes(u.tech)), ...iceHarvester, ...miningTools];
 LANE.smelter = [...smelter, ...hubWorkshop];
 LANE.refinery = [...refinery, ...hubWorkshop];
+
+// The Ice Miner (unit frame: buildings/recipes.ts iceMiner, tank across the back
+// deck, cab at front-left, the cutter drum on the +z boom): dust skirts as the
+// excavator's, a cold-trap canister, a heater pack and a second row of teeth.
+const iceMiner: Upgrade[] = [
+  excavator.find((u) => u.tech === 'dustMitigation')!,
+  { // a foil-wrapped cold trap beside the tank, plumbed into its filler
+    tech: 'sublimationTents',
+    parts: () => [
+      cyl(0.27, 0.27, 1.1, FOIL, -1.5, 2.05, 0.78, 0, 0, 12),
+      cyl(0.3, 0.3, 0.1, TRIM, -1.5, 2.62, 0.78, 0, 0, 12),
+      pipe([-1.5, 2.62, 0.78], [-0.85, 3.25, -0.4], 0.06, PLATE),
+    ],
+  },
+  { // a heater pack on the tail (the drum's second row of teeth is the rig's)
+    tech: 'heatedAugers',
+    parts: () => [box(0.5, 0.9, 0.9, PLATE, -2.05, 2.05, -0.4), box(0.05, 0.1, 0.4, LAMP, -2.32, 2.3, -0.4)],
+  },
+  { tech: 'conditionOptimization', parts: () => [sensorMast(-1.6, 1.5, 1.0, 1.2)] },
+];
+LANE.iceMiner = iceMiner;
+
+// The Water Management Plant (recipes.ts waterPlant: the dome at x -2.4, the
+// condenser tower at x 3.4, the tank at +x): the hub workshop's bays and hoist
+// re-set for it, a reclamation bulb on the dome, an electrolysis rack by the tower.
 LANE.waterPlant = [
-  ...hubWorkshop,
-  { tech: 'waterReclamation', parts: () => [cyl(0.8, 0.8, 1.2, BODY, -2.5, 5.8, 0.8, 0, 0, 12), pipe([-2.5, 6.4, 0.8], [-2.5, 7.2, 0.8], 0.12, TRIM), pipe([-2.5, 7.2, 0.8], [-1.8, 7.2, 0.8], 0.12, TRIM)] },
-  { tech: 'waterElectrolysis', parts: () => [box(1.2, 1.7, 1.0, PLATE, 2.0, 6.0, 0.8), bar([1.4, 6.4, 0.8], [0.3, 6.4, 0.8], 0.12, TRIM), sensorMast(2.7, 5.3, -1.5)] },
+  { tech: 'bayExtensions', parts: () => [box(0.8, 0.9, 0.5, BODY, -4.6, 0.45, 3.2), box(0.5, 0.12, 0.04, LAMP, -4.6, 0.72, 3.47)] },
+  { tech: 'depotHalls', parts: () => [bar([-1.0, 6.2, -1.2], [3.4, 6.2, -1.2], 0.2, TRIM), box(0.9, 0.4, 0.6, BODY, 0.6, 6.15, -1.2)] },
+  { tech: 'waterReclamation', parts: () => [cyl(0.7, 0.7, 1.1, BODY, -2.4, 4.5, -0.3, 0, 0, 12), pipe([-2.4, 5.05, -0.3], [-2.4, 5.7, -0.3], 0.12, TRIM), pipe([-2.4, 5.7, -0.3], [-1.7, 5.7, -0.3], 0.12, TRIM)] },
+  { tech: 'waterElectrolysis', parts: () => [box(1.2, 1.7, 1.0, PLATE, 1.5, 0.85, -2.6), bar([1.5, 1.4, -2.6], [2.5, 1.4, -1.9], 0.12, TRIM), sensorMast(0.6, 0, -3.0, 1.6)] },
 ];
 
 /** Every type's upgrades: the lane techs' parts, then the destiny's (the

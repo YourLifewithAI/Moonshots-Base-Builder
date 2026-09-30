@@ -1,7 +1,8 @@
 /** Work rigs: the parts of a recipe that move while it works, kept out of
  *  the recipe so they can (world/workAnim.ts animates them; docs/06 §7).
- *  Today one rig: the Regolith Excavator's boom, its stay and its bucket
- *  wheel. Every piece is a box of the kit, so one instanced unit box draws
+ *  Two rigs: the Regolith Excavator's boom, its stay and its bucket wheel,
+ *  and the Ice Miner's heavier boom and cutter drum (same pivot, hub and
+ *  stay: the motion is shared). Every piece is a box of the kit, so one instanced unit box draws
  *  every rig (and the rover print arms) in a single call; the rest pose is
  *  merged into the placement ghost and counted in the triangle budget
  *  (recipes.ts). Frames are building space: base at y = 0, door side +z,
@@ -83,22 +84,55 @@ export function diggerWheel(key = ''): readonly RigBox[] {
   return w;
 }
 
+/** the ice miner's boom: broader than the excavator's, a trim plate on top */
+export const ICE_BOOM: readonly RigBox[] = [
+  barBox([0.4, 1.7, 0.7], [2.7, 1.5, 0.7], 0.55, BODY),
+  barBox([0.4, 2.05, 0.7], [2.6, 1.95, 0.7], 0.14, TRIM),
+];
+
+const drumCache = new Map<boolean, RigBox[]>();
+/** The ice miner's cutter drum about its hub (+z its axle): a ten-slat shell,
+ *  ten teeth, two octagonal flanges and a shaft. The heated-auger upgrade
+ *  (upgrades.ts) adds a second row of teeth. */
+export function iceDrum(key = ''): readonly RigBox[] {
+  const hot = key.split(',').includes('heatedAugers');
+  let d = drumCache.get(hot);
+  if (d) return d;
+  d = [];
+  const n = 10, r = 0.85, chord = 2 * r * Math.sin(PI / n);
+  for (let k = 0; k < n; k++) {
+    const a = (k + 0.5) * 2 * PI / n, rr = r * Math.cos(PI / n);
+    d.push(boxZ(0.1, chord + 0.04, 1.0, PLATE, Math.cos(a) * rr, Math.sin(a) * rr, 0, a));
+  }
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * PI * 2;
+    d.push(boxZ(0.26, 0.14, 0.86, TRIM, Math.cos(a) * (r + 0.12), Math.sin(a) * (r + 0.12), 0, a));
+    if (hot) d.push(boxZ(0.16, 0.1, 0.5, TRIM, Math.cos(a + PI / n) * (r + 0.1), Math.sin(a + PI / n) * (r + 0.1), 0, a + PI / n));
+  }
+  for (const z of [-0.54, 0.54]) d.push(boxZ(1.5, 1.5, 0.08, BODY, 0, 0, z, 0), boxZ(1.5, 1.5, 0.08, BODY, 0, 0, z, PI / 4));
+  d.push(boxZ(0.5, 0.5, 1.4, PLATE, 0, 0, 0));
+  drumCache.set(hot, d);
+  return d;
+}
+
 const bake = (b: RigBox, x = 0, y = 0, z = 0): BufferGeometry =>
   box(b.s.x, b.s.y, b.s.z, b.f).applyQuaternion(b.q).translate(b.c.x + x, b.c.y + y, b.c.z + z);
 
 /** A type's rig in its rest pose (the placement ghost; the triangle
  *  budget), building space. Types without a rig: none. */
 export function rigParts(id: BuildingId, key = ''): BufferGeometry[] {
-  if (id !== 'excavator') return [];
+  if (id !== 'excavator' && id !== 'iceMiner') return [];
   const { hub, stayTop, stayFoot, stayT } = DIGGER_RIG;
+  const ice = id === 'iceMiner';
   return [
-    ...DIGGER_BOOM.map((b) => bake(b)),
+    ...(ice ? ICE_BOOM : DIGGER_BOOM).map((b) => bake(b)),
     bake(barBox(stayTop.toArray(), stayFoot.toArray(), stayT, TRIM)),
-    ...diggerWheel(key).map((b) => bake(b, hub.x, hub.y, hub.z)),
+    ...(ice ? iceDrum(key) : diggerWheel(key)).map((b) => bake(b, hub.x, hub.y, hub.z)),
   ];
 }
 
 /** Triangles a type's rig draws (every piece a 12-triangle box). */
 export function rigTriangles(id: BuildingId, key = ''): number {
-  return id === 'excavator' ? (DIGGER_BOOM.length + 1 + diggerWheel(key).length) * 12 : 0;
+  return id === 'excavator' ? (DIGGER_BOOM.length + 1 + diggerWheel(key).length) * 12
+    : id === 'iceMiner' ? (ICE_BOOM.length + 1 + iceDrum(key).length) * 12 : 0;
 }

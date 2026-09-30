@@ -42,7 +42,7 @@ import { FAMILY_ACCENT, FAMILY_OF, UNIT_ACCENT, liveryOf, type UnitKey } from '.
 import { materials } from '../world/materials';
 import { celLightUniforms } from '../world/celLighting';
 import {
-  BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
+  BAND, BEACON, BODY, CUT_NONE, FOIL, GLASS, LAMP, LEAF, PLATE, RADIATOR, TRIM, WINDOW, setInstanceHook, type Finish,
 } from './meshKit';
 import type { PartId } from './recipes';
 
@@ -104,7 +104,7 @@ export const CEL_PALETTE: Readonly<Palette> = {
   beacon: 0xb02a22,
   foil: 0xd8a53a,
   /** foliage under glass (LEAF): the Colony's green (docs/14 §4.4) */
-  leaf: 0x5f8f3f,
+  leaf: 0x3f6f34,
   /** the roads (world/roads.ts): sintered regolith, and their kerb and centre marks */
   road: 0xa8a299,
   roadMark: 0xe9e4d8,
@@ -146,9 +146,13 @@ export function accentOf(id: CelId | undefined): Partial<Palette> {
 const FINISHES: [Finish, PaletteKey][] = [
   [BODY, 'hull'], [RADIATOR, 'radiator'], [PLATE, 'panel'], [TRIM, 'trim'], [GLASS, 'cell'],
   [WINDOW, 'window'], [LAMP, 'lamp'], [BEACON, 'beacon'], [FOIL, 'foil'], [LEAF, 'leaf'],
+  // an identifier's accent band: trim at any size (never a deck)
+  [BAND, 'trim'],
 ];
 
 const near = (a: number, b: number) => Math.abs(a - b) < 0.012;
+/** a band vertex (meshKit's BAND): the accent whatever the size of its part */
+const isBand = (v: number, rough: number, metal: number) => near(BAND.v, v) && near(BAND.rough, rough) && near(BAND.metal, metal);
 /** m²: a trim part with a face this big is a deck, not an accent */
 const DECK_AREA = 5;
 
@@ -180,7 +184,7 @@ export function celColors(src: THREE.BufferGeometry): THREE.BufferAttribute {
   const out = new Float32Array(col.count * 3);
   for (let i = 0; i < col.count; i++) {
     let key = mat ? finishKey(col.getX(i), mat.getX(i), mat.getY(i), mat.getZ(i)) : 'hull';
-    if (key === 'trim' && (area?.[i] ?? 0) > DECK_AREA) key = 'deck';
+    if (key === 'trim' && (area?.[i] ?? 0) > DECK_AREA && !isBand(col.getX(i), mat!.getX(i), mat!.getY(i))) key = 'deck';
     const c = lin.get(key)!;
     out[i * 3] = c.r; out[i * 3 + 1] = c.g; out[i * 3 + 2] = c.b;
   }

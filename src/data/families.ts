@@ -30,10 +30,17 @@ export const FAMILY_ACCENT: Record<Family, number> = {
   power: 0xe8b422,
   extraction: 0xd9772b,
   industry: 0x7a5cc7,
-  life: 0x5f9f3f,
+  // a lime, not the foliage's green: a greenhouse's trim must separate from its leaves (docs/19 S2a)
+  life: 0x7cc242,
   science: 0x2f7fd0,
   export: 0xc9302c,
   logistics: 0x8e9197,
+};
+
+/** The glyph beside a family's accent (docs/19 S2a): colour is never the only signal.
+ *  Shapes the game's font already draws; the palette buttons and the inspector's title wear it. */
+export const FAMILY_GLYPH: Record<Family, string> = {
+  power: '⚡', extraction: '⛏', industry: '⚗', life: '♥', science: '⚛', export: '↗', logistics: '⇄',
 };
 
 /** `0xd9772b` → `'#d9772b'` */

@@ -210,33 +210,33 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Building | Stock △ | Fully upgraded △ | Upgrades |
 |---|---|---|---|
 | Lander | 2,760 | 7,480 | 17 |
-| Solar Array | 896 | 2,012 | 8 |
-| Battery Bank | 1,044 | 2,138 | 4 |
-| Thorium Reactor | 1,752 | 2,044 | 2 |
+| Solar Array | 1,024 | 2,140 | 8 |
+| Battery Bank | 1,172 | 2,266 | 4 |
+| Thorium Reactor | 1,978 | 2,270 | 2 |
 | Regolith Smelter | 1,204 | 2,540 | 11 |
 | Silicon Refinery | 2,348 | 3,320 | 8 |
-| Water Management Plant | 1,868 | 2,100 | 4 |
-| Storage Yard | 956 | 1,016 | 1 |
-| Robotics Bay | 1,336 | 3,074 | 12 |
-| Parts Fabricator | 1,048 | 1,644 | 6 |
-| Chip Fab | 1,144 | 1,984 | 9 |
-| Habitat Module | 1,576 | 2,868 | 10 |
-| Hydroponics Farm | 1,372 | 2,400 | 6 |
-| Recreation Dome | 1,824 | 1,948 | 1 |
-| Research Lab | 1,680 | 3,376 | 7 |
-| Relay Mast | 1,616 | 2,220 | 4 |
-| Prospecting Bay | 580 | 580 | 0 |
-| Solar Observatory | 865 | 1,829 | 2 |
-| Data Center | 1,604 | 3,256 | 11 |
-| Foil Factory | 1,416 | 2,446 | 6 |
-| Mass Driver | 1,052 | 1,812 | 5 |
-| Propellant Plant | 2,348 | 3,556 | 6 |
-| Drone Hive | 1,536 | 1,596 | 1 |
-| Greenhouse Ring | 1,764 | 1,860 | 2 |
+| Water Management Plant | 2,240 | 2,472 | 4 |
+| Storage Yard | 1,668 | 1,728 | 1 |
+| Robotics Bay | 1,740 | 3,478 | 12 |
+| Parts Fabricator | 1,224 | 1,820 | 6 |
+| Chip Fab | 1,216 | 2,056 | 9 |
+| Habitat Module | 1,736 | 3,028 | 10 |
+| Hydroponics Farm | 1,896 | 2,924 | 6 |
+| Recreation Dome | 1,956 | 2,080 | 1 |
+| Research Lab | 1,968 | 3,664 | 7 |
+| Relay Mast | 1,670 | 2,274 | 4 |
+| Prospecting Bay | 688 | 688 | 0 |
+| Solar Observatory | 1,077 | 2,041 | 2 |
+| Data Center | 1,890 | 3,542 | 11 |
+| Foil Factory | 1,492 | 2,522 | 6 |
+| Mass Driver | 1,100 | 1,860 | 5 |
+| Propellant Plant | 2,440 | 3,648 | 6 |
+| Drone Hive | 1,684 | 1,744 | 1 |
+| Greenhouse Ring | 1,952 | 2,048 | 2 |
 | Garden Dome | 2,156 | 2,252 | 1 |
 | Server Monolith | 516 | 768 | 4 |
 | Regolith Excavator | 1,060 | 2,568 | 14 |
-| Ice Miner | 784 | 1,364 | 7 |
+| Ice Miner | 1,184 | 1,568 | 4 |
 
 #### Lander
 
@@ -535,10 +535,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Tech | Era | What changes | △ |
 |---|---|---|---|
 | Dust Mitigation | 3 | Solar Arrays sprout electrostatic curtain wands and excavators wear dust skirts. | 48 |
-| Sublimation Tents (SHACKLETON RIM) | 2 | Ice Miners pitch a foil sublimation tent over the dig. | 156 |
-| Heated Augers (SHACKLETON RIM) | 4 | Ice Miners sink a second, heated auger. | 156 |
+| Sublimation Tents (SHACKLETON RIM) | 2 | Ice Miners pitch a foil sublimation tent over the dig. | 112 |
+| Heated Augers (SHACKLETON RIM) | 4 | Ice Miners sink a second, heated auger. | 24 + 120 ↻ |
 | Condition Optimization | 6 | Excavators, Smelters, Refineries and Ice Harvesters sprout sensor masts. | 80 |
-| Pit Mapping | 1 | Excavators and Ice Miners mount a stereo camera boom over the cab. | 36 |
-| Hardfaced Teeth | 2 | Bucket wheels and augers wear a band of hardfaced teeth. | 60 |
-| Deep Coring | 4 | Excavators carry a rock-breaker arm; deep pits expose a bedrock bench. | 44 |
 <!-- END GENERATED -->
