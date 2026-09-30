@@ -23,7 +23,9 @@ import type { BuildingState, GameState } from '../core/state';
 import type { Heightfield } from '../terrain/heightfield';
 import { cellAt, cellCentre, cellKey, footprintCells, roadMap } from '../core/roads';
 import { footprintRect } from '../buildings/instances';
-import { BODY, GLASS, LAMP, PLATE, box, merge, withInstanceState } from '../buildings/meshKit';
+import { BODY, GLASS, LAMP, PLATE, TRIM, box, merge, withInstanceState } from '../buildings/meshKit';
+import { lookFaction } from '../buildings/factionLook';
+import { glyphParts } from '../buildings/emblem';
 import { materials } from './materials';
 import { inked } from './ink';
 import { blobTexture } from './rovers';
@@ -43,8 +45,8 @@ const PI = Math.PI;
 
 /** The suited figure (about 100 △): legs, torso, arms, helmet and visor, a
  *  backpack, a headlamp. Feet at y 0, facing +z. */
-function walkerGeometry(): THREE.BufferGeometry {
-  const g = merge([
+export function walkerGeometry(): THREE.BufferGeometry {
+  const parts: (THREE.BufferGeometry | THREE.BufferGeometry[])[] = [
     box(0.17, 0.72, 0.2, BODY, -0.13, 0.36, 0), box(0.17, 0.72, 0.2, BODY, 0.13, 0.36, 0),
     box(0.5, 0.64, 0.34, BODY, 0, 1.04, 0),
     box(0.13, 0.56, 0.15, BODY, -0.33, 1.0, 0.02), box(0.13, 0.56, 0.15, BODY, 0.33, 1.0, 0.02),
@@ -52,7 +54,21 @@ function walkerGeometry(): THREE.BufferGeometry {
     box(0.28, 0.16, 0.04, GLASS, 0, 1.56, 0.2),
     box(0.42, 0.52, 0.2, PLATE, 0, 1.1, -0.26),
     box(0.08, 0.05, 0.04, LAMP, 0, 1.7, 0.2),
-  ]);
+  ];
+  // the player's faction (docs/20 S7): the suit's colour (the palette: hull → the livery's suit) and its TRIM so
+  // the accent shows — a belt band, shoulder stripes, a helmet ring — with the emblem on the chest. A solo
+  // walker is exactly the figure above.
+  const f = lookFaction();
+  if (f) {
+    parts.push(
+      box(0.54, 0.12, 0.38, TRIM, 0, 0.86, 0),
+      box(0.15, 0.1, 0.17, TRIM, -0.33, 1.26, 0.02), box(0.15, 0.1, 0.17, TRIM, 0.33, 1.26, 0.02),
+      box(0.39, 0.06, 0.39, TRIM, 0, 1.43, 0.01),
+      glyphParts(f, 0.2, 0.05).map((gp) => gp.translate(0, 1.12, 0.17)),
+    );
+  }
+  const g = merge(parts);
+  if (f) g.userData.recipe = 'crew'; // the palette: the suit and the livery's trim
   g.scale(SCALE, SCALE, SCALE);
   g.computeBoundingBox();
   g.computeBoundingSphere();

@@ -1,6 +1,8 @@
 /** Silhouettes, family accents on models, and units (docs/19 S2a): every
  *  recipe has its own bounding box, carries its family's accent on a tall
  *  identifier, and the hubs' units and the survey drone are their own models.
+ *  Docs/20 S7 adds the factions' own six, the three liveries (hull layer, emblem, suits)
+ *  and the Lander, habitat and lab variants.
  *  Geometry is read from the recipes and the live meshes; nothing here needs a
  *  long run of the game. */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
@@ -54,8 +56,8 @@ test('recipes: each has its own bounding box, wears its family accent and carrie
     });
     return { rows, count: ids.length };
   });
-  // every recipe of the roster (28 buildings, the Prospecting Bay, and whatever joins them)
-  expect(r.count).toBeGreaterThanOrEqual(29);
+  // every recipe of the roster (the 29 of docs/19 and the six factions' own, docs/20 S7: 35 models, the survey drone is the 36th)
+  expect(r.count).toBeGreaterThanOrEqual(35);
   // distinct boxes: no two recipes agree within half a metre on every axis
   const close: string[] = [];
   for (let i = 0; i < r.rows.length; i++) {
@@ -257,4 +259,186 @@ test('every palette card and the inspector title wear their family glyph in the 
   await page.evaluate(() => { const g = window.__game; const l = g.getState().buildings.find((b: any) => b.type === 'lander'); g.select(l.id); });
   const head = page.locator('#inspector .insp-head .tt-name .fam');
   await expect(head).toHaveAttribute('data-g', want.glyph[want.of.lander]);
+});
+
+
+/** the faction look, read off the geometry: hull / trim / mark colours of a geometry's vertices (a deck, a trim part over 5 m², is not an accent) */
+const LOOK_HELPERS = `
+  const C = await import('/src/buildings/celBuilding.ts');
+  const R = await import('/src/buildings/recipes.ts');
+  const L = await import('/src/buildings/factionLook.ts');
+  const F = await import('/src/data/families.ts');
+  const D = await import('/src/data/factions.ts');
+  const B = await import('/src/data/buildings.ts');
+  const Color = C.CEL_COLD.constructor;
+  const hex = (h) => { const c = new Color(h); return [c.r, c.g, c.b].map((v) => v.toFixed(4)).join(','); };
+  const css = (s) => hex(parseInt(s.slice(1), 16));
+  const tri = (g) => (g.index ? g.index.count : g.getAttribute('position').count) / 3;
+  const scan = (geo) => {
+    const col = C.celColors(geo);
+    const c = geo.getAttribute('color'), m = geo.getAttribute('mat');
+    const area = geo.userData.partArea;
+    const seen = { hull: new Set(), trim: new Set(), mark: new Set() };
+    let win = 0;
+    for (let i = 0; i < c.count; i++) {
+      const k = C.finishKey(c.getX(i), m.getX(i), m.getY(i), m.getZ(i));
+      if (k === 'window') win++;
+      if (!(k in seen)) continue;
+      if (k === 'trim' && area[i] > 5 && Math.abs(c.getX(i) - 0.44) > 0.012) continue; // a deck
+      seen[k].add([col.getX(i), col.getY(i), col.getZ(i)].map((v) => v.toFixed(4)).join(','));
+    }
+    return { hull: [...seen.hull], trim: [...seen.trim], mark: [...seen.mark], tri: tri(geo), win };
+  };
+`;
+
+test('faction look: each livery takes the hull, the family accents stay, every structure carries the emblem, and a solo game\'s meshes are untouched', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page);
+  const r = await page.evaluate(async (helpers) => {
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+    return new AsyncFunction(`${helpers}
+      const ids = Object.keys(B.BUILDINGS);
+      const solo = Object.fromEntries(ids.map((id) => [id, scan(R.recipeGeometry(id))]));
+      const out = { ids, solo, factions: {}, paper: hex(C.CEL_PALETTE.hull), overrides: Object.keys(C.PALETTE_OVERRIDES) };
+      for (const f of D.FACTION_ORDER) {
+        L.setLookFaction(f);
+        out.factions[f] = { hull: css(D.FACTIONS[f].livery.hull), trim: css(D.FACTIONS[f].livery.trim), rows: Object.fromEntries(ids.map((id) => [id, scan(R.recipeGeometry(id))])) };
+      }
+      L.setLookFaction(undefined);
+      out.after = Object.fromEntries(ids.map((id) => [id, scan(R.recipeGeometry(id))]));
+      out.accent = Object.fromEntries(ids.map((id) => [id, hex(F.FAMILY_ACCENT[F.FAMILY_OF[id]])]));
+      return out;`)();
+  }, LOOK_HELPERS);
+  // the three liveries differ on the hull
+  const hulls = Object.values(r.factions).map((f: any) => f.hull);
+  expect(new Set(hulls).size, 'three hull colours').toBe(3);
+  expect(hulls).not.toContain(r.paper);
+  for (const [f, fl] of Object.entries(r.factions) as [string, any][]) {
+    for (const id of r.ids) {
+      const row = fl.rows[id], base = r.solo[id];
+      // the hull takes the livery (the destiny buildings keep their own dark hulls), the family accent does not move
+      if (base.hull.length) {
+        const want = r.overrides.includes(id) && ['serverMonolith', 'droneHive'].includes(id) ? base.hull : [fl.hull];
+        expect(row.hull, `${f} ${id} hull`).toEqual(want);
+      }
+      expect(row.trim, `${f} ${id} trim is still its family's`).toEqual(base.trim);
+      // the emblem: the livery's trim on the door side
+      expect(row.mark, `${f} ${id} emblem colour`).toEqual([fl.trim]);
+      expect(row.tri, `${f} ${id} has the emblem's triangles`).toBeGreaterThan(base.tri);
+      expect(row.tri - base.tri, `${f} ${id} emblem is small`).toBeLessThan(200);
+    }
+  }
+  // a solo game is exactly what it was: paper hulls, no mark, the same triangles
+  for (const id of r.ids) {
+    expect(r.after[id], `${id} after the look is reset`).toEqual(r.solo[id]);
+    expect(r.solo[id].mark, `${id} solo`).toEqual([]);
+  }
+});
+
+test('faction look: units carry the hull and the emblem, walkers the suit and the trim; a solo walker is the plain figure', async ({ page }) => {
+  await start(page);
+  const r = await page.evaluate(async (helpers) => {
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+    return new AsyncFunction(`${helpers}
+      const V = await import('/src/world/rovers.ts');
+      const S = await import('/src/world/settlers.ts');
+      const units = ['rover', 'drone', 'excavator:smelter', 'excavator:refinery', 'iceMiner:waterPlant'];
+      const make = (u) => u === 'rover' ? V.roverGeometry() : u === 'drone' ? V.droneGeometry() : R.unitRecipeGeometry(u);
+      const solo = { walker: scan(S.walkerGeometry()), walkerTag: S.walkerGeometry().userData.recipe, units: Object.fromEntries(units.map((u) => [u, scan(make(u))])) };
+      const out = { solo, factions: {}, paper: hex(C.CEL_PALETTE.hull) };
+      for (const f of D.FACTION_ORDER) {
+        L.setLookFaction(f);
+        const w = S.walkerGeometry();
+        out.factions[f] = {
+          hull: css(D.FACTIONS[f].livery.hull), trim: css(D.FACTIONS[f].livery.trim), suit: css(D.FACTIONS[f].livery.suit),
+          walker: scan(w), walkerTag: w.userData.recipe,
+          units: Object.fromEntries(units.map((u) => [u, scan(make(u))])),
+          bands: Object.fromEntries(['excavator:smelter', 'excavator:refinery', 'iceMiner:waterPlant'].map((u) => [u, hex(F.liveryOf(u).band)])),
+        };
+      }
+      L.setLookFaction(undefined);
+      return out;`)();
+  }, LOOK_HELPERS);
+  // solo: the walker is paper with no trim and no mark, untagged
+  expect(r.solo.walker.hull).toEqual([r.paper]);
+  expect(r.solo.walker.trim).toEqual([]);
+  expect(r.solo.walker.mark).toEqual([]);
+  const suits = new Set<string>();
+  for (const [f, fl] of Object.entries(r.factions) as [string, any][]) {
+    // the walker wears the suit colour and the livery's trim, and its emblem is the trim too
+    expect(fl.walker.hull, `${f} walker suit`).toEqual([fl.suit]);
+    expect(fl.walker.trim, `${f} walker trim`).toEqual([fl.trim]);
+    expect(fl.walker.mark, `${f} walker emblem`).toEqual([fl.trim]);
+    expect(fl.walkerTag).toBe('crew');
+    expect(fl.walker.tri, `${f} walker stays a small figure`).toBeLessThan(r.solo.walker.tri + 260);
+    suits.add(fl.suit);
+    for (const [u, row] of Object.entries(fl.units) as [string, any][]) {
+      // the hull takes the livery; a digger keeps its lane's band on the trim; every unit carries the emblem
+      expect(row.hull, `${f} ${u} hull`).toEqual([fl.hull]);
+      expect(row.mark, `${f} ${u} emblem`).toEqual([fl.trim]);
+      expect(row.tri, `${f} ${u} emblem triangles`).toBeGreaterThan(r.solo.units[u].tri);
+      if (fl.bands[u]) expect(row.trim, `${f} ${u} band`).toContain(fl.bands[u]);
+    }
+  }
+  expect(suits.size, 'three suits').toBe(3);
+  for (const u of Object.keys(r.solo.units)) expect(r.solo.units[u].mark, `solo ${u}`).toEqual([]);
+});
+
+test('faction variants: the Lander, habitat and lab grow their landing parts, each under 600 triangles; a faction game\'s Lander wears its key and its emblem', async ({ page }) => {
+  test.setTimeout(120_000);
+  await start(page);
+  const r = await page.evaluate(async (helpers) => {
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
+    return new AsyncFunction(`${helpers}
+      const out = { parts: {} };
+      for (const f of D.FACTION_ORDER) {
+        const tech = D.FACTIONS[f].landingTech;
+        for (const type of ['lander', 'habitat', 'lab']) {
+          const stock = R.recipeGeometry(type, ''), keyed = R.recipeGeometry(type, tech);
+          out.parts[f + ':' + type] = { tech, added: tri(keyed) - tri(stock), mark: scan(keyed).mark.length, win: scan(keyed).win - scan(stock).win };
+        }
+      }
+      return out;`)();
+  }, LOOK_HELPERS);
+  for (const [k, v] of Object.entries(r.parts) as [string, any][]) {
+    expect(v.added, `${k} adds a part`).toBeGreaterThan(100);
+    expect(v.added, `${k} stays under the part budget`).toBeLessThanOrEqual(600);
+  }
+  // the Vanguard's lit window band: windows added to the Lander and habitat; the Commons and the Foundry add none beside blanking
+  expect(r.parts['accelerationists:lander'].win).toBeGreaterThan(0);
+  expect(r.parts['accelerationists:habitat'].win).toBeGreaterThan(0);
+  // a faction game: the Lander's key is its landing tech's and its mesh holds the livery's emblem as well
+  for (const f of ['robots', 'accelerationists', 'solarpunks']) {
+    await page.evaluate((f) => window.__game.selectFaction(f), f);
+    await page.waitForFunction(() => window.__game.getState()?.faction !== undefined);
+    const live = await page.evaluate(async (f) => {
+      const g = window.__game;
+      g.setPaused(true); g.advanceGameSeconds(0);
+      for (let i = 0; i < 3; i++) g.stepFrame(0.05);
+      const D = await import('/src/data/factions.ts');
+      const R = await import('/src/buildings/recipes.ts');
+      const L = await import('/src/buildings/factionLook.ts');
+      const tri = (x: any) => (x.index ? x.index.count : x.getAttribute('position').count) / 3;
+      const info = g.getUpgrades();
+      const key = info.meshes.lander.key;
+      const withMark = tri(R.recipeGeometry('lander', key));
+      const look = L.lookFaction();
+      L.setLookFaction(undefined);
+      const plain = tri(R.recipeGeometry('lander', key));
+      L.setLookFaction(look);
+      return { key, tech: D.FACTIONS[f].landingTech, tris: info.meshes.lander.triangles, withMark, plain, look, want: info.want.lander };
+    }, f);
+    expect(live.look).toBe(f);
+    expect(live.key).toBe(live.tech);
+    expect(live.want).toBe(live.tech);
+    expect(live.tris, `${f} lander mesh = recipe with its emblem`).toBe(live.withMark);
+    expect(live.withMark, `${f} emblem on the Lander`).toBeGreaterThan(live.plain);
+  }
+  // and back to solo: the look resets with the game
+  await page.evaluate(() => window.__game.selectSite('mare', 'robotic'));
+  const back = await page.evaluate(async () => {
+    const L = await import('/src/buildings/factionLook.ts');
+    return L.lookFaction() ?? null;
+  });
+  expect(back).toBeNull();
 });

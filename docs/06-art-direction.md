@@ -74,10 +74,10 @@ must be filed there (it is a `Record`).
 | power | `#e8b422` amber | ⚡ | Solar Array, Battery Bank, Reactor |
 | extraction | `#d9772b` ochre | ⛏ | Regolith Smelter, Silicon Refinery, Water Management Plant (and their units: the Excavator, the Ice Miner; the retired Ice Harvester) |
 | industry | `#7a5cc7` violet | ⚗ | Storage Yard, Robotics Bay, Parts Fabricator, Chip Fab, Drone Hive |
-| life | `#7cc242` lime | ♥ | the Lander, Habitat, Hydroponics, Recreation Dome, Greenhouse Ring, Garden Dome |
-| science | `#2f7fd0` blue | ⚛ | Lab, Data Center, Relay Mast, Prospecting Bay, Solar Observatory, Server Monolith |
+| life | `#7cc242` lime | ♥ | the Lander, Habitat, Hydroponics, Recreation Dome, Greenhouse Ring, Garden Dome; the Commons' Hall and Terrace |
+| science | `#2f7fd0` blue | ⚛ | Lab, Data Center, Relay Mast, Prospecting Bay, Solar Observatory, Server Monolith; the Vanguard's Mission Ops and Skunkworks |
 | export | `#c9302c` red | ↗ | Foil Factory, Mass Driver, Propellant Plant |
-| logistics | `#8e9197` slate | ⇄ | no building: roads, rovers, the fleet; also what any untagged geometry wears |
+| logistics | `#8e9197` slate | ⇄ | the Foundry's Faraday Shed and Night Vault, roads, rovers, the fleet; also what any untagged geometry wears |
 
 The life accent is a lime, not the foliage's green (`LEAF`, `#3f6f34`, a deep
 forest), so a greenhouse's ribs and trim separate from its leaves at every
@@ -376,11 +376,11 @@ Every recipe is merged from a small kit:
 
 ### 6.2 Silhouettes and best sides (`buildings/recipes.ts`)
 
-Zero modeled assets: every one of the **29 building recipes** (26 of them
-placeable: the Excavator and the Ice Miner are hub units and the Ice Harvester
-is retired) is merged from the parametric kit (§6.1), and the survey drone is the
-thirtieth model. `tests/silhouettes.spec.ts` walks `Object.keys(BUILDINGS)`
-and asserts the rules below.
+Zero modeled assets: every one of the **35 building recipes** (the 29 of docs/19
+and the six factions' own, §16.3; 32 of them placeable: the Excavator and the Ice
+Miner are hub units and the Ice Harvester is retired) is merged from the parametric
+kit (§6.1), and the survey drone is the thirty-sixth model. `tests/silhouettes.spec.ts`
+walks `Object.keys(BUILDINGS)` and asserts the rules below.
 
 **Best side.** A recipe's base sits at y = 0, centred on its footprint, and
 its **front is +z**: `frontDir` (`core/roads.ts`) is +z rotated by the
@@ -428,6 +428,12 @@ that it stands at least 4.4 m.
 | Foil Factory (export) | 3×3 | 13.2 | a foil-drawing tower with a gold spool |
 | Mass Driver (export) | 6×2 | 6.9 | accent stripes across the rail, its muzzle ring (22.8 m long) |
 | Propellant Plant (export) | 3×2 | 10.9 | a flare stack |
+| Night Vault (logistics; the Foundry's) | 3×2 | 10.5 | a vent and antenna stack with three slate rings |
+| Faraday Shed (logistics; the Foundry's) | 3×3 | 9.6 | an earthing mast with three slate rings |
+| Mission Ops (science; the Vanguard's) | 2×2 | 14.6 | an uplink lattice mast with blue rings and cross-arms |
+| Skunkworks (science; the Vanguard's) | 3×2 | 11.1 | an exhaust stack with blue rings and a slanted cap |
+| Commons Hall (life; the Commons') | 4×3 | 13.5 | a spire over the roof's lantern, lime rings |
+| Regolith Terrace (life; the Commons') | 3×2 | 9.6 | a water tower at the back, lime rings |
 
 (The Excavator, the Ice Miner and the Ice Harvester recipes are the legacy
 pad models: 4.4, 5.3 and 6.7 m.) Heights are the base recipe; research parts
@@ -447,6 +453,9 @@ building:
 | Dish and mast | science | Lab, Relay Mast, Data Center, Prospecting Bay |
 | Spire | arrival | the Lander, the tallest thing you own on day one |
 | Low box on tracks or wheels | work | rovers and diggers: small, many, always moving |
+| Arched cage, stepped mound | the Foundry's | the Faraday Shed's smoked vault on pale ribs; the Night Vault's stepped berm round a hull portal |
+| Sawtooth shed, control block | the Vanguard's | Skunkworks' two roofs and stack; Mission Ops' glazed upper room under its mast |
+| Round hall, terraces | the Commons' | the Hall's cone roof in a ring of awnings; the Terrace's three planted steps |
 
 **Restraint rules** (Rams, applied to geometry):
 
@@ -826,7 +835,7 @@ of each structure's light.
   a hair proud of the panes: the base goes dark from outside), cable trays,
   black monolith annexes and guidance slabs, antenna farms, drone perches,
   second fab storeys, fin crowns.
-- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (the heaviest
+- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (8,000 for the Lander since the faction landings, §16.2; the heaviest
   set one run can hold: one side of each era's pick, one capstone); the four
   destiny recipes ≤ 3,500 △.
 
@@ -969,6 +978,116 @@ Designed, deliberately cut (sequencing in [09-roadmap.md](09-roadmap.md)):
    in a shader.
 
 ---
+
+---
+
+## 16. Factions: liveries, emblems, suits and their buildings (docs/20 S7)
+
+A faction game paints the player's base in the player's faction's livery. Only the
+player's base is ever drawn (a rival lives headless: its colours reach the player
+through the map, the race panel and the notifications, never as meshes), so the look
+has one faction at a time: `Game.bootWorld` calls `setLookFaction(state.faction)`
+(`buildings/factionLook.ts`) before it builds a single mesh, and every geometry cache
+(`recipes.ts`), colour cache (`celColors`) and placement cache keys on it. A solo game
+has no faction: no hull layer, no emblem, no suit, and every mesh exactly as it always
+was (`tests/silhouettes.spec.ts` compares them).
+
+### 16.1 The three liveries (`FACTIONS[f].livery`, `data/factions.ts`)
+
+| | The Foundry · ⚙ | The Vanguard · ▲ | The Commons · ❀ |
+|---|---|---|---|
+| Hull (`BODY`) | `#6f7580` gunmetal | `#f2f3f5` white | `#d9c9a3` sand |
+| Trim (`MARK`: emblem, hazard tape, fins, awnings, banners) | `#e8632b` signal orange | `#2f5fd0` cobalt | `#5f9f3f` leaf green |
+| Suit (EVA walkers) | `#d9d4c8` | `#f2f3f5` | `#e8dcb8` |
+| Emblem | a gear: an eight-sided plate and six square teeth (116 △) | a solid triangle (24 △) | a five-petal flower round a hub (104 △) |
+
+- **The hull layer** (`celBuilding.ts factionLayer`, applied between the family accent and
+  the per-recipe overrides): every `BODY` vertex takes the livery's hull colour, per
+  geometry, exactly where `celColors` already chose the paper hull. **The family TRIM
+  and BAND accents are not touched**: the accent still says the family and the
+  silhouette the building, the hull says the faction (the spec asserts every recipe's
+  trim set equals its solo trim set under all three liveries). Decks, radiators, PV
+  glass, windows, foil, foliage and the Server Monolith's and Drone Hive's own dark
+  hulls (`PALETTE_OVERRIDES`) stay. Hub diggers take the faction's hull and keep their
+  lane's band (ochre, violet, cyan); the moving work kit (print arm, boom, bucket wheel)
+  wears the same hull (`world/workAnim.ts tints`).
+- **`MARK`** (`meshKit.ts`) is a finish of its own (gray 0.56, rough 0.5, metal 0.1) that
+  the palette maps to the `mark` key: the livery's trim. It is baked only into faction
+  parts, so it never appears in a solo game.
+- **The emblem** (`buildings/emblem.ts`) is the glyph in `MARK` built from the kit's
+  primitives, a short `MARK` line under it (the faction's trim line), stuck on a flat
+  stretch of hull on the structure's **door side** (+z; else +x: the two faces the home
+  camera sees), right of the door at eye level, 1.4 m on an 8 m building up to 2.2 m on
+  the biggest. Where it goes is found on the geometry: candidate spots are scored by how
+  near they are to where a door-side mark belongs, and the first whose five probe points
+  all land on plain hull (`BODY`) within ≈ 28° of the wall's normal and 16 cm of one
+  another wins; the slab is as thick as the wall's spread plus 9 cm, so on a round hull
+  (the Lander, a dome's porch) it sits in the wall. No flat hull: the size steps down
+  (× 0.8 … 0.4), then any solid will do. It is found once per type, on the first geometry
+  of it built, and kept for every upgrade. All 35 structures carry one (104–116 △, the triangle
+  24; 36–44 △ on the two cabinets too small for more: the Solar Array's and the Relay Mast's).
+  Every instance draws its mark twice (the ink twin), so a small mark (under 0.6 m: a
+  unit's, a walker's) is a plate and a line: 44 / 22 / 36 △. Units: a digger's flank away
+  from its rig, above the band; one flank of a construction rover and of a drone; a
+  walker's chest.
+- **Suits.** The EVA walker (`world/settlers.ts`) is tagged `crew`: its hull parts take the
+  suit colour, and three `TRIM` parts (a belt band, two shoulder stripes, a helmet ring)
+  and the chest emblem take the livery's trim, so the accent shows on a 2 m figure. A solo
+  walker is the plain figure (no trim parts).
+- **Night.** The hull is a colour like any other: the ramp's three steps and the night key
+  (docs/06 §10) apply, the ink lerps to its night colour, windows and lamps glow as always.
+  The Foundry's hull was lightened from `#5b6068` for it: at night it read near black.
+  `MARK` does not glow; the lit parts of a faction variant are `WINDOW` and `LAMP`.
+
+### 16.2 The Lander, habitat and lab variants (`DESTINY_UPGRADES` on the landing techs)
+
+Each faction's landing tech is in `techsDone` from the first second, so its parts ride
+the same upgrade key as every other destiny part (≤ 600 △ a part, measured through
+`upgradeTriangles`).
+
+| | Lander | Habitat | Lab |
+|---|---|---|---|
+| **Foundry** (`landingFoundry`) | cabin windows blanked by a hull band, a rover stowed in a cradle on the back, a guyed antenna mast (bare metal), orange hazard tape (a `MARK` ring under 10 hull chevrons) round the hull — 400 △ | every window blanked (the ring, the patches, the skylight), hazard tape round the drum, a roof mast — 400 △ | shutters over both window strips, a guyed mast on the roof, hazard tape along the foot of two walls — 348 △ |
+| **Vanguard** (`landingVanguard`) | a flag (cloth, cobalt stripe, ▲) by the ladder, a press dish at the front left, a lit window band between cobalt lines round the cabin, three cobalt fins on the lower hull — 526 △ | a lit window band under cobalt lines on the dome, a flag on the crown — 342 △ | a lit band under the roof, a press dish on the roof, three cobalt fins along its back edge — 376 △ |
+| **Commons** (`landingCommons`) | two solar awnings (PV on a frame, over the door and on the +x side), three planter boxes (`BODY`, `LEAF`, shrubs) between the legs, a banner (hull cloth, green stripes, ❀) — 524 △ | an awning over the porch door, two planters, a banner — 392 △ | awnings over the door and the front windows, two planters, a banner — 440 △ |
+
+Night: the Vanguard's bands and the habitat's dome band are `WINDOW` (lit at the
+structure's own darkness, warm or cold by its `iWarm` like every other window); the
+Foundry's blanked windows stay dark by design, so its night shows its lit doors, lamps and
+the floods; the Commons' lit parts are its ordinary windows and lamps.
+
+### 16.3 The six buildings (`recipes.ts`, docs/20 §1)
+
+A tall identifier carrying the family's accent on small `TRIM` and `BAND` parts, a door
+on +z, a bounding box of its own (≥ 0.5 m off every other recipe's on some axis), inside
+its footprint to within ≈ 0.3 m. Heights and footprints are the recipes' own.
+
+| Building (family) | Footprint | Height | Silhouette |
+|---|---|---|---|
+| **Faraday Shed** (logistics) | 3×3 | 9.6 m | a low arched cage: a smoked dark shell on seven pale ribs and nine bars, hull end walls (the door in the front one), lightning finials on the ridge; the earthing mast at the front corner with three slate rings and a beacon. 892 △ |
+| **Night Vault** (logistics) | 3×2 | 10.5 m | a stepped mound of regolith over a hangar; the blast door a hull portal cut into its front under a hazard lintel and two lamps; a vent and antenna stack at the rear corner with three slate rings. 560 △ |
+| **Mission Ops** (science) | 2×2 | 14.6 m | a two-storey control block, the upper room a glazed band under a flat roof; a tracked dish on a pylon at the back of the roof (`MOUNTS.missionOps`, r 1.5 m); the uplink lattice mast at the front corner with blue rings and cross-arms. 1,812 △ with the dish |
+| **Skunkworks** (science) | 3×2 | 11.1 m | an angular shed of two sawtooth roofs, the taller east block with a glazed clerestory, a roll-up door at the west end, a radome on the low roof; a scrubber drum and the exhaust stack at the rear corner with blue rings and a slanted cap. 778 △ |
+| **Commons Hall** (life) | 4×3 | 13.5 m | a round hall of battens round lit panes under a steep cone roof with a lantern and three lime courses, a ring of ten solar awnings at the eaves (the porch side open), a porch at +z; a spire over the lantern with lime rings and a beacon. 1,404 △ |
+| **Regolith Terrace** (life) | 3×2 | 9.6 m | three planted steps climbing toward the back, each a hull retaining wall under a lime course, a potting shed in the middle of the front step (the door), an irrigation line down the steps, a trellis arch; a water tower on four legs at the back with lime rings. 788 △ |
+
+### 16.4 Budget and contact sheets
+
+A faction mesh is the solo mesh plus the emblem (104–116 △ a structure, 22–44 △ a unit or
+walker; every instance draws it twice, with its ink twin) plus its variant parts (≤ 600 △,
+§16.2). Measured on the `tests/look.spec.ts` "cel budget" base (seed 42, Ilmenite Plains,
+23 structures) at home / at the far zoom, calls and triangles: solo 73 / 101 calls,
+256,234 / 291,752 △; the Foundry 75 / 101, 264,602 / 299,792 (its three variants and the
+gear are the heaviest); the Vanguard 74 / 100, 256,916 / 292,068; the Commons 74 / 100,
+260,224 / 295,376. A faction base stays inside the §14 bounds (≤ 80 and ≤ 105 calls, ≤ 300 k
+△), the Foundry's far frame by 200 △. Building a type's emblem costs about 1–40 ms once
+(0.3–0.5 s for all 35). The contact sheets
+(`$SP/shots/fs7/contact-<faction>-{day,night}.png`: the Lander, habitat, lab, the faction's
+two buildings, a rover, a hub digger, a Drone Hive deck and a walker, at the closest zoom
+level) and a wide base shot per faction (`wide-<faction>-{day,night}.png`) are the
+deliverables; `tests/silhouettes.spec.ts` holds the rules (the three hulls differ, the
+family accents stay, every structure carries the emblem in the livery's trim, the walker
+wears the suit, a solo game is untouched, the variants add 100–600 △).
 
 ---
 
