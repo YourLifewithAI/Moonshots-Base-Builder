@@ -497,7 +497,7 @@ rotatable 3D moon globe from the full design is deferred (09).
 
 ## 8. Input over the fixed camera
 
-The command view is the only view (06 §14), so input is small and uniform:
+The command view is the only view (06 §11), so input is small and uniform:
 
 - The **left button** selects, places and targets; it never moves the camera.
   **Right- or middle-drag** pans, the wheel zooms, and the keys turn, tilt and
@@ -628,7 +628,7 @@ open and resumes as it was. It holds:
   a GPU that shows black (unlit materials, no outlines, no effects). The
   render check turns it on by itself and says so (`#menu-safe-note`: "Switched
   on by the render check (GPU issue detected). Turning it off retries lit
-  rendering…"); turning it off is a checked trial (06 §15). There is one
+  rendering…"); turning it off is a checked trial (06 §12). There is one
   style, so there is no style, quality or report control. `?safe` forces it
   for a launch; `?cel=A|B|C` picks a look variant for a launch (06 §3.1);
 - **Touch controls** (Auto · On · Off);
@@ -646,7 +646,7 @@ before the first frame. A browser without WebGL2 gets a page saying the game
 needs it, that hardware acceleration must be on, and that Chrome or Edge is
 recommended on Windows.
 
-**Camera and controls.** There is one camera (06 §14), so one table:
+**Camera and controls.** There is one camera (06 §11), so one table:
 
 | Key or gesture | Does |
 |---|---|
@@ -825,7 +825,7 @@ phone's GPU gets.
 
 - On the same machine the phone draws faster than the desktop reference: the
   canvas is smaller, and the cel style has one path with no post chain.
-- These numbers predate the outlines and the family look (06 §16 has the
+- These numbers predate the outlines and the family look (06 §14 has the
   current draw-call and triangle budget); the ratio between screens holds.
 
 ### 13.9 Hidden or deferred in touch mode

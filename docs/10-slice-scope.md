@@ -46,7 +46,7 @@ but does not teach.)
 | Sites | **3 of 5** | Shackleton Rim (85% night solar + ice, launch ×0.6, build ×1.25) · Ilmenite Plains (ISRU ×1.25, launch ×1.5, build ×0.8, full night, no ice) · Marius Hills Tube (flare-immune, upkeep ×0.85, morale 72, solar ×0.7, 220 m footprint) |
 | Milestones | **10, ordered** | Power Up → … → FIRST LIGHT; the sequence is the tutorial (07 §9) |
 | Events | **1 type** | The solar flare: telegraph 60 s → active 45 s (solar = 0, −10 morale), first at day 2.4, then every 2.0 ± 0.8 days, seeded |
-| Modes | 1 | The overhead command view (a first-person walk mode shipped in the slice and was removed, docs/19 W0a) |
+| Modes | 1 | The overhead command view: a fixed isometric camera (docs/06 §11); the player never walks |
 | Victory | First launch | 10 Foils + 1 Launch + 400 stored kWh → FIRST LIGHT overlay → continue playing |
 
 ## 3. The cut list, with rationale
@@ -70,7 +70,7 @@ Everything cut is designed (docs 02–05) and scheduled ([09-roadmap.md](09-road
 | **~14 of 28 buildings, ~12 of 30 techs** | Follow directly from the resource/system cuts above |
 | **Audio** | Nothing ships; silence is at least coherent with vacuum (roadmap Phase 7) |
 | **Terrain worker, LOD, mobile tiers, save slots/migration** | Engine scale work; 1,024 m map and one save slot fit a one-session game (roadmap Phase 8) |
-| **Edge-outline pass, blue-noise dither** | Art polish; AO + SMAA carry legibility (06 §11) |
+| **Edge-outline pass, blue-noise dither** | Art polish, cut from the slice. The cel style later shipped the ink outlines (an inverted hull, no post pass: 06 §4); there is no grain |
 | **Minimap, coach marks, 3D moon site globe** | UI depth beyond the five regions; each has a designed home (07) |
 
 ## 4. Pacing targets

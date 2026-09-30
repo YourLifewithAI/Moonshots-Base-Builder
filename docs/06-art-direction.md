@@ -18,7 +18,7 @@ tone mapping (the palette is authored as the colours you see, sRGB out), no
 post chain, no float buffers, pixel ratio at most 1.5 (`world/renderer.ts`).
 Three small shader programs do all the drawing that is not stock (the
 buildings' cel program, the ground program, the ink program), and each has a
-stock fallback (§15).
+stock fallback (§12).
 
 ---
 
@@ -33,13 +33,13 @@ that mean something: a family's trim, a unit's livery, a pit's state.
 | Rule | Consequence |
 |---|---|
 | One accent per family | A structure's trim is `FAMILY_ACCENT[FAMILY_OF[recipe]]`; the palette tabs, the inspector's title and the notification glyphs carry the same family (§2.1) |
-| Shape is identity | Every recipe has its own bounding box and one tall identifier that carries the accent (§5). Colour says which family, shape says which building |
+| Shape is identity | Every recipe has its own bounding box and one tall identifier that carries the accent (§6.2). Colour says which family, shape says which building |
 | Colour is never the only signal | Every colour has a glyph, a shape, a pattern or a word beside it (below) |
 | Three light steps | A face wears its own colour × 1.0 / 0.72 / 0.5 by its angle to the key (§3.1): forms read by their lit and shaded sides, with no shadow map |
 | Ink draws the line | Every instanced class has an outline of constant screen width (§4); the ground's lines are 1 px ink (§4.3) |
 | The sky is black | The clear colour is the sky. The UI panels are dark so the world is the bright element (docs/07) |
 | Vacuum motion | Ejecta is a short low puff: no fog, no smoke, no twinkle |
-| Zero binary assets | Every model is the parametric kit (§6), every colour a constant, every texture a generated one or none |
+| Zero binary assets | Every model is the parametric kit (§6.1), every colour a constant, every texture a generated one or none |
 
 **Colour is never the only signal** (the colour-blind rule; docs/07 §2 has the
 UI half). Where the game uses a saturated colour it also says the same thing
@@ -48,7 +48,7 @@ another way:
 | Colour carries | Also carried by |
 |---|---|
 | A building's family (trim) | its silhouette and tall identifier; the family glyph on its palette card and the inspector's title (⚡ ⛏ ⚗ ♥ ⚛ ↗ ⇄) |
-| A hub digger's kind | its mesh: an open bin, a covered hopper, a cutter drum and a tank (§7) |
+| A hub digger's kind | its mesh: an open bin, a covered hopper, a cutter drum and a tank (§6.3) |
 | A notification's family | the glyph (✦ ◎ ⚑ ☉ ⚠), the card's shape and place (docs/07 §4a) |
 | A pit's end state (amber, red, green) | the flag's shape (banner, pennant, swallow-tail), the ring's dash pattern and the chip's words (§9) |
 | Placement valid or blocked | pale against dark ghost, and the reason line in `#place-hint` |
@@ -111,7 +111,7 @@ mesh key `type:hub`).
 | Trim (`TRIM`, `BAND`) | the tagged accent (§2.1, §2.2) | the work kit's default is the extraction ochre |
 | Decks: `TRIM` parts with a face over 5 m² (`DECK_AREA`) | deep slate `#5d6675` | roofs, plinths, big stacks: the accent stays an accent |
 | PV cells (`GLASS`) | dark blue `#1d3a6c` | dust greys them (`iState.y`) |
-| Windows (`WINDOW`) | dark blue glass `#2a4c80` by day | glow at night (§13) |
+| Windows (`WINDOW`) | dark blue glass `#2a4c80` by day | glow at night (§10) |
 | Lamps (`LAMP`) | warm white `#fff1d6` | |
 | Beacons (`BEACON`) | red `#b02a22`, blinking | 0.2 s every 2 s, phase per instance, on the shader's own clock (`uBldTime`, real time) |
 | MLI foil (`FOIL`) | gold `#d8a53a` | |
@@ -127,7 +127,7 @@ accent at any size, which is how a ring round a tower carries the family
 colour.
 
 **Window and lamp light** is mixed per instance between two colours by
-`iWarm` (§12.2): warm sodium `CEL_WARM` (linear 1.0, 0.66, 0.29 ≈ `#ffd494`)
+`iWarm` (§13.2): warm sodium `CEL_WARM` (linear 1.0, 0.66, 0.29 ≈ `#ffd494`)
 and server cyan `CEL_COLD` (linear 0.52, 0.815, 1.0 ≈ `#bfe9ff`).
 
 ### 2.4 Ground (`terrain/celGround.ts`)
@@ -167,7 +167,7 @@ berms are the ground's own colour and program.
 | Placement ghost, blocked | `#14161a` at opacity 0.60 (dark = no) |
 | Ghost shading | the buildings' three-step ramp on the tint, with an emissive `#2a2c30` floor: the form reads like the structure it will become |
 | Rover and unit contact shadow | black at 0.5 (rovers) or 0.45 (hub units) × the sun's light, smeared down-sun |
-| Dust grains | the regolith grey, 75% of the way to the digging unit's accent while it digs (§11) |
+| Dust grains | the regolith grey, 75% of the way to the digging unit's accent while it digs (§7) |
 | Grading site | dashed ink outline, four stakes with an ochre flag (`FAMILY_ACCENT.extraction`), a pale plate on every cell not yet levelled (`world/gradeMarks.ts`) |
 | Pit palette and end-state flags | §9 |
 
@@ -264,10 +264,10 @@ overrides the constant for screenshots and tests.
 ### 4.2 Cost and fault
 
 Outlines add one draw call per structure type present plus one per other
-instanced class, and about 13% triangles (§16). They are not frustum-culled
+instanced class, and about 13% triangles (§14). They are not frustum-culled
 (the source's own draw is), so an off-screen structure still pays its
 vertices. The program carries `MBB_INK`; if it fails to compile the outlines
-are hidden for the session and the game carries on (§15). Safe mode hides them
+are hidden for the session and the game carries on (§12). Safe mode hides them
 too.
 
 ### 4.3 Lines on the ground
@@ -284,156 +284,7 @@ the heightfield a little proud of it, depth-tested and never written.
 
 ---
 
-## 5. Silhouettes and best sides (`buildings/recipes.ts`)
-
-Zero modeled assets: every one of the **29 building recipes** (26 of them
-placeable: the Excavator and the Ice Miner are hub units and the Ice Harvester
-is retired) is merged from the parametric kit (§6), and the survey drone is the
-thirtieth model. `tests/silhouettes.spec.ts` walks `Object.keys(BUILDINGS)`
-and asserts the rules below.
-
-**Best side.** A recipe's base sits at y = 0, centred on its footprint, and
-its **front is +z**: `frontDir` (`core/roads.ts`) is +z rotated by the
-building's `rot`, the road ends at the door cell on that face, and the home
-camera (yaw 45° + k·90°, looking from +x, +z at rotation 0) sees it. Most
-recipes put their airlock there; the refinery's, lab's and mass driver's door
-meshes are on the −x end and the reactor's annex door faces −z (the road door
-is `doorCell`, not the mesh). A recipe's tall identifier is on the camera's
-side of the footprint where it can be.
-
-**One tall identifier per recipe**, 5 to 16 m, readable at far zoom, carrying
-the family accent on small `TRIM` parts or `BAND` parts (rings round a tower, a
-roof stripe, a hull band). The spec asserts each recipe's own bounding box (no
-two within half a metre on every axis), that its trim is exactly its family's
-accent, that an accent vertex reaches into the top half of the recipe, and
-that it stands at least 4.4 m.
-
-| Recipe (family) | Footprint | Height (m) | Identifier |
-|---|---|---|---|
-| Lander (life) | 3×3 | 14.9 | green bands on the hull, the antenna mast |
-| Solar Array (power) | 2×2 | 5.6 | a sun-sensor mast with an amber pennant (the wings are separate trackers) |
-| Battery Bank (power) | 2×1 | 6.2 | the middle cabinet stacks to three blocks |
-| Reactor (power) | 3×3 | 11.8 | a hyperbolic cooling tower with a white plume |
-| Regolith Smelter (extraction) | 3×2 | 10.3 | twin stacks, ochre bands |
-| Silicon Refinery (extraction) | 3×2 | 7.9 | three domed columns, their bands the accent |
-| Water Management Plant (extraction) | 3×2 | 11.6 | a frosted cold-trap dome and one condenser tower with ochre rings (§7) |
-| Storage Yard (industry) | 2×2 | 9.2 | a tower crane |
-| Robotics Bay (industry) | 2×2 | 8.8 | a print-arm tower |
-| Parts Fabricator (industry) | 2×2 | 10.0 | an exhaust stack |
-| Chip Fab (industry) | 3×2 | 9.2 | twin stacks rising to 9 m |
-| Drone Hive (industry) | 3×3 | 8.8 | a landing mast over the honeycomb |
-| Habitat (life) | 2×2 | 9.3 | a lamp spire |
-| Hydroponics Farm (life) | 2×3 | 11.3 | a nutrient silo |
-| Recreation Dome (life) | 3×3 | 14.0 | a flag mast |
-| Greenhouse Ring (life) | 4×4 | 11.2 | a sun tower over the ring |
-| Garden Dome (life) | 5×5 | 12.0 | green terrace bands on a 10 m dome |
-| Lab (science) | 2×2 | 7.8 | a dish on a lattice tower (`MOUNTS.lab` at y 7.75) |
-| Data Center (science) | 3×3 | 12.3 | a chiller tower |
-| Relay Mast (science) | 1×1 | 12.3 | a mast with rings |
-| Prospecting Bay (science) | 2×2 | 10.5 | a mast with a blue radar array |
-| Solar Observatory (science) | 2×2 | 6.9 | a slit dome on a 5 m pier |
-| Server Monolith (science) | 2×2 | 16.0 | blue bands across a near-black slab |
-| Foil Factory (export) | 3×3 | 13.2 | a foil-drawing tower with a gold spool |
-| Mass Driver (export) | 6×2 | 6.9 | accent stripes across the rail, its muzzle ring (22.9 m long) |
-| Propellant Plant (export) | 3×2 | 10.9 | a flare stack |
-
-(The Excavator, the Ice Miner and the Ice Harvester recipes are the legacy
-pad models: 4.4, 5.3 and 6.7 m.) Heights are the base recipe; research parts
-grow on top of it and sit where they did (`buildings/upgrades.ts`).
-
-**Silhouette grammar.** The accent says the family; the outline says the
-building:
-
-| Silhouette | Reads as | Examples |
-|---|---|---|
-| Dome | life | Habitat, Recreation Dome, Garden Dome |
-| Stack, tower and column | industry and extraction | Smelter's twin stacks, Refinery's columns, the fabs |
-| Vault | growth | Hydroponics, the Greenhouse Ring's vaults |
-| Tilted plane | power | the Solar Array's wings |
-| Cooling tower and stacked blocks | power | Reactor, Battery Bank |
-| Rail | export | the Mass Driver, where the capsules leave |
-| Dish and mast | science | Lab, Relay Mast, Data Center, Prospecting Bay |
-| Spire | arrival | the Lander, the tallest thing you own on day one |
-| Low box on tracks or wheels | work | rovers and diggers: small, many, always moving |
-
-**Restraint rules** (Rams, applied to geometry):
-
-- Greebles are load-bearing only: a chimney says furnace, an airlock box says
-  "people enter here", a mast says comms. No detail that does not explain the
-  building.
-- Bases sit on a flattened pad with a smoothed 1-sample skirt, so a building
-  meets the ground the way the LM footpads do: flat object, soft transition.
-- A part is at least 1 m tall or wide, so it reads from the home distance
-  (docs/13 §4).
-
----
-
-## 6. Parametric building language (`buildings/meshKit.ts`, `recipes.ts`)
-
-Every recipe is merged from a small kit:
-
-- **Primitives**: `box`, `cyl` (cylinder, cone, tank), `dome`, `domeBand`
-  (window belts, skylights), `vault` (half-pipe greenhouse), `archWall`,
-  `berm`, `lathe` (dish shells, cooling towers), `bar` and `pipe` (members
-  between two points), `strut`.
-- **Load-bearing details** built from them: `door` (frame, recessed leaf,
-  porthole, lamp, sill), `pane`, `windowStrip`, `windowRing`, `rail`
-  (handrails with posts and knee rails), `radiator`, `antenna` (with a
-  blinking beacon), `lattice` (masts, derricks), `ladder`, `cableTray` and
-  `junction`, `bands`, `ring` (an accent ring round a tower).
-- Each part is baked with a **Finish**: its grey value into vertex colours,
-  its response and emissive id into a per-vertex `mat` attribute. UVs are
-  deleted (no textures), normals recomputed. One geometry plus one material is
-  **one `InstancedMesh` per building type: one draw call per type** (cap 96
-  instances a type). A recipe is 370 to 2,450 triangles at the base. The
-  rovers and the cargo lander are built from the same kit and draw with the
-  same program.
-- **Moving parts** are instanced apart (`buildings/trackers.ts`): solar wings
-  yaw to the sun's azimuth and tilt to its elevation every time it turns
-  0.1°, and dishes on the Lander, Lab, Relay Mast and Data Center hold on
-  Earth. Picking maps a hit on a part back to its building.
-- **The building program** (`celBuilding.ts`) reads per-instance state
-  `iState = (lit, dust, wear, cut)`: dust greys the PV glass, wear darkens
-  (−30% at full wear), windows and lamps glow at their light level `iGlow`
-  (−1 = follow the night, for rovers and moving parts), and `iAlarm` flickers
-  them red (§12.2).
-- **Construction is a 3D print**: fragments above the cut height (progress ×
-  recipe height) are discarded under a warm band 0.14 m deep at the print head, and the outline
-  keeps the same cut
-  (§4.1). A line scaffold stands over the site and a construction rover works
-  at its wall (§10).
-
----
-
-## 7. Units (`buildings/recipes.ts unitRecipeGeometry`, `world/haulers.ts`, `world/rovers.ts`)
-
-The hubs' diggers and the survey drone are their own models, told apart by
-shape first and livery second. A hub unit is drawn by `world/haulers.ts`, one
-`InstancedMesh` per **unit key** (`excavator:pad`, `excavator:smelter`,
-`excavator:refinery`, `excavator:waterPlant`, `iceMiner:waterPlant`), each
-with its ink twin. All are scaled to **3.0 m across the tracks**
-(`UNIT_WIDTH_M`, `UNIT_BODY.hw` 1.5) and keep the excavator's frame (the
-wheel leads +x, the rig rides z = +0.7), so the rig's motion is shared.
-
-| Unit | Model | Livery |
-|---|---|---|
-| **Smelter digger** (`excavator:smelter`, 944 △) | the excavator with an open ore bin on its back deck and a heap in it | paper body, ochre band along the hull |
-| **Refinery digger** (`excavator:refinery`, 870 △, 5.4 m tall) | a covered hopper with a gabled lid, a ridge stripe and hatches, a domed cab, a taller whip, slate tracks | quartz-white body, violet band |
-| **Ice miner** (`iceMiner:waterPlant`, 848 △, 5.3 m tall) | a cyan crawler with an insulated foil tank across the back, cyan straps, a cab at the front left, slate tracks; its rig is a broad boom and a ten-slat cutter drum (`ICE_BOOM`, `iceDrum`), a second row of teeth with Heated Augers | cyan body, cyan band |
-| Legacy pad digger and a water plant's excavator (784 △) | the plain excavator | `LIVERY_DEFAULT` |
-| **Survey drone** (`surveyDroneGeometry`, about 160 △) | a flat delta wing, nose +z, paper-white top with teal leading edges and a teal sensor pod slung under it, a glazed canopy, two canted fins, a nose lamp; no rotors: it flies, it does not perch on a deck | teal `#2fb3a6` |
-| Construction rover | a low box on wheels with a print arm | logistics slate |
-| Drone Hive drone | a quadcopter, cold light, a hover and a circle | industry violet |
-
-The two hub diggers and the ice miner differ in **triangles and bounds**
-(`silhouettes.spec` asserts it), and each carries its lane's upgrade parts
-(dust skirts, a cold-trap canister, a heater pack and a sensor mast for the
-ice miner, `LANE.iceMiner`). A digger's rig wears its livery: the band on the
-trim, the body's white.
-
----
-
-## 8. Terrain: real crater geometry (`src/terrain/heightfield.ts`)
+## 5. Terrain: real crater geometry (`src/terrain/heightfield.ts`)
 
 The heightfield is 257×257 samples over a 1,024 m map (4 m cells), fBm base
 plus **explicit craters using real simple-crater morphology**: the terrain is
@@ -484,45 +335,156 @@ their skirts.
 
 ---
 
-## 9. The pit look (`terrain/pitLook.ts`, `world/depositHighlight.ts`, `data/balance.ts PIT`)
+## 6. Buildings and units
 
-A pit must stand out from the ground it was cut from, and say what state it
-is in. Everything is **baked into the chunk's vertex buffers** (no extra draw
-call: `terrain.chunks` stays 64) and rides the pits' rebuild queue; a 40,000 m³
-pit rebuilds in about 40 ms.
+Every model is the parametric kit (6.1), drawn to a rule (6.2); the hubs' diggers and the survey drone are the units (6.3).
 
-| Part | Look |
-|---|---|
-| Benches | the cut is split on the odd metres of depth (1, 3, 5 …, the mid-wall of each 2 m bench step) and coloured flat by band: **ochre `#c9a06a`** for odd bands, **dark ochre `#a7833f`** for even ones, band 0 keeping the ground's colour. The two are 32/255 of luminance apart and survive the ground's two steps and its 0.014 posterising by day and at night |
-| Floor | `#8f7a5a`: the pit's flat floor triangles. It is close to the mare's ground by design (20/255 apart) and sits inside ochre walls |
-| Contours | an ink ribbon `PIT.benchBand` 0.25 m wide, `PIT.contourLift` 0.05 m proud of the face, along every cut, in `#3a2c1a`: one ring per bench, so the ribbons' levels number the benches. The width is a world constant: about 3.7 px at the home zoom, under 1 px at 830 m, where the palette carries the bench |
-| Ramp | a causeway the sim leaves standing (1:4, `rampHalfW` 4.5 m either side of its line), drawn as a lighter tread `#dcc48e` edged in contour ink, carrying an arrow (`#141618`, a shaft and a head at most 14 m long, lifted 0.07 m) pointing down the ramp; a tread under 4.5 m has none |
-| Heap | `#6f665c`, outlined in `#2b2722` where it is 0.5 m high (`heapFootH`) and cross-hatched in `#43392f` every 3.6 m along the world diagonals (`hatchM`, `hatchW` 0.13), continuous across triangles and chunks; graded spoil is plain ground again |
-| Rim | in the deposit highlight, `drapedLine(…, 'rim')` along the real cut contour (the outermost point of the first bench's line, 96 rays), white; its heap's outline is the real foot, dashed. The circle is the fallback when the grid holds no cut there |
+### 6.1 The kit (`buildings/meshKit.ts`, `recipes.ts`)
 
-The cut differs from the ground it was cut from by at least 40/255 in one
-channel for nine samples in ten (measured: the 10th percentile 48, the median
-72; the floor is the exception).
+Every recipe is merged from a small kit:
 
-**End states** (`PitMarks`, always on, whatever is selected). A pit in state
-`exhausted`, `boxed` or `reclaimed` carries a dashed ring 3.5 m outside its
-rim and a flag beside the ramp, on the rim: two meshes in all, none when no pit
-is in an end state. Shape and pattern say the state as well as colour
-(`PIT_END`):
+- **Primitives**: `box`, `cyl` (cylinder, cone, tank), `dome`, `domeBand`
+  (window belts, skylights), `vault` (half-pipe greenhouse), `archWall`,
+  `berm`, `lathe` (dish shells, cooling towers), `bar` and `pipe` (members
+  between two points), `strut`.
+- **Load-bearing details** built from them: `door` (frame, recessed leaf,
+  porthole, lamp, sill), `pane`, `windowStrip`, `windowRing`, `rail`
+  (handrails with posts and knee rails), `radiator`, `antenna` (with a
+  blinking beacon), `lattice` (masts, derricks), `ladder`, `cableTray` and
+  `junction`, `bands`, `ring` (an accent ring round a tower).
+- Each part is baked with a **Finish**: its grey value into vertex colours,
+  its response and emissive id into a per-vertex `mat` attribute. UVs are
+  deleted (no textures), normals recomputed. One geometry plus one material is
+  **one `InstancedMesh` per building type: one draw call per type** (cap 96
+  instances a type). A recipe is 370 to 2,450 triangles at the base. The
+  rovers and the cargo lander are built from the same kit and draw with the
+  same program.
+- **Moving parts** are instanced apart (`buildings/trackers.ts`): solar wings
+  yaw to the sun's azimuth and tilt to its elevation every time it turns
+  0.1°, and dishes on the Lander, Lab, Relay Mast and Data Center hold on
+  Earth. Picking maps a hit on a part back to its building.
+- **The building program** (`celBuilding.ts`) reads per-instance state
+  `iState = (lit, dust, wear, cut)`: dust greys the PV glass, wear darkens
+  (−30% at full wear), windows and lamps glow at their light level `iGlow`
+  (−1 = follow the night, for rovers and moving parts), and `iAlarm` flickers
+  them red (§13.2).
+- **Construction is a 3D print**: fragments above the cut height (progress ×
+  recipe height) are discarded under a warm band 0.14 m deep at the print head, and the outline
+  keeps the same cut
+  (§4.1). A line scaffold stands over the site and a construction rover works
+  at its wall (§7).
 
-| State | Colour | Flag | Ring dash (on, off in m) | Chip |
-|---|---|---|---|---|
-| EXHAUSTED | amber `#e8a72d` | banner | 3, 2 | EXHAUSTED |
-| BOXED IN | red `#d9503f` | pennant | 1.2, 1.2 | BOXED IN |
-| RECLAIMED | green `#66ad4b` | swallow-tail | 2.4, 2.4 | RECLAIMED |
+### 6.2 Silhouettes and best sides (`buildings/recipes.ts`)
 
-The hub highlight's label chips take the same colours and keep their words
-(docs/07 §4a, §4). The flags are 5.8 m tall with a 0.3 m pole and an ink outline.
-A graded pad has no look of its own yet.
+Zero modeled assets: every one of the **29 building recipes** (26 of them
+placeable: the Excavator and the Ice Miner are hub units and the Ice Harvester
+is retired) is merged from the parametric kit (§6.1), and the survey drone is the
+thirtieth model. `tests/silhouettes.spec.ts` walks `Object.keys(BUILDINGS)`
+and asserts the rules below.
+
+**Best side.** A recipe's base sits at y = 0, centred on its footprint, and
+its **front is +z**: `frontDir` (`core/roads.ts`) is +z rotated by the
+building's `rot`, the road ends at the door cell on that face, and the home
+camera (yaw 45° + k·90°, looking from +x, +z at rotation 0) sees it. Most
+recipes put their airlock there; the refinery's, lab's and mass driver's door
+meshes are on the −x end and the reactor's annex door faces −z (the road door
+is `doorCell`, not the mesh). A recipe's tall identifier is on the camera's
+side of the footprint where it can be.
+
+**One tall identifier per recipe**, 5 to 16 m, readable at far zoom, carrying
+the family accent on small `TRIM` parts or `BAND` parts (rings round a tower, a
+roof stripe, a hull band). The spec asserts each recipe's own bounding box (no
+two within half a metre on every axis), that its trim is exactly its family's
+accent, that an accent vertex reaches into the top half of the recipe, and
+that it stands at least 4.4 m.
+
+| Recipe (family) | Footprint | Height (m) | Identifier |
+|---|---|---|---|
+| Lander (life) | 3×3 | 14.9 | green bands on the hull, the antenna mast |
+| Solar Array (power) | 2×2 | 5.6 | a sun-sensor mast with an amber pennant (the wings are separate trackers) |
+| Battery Bank (power) | 2×1 | 6.2 | the middle cabinet stacks to three blocks |
+| Reactor (power) | 3×3 | 11.8 | a hyperbolic cooling tower with a white plume |
+| Regolith Smelter (extraction) | 3×2 | 10.3 | twin stacks, ochre bands |
+| Silicon Refinery (extraction) | 3×2 | 7.9 | three domed columns, their bands the accent |
+| Water Management Plant (extraction) | 3×2 | 11.6 | a frosted cold-trap dome and one condenser tower with ochre rings (§6.3) |
+| Storage Yard (industry) | 2×2 | 9.2 | a tower crane |
+| Robotics Bay (industry) | 2×2 | 8.8 | a print-arm tower |
+| Parts Fabricator (industry) | 2×2 | 10.0 | an exhaust stack |
+| Chip Fab (industry) | 3×2 | 9.2 | twin stacks rising to 9 m |
+| Drone Hive (industry) | 3×3 | 8.8 | a landing mast over the honeycomb |
+| Habitat (life) | 2×2 | 9.3 | a lamp spire |
+| Hydroponics Farm (life) | 2×3 | 11.3 | a nutrient silo |
+| Recreation Dome (life) | 3×3 | 14.0 | a flag mast |
+| Greenhouse Ring (life) | 4×4 | 11.2 | a sun tower over the ring |
+| Garden Dome (life) | 5×5 | 12.0 | green terrace bands on a 10 m dome |
+| Lab (science) | 2×2 | 7.8 | a dish on a lattice tower (`MOUNTS.lab` at y 7.75) |
+| Data Center (science) | 3×3 | 12.3 | a chiller tower |
+| Relay Mast (science) | 1×1 | 12.3 | a mast with rings |
+| Prospecting Bay (science) | 2×2 | 10.5 | a mast with a blue radar array |
+| Solar Observatory (science) | 2×2 | 6.9 | a slit dome on a 5 m pier |
+| Server Monolith (science) | 2×2 | 16.0 | blue bands across a near-black slab |
+| Foil Factory (export) | 3×3 | 13.2 | a foil-drawing tower with a gold spool |
+| Mass Driver (export) | 6×2 | 6.9 | accent stripes across the rail, its muzzle ring (22.9 m long) |
+| Propellant Plant (export) | 3×2 | 10.9 | a flare stack |
+
+(The Excavator, the Ice Miner and the Ice Harvester recipes are the legacy
+pad models: 4.4, 5.3 and 6.7 m.) Heights are the base recipe; research parts
+grow on top of it and sit where they did (`buildings/upgrades.ts`).
+
+**Silhouette grammar.** The accent says the family; the outline says the
+building:
+
+| Silhouette | Reads as | Examples |
+|---|---|---|
+| Dome | life | Habitat, Recreation Dome, Garden Dome |
+| Stack, tower and column | industry and extraction | Smelter's twin stacks, Refinery's columns, the fabs |
+| Vault | growth | Hydroponics, the Greenhouse Ring's vaults |
+| Tilted plane | power | the Solar Array's wings |
+| Cooling tower and stacked blocks | power | Reactor, Battery Bank |
+| Rail | export | the Mass Driver, where the capsules leave |
+| Dish and mast | science | Lab, Relay Mast, Data Center, Prospecting Bay |
+| Spire | arrival | the Lander, the tallest thing you own on day one |
+| Low box on tracks or wheels | work | rovers and diggers: small, many, always moving |
+
+**Restraint rules** (Rams, applied to geometry):
+
+- Greebles are load-bearing only: a chimney says furnace, an airlock box says
+  "people enter here", a mast says comms. No detail that does not explain the
+  building.
+- Bases sit on a flattened pad with a smoothed 1-sample skirt, so a building
+  meets the ground the way the LM footpads do: flat object, soft transition.
+- A part is at least 1 m tall or wide, so it reads from the home distance
+  (docs/13 §4).
+
+### 6.3 Units (`buildings/recipes.ts unitRecipeGeometry`, `world/haulers.ts`, `world/rovers.ts`)
+
+The hubs' diggers and the survey drone are their own models, told apart by
+shape first and livery second. A hub unit is drawn by `world/haulers.ts`, one
+`InstancedMesh` per **unit key** (`excavator:pad`, `excavator:smelter`,
+`excavator:refinery`, `excavator:waterPlant`, `iceMiner:waterPlant`), each
+with its ink twin. All are scaled to **3.0 m across the tracks**
+(`UNIT_WIDTH_M`, `UNIT_BODY.hw` 1.5) and keep the excavator's frame (the
+wheel leads +x, the rig rides z = +0.7), so the rig's motion is shared.
+
+| Unit | Model | Livery |
+|---|---|---|
+| **Smelter digger** (`excavator:smelter`, 944 △) | the excavator with an open ore bin on its back deck and a heap in it | paper body, ochre band along the hull |
+| **Refinery digger** (`excavator:refinery`, 870 △, 5.4 m tall) | a covered hopper with a gabled lid, a ridge stripe and hatches, a domed cab, a taller whip, slate tracks | quartz-white body, violet band |
+| **Ice miner** (`iceMiner:waterPlant`, 848 △, 5.3 m tall) | a cyan crawler with an insulated foil tank across the back, cyan straps, a cab at the front left, slate tracks; its rig is a broad boom and a ten-slat cutter drum (`ICE_BOOM`, `iceDrum`), a second row of teeth with Heated Augers | cyan body, cyan band |
+| Legacy pad digger and a water plant's excavator (784 △) | the plain excavator | `LIVERY_DEFAULT` |
+| **Survey drone** (`surveyDroneGeometry`, about 160 △) | a flat delta wing, nose +z, paper-white top with teal leading edges and a teal sensor pod slung under it, a glazed canopy, two canted fins, a nose lamp; no rotors: it flies, it does not perch on a deck | teal `#2fb3a6` |
+| Construction rover | a low box on wheels with a print arm | logistics slate |
+| Drone Hive drone | a quadcopter, cold light, a hover and a circle | industry violet |
+
+The two hub diggers and the ice miner differ in **triangles and bounds**
+(`silhouettes.spec` asserts it), and each carries its lane's upgrade parts
+(dust skirts, a cold-trap canister, a heater pack and a sensor mast for the
+ice miner, `LANE.iceMiner`). A digger's rig wears its livery: the band on the
+trim, the body's white.
 
 ---
 
-## 10. Motion and life (`src/world/life.ts`)
+## 7. Motion and life (`src/world/life.ts`)
 
 A base that only sits reads as a diorama. Everything that moves on its own is
 one module the frame loop calls once, and every motion is a visible *game
@@ -538,7 +500,7 @@ roads (docs/15) in the right-hand lane (4.5 m/s cruise on a sintered road,
 faster with each roadway tier, 3 m/s²), backing out of its bay first and
 turning on the spot where its way sets off away from its heading. It works at
 its site's door (or at the frontier of the road it sinters, or on the next
-cell of a grading box), and the work shows (§10.1); it drives home to park
+cell of a grading box), and the work shows (§7.1); it drives home to park
 when the work is done. The ground traffic (`world/traffic.ts`) shares the
 road cells out: rovers queue, pass in opposite lanes and make way for the hubs'
 diggers, which follow the sim's own positions (docs/17 §16.2). The chassis sits
@@ -551,7 +513,7 @@ most 90°/s, ramps are 6 m/s² up and 10 m/s² down, a 0.3 s settle on arrival
 comes before the dig or the dump shows, and no pose moves more than 1 m a
 frame at 1×.
 
-**Drones, survey drones and EVA walkers** (docs/14 §4.3; §12 here). A Drone
+**Drones, survey drones and EVA walkers** (docs/14 §4.3; §13 here). A Drone
 Hive's units fly as quadcopters, straight at 6–10 m, off the roads and out of
 the ground traffic. **Survey drones** (docs/11 §5c) lift from their Prospecting
 Bay or the Lander, fly on the prospect's bearing to the map's edge, vanish and
@@ -568,7 +530,7 @@ violet, the ice miner's cyan. Safe mode shows no dust. Emitters, nearest the
 camera first: rover wheels above 0.6 m/s, a rover's print head, the hubs'
 bucket wheels while they dig, the resupply landing sheet below 28 m.
 
-**Beacons** blink on the building shader's clock (§6): antennas, the mass
+**Beacons** blink on the building shader's clock (§6.1): antennas, the mass
 driver's muzzle, rover masts, the cargo lander.
 
 **Mass-driver launch** (`world/events.ts`, fired from `Game.doLaunch` after a
@@ -591,7 +553,7 @@ arriveAt`, so saves, pauses and time jumps all land on the right frame. The
 pad is picked beside the Lander toward Earth: the first spot 36–90 m out that
 is 7 m clear of every footprint and level to 1.2 m.
 
-### 10.1 Work (`world/workAnim.ts`, `buildings/rigs.ts`)
+### 7.1 Work (`world/workAnim.ts`, `buildings/rigs.ts`)
 
 > "There's also no animation for the excavators or the rovers when they're
 > working."
@@ -652,7 +614,7 @@ shown, on a busy base.
 
 ---
 
-## 11. Research you can see
+## 8. Research you can see
 
 Techs change numbers; a few also change the world. All visual only.
 
@@ -671,7 +633,7 @@ Techs change numbers; a few also change the world. All visual only.
 - **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors glint
   on a thin ellipse through the sun: `n = 12 + 40 · log10(1 + swarm% · 10⁴)`
   points (cap 400). They live in the sky slot, and **the fixed camera never
-  looks above the horizon** (§14), so they are not seen in play; the swarm's
+  looks above the horizon** (§11), so they are not seen in play; the swarm's
   progress reads in the HUD meter.
 - **Dust Mitigation → cleaner panels**. Base traffic settles a thin film on
   every solar wing's glass: `dF/dt = gain − F/τ`, gain 0.25 per lunar day
@@ -684,124 +646,45 @@ Techs change numbers; a few also change the world. All visual only.
 
 ---
 
-## 12. Destinies: two bases by Era 8 (docs/14 §4)
+## 9. The pit look (`terrain/pitLook.ts`, `world/depositHighlight.ts`, `data/balance.ts PIT`)
 
-> "They should look very different visually by the time we arrive at the
-> final era."
+A pit must stand out from the ground it was cut from, and say what state it
+is in. Everything is **baked into the chunk's vertex buffers** (no extra draw
+call: `terrain.chunks` stays 64) and rides the pits' rebuild queue; a 40,000 m³
+pit rebuilds in about 40 ms.
 
-⌂ Colony grows green under glass, lit tubes and crew in EVA suits. ◉
-Automation grows black slabs, honeycombs, conveyors and drones, and its lights
-go cold. One mechanism: parts, four recipes, base-wide layers, and the colour
-of each structure's light.
+| Part | Look |
+|---|---|
+| Benches | the cut is split on the odd metres of depth (1, 3, 5 …, the mid-wall of each 2 m bench step) and coloured flat by band: **ochre `#c9a06a`** for odd bands, **dark ochre `#a7833f`** for even ones, band 0 keeping the ground's colour. The two are 32/255 of luminance apart and survive the ground's two steps and its 0.014 posterising by day and at night |
+| Floor | `#8f7a5a`: the pit's flat floor triangles. It is close to the mare's ground by design (20/255 apart) and sits inside ochre walls |
+| Contours | an ink ribbon `PIT.benchBand` 0.25 m wide, `PIT.contourLift` 0.05 m proud of the face, along every cut, in `#3a2c1a`: one ring per bench, so the ribbons' levels number the benches. The width is a world constant: about 3.7 px at the home zoom, under 1 px at 830 m, where the palette carries the bench |
+| Ramp | a causeway the sim leaves standing (1:4, `rampHalfW` 4.5 m either side of its line), drawn as a lighter tread `#dcc48e` edged in contour ink, carrying an arrow (`#141618`, a shaft and a head at most 14 m long, lifted 0.07 m) pointing down the ramp; a tread under 4.5 m has none |
+| Heap | `#6f665c`, outlined in `#2b2722` where it is 0.5 m high (`heapFootH`) and cross-hatched in `#43392f` every 3.6 m along the world diagonals (`hatchM`, `hatchW` 0.13), continuous across triangles and chunks; graded spoil is plain ground again |
+| Rim | in the deposit highlight, `drapedLine(…, 'rim')` along the real cut contour (the outermost point of the first bench's line, 96 rays), white; its heap's outline is the real foot, dashed. The circle is the fallback when the grid holds no cut there |
 
-### 12.1 Parts and recipes
+The cut differs from the ground it was cut from by at least 40/255 in one
+channel for nine samples in ten (measured: the 10th percentile 48, the median
+72; the floor is the exception).
 
-- **Picks are techs, so they carry parts** (`buildings/destinyParts.ts`,
-  appended to each type's list in `upgrades.ts`). All 16 track techs (the
-  landing included) and the 3 capstones add at least one; the full list is
-  generated into docs/04 ("Research you can see").
-- **Colony parts are lived in**: porches with round windows, a hab-ring collar
-  and suit-port, terraces with `LEAF` planters, a glazed galley, bulkheads, a
-  launch blockhouse, festival lamps, a flag.
-- **Automation parts are for machines**: whips and node lamps, shutters (`BODY`
-  a hair proud of the panes: the base goes dark from outside), cable trays,
-  black monolith annexes and guidance slabs, antenna farms, drone perches,
-  second fab storeys, fin crowns.
-- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (the heaviest
-  set one run can hold: one side of each era's pick, one capstone); the four
-  destiny recipes ≤ 3,500 △.
+**End states** (`PitMarks`, always on, whatever is selected). A pit in state
+`exhausted`, `boxed` or `reclaimed` carries a dashed ring 3.5 m outside its
+rim and a flag beside the ramp, on the rim: two meshes in all, none when no pit
+is in an end state. Shape and pattern say the state as well as colour
+(`PIT_END`):
 
-| Recipe | △ | Reads as |
-|---|---|---|
-| Greenhouse Ring (4×4) | 1,952 | eight `LEAF` vaults on `BODY` sills in a ring, ribbed, a glazed crown and grow lamps; a `GLASS` hub dome; a sun tower and a porch at +z |
-| Garden Dome (5×5) | 2,156 | a 10 m dome: `GLASS` crown on silver ribs over a `LEAF` canopy band; three stepped `BODY` terraces, each a lit `WINDOW` band, green terrace bands |
-| Drone Hive (3×3) | 1,684 | a honeycomb of hex docks (dark hull), a `LAMP` at each mouth; a `PLATE` deck with four pads (where its drones perch); a `RADIATOR` at the back; a landing mast |
-| Server Monolith (2×2) | 516 | a 16 m near-black slab, a cold `LAMP` stripe, thin teal status slits, blue bands, a `RADIATOR` fin stack behind |
+| State | Colour | Flag | Ring dash (on, off in m) | Chip |
+|---|---|---|---|---|
+| EXHAUSTED | amber `#e8a72d` | banner | 3, 2 | EXHAUSTED |
+| BOXED IN | red `#d9503f` | pennant | 1.2, 1.2 | BOXED IN |
+| RECLAIMED | green `#66ad4b` | swallow-tail | 2.4, 2.4 | RECLAIMED |
 
-### 12.2 Light: `iWarm`
-
-- A per-instance attribute beside `iState` (`meshKit.withInstanceState`), 0
-  cold … 1 warm, set per type and lean on every rebuild (`buildings/look.ts`).
-- **Always warm**: habitats, farms, the Recreation Dome, the rings and domes,
-  and the Lander while anyone lives aboard. **Always cold**: Data Centers,
-  Monoliths, Drone Hives, Chip Fabs, Parts Fabricators, Robotics Bays, Relay
-  Masts. **The rest** follow the lean: `warm = clamp(0.75 + lean)`.
-- **The lean**: −1 ◉ … +1 ⌂. The band's once the Era 8 pick settles it
-  (Concord 0), else `(C − A) / 4`, clamped. A human landing (+¼) keeps today's
-  warm base; a robotic one (−¼) starts half-cold.
-- The building program mixes `CEL_WARM` and `CEL_COLD` by `iWarm`; a structure's
-  flood pool takes the same mix (warm (1.0, 0.74, 0.42), cold (0.62, 0.84, 1.0),
-  `celFloods.ts`).
-- **The hazards' hook**: `iAlarm` (0 calm … 1), filled from
-  `BuildingInstances.alarmOf(b)` on every rebuild; above 0 the windows and
-  lamps flicker red (about 2.3 flashes a second, day or night). Unset, every
-  structure is calm.
-- **The hazards' look** (`hazardView().fx`, read on every rebuild through
-  `instances.fxOf` and `life.fxOf`), at no draw-call cost:
-
-  | fx | Drawn as |
-  |---|---|
-  | `flicker` (infected) · `strip` (rogue drones) | `iAlarm` 1 · 0.6: windows and lamps flicker red |
-  | `dark` (a cascade) | lights, pool and glow out; the hull dimmed as in a brownout |
-  | `blight` · `dust` | the hull tinted (instance colour): yellowed · greyed |
-  | `smoke` (breach warned) · `vent` (breach open) | a plume from the hull's flank through the dust slots: a thin wisp · a jet of grit and ice |
-  | a bricked rover or drone (`brickedUntil`) | parked (the sim gives it no work), its lamps and beacon off |
-  | a held drone (`heldUntil`) | set down where it is, waiting; freed, back to work |
-
-### 12.3 The links layer (`buildings/links.ts`)
-
-| Layer | From | Joins | Looks |
-|---|---|---|---|
-| Walkways ⌂ | Crew Rotation Charter | habitats, farms, the Recreation Dome, labs, rings, domes (+ fabs and bays with Pressure-Rated Halls) | `BODY` tubes (r 0.9 m) on short legs with `TRIM` ribs; a `PLATE` strip each side, glazed (lit `WINDOW`) from Garden Domes; warm |
-| Spines ◉ | Lights-Out Fabs | excavator pads, smelters, refineries, fabs, foil factories, storage yards | box-truss conveyors at 1.2 m: a `PLATE` belt on a `TRIM` truss with rails; cold `LAMP` chevrons each cell from Replicator Stacks; cold |
-
-- **Routes**: straight or one L-bend on the 4 m grid, from a free cell beside
-  one footprint to one beside the other (walkways ≤ 4 cells apart, spines ≤ 6).
-  Never through a footprint, an excavator's dig or another link. Pairs join
-  nearest first as a spanning forest (no loops), ≤ 40 a layer.
-- **The crossing rule** (one rule, both layers): a link never touches a road
-  cell. It crosses a road only straight across, ≤ 2 road cells at a time, as a
-  **skybridge** 5.4 m up (the tube's underside ≥ 4.5 m: a digger's mast passes
-  under). Its gantry posts stand on the free cells either side; where the road
-  runs along a building's wall, a **riser** tower inside the footprint carries
-  that end. Door cells, bays and the Lander's apron are never crossed, not even
-  from above; no bend is made over a road.
-- **Cost**: one merged `InstancedMesh` per layer on the building program (with
-  its ink twin), rebuilt only when a numeric signature changes (structures,
-  roads, digs, the layer techs). A big Era 8 base: 15 walkways ≈ 2.6 k △, 7
-  spines ≈ 1.7 k △ (test cap 12 k).
-
-### 12.4 EVA walkers (`world/settlers.ts`)
-
-- **Walkers = EVA crew** (`s.evaCrew`, economy step 3), ≤ 24 drawn. They step
-  out of a habitat's suit-port (its +x side), lope to the arrays, a worn machine
-  or a site, work 12–24 s, and go on; at night (no EVA crew) they walk home and
-  go in. They are third-person figures: the player never walks.
-- **Never on the carriageway**: they move on a grid of free cells (not a road
-  cell, not a footprint, not a link's leg, not a dig), cell centre to cell
-  centre plus a fixed offset (±0.6 m). A target reachable only across a road is
-  skipped, so walkers never meet the ground traffic.
-- **Cost**: one instanced suited figure (about 100 △, the building program,
-  warm, lime accent) and one decal mesh; routes by BFS only when a walker sets
-  off; nothing allocated per frame.
-
-### 12.5 Drones (`world/rovers.ts`, `DroneFlight`)
-
-- A roster unit docked at a Drone Hive is a **drone** (`core/fleet.ts
-  unitKind`). The sim treats it as any rover (it has no travel time); the
-  visuals fly it.
-- Parked, it perches on one of its hive's four deck pads. Sent to a site it
-  climbs, flies straight at 6 m/s at its cruise height (6–10 m, by id), hovers
-  over the site and prints from the air (print dust below); on a road job it
-  hovers over the frontier.
-- **Off the roads**: drones take no road slot (`spots.ts` sees only ground
-  rovers) and are never enlisted in `world/traffic.ts`.
-- **Cost**: one instanced quadcopter (about 200 △, cold light, violet accent)
-  and one decal mesh (fainter with height), ≤ 48 drawn.
+The hub highlight's label chips take the same colours and keep their words
+(docs/07 §4a, §4). The flags are 5.8 m tall with a 0.3 m pole and an ink outline.
+A graded pad has no look of its own yet.
 
 ---
 
-## 13. Night rules
+## 10. Night rules
 
 Night is light colour and intensity, not exposure, and the base carries its
 own light.
@@ -842,7 +725,7 @@ own light.
 
 ---
 
-## 14. The camera: fixed isometric (`player/isoCam.ts`)
+## 11. The camera: fixed isometric (`player/isoCam.ts`)
 
 One camera, a near-orthographic perspective in the SimCity 2000/3000 manner: a
 **20° vertical lens**, so picking, `screenOf` and the overlays work unchanged.
@@ -869,7 +752,7 @@ the current tilt, for framing determinism in tests.
 
 ---
 
-## 15. Safe mode and shader faults
+## 12. Safe mode and shader faults
 
 Some drivers fail shader compilation silently and draw pure black, or throw on
 a program. The look has three custom programs, each with a stock fallback, and
@@ -920,7 +803,124 @@ map, no tone mapping), the fallback and safe mode, at boot and at runtime.
 
 ---
 
-## 16. Performance budget
+## 13. Destinies: two bases by Era 8 (docs/14 §4)
+
+> "They should look very different visually by the time we arrive at the
+> final era."
+
+⌂ Colony grows green under glass, lit tubes and crew in EVA suits. ◉
+Automation grows black slabs, honeycombs, conveyors and drones, and its lights
+go cold. One mechanism: parts, four recipes, base-wide layers, and the colour
+of each structure's light.
+
+### 13.1 Parts and recipes
+
+- **Picks are techs, so they carry parts** (`buildings/destinyParts.ts`,
+  appended to each type's list in `upgrades.ts`). All 16 track techs (the
+  landing included) and the 3 capstones add at least one; the full list is
+  generated into docs/04 ("Research you can see").
+- **Colony parts are lived in**: porches with round windows, a hab-ring collar
+  and suit-port, terraces with `LEAF` planters, a glazed galley, bulkheads, a
+  launch blockhouse, festival lamps, a flag.
+- **Automation parts are for machines**: whips and node lamps, shutters (`BODY`
+  a hair proud of the panes: the base goes dark from outside), cable trays,
+  black monolith annexes and guidance slabs, antenna farms, drone perches,
+  second fab storeys, fin crowns.
+- **Budgets**: ≤ 600 △ a part; ≤ 7,500 △ per type fully upgraded (the heaviest
+  set one run can hold: one side of each era's pick, one capstone); the four
+  destiny recipes ≤ 3,500 △.
+
+| Recipe | △ | Reads as |
+|---|---|---|
+| Greenhouse Ring (4×4) | 1,952 | eight `LEAF` vaults on `BODY` sills in a ring, ribbed, a glazed crown and grow lamps; a `GLASS` hub dome; a sun tower and a porch at +z |
+| Garden Dome (5×5) | 2,156 | a 10 m dome: `GLASS` crown on silver ribs over a `LEAF` canopy band; three stepped `BODY` terraces, each a lit `WINDOW` band, green terrace bands |
+| Drone Hive (3×3) | 1,684 | a honeycomb of hex docks (dark hull), a `LAMP` at each mouth; a `PLATE` deck with four pads (where its drones perch); a `RADIATOR` at the back; a landing mast |
+| Server Monolith (2×2) | 516 | a 16 m near-black slab, a cold `LAMP` stripe, thin teal status slits, blue bands, a `RADIATOR` fin stack behind |
+
+### 13.2 Light: `iWarm`
+
+- A per-instance attribute beside `iState` (`meshKit.withInstanceState`), 0
+  cold … 1 warm, set per type and lean on every rebuild (`buildings/look.ts`).
+- **Always warm**: habitats, farms, the Recreation Dome, the rings and domes,
+  and the Lander while anyone lives aboard. **Always cold**: Data Centers,
+  Monoliths, Drone Hives, Chip Fabs, Parts Fabricators, Robotics Bays, Relay
+  Masts. **The rest** follow the lean: `warm = clamp(0.75 + lean)`.
+- **The lean**: −1 ◉ … +1 ⌂. The band's once the Era 8 pick settles it
+  (Concord 0), else `(C − A) / 4`, clamped. A human landing (+¼) keeps today's
+  warm base; a robotic one (−¼) starts half-cold.
+- The building program mixes `CEL_WARM` and `CEL_COLD` by `iWarm`; a structure's
+  flood pool takes the same mix (warm (1.0, 0.74, 0.42), cold (0.62, 0.84, 1.0),
+  `celFloods.ts`).
+- **The hazards' hook**: `iAlarm` (0 calm … 1), filled from
+  `BuildingInstances.alarmOf(b)` on every rebuild; above 0 the windows and
+  lamps flicker red (about 2.3 flashes a second, day or night). Unset, every
+  structure is calm.
+- **The hazards' look** (`hazardView().fx`, read on every rebuild through
+  `instances.fxOf` and `life.fxOf`), at no draw-call cost:
+
+  | fx | Drawn as |
+  |---|---|
+  | `flicker` (infected) · `strip` (rogue drones) | `iAlarm` 1 · 0.6: windows and lamps flicker red |
+  | `dark` (a cascade) | lights, pool and glow out; the hull dimmed as in a brownout |
+  | `blight` · `dust` | the hull tinted (instance colour): yellowed · greyed |
+  | `smoke` (breach warned) · `vent` (breach open) | a plume from the hull's flank through the dust slots: a thin wisp · a jet of grit and ice |
+  | a bricked rover or drone (`brickedUntil`) | parked (the sim gives it no work), its lamps and beacon off |
+  | a held drone (`heldUntil`) | set down where it is, waiting; freed, back to work |
+
+### 13.3 The links layer (`buildings/links.ts`)
+
+| Layer | From | Joins | Looks |
+|---|---|---|---|
+| Walkways ⌂ | Crew Rotation Charter | habitats, farms, the Recreation Dome, labs, rings, domes (+ fabs and bays with Pressure-Rated Halls) | `BODY` tubes (r 0.9 m) on short legs with `TRIM` ribs; a `PLATE` strip each side, glazed (lit `WINDOW`) from Garden Domes; warm |
+| Spines ◉ | Lights-Out Fabs | excavator pads, smelters, refineries, fabs, foil factories, storage yards | box-truss conveyors at 1.2 m: a `PLATE` belt on a `TRIM` truss with rails; cold `LAMP` chevrons each cell from Replicator Stacks; cold |
+
+- **Routes**: straight or one L-bend on the 4 m grid, from a free cell beside
+  one footprint to one beside the other (walkways ≤ 4 cells apart, spines ≤ 6).
+  Never through a footprint, an excavator's dig or another link. Pairs join
+  nearest first as a spanning forest (no loops), ≤ 40 a layer.
+- **The crossing rule** (one rule, both layers): a link never touches a road
+  cell. It crosses a road only straight across, ≤ 2 road cells at a time, as a
+  **skybridge** 5.4 m up (the tube's underside ≥ 4.5 m: a digger's mast passes
+  under). Its gantry posts stand on the free cells either side; where the road
+  runs along a building's wall, a **riser** tower inside the footprint carries
+  that end. Door cells, bays and the Lander's apron are never crossed, not even
+  from above; no bend is made over a road.
+- **Cost**: one merged `InstancedMesh` per layer on the building program (with
+  its ink twin), rebuilt only when a numeric signature changes (structures,
+  roads, digs, the layer techs). A big Era 8 base: 15 walkways ≈ 2.6 k △, 7
+  spines ≈ 1.7 k △ (test cap 12 k).
+
+### 13.4 EVA walkers (`world/settlers.ts`)
+
+- **Walkers = EVA crew** (`s.evaCrew`, economy step 3), ≤ 24 drawn. They step
+  out of a habitat's suit-port (its +x side), lope to the arrays, a worn machine
+  or a site, work 12–24 s, and go on; at night (no EVA crew) they walk home and
+  go in. They are third-person figures: the player never walks.
+- **Never on the carriageway**: they move on a grid of free cells (not a road
+  cell, not a footprint, not a link's leg, not a dig), cell centre to cell
+  centre plus a fixed offset (±0.6 m). A target reachable only across a road is
+  skipped, so walkers never meet the ground traffic.
+- **Cost**: one instanced suited figure (about 100 △, the building program,
+  warm, lime accent) and one decal mesh; routes by BFS only when a walker sets
+  off; nothing allocated per frame.
+
+### 13.5 Drones (`world/rovers.ts`, `DroneFlight`)
+
+- A roster unit docked at a Drone Hive is a **drone** (`core/fleet.ts
+  unitKind`). The sim treats it as any rover (it has no travel time); the
+  visuals fly it.
+- Parked, it perches on one of its hive's four deck pads. Sent to a site it
+  climbs, flies straight at 6 m/s at its cruise height (6–10 m, by id), hovers
+  over the site and prints from the air (print dust below); on a road job it
+  hovers over the frontier.
+- **Off the roads**: drones take no road slot (`spots.ts` sees only ground
+  rovers) and are never enlisted in `world/traffic.ts`.
+- **Cost**: one instanced quadcopter (about 200 △, cold light, violet accent)
+  and one decal mesh (fainter with height), ≤ 48 drawn.
+
+---
+
+## 14. Performance budget
 
 The look must hold on an integrated GPU; the budget is part of the art
 direction, and `tests/look.spec.ts` holds it.
@@ -954,7 +954,7 @@ only on change.
 
 ---
 
-## 17. Deferred art items
+## 15. Deferred art items
 
 Designed, deliberately cut (sequencing in [09-roadmap.md](09-roadmap.md)):
 
@@ -967,6 +967,8 @@ Designed, deliberately cut (sequencing in [09-roadmap.md](09-roadmap.md)):
 4. **Ink for the ground's lines at far zoom.** The bench ribbons are a world
    constant (under 1 px at 830 m); a screen-constant width would need the line
    in a shader.
+
+---
 
 ---
 

@@ -1249,19 +1249,19 @@ activity as a bar gauge. Nothing in the panel needs colour to be read.
 
 ## 11. Look and audio
 
-Cheap enough for Classic on an old laptop: no new shader program, no post pass, and a
+Cheap enough for an old laptop: no new shader program, no post pass, and a
 few hundred triangles a dome.
 
 | Thing | What you see | Cost |
 |---|---|---|
 | **Speckle** | Proton hits on the camera, as SOHO's images fill with snow in a storm. A 2D canvas over the WebGL canvas draws white dots of 1–2 px at 60–90% alpha while the flare is active: 15 a frame for C, 50 for M, 150 for X, 50 in the tail (at 1080p, scaled by area). An X adds a few 6–12 px streaks. A new menu toggle, *Screen speckle* (on by default), turns it off. | CPU, under 0.1 ms a frame |
 | **The frame** | A 1 px hatched frame around the viewport while active, solid for X. **No tint:** earthshine is the only colour (docs/06). | DOM |
-| **The sky** (High detail, the landing) | An X's flash lifts the Sun's glare sprite by 30% for 3 s: a white-light flare. When a CME front arrives, a faint aurora ring on Earth's night limb: the colour stays on Earth. No aurora on the Moon, which has no air. | two sprite values |
+| **The sky** | Cut: the fixed camera never looks above the horizon and the scene draws no sky (docs/06 §11), so an X's glare sprite and the aurora ring on Earth's night limb have nowhere to appear. The X's flash reads in the speckle and the frame; there is no aurora on the Moon, which has no air. | nothing |
 | **Arrays stowing** | §5.7: the wing turns edge-on, cells down, over 10 s; the foot lamp blinks slowly. Field berms show as a low ridge along each field. | a tween on the existing wing; the berm is a strip of the ground |
 | **Wrecks** | The wing hangs broken, 30° off its hinge, half its panels hidden and a shade darker, debris at its foot, a `✕` marker. Rebuilding shows the usual scaffold (`src/buildings/scaffold.ts`). | a second instanced wing pose; debris reuses the rocks |
 | **Repairs and capability** | A repairing rover stops at each array in the weld pose; the array's lamp steadies. A building under 85% capability wears a `◌ 84%` DOM marker, like the wear markers. | DOM |
 | **Bag walls** | An instanced ring of 24 bags a course, three courses, rising course by course as the rover stacks them; they come down the same way. | 1 instanced box mesh |
-| **Water-wall domes** | A lathe hemisphere (16 segments, ~300 △) that inflates from flat, scale y 0.05 → 1 with a 5% overshoot over 15 s, then darkens a shade as it fills. Classic shows the facets as ribs; High detail adds a specular band. Deflating reverses it; the kit folds into the rover's bed as a box. | ≤ 6 up, ~1.8k △ |
+| **Water-wall domes** | A lathe hemisphere (16 segments, ~300 △) that inflates from flat, scale y 0.05 → 1 with a 5% overshoot over 15 s, then darkens a shade as it fills. The cel ramp shows the facets as light steps. Deflating reverses it; the kit folds into the rover's bed as a box. | ≤ 6 up, ~1.8k △ |
 | **Glitches** | A rebooting machine's lamps strobe twice, and a DOM marker reads `⟲ 0:40`. A latched one goes dark with `⊘ 7:40`, its deadline. A burn-out throws one spark sprite and the dust puff (`src/world/dust.ts`); the hulk stays 60 s and fades. | markers are DOM |
 | **Work animations** (docs/06 §7.1, `src/world/workAnim.ts`) | The sim sets the mode, as since `5b797b6`: a rebooting or latched machine's `mode` is null and its rig freezes; a rover raising a dome takes the weld pose facing it; filling bags takes the dig pose with a scoop; a hub unit parked in a pit's dome stows its boom. | no new rig |
 | **The Solar Observatory** | A white dome on a pier with a slit and a coronagraph tube on a sun-tracking mount. The slit closes at night. | ~700 △ |
