@@ -632,11 +632,9 @@ Techs change numbers; a few also change the world. All visual only.
   program and colour × 0.9, so it shades like the ground it was pushed up from.
   Rebuilt only when the set of shielded structures or the ground under them
   changes.
-- **Swarm progress → glints** (`world/swarm.ts`). The swarm's collectors glint
-  on a thin ellipse through the sun: `n = 12 + 40 · log10(1 + swarm% · 10⁴)`
-  points (cap 400). They live in the sky slot, and **the fixed camera never
-  looks above the horizon** (§11), so they are not seen in play; the swarm's
-  progress reads in the HUD meter.
+- **Swarm progress** reads in the HUD meter only. The sky glints that once
+  showed it (`world/swarm.ts`) were removed (docs/19 S11): the fixed camera
+  never looks above the horizon (§11), so they were never seen.
 - **Dust Mitigation → cleaner panels**. Base traffic settles a thin film on
   every solar wing's glass: `dF/dt = gain − F/τ`, gain 0.25 per lunar day
   (doubled within 45 m of a running digger or an active site), F ≤ 0.35.

@@ -1,6 +1,9 @@
 /* MOONSHOTS design tokens — "living blueprint / mission-control readout"
-   NASA 1975 manual precision · Swiss grid · Rams restraint. Grayscale only;
-   the single accent is inversion (near-white panel, dark text). */
+   NASA 1975 manual precision · Swiss grid · Rams restraint. The chrome is
+   greyscale and its loudest accent is inversion (near-white panel, dark text).
+   Colour appears in three documented places, each beside a shape or a word
+   (docs/07 §2): the notification family rule, the family glyph on palette
+   cards and the inspector title, and a pit's end-state chip. */
 
 :root {
   /* graphite ramp (dark UI over bright lunar world) */
