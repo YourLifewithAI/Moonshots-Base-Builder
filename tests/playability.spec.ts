@@ -1,5 +1,5 @@
-/** Playability layer: the in-game menu (pause, save, new mission, graphics,
- *  safe mode, audio, controls), settings applied before the first frame,
+/** Playability layer: the in-game menu (pause, save, new mission, safe
+ *  render mode, audio, controls), settings applied before the first frame,
  *  procedural audio that can never break the game, the placement flow
  *  (Shift keeps placing, the hint's cost line, blocked clicks, floaters),
  *  locked cards that open the tree, and live-mod numbers in the HUD. */
@@ -13,7 +13,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function boot(page: Page, exp: 'human' | 'robotic' = 'robotic', extra = '') {
   await page.goto(`${BASE}&site=mare${exp === 'robotic' ? '&exp=robotic' : ''}${extra}`);
@@ -178,8 +178,8 @@ test('audio: cues follow the state; the hum sags as the bank runs dry', async ({
   await expect.poll(async () => (await g(page, 'getAudio')).state).toBe('running');
   await expect.poll(async () => (await g(page, 'getAudio')).hum?.margin ?? -9).toBeGreaterThan(0);
   const before = (await g(page, 'getAudio')).played;
-  await g(page, 'completeTech', 'regolithProcessing');
-  for (const [t, x, z] of [['solar', 132, 126], ['lab', 135, 133], ['excavator', 120, 126], ['smelter', 120, 132]] as const) {
+  // (the smelter is known from landing and comes with its excavator: nothing to research)
+  for (const [t, x, z] of [['solar', 132, 126], ['lab', 135, 133], ['smelter', 120, 132]] as const) {
     expect(await g(page, 'placeBuilding', t, x, z)).toBe(true);
   }
   // the lab outranks the Lander's 6 kW: dark at night, it is a BROWNOUT
@@ -315,16 +315,20 @@ test('placement: a click on a blocked spot flashes the hint and blips', async ({
 
 test('locked palette card opens the tree on the tech that unlocks it', async ({ page }) => {
   await boot(page);
+  // the smelter is no longer research-gated: it is known from landing, its card is open
   await page.locator('#palette .cats .btn', { hasText: 'Industry' }).click();
-  const smelter = page.locator('.bld-btn.locked', { hasText: 'Regolith Smelter' });
-  await smelter.hover();
-  await expect(page.locator('#tooltip')).toContainText('Requires research — Regolith Smelting');
-  await smelter.click();
+  await expect(page.locator('.bld-btn.locked', { hasText: 'Regolith Smelter' })).toHaveCount(0);
+  await expect(page.locator('.bld-btn', { hasText: 'Regolith Smelter' })).toBeVisible();
+  await page.locator('#palette .cats .btn', { hasText: 'Power' }).click();
+  const battery = page.locator('.bld-btn.locked', { hasText: 'Battery Bank' });
+  await battery.hover();
+  await expect(page.locator('#tooltip')).toContainText('Requires research — Battery Banks');
+  await battery.click();
   await expect(page.locator('#tech-screen')).toBeVisible();
-  const card = page.locator('.tech-card[data-tech="regolithProcessing"]');
+  const card = page.locator('.tech-card[data-tech="batteryStorage"]');
   await expect(card).toHaveClass(/\bsel\b/);
   await expect(card).toHaveClass(/pulse/);
-  await expect(page.locator('#tech-sheet-body')).toContainText('Regolith Smelting');
+  await expect(page.locator('#tech-sheet-body')).toContainText('Battery Banks');
   await page.keyboard.press('Escape');
   await expect(page.locator('#tech-screen')).toBeHidden();
   await expect(page.locator('#menu')).toBeHidden();
@@ -367,7 +371,7 @@ test('live numbers: the launch row reads 3↑, agent tax and research transfer f
   await g(page, 'finishConstruction');
   await g(page, 'grantData', 20);
   await g(page, 'advanceGameSeconds', 5);
-  await expect(name).toHaveText('Researching Regolith Smelting');
+  await expect(name).toHaveText('Researching Pit Mapping');
   await expect(page.locator('#chip-res-pct')).toHaveText(/^\d+% · ETA \d+:\d\d$/);
   await page.locator('#resource-strip .chip[data-key="data"]').click();
   // the sim's own transfer (its 30 s average), held against the lab's 24/min cap

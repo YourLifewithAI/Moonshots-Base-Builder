@@ -93,8 +93,8 @@ test('economy: place buildings, resources tick, night sheds industry load', asyn
   // night on Mare with no batteries: industry idles by priority — the hungry
   // smelter goes dark, the Lander's trickle keeps the rest alive.
   // Only priority-2 industry is idled, so this is load shedding, not a brownout
-  // t≈630s: the bank is spent
-  await page.evaluate(() => window.__game.advanceGameMinutes(3));
+  // t≈660s: the bank is spent (it lasts ~5 s of the night at the Lander's 6 kW), and dawn is at 720 s
+  await page.evaluate(() => window.__game.advanceGameMinutes(3.5));
   const night = await page.evaluate(() => window.__game.getState());
   expect(night.wasNight).toBe(true);
   const smelter = night.buildings.find((b: any) => b.type === 'smelter');
