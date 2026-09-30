@@ -159,6 +159,9 @@ export function depositsView(s: GameState, deposits: readonly Deposit[], tier: S
 // ─────────────────────────── the Moon ───────────────────────────
 
 const RAD = Math.PI / 180;
+/** The regional radius, degrees: a prospect this near a base's home is regional (docs/11 §5b), and it is how far a rival's
+ *  coverage reaches and how near a rival outpost must stand for a field report to name it (docs/20 §5). */
+export const REGIONAL_DEG = 27;
 /** Great-circle distance in degrees (haversine). */
 export function greatCircleDeg(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
   const dLat = (b.lat - a.lat) * RAD, dLon = (b.lon - a.lon) * RAD;
@@ -187,7 +190,7 @@ export function prospectClass(siteId: SiteId, pid: ProspectId): ProspectClass {
   if (p.subsurface) return 'subsurface';
   const d = prospectDist(siteId, pid);
   if (d <= 2) return 'local';
-  if (d <= 27) return 'regional';
+  if (d <= REGIONAL_DEG) return 'regional';
   return Math.abs(p.lon) <= 90 || Math.abs(p.lat) >= 80 ? 'near' : 'far';
 }
 
@@ -331,6 +334,18 @@ function fuelText(cls: ProspectClass, each = false): string {
   return each ? items.join(' + ') : `${items.join(' + ')} /s`;
 }
 
+/** The refusal a rival's outpost gives: `CLAIMED BY THE FOUNDRY — its outpost stands there` (the map's sheet reads the same words). */
+export const claimedByText = (name: string) => `CLAIMED BY ${name.toUpperCase()} — its outpost stands there`;
+
+/** What an outpost claim of this class costs this base: the class's table, its metals × `mods.outpostCostMult` (the Commons'
+ *  ×0.85, rounded once; parts and chips are not scaled). Without `mods` the table as it stands. */
+export function claimCost(cls: ProspectClass, mods?: Pick<Mods, 'outpostCostMult'>): Partial<Record<ResourceId, number>> {
+  const cost = { ...OUTPOST_CLASS[cls].cost };
+  const m = mods?.outpostCostMult ?? 1;
+  if (m !== 1 && cost.metals) cost.metals = Math.round(cost.metals * m);
+  return cost;
+}
+
 /** Why pid cannot be claimed now ('' = it can). */
 export function claimRefusal(s: GameState, mods: Mods, pid: ProspectId): string {
   const p = PROSPECTS[pid];
@@ -340,7 +355,7 @@ export function claimRefusal(s: GameState, mods: Mods, pid: ProspectId): string 
   if (s.survey.outposts.some((o) => o.id === pid)) return `OUTPOST ALREADY CLAIMED — ${p.short}`;
   // another program's outpost on the shared Moon (docs/20 §4.4): a prospect is held by whoever claimed it first
   const holder = moonOf(s)?.claims[pid];
-  if (holder && holder !== claimantOf(s)) return `CLAIMED BY ${factionName(holder).toUpperCase()} — its outpost stands there`;
+  if (holder && holder !== claimantOf(s)) return claimedByText(factionName(holder));
   const slots = outpostSlots(mods, s);
   const used = s.survey.outposts.length;
   if (slots === 0) return `NO OUTPOST SLOT — ${tierTech(1, s)}`;
@@ -353,7 +368,7 @@ export function claimRefusal(s: GameState, mods: Mods, pid: ProspectId): string 
     return `NO OUTPOST SLOT — ${used}/${slots} in use · ${next}`;
   }
   if (!s.survey.prospects[pid]) return `NOT SURVEYED — survey ${p.short} first`;
-  for (const [rid, need] of Object.entries(OUTPOST_CLASS[prospectClass(s.siteId, pid)].cost) as [ResourceId, number][]) {
+  for (const [rid, need] of Object.entries(claimCost(prospectClass(s.siteId, pid), mods)) as [ResourceId, number][]) {
     if (s.resources[rid] < need) return `CLAIM NEEDS ${need}${glyph(rid)} — have ${Math.floor(s.resources[rid])}`;
   }
   return '';
@@ -364,8 +379,9 @@ export function claimOutpost(s: GameState, mods: Mods, pid: ProspectId): ActionR
   if (why) return no(why);
   const cls = prospectClass(s.siteId, pid);
   const oc = OUTPOST_CLASS[cls];
-  for (const [rid, need] of Object.entries(oc.cost) as [ResourceId, number][]) s.resources[rid] -= need;
-  recordSpend(s, oc.cost);
+  const cost = claimCost(cls, mods);
+  for (const [rid, need] of Object.entries(cost) as [ResourceId, number][]) s.resources[rid] -= need;
+  recordSpend(s, cost);
   const kind = PROSPECTS[pid].kind as OutpostKind;
   s.survey.outposts.push({
     id: pid, kind, cls, claimedAt: s.simTime, readyAt: s.simTime + oc.deployS,
@@ -429,9 +445,34 @@ const costText = (cost: Partial<Record<ResourceId, number>>) =>
 
 /** What an outpost at pid would stream and cost, in the words the field report and the prospect sheet share
  *  (docs/19 S8): `ice +0.20≈/s · claim 60◆ 20⚙ 5▣`. */
-export function outpostSiteLine(siteId: SiteId, pid: ProspectId): string {
+export function outpostSiteLine(siteId: SiteId, pid: ProspectId, mods?: Pick<Mods, 'outpostCostMult'>): string {
   const p = PROSPECTS[pid];
-  return `${KIND_LABEL[p.kind as OutpostKind]} ${streamText(pid)} · claim ${costText(OUTPOST_CLASS[prospectClass(siteId, pid)].cost)}`;
+  return `${KIND_LABEL[p.kind as OutpostKind]} ${streamText(pid)} · claim ${costText(claimCost(prospectClass(siteId, pid), mods))}`;
+}
+
+/** The faction (other than this base's) whose outpost holds pid, or null. */
+export function rivalHolder(s: GameState, pid: ProspectId): FactionId | null {
+  const holder = moonOf(s)?.claims[pid];
+  return holder && holder !== claimantOf(s) ? holder : null;
+}
+
+/** The rival outposts within the regional radius of pid (docs/20 §5), one row per rival faction: the nearest outpost it holds
+ *  there, how far, and how many more stand within reach. Ordered by distance. A solo game has none. */
+export function rivalsNear(s: GameState, pid: ProspectId): { faction: FactionId; held: ProspectId; deg: number; more: number }[] {
+  const moon = moonOf(s);
+  if (!moon || !PROSPECTS[pid]) return [];
+  const by = new Map<FactionId, { held: ProspectId; deg: number; n: number }>();
+  for (const held of PROSPECT_IDS) {
+    const f = moon.claims[held];
+    if (!f || held === pid || f === claimantOf(s)) continue;
+    const deg = greatCircleDeg(PROSPECTS[pid], PROSPECTS[held]);
+    if (deg > REGIONAL_DEG) continue;
+    const cur = by.get(f);
+    if (!cur) by.set(f, { held, deg, n: 1 });
+    else { cur.n++; if (deg < cur.deg) { cur.held = held; cur.deg = deg; } }
+  }
+  return [...by.entries()].map(([faction, r]) => ({ faction, held: r.held, deg: r.deg, more: r.n - 1 }))
+    .sort((a, b) => a.deg - b.deg);
 }
 
 /** A drone is home: the survey's data, sample cache, breakthrough, outpost site, insight and atlas
@@ -470,10 +511,17 @@ function resolveSurvey(s: GameState, mods: Mods, pid: ProspectId) {
     rewards.push({ tag: 'BREAKTHROUGH', text: `${TECHS[p.bt].name} — ${when}`, button: { label: 'In the tree', action: { tech: p.bt } } });
   }
 
-  // OUTPOST SITE: what it would stream and what claiming costs, or what a claim waits for
-  if (extractable) {
+  // OUTPOST SITE: what it would stream and what claiming costs, or what a claim waits for; a prospect another program
+  // already holds says so instead (docs/20 §5)
+  const heldBy = rivalHolder(s, pid);
+  if (extractable && heldBy) {
+    rewards.push({
+      tag: 'RIVAL', text: `${factionName(heldBy)} holds ${p.short} — its outpost stands here; there is nothing to claim`,
+      button: { label: 'Open the map', action: { map: pid } },
+    });
+  } else if (extractable) {
     const why = claimRefusal(s, mods, pid);
-    const line = outpostSiteLine(s.siteId, pid);
+    const line = outpostSiteLine(s.siteId, pid, mods);
     if (!why) rewards.push({ tag: 'OUTPOST SITE', text: line, button: { label: 'Claim', action: { map: pid } } });
     else {
       const slotWait = why.startsWith('NO OUTPOST SLOT');
@@ -481,6 +529,17 @@ function resolveSurvey(s: GameState, mods: Mods, pid: ProspectId) {
         tag: 'OUTPOST SITE',
         text: slotWait ? `${line} · needs ${why.replace(/^NO OUTPOST SLOT — /, '').replace(/^\d+\/\d+ in use · /, '')}` : `${line} · ${why.toLowerCase()}`,
         button: { label: 'Open the map', action: { map: pid } },
+      });
+    }
+  }
+  // RIVAL: another program's outpost within the regional radius of what was just surveyed ("The Foundry holds Moltke, 1.8° away")
+  if (!heldBy) {
+    for (const r of rivalsNear(s, pid)) {
+      rewards.push({
+        tag: 'RIVAL',
+        text: `${factionName(r.faction)} holds ${PROSPECTS[r.held].short}, ${r.deg.toFixed(1)}° away` +
+          (r.more ? ` (+${r.more} more within ${REGIONAL_DEG}°)` : ''),
+        button: { label: 'On the map', action: { map: r.held } },
       });
     }
   }
@@ -671,6 +730,8 @@ export interface LunarUi { open: boolean; view: MapView; seenTier: number }
 export interface RivalInfo {
   faction: FactionId; name: string; siteId: SiteId; landed: boolean; landedAt: number;
   outposts: ProspectId[]; launches: number; era: number;
+  /** the prospects its drones are surveying now (the map spins them in its colour) */
+  surveying?: ProspectId[];
 }
 
 /** The $lunar view. `rivals`: the other programs on this Moon (absent in a solo game: the view is as it always was);
@@ -709,8 +770,8 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi, rivals?: readon
       outpost,
       rival,
       claim: extractable
-        ? { cost: { ...oc.cost }, deployS: oc.deployS, upkeepPerDay: oc.upkeepPerDay,
-          linkKW: OUTPOST_LINK_KW[cost.cls], fuel: fuelText(cost.cls), stream: streamText(id), line: outpostSiteLine(s.siteId, id) }
+        ? { cost: claimCost(cost.cls, mods), deployS: oc.deployS, upkeepPerDay: oc.upkeepPerDay,
+          linkKW: OUTPOST_LINK_KW[cost.cls], fuel: fuelText(cost.cls), stream: streamText(id), line: outpostSiteLine(s.siteId, id, mods) }
         : null,
     };
   });
@@ -756,6 +817,7 @@ export function lunarView(s: GameState, mods: Mods, ui: LunarUi, rivals?: readon
     rivals: (rivals ?? []).map((r): LunarRivalView => ({
       faction: r.faction, name: r.name, siteId: r.siteId, home: { ...SITES[r.siteId].home },
       landed: r.landed, landedAt: r.landedAt, outposts: [...r.outposts], launches: r.launches, era: r.era,
+      surveying: [...(r.surveying ?? [])],
     })),
     // the soonest flight (the map's header and busy line); `flights` is every drone out
     active: flights[0] ? { id: flights[0].id, remaining: flights[0].remaining } : null,

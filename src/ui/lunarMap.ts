@@ -18,12 +18,13 @@ import { BUILDINGS } from '../data/buildings';
 import { ATLAS, MAP_M, SURVEY_TIERS } from '../data/balance';
 import { TECHS, type TechId } from '../data/techs';
 import { fmtClock } from '../core/daynight';
-import type { SurveyCost } from '../core/exploration';
+import { REGIONAL_DEG, claimedByText, type SurveyCost } from '../core/exploration';
 import type { Action } from '../core/actions';
 import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
 import { echoes } from './notify';
-import { outpostChip, outpostCover } from './outpostView';
+import { factionColour, factionGlyph, outpostChip, outpostCover, rivalCountText, rivalOutposts } from './outpostView';
+import { FACTIONS, type FactionId } from '../data/factions';
 import { openTechTreeAt } from './techTree';
 import {
   $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $phase, $research, $siteId, $victory, overlayUp,
@@ -370,21 +371,39 @@ const mark = (u: P2, kind: Mark['kind'], pri: number, extra: Partial<Mark> = {})
 
 /** A prospect marker (spec §5b): the glyph in a ring. Hollow = unsurveyed,
  *  filled = surveyed, a rotating dashed ring = surveying, a square frame =
- *  outpost, ⌂ = heritage, ✦? / ✦ = a breakthrough host before / after. */
-function pmMarkup(p: LunarProspectView, surveying: boolean): string {
+ *  outpost, ⌂ = heritage, ✦? / ✦ = a breakthrough host before / after. On the
+ *  crowded Moon (docs/20 §5) another program's outpost is a FILLED frame in its
+ *  colour with its glyph on a badge, and a prospect its drone is surveying spins
+ *  in that colour. */
+function pmMarkup(p: LunarProspectView, surveying: boolean, rivalSurvey: FactionId | null = null): string {
+  const rv = p.rival?.faction ?? null;
   const cls = ['pm', `k-${p.kind}`, p.surveyed ? 'surveyed' : 'open', p.outpost ? 'outpost' : '',
-    surveying ? 'surveying' : ''].filter(Boolean).join(' ');
-  return `<g class="${cls}" data-m="" data-id="${p.id}">` +
-    `<title>${esc(p.name)} — ${KIND_LABEL[p.kind]} · ${CLASS_LABEL[p.cls]} ${p.dist}°</title>` +
+    surveying ? 'surveying' : '', rv ? `rival k-rival-${rv}` : '', rivalSurvey ? `rsurvey k-rsurvey-${rivalSurvey}` : ''].filter(Boolean).join(' ');
+  const who = p.rival ? ` · ▢ rival outpost — ${p.rival.name}` : rivalSurvey ? ` · ${FACTIONS[rivalSurvey].name} is surveying it` : '';
+  return `<g class="${cls}" data-m="" data-id="${p.id}"${rv ? ` data-rival="${rv}" style="--fc:${factionColour(rv)}"` : ''}>` +
+    `<title>${esc(p.name)} — ${KIND_LABEL[p.kind]} · ${CLASS_LABEL[p.cls]} ${p.dist}°${esc(who)}</title>` +
     '<circle class="selr" r="15.5"/>' +
-    (p.outpost ? '<rect class="frame" x="-11.5" y="-11.5" width="23" height="23"/>'
+    (rv ? '<rect class="rframe" x="-11.5" y="-11.5" width="23" height="23"/>'
+      : p.outpost ? '<rect class="frame" x="-11.5" y="-11.5" width="23" height="23"/>'
       : p.surveyed && p.claim ? '<rect class="frame-q" x="-11.5" y="-11.5" width="23" height="23"/>' : '') +
     (surveying ? '<circle class="spin" r="11.5"/>' : '') +
+    (rivalSurvey ? `<circle class="spin rspin" r="14.5" style="--fc:${factionColour(rivalSurvey)}"/>` : '') +
     `<circle class="ring" r="8"/><text class="g">${KIND_GLYPH[p.kind]}</text>` +
+    (rv ? `<g class="rbadge"><circle cx="11" cy="-11" r="6.5"/><text x="11" y="-10.5">${factionGlyph(rv)}</text></g>` : '') +
     (p.bt ? `<text class="bt" x="7" y="-8">${p.surveyed ? `✦${TX}` : `✦${TX}?`}</text>` : '') +
     `<text class="lbl" x="13" y="3.5">${esc(p.short)}</text>` +
     // last, so the whole 24 px disc is one target
     '<circle class="hit" r="12"/></g>';
+}
+
+/** A rival's home on the globe views: its glyph in a ring of its colour, between four ticks. */
+function rivalHomeMarkup(r: LunarView['rivals'][number]): string {
+  const f = FACTIONS[r.faction];
+  return `<g class="home rhome k-rival-${r.faction}" data-m="" data-rival="${r.faction}" style="--fc:${factionColour(r.faction)}">` +
+    `<title>${esc(f.name)} — ${esc(SITES[r.siteId].name)} · landed · its coverage reaches ${REGIONAL_DEG}°</title>` +
+    '<circle class="hit" r="10"/><path class="pin-x" d="M-14 0H-10M10 0H14M0 -14V-10M0 10V14"/><circle class="rring" r="8.5"/>' +
+    `<text class="rg">${factionGlyph(r.faction)}</text>` +
+    `<text class="lbl home-l" x="14" y="3.5">${esc(f.short.toUpperCase())} · ${esc(SITES[r.siteId].name)}</text></g>`;
 }
 
 const DASH: Record<string, string> = { solid: '', dashed: '6 4', dotted: '1 3', double: '', thin: '', thinDotted: '1 4' };
@@ -490,6 +509,11 @@ function thumbMarkup(v: LunarView, siteId: SiteId): string {
   if (v.tier >= 1) s += `<path class="cov-edge" d="${strokeRuns(o, capRing(home.lat, home.lon, 27, 96), true)}"/>`;
   const p = moonProj('near', [o]).fwd(home.lat, home.lon) ?? [0, 0];
   s += `<circle class="pin-ring" cx="${q(p[0])}" cy="${q(p[1])}" r="0.1"/><circle class="pin" cx="${q(p[0])}" cy="${q(p[1])}" r="0.045"/>`;
+  // a landed rival's home, a dot in its colour (only while it is on this face of the Moon)
+  for (const r of v.rivals) {
+    const u = r.landed ? moonProj('near', [o]).fwd(r.home.lat, r.home.lon) : null;
+    if (u) s += `<circle class="rpin k-rival-${r.faction}" style="--fc:${factionColour(r.faction)}" cx="${q(u[0])}" cy="${q(u[1])}" r="0.06"/>`;
+  }
   return s;
 }
 
@@ -528,7 +552,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   screen.innerHTML = `
     <div id="map-head">
       <div class="mh-title">
-        <div class="mh-name"><b>LUNAR MAP</b> · <span id="mh-tier"></span> · <span id="mh-count"></span> · <span id="mh-out"></span><span id="mh-survey"></span></div>
+        <div class="mh-name"><b>LUNAR MAP</b> · <span id="mh-tier"></span> · <span id="mh-count"></span> · <span id="mh-out"></span><span id="mh-rivals"></span><span id="mh-survey"></span></div>
         <div class="mh-rule">Look, visit, settle.<span id="mh-atlas"></span></div>
       </div>
       <div id="map-views"></div>
@@ -569,7 +593,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   const insetSvg = $<SVGSVGElement>('#map-inset svg');
   const legend = $('#map-legend');
   const head = {
-    tier: $('#mh-tier'), count: $('#mh-count'), out: $('#mh-out'), survey: $('#mh-survey'), atlas: $('#mh-atlas'),
+    tier: $('#mh-tier'), count: $('#mh-count'), out: $('#mh-out'), rivals: $('#mh-rivals'), survey: $('#mh-survey'), atlas: $('#mh-atlas'),
   };
 
   let v: LunarView | null = null;
@@ -620,8 +644,10 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         $deposits.get().map((d) => `${d.id}${d.revealed ? 'r' : ''}${d.lead ? 'l' : ''}${d.inNetwork ? 'n' : ''}${litSig(d)}`).join(',') +
         `|${lightSig()}`;
     }
+    // the other programs too (docs/20 §5): who has landed, what each is surveying, whose outpost stands where
     return `${L.fam}|${siteId}|${lv.tier}|${lv.active?.id ?? ''}|` +
-      lv.prospects.map((p) => (p.visible ? `${p.id}${p.surveyed ? 's' : ''}${p.outpost ? 'o' : ''}` : '')).join(',');
+      lv.prospects.map((p) => (p.visible ? `${p.id}${p.surveyed ? 's' : ''}${p.outpost ? 'o' : ''}${p.rival ? `:${p.rival.faction[0]}` : ''}` : '')).join(',') +
+      `|${lv.rivals.map((r) => `${r.faction[0]}${r.landed ? 'L' : ''}${r.surveying.join('+')}`).join(',')}`;
   };
 
   function renderLayer(L: Layer) {
@@ -732,7 +758,20 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
           `<clipPath id="cc${uid}">${clip}</clipPath>`;
         hatch = `<rect x="-3" y="-1.2" width="6" height="2.4" fill="url(#hp${uid})" mask="url(#cm${uid})" clip-path="url(#cc${uid})"/>`;
       }
-      base = `<defs>${defs}</defs>${discs}<g>${maria}</g>${hatch}` +
+      // a landed rival's regional reach (27° around its home), faint, in its colour, wherever it falls on the discs
+      let rcov = '';
+      for (const r of lv.rivals) {
+        if (!r.landed) continue;
+        let fill = '', rim = '';
+        for (const o of P.orthos) {
+          fill += capFill(o, r.home.lat, r.home.lon, REGIONAL_DEG, 128);
+          rim += strokeRuns(o, capRing(r.home.lat, r.home.lon, REGIONAL_DEG, 128), true);
+        }
+        if (fill || rim) {
+          rcov += `<g class="rcov k-rival-${r.faction}" style="--fc:${factionColour(r.faction)}"><path class="rcov-fill" d="${fill}"/><path class="rcov-edge" d="${rim}"/></g>`;
+        }
+      }
+      base = `<defs>${defs}</defs>${discs}<g>${maria}</g>${hatch}${rcov}` +
         (g10 ? `<path class="grat minor g10" d="${g10}"/>` : '') +
         (g1 ? `<path class="grat minor g1" d="${g1}"/>` : '') +
         `<path class="grat" d="${grat}"/>` +
@@ -754,13 +793,18 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
           '<circle class="hit" r="9"/><path class="pin-x" d="M-10 0H-4M4 0H10M0 -10V-4M0 4V10"/><rect class="pin" x="-3.5" y="-3.5" width="7" height="7"/>' +
           `<text class="lbl home-l" x="13" y="3.5">${esc(SITES[sid].name)}</text></g>`);
       }
+      for (const r of lv.rivals) {
+        const ru = r.landed ? P.fwd(r.home.lat, r.home.lon) : null;
+        if (ru) add(mark(ru, 'home', 92), rivalHomeMarkup(r));
+      }
       for (const p of lv.prospects) {
         if (!p.visible) continue;
         const u = P.fwd(p.lat, p.lon);
         if (!u) continue;
         const surveying = lv.flights.some((f) => f.id === p.id);
-        const pri = surveying ? 90 : p.outpost ? 80 : !p.surveyed ? 55 : 45;
-        add(mark(u, 'pm', pri, { id: p.id }), pmMarkup(p, surveying));
+        const rivalSurvey = lv.rivals.find((r) => r.landed && r.surveying.includes(p.id))?.faction ?? null;
+        const pri = surveying ? 90 : p.outpost ? 80 : p.rival ? 75 : rivalSurvey ? 60 : !p.surveyed ? 55 : 45;
+        add(mark(u, 'pm', pri, { id: p.id }), pmMarkup(p, surveying, rivalSurvey));
       }
     }
     mk += '</g>' + body + '<g class="scale"><path/><text/></g>';
@@ -983,6 +1027,9 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     set(head.tier, `T${lv.tier} ${lv.tierLabel}`);
     set(head.count, `${lv.surveyedCount}/${lv.prospects.length} surveyed`);
     set(head.out, `outposts ${lv.used}/${lv.slots}`);
+    // the other programs' outposts, one count each (docs/20 §5): ' · rivals ⚙ Foundry 2 · ▲ Vanguard 1'
+    const rc = rivalCountText(lv);
+    set(head.rivals, rc ? ` · rivals ${rc}` : '');
     // every drone out, soonest home first: ' · drones: Marius tube 1:37, Cabeus 2:10'
     set(head.survey, lv.flights.length ? ` · drones: ${lv.flights.map((f) => `${f.short} ${fmtClock(f.remaining)}`).join(', ')}` : '');
     set(head.atlas, lv.atlas ? ' · ATLAS COMPLETE' : ` · ATLAS needs T4 + ${ATLAS.surveys}`);
@@ -1008,6 +1055,11 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   // ── right panel: the prospect sheet, or "Next surveyable" ──
   const find = (id: ProspectId | null) => (id && v ? v.prospects.find((p) => p.id === id) ?? null : null);
 
+  /** a prospect another program holds: its glyph in its colour beside the name */
+  const rivalTag = (p: LunarProspectView) => p.rival
+    ? ` <span class="ns-rv k-rival-${p.rival.faction}" style="--fc:${factionColour(p.rival.faction)}" title="▢ rival outpost — ${esc(p.rival.name)}">${factionGlyph(p.rival.faction)}</span>`
+    : '';
+
   function listHtml(lv: LunarView): string {
     const rows = lv.prospects.filter((p) => p.visible && !p.surveyed).sort(byClassDist);
     const done = lv.prospects.filter((p) => p.surveyed).sort(byClassDist);
@@ -1015,7 +1067,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       const run = lv.flights.some((f) => f.id === p.id);
       return `<div class="ns-row${run ? ' run' : ''}" data-id="${p.id}">` +
         `<span class="ns-g">${KIND_GLYPH[p.kind]}</span>` +
-        `<div class="ns-m"><div class="ns-n">${esc(p.short)}${p.bt ? ` <span class="ns-bt">✦${TX}?</span>` : ''}</div>` +
+        `<div class="ns-m"><div class="ns-n">${esc(p.short)}${p.bt ? ` <span class="ns-bt">✦${TX}?</span>` : ''}${rivalTag(p)}</div>` +
         `<div class="ns-s mono">${CLASS_LABEL[p.cls]} ${p.dist}° · ${costText(p.survey)} · ${fmtClock(p.survey.timeS)}</div>` +
         '<div class="ns-why"></div></div>' +
         `<div class="ns-r"><span class="mono ns-pay">+${p.data}≡</span>` +
@@ -1036,7 +1088,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       foot +
       (done.length ? `<div class="label ns-cap">Surveyed <span class="mono">${done.length}</span></div>` +
         done.map((p) => `<div class="ns-row done" data-id="${p.id}"><span class="ns-g">${KIND_GLYPH[p.kind]}</span>` +
-          `<div class="ns-m"><div class="ns-n">${esc(p.short)}${p.bt ? ` <span class="ns-bt">✦${TX}</span>` : ''}</div>` +
+          `<div class="ns-m"><div class="ns-n">${esc(p.short)}${p.bt ? ` <span class="ns-bt">✦${TX}</span>` : ''}${rivalTag(p)}</div>` +
           `<div class="ns-s ns-st"></div></div><div class="ns-r"><span class="mono ns-pay">+${p.data}≡</span></div></div>`).join('') : '');
   }
 
@@ -1046,6 +1098,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       return o ? (o.live ? `▢ outpost · ${o.stream}` : `▢ outpost deploying ${fmtClock(o.deployLeft)}`) : '▢ outpost';
     }
     if (!p.claim) return p.kind === 'heritage' ? 'protected heritage — survey only' : 'nothing to extract';
+    if (p.rival) return `▢ rival outpost — ${p.rival.name}`;
     return p.claimable ? `✓ outpost possible · ${p.claim.stream}` : p.reason;
   }
 
@@ -1106,7 +1159,13 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const x = p.claim;
     const haul = OUTPOST_CLASS[p.cls].haul;
     // the site line is the field report's own (exploration.outpostSiteLine): stream and claim in one breath
-    const claim = x
+    const rv = p.rival;
+    const claim = rv
+      // another program's outpost stands here (docs/20 §5): whose, and why it is not yours to claim
+      ? `<div class="ps-rival k-rival-${rv.faction}" style="--fc:${factionColour(rv.faction)}"><span class="ps-rg">${factionGlyph(rv.faction)}</span>` +
+        `<b>▢ rival outpost — ${esc(rv.name)}</b></div>` +
+        `<div class="ps-none">Its stream is theirs: no claim here, and a survey still pays its data.</div>`
+      : x
       ? `<div class="ps-site"><span class="ps-tag mono">OUTPOST SITE</span><span class="mono">${esc(x.line)}</span></div>` +
         `<div class="io"><span class="k">Deploys</span><span class="mono">${fmtClock(x.deployS)}</span>` +
         `<span class="k">Upkeep</span><span class="mono">${x.upkeepPerDay}⚙/day · link ${String(x.linkKW).replace('-', '−')} kW</span>` +
@@ -1127,11 +1186,11 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       '</div>' +
       (run ? '<div class="ps-run"><span class="mono" id="ps-clock"></span><div class="bar"><i id="ps-bar"></i></div></div>' : '') +
       `</section>${bt}` +
-      `<section><div class="label">Outpost${x ? ` — ${esc(haul)}` : ''}</div>${claim}</section>` +
+      `<section><div class="label">Outpost${rv ? ' — rival' : x ? ` — ${esc(haul)}` : ''}</div>${claim}</section>` +
       '<div class="ps-reason" id="ps-reason"></div>' +
       '<div class="ps-acts">' +
       (!p.surveyed ? '<button class="btn primary" data-act="survey" id="ps-survey">Survey</button>' : '') +
-      (p.surveyed && x && !p.outpost ? '<button class="btn primary" data-act="claim" id="ps-claim">Claim outpost</button>' : '') +
+      (p.surveyed && x && !p.outpost && !rv ? '<button class="btn primary" data-act="claim" id="ps-claim">Claim outpost</button>' : '') +
       (p.outpost ? '<button class="btn" data-act="abandon" id="ps-abandon">Abandon outpost</button>' : '') +
       '</div></div>';
   }
@@ -1143,7 +1202,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     let t: string, ok = false;
     if (fl) t = `◌ Surveying — drone ${fl.drone} back in ${fmtClock(fl.remaining)}`;
     else if (p.outpost) { t = doneStatus(p); ok = true; }
-    else if (!p.surveyed) { ok = p.surveyable; t = ok ? '✓ Ready to survey' : `✗ ${p.reason}`; }
+    else if (!p.surveyed) { ok = p.surveyable; t = ok ? `✓ Ready to survey${p.rival ? ` · ${claimedByText(p.rival.name)}` : ''}` : `✗ ${p.reason}`; }
     else if (!p.claim) { t = p.kind === 'heritage' ? '⌂ Surveyed — survey only' : '✓ Surveyed — the data is in'; ok = true; }
     else { ok = p.claimable; t = ok ? '✓ Ready to claim' : `✗ ${p.reason}`; }
     if (reason.textContent !== t) reason.textContent = t;
@@ -1178,9 +1237,9 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     let p = find(selected);
     if (selected && (!p || !p.visible)) { selected = null; p = null; }
     const sig = p
-      ? `s|${siteId}|${p.id}|${p.surveyed}|${p.outpost}|${lv.flights.some((f) => f.id === p.id)}|${p.data}`
+      ? `s|${siteId}|${p.id}|${p.surveyed}|${p.outpost}|${p.rival?.faction ?? ''}|${lv.flights.some((f) => f.id === p.id)}|${p.data}`
       : `l|${siteId}|${lv.tier}|${lv.flights.map((f) => f.id).join('+')}|` +
-        lv.prospects.map((x) => (x.visible ? `${x.id}${x.surveyed ? 's' : ''}${x.outpost ? 'o' : ''}${x.data}` : '')).join(',');
+        lv.prospects.map((x) => (x.visible ? `${x.id}${x.surveyed ? 's' : ''}${x.outpost ? 'o' : ''}${x.rival ? `:${x.rival.faction[0]}` : ''}${x.data}` : '')).join(',');
     if (sig !== panelSig) {
       panelSig = sig;
       panel.innerHTML = p ? sheetHtml(lv, p) : listHtml(lv);
@@ -1350,7 +1409,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   function renderExtras(lv: LunarView) {
     const showThumb = lv.tier < 2;
     thumb.style.display = showThumb ? '' : 'none';
-    const tsig = `${siteId}|${Math.min(lv.tier, 2)}`;
+    const tsig = `${siteId}|${Math.min(lv.tier, 2)}|${lv.rivals.map((r) => `${r.faction[0]}${r.landed ? 'L' : ''}`).join('')}`;
     if (showThumb && tsig !== thumbSig) { thumbSig = tsig; thumbSvg.innerHTML = thumbMarkup(lv, siteId!); }
     const showInset = shownView !== 'site';
     inset.style.display = showInset ? '' : 'none';
@@ -1364,14 +1423,16 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       }
     }
     const fam = shownView ? FAM[shownView] : 'site';
-    const lsig = `${fam}|${lv.tier}`;
+    const crowded = rivalOutposts(lv).length > 0;
+    const lsig = `${fam}|${lv.tier}|${crowded}`;
     if (lsig !== legendSig) {
       legendSig = lsig;
       const rows: [string, string][] = fam === 'site'
         ? [['◆◇○', 'deposit · ring = kind'], ['?', 'lead, unconfirmed'],
           ['━', 'survey ring'], ['╌', 'build network'], ...(lv.tier < 2 ? [['▨', 'unmapped'] as [string, string]] : [])]
         : [['○', 'unsurveyed'], ['●', 'surveyed'], ['◌', 'surveying'], ['⬚', 'outpost possible'], ['▢', 'outpost'], ['⌂', 'heritage'],
-          [`✦${TX}?`, 'breakthrough'], ['⊞', 'home'], ...(lv.tier < 3 ? [['▨', 'beyond coverage'] as [string, string]] : [])];
+          [`✦${TX}?`, 'breakthrough'], ['⊞', 'home'], ...(crowded ? [['■', 'rival outpost · badge = who'], ['◎', 'rival home · 27° reach']] as [string, string][] : []),
+          ...(lv.tier < 3 ? [['▨', 'beyond coverage'] as [string, string]] : [])];
       legend.innerHTML = rows.map(([g, t]) => `<div><span class="lg">${g}</span>${t}</div>`).join('');
     }
   }
