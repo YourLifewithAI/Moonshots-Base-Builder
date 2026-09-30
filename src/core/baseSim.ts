@@ -57,6 +57,7 @@ import { Heightfield, type Deposit } from '../terrain/heightfield';
 import { FlatHeights } from '../terrain/flatHeights';
 import { bindMode } from './simMode';
 import { bindMoon, type MoonState } from './moon';
+import { syncFlare } from './spaceWeather';
 import { landingTechFor } from '../data/techs';
 import { factionOfState, type FactionId } from '../data/factions';
 import { centerOf, footprintRect } from '../buildings/instances';
@@ -171,6 +172,9 @@ export class BaseSim {
       applyGrants(state, landing);
     }
     if (o.moon) bindMoon(state, o.moon);
+    // a base that lands on a Moon mid-schedule shows its next flare from the first frame (the mirror otherwise waits for its first tick); mid-flare it
+    // waits, and sits that flare out (spaceWeather.ts `moonPhases`)
+    if (o.moon && o.faction && o.moon.weather.phase === 'idle') syncFlare(state, o.moon);
     const sim = new BaseSim(state, o.mode, !!o.flat);
     sim.faction = o.faction;
     sim.landedAt = o.landedAt ?? 0;

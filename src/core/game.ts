@@ -266,10 +266,11 @@ export class Game {
       const landedAt = moon.factions[faction].landedAt;
       // the Moon's clock starts when the first faction lands (the Foundry, day 0, mid-morning)
       moon.clock = Math.min(...FACTION_ORDER.map((f) => moon.factions[f].landedAt)) + 90;
+      // the rivals that land before the player are on the Moon, and it stands at the player's landing second, when the player lands
+      this.preRoll(moon, landedAt + 90);
       // the Lander pre-placed at the map heart with its pad, rovers and drone, and the TOUCHDOWN alert
       sim = BaseSim.create({ siteId, seed, expedition: def.expedition, faction, landedAt, mode: this.playerMode(), moon });
       moon.factions[faction].landed = true;
-      this.preRoll(moon, sim.state.simTime);
     } else {
       moon.clock = 90; // (a solo base lands at day 0, mid-morning, like every base)
       sim = BaseSim.create({ siteId, seed, expedition, mode: this.playerMode(), moon });

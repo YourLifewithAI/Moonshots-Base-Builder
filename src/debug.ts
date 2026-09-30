@@ -12,6 +12,8 @@ import { FACTIONS, FACTION_ORDER, type FactionId } from './data/factions';
 import { isHubType } from './data/hubs';
 import type { Action } from './core/actions';
 import type { RivalProgram } from './core/rival';
+import { BaseSim } from './core/baseSim';
+import { HEADLESS_MODE } from './core/simMode';
 import { recipeTriangles, upgradeTriangles } from './buildings/recipes';
 import { upgradeKey } from './buildings/upgrades';
 import type { UpgradeInfo } from './buildings/instances';
@@ -106,6 +108,15 @@ function api(game: Game) {
     setRivalsEnabled: (on: boolean) => { game.rivalsOn = on; },
     /** how long the last new game's pre-roll (the rivals that landed before the player) took, ms */
     getPreRollMs: () => game.preRollMs,
+    /** a standalone headless base on the stand-in ground (docs/20 §4.2: flat, virtual pits, straight legs, no traffic), outside
+     *  the game: a Lander, run `seconds` of game time. What the CP0 gate asks: a flat base runs 10 minutes. */
+    debugHeadless: (site: SiteId = 'mare', seconds = 600, exp: 'human' | 'robotic' = 'robotic') => {
+      const sim = BaseSim.create({ siteId: site, seed: 42, expedition: exp, mode: HEADLESS_MODE, flat: true });
+      const t0 = performance.now();
+      for (let i = 0; i < seconds; i++) { sim.tick(); sim.clearOut(); }
+      const ms = performance.now() - t0;
+      return { simTime: sim.state.simTime, terrainHash: sim.hf.terrainHash(), buildings: sim.state.buildings.length, ms, msPerTick: seconds ? ms / seconds : 0 };
+    },
     /** test hooks on a landed rival's base: an action (the Builder's and the player's action set), resources, a finished tech */
     rivalApply: (faction: FactionId, a: Action) => {
       const r = game.rivals.find((x) => x.faction === faction);

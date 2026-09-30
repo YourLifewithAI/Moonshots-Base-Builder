@@ -9,7 +9,7 @@
  *  is already here. */
 import { BaseSim } from './baseSim';
 import { HEADLESS_MODE } from './simMode';
-import { bindMoon, type MoonState } from './moon';
+import type { MoonState } from './moon';
 import { hashString } from './rng';
 import type { GameState } from './state';
 import type { RivalInfo } from './exploration';
@@ -46,7 +46,6 @@ export class RivalProgram {
 
   /** A saved rival (the stripped state `save.ts` keeps): back on its ground and its Moon. */
   static fromState(faction: FactionId, state: GameState, moon: MoonState): RivalProgram {
-    bindMoon(state, moon);
     const r = new RivalProgram(faction, BaseSim.fromState(state, HEADLESS_MODE, moon, true), moon);
     r.base.clearOut();
     return r;

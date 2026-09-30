@@ -163,7 +163,8 @@ test('the solarpunks land on day 4 to a Moon with two bases already there (pre-r
     ['robots', 'robots', 0, ['landingFoundry'], 'robotic', 'mare'],
     ['accelerationists', 'accelerationists', 1440, ['landingVanguard'], 'human', 'southpole'],
   ]);
-  // the first flare (day 2.4, second 1728) is behind everyone: both rivals lived it (the Vanguard landed at 1530), the player did not
+  // the first flare (day 2.4, second 1728) is behind everyone: both rivals lived it (the Vanguard landed at 1530), the player did not;
+  // the player's base already shows the shared schedule (its next flare), from the first frame
   for (const x of r.states) { expect(x.n, `${x.f} flare n`).toBe(1); expect(x.log, `${x.f} flare log`).toBe(1); expect(x.cls).toBe('C'); }
   expect(r.player.n, 'the shared schedule has moved on').toBe(1);
   expect(r.player.log ?? []).toEqual([]);
@@ -252,8 +253,8 @@ test('one Moon, one flare schedule: every base sees the same phase, class and in
       g.advanceGameSeconds(20);
       rows.push({ t: g.getState().simTime, p: view(g.getState().flare), v: view(g.getRivalState('accelerationists')?.flare), c: null });
     }
-    g.advanceGameSeconds(2900 - g.getState().simTime);
-    for (let i = 0; i < 40; i++) {
+    g.advanceGameSeconds(3000 - g.getState().simTime);
+    for (let i = 0; i < 35; i++) {
       g.advanceGameSeconds(20);
       rows.push({ t: g.getState().simTime, p: view(g.getState().flare), v: null, c: view(g.getRivalState('solarpunks')?.flare) });
     }
@@ -396,8 +397,12 @@ test('the rivals are cheap: two bases step well under 2 ms a second after 720 s,
     }
     g.advanceGameSeconds(720);
     const info = g.getRenderInfo();
-    return { rivals: info.rivals, moon: info.moon, t: g.getState().simTime, n: g.getRivals().map((x: any) => x.buildings) };
+    return { rivals: info.rivals, moon: info.moon, t: g.getState().simTime, n: g.getRivals().map((x: any) => x.buildings), headless: g.debugHeadless('southpole', 600) };
   });
+  // a standalone flat base (the CP0 gate): ten game-minutes of a headless Lander
+  expect(r.headless).toMatchObject({ simTime: 690, buildings: 1 });
+  expect(r.headless.terrainHash).toMatch(/^[0-9a-f]+:[0-9a-f]+$/);
+  expect(r.headless.msPerTick).toBeLessThan(2);
   expect(r.rivals.n).toBe(2);
   expect(r.rivals.ticks, 'one rival step per player tick').toBe(720);
   expect(r.rivals.behind).toBe(0);
