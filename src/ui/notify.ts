@@ -108,8 +108,13 @@ export function logEntries(log: readonly LogEntry[] | undefined, family?: Notify
 
 export const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
-/** 'D3' for the third lunar day */
-export const dayTag = (at: number) => `D${Math.floor(at / CYCLE_S) + 1}`;
+/** The Moon clock this base landed at (0 in a solo game): the log counts MISSION days from it (docs/20 §4.4). The HUD
+ *  sets it from `$time.landedAt` as the game publishes. */
+let missionOrigin = 0;
+export function setMissionOrigin(landedAt: number) { missionOrigin = landedAt; }
+
+/** 'D3' for the third mission day (`at` is Moon time) */
+export const dayTag = (at: number, landedAt = missionOrigin) => `D${Math.floor((at - landedAt) / CYCLE_S) + 1}`;
 
 /** One row of the log, or of a filtered view of it (the weather panel's): glyph, text, count, day. */
 export function logRowHtml(e: LogEntry): string {

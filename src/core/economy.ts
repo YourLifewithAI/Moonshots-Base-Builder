@@ -19,7 +19,7 @@ import {
 } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import type { SiteDef } from '../data/sites';
-import { fillStateDefaults, type AlertAction, type AlertMsg, type FieldReport, type GameState, type BuildingState, type NotifyFamily, type RoverUnit } from './state';
+import { fillStateDefaults, sinceLanding, type AlertAction, type AlertMsg, type FieldReport, type GameState, type BuildingState, type NotifyFamily, type RoverUnit } from './state';
 import {
   canToggleCrew, computeMods, effectiveDef, effectiveRates, modsFor, unmanned as isUnmanned, waterReclaimFactor, wearDerate, type EffectiveRates, type Mods,
 } from './mods';
@@ -1131,7 +1131,7 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       u.wear = Math.min(1, u.wear + (WEAR.risePerDay / CYCLE_S) * dt);
     }
   }
-  if (s.simTime > 120 && s.resources.parts < 20) st.lowPartsSeen = true;
+  if (sinceLanding(s) > 120 && s.resources.parts < 20) st.lowPartsSeen = true;
   if (partsShort) {
     condition(s, 'parts', s.resupply?.pending
       ? 'PARTS DEPLETED — equipment wearing down until the Earth shipment lands at the Lander'
