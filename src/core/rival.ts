@@ -16,11 +16,12 @@
  *  loaded from a save and stepped on plays exactly what the one that never saved did. A rival never gets a free resource. */
 import { BaseSim } from './baseSim';
 import { HEADLESS_MODE } from './simMode';
-import { pushFeed, type MoonState } from './moon';
+import { onFeed, pushFeed, type MoonState } from './moon';
 import { hashString } from './rng';
 import type { GameState } from './state';
 import type { Mods } from './mods';
-import { missionLost } from './economy';
+import { alert, missionLost } from './economy';
+import { modsFor } from './mods';
 import {
   enqueue, enqueuePath, goodsShortfall, isDoctrineHere, techAvailability, techCost, techVisible, resolveTech,
 } from './research';
@@ -35,6 +36,7 @@ import { FAMILY_PRIORITY, RULE_ORDER, RULES, type AutoRuleId } from '../data/aut
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { PROSPECTS, PROSPECT_IDS, type ProspectId, type OutpostKind } from '../data/lunarMap';
 import { NIGHT_S, QUEUE_MAX } from '../data/balance';
+import { HZ } from '../data/hazards';
 
 /** A rival's seed: the Moon's seed mixed with its faction (its ground's deposits, every base-local draw). The
  *  PLAYER's base keeps the game's own seed, so a faction game on a site has the terrain of the solo game on it. */
@@ -76,6 +78,22 @@ function switchOnRules(s: GameState, faction: FactionId): void {
   // every family is "already unlocked": no per-family BUILDER banner a player would read
   for (const f of FAMILY_PRIORITY) if (!s.auto.families.includes(f)) s.auto.families.push(f);
 }
+
+/** Guardianship (S3's `rivalAid`): when another program suffers a disaster (its crew lost, a hearing) the watch sits it and the data comes to the
+ *  player whose base carries the tech (`mods.rivalAidData`). Registered once; a reload replaces its own earlier copy. */
+let rivalAidOff: (() => void) | null = null;
+export function registerRivalAid(): void {
+  rivalAidOff?.();
+  rivalAidOff = onFeed('*', (e, { player }) => {
+    if (e.kind !== 'lost' && e.kind !== 'hearing') return;
+    if (e.faction === player.faction) return;
+    const aid = modsFor(player).rivalAidData;
+    if (aid <= 0) return;
+    player.data += aid;
+    alert(player, `GUARDIANSHIP — ${FACTION_NAME[e.faction]} is in trouble; the Commons sit the watch: +${aid}≡ of their telemetry`, 'info', { panel: 'race' }, 'race', undefined, e.faction);
+  });
+}
+registerRivalAid();
 
 export class RivalProgram {
   readonly faction: FactionId;
@@ -212,6 +230,7 @@ export class RivalProgram {
   private wanted(tid: TechId): boolean {
     const def = TECHS[tid];
     if (!def) return false;
+    if (FACTIONS[this.faction].policy.skip?.includes(tid)) return false;
     const s = this.base.state;
     if (def.track && !def.track.landing) return this.destinyPick(def.track.era) === tid;
     if (def.exclusive && isDoctrineHere(def, s)) return this.doctrinePick(def.exclusive) === tid;
@@ -349,22 +368,62 @@ export class RivalProgram {
     }
   }
 
-  /** The answers to the two hazards that kill a crew and have a free or cheap counter (docs/14 §3.7): a fouled water loop is flushed (it
-   *  would poison one of the crew a lunar day until then), a breach is sealed (a rover and a few parts) or, when that is refused, the
-   *  building evacuated. The player's panel shows the same buttons. A drill (the first of a kind) cannot kill and is left alone. */
+  /** The answers to the hazards that have a free or cheap counter (docs/14 §3.7), through the same counter action the player's buttons
+   *  take: a fouled water loop is flushed (it would poison one of the crew a lunar day until then), a breach sealed (a rover and a few
+   *  parts) or, when that is refused, evacuated, a blight quarantined, a cascade shed, a firmware rollout held or the fleet docked for a
+   *  flare's push, rogue drones killed at their dock, a hacked outpost's keys rotated, a cabin-fever crew given a Commons night.
+   *  A drill (the first of a kind) cannot hurt and is left alone. */
   private hazards() {
     const b = this.base;
     const s = b.state;
-    if (s.crew <= 0 || !s.hazards?.live.length) return;
-    for (const h of [...s.hazards.live]) {
+    if (!s.hazards?.live.length && !s.buildings.some((x) => x.infected)) return;
+    const now = s.simTime;
+    for (const h of [...(s.hazards?.live ?? [])]) {
       if (h.drill) continue;
-      if (h.kind === 'contamination' && h.phase === 'active' && h.used.flush === undefined) {
-        b.apply({ kind: 'counter', counter: 'flush' });
-      } else if (h.kind === 'breach' && h.used.seal === undefined && h.used.evacuate === undefined) {
-        b.apply({ kind: 'counter', counter: 'seal', id: h.id });
-        if (h.used.seal === undefined) b.apply({ kind: 'counter', counter: 'evacuate', id: h.id });
+      switch (h.kind) {
+        case 'contamination':
+          if (h.phase === 'active' && h.used.flush === undefined && s.crew > 0) b.apply({ kind: 'counter', counter: 'flush' });
+          break;
+        case 'breach':
+          if (s.crew > 0 && h.used.seal === undefined && h.used.evacuate === undefined) {
+            b.apply({ kind: 'counter', counter: 'seal', id: h.id });
+            if (h.used.seal === undefined) b.apply({ kind: 'counter', counter: 'evacuate', id: h.id });
+          }
+          break;
+        case 'blight':
+          if (h.used.quarantine === undefined) b.apply({ kind: 'counter', counter: 'quarantine', id: h.id });
+          break;
+        case 'cascade':
+          if (s.crew > 0 && h.used.shedLoads === undefined) b.apply({ kind: 'counter', counter: 'shedLoads' });
+          break;
+        case 'firmware':
+          if (h.phase === 'telegraph') {
+            const c = h.flare ? 'dockFleet' : 'holdRollout';
+            if (h.used[c] === undefined) b.apply({ kind: 'counter', counter: c });
+          }
+          break;
+        case 'rogueDrones':
+          if (h.used.killSwitch === undefined) b.apply({ kind: 'counter', counter: 'killSwitch', id: h.id });
+          break;
+        case 'hackedOutpost':
+          if (h.used.rotateKeys === undefined) b.apply({ kind: 'counter', counter: 'rotateKeys', id: h.id });
+          break;
+        case 'cabinFever':
+          if (s.crew > 0 && h.used.commonsNight === undefined) b.apply({ kind: 'counter', counter: 'commonsNight' });
+          break;
+        default: break;
       }
     }
+    // malware: a worm is starved by air-gapping the node it names before it unpacks (free; the node is joined to the network again as soon
+    // as the warning is over), and what slipped through is reimaged when the 40≡ happen to be in the pool
+    const worm = (s.hazards?.live ?? []).find((h) => h.kind === 'malware');
+    if (worm && !worm.drill && worm.phase === 'telegraph' && worm.target !== null) {
+      const t = s.buildings.find((x) => x.id === worm.target);
+      if (t && !t.airGapped) b.apply({ kind: 'airGap', id: t.id, on: true });
+    }
+    for (const x of s.buildings) if (x.airGapped && !(worm && worm.target === x.id)) b.apply({ kind: 'airGap', id: x.id, on: false });
+    const sick = s.buildings.find((x) => x.infected && (x.reimageUntil ?? 0) <= now);
+    if (sick && s.data >= HZ.malware.reimage.data) b.apply({ kind: 'counter', counter: 'reimage', id: sick.id });
   }
 
   /** Power comes before growth: the day's supply stays ahead of what runs, what is being built and the bank's recharge (the pacing probe's

@@ -53,6 +53,8 @@ export interface FactionPolicy {
   ruleCaps: Partial<Record<AutoRuleId, number>>;
   /** caps the Builder's rules are raised to once the base is past Era 6 (S4; `RIVAL_LATE_ERA` in core/rival.ts) */
   lateCaps: Partial<Record<AutoRuleId, number>>;
+  /** techs the program never researches (a branch tech that costs a crew more than it brings) */
+  skip?: TechId[];
   orders: FactionOrder[];
 }
 
@@ -183,14 +185,16 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         'partsFabrication', 'siliconRefining', 'batteryStorage', 'constructionRobotics', 'prospectingRovers', 'mpptInverters',
         // era 3: the night's baseload, better siting, the builders' doctrine
         'regolithShielding', 'thoriumPower', 'siteSurveyAI', 'swarmRobotics', 'refluxColumns',
-        // era 4: chips (the claim's price, the Data Center's), the survey's second tier
+        // era 4: chips (the claim's price, the Data Center's), the survey's second tier, then the branch: the vault for the night, the flare's
+        // answers, a warmer night (the claim comes first: its techs are cheap, but every metal and part they take is one the outpost waits for)
         'waferFab', 'orbitalProspector', 'radHardProcess', 'braytonConverters', 'roverAutonomy',
-        // era 5: compute
-        'lunarDataCenter', 'cryoRadiators', 'wingExtensions', 'dynamicClocking', 'autoSmelting',
+        'nightVaultDocks', 'hardenedFirmware', 'faradaySheds', 'isotopeWarmers',
+        // era 5: compute, the bank's trenches
+        'lunarDataCenter', 'bankTrenches', 'cryoRadiators', 'wingExtensions', 'dynamicClocking', 'autoSmelting', 'selfRepairCells',
         // era 6: the far side's relay (a second outpost), the pick that waives the crew tech
-        'farSideRelay', 'launchSiteSurvey', 'solidStateCells', 'autoFabrication', 'predictiveScheduling',
-        // era 7 and 8: foils, the launch doctrine, the swarm
-        'foilManufacturing', 'massDriver', 'propellantDepot', 'selfReplication', 'maintenanceAutomation', 'rollToRoll',
+        'farSideRelay', 'launchSiteSurvey', 'lightsOutFoundry', 'solidStateCells', 'autoFabrication', 'predictiveScheduling',
+        // era 7 and 8: foils, the launch doctrine (a volley on 2↑ with the uplink), the swarm
+        'foilManufacturing', 'swarmRelayUplink', 'massDriver', 'propellantDepot', 'selfReplication', 'maintenanceAutomation', 'rollToRoll',
         'swarmProtocol', 'canisterPress', 'railCapacitors', 'cryocoolerHeads', 'vonNeumann', 'powerBeaming',
       ],
       destiny: 'automation',
@@ -201,7 +205,10 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
       ruleCaps: {},
       lateCaps: { battery: 10, reactor: 4 },
-      orders: orders(),
+      orders: orders(
+        { type: 'nightVault', count: 1 },
+        { type: 'faradayShed', count: 1 },
+      ),
     },
   },
   accelerationists: {
@@ -238,18 +245,18 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       research: [
         // era 1: the cheapest and the water tech (Era 2 opens with two techs and 450 smelted), then era 2 at once: parts, the agents that run
         // what hands cannot, silicon for the batteries, Bench Robots (a lab on one seat); Prospecting Drones follow
-        'regolithProcessing', 'iceExtraction', 'regolithVolatiles',
+        'regolithProcessing', 'iceExtraction', 'regolithVolatiles', 'pressCorps',
         'partsFabrication', 'constructionRobotics', 'siliconRefining', 'batteryStorage', 'benchRobots', 'prospectingRovers', 'moltenElectrolysis',
-        // era 3: compute and baseload
-        'regolithShielding', 'thoriumPower', 'siteSurveyAI', 'refluxColumns', 'cryoSampleStore', 'swarmRobotics',
-        // era 4: chips, the survey's second tier
-        'waferFab', 'radHardProcess', 'orbitalProspector', 'waferPolishing', 'cleanroomRobotics', 'budgetGovernor',
+        // era 3: compute and baseload, the lab that answers to no one
+        'regolithShielding', 'thoriumPower', 'siteSurveyAI', 'refluxColumns', 'cryoSampleStore', 'crunchCulture', 'swarmRobotics',
+        // era 4: chips, the survey's second tier, Skunkworks and the hearing's answer
+        'waferFab', 'skunkworksLabs', 'radHardProcess', 'orbitalProspector', 'hearingPrep', 'waferPolishing', 'cleanroomRobotics', 'budgetGovernor',
         // era 5: the Data Center
-        'lunarDataCenter', 'dynamicClocking', 'immersionLitho', 'cryoRadiators',
+        'lunarDataCenter', 'dynamicClocking', 'immersionLitho', 'cryoRadiators', 'ventureFoils',
         // era 6
-        'scienceCrews', 'uplinkDishes', 'farSideRelay', 'launchSiteSurvey', 'predictiveScheduling',
+        'scienceCrews', 'uplinkDishes', 'farSideRelay', 'launchSiteSurvey', 'launchFever', 'predictiveScheduling',
         // era 7 and 8
-        'foilManufacturing', 'propellantDepot', 'massDriver', 'rackDensification', 'liquidCooling',
+        'foilManufacturing', 'mediaBlitz', 'propellantDepot', 'massDriver', 'rackDensification', 'liquidCooling',
         'swarmProtocol', 'canisterPress', 'railCapacitors', 'cryocoolerHeads', 'powerBeaming', 'vonNeumann',
       ],
       // colony early, automation from Era 5
@@ -261,7 +268,12 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ice', 'ilmenite', 'radio'],
       ruleCaps: { food: 2 },
       lateCaps: { battery: 10, reactor: 4 },
-      orders: orders(),
+      // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
+      skip: ['hazardWaivers'],
+      orders: orders(
+        { type: 'missionOps', count: 1 },
+        { type: 'skunkworks', count: 2 },
+      ),
     },
   },
   solarpunks: {
@@ -297,17 +309,17 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       research: [
         // era 1: the water tech (a sixth of its usual price here) and the cheapest (Era 2 opens with two techs and 450 smelted), then era 2
         // at once: parts, agents, silicon, the night, shielding; Prospecting Drones follow
-        'regolithVolatiles', 'iceExtraction', 'regolithProcessing',
+        'regolithVolatiles', 'iceExtraction', 'regolithProcessing', 'commonsCharter',
         'partsFabrication', 'constructionRobotics', 'siliconRefining', 'batteryStorage', 'regolithShielding', 'benchRobots', 'prospectingRovers',
-        'moltenElectrolysis', 'sublimationTents',
+        'moltenElectrolysis', 'mutualAidDrills', 'sublimationTents',
         // era 3: baseload, beds and the water loop, siting
         'thoriumPower', 'waterReclamation', 'bunkRacks', 'siteSurveyAI', 'refluxColumns', 'swarmRobotics',
         // era 4: chips, the gardens, oxygen from water
-        'waferFab', 'growLights', 'waterElectrolysis', 'radHardProcess', 'orbitalProspector', 'heatedAugers',
+        'waferFab', 'growLights', 'waterElectrolysis', 'radHardProcess', 'orbitalProspector', 'regolithTerraces', 'heatedAugers',
         // era 5: the Data Center, the commons' comforts
         'lunarDataCenter', 'crewWellness', 'nutrientRecirculation', 'cryoRadiators', 'dynamicClocking',
         // era 6
-        'closedLoopLS', 'safetyProtocols', 'scienceCrews', 'farSideRelay', 'launchSiteSurvey', 'galleyGarden',
+        'closedLoopLS', 'safetyProtocols', 'scienceCrews', 'farSideRelay', 'launchSiteSurvey', 'cooperativeSwarm', 'galleyGarden',
         // era 7 and 8
         'foilManufacturing', 'propellantDepot', 'massDriver', 'lowGCourt', 'rollToRoll',
         'swarmProtocol', 'canisterPress', 'cryocoolerHeads', 'railCapacitors', 'powerBeaming', 'vonNeumann',
@@ -320,7 +332,12 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ice', 'volatiles', 'silica'],
       ruleCaps: { food: 2 },
       lateCaps: { battery: 10, reactor: 4 },
-      orders: orders(),
+      // the Consensus Council asks a second crew member at every lab
+      skip: ['consensusCouncil'],
+      orders: orders(
+        { type: 'commonsHall', count: 1 },
+        { type: 'regolithTerrace', count: 2 },
+      ),
     },
   },
 };
