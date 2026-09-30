@@ -1,0 +1,258 @@
+/** The rivals' minds (docs/20 §4.5, stream S4): the other two programs of a faction game are real bases played by the Builder
+ *  and a policy per faction (core/rival.ts, data/factions.ts). They research along a priority list, found what the Builder's rules
+ *  extend, survey and claim prospects, keep their crew alive, write what they do to the Moon's feed and stay deterministic across a
+ *  save and a load. The solo game has none of it.
+ *
+ *  Seed 42. The player's base is kept alive with `grantResources` (a passive crewed base runs out of air a thousand seconds after it
+ *  lands and its defeat stops the clock); every reading of a rival is through the debug API. */
+import { test, expect as baseExpect, type Page } from '@playwright/test';
+
+const expect = baseExpect.configure({ timeout: 20_000 });
+
+declare global {
+  interface Window { __game?: any }
+}
+
+type Faction = 'robots' | 'accelerationists' | 'solarpunks';
+type Site = 'mare' | 'southpole' | 'lavatube';
+
+const CYCLE = 720;
+const DAY = (n: number) => n * CYCLE;
+
+async function boot(page: Page) {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.goto('/?debug&seed=42');
+  await page.waitForFunction(() => window.__game !== undefined);
+  return errors;
+}
+
+/** Start a faction game and pause it (the debug clock is the test's). */
+const start = (page: Page, faction: Faction, site: Site) => page.evaluate(([f, s]) => {
+  const g = window.__game;
+  g.selectFaction(f, s);
+  g.setPaused(true);
+  g.advanceGameSeconds(0);
+  return { clock: g.getMoon().clock, pre: g.getPreRollMs() };
+}, [faction, site] as const);
+
+/** Advance the Moon to `clock`, topping up the player's life support as it goes (300 s at a time). */
+const advanceTo = (page: Page, clock: number) => page.evaluate((until) => {
+  const g = window.__game;
+  while (g.getMoon().clock < until) {
+    g.grantResources({ oxygen: 600, food: 600, water: 400, parts: 50 });
+    g.advanceGameSeconds(Math.min(300, until - g.getMoon().clock));
+  }
+  return g.getMoon().clock;
+}, clock);
+
+test('landing order and head start: the Commons land on a Moon the other two have been carving up for four days', async ({ page }) => {
+  test.setTimeout(240_000);
+  await boot(page);
+  const r = await start(page, 'solarpunks', 'lavatube');
+  const rivals = await page.evaluate(() => {
+    const g = window.__game;
+    return {
+      list: g.getRivals().map((x: any) => ({ f: x.faction, site: x.siteId, landed: x.landed, buildings: x.buildings, techs: x.techs, era: x.era, simTime: x.simTime, lost: x.lost })),
+      player: g.getState().simTime,
+      feed: g.getMoon().feed.map((e: any) => e.kind),
+      stateOf: (f: string) => { const s = g.getRivalState(f); return { seed: s.seed, landedAt: s.landedAt, crew: s.crew, rules: Object.values(s.auto.rules).filter((x: any) => x.on).length, queue: s.researchQueue.length }; },
+      foundry: (() => { const s = g.getRivalState('robots'); return { types: [...new Set(s.buildings.map((b: any) => b.type))], labs: s.buildings.filter((b: any) => b.type === 'lab').length, queue: s.researchQueue }; })(),
+    };
+  });
+  expect(r.clock, 'the Moon stands at the Commons landing second (day 4, mid-morning)').toBe(DAY(4) + 90);
+  expect(rivals.list.map((x: any) => x.f)).toEqual(['robots', 'accelerationists']);
+  for (const x of rivals.list) {
+    expect(x.landed, `${x.f} landed`).toBe(true);
+    expect(x.simTime, `${x.f} is as old as the player's clock`).toBe(rivals.player);
+    // a base larger than a Lander: it built, researched and was thinking for days
+    expect(x.buildings, `${x.f} has built`).toBeGreaterThan(4);
+    expect(x.techs, `${x.f} has researched`).toBeGreaterThan(0);
+  }
+  // the Foundry had four days, the Vanguard two: the earlier landing is the bigger base
+  const [foundry, vanguard] = rivals.list;
+  expect(foundry.buildings).toBeGreaterThan(vanguard.buildings);
+  expect(foundry.era, 'the Foundry is past Era 1').toBeGreaterThanOrEqual(2);
+  for (const t of ['lab', 'smelter', 'solar']) expect(rivals.foundry.types, `the Foundry built a ${t}`).toContain(t);
+  expect(rivals.foundry.labs, 'more than one lab').toBeGreaterThan(1);
+  expect(rivals.foundry.queue.length, 'its research queue is full').toBeGreaterThan(0);
+  // every Builder rule is on from the landing, at the faction's caps
+  expect(rivals.stateOf('robots').rules).toBeGreaterThan(15);
+  expect(rivals.feed.filter((k: string) => k === 'landed')).toHaveLength(2);
+  // the pre-roll of the slowest start is measured (it runs behind the descent screen in chunks; this direct path runs it whole)
+  expect(r.pre, 'pre-roll time recorded').toBeGreaterThan(0);
+  expect(r.pre, `pre-roll ${Math.round(r.pre)} ms`).toBeLessThan(15_000);
+});
+
+test('the day targets on seed 42: Era 2 by day 6, an outpost by day 8, every crew alive on day 12, the feed says so, at under 2 ms a second', async ({ page }) => {
+  test.setTimeout(420_000);
+  const errors = await boot(page);
+  await start(page, 'accelerationists', 'southpole'); // the Foundry at Ilmenite Plains, the Commons at Marius Hills
+  // the rivals' cost after 3000 s of game time (two rivals, real bases)
+  await advanceTo(page, DAY(2) + 90 + 3000);
+  const perf = await page.evaluate(() => window.__game.getRenderInfo().rivals);
+  expect(perf.n, 'two rivals').toBe(2);
+  expect(perf.ticks, 'ticked').toBeGreaterThanOrEqual(2900);
+  expect(perf.msMean, `rivals cost ${perf.msMean.toFixed(2)} ms a second over ${perf.ticks} ticks`).toBeLessThan(2);
+  await advanceTo(page, DAY(12));
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const moon = g.getMoon();
+    const st = (f: string) => { const s = g.getRivalState(f); return s ? { crew: s.crew, expedition: s.expedition, defeat: s.defeatShown, era: s.era, outposts: s.survey.outposts.map((o: any) => o.id), faction: s.faction } : null; };
+    return {
+      feed: moon.feed.map((e: any) => ({ at: e.at, faction: e.faction, kind: e.kind, era: e.era, prospect: e.prospect, text: e.text })),
+      claims: moon.claims, rivals: g.getRivals().map((x: any) => ({ f: x.faction, lost: x.lost, era: x.era, outposts: x.outposts })),
+      robots: st('robots'), solarpunks: st('solarpunks'), race: moon.race,
+    };
+  });
+  expect(errors, 'no page errors').toEqual([]);
+  // Era 2 by day 6: the first era event of each rival
+  const era2 = (f: string) => r.feed.find((e: any) => e.faction === f && e.kind === 'era' && e.era === 2)?.at;
+  expect(era2('robots'), 'the Foundry enters Era 2').toBeLessThanOrEqual(DAY(6));
+  expect(era2('solarpunks'), 'the Commons enter Era 2 by day 6 of the Moon').toBeLessThanOrEqual(DAY(6));
+  // an outpost by day 8: a claim event, held on the Moon, in the rival's own state
+  const claim = r.feed.find((e: any) => e.faction === 'robots' && e.kind === 'claim');
+  expect(claim, 'the Foundry claimed a prospect').toBeTruthy();
+  expect(claim.at, 'by day 8').toBeLessThanOrEqual(DAY(8));
+  expect(claim.text).toMatch(/THE FOUNDRY CLAIMS /);
+  expect(r.claims[claim.prospect], 'the Moon holds the claim for the Foundry').toBe('robots');
+  expect(r.robots!.outposts).toContain(claim.prospect);
+  // nobody's crew died: the Commons (crewed) live, and neither is lost
+  expect(r.solarpunks!.expedition).toBe('human');
+  expect(r.solarpunks!.crew, 'the Commons crew is alive on day 12').toBeGreaterThan(0);
+  expect(r.rivals.every((x: any) => !x.lost), 'no rival is lost').toBe(true);
+  expect(r.feed.some((e: any) => e.kind === 'lost'), 'no `lost` event').toBe(false);
+  // the feed carries the story: landings, eras, claims
+  const kinds = new Set(r.feed.map((e: any) => e.kind));
+  for (const k of ['landed', 'era', 'claim']) expect(kinds.has(k), `feed has ${k}`).toBe(true);
+  expect(r.feed.map((e: any) => e.at), 'the feed is in clock order').toEqual([...r.feed.map((e: any) => e.at)].sort((a, b) => a - b));
+  // the race board reads the rivals' eras
+  expect(r.race.robots.era).toBe(r.robots!.era);
+});
+
+test('a crewed rival that ends its crew is lost: `lost` in the feed, its ticks end; a robotic one cannot fall', async ({ page }) => {
+  test.setTimeout(120_000);
+  await boot(page);
+  await start(page, 'robots', 'mare');
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    // the Vanguard (crewed) lands day 2: run to its landing, then take its air and food away and let it starve
+    g.advanceGameSeconds(1440);
+    const before = g.getRivalState('accelerationists');
+    g.rivalGrant('accelerationists', { oxygen: -10_000, food: -10_000, water: -10_000 });
+    g.advanceGameSeconds(1200);
+    const after = g.getRivalState('accelerationists');
+    const events = g.getMoon().feed.filter((e: any) => e.kind === 'lost');
+    const still = g.getRivals();
+    return { crewBefore: before.crew, crewAfter: after.crew, defeat: after.defeatShown, events: events.map((e: any) => e.faction), lost: still.map((x: any) => [x.faction, x.lost]) };
+  });
+  expect(r.crewBefore).toBeGreaterThan(0);
+  expect(r.crewAfter).toBe(0);
+  expect(r.defeat).toBe(true);
+  expect(r.events).toEqual(['accelerationists']);
+  expect(Object.fromEntries(r.lost)).toEqual({ accelerationists: true, solarpunks: false });
+});
+
+test('determinism: two loads of one save advanced 3000 s give identical rival states (terrain, techs, queue, launches, resources, pits, claims)', async ({ page }) => {
+  test.setTimeout(420_000);
+  await boot(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    const fnv = (str: string) => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h.toString(16); };
+    const dig = (v: unknown) => fnv(JSON.stringify(v));
+    g.selectFaction('robots', 'mare');
+    g.setPaused(true);
+    g.advanceGameSeconds(0);
+    g.grantResources({ oxygen: 6000, food: 6000, water: 6000 });
+    // the Vanguard lands at 1440; give both rivals a run to think in first
+    g.advanceGameSeconds(2400);
+    const view = () => g.getRivals().map((x: any) => ({
+      f: x.faction, hash: x.terrainHash, techs: x.techsDone, era: x.era, launches: x.launches, res: dig(x.resources), pits: x.pits, outposts: x.outposts,
+      full: dig(g.getRivalState(x.faction)), queue: g.getRivalState(x.faction)?.researchQueue, n: x.buildings,
+    }));
+    const blob = g.saveBlob();
+    const size = JSON.stringify(blob).length;
+    const run = () => {
+      g.loadBlob(JSON.parse(JSON.stringify(blob)));
+      g.setPaused(true);
+      g.advanceGameSeconds(0);
+      g.grantResources({ oxygen: 6000, food: 6000, water: 6000 });
+      g.advanceGameSeconds(3000);
+      return { rivals: view(), claims: dig(g.getMoon().claims), feed: g.getMoon().feed.map((e: any) => `${e.at}|${e.faction}|${e.kind}|${e.text}`), race: dig(g.getMoon().race) };
+    };
+    const a = run();
+    const b = run();
+    return { a, b, size, keys: Object.keys(blob.rivals[0].state).length, n: a.rivals.map((x: any) => x.n) };
+  });
+  expect(r.b.rivals, 'rival states after two loads advanced 3000 s').toEqual(r.a.rivals);
+  expect(r.b.claims).toBe(r.a.claims);
+  expect(r.b.feed, 'the feed').toEqual(r.a.feed);
+  expect(r.b.race).toBe(r.a.race);
+  // the rivals did something in those 3000 s, or the comparison says nothing
+  expect(r.a.rivals.every((x: any) => x.techs.length > 1 && x.n > 4), 'rivals grew').toBe(true);
+  expect(r.size, `save ${r.size} bytes`).toBeLessThan(2_000_000);
+});
+
+test('the policy data: every listed tech exists, each faction has its lists, a doctrine per group, a destiny side, claim kinds and orders', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    const F = await import('/src/data/factions.ts');
+    const T = await import('/src/data/techs.ts');
+    const out: Record<string, any> = {};
+    for (const f of F.FACTION_ORDER) {
+      const p = F.FACTIONS[f].policy;
+      out[f] = {
+        unknown: p.research.filter((t: string) => !T.TECHS[t]),
+        n: p.research.length,
+        groups: Object.keys(p.doctrines).sort(),
+        badDoctrine: Object.entries(p.doctrines).filter(([g, t]: any) => !T.DOCTRINES[g].members.includes(t)),
+        destiny: p.destiny, claimKinds: p.claimKinds, orders: p.orders.length,
+        firstOrders: p.orders.slice(0, 3).map((o: any) => o.type),
+      };
+    }
+    return { out, groups: Object.keys(T.DOCTRINES).sort() };
+  });
+  for (const f of Object.keys(r.out)) {
+    const o = r.out[f];
+    expect(o.unknown, `${f}: unknown tech ids in its research list`).toEqual([]);
+    expect(o.n, `${f}: a research list`).toBeGreaterThan(20);
+    expect(o.groups, `${f}: a pick for every doctrine group`).toEqual(r.groups);
+    expect(o.badDoctrine, `${f}: doctrine picks are members of their groups`).toEqual([]);
+    expect(o.claimKinds.length, `${f}: claim kinds`).toBeGreaterThan(0);
+    expect(o.orders, `${f}: orders`).toBeGreaterThan(5);
+  }
+  expect(r.out.robots.claimKinds[0]).toBe('ilmenite');
+  expect(r.out.accelerationists.claimKinds[0]).toBe('ice');
+  expect(r.out.solarpunks.claimKinds[0]).toBe('ice');
+  expect(r.out.robots.destiny).toBe('automation');
+  expect(r.out.solarpunks.destiny).toBe('colony');
+  expect(r.out.accelerationists.destiny[2]).toBe('colony');
+  expect(r.out.accelerationists.destiny[8]).toBe('automation');
+});
+
+test('solo unchanged: a solo game has no rivals, no claims on the Moon, and the Builder keeps its founded rule', async ({ page }) => {
+  await boot(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.selectSite('mare', 'robotic');
+    g.setPaused(true);
+    g.advanceGameSeconds(120);
+    const mods = g.getMods();
+    const s = g.getState();
+    return {
+      rivals: g.getRivals(), moon: { player: g.getMoon().player, claims: g.getMoon().claims, feed: g.getMoon().feed ?? [] }, info: g.getRenderInfo().rivals,
+      relaxed: { founds: mods.builderFounds, all: mods.builderAll, launch: mods.autoLaunch, families: mods.autoFamilies.length },
+      rulesOn: Object.values(s.auto.rules).filter((x: any) => x.on).length,
+    };
+  });
+  expect(r.rivals).toEqual([]);
+  expect(r.moon.player).toBeNull();
+  expect(r.moon.claims).toEqual({});
+  expect(r.moon.feed).toEqual([]);
+  expect(r.info.n).toBe(0);
+  expect(r.relaxed.founds, 'the solo Builder still waits for you to found').toBe(false);
+  expect(r.relaxed.all).toBe(false);
+  expect(r.relaxed.launch).toBe(false);
+  expect(r.relaxed.families, 'no Builder family before its tech').toBe(0);
+  expect(r.rulesOn, 'no rule switched on for a solo player').toBe(0);
+});

@@ -168,10 +168,10 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     policy: {
       // power, robotics, compute, materials: the landing branch's lanes first
       research: [
-        // era 1: the four cheapest that open Era 2 (Prospecting Drones among them: the survey's data and the first outpost slot)
-        'regolithProcessing', 'bifacialCells', 'grizzlyScreens', 'fieldSpectrometers', 'prospectingRovers',
-        // era 2: parts, silicon for the batteries, the night, the builders
-        'partsFabrication', 'siliconRefining', 'batteryStorage', 'constructionRobotics', 'mpptInverters',
+        // era 1: the two cheapest (Era 2 opens with two techs and 450 smelted), then era 2 at once: parts, silicon for the batteries, the
+        // night, the builders; Prospecting Drones (the survey's data, the first outpost slot) wait for them
+        'regolithProcessing', 'bifacialCells',
+        'partsFabrication', 'siliconRefining', 'batteryStorage', 'constructionRobotics', 'prospectingRovers', 'mpptInverters',
         // era 3: the night's baseload, better siting, the builders' doctrine
         'regolithShielding', 'thoriumPower', 'siteSurveyAI', 'swarmRobotics', 'refluxColumns',
         // era 4: chips (the claim's price, the Data Center's), the survey's second tier
@@ -222,10 +222,10 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     policy: {
       // compute, materials, robotics: labs run hot and the data is cheap
       research: [
-        // era 1: Prospecting Drones first (data from every survey), the water tech, the cheap materials
-        'prospectingRovers', 'regolithProcessing', 'iceExtraction', 'regolithVolatiles', 'grizzlyScreens', 'bifacialCells',
-        // era 2: parts, the agents that run what hands cannot, silicon for the batteries, Bench Robots (a lab on one seat)
-        'partsFabrication', 'constructionRobotics', 'siliconRefining', 'batteryStorage', 'benchRobots', 'moltenElectrolysis',
+        // era 1: the cheapest and the water tech (Era 2 opens with two techs and 450 smelted), then era 2 at once: parts, the agents that run
+        // what hands cannot, silicon for the batteries, Bench Robots (a lab on one seat); Prospecting Drones follow
+        'regolithProcessing', 'iceExtraction', 'regolithVolatiles',
+        'partsFabrication', 'constructionRobotics', 'siliconRefining', 'batteryStorage', 'benchRobots', 'prospectingRovers', 'moltenElectrolysis',
         // era 3: compute and baseload
         'regolithShielding', 'thoriumPower', 'siteSurveyAI', 'refluxColumns', 'cryoSampleStore', 'swarmRobotics',
         // era 4: chips, the survey's second tier
@@ -276,10 +276,10 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     policy: {
       // habitat, power, compute: a crew that eats well and a base that does not break
       research: [
-        // era 1: Prospecting Drones, the water tech (a sixth of its usual price here)
-        'prospectingRovers', 'regolithVolatiles', 'iceExtraction', 'regolithProcessing', 'bifacialCells', 'grizzlyScreens',
-        // era 2: parts, agents, silicon, the night, shielding
-        'partsFabrication', 'constructionRobotics', 'siliconRefining', 'batteryStorage', 'regolithShielding', 'benchRobots',
+        // era 1: the water tech (a sixth of its usual price here) and the cheapest (Era 2 opens with two techs and 450 smelted), then era 2
+        // at once: parts, agents, silicon, the night, shielding; Prospecting Drones follow
+        'regolithVolatiles', 'iceExtraction', 'regolithProcessing',
+        'partsFabrication', 'constructionRobotics', 'siliconRefining', 'batteryStorage', 'regolithShielding', 'benchRobots', 'prospectingRovers',
         'moltenElectrolysis', 'sublimationTents',
         // era 3: baseload, beds and the water loop, siting
         'thoriumPower', 'waterReclamation', 'bunkRacks', 'siteSurveyAI', 'refluxColumns', 'swarmRobotics',

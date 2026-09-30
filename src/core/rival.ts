@@ -60,6 +60,7 @@ export function rivalMods(m: Mods): void {
   m.builderAll = true;
   m.builderFounds = true;
   m.autoLaunch = true;
+  m.automation = true;
 }
 
 /** Every rule on, at the faction's caps (landing): what the player's panel would show with the whole Builder unlocked. */
@@ -267,6 +268,12 @@ export class RivalProgram {
         if (net < -1e-6 && s.resources[res] / -net < STABLE_S) return false;
       }
     }
+    // a site with no night sun carries the night on its bank: loads are added only while the bank covers half of it (the lights go out
+    // for the farms first, and a crop that goes dark is lost)
+    if (s.expedition !== 'robotic' && SITES[s.siteId].nightSolarFraction < 0.5) {
+      const pb = powerBook(s, this.base.mods);
+      if (pb.nightShort > 0 && s.power.capacity < pb.nightShort * NIGHT_S * STABLE_NIGHT) return false;
+    }
     return s.resources.parts >= STABLE_PARTS || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0);
   }
 
@@ -345,7 +352,7 @@ export class RivalProgram {
       }
     }
     // the night: a site with no night sun runs it on the bank
-    if (site.nightSolarFraction < 0.5 && mods.unlocked.has('battery') && batterySites === 0) {
+    if (site.nightSolarFraction < 0.5 && mods.unlocked.has('battery') && batterySites < 2) {
       const per = (BUILDINGS.battery.storageKWh ?? 0) * mods.batteryCapMult;
       const want = pb.nightShort * NIGHT_S * NIGHT_COVER;
       const capB = ruleState(s, 'battery').cap * mods.builderCapMult;
@@ -471,11 +478,12 @@ const POWER_MARGIN = 1.15;
 const SURVEY_PARTS_FLOOR = 70;
 const STABLE_S = 2400;
 const STABLE_PARTS = 40;
+const STABLE_NIGHT = 0.5;
 /** the rules that only grow the base (labs past the first are the orders' business, and gated there) */
 const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 'chipFab', 'foilFactory', 'storageYard'];
 /** what an unstable base may still order */
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
-const NIGHT_COVER = 0.7;
+const NIGHT_COVER = 0.9;
 
 /** a life-support stock that would run out inside this many seconds at its present rate asks for another maker; inside CRISIS_S it may
  *  take the hands a lab needs */
