@@ -9,7 +9,7 @@ import { test, expect as baseExpect, type Page } from '@playwright/test';
 const expect = baseExpect.configure({ timeout: 20_000 });
 
 declare global {
-  interface Window { __game?: any; __pendingFaction?: string }
+  interface Window { __game?: any }
 }
 
 async function start(page: Page, query: string) {
@@ -329,7 +329,8 @@ test('lane and pick cost multipliers change techCost; a solo state costs exactly
 
 // ───────────────────────────── ?faction= ─────────────────────────────
 
-test('?faction= boots the game on the faction\'s expedition (the solo boot path until the integrator lands)', async ({ page }) => {
+test('?faction= boots the faction game on the faction\'s expedition (the integration, stream W0i, adds rivals and the Moon)', async ({ page }) => {
+  const landing: Record<string, string> = { robots: 'landingFoundry', accelerationists: 'landingVanguard', solarpunks: 'landingCommons' };
   const cases: [string, 'human' | 'robotic', string | undefined][] = [
     ['&site=mare&faction=robots', 'robotic', 'robots'],
     ['&site=mare&faction=accelerationists', 'human', 'accelerationists'],
@@ -340,21 +341,23 @@ test('?faction= boots the game on the faction\'s expedition (the solo boot path 
     // an unknown faction is ignored: the solo boot
     ['&site=mare&faction=bogus&exp=robotic', 'robotic', undefined],
   ];
-  for (const [q, exp, pending] of cases) {
+  for (const [q, exp, faction] of cases) {
     await start(page, q);
     const s = await g(page, 'getState');
     expect(s.expedition, q).toBe(exp);
-    expect(await page.evaluate(() => window.__pendingFaction), q).toBe(pending);
-    // still the solo landing and the solo mods until W0i passes the faction on
-    expect(s.techsDone, q).toEqual([exp === 'robotic' ? 'landingRobotic' : 'landingCrew']);
-    expect(await g(page, 'getMods'), q).toMatchObject(NEUTRAL);
+    expect(s.faction, q).toBe(faction);
+    if (faction) {
+      // the faction's landing tech stands in for the solo landing, so its traits are in the mods
+      expect(s.techsDone, q).toEqual([landing[faction]]);
+      expect(await g(page, 'getRivals'), q).toHaveLength(2);
+    } else {
+      expect(s.techsDone, q).toEqual([exp === 'robotic' ? 'landingRobotic' : 'landingCrew']);
+      expect(await g(page, 'getMods'), q).toMatchObject(NEUTRAL);
+      expect(await g(page, 'getRivals'), q).toHaveLength(0);
+    }
   }
-  // without ?debug nothing is exposed, and ?site= alone stays solo
-  await page.goto('/?seed=42&site=mare&faction=robots');
-  await page.waitForSelector('canvas#world');
-  expect(await page.evaluate(() => window.__pendingFaction)).toBeUndefined();
-  // ?faction= with no ?site= rides __pendingFaction under ?debug and waits at the site screen
+  // ?faction= with no ?site= waits at the site screen (no game yet)
   await page.goto('/?debug&seed=42&faction=accelerationists');
   await page.waitForFunction(() => window.__game !== undefined);
-  expect(await page.evaluate(() => window.__pendingFaction)).toBe('accelerationists');
+  expect(await g(page, 'getState')).toBeNull();
 });
