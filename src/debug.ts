@@ -42,6 +42,8 @@ import { gradeAtPoint } from './core/ore';
 import { effectiveRates } from './core/mods';
 import type { Process } from './data/ore';
 import { predictFlares, trueClass, withForecast } from './core/forecast';
+import { killCrew } from './core/hazards';
+import { scrutinyAdd, scrutinyView } from './core/scrutiny';
 
 declare global {
   interface Window { __game?: ReturnType<typeof api> }
@@ -640,6 +642,13 @@ function api(game: Game) {
     /** the save as written, and a load of one (the migration tests) */
     saveBlob: () => clone((game as unknown as { saveBlob(): unknown }).saveBlob()),
     loadBlob: (blob: Parameters<Game['loadFrom']>[0]) => game.loadFrom(blob),
+    // ── faction traits (docs/20 S2) ──
+    /** the Vanguard's meter: the raw state and the view the panel reads (null without the trait) */
+    getScrutiny: () => clone({ state: game.state.scrutiny ?? null, view: scrutinyView(game.state, game.mods) }),
+    /** n crew die now (CREW LOST, grief, and the Vanguard's +40 each) */
+    killCrew: (n = 1, cause = 'a debug death') => { killCrew(game.state, n, cause, null, null); game.publish(); },
+    /** raise the Vanguard's meter by n (a no-op on a base with none) */
+    addScrutiny: (n: number) => { scrutinyAdd(game.state, n, 'debug'); game.publish(); },
     // ── hazards (docs/14 §3) ──
     /** the Hazards panel's payload (hazardView) plus the raw state: live, log, meters, deaths, losses, grief */
     getHazards: () => clone({
