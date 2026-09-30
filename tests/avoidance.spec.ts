@@ -581,7 +581,7 @@ test('solar at the pole: a refused spot says why and how to succeed — rough gr
   await page.evaluate(() => window.__game.beginPlacement('solar'));
   await page.mouse.move(r.rough.px, r.rough.py);
   await expect(page.locator('#place-hint .blocked')).toContainText('Terrain too rough (');
-  await expect(page.locator('#place-hint .blocked')).toContainText('grade it (Site Grading)');
+  await expect(page.locator('#place-hint .blocked')).toContainText('grade it (Grade Site)');
 });
 
 // ───────────────────────────── the road tool ─────────────────────────────
