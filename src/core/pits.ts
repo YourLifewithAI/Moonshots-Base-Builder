@@ -44,6 +44,7 @@ import {
   carvePit, decodeDelta, dumpHeap, encodeDelta, fillPit, heapRadius, lowerHeap, ownSamples, pitCells, pitRadius, stakeHeap, stakePit,
   type Blockers, type HeapShape, type PitShape,
 } from '../terrain/pitCarve';
+import { setPitLooks } from '../terrain/pitLook';
 import {
   bedrockOre, cutGrade, cutoffQ, estimateOf, facesFor, gradeMult, looseRange, measureText, oreTruth, plainQ, processOf, profileOf,
   type OreEstimate, type OreTruth,
@@ -482,12 +483,22 @@ function grow(box: PitState['box'], r: { ix0: number; iz0: number; ix1: number; 
 
 // ───────────────────────────── zones ─────────────────────────────
 
+/** The pits' ramps and floors for the chunk look (docs/19 S2b, terrain/pitLook.ts): the chunks that
+ *  rebuild after this carve, or on a load, read them. A reclaimed pit has none (its ramp is filled). */
+function syncPitLooks(s: GameState, hf: Heightfield) {
+  setPitLooks(hf, (s.pits ?? []).filter((p) => p.anchor >= 0 && p.state !== 'reclaimed').map((p) => ({
+    id: p.id, cx: p.cx, cz: p.cz, R: p.R, ox: p.ox, oz: p.oz, ux: p.ux, uz: p.uz, A: p.A,
+    floor: floorDepth(s, p), deep: p.deep,
+  })));
+}
+
 /** A pit's zone (§11.2): its cut and a cell round it, as explicit cells — never
  *  a road cell or a footprint. Zones are kept after the deposits' (so a
  *  deposit's zone keeps its cells, and its gates). A zone that grew bumps the
  *  network's revision (gates and routes are cached on it). `only`: just
  *  these pits' zones are recomputed; `bump` false on a load. */
 export function syncPitZones(s: GameState, hf: Heightfield, only?: ReadonlySet<number>, bump = true) {
+  syncPitLooks(s, hf);
   const all = s.zones ?? [];
   const keep = all.filter((z) => z.kind !== 'pit');
   const old = new Map(all.filter((z) => z.kind === 'pit').map((z) => [z.id, z]));

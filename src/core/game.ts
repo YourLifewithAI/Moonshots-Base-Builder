@@ -55,6 +55,7 @@ import { DepositHighlight } from '../world/depositHighlight';
 import { ROAD } from '../data/roads';
 import { bindTerrain, digSiteKey, onDig, pitsView, queueSurvey, restoreTerrain, saveTerrain, startReclaim, syncPitZones } from './pits';
 import { encodeDelta, takeCarved } from '../terrain/pitCarve';
+import { lookInfo } from '../terrain/pitLook';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
@@ -3021,6 +3022,11 @@ export class Game {
   /** The terrain mesh's vertex colour nearest (x, z) (tests). */
   debugTerrainColor(x: number, z: number) {
     return this.chunks.colorAt(x, z);
+  }
+
+  /** What the chunks hold of the pits' look: contour levels, ribbons, tones, the palette (tests, probes). */
+  debugPitLook() {
+    return lookInfo(this.hf);
   }
 
   /** The drawn ground against hf.sample (tests, probes). */

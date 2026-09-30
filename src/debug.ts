@@ -274,6 +274,8 @@ function api(game: Game) {
     // ── strip-mine pits (core/pits.ts, terrain/pitCarve.ts, docs/17 Phase 3) ──
     /** every pit (derived numbers too), the delta grid encoded, the chunk rebuild queue */
     getPits: () => clone(game.debugPits()),
+    /** the pit's look baked into the chunks (terrain/pitLook.ts): bench contour levels, ribbons, tones, the palette */
+    getPitLook: () => clone(game.debugPitLook()),
     /** one heightfield sample: { h, base, delta (dm), pad, skirt } */
     terrainSample: (ix: number, iz: number) => game.debugSample(ix, iz),
     /** the adapter as an excavator calls it: `tonnes` of regolith dug at world (x, z) */

@@ -7,16 +7,16 @@
  *
  *  Pits (docs/17 §11.6): a carve marks its box; the chunks it overlaps join a
  *  queue, rebuilt at most one a frame and two a second of frame time. The
- *  cut and its heap are a fresher, brighter regolith (terrain/pitCarve.ts cutTone),
- *  multiplied into the vertex colours the terrain material reads — no shader
- *  change. */
+ *  cut's benches, contours, ramp and heap (docs/19 S2b; terrain/pitLook.ts
+ *  decorate) are baked into the same vertex buffers the terrain material
+ *  reads — no shader change, no draw call. */
 import * as THREE from 'three';
 import { CELL_M, CHUNKS, CHUNK_CELLS, MAP_M } from '../data/balance';
 import { mulberry32 } from '../core/rng';
 import { materials } from '../world/materials';
 import type { Heightfield } from './heightfield';
 import { celGround, facet } from './celGround';
-import { cutTone, decorate } from './pitCarve';
+import { decorate, onGrid } from './pitLook';
 
 /** the pits' rebuild queue: seconds between rebuilds (two a second) */
 const REBUILD_GAP_S = 0.5;
@@ -63,9 +63,6 @@ export class TerrainChunks {
         pos[p] = x; pos[p + 1] = y; pos[p + 2] = z;
         this.hf.gridNormal(gx, gz, nrm, p);
         ground.color(x, z, y, nrm[p + 1], col, p);
-        // a pit's cut and its heap: fresh, immature regolith (docs/17 §20)
-        const tone = cutTone(this.hf, gx, gz);
-        if (tone !== 1) { col[p] *= tone; col[p + 1] *= tone; col[p + 2] *= tone; }
         p += 3;
       }
     }
@@ -82,7 +79,7 @@ export class TerrainChunks {
     geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
     geo.setIndex(idx);
     geo.computeBoundingSphere();
-    // the pits' additions to the ground's geometry (a hook: terrain/pitCarve.ts decorate)
+    // the pits' look, baked into the chunk (a hook: terrain/pitLook.ts decorate)
     return decorate(facet(geo), cx, cz, this.hf);
   }
 
@@ -191,8 +188,12 @@ export class TerrainChunks {
   surfaceError(n = 4000) {
     let vertex = 0;
     for (let i = 0; i < this.meshes.length; i++) {
-      const pos = this.meshes[i].geometry.getAttribute('position');
-      for (let k = 0; k < pos.count; k += 7) {
+      const geo = this.meshes[i].geometry;
+      const pos = geo.getAttribute('position');
+      // the pit's ink and arrow (last), and the corners it cut a triangle at, are not grid samples
+      const ground = (geo.userData.decalFrom as number | undefined) ?? pos.count;
+      for (let k = 0; k < ground; k += 7) {
+        if (!onGrid(pos.getX(k), pos.getZ(k))) continue;
         const gx = Math.round((pos.getX(k) + MAP_M / 2) / CELL_M), gz = Math.round((pos.getZ(k) + MAP_M / 2) / CELL_M);
         vertex = Math.max(vertex, Math.abs(pos.getY(k) - this.hf.sampleGrid(gx, gz)));
       }
