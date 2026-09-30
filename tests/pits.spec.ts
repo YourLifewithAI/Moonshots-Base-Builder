@@ -328,7 +328,7 @@ test('a building placed later near a pit stops its growth toward it from then on
   expect(r.westAfter).toBeLessThan(r.west0);
 });
 
-test('placement near and on a pit is refused with the words; grading refuses a pit and levels a heap', async ({ page }) => {
+test('placement near and on a pit is refused with the words; grading refuses a pit and a rover job levels a heap', async ({ page }) => {
   test.setTimeout(240_000);
   await start(page);
   const r = await page.evaluate(() => {
@@ -374,14 +374,18 @@ test('placement near and on a pit is refused with the words; grading refuses a p
     g.grantPower(5000);
     const e0 = g.getState().powerStored;
     const relief0 = g.terrainRelief(hx, hz, hx + 4, hz + 4);
-    g.gradeAt(hx, hz);
+    // grading is a rover job (docs/19 S5): the box is queued and paid for, the heap stays until a rover has levelled it
+    g.gradeBox(hx, hz, hx + 4, hz + 4);
     g.advanceGameSeconds(0);
     const spent = e0 - g.getState().powerStored;
+    const queued = (g.getState().gradeJobs ?? []).length;
+    const reliefQueued = g.terrainRelief(hx, hz, hx + 4, hz + 4);
+    for (let t = 0; t < 900 && (g.getState().gradeJobs ?? []).length; t += 5) { g.grantPower(5000); g.advanceGameSeconds(5); }
     const relief1 = g.terrainRelief(hx, hz, hx + 4, hz + 4);
     g.gradeAt(cx, cz);
     g.advanceGameSeconds(0);
     const alerts = g.getState().alerts.map((a: any) => a.text);
-    return { words: [...words], wrong, gradePit, gradeHeap, spent, relief0, relief1, alerts, deep: pit.deep };
+    return { words: [...words], wrong, gradePit, gradeHeap, spent, queued, reliefQueued, relief0, relief1, alerts, deep: pit.deep };
   });
   expect(r.wrong).toEqual([]);
   const heads = r.words.map((w: string) => w.split(' — ')[0]);
@@ -396,8 +400,11 @@ test('placement near and on a pit is refused with the words; grading refuses a p
   expect(r.alerts.some((t: string) => t.startsWith('CANNOT GRADE — a pit'))).toBe(true);
   expect(r.gradeHeap).toEqual({ valid: true, reason: '' });
   expect(r.relief0).toBeGreaterThan(1);
-  expect(r.relief1).toBeLessThan(0.01);
+  // queued and paid for (a heap's cells cost more: × (1 + relief ÷ 2 m)), the ground unchanged until a rover levels it
+  expect(r.queued).toBe(1);
   expect(r.spent).toBeGreaterThan(40);
+  expect(r.reliefQueued).toBeCloseTo(r.relief0, 6);
+  expect(r.relief1).toBeLessThan(0.01);
 });
 
 test('road A* routes round a pit and never crosses it; the road tool stops at its rim', async ({ page }) => {
@@ -568,24 +575,32 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
 });
 
 {
-  test('the pit is drawn: the mesh follows the cut, and the cut is brighter', async ({ page }) => {
+  test('the pit is drawn: the mesh follows the cut, and the cut differs from the ground by 40/255 in a channel', async ({ page }) => {
     test.setTimeout(240_000);
     await start(page);
     const r = await page.evaluate(() => {
       const g = window.__game;
       const x = -60, z = 20;
       const box = [Math.round((x - 60 + 512) / 4), Math.round((z - 60 + 512) / 4), Math.round((x + 60 + 512) / 4), Math.round((z + 60 + 512) / 4)];
-      const lum = (ix: number, iz: number) => { const c = g.terrainColorAt(ix * 4 - 512, iz * 4 - 512); return c ? c[0] + c[1] + c[2] : NaN; };
-      const before = new Map<number, number>();
-      for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) before.set(iz * 257 + ix, lum(ix, iz));
+      // the ground's own colour (linear) → the 8-bit value on screen
+      const srgb = (c: number) => Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055));
+      const rgb = (ix: number, iz: number): number[] | null => {
+        const c = g.terrainColorAt(ix * 4 - 512, iz * 4 - 512);
+        return c ? [srgb(c[0]), srgb(c[1]), srgb(c[2])] : null;
+      };
+      const before = new Map<number, number[] | null>();
+      for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) before.set(iz * 257 + ix, rgb(ix, iz));
       P.dig(x, z, 5000, 12);
       g.stepFrame(0.5);
-      const ratios: number[] = [];
+      // the largest channel change of every sample the cut took (past its first bench)
+      const diffs: number[] = [];
       for (let iz = box[1]; iz <= box[3]; iz++) for (let ix = box[0]; ix <= box[2]; ix++) {
         const t = g.terrainSample(ix, iz);
-        if (t.delta <= -20) ratios.push(lum(ix, iz) / before.get(iz * 257 + ix)!);
+        if (t.delta > -20) continue;
+        const a = before.get(iz * 257 + ix), b = rgb(ix, iz);
+        if (a && b) diffs.push(Math.max(...a.map((v, i) => Math.abs(v - b[i]))));
       }
-      ratios.sort((a, b) => a - b);
+      diffs.sort((a, b) => a - b);
       // rocks: none left on a cell the pit or its heap took
       let rocks = 0, cells = 0;
       for (let iz = box[1]; iz < box[3]; iz++) for (let ix = box[0]; ix < box[2]; ix++) {
@@ -595,19 +610,136 @@ test('chunk rebuilds are throttled: one a frame, two a second; a debug advance r
         rocks += g.rocksIn(ix * 4 - 512, iz * 4 - 512, ix * 4 - 508, iz * 4 - 508);
       }
       return {
-        style: g.getRenderInfo().style, err: g.terrainError(), n: ratios.length, median: ratios[Math.floor(ratios.length / 2)],
-        queue: g.getPits().queue, rocks, cells,
+        style: g.getRenderInfo().style, err: g.terrainError(), n: diffs.length, low: diffs[Math.floor(diffs.length * 0.1)],
+        median: diffs[Math.floor(diffs.length / 2)], queue: g.getPits().queue, rocks, cells,
       };
     });
     expect(r.style).toBe('cel');
     expect(r.queue.queued).toBe(0);
     expect(r.n).toBeGreaterThan(20);
-    // the drawn ground is the carved ground
+    // the drawn ground is the carved ground (the pit's ink and cuts sit off the grid: the probe skips them)
     expect(r.err.vertex).toBeLessThan(0.01);
-    // fresh regolith: brighter than the weathered ground it was cut from
-    expect(r.median).toBeGreaterThan(1.1);
+    // the cut's palette (ochre benches, the floor): 40/255 in a channel from the ground it was cut from,
+    // for nine samples in ten (the flat floor, a tone closer to the ground, is the tenth) and the median
+    expect(r.median).toBeGreaterThanOrEqual(40);
+    expect(r.low).toBeGreaterThanOrEqual(40);
     expect(r.cells).toBeGreaterThan(20);
     expect(r.rocks).toBe(0);
     await page.screenshot({ path: 'test-results/pits-cel.png' });
+  });
+
+  test('the pit look is baked into the chunks: a contour ring a bench, a tread and arrow on the ramp, a hatched heap, no draw call more', async ({ page }) => {
+    test.setTimeout(240_000);
+    await start(page);
+    const before = await page.evaluate(() => window.__game.getRenderInfo().terrain);
+    const stages: any[] = [];
+    let dug = 0;
+    for (const total of [400, 1600, 5000]) {
+      const st = await page.evaluate(([from, to]) => {
+        const g = window.__game;
+        P.dig(-60, 20, to - from, 12);
+        g.stepFrame(0.5);
+        const pit = g.getPits().pits[0];
+        return { deep: pit.deep, look: g.getPitLook(), queued: g.getPits().queue.queued, terrain: g.getRenderInfo().terrain };
+      }, [dug, total]);
+      dug = total;
+      stages.push(st);
+    }
+    // a save and a load: the chunks are rebuilt from the grid and the pits' ramps, the look with them
+    const r: any = await page.evaluate(() => {
+      const g = window.__game;
+      const blob = g.saveBlob();
+      g.loadBlob(blob);
+      g.stepFrame(0.5);
+      return { err: g.terrainError(), reloaded: g.getPitLook() };
+    });
+    Object.assign(r, { before, stages });
+    const lum = (c: number[]) => 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+    for (const st of r.stages) {
+      // one ink ring a bench: the levels are the odd metres 1, 3, 5 … and number the bench index of the deepest cut
+      const benches = Math.floor(st.deep / 2 + 0.5);
+      expect(st.look.levels).toEqual(Array.from({ length: benches }, (_, i) => 2 * i + 1));
+      expect(st.look.contour).toBeGreaterThanOrEqual(benches);
+      expect(st.queued).toBe(0);
+      // baked into the chunk's own buffers: still one mesh (one draw call) a chunk, more triangles in them
+      expect(st.terrain.chunks).toBe(r.before.chunks);
+      expect(st.terrain.triangles).toBeGreaterThan(r.before.triangles);
+    }
+    // the pit grows benches as it deepens
+    expect(r.stages[0].look.levels.length).toBeGreaterThanOrEqual(1);
+    expect(r.stages[2].look.levels.length).toBeGreaterThan(r.stages[0].look.levels.length);
+    const last = r.stages[2].look;
+    // the ramp: a tread, an arrow on it, pointing down (its tip lower than its tail); the heap outlined and hatched
+    expect(last.tread).toBeGreaterThan(0);
+    expect(last.edge).toBeGreaterThan(0);
+    expect(last.arrow).toBeGreaterThan(0);
+    expect(last.arrows.length).toBe(1);
+    expect(last.arrows[0].tipY).toBeLessThan(last.arrows[0].tailY);
+    expect(last.heap).toBeGreaterThan(0);
+    expect(last.foot).toBeGreaterThan(0);
+    expect(last.hatch).toBeGreaterThan(0);
+    // the palette: a lighter tread than the benches, and the two benches apart by 20/255 of luminance
+    const pal = last.palette;
+    expect(lum(pal.tread)).toBeGreaterThan(lum(pal.ochre));
+    expect(lum(pal.ochre) - lum(pal.dark)).toBeGreaterThanOrEqual(20);
+    expect(lum(pal.heap)).toBeLessThan(lum(pal.dark));
+    expect(r.err.vertex).toBeLessThan(0.01);
+    expect(r.reloaded.levels).toEqual(last.levels);
+    expect(r.reloaded.tread).toBe(last.tread);
+    expect(r.reloaded.arrows.length).toBe(1);
+  });
+
+  test('a pit in an end state carries a flag and a dashed ring, and its label chip takes the state colour', async ({ page }) => {
+    test.setTimeout(240_000);
+    await start(page);
+    const setup = await page.evaluate(() => {
+      const g = window.__game;
+      const z = g.getZones().find((q: any) => q.kind === 'ilmenite');
+      P.dig(z.cx, z.cz, 3000, 12);
+      g.stepFrame(0.5);
+      const pit = g.getPits().pits[0];
+      return { key: pit.key, cx: pit.cx, cz: pit.cz, R: pit.R };
+    });
+    const seen: Record<string, any> = {};
+    for (const state of ['open', 'exhausted', 'boxed', 'reclaimed']) {
+      const marks = await page.evaluate(([k, st]) => {
+        const g = window.__game;
+        g.setPitState(k, st);
+        for (let i = 0; i < 4; i++) g.stepFrame(0.3);
+        return g.getPitMarks();
+      }, [setup.key, state]);
+      seen[state] = { marks };
+    }
+    // an open pit has no flag; each end state has one, on the rim, and a ring of dashes (its own pattern)
+    expect(seen.open.marks.flags).toEqual([]);
+    expect(seen.open.marks.rings).toBe(0);
+    expect(seen.open.marks.meshes).toBe(0);
+    for (const state of ['exhausted', 'boxed', 'reclaimed']) {
+      const m = seen[state].marks;
+      expect(m.flags.map((f: any) => f.state)).toEqual([state]);
+      expect(m.rings).toBe(1);
+      expect(m.dashes).toBeGreaterThan(8);
+      const d = Math.hypot(m.flags[0].x - setup.cx, m.flags[0].z - setup.cz);
+      expect(d).toBeGreaterThan(setup.R - 3);
+      expect(d).toBeLessThan(setup.R + 10);
+      // the flags are one mesh and the rings one: two draw calls
+      expect(m.meshes).toBe(2);
+    }
+    expect(seen.boxed.marks.dashes).toBeGreaterThan(seen.exhausted.marks.dashes);
+    // the highlight (a hub's palette card up): the rim is the real cut contour, the chip wears the state
+    await page.evaluate(() => window.__game.setHubCard('smelter'));
+    const chips: Record<string, { border: string; text: string }> = {};
+    for (const state of ['exhausted', 'boxed', 'reclaimed']) {
+      await page.evaluate(([k, st]) => { window.__game.setPitState(k, st); for (let i = 0; i < 6; i++) window.__game.stepFrame(0.3); }, [setup.key, state]);
+      const chip = page.locator(`#deposit-marks .deposit-mark.hl-${state}`).first();
+      await expect(chip).toBeVisible();
+      chips[state] = await chip.evaluate((el) => ({ border: getComputedStyle(el).borderTopColor, text: (el.querySelector('.t') as HTMLElement).textContent ?? '' }));
+      const hl = await page.evaluate(() => window.__game.getHighlight());
+      expect(hl.drawn.rims).toBeGreaterThanOrEqual(1);
+    }
+    expect(chips.exhausted.text).toBe('EXHAUSTED');
+    expect(chips.boxed.text).toBe('BOXED IN');
+    expect(chips.reclaimed.text).toBe('RECLAIMED');
+    expect(new Set(Object.values(chips).map((c) => c.border)).size).toBe(3);
   });
 }

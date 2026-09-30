@@ -11,17 +11,30 @@
  *    out of reach     half weight: the pattern as a plain line
  *    full             the ribbon broken into long dashes
  *    exhausted/boxed  the ring cross-hatched
+ *    reclaimed        the ring faint (the pit's flag says it)
  *    a plain pit      a solid rim and its heap's outline
  *    the stake        the plain pit a ghost would stake: a dashed ribbon, a cross
  *    dimmer kinds     the ring at the overlay's own weight
  *
+ *  A pit's rim is its real cut contour (terrain/pitLook.ts `outlineOf`, the
+ *  first bench's line), drawn with `drapedLine(…, 'rim')`, not the
+ *  `(cx, cz, R)` circle; its heap's outline is the heap's real foot.
+ *
  *  Never colour alone (docs/07 §6a): weight, pattern, fill and hatch carry
  *  every state, and the labels (the overlay's DOM markers) say it. Nothing
- *  depends on hover. */
+ *  depends on hover.
+ *
+ *  `PitMarks` (below) is the other half, and always on: a pit in an end state
+ *  (EXHAUSTED, BOXED IN, RECLAIMED) carries a flag at its rim and a dashed
+ *  ring round its cut, whatever is selected (docs/19 S2b). */
 import * as THREE from 'three';
 import { DEPOSIT_INFO } from '../data/deposits';
+import { PIT } from '../data/balance';
 import type { Heightfield } from '../terrain/heightfield';
 import type { HubLight, LitEntry } from '../core/hubPreview';
+import type { PitState } from '../core/state';
+import { outlineOf } from '../terrain/pitLook';
+import { drape, drapedLine } from './ink';
 
 /** The overlay's tones (monochrome, docs/06). */
 export const HIGHLIGHT_PALETTE = { depositLit: 0xf4f7fb, depositFull: 0xd9e0e8, depositSpent: 0xa4acb6, pitRim: 0xffffff } as const;
@@ -37,7 +50,9 @@ export class DepositHighlight {
   readonly group = new THREE.Group();
   private sig = '';
   private light: HubLight | null = null;
-  private stats = { entries: 0, ribbonTris: 0, fillTris: 0, lines: 0, hatch: 0 };
+  /** the real rims of the lit pits, as draped points (world x, z), drawn as `drapedLine`s */
+  private rims: [number, number][][] = [];
+  private stats = { entries: 0, ribbonTris: 0, fillTris: 0, lines: 0, hatch: 0, rims: 0 };
   private mats: {
     ribbon: THREE.MeshBasicMaterial; fill: THREE.MeshBasicMaterial; line: THREE.LineBasicMaterial;
     faint: THREE.LineBasicMaterial; spent: THREE.LineBasicMaterial; rim: THREE.LineBasicMaterial;
@@ -92,6 +107,8 @@ export class DepositHighlight {
     for (const c of [...this.group.children]) {
       this.group.remove(c);
       (c as THREE.Mesh).geometry.dispose();
+      // a drapedLine carries a material of its own
+      if (c.userData.kind) ((c as THREE.Line).material as THREE.Material).dispose();
     }
   }
 
@@ -102,7 +119,15 @@ export class DepositHighlight {
     const L = this.light;
     const tris = { ribbon: [] as number[], fill: [] as number[] };
     const lines = { line: [] as number[], faint: [] as number[], spent: [] as number[], rim: [] as number[] };
+    this.rims = [];
     if (L) for (const e of L.entries) this.entry(e, tris, lines);
+    // the pits' real rims: one ink line each (the cut's first bench contour), white on the highlight
+    for (const pts of this.rims) {
+      const line = drapedLine(drape(this.hf, pts, 0.35), 'rim');
+      (line.material as THREE.LineBasicMaterial).color.setHex(HIGHLIGHT_PALETTE.pitRim);
+      line.renderOrder = 3;
+      this.group.add(line);
+    }
     const add = (pts: number[], mat: THREE.Material | null, mesh: boolean) => {
       if (!pts.length || !mat) return;
       const g = new THREE.BufferGeometry();
@@ -120,7 +145,7 @@ export class DepositHighlight {
     add(lines.rim, this.mats.rim, false);
     this.stats = {
       entries: L?.entries.length ?? 0, ribbonTris: tris.ribbon.length / 9, fillTris: tris.fill.length / 9,
-      lines: (lines.line.length + lines.faint.length + lines.rim.length) / 6, hatch: lines.spent.length / 6,
+      lines: (lines.line.length + lines.faint.length + lines.rim.length) / 6 + this.rims.length, hatch: lines.spent.length / 6, rims: this.rims.length,
     };
   }
 
@@ -133,8 +158,15 @@ export class DepositHighlight {
     const dbl = e.kind ? DEPOSIT_INFO[e.kind].pattern === 'double' : false;
     const pitRim = () => {
       if (!e.pit || e.pit.R < 1) return;
-      this.ring(lines.rim, e.pit.cx, e.pit.cz, e.pit.R, [1, 0]);
-      if (e.pit.heap) this.ring(lines.faint, e.pit.heap.x, e.pit.heap.z, e.pit.heap.Rh, [2, 1]);
+      // the real cut contour; the circle only when the grid holds no cut there
+      const rim = outlineOf(this.hf, e.pit.cx, e.pit.cz, e.pit.R * 1.5 + 8, PIT.bench / 2);
+      if (rim) this.rims.push(rim);
+      else this.ring(lines.rim, e.pit.cx, e.pit.cz, e.pit.R, [1, 0]);
+      if (e.pit.heap) {
+        const foot = outlineOf(this.hf, e.pit.heap.x, e.pit.heap.z, e.pit.heap.Rh * 1.5 + 8, -PIT.heapFootH);
+        if (foot) this.polyline(lines.faint, foot, [2, 1]);
+        else this.ring(lines.faint, e.pit.heap.x, e.pit.heap.z, e.pit.heap.Rh, [2, 1]);
+      }
     };
     if (e.tier === 'dim') {
       this.ring(lines.line, e.cx, e.cz, e.r, pat);
@@ -163,6 +195,10 @@ export class DepositHighlight {
       case 'boxed':
         this.ring(lines.spent, e.cx, e.cz, e.r, [1, 0]);
         this.crossHatch(lines.spent, e.cx, e.cz, Math.max(e.r, e.pit?.R ?? 0));
+        pitRim();
+        break;
+      case 'reclaimed':
+        this.ring(lines.faint, e.cx, e.cz, e.r, [3, 3]);
         pitRim();
         break;
       case 'plain':
@@ -194,6 +230,14 @@ export class DepositHighlight {
     for (let i = 0; i < n; i++) {
       if (i % (on + off) >= on) continue;
       out.push(...at(i), ...at(i + 1));
+    }
+  }
+
+  /** `on` points' segments drawn, then `off` skipped, along a draped polyline (line segments). */
+  private polyline(out: number[], pts: readonly [number, number][], [on, off]: Pat) {
+    for (let i = 0; i + 1 < pts.length; i++) {
+      if (i % (on + off) >= on) continue;
+      out.push(pts[i][0], this.y(pts[i][0], pts[i][1]), pts[i][1], pts[i + 1][0], this.y(pts[i + 1][0], pts[i + 1][1]), pts[i + 1][1]);
     }
   }
 
@@ -285,5 +329,199 @@ export class DepositHighlight {
   private cross(out: number[], cx: number, cz: number, s: number) {
     this.drape(out, cx - s, cz, cx + s, cz);
     this.drape(out, cx, cz - s, cx, cz + s);
+  }
+}
+
+// ───────────────────────────── the pits' end states ─────────────────────────────
+
+/** A pit's end state and how it reads: the flag's colour and shape, the ring's dashes (m on, m off).
+ *  Colour is never the only carrier: the shape (banner, pennant, swallow-tail), the dash and the
+ *  chip's words (EXHAUSTED, BOXED IN, RECLAIMED) say it too. */
+export type PitEnd = 'exhausted' | 'boxed' | 'reclaimed';
+export const PIT_END: Record<PitEnd, { color: number; css: string; shape: 'banner' | 'pennant' | 'swallow'; dash: [number, number]; word: string }> = {
+  exhausted: { color: 0xe8a72d, css: '#e8a72d', shape: 'banner', dash: [3, 2], word: 'EXHAUSTED' },
+  boxed: { color: 0xd9503f, css: '#d9503f', shape: 'pennant', dash: [1.2, 1.2], word: 'BOXED IN' },
+  reclaimed: { color: 0x66ad4b, css: '#66ad4b', shape: 'swallow', dash: [2.4, 2.4], word: 'RECLAIMED' },
+};
+
+const endOf = (p: PitState): PitEnd | null =>
+  p.anchor < 0 || p.R < 1 ? null : p.state === 'exhausted' ? 'exhausted' : p.state === 'boxed' ? 'boxed' : p.state === 'reclaimed' ? 'reclaimed' : null;
+
+const FLAG_H = 5.8;
+const FLAG_INK = 0x141618;
+/** the flag's cloth in (u across from the pole, v up from the ground), m */
+const CLOTH: Record<'banner' | 'pennant' | 'swallow', [number, number][]> = {
+  banner: [[0.15, 5.6], [3.2, 5.6], [3.2, 3.8], [0.15, 3.8]],
+  pennant: [[0.15, 5.6], [3.5, 4.7], [0.15, 3.8]],
+  swallow: [[0.15, 5.6], [3.3, 5.6], [2.4, 4.7], [3.3, 3.8], [0.15, 3.8]],
+};
+
+/** Every pit in an end state, always on: a flag on its rim and a dashed ring round its cut.
+ *  One mesh for the flags and one for the rings (two draw calls, none with no such pit). */
+export class PitMarks {
+  readonly group = new THREE.Group();
+  private sig = '';
+  private pits: readonly PitState[] = [];
+  private stats = { flags: [] as { id: number; state: PitEnd; x: number; z: number }[], dashes: 0, rings: 0 };
+  private mats: { flag: THREE.MeshBasicMaterial; ring: THREE.MeshBasicMaterial };
+
+  constructor(private hf: Heightfield) {
+    this.mats = {
+      flag: new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }),
+      ring: new THREE.MeshBasicMaterial({
+        vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+      }),
+    };
+    this.group.name = 'pit-marks';
+    this.group.renderOrder = 2;
+  }
+
+  /** The pits as they stand (every frame's call is cheap: it rebuilds only when an end state or a rim moves). */
+  set(pits: readonly PitState[]) {
+    this.pits = pits;
+    const sig = pits.map((p) => {
+      const e = endOf(p);
+      return e ? `${p.id}:${e}:${Math.round(p.R * 2)}:${Math.round(p.cx)},${Math.round(p.cz)}` : '';
+    }).filter(Boolean).join('|');
+    if (sig === this.sig) return;
+    this.sig = sig;
+    this.build();
+  }
+
+  /** The pits carved: the rings and flags follow the ground. */
+  redrape() { if (this.sig) this.build(); }
+
+  /** What is drawn (tests). */
+  info() { return { visible: this.group.visible, ...this.stats, meshes: this.group.children.length, sig: this.sig }; }
+
+  dispose() {
+    this.clear();
+    this.mats.flag.dispose();
+    this.mats.ring.dispose();
+  }
+
+  private clear() {
+    for (const c of [...this.group.children]) { this.group.remove(c); (c as THREE.Mesh).geometry.dispose(); }
+  }
+
+  private build() {
+    this.clear();
+    const flags: { pos: number[]; col: number[] } = { pos: [], col: [] };
+    const rings: { pos: number[]; col: number[] } = { pos: [], col: [] };
+    const stats = { flags: [] as { id: number; state: PitEnd; x: number; z: number }[], dashes: 0, rings: 0 };
+    for (const p of this.pits) {
+      const end = endOf(p);
+      if (!end) continue;
+      const rim = outlineOf(this.hf, p.cx, p.cz, p.R * 1.5 + 8, PIT.bench / 2);
+      const pts: [number, number][] = rim ?? Array.from({ length: 49 }, (_, i) => {
+        const a = (i / 48) * Math.PI * 2;
+        return [p.cx + Math.cos(a) * p.R, p.cz + Math.sin(a) * p.R] as [number, number];
+      });
+      // the ring stands a little clear of the rim, out from the centre
+      const out = pts.map(([x, z]) => {
+        const dx = x - p.cx, dz = z - p.cz, d = Math.hypot(dx, dz) || 1;
+        return [x + (dx / d) * 3.5, z + (dz / d) * 3.5] as [number, number];
+      });
+      stats.dashes += this.dashes(rings, out, PIT_END[end]);
+      stats.rings++;
+      // the flag stands beside the ramp, on the rim: a quarter turn from where the ramp leaves
+      const ang = Math.atan2(p.uz, p.ux) + Math.PI / 2;
+      let best = 0, bd = Infinity;
+      pts.forEach(([x, z], i) => {
+        const a = Math.atan2(z - p.cz, x - p.cx);
+        const d = Math.abs(Math.atan2(Math.sin(a - ang), Math.cos(a - ang)));
+        if (d < bd) { bd = d; best = i; }
+      });
+      const fx = out[best][0], fz = out[best][1];
+      this.flag(flags, fx, this.hf.sample(fx, fz), fz, end);
+      stats.flags.push({ id: p.id, state: end, x: fx, z: fz });
+    }
+    this.stats = stats;
+    const add = (b: { pos: number[]; col: number[] }, mat: THREE.Material, name: string) => {
+      if (!b.pos.length) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b.pos), 3));
+      g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(b.col), 3));
+      const m = new THREE.Mesh(g, mat);
+      m.name = name;
+      m.frustumCulled = false;
+      m.renderOrder = name === 'pit-flags' ? 2 : 3;
+      this.group.add(m);
+    };
+    add(rings, this.mats.ring, 'pit-rings');
+    add(flags, this.mats.flag, 'pit-flags');
+  }
+
+  /** A dashed ribbon (0.8 m wide, flat on the ground) along a polyline, `on` m drawn and `off` m skipped; the count of dashes. */
+  private dashes(out: { pos: number[]; col: number[] }, pts: readonly [number, number][], look: (typeof PIT_END)[PitEnd]): number {
+    const [on, off] = look.dash;
+    const c = new THREE.Color(look.color);
+    const w = 0.4;
+    let phase = 0, n = 0, drawing = true;
+    let prevOn = false;
+    const quad = (ax: number, az: number, bx: number, bz: number) => {
+      const dx = bx - ax, dz = bz - az, len = Math.hypot(dx, dz) || 1;
+      const nx = (-dz / len) * w, nz = (dx / len) * w;
+      const A = [ax - nx, this.hf.sample(ax - nx, az - nz) + 0.3, az - nz], B = [ax + nx, this.hf.sample(ax + nx, az + nz) + 0.3, az + nz];
+      const C = [bx + nx, this.hf.sample(bx + nx, bz + nz) + 0.3, bz + nz], D = [bx - nx, this.hf.sample(bx - nx, bz - nz) + 0.3, bz - nz];
+      for (const v of [A, B, C, A, C, D]) { out.pos.push(v[0], v[1], v[2]); out.col.push(c.r, c.g, c.b); }
+    };
+    for (let i = 0; i + 1 < pts.length; i++) {
+      let [x0, z0] = pts[i];
+      const [x1, z1] = pts[i + 1];
+      let left = Math.hypot(x1 - x0, z1 - z0);
+      const ux = (x1 - x0) / (left || 1), uz = (z1 - z0) / (left || 1);
+      while (left > 1e-6) {
+        const run = Math.min(left, (drawing ? on : off) - phase);
+        if (drawing) {
+          quad(x0, z0, x0 + ux * run, z0 + uz * run);
+          if (!prevOn) n++;
+        }
+        prevOn = drawing;
+        x0 += ux * run; z0 += uz * run;
+        left -= run;
+        phase += run;
+        if (phase >= (drawing ? on : off) - 1e-6) { drawing = !drawing; phase = 0; }
+      }
+    }
+    return n;
+  }
+
+  /** A flag on a pole standing at (x, y, z): the cloth on two crossed planes, so a quarter turn of the camera
+   *  never shows it edge on, each with an ink outline and the state's colour. */
+  private flag(out: { pos: number[]; col: number[] }, x: number, y: number, z: number, end: PitEnd) {
+    const look = PIT_END[end];
+    const col = new THREE.Color(look.color), ink = new THREE.Color(FLAG_INK);
+    const tri = (a: number[], b: number[], c2: number[], k: THREE.Color) => {
+      for (const v of [a, b, c2]) { out.pos.push(v[0], v[1], v[2]); out.col.push(k.r, k.g, k.b); }
+    };
+    const poly = (pts: number[][], k: THREE.Color) => { for (let i = 1; i < pts.length - 1; i++) tri(pts[0], pts[i], pts[i + 1], k); };
+    // the pole: a box 0.3 m square
+    const h = 0.15;
+    const box = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number) => {
+      const P = (a: number, b: number, c2: number) => [a, b, c2];
+      const f = [
+        [P(x0, y0, z0), P(x1, y0, z0), P(x1, y1, z0), P(x0, y1, z0)], [P(x1, y0, z1), P(x0, y0, z1), P(x0, y1, z1), P(x1, y1, z1)],
+        [P(x0, y0, z1), P(x0, y0, z0), P(x0, y1, z0), P(x0, y1, z1)], [P(x1, y0, z0), P(x1, y0, z1), P(x1, y1, z1), P(x1, y1, z0)],
+        [P(x0, y1, z0), P(x1, y1, z0), P(x1, y1, z1), P(x0, y1, z1)],
+      ];
+      for (const q of f) poly(q, ink);
+    };
+    box(x - h, x + h, y - 0.3, y + FLAG_H, z - h, z + h);
+    // the cloth, on the plane through the pole along (dx, dz), an ink outline behind it
+    const cloth = CLOTH[look.shape];
+    let cu = 0, cv = 0;
+    for (const [u, v] of cloth) { cu += u / cloth.length; cv += v / cloth.length; }
+    for (const [dx, dz] of [[1, 0], [0, 1]]) {
+      const at = (u: number, v: number, off: number) => [x + dx * u - dz * off, y + v, z + dz * u + dx * off];
+      // outline: the cloth grown 0.25 m about its middle
+      const grown = cloth.map(([u, v]) => {
+        const du = u - cu, dv = v - cv, d = Math.hypot(du, dv) || 1;
+        return at(u + (du / d) * 0.25, v + (dv / d) * 0.25, 0);
+      });
+      poly(grown, ink);
+      for (const off of [0.05, -0.05]) poly(cloth.map(([u, v]) => at(u, v, off)), col);
+    }
   }
 }

@@ -44,6 +44,7 @@ import {
   carvePit, decodeDelta, dumpHeap, encodeDelta, fillPit, heapRadius, lowerHeap, ownSamples, pitCells, pitRadius, stakeHeap, stakePit,
   type Blockers, type HeapShape, type PitShape,
 } from '../terrain/pitCarve';
+import { setPitLooks } from '../terrain/pitLook';
 import {
   bedrockOre, cutGrade, cutoffQ, estimateOf, facesFor, gradeMult, looseRange, measureText, oreTruth, plainQ, processOf, profileOf,
   type OreEstimate, type OreTruth,
@@ -482,12 +483,22 @@ function grow(box: PitState['box'], r: { ix0: number; iz0: number; ix1: number; 
 
 // ───────────────────────────── zones ─────────────────────────────
 
+/** The pits' ramps and floors for the chunk look (docs/19 S2b, terrain/pitLook.ts): the chunks that
+ *  rebuild after this carve, or on a load, read them. A reclaimed pit has none (its ramp is filled). */
+function syncPitLooks(s: GameState, hf: Heightfield) {
+  setPitLooks(hf, (s.pits ?? []).filter((p) => p.anchor >= 0 && p.state !== 'reclaimed').map((p) => ({
+    id: p.id, cx: p.cx, cz: p.cz, R: p.R, ox: p.ox, oz: p.oz, ux: p.ux, uz: p.uz, A: p.A,
+    floor: floorDepth(s, p), deep: p.deep,
+  })));
+}
+
 /** A pit's zone (§11.2): its cut and a cell round it, as explicit cells — never
  *  a road cell or a footprint. Zones are kept after the deposits' (so a
  *  deposit's zone keeps its cells, and its gates). A zone that grew bumps the
  *  network's revision (gates and routes are cached on it). `only`: just
  *  these pits' zones are recomputed; `bump` false on a load. */
 export function syncPitZones(s: GameState, hf: Heightfield, only?: ReadonlySet<number>, bump = true) {
+  syncPitLooks(s, hf);
   const all = s.zones ?? [];
   const keep = all.filter((z) => z.kind !== 'pit');
   const old = new Map(all.filter((z) => z.kind === 'pit').map((z) => [z.id, z]));
@@ -580,11 +591,11 @@ export function pitRefusal(s: GameState, hf: Heightfield, gx0: number, gz0: numb
   return '';
 }
 
-/** Site Grading on a 4-cell square at (gx, gz): refused over a pit (its
+/** Site Grading on a box of `cells` × `cellsZ` cells at (gx, gz) (a 4-cell square: the old pass): refused over a pit (its
  *  skirt too — grading never fills a hole), '' otherwise. */
-export function gradePitRefusal(s: GameState, hf: Heightfield, gx: number, gz: number, cells: number): string {
+export function gradePitRefusal(s: GameState, hf: Heightfield, gx: number, gz: number, cells: number, cellsZ = cells): string {
   const rec = reclaimedSet(s, hf);
-  for (let iz = gz - 2; iz <= gz + cells + 2; iz++) {
+  for (let iz = gz - 2; iz <= gz + cellsZ + 2; iz++) {
     for (let ix = gx - 2; ix <= gx + cells + 2; ix++) {
       if (ix < 0 || iz < 0 || ix >= N || iz >= N) continue;
       const k = iz * N + ix;
