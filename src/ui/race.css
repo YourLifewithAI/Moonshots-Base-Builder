@@ -54,3 +54,30 @@ html.touch #briefing .eb-name { font-size: 22px; line-height: 26px; }
 html.touch #briefing .br-blurb { font-size: 12px; line-height: 17px; margin-bottom: 6px; }
 html.touch #briefing .br-sec { padding: 4px 0 3px; }
 html.touch #briefing .eb-foot { margin-top: 8px; }
+
+/* ── the RACE chip (after the OUTPOSTS chip) and its panel (the hazards panel's pattern) ── */
+#race-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+#race-chip.behind { border-style: dashed; }
+#race-chip.lit { font-weight: 600; }
+html.touch #race-chip { min-height: var(--tap, 44px); }
+#race-panel {
+  width: 380px; max-height: 70vh;
+  flex: 0 1 auto; min-height: 120px; display: flex; flex-direction: column;
+  font-size: 12px; line-height: 17px;
+}
+#race-panel .rc-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+#race-panel section { padding: 9px 13px; border-top: var(--hair); }
+#race-panel section:first-child { border-top: none; }
+#race-panel .actions { flex: 0 0 auto; display: flex; justify-content: flex-end; }
+#race-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }
+#race-panel .rc-row { border-left: 3px solid var(--ft); }
+#race-panel .rc-row.you { background: rgba(var(--paper-rgb), var(--op-fill)); }
+#race-panel .rc-head { display: flex; align-items: baseline; gap: 8px; color: var(--ink-050); }
+#race-panel .rc-rank { flex: none; width: 2.4em; font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#race-panel .rc-g { flex: none; color: var(--ft); font-size: 1.15em; }
+#race-panel .rc-you { margin-left: auto; padding: 0 5px; border: 1px solid rgba(var(--paper-rgb), 0.4); font-size: 9px; }
+#race-panel .rc-site { margin-top: 2px; }
+#race-panel .rc-stats { margin-top: 3px; font-size: 11px; line-height: 16px; color: var(--ink-050); }
+#race-panel .rc-last { margin-top: 3px; font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#race-panel .rc-ld { font-family: var(--font-mono); font-size: 10px; margin-right: 4px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+#race-panel .rc-none { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
