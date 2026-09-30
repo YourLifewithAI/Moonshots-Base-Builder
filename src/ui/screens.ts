@@ -309,7 +309,8 @@ export function mountVerdict(root: HTMLElement, game: Game) {
     const v = $race.get()?.verdict;
     const up = $verdict.get() && !$victory.get() && !$defeat.get() && !!v;
     if (!up || !v) {
-      if (!$verdict.get()) shown = false;
+      // (hidden for now: not raised, the FIRST LIGHT screen is up, or Continue was pressed: it is built afresh when it comes back)
+      shown = false;
       screen.style.display = 'none';
       return;
     }

@@ -97,7 +97,7 @@ export function registerRaceFeed() {
   onFeed('hearing', (e, { player }) => { if (player && e.faction !== player.faction) notify(player, 'race', card(e)); });
 
   // ── the race itself (S6) ──
-  // A rival's FIRST LIGHT is a banner under the swarm meter (your own has its screen): who lit, which to light, where you stand. The
+  // A rival's FIRST LIGHT is a banner above the palette (your own has its screen): who lit, which to light, where you stand. The
   // line also goes in the log and the alert stack like any race news; its small card would say it twice, so the stack skips it.
   onFeed('firstLight', (e, { moon, player }) => {
     if (!player || e.faction === player.faction) return;
@@ -109,7 +109,7 @@ export function registerRaceFeed() {
     const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1);
     const you = mine > 0 ? `You lit ${ordinalWord(mine)}.` : 'You have not lit: your share starts with your first volley.';
     const text = `${cap(ordinalWord(theirs))} of ${FACTION_ORDER.length} to light, on Moon day ${day}. ${you} ` +
-      `The race closes at ${moon.race.closeAt} combined volleys: the largest share wins.`;
+      `The race closes at ${moon.race.closeAt} combined volleys.`;
     bannered.add(e.text);
     notify(player, 'race', card(e, 'warn'));
     $raceBanner.set({ id: e.id, faction: e.faction, title: `FIRST LIGHT · ${FACTIONS[e.faction].name.toUpperCase()}`, text });
@@ -223,7 +223,7 @@ export function mountRacePanel(root: HTMLElement, game: Game) {
   };
   $raceCards.subscribe(renderCards);
 
-  // ── the banner under the swarm meter (S6): a rival's first light, in its colours; it stays 14 real seconds or until dismissed ──
+  // ── the banner above the palette (S6): a rival's first light, in its colours; it stays 14 real seconds or until dismissed ──
   const banner = el('div', 'interactive nf nf-race');
   banner.id = 'race-banner';
   banner.style.display = 'none';
@@ -241,9 +241,11 @@ export function mountRacePanel(root: HTMLElement, game: Game) {
       `<div class="rb-t"><b class="rb-title">${esc(b.title)}</b><span class="rb-text">${esc(b.text)}</span></div>` +
       `<button class="btn rb-open" data-rb="open" title="Open the RACE panel">Race ▸</button>` +
       `<button class="rc-x" data-rb="x" title="Dismiss" aria-label="Dismiss">✕</button>`;
-    // under the swarm meter, wherever its height stands (the launch row comes and goes)
-    const m = root.querySelector('#swarm-meter') as HTMLElement | null;
-    banner.style.top = `${Math.round((m?.getBoundingClientRect().bottom ?? 60) + 8)}px`;
+    // centred just above the build palette, wherever its top stands: the top of the screen is the flare pop-up's and the research card's,
+    // the lander sits in the middle, the right is the alert stack
+    const pal = root.querySelector('#palette') as HTMLElement | null;
+    const top = pal && pal.offsetParent !== null ? pal.getBoundingClientRect().top : window.innerHeight - 100;
+    banner.style.bottom = `${Math.round(window.innerHeight - top + 10)}px`;
     banner.style.display = '';
     bannerTimer = window.setTimeout(hideBanner, 14_000);
   });

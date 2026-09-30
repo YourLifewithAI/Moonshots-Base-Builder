@@ -185,10 +185,10 @@ export function verdictLine(v: RaceVerdict): string {
   const top = v.rows[0];
   const second = v.rows[1];
   switch (v.kind) {
-    case 'yours': return `${me.launches} of ${v.total} volleys (${pct(me.share)}): the largest share, ${me.launches - second.launches} ahead of ${second.short}.`;
+    case 'yours': return `${me.launches} of ${v.total} volleys (${pct(me.share)}): the largest share, ${me.launches - second.launches} ahead of the ${second.short}.`;
     case 'shared': return top.player
-      ? `you hold ${pct(me.share)} and ${second.short} ${pct(second.share)}: too close to give it to one program.`
-      : `${top.short} holds ${pct(top.share)} to your ${pct(me.share)}: too close to give it to one program.`;
+      ? `you hold ${pct(me.share)} and the ${second.short} ${pct(second.share)}: too close to give it to one program.`
+      : `the ${top.short} holds ${pct(top.share)} to your ${pct(me.share)}: too close to give it to one program.`;
     default: return `${top.name} holds ${pct(top.share)} of the volleys; you hold ${pct(me.share)}.`;
   }
 }
