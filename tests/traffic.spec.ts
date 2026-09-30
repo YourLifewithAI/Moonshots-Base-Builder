@@ -2,8 +2,13 @@
  *  road cells (and a pit's ramp): a unit holds the cell it stands in, the one it
  *  just left and the run ahead to the next passing or holding bay; a loaded digger
  *  before an empty one before a rover; a unit refused waits where it stands (or in
- *  a bay), and steps aside when it stands in a higher-priority unit's way. The
- *  visual half (units pass at a bay with no rescue and no set-down) is S4b's. */
+ *  a bay), and steps aside when it stands in a higher-priority unit's way.
+ *
+ *  The second `describe` is the integration half (docs/19 S4b, world/haulers.ts,
+ *  world/traffic.ts): the hub units as drawn follow the sim's own path, a tick
+ *  late and exactly, so a head-on pass at a bay needs no rescue and no set-down,
+ *  the picture never trails far behind, never jumps more than a metre a frame at
+ *  1x, never turns faster than 90 deg/s, and units at one pit keep 2.5 m apart. */
 import { test, expect, type Page } from '@playwright/test';
 
 declare global {
@@ -391,4 +396,152 @@ test('a save made with units held up on the road loads with their claims, and th
   expect(r.worst).toBeLessThanOrEqual(1);
   expect(r.overlaps).toBe(0);
   expect(r.forced).toBe(0);
+});
+
+
+// ───────────────────────────── the picture: hub units follow the sim (docs/19 S4b) ─────────────────────────────
+
+declare function live(frames: number, watch?: (i: number, life: any) => boolean | void): any;
+const LIVE = `(() => {
+/** live frames at 1x (a frame is 0.05 s), power topped up; per frame the hub units' drawn poses are compared with
+ *  the last frame's (the largest step, the fastest turn) and with each other (the least distance between two
+ *  origins); the counters the picture keeps are read at the end. watch(i, life) may return true to stop. */
+window.live = (frames, watch) => {
+  const g = window.__game;
+  g.setPaused(false);
+  g.setSpeed(1);
+  g.stepFrame(0);
+  g.getRenderInfo();
+  const DT = 0.05;
+  const prev = new Map();
+  const out = { frames: 0, jump: 0, jumpAt: '', turn: 0, minD: Infinity, minAt: '', lagMaxS: 0, replayLagMaxS: 0 };
+  let life = null;
+  for (let i = 0; i < frames; i++) {
+    if (i % 20 === 0) g.grantPower(20000);
+    g.stepFrame(DT);
+    life = g.getRenderInfo().life;
+    out.frames = i + 1;
+    out.lagMaxS = Math.max(out.lagMaxS, life.haulers.lagMaxS);
+    out.replayLagMaxS = Math.max(out.replayLagMaxS, life.haulers.replayLagMaxS);
+    const ps = life.haulers.poses;
+    for (const p of ps) {
+      const q = prev.get(p.id);
+      if (q) {
+        const d = Math.hypot(p.x - q.x, p.z - q.z);
+        if (d > out.jump) { out.jump = d; out.jumpAt = p.id + '@' + i; }
+        out.turn = Math.max(out.turn, Math.abs(Math.atan2(Math.sin(p.yaw - q.yaw), Math.cos(p.yaw - q.yaw))) / DT);
+      }
+      prev.set(p.id, p);
+    }
+    for (let a = 0; a < ps.length; a++) for (let b = a + 1; b < ps.length; b++) {
+      const d = Math.hypot(ps[a].x - ps[b].x, ps[a].z - ps[b].z);
+      if (d < out.minD) { out.minD = d; out.minAt = ps[a].id + '/' + ps[b].id + '@' + i; }
+    }
+    if (watch && watch(i, life)) break;
+  }
+  g.setPaused(true);
+  g.stepFrame(0);
+  const h = life.haulers;
+  out.rescues = life.traffic.rescues;
+  out.courtesies = life.traffic.courtesies;
+  out.setDowns = h.setDowns + life.rovers.setDowns;
+  out.snaps = h.snaps;
+  return out;
+};
+})()`;
+
+test.describe('the picture follows the sim (docs/19 S4b)', () => {
+  /** a hub unit's turn, rad/s: 90 deg/s at most (the poses are rounded to a milli-radian a frame of 0.05 s) */
+  const TURN_MAX = Math.PI / 2 + 0.03;
+
+  test('two excavators head on along one haul road pass at a bay: no rescue, no set-down, never 3 s behind the sim, no jump, no fast turn', async ({ page }) => {
+    await start(page);
+    await page.evaluate(LIVE);
+    const r = await page.evaluate(() => {
+      const g = window.__game!;
+      const { a, b } = setupPair();
+      const c = corridor(60, 60, 9, [0, 4, 8]);
+      g.patchHauler(a, { x: c[8][0], z: c[8][1], phase: 'toDrop', regolith: 100, path: c.slice(0, 8).reverse(), target: null });
+      g.patchHauler(b, { x: c[0][0], z: c[0][1], phase: 'toDig', regolith: 0, path: c.slice(1), target: null });
+      let aMin = Infinity, bMax = -Infinity;
+      const out = live(900, () => {
+        const ua = units().find((u: any) => u.id === a), ub = units().find((u: any) => u.id === b);
+        aMin = Math.min(aMin, ua.haul.x);
+        bMax = Math.max(bMax, ub.haul.x);
+        return aMin < c[1][0] && bMax > c[6][0];
+      });
+      return { ...out, aMin, bMax, c, pullIns: sample().pullIns };
+    });
+    // the loaded one went the whole way west, the empty one pulled into a bay, let it by and went on east
+    expect(r.pullIns).toBeGreaterThanOrEqual(1);
+    expect(r.aMin).toBeLessThan(r.c[1][0]);
+    expect(r.bMax).toBeGreaterThan(r.c[6][0]);
+    // nobody was rescued or set down, and the picture kept up with the sim (a tick late, and the turns in a bay)
+    expect(r.rescues).toBe(0);
+    expect(r.setDowns).toBe(0);
+    expect(r.snaps).toBe(0);
+    expect(r.lagMaxS).toBeLessThan(3);
+    // no pose moved more than a metre between frames, and no unit turned faster than 90 deg/s
+    expect(r.jump).toBeLessThanOrEqual(1);
+    expect(r.turn).toBeLessThanOrEqual(TURN_MAX);
+  });
+
+  test('three units digging one pit keep 2.5 m apart, however they come and go, for seven minutes', async ({ page }) => {
+    test.setTimeout(240_000);
+    await start(page);
+    await page.evaluate(LIVE);
+    const r = await page.evaluate(() => {
+      const g = window.__game!;
+      g.revealAll();
+      const h1 = hubBy('smelter', 'ilmenite-0', undefined, undefined, 6)!;
+      hubBy('smelter', 'ilmenite-0', undefined, undefined, 9);
+      power(20);
+      g.finishConstruction();
+      // (each hub has its first unit: the second of the first hub makes three on the one deposit)
+      g.queueUnit(h1);
+      g.advanceGameSeconds(150);
+      const n = units().length;
+      const phases = new Map<number, Set<string>>();
+      const out = live(8400, () => {
+        for (const u of units()) (phases.get(u.id) ?? phases.set(u.id, new Set()).get(u.id)!).add(u.haul.phase);
+      });
+      return { ...out, n, phases: [...phases].map(([id, ph]) => [id, [...ph]]), produced: g.getState().stats.produced.regolith };
+    });
+    expect(r.n).toBe(3);
+    // every unit went out, dug and came back: the pit was busy
+    for (const [, ph] of r.phases as [number, string[]][]) for (const p of ['toDig', 'dig', 'toDrop', 'unload']) expect(ph).toContain(p);
+    expect(r.produced).toBeGreaterThan(500);
+    // the origins of two drawn units were never closer than 2.5 m: at the ramp's foot, at the faces, on the road
+    expect(r.minD, `closest pair ${r.minAt}`).toBeGreaterThanOrEqual(2.5);
+    expect(r.rescues).toBe(0);
+    expect(r.setDowns).toBe(0);
+  });
+
+  test('four units of two hubs for six minutes: the largest pose jump in a frame at 1x is under a metre, none is placed on the sim, and the picture never trails far', async ({ page }) => {
+    test.setTimeout(240_000);
+    await start(page);
+    await page.evaluate(LIVE);
+    const r = await page.evaluate(() => {
+      const g = window.__game!;
+      g.revealAll();
+      const h1 = hubBy('smelter', 'ilmenite-0', undefined, undefined, 6)!;
+      const h2 = hubBy('smelter', 'ilmenite-0', undefined, undefined, 9)!;
+      power(20);
+      g.finishConstruction();
+      g.queueUnit(h1); g.queueUnit(h1); g.queueUnit(h2); g.queueUnit(h2);
+      g.advanceGameSeconds(150);
+      const n = units().length;
+      const out = live(7200);
+      return { ...out, n };
+    });
+    expect(r.n).toBe(4);
+    expect(r.jump, `largest step ${r.jumpAt}`).toBeLessThanOrEqual(1);
+    expect(r.turn).toBeLessThanOrEqual(TURN_MAX);
+    expect(r.snaps).toBe(0);
+    expect(r.setDowns).toBe(0);
+    expect(r.rescues).toBe(0);
+    // (what the driving costs alone is under 4 s; the picture shows the sim a tick, one second, late on top)
+    expect(r.replayLagMaxS).toBeLessThan(4);
+    expect(r.lagMaxS).toBeLessThan(5);
+  });
 });
