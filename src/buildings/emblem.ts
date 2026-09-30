@@ -17,29 +17,37 @@ import { BODY, MARK, PLATE, box, cyl, merge } from './meshKit';
 const PI = Math.PI;
 
 /** The glyph in its own frame: x right, y up, the wall at z = 0, `relief` thick (z 0 … relief), about
- *  1.2 × `s` tall including the line under it (y −0.6 s … +0.5 s). */
-export function glyphParts(f: FactionId, s: number, relief: number): THREE.BufferGeometry[] {
+ *  1.2 × `s` tall including the line under it (y −0.6 s … +0.5 s). A structure's (s ≥ 0.6 m) has its detail,
+ *  a unit's or a walker's is a plate and a line: every instance draws it twice (the ink twin), so a small
+ *  mark earns no more triangles than it shows pixels. About 92 (gear), 24 (triangle) and 104 (flower) △ a
+ *  structure's, 44 / 22 / 36 a small one's. */
+export function glyphParts(f: FactionId, s: number, relief: number, detail = s >= 0.6): THREE.BufferGeometry[] {
   const zc = relief / 2;
   const out: THREE.BufferGeometry[] = [];
   const gy = 0.1 * s; // the glyph's centre, over the line
+  const small = !detail;
   if (f === 'robots') {
-    // a gear: a ten-sided plate, six teeth, a dark hub
-    out.push(cyl(0.34 * s, 0.34 * s, relief, MARK, 0, gy, zc, PI / 2, 0, 10));
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * PI * 2 + PI / 12;
-      out.push(box(0.26 * s, 0.17 * s, relief, MARK, Math.cos(a) * 0.4 * s, gy + Math.sin(a) * 0.4 * s, zc, 0, a));
+    // a gear: an eight-sided plate and six sawtooth teeth (a plate and a line when small)
+    out.push(cyl(0.34 * s, 0.34 * s, relief, MARK, 0, gy, zc, PI / 2, 0, 8));
+    if (!small) {
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * PI * 2 + PI / 12; // a three-sided prism: its first vertex points down before the turn
+        out.push(cyl(0.17 * s, 0.17 * s, relief, MARK, Math.cos(a) * 0.36 * s, gy + Math.sin(a) * 0.36 * s, zc, PI / 2, a + PI / 2, 3));
+      }
     }
-    out.push(cyl(0.13 * s, 0.13 * s, relief + 0.03, PLATE, 0, gy, zc + 0.015, PI / 2, 0, 8));
   } else if (f === 'accelerationists') {
     // a solid triangle, point up (a three-sided prism; its first vertex points down before the turn)
     out.push(cyl(0.5 * s, 0.5 * s, relief, MARK, 0, gy + 0.05 * s, zc, PI / 2, PI, 3));
+  } else if (small) {
+    // a flower, small: its hub
+    out.push(cyl(0.3 * s, 0.3 * s, relief, MARK, 0, gy, zc, PI / 2, 0, 6));
   } else {
     // a flower: five petals round a hub
     for (let k = 0; k < 5; k++) {
       const a = PI / 2 + (k / 5) * PI * 2;
-      out.push(cyl(0.17 * s, 0.17 * s, relief, MARK, Math.cos(a) * 0.27 * s, gy + Math.sin(a) * 0.27 * s, zc, PI / 2, 0, 5));
+      out.push(cyl(0.18 * s, 0.18 * s, relief, MARK, Math.cos(a) * 0.27 * s, gy + Math.sin(a) * 0.27 * s, zc, PI / 2, 0, 4));
     }
-    out.push(cyl(0.12 * s, 0.12 * s, relief + 0.03, PLATE, 0, gy, zc + 0.015, PI / 2, 0, 6));
+    out.push(box(0.2 * s, 0.2 * s, relief + 0.03, PLATE, 0, gy, zc + 0.015));
   }
   // the faction's trim line under it
   out.push(box(1.0 * s, 0.1 * s, relief, MARK, 0, -0.52 * s, zc));

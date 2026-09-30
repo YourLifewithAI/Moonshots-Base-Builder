@@ -1968,7 +1968,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'nightMode', output: 0.25, standby: 1.3, chargeEff: 0.75, discharge: 1.25 },
     ],
     desc: 'Machines first. A lander with no beds, no air and nobody to wait for: the Foundry is on the Moon before anyone, and it builds while the rest are still packing.',
-    visual: 'The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating.',
+    visual: 'The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating; habitats and labs are shuttered, masted and banded the same way. Every structure and unit wears the gunmetal livery and the gear emblem.',
     tradeoff: 'Machines have no margin: a flare hits them hardest, and in the long night they crawl on a thin, leaky bank.',
   },
   landingVanguard: {
@@ -1989,7 +1989,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'pickCost', side: 'colony', mult: 1.15 },
     ],
     desc: 'Seven people, a flag and a launch window to win. The Vanguard runs its labs hot and publishes everything: data comes cheap, silicon and steel come cheaper, and the whole world reads the log.',
-    visual: 'The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull.',
+    visual: 'The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull; habitats and labs get the lit band, a flag or a press dish and fins. Every structure and unit wears the white livery and the ▲ emblem.',
     tradeoff: 'Everybody is watching: a death, a wreck or an accident becomes a hearing, and a hearing brings people home.',
   },
   landingCommons: {
@@ -2010,7 +2010,7 @@ export const TECHS: Record<TechId, TechDef> = {
       { kind: 'outpostCost', mult: 0.85 },
     ],
     desc: 'A crew that came to stay. The Commons build for people first: a well-fed, well-warned base that grows on its own and shelters the swarm as a commons, slow to raise and dear in steel and machines.',
-    visual: 'The Lander wears solar awnings, planter boxes by its door and a green banner.',
+    visual: 'The Lander wears solar awnings, planter boxes by its door and a green banner; habitats and labs share the awnings, planters and banners. Every structure and unit wears the sand livery and the ❀ emblem.',
     tradeoff: 'Nothing here is built in a hurry, and the machines are the dear part.',
   },
   pressureHalls: {

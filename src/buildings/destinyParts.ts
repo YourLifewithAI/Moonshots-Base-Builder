@@ -10,7 +10,8 @@
  *  terraces, windows, planters, lamps; Automation parts are for machines —
  *  whips and node lamps, shutters over the windows, cable trays, dark slabs,
  *  fin crowns. Both sides of one era's pick never meet on one building, so
- *  a pair may share a spot. */
+ *  a pair may share a spot. The three faction landings (docs/20 S7) are in
+ *  the same lists: a Lander, habitat and lab variant each, in MARK. */
 import type { BufferGeometry } from 'three';
 import type { BuildingId } from '../data/buildings';
 import {
@@ -139,11 +140,11 @@ function stowedRover(): Parts {
 /** A guyed antenna mast with a crossarm and two dipoles, a beacon on top (the Foundry's: bare metal, not the family's accent). */
 function guyedMast(x: number, z: number, h: number, guy = 2.2): Parts {
   return [
-    cyl(0.4, 0.46, 0.12, PLATE, x, 0.06, z, 0, 0, 8),
+    cyl(0.4, 0.46, 0.12, PLATE, x, 0.06, z, 0, 0, 6),
     cyl(0.06, 0.1, h, PLATE, x, h / 2, z, 0, 0, 6),
     bar([x - 0.8, h * 0.78, z], [x + 0.8, h * 0.78, z], 0.06, PLATE),
     bar([x - 0.6, h * 0.92, z], [x + 0.6, h * 0.92, z], 0.05, PLATE),
-    dome(0.13, BEACON, x, h + 0.02, z, 6),
+    box(0.2, 0.2, 0.2, BEACON, x, h + 0.08, z),
     ...[0, 1, 2].map((k) => {
       const a = (k / 3) * PI * 2 + 0.5;
       return bar([x, h * 0.7, z], [x + Math.cos(a) * guy, 0.05, z + Math.sin(a) * guy], 0.03, PLATE);
@@ -182,17 +183,21 @@ function planter(x: number, z: number, ry = 0, w = 1.7): Parts {
   ];
 }
 
-/** A banner hung from a crossarm on a pole: pole at (x, z), cloth facing yaw ry, `w` × `h` from `y0`; the faction's glyph on it. */
+/** A banner hung from a crossarm on a pole: pole at (x, z), cloth facing yaw ry, `w` × `h` from `y0` — hull-coloured with
+ *  the faction's stripes and its glyph, so the mark reads on it. */
 function banner(x: number, z: number, y0: number, w: number, h: number, ry: number, f: Parameters<typeof glyphParts>[0]): Parts {
   const s = Math.sin(ry), c = Math.cos(ry), tx = Math.cos(ry), tz = -Math.sin(ry);
   const top = y0 + h + 0.35;
   const mid: [number, number] = [x + s * 0.12 + tx * (w / 2 + 0.05), z + c * 0.12 + tz * (w / 2 + 0.05)];
+  const at = (dy: number, out: number): [number, number, number] => [mid[0] + s * out, y0 + h / 2 + dy, mid[1] + c * out];
+  const band = (dy: number) => { const p = at(dy, 0.01); return box(w, 0.2, 0.05, MARK, p[0], p[1], p[2], ry); };
   return [
     cyl(0.05, 0.07, top, TRIM, x, top / 2, z, 0, 0, 6),
     bar([x, top - 0.06, z], [x + tx * (w + 0.1), top - 0.06, z + tz * (w + 0.1)], 0.05, TRIM),
-    box(w, h, 0.04, MARK, mid[0], y0 + h / 2, mid[1], ry),
-    glyphParts(f, w * 0.55, 0.04).map((g) => g
-      .rotateY(ry).translate(mid[0] + s * 0.03, y0 + h * 0.62, mid[1] + c * 0.03)),
+    box(w, h, 0.04, BODY, mid[0], y0 + h / 2, mid[1], ry),
+    band(h / 2 - 0.12), band(-h / 2 + 0.12),
+    glyphParts(f, w * 0.6, 0.04, true).map((g) => g
+      .rotateY(ry).translate(mid[0] + s * 0.03, y0 + h * 0.6, mid[1] + c * 0.03)),
   ];
 }
 
@@ -205,7 +210,7 @@ function flagPole(x: number, z: number, h: number, w = 1.5, ry = 0): Parts {
     dome(0.09, LAMP, x, h + 0.04, z, 6),
     box(w, w * 0.6, 0.03, BODY, cx, h - w * 0.36, cz, ry),
     box(w, 0.16, 0.035, MARK, cx, h - w * 0.36 - w * 0.22, cz, ry),
-    glyphParts('accelerationists', w * 0.34, 0.035).map((g) => g
+    glyphParts('accelerationists', w * 0.34, 0.035, true).map((g) => g
       .rotateY(ry).translate(cx - tx * w * 0.22 + s * 0.02, h - w * 0.3, cz - tz * w * 0.22 + c * 0.02)),
   ];
 }
@@ -287,7 +292,7 @@ const lander: Upgrade[] = [
       cyl(landerR(7.4) + 0.14, landerR(7.4) + 0.14, 0.66, BODY, 0, 7.4, 0, 0, 0, 20, true),
       stowedRover(),
       guyedMast(3.9, -1.7, 9.6),
-      hazardRing(landerR(5.75), 5.75, 14),
+      hazardRing(landerR(5.75), 5.75, 10),
       box(0.3, 0.1, 0.4, LAMP, 0, 4.85, -landerR(4.85) - 0.2),
     ],
   },
@@ -332,7 +337,7 @@ const lab: Upgrade[] = [
       shutter(2.5, 0.8, 1.3, 1.9, 2.8),
       shutter(4.1, 0.8, 2.8, 1.9, 0, PI / 2),
       guyedMast(-2.0, -1.0, 7.4, 1.6),
-      hazardStrip(-0.2, 2.6, 0.3, 2.74, 0, 9), hazardStrip(-2.6, 2.6, 0.3, 2.74, PI / 2, 16),
+      hazardStrip(-0.2, 2.6, 0.3, 2.74, 0, 6), hazardStrip(-2.6, 2.6, 0.3, 2.74, PI / 2, 9),
     ],
   },
   { // The Vanguard: a lit window band under the roof, a press dish on the roof, cobalt fins along its back edge
@@ -423,7 +428,7 @@ const habitat: Upgrade[] = [
       arc(3.36, 3.36, 0.62, BODY, 0, 0.82, 0, PI / 2 + 0.7, PI * 2.5 - 0.7, 18),
       [0, 1, 2, 3].map((k) => domeBand(3.18, 0.6, 0.88, BODY, 0, 1.4, 0, 4, k * PI / 2 + 0.47, 0.61)),
       domeBand(3.17, 0, 0.27, BODY, 0, 1.4, 0, 12),
-      hazardRing(3.3, 0.5, 14, 0.4),
+      hazardRing(3.3, 0.5, 8, 0.4),
       guyedMast(0.9, -1.0, 7.4, 1.8),
     ],
   },

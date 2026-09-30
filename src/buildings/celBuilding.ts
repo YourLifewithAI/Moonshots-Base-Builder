@@ -17,7 +17,10 @@
  *  `FAMILY_ACCENT[FAMILY_OF[recipe]]`, a moving thing's its `UNIT_ACCENT`,
  *  a hub's digger its `HUB_LIVERY` band and body; anything untagged wears the
  *  logistics slate. The solar wings' and dishes' frames stay silver, the
- *  Server Monolith is near-black with teal glass and the Drone Hive dark. The
+ *  Server Monolith is near-black with teal glass and the Drone Hive dark. A faction
+ *  game (docs/20 S7, buildings/factionLook.ts) adds a hull layer: the hull takes
+ *  the livery's colour (a walker's its suit), MARK parts (emblem, hazard tape, fins,
+ *  awnings) the livery's trim; the family accents stay. The
  *  colours go into the instanced view's own `color` attribute (celColors), so
  *  the shared recipe buffers stay the kit's grays.
  *

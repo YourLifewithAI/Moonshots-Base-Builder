@@ -209,7 +209,7 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 
 | Building | Stock △ | Fully upgraded △ | Upgrades |
 |---|---|---|---|
-| Lander | 2,760 | 7,480 | 17 |
+| Lander | 2,760 | 7,912 | 20 |
 | Solar Array | 1,024 | 2,140 | 8 |
 | Battery Bank | 1,172 | 2,266 | 4 |
 | Thorium Reactor | 1,978 | 2,270 | 2 |
@@ -220,10 +220,10 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Robotics Bay | 1,656 | 3,394 | 12 |
 | Parts Fabricator | 1,224 | 1,820 | 6 |
 | Chip Fab | 1,216 | 2,056 | 9 |
-| Habitat Module | 1,736 | 3,028 | 10 |
+| Habitat Module | 1,736 | 3,526 | 13 |
 | Hydroponics Farm | 1,896 | 2,924 | 6 |
 | Recreation Dome | 1,956 | 2,080 | 1 |
-| Research Lab | 1,920 | 3,616 | 7 |
+| Research Lab | 1,920 | 4,110 | 10 |
 | Relay Mast | 1,670 | 2,274 | 4 |
 | Prospecting Bay | 688 | 688 | 0 |
 | Solar Observatory | 1,077 | 2,041 | 2 |
@@ -235,12 +235,12 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Greenhouse Ring | 1,952 | 2,048 | 2 |
 | Garden Dome | 2,156 | 2,252 | 1 |
 | Server Monolith | 516 | 768 | 4 |
-| Night Vault | 24 | 24 | 0 |
-| Faraday Shed | 24 | 24 | 0 |
-| Mission Ops | 24 | 24 | 0 |
-| Skunkworks | 24 | 24 | 0 |
-| Commons Hall | 24 | 24 | 0 |
-| Regolith Terrace | 24 | 24 | 0 |
+| Night Vault | 560 | 560 | 0 |
+| Faraday Shed | 892 | 892 | 0 |
+| Mission Ops | 2,008 | 2,008 | 0 |
+| Skunkworks | 778 | 778 | 0 |
+| Commons Hall | 1,404 | 1,404 | 0 |
+| Regolith Terrace | 788 | 788 | 0 |
 | Regolith Excavator | 1,060 | 2,568 | 14 |
 | Ice Miner | 1,184 | 1,568 | 4 |
 
@@ -264,6 +264,9 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Dispatch Mesh | 2 | Robotics Bays and Relay Masts raise a mesh-radio whip with a blinking node lamp; the Lander gains a router cabinet. | 48 |
 | Crew Rotation Charter | 3 | Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast; pressurized walkways join the lived-in buildings, and suited EVA crews walk out by day. | 84 |
 | Lunar Commonwealth | 8 | Habitats, Greenhouse Rings and Garden Domes string festival lamps, and the Lander gains a commons plaza with a flagpole. | 136 |
+| Foundry Landing (robotic only) | 1 | The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating; habitats and labs are shuttered, masted and banded the same way. Every structure and unit wears the gunmetal livery and the gear emblem. | 474 |
+| Vanguard Landing (human only) | 1 | The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull; habitats and labs get the lit band, a flag or a press dish and fins. Every structure and unit wears the white livery and the ▲ emblem. | 526 |
+| Commons Landing (human only) | 1 | The Lander wears solar awnings, planter boxes by its door and a green banner; habitats and labs share the awnings, planters and banners. Every structure and unit wears the sand livery and the ❀ emblem. | 532 |
 | Concord | 8 | The Lander raises a joint-operations mast: a lit crew cabin under a drone perch. | 132 |
 
 #### Solar Array
@@ -390,6 +393,9 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Lava-Tube Caverns | 3 | Habitats, Data Centers and Chip Fabs pile a sandbag overburden on their roofs. | 144 |
 | Safety Protocols | 6 | Inspection lamp masts go up beside Habitats and the Lander. | 88 |
 | Automated Life Support | 4 | Each Habitat Module gets an air-monitor mast by its door. | 112 |
+| Foundry Landing (robotic only) | 1 | The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating; habitats and labs are shuttered, masted and banded the same way. Every structure and unit wears the gunmetal livery and the gear emblem. | 498 |
+| Vanguard Landing (human only) | 1 | The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull; habitats and labs get the lit band, a flag or a press dish and fins. Every structure and unit wears the white livery and the ▲ emblem. | 342 |
+| Commons Landing (human only) | 1 | The Lander wears solar awnings, planter boxes by its door and a green banner; habitats and labs share the awnings, planters and banners. Every structure and unit wears the sand livery and the ❀ emblem. | 400 |
 | Crew Rotation Charter | 3 | Habitats wear a lit hab-ring collar and a suit-port porch; the Lander raises a crew-rotation beacon mast; pressurized walkways join the lived-in buildings, and suited EVA crews walk out by day. | 180 |
 | Settler Charter | 6 | Habitats stack a second storey: a habitation terrace with a balcony rail, planters and warm windows. | 344 |
 | Lights-Out Charter | 6 | Relay Masts wear a firewall node, Robotics Bays add an antenna farm, and any Habitats shutter their windows. | 136 |
@@ -424,6 +430,9 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Science Crews | 6 | Research Labs raise a glazed observation cupola. | 336 |
 | Lab Uplink Dishes | 6 | Research Labs raise a second uplink dish. | 52 + 740 ↻ |
 | Pressure-Rated Halls | 2 | Labs, Parts Fabricators and Robotics Bays gain an airlock porch with a lit round window. | 128 |
+| Foundry Landing (robotic only) | 1 | The Lander’s cabin windows are blanked, a rover rides stowed in a cradle on its hull, an antenna mast rises and orange hazard bands mark the plating; habitats and labs are shuttered, masted and banded the same way. Every structure and unit wears the gunmetal livery and the gear emblem. | 494 |
+| Vanguard Landing (human only) | 1 | The Lander flies a flag, a press dish turns toward Earth, the crew cabin shows a lit window band and cobalt fins trim the hull; habitats and labs get the lit band, a flag or a press dish and fins. Every structure and unit wears the white livery and the ▲ emblem. | 376 |
+| Commons Landing (human only) | 1 | The Lander wears solar awnings, planter boxes by its door and a green banner; habitats and labs share the awnings, planters and banners. Every structure and unit wears the sand livery and the ❀ emblem. | 448 |
 
 #### Relay Mast
 

@@ -1,5 +1,7 @@
 /** The building silhouettes from the primitive kit (docs/19 S2a: 29 recipes,
- *  the two hub units among them), plus the research upgrades each one grows
+ *  the two hub units among them, and docs/20 S7's six faction buildings; in a
+ *  faction game each also carries the faction's emblem, factionLook.ts and
+ *  emblem.ts), plus the research upgrades each one grows
  *  (upgrades.ts, keyed by upgradeKey). Silhouette-first: in a monochrome world,
  *  shape is identity — dome = life, tank = industry, rail = export. Detail is
  *  load-bearing only: a door frame says "people go in here", a radiator says
@@ -1126,7 +1128,6 @@ function nightVault(): Parts {
     box(8.4, 0.5, 1.7, BAND, 0, 4.3, 3.0),
     box(0.5, 0.2, 0.3, LAMP, -2.6, 3.95, 3.95), box(0.5, 0.2, 0.3, LAMP, 2.6, 3.95, 3.95),
     door(-3.6, 3.82, 0, 0.8, 1.9, 0),
-    box(7.4, 0.1, 1.6, PLATE, 0, 0.05, 4.6),
     // the stack at the rear right corner: a vent and antenna, rings, a beacon (the identifier)
     cyl(0.4, 0.5, 7.4, TRIM, 4.6, 5.5, -2.4, 0, 0, 10),
     ring(0.5, 3.0, 4.6, -2.4, 0.34, 10), ring(0.46, 5.4, 4.6, -2.4, 0.34, 10), ring(0.42, 7.8, 4.6, -2.4, 0.34, 10),
@@ -1155,10 +1156,11 @@ function missionOps(): Parts {
     windowStrip(3.6, 4, 0.7, 2.92, 1.9, 0, PI / 2),
     // the dish: a lattice tower at the back of the roof (the tracked dish is MOUNTS.missionOps)
     cyl(0.5, 0.6, 0.3, TRIM, -1.4, 5.05, -1.4, 0, 0, 10),
-    lattice(1.9, 0.45, 0.26, -1.4, -1.4, 5.2, 3, 1.0),
+    cyl(0.14, 0.26, 1.9, TRIM, -1.4, 6.15, -1.4, 0, 0, 8),
+    bar([-1.4, 5.3, -1.4], [-0.6, 5.1, -0.6], 0.1, TRIM), bar([-1.4, 5.3, -1.4], [-2.2, 5.1, -0.6], 0.1, TRIM),
     box(0.8, 0.16, 0.8, TRIM, -1.4, 7.15, -1.4),
     // the identifier: the uplink mast at the front right, rings and cross-arms, a beacon
-    lattice(11.6, 0.75, 0.3, 3.3, 3.0, 0.3, 3, 2.4),
+    lattice(11.6, 0.75, 0.3, 3.3, 3.0, 0.3, 3, 2.9),
     ring(0.6, 4.2, 3.3, 3.0, 0.3, 8), ring(0.46, 7.4, 3.3, 3.0, 0.3, 8), ring(0.36, 10.4, 3.3, 3.0, 0.3, 8),
     bar([2.4, 9.2, 3.0], [4.2, 9.2, 3.0], 0.1, TRIM), bar([2.8, 11.0, 3.0], [3.8, 11.0, 3.0], 0.08, TRIM),
     box(0.4, 0.4, 0.3, PLATE, 2.4, 9.2, 3.0), box(0.4, 0.4, 0.3, PLATE, 4.2, 9.2, 3.0),
@@ -1203,10 +1205,10 @@ function skunkworks(): Parts {
  *  roof with a lantern, a ring of solar awnings at the eaves, a porch at +z, and a spire over the lantern
  *  (12.4 m, lime rings, a beacon) for its identifier. */
 function commonsHall(): Parts {
-  const RW = 4.9, W0 = 0.3, H = 3.2, Re = 5.6, top = W0 + H;
+  const RW = 4.6, W0 = 0.3, H = 3.2, Re = 5.2, top = W0 + H;
   const coneR = (y: number) => Re - ((y - top) / 3.4) * (Re - 0.6);
   const p: Parts = [
-    cyl(6.0, 6.1, 0.3, TRIM, 0, 0.15, 0, 0, 0, 28),
+    cyl(5.8, 5.9, 0.3, TRIM, 0, 0.15, 0, 0, 0, 28),
     cyl(RW, RW, H, BODY, 0, W0 + H / 2, 0, 0, 0, 28),
     windowRing(RW + 0.02, 1.9, 1.3, 10, 1.2, PI * 0.32, PI * 2.68),
     // the eave ring and three shingle courses up the roof
@@ -1220,9 +1222,9 @@ function commonsHall(): Parts {
     ring(0.14, top + 5.4, 0, 0, 0.3, 8), ring(0.12, top + 7.0, 0, 0, 0.3, 8), ring(0.1, top + 8.4, 0, 0, 0.3, 8),
     dome(0.16, BEACON, 0, top + 9.8, 0, 8),
     // the porch at +z, its door and lamp
-    box(3.0, 2.6, 2.1, BODY, 0, 1.6, 5.6),
-    box(3.2, 0.18, 2.3, TRIM, 0, 2.99, 5.6),
-    door(0, 6.66, 0, 1.6, 2.1, 0.3),
+    box(3.0, 2.6, 1.8, BODY, 0, 1.6, 4.9),
+    box(3.2, 0.18, 2.0, TRIM, 0, 2.99, 4.9),
+    door(0, 5.8, 0, 1.6, 2.1, 0.3),
   ];
   // the awning: ten solar panels tilted out from the eave on posts
   for (let k = 0; k < 10; k++) {
@@ -1271,12 +1273,12 @@ function regolithTerrace(): Parts {
     pipe([-5.0, 3.3, -2.3], [-5.0, 1.6, -0.5], 0.09, PLATE), pipe([-5.0, 2.3, 0.1], [-5.0, 1.1, 2.4], 0.09, PLATE),
     box(0.14, 2.4, 0.14, TRIM, -1.3, 1.2, 3.8), box(0.14, 2.4, 0.14, TRIM, 1.3, 1.2, 3.8), box(2.74, 0.14, 0.14, TRIM, 0, 2.4, 3.8),
     // the identifier: a water tower on four legs at the back left
-    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => bar([-4.4 + sx * 0.9, 2.9, -3.0 + sz * 0.9], [-4.4 + sx * 0.55, 6.2, -3.0 + sz * 0.55], 0.13, TRIM)),
-    cyl(1.2, 1.2, 2.0, BODY, -4.4, 7.2, -3.0, 0, 0, 14),
-    ring(1.2, 6.5, -4.4, -3.0, 0.3, 14), ring(1.2, 7.9, -4.4, -3.0, 0.3, 14),
-    dome(1.2, TRIM, -4.4, 8.2, -3.0, 12),
-    dome(0.16, BEACON, -4.4, 9.5, -3.0, 8),
-    box(0.8, 0.8, 0.6, PLATE, -5.6, 3.3, -3.0),
+    ...[[-1, -1], [1, -1], [-1, 1], [1, 1]].map(([sx, sz]) => bar([-4.4 + sx * 0.8, 2.9, -2.6 + sz * 0.8], [-4.4 + sx * 0.5, 6.2, -2.6 + sz * 0.5], 0.13, TRIM)),
+    cyl(1.05, 1.05, 2.0, BODY, -4.4, 7.2, -2.6, 0, 0, 14),
+    ring(1.05, 6.5, -4.4, -2.6, 0.3, 14), ring(1.05, 7.9, -4.4, -2.6, 0.3, 14),
+    dome(1.05, TRIM, -4.4, 8.2, -2.6, 12),
+    dome(0.16, BEACON, -4.4, 9.4, -2.6, 8),
+    box(0.8, 0.8, 0.6, PLATE, -5.6, 3.3, -2.6),
   );
   return p;
 }
