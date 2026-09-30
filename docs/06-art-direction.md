@@ -553,7 +553,7 @@ frame at 1×.
 
 **Drones, survey drones and EVA walkers** (docs/14 §4.3; §12 here). A Drone
 Hive's units fly as quadcopters, straight at 6–10 m, off the roads and out of
-the ground traffic. **Survey drones** (docs/11 §3) lift from their Prospecting
+the ground traffic. **Survey drones** (docs/11 §5c) lift from their Prospecting
 Bay or the Lander, fly on the prospect's bearing to the map's edge, vanish and
 return: one instanced mesh, one ink twin. The Colony's EVA crew walk as suited
 figures on open ground only. The links (walkways, conveyor spines) join the

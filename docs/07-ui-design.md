@@ -155,7 +155,7 @@ a ring on the ground marks it (bright valid, faint refused — value, never
 hue), Dig at… turns the deposit overlay on, an invalid click flashes the
 reason, and Esc or right-click cancels.
 
-**Survey drones** (`ui/fleetPanel.ts surveyDronesHtml`; docs/11 §3). Map
+**Survey drones** (`ui/fleetPanel.ts surveyDronesHtml`; docs/11 §5c). Map
 surveys are flown by drones, never by construction rovers. The **SURVEY
 DRONES** section shows in the bots info panel (the HUD's rover chip) and in a
 Prospecting Bay's inspector: the fleet in one line (`2/3 docked · 1 out →
@@ -336,7 +336,7 @@ An outpost coming online is one `STREAM` line with **Open the map**; the
 atlas's completion lists `SLOT`, `STREAMS` and `BONUS`; a deposit survey lists
 `DATA` and `DEPOSIT` (**Open the card**). Heritage sites and anomalies get no
 cache and no outpost line. The chirp always plays; `?debug` runs draw no card
-unless the address adds `&tips`. The reports' contents are docs/11 §3.
+unless the address adds `&tips`. The reports' contents are docs/11 §5c.
 
 ## 5. The fixed tooltip template (`palette.ts: tooltipHtml`)
 
@@ -429,7 +429,7 @@ holds 8–16 cards instead of the ~100 of the old one-screen board.
   hint reads `◎ Insight:`), ⚠ waiting on goods. The sheet of a locked one says
   `UNDISCOVERED — Survey Marius tube (near side) or Ingenii pit (far side)`
   with the hosts' real names and classes, and once found `◎ Found at …`
-  (docs/11 §3).
+  (docs/11 §5c).
 - **State by shape and value, never hue alone:** done = solid border + ✓;
   queued = `#n` + a 2 px bar; available = hairline; locked = dashed @ 38%;
   foreclosed = struck through @ 25%; full = ⊘. A future page is read-only:
