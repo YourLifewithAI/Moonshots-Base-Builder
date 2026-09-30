@@ -24,7 +24,7 @@ The specs were repaired to the current game (hub units, the cel style, the fixed
 
 D6 fixed two specs the full run found: `anim.spec` (the busy base now sends one ground rover to a site, so a welding rover is certain) and `avoidance.spec` (a gate's hop into its zone counts as ground).
 
-Test round 2 result: <to be added by the coordinator>
+Test round 2 result (main 6b239b6, one file at a time, 67 minutes): 502 passed, 2 skipped by design (the two `pwa.spec` tests that need a built copy or a dev server), 4 failed. Run alone on a quiet machine, `avoidance.spec` "a rover working on the hub's haul road gets out of the loaded unit's way" and `map.spec` "survey: pays data, flies a drone" passed (load flakes). The other two were fixed in the next commit: the fleet inspector layout at 1280×720 (the OUTPOSTS chip from S8 took a row from the right-hand stack, so the alert cap now steps to two rows at 760 px height and under; the two layout tests pass) and `pwa.spec` "the service worker registers…" (the page could read the precache a moment before its last entry landed; the test now waits for the cache to fill, and the file passes 4/4).
 
 ### 1.2 Tests that are sensitive to load
 
