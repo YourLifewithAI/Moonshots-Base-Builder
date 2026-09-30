@@ -293,15 +293,18 @@ test('save v2 keeps the Moon, the player and each rival; a reload ticks alike; a
     g.rivalGrant('robots', { metals: 4000, parts: 2000, silicon: 1000, chips: 200, regolith: 2000, water: 600 });
     for (const t of T.TECH_ORDER) { const d = T.TECHS[t]; if (d.track || d.band || d.era > 2) continue; if (d.expeditions && !d.expeditions.includes('robotic')) continue; g.rivalCompleteTech('robots', t); }
     const placed: Record<string, boolean> = {};
+    // (the Foundry has been building for four days by now: the free ground is further out than a passive Lander's)
     const place = (type: string) => {
-      for (let q = 4; q < 30; q += 2) for (const [x, z] of [[127 + q, 127], [127 - q, 127], [127, 127 + q], [127, 127 - q], [127 + q, 127 + q], [127 - q, 127 - q]]) {
+      for (let q = 4; q < 90; q += 2) for (const [x, z] of [[127 + q, 127], [127 - q, 127], [127, 127 + q], [127, 127 - q], [127 + q, 127 + q], [127 - q, 127 - q]]) {
         const before = g.getRivalState('robots').buildings.length;
         g.rivalApply('robots', { kind: 'place', type, gx: x, gz: z, rot: 0 });
         if (g.getRivalState('robots').buildings.length > before) return true;
       }
       return false;
     };
-    for (const t of ['solar', 'solar', 'solar', 'battery', 'smelter', 'refinery', 'partsFab']) placed[t] = place(t);
+    // (what the policy has already built counts: the rival is a real base now)
+    const has = (type: string) => g.getRivalState('robots').buildings.some((b: any) => b.type === type);
+    for (const t of ['solar', 'solar', 'solar', 'battery', 'smelter', 'refinery', 'partsFab']) placed[t] = has(t) || place(t);
     g.advanceGameSeconds(1500);
     const before = { rivals: rivals(), moon: dig(g.getMoon()), player: player(), clock: g.getMoon().clock };
     const blob = g.saveBlob();

@@ -626,6 +626,7 @@ async function bootFaction(page: Page, faction: Faction, site: string) {
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(([f, s]) => {
     const G = window.__game;
+    G.setRivalMind(false); // (these tests play the Foundry by hand: the passive base of W0i, not the S4 policy that surveys and claims on its own)
     G.selectFaction(f, s);
     G.setPaused(true);
     G.advanceGameSeconds(0);

@@ -580,7 +580,8 @@ test('the UI half, the RACE chip: in a faction game, never in solo; the panel li
   await expect(rows.nth(2)).toContainText('not landed yet');
   await expect(rows.nth(0).locator('.rc-launches')).toHaveText('0 volleys');
   await expect(rows.nth(0).locator('.rc-fl')).toHaveText('first light —');
-  await expect(rows.nth(0).locator('.rc-era')).toHaveText('ERA 1');
+  // (the Foundry plays since S4: it has been thinking for two days, Era 2 opens for it on the first morning)
+  await expect(rows.nth(0).locator('.rc-era')).toHaveText(/^ERA [2-9]$/);
   await chip.click();
   await expect(panel).toBeHidden();
 

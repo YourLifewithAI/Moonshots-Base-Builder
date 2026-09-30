@@ -84,6 +84,8 @@ import {
 
 /** the rivals' cost per Moon second is averaged over this many seconds (`getRenderInfo().rivals.msPerTick`: a placement is a spike, the average must see a few) */
 const RIVAL_EMA_TICKS = 300;
+/** a start whose rivals must play more than this many Moon seconds before the player lands (the Commons: 4320) is spread over frames behind the descent line; a shorter one (the Vanguard: 1440, about a second) runs at once */
+const CHUNK_PREROLL_ABOVE = 3000;
 
 export interface GameOptions {
   /** safe render mode from the very first frame (?safe, or the stored setting) */
@@ -2293,8 +2295,21 @@ export class Game {
   async newGame(siteId: SiteId, expedition: 'human' | 'robotic' = 'human', faction?: FactionId) {
     await clearSave();
     this.publishSaveSlot(null);
-    await this.startNewChunked(siteId, expedition, faction, (day) => $descent.set(day > 1 ? `THE MOON IS ${day - 1} DAY${day === 2 ? '' : 'S'} IN` : ''));
-    $descent.set('');
+    if (this.preRollWork(faction) > CHUNK_PREROLL_ABOVE) {
+      await this.startNewChunked(siteId, expedition, faction, (day) => $descent.set(day > 1 ? `THE MOON IS ${day - 1} DAY${day === 2 ? '' : 'S'} IN` : ''));
+      $descent.set('');
+    } else {
+      this.startNew(siteId, expedition, faction); // (a short pre-roll, a second or so, needs no frames of its own)
+    }
+  }
+
+  /** The rival Moon-seconds a start plays before the player lands (each earlier landing steps its program up to it). */
+  private preRollWork(faction?: FactionId): number {
+    if (!faction) return 0;
+    const day = FACTIONS[faction].landsAtDay;
+    let n = 0;
+    for (const f of FACTION_ORDER) if (f !== faction && FACTIONS[f].landsAtDay < day) n += (day - FACTIONS[f].landsAtDay) * CYCLE_S;
+    return n;
   }
 
   private onResize() {

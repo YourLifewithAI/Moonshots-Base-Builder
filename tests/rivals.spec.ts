@@ -98,7 +98,7 @@ test('the day targets on seed 42: Era 2 by day 6, an outpost by day 8, every cre
   const r = await page.evaluate(() => {
     const g = window.__game;
     const moon = g.getMoon();
-    const st = (f: string) => { const s = g.getRivalState(f); return s ? { crew: s.crew, expedition: s.expedition, defeat: s.defeatShown, era: s.era, outposts: s.survey.outposts.map((o: any) => o.id), faction: s.faction } : null; };
+    const st = (f: string) => { const s = g.getRivalState(f); return s ? { crew: s.crew, expedition: s.expedition, defeat: s.defeatShown, era: s.era, outposts: s.survey.outposts.map((o: any) => o.id), faction: s.faction, techs: s.techsDone, types: [...new Set(s.buildings.map((b: any) => b.type))] } : null; };
     return {
       feed: moon.feed.map((e: any) => ({ at: e.at, faction: e.faction, kind: e.kind, era: e.era, prospect: e.prospect, text: e.text })),
       claims: moon.claims, rivals: g.getRivals().map((x: any) => ({ f: x.faction, lost: x.lost, era: x.era, outposts: x.outposts })),
@@ -129,6 +129,11 @@ test('the day targets on seed 42: Era 2 by day 6, an outpost by day 8, every cre
   expect(r.feed.map((e: any) => e.at), 'the feed is in clock order').toEqual([...r.feed.map((e: any) => e.at)].sort((a, b) => a - b));
   // the race board reads the rivals' eras
   expect(r.race.robots.era).toBe(r.robots!.era);
+  // the faction branches (S3) are in the policies: the Commons took their Charter (and built the Hall), and never the Consensus Council that
+  // would ask a second crew member at every lab; the Foundry has researched some of its own
+  expect(r.solarpunks!.techs, 'the Commons research their Charter').toContain('commonsCharter');
+  expect(r.solarpunks!.techs).not.toContain('consensusCouncil');
+  expect(r.robots!.techs.some((t: string) => ['nightVaultDocks', 'faradaySheds', 'hardenedFirmware', 'isotopeWarmers'].includes(t)), 'the Foundry took some of its branch').toBe(true);
 });
 
 test('the descent screen path plays the same pre-roll over frames without freezing the page', async ({ page }) => {
@@ -226,6 +231,7 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
   const r = await page.evaluate(async () => {
     const F = await import('/src/data/factions.ts');
     const T = await import('/src/data/techs.ts');
+    const B = await import('/src/data/buildings.ts');
     const out: Record<string, any> = {};
     for (const f of F.FACTION_ORDER) {
       const p = F.FACTIONS[f].policy;
@@ -236,6 +242,10 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
         badDoctrine: Object.entries(p.doctrines).filter(([g, t]: any) => !T.DOCTRINES[g].members.includes(t)),
         destiny: p.destiny, claimKinds: p.claimKinds, orders: p.orders.length,
         firstOrders: p.orders.slice(0, 3).map((o: any) => o.type),
+        badOrders: p.orders.filter((o: any) => !B.BUILDINGS[o.type]).map((o: any) => o.type),
+        badSkip: (p.skip ?? []).filter((t: string) => !T.TECHS[t]),
+        late: p.lateCaps,
+        unique: F.FACTIONS[f].uniqueTechs.filter((t: string) => !p.research.includes(t) && !(p.skip ?? []).includes(t)),
       };
     }
     return { out, groups: Object.keys(T.DOCTRINES).sort() };
@@ -248,7 +258,15 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
     expect(o.badDoctrine, `${f}: doctrine picks are members of their groups`).toEqual([]);
     expect(o.claimKinds.length, `${f}: claim kinds`).toBeGreaterThan(0);
     expect(o.orders, `${f}: orders`).toBeGreaterThan(5);
+    expect(o.badOrders, `${f}: orders name real buildings`).toEqual([]);
+    expect(o.badSkip, `${f}: skipped techs exist`).toEqual([]);
+    expect(o.late, `${f}: late caps`).toEqual({ battery: 10, reactor: 4 });
   }
+  // the Foundry's and the Vanguard's own techs are all in their lists (placed where they help) or deliberately skipped; the Commons leave
+  // three cheap late ones (Slow Build, Guardianship, Long Night Gardens) to the tail, where the runner takes what is left
+  expect(r.out.robots.unique).toEqual([]);
+  expect(r.out.accelerationists.unique).toEqual([]);
+  expect(r.out.solarpunks.unique.sort()).toEqual(['guardianship', 'longNightGardens', 'slowBuildDoctrine']);
   expect(r.out.robots.claimKinds[0]).toBe('ilmenite');
   expect(r.out.accelerationists.claimKinds[0]).toBe('ice');
   expect(r.out.solarpunks.claimKinds[0]).toBe('ice');
@@ -256,6 +274,39 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
   expect(r.out.solarpunks.destiny).toBe('colony');
   expect(r.out.accelerationists.destiny[2]).toBe('colony');
   expect(r.out.accelerationists.destiny[8]).toBe('automation');
+});
+
+test('Guardianship reads the rivals\' disasters: another program\'s loss or hearing brings the Commons +120≡, their own does not; a rival without a mind is the passive base', async ({ page }) => {
+  test.setTimeout(120_000);
+  await boot(page);
+  const r = await page.evaluate(() => {
+    const g = window.__game;
+    g.setRivalMind(false);
+    g.selectFaction('solarpunks', 'lavatube');
+    g.setPaused(true);
+    g.advanceGameSeconds(0);
+    g.grantResources({ oxygen: 600, food: 600, water: 400 });
+    const passive = g.getRivals().map((x: any) => ({ f: x.faction, techs: x.techs, rules: Object.values(g.getRivalState(x.faction).auto.rules).filter((y: any) => y.on).length }));
+    g.completeTech('guardianship');
+    const data = () => g.getState().data;
+    const feed = (faction: string, kind: string) => { g.feedPush({ faction, kind, text: `${faction} ${kind}` }); g.advanceGameSeconds(1); };
+    const d0 = data();
+    feed('solarpunks', 'lost'); // the Commons' own: no aid
+    const d1 = data();
+    feed('robots', 'lost');
+    const d2 = data();
+    feed('accelerationists', 'hearing');
+    const d3 = data();
+    feed('robots', 'claim'); // not a disaster
+    const d4 = data();
+    return { passive, d0, d1, d2, d3, d4, mods: g.getMods().rivalAidData };
+  });
+  expect(r.mods).toBe(120);
+  for (const x of r.passive) expect(x.rules, `${x.f}: no rule is on in a passive base`).toBe(0);
+  expect(r.d1 - r.d0, 'their own loss brings nothing').toBeLessThan(60);
+  expect(r.d2 - r.d1, 'the Foundry is lost: +120').toBeGreaterThan(100);
+  expect(r.d3 - r.d2, 'the Vanguard is called to a hearing: +120').toBeGreaterThan(100);
+  expect(r.d4 - r.d3, 'a claim is not a disaster').toBeLessThan(60);
 });
 
 test('solo unchanged: a solo game has no rivals, no claims on the Moon, and the Builder keeps its founded rule', async ({ page }) => {

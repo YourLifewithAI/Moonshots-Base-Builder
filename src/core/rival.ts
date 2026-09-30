@@ -96,6 +96,9 @@ export function registerRivalAid(): void {
 registerRivalAid();
 
 export class RivalProgram {
+  /** Does a rival have a mind? On always, but a spec that drives a rival by hand (`debug.setRivalMind(false)`, before the game starts) wants the
+   *  passive base of stream W0i: no Builder relaxations, no rules on, no policy. Not part of any state. */
+  static mind = true;
   readonly faction: FactionId;
   readonly base: BaseSim;
   readonly moon: MoonState;
@@ -107,8 +110,10 @@ export class RivalProgram {
     this.base = base;
     this.moon = moon;
     // the mods it computes from now on carry the Builder's relaxations (and the ones it has now do)
-    base.modsHook = rivalMods;
-    rivalMods(base.mods);
+    if (RivalProgram.mind) {
+      base.modsHook = rivalMods;
+      rivalMods(base.mods);
+    }
   }
 
   /** A faction lands: its base on `siteId`, its clock starting at `landedAt + 90` (mid-morning of its landing day). The Builder
@@ -120,7 +125,7 @@ export class RivalProgram {
       siteId, seed, expedition: FACTIONS[faction].expedition, faction, landedAt, mode: HEADLESS_MODE, flat: true, moon,
     });
     const r = new RivalProgram(faction, base, moon);
-    switchOnRules(base.state, faction);
+    if (RivalProgram.mind) switchOnRules(base.state, faction);
     r.report();
     return r;
   }
@@ -149,7 +154,7 @@ export class RivalProgram {
     }
     this.base.clearOut();
     this.steps++;
-    if (!missionLost(s)) this.think();
+    if (RivalProgram.mind && !missionLost(s)) this.think();
     this.report();
   }
 
