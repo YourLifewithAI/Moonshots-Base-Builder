@@ -180,6 +180,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
       <button class="tbtn tb-place" id="tp-order" title="Order it: the rovers choose the site"><span class="tbg">⇲</span><span class="tbl">Order</span></button>
       <button class="tbtn tb-place" id="tp-keep" aria-pressed="false" title="Keep placing after this one"><span class="tbg">⊕</span><span class="tbl">Keep</span></button>
       <button class="tbtn tb-road" id="tr-remove" aria-pressed="false" title="Remove road instead of laying it"><span class="tbg">⌫</span><span class="tbl">Remove</span></button>
+      <button class="tbtn primary tb-road" id="tr-lay" title="Lay the road through its waypoints"><span class="tbg">✓</span><span class="tbl">Lay</span></button>
       <button class="tbtn tb-any" id="tb-cancel" title="Cancel"><span class="tbg">✕</span><span class="tbl">Cancel</span></button>
       <button class="tbtn primary tb-place" id="tp-ok" title="Place it here"><span class="tbg">✓</span><span class="tbl">Place</span></button>
     </div>`;
@@ -222,6 +223,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
         bRemove.classList.toggle('active', game.roadRemove);
         bRemove.setAttribute('aria-pressed', String(game.roadRemove));
         break;
+      case 'tr-lay': game.commitRoad(); break;
       case 'tb-cancel':
         if ($roadTool.get()) game.cancelRoadTool();
         else if ($fleetTarget.get()) game.cancelFleetTarget();
@@ -242,6 +244,7 @@ export function mountTouchUi(uiRoot: HTMLElement, layer: HTMLElement, game: Game
       bRemove.setAttribute('aria-pressed', 'false');
     }
     rRoad.classList.toggle('active', !!road);
+    (bar.querySelector('#tr-lay') as HTMLButtonElement).disabled = !road?.waypoints;
   };
   // a placement starts with its ghost in the middle of the view
   let placingType: string | null = null;

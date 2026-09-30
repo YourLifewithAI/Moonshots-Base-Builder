@@ -134,7 +134,8 @@ window.P = {
       for (let iz = z0; iz <= z1; iz++) for (let ix = x0; ix <= x1; ix++) if (set.has(iz * N + ix)) bad.push(what + ' @' + ix + ',' + iz);
     };
     for (const p of P.pads()) near(p.gx0 - padRings, p.gz0 - padRings, p.gx1 + padRings, p.gz1 + padRings, p.type + '#' + p.id);
-    for (const c of g().getState().roads) near(c.gx - roadRings, c.gz - roadRings, c.gx + 1 + roadRings, c.gz + 1 + roadRings, 'road ' + c.gx + ',' + c.gz);
+    // a haul road's sacrificial tail (docs/19 S3) is the pit's to eat: no setback there
+    for (const c of g().getState().roads) if (!c.sacrificial) near(c.gx - roadRings, c.gz - roadRings, c.gx + 1 + roadRings, c.gz + 1 + roadRings, 'road ' + c.gx + ',' + c.gz);
     return bad;
   },
 };
@@ -224,14 +225,18 @@ test('a pit never digs within its setback: 12 m of a structure, 8 m of a road, d
     // the gate until the pit's second bench opens, then digs beside the first
     for (const u of P.units(hub)) g.sendUnit(u.id, `dep:${z.id}`);
     const before = P.footings();
-    P.run(90);
+    // (its sacrificial road tail no longer boxes the pit in, docs/19 S3: it may dig the deposit out
+    // in about 90 minutes and the units move on; stop at 50 and count who works it while it is)
+    P.run(30);
+    const diggers = g.getState().haulers.filter((u: any) => u.type === 'excavator' && u.target === `dep:${z.id}`).length;
+    P.run(20);
     const carved = P.carved();
     const after = P.footings();
     const moved = Object.keys(before).filter((id) => before[id].some((h: number, i: number) => h !== after[id][i]));
     return {
       carved: carved.length, bad: P.intrusions(carved, pr, rr), moved, pads: P.pads().length, pits: g.getPits().pits,
       cutPieces: P.pieces(carved, -1), heapPieces: P.pieces(carved, 1),
-      diggers: g.getState().haulers.filter((u: any) => u.type === 'excavator' && u.target === `dep:${z.id}`).length,
+      diggers,
     };
   }, [PAD_RINGS, ROAD_RINGS]);
   expect(r.pads).toBeGreaterThanOrEqual(4);

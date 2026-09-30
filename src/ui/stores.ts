@@ -277,7 +277,7 @@ export const $placing = atom<{
   hubBlock?: string[];
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
-export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean } | null>(null);
+export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean; waypoints?: number } | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 /** a victory or defeat overlay is up: the world's screens and keys wait under it */

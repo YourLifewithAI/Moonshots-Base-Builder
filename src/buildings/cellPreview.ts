@@ -33,16 +33,18 @@ export class CellPreview {
     scene.add(this.mesh);
   }
 
-  /** Show these cells (cell keys); `remove` draws them dark. */
-  show(keys: readonly number[] | undefined, remove = false) {
-    const sig = `${remove ? 'r' : 'a'}${keys?.join(',') ?? ''}`;
+  /** Show these cells (cell keys); `remove` draws them dark; `dashed` (a road to come, docs/19 S3)
+   *  draws every other cell, in a cooler tint, so it reads as a route and not as a road laid. */
+  show(keys: readonly number[] | undefined, remove = false, dashed = false) {
+    const sig = `${remove ? 'r' : dashed ? 'd' : 'a'}${keys?.join(',') ?? ''}`;
     if (sig === this.sig) return;
     this.sig = sig;
-    const n = Math.min(MAX, keys?.length ?? 0);
-    this.mat.color.set(remove ? 0x101214 : 0xf5f7f9);
-    this.mat.opacity = remove ? 0.55 : 0.35;
+    const shown = dashed ? keys?.filter((_, i) => i % 2 === 0) : keys;
+    const n = Math.min(MAX, shown?.length ?? 0);
+    this.mat.color.set(remove ? 0x101214 : dashed ? 0xbfe3ff : 0xf5f7f9);
+    this.mat.opacity = remove ? 0.55 : dashed ? 0.5 : 0.35;
     for (let i = 0; i < n; i++) {
-      const [gx, gz] = keyCell(keys![i]);
+      const [gx, gz] = keyCell(shown![i]);
       const [x, z] = cellCentre(gx, gz);
       const hx0 = this.hf.sample(x - 2, z), hx1 = this.hf.sample(x + 2, z);
       const hz0 = this.hf.sample(x, z - 2), hz1 = this.hf.sample(x, z + 2);
