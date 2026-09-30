@@ -276,7 +276,8 @@ export function outlineMesh(source: THREE.Mesh): THREE.Group {
 
 /** Give an instanced mesh its outline (a child) and hand the mesh back:
  *  `group.add(inked(mesh))`. */
-export function inked<T extends THREE.Mesh>(mesh: T): T {
+export function inked<T extends THREE.Mesh>(mesh: T, label = ''): T {
+  if (label) mesh.userData.ink = label;
   mesh.add(outlineMesh(mesh));
   return mesh;
 }
@@ -318,7 +319,7 @@ export function outlineList() {
     const src = m.userData.source as THREE.InstancedMesh;
     const d = m.geometry.getAttribute('oDir');
     return {
-      of: (src.userData.buildingType ?? src.userData.part ?? src.userData.links ?? src.name ?? '') as string,
+      of: (src.userData.ink ?? src.userData.buildingType ?? src.userData.part ?? src.userData.links ?? '') as string,
       count: m.count, sourceCount: src.count,
       sameGeometry: m.geometry === src.geometry, sameMatrices: m.instanceMatrix === src.instanceMatrix,
       vertices: m.geometry.getAttribute('position').count,

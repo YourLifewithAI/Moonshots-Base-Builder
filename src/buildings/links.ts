@@ -332,7 +332,7 @@ export class Links {
     m.computeBoundingSphere();
     m.userData.links = layer;
     this.meshes[layer] = m;
-    this.group.add(inked(m));
+    this.group.add(inked(m, layer));
   }
 
   /** A wall point: the middle of the edge a cell shares with the footprint, pushed `inset` m into it. */

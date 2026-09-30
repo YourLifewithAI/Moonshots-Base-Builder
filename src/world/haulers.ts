@@ -170,7 +170,7 @@ export class Haulers implements Driver {
       const um: UnitMesh = { mk, mesh, key: '', drawn: [] };
       this.meshes.push(um);
       this.byKey.set(mk, um);
-      this.group.add(inked(mesh));
+      this.group.add(inked(mesh, mk));
     }
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);

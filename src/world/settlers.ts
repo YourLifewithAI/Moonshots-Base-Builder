@@ -107,7 +107,7 @@ export class Settlers {
     this.mesh.receiveShadow = true;
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
-    inked(this.mesh);
+    inked(this.mesh, 'walker');
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({

@@ -302,7 +302,7 @@ export class RoverFleet implements Driver {
     this.mesh.castShadow = false;
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
-    inked(this.mesh);
+    inked(this.mesh, 'rover');
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({
@@ -1262,7 +1262,7 @@ export class DroneFlight {
     this.mesh.receiveShadow = true;
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
-    inked(this.mesh);
+    inked(this.mesh, 'drone');
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({

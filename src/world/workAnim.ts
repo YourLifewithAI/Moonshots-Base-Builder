@@ -307,7 +307,7 @@ export class WorkAnim {
     this.kit.castShadow = false; // it moves: no shadow-map shadow (as the rovers)
     this.kit.receiveShadow = true;
     this.kit.visible = false;
-    inked(this.kit); // the kit's pieces are outlined too (one more draw call)
+    inked(this.kit, 'kit'); // the kit's pieces are outlined too (one more draw call)
     // light added (rgb) over what it covers (alpha): out = src + dst · (1 − a)
     const glow = new THREE.MeshBasicMaterial({
       map: glowTexture(), transparent: true, depthWrite: false, fog: false,
