@@ -7,17 +7,22 @@
  *  the same `instanceMatrix` and `count`, with the back faces pushed out along
  *  a smoothed normal and painted flat ink. The twin is a child of its source
  *  (`inked(mesh)`), so it hides, moves and is removed with it. One shared
- *  material; nothing is created per frame.
+ *  material; nothing is created per frame. A new instanced class adds one line:
+ *  `group.add(inked(mesh, 'label'))`.
  *
  *    width     constant on screen: the camera is a perspective, so the push
  *              is `px · depth · 2·tan(fov/2) / viewportH` metres (about 0.10 m
- *              at the 170 m home distance for 1.5 px, 0.49 m at 830 m)
+ *              at the 170 m home distance for 1.5 px, 0.49 m at 830 m); the
+ *              push is made in world space, so a scaled instance (the work
+ *              kit's pieces) gets the same width
  *    normals   the kit bakes split face normals (every box corner has three),
  *              so pushing along `normal` would open gaps: `oDir` (made once per
  *              recipe, by position hash) is the mitre of the faces meeting at
  *              a vertex, long enough that each of them moves by exactly one
- *              width (capped at two), with the width scale in `w`: parts under
- *              0.4 m² take half
+ *              width (capped at two), with the part's size in `w`
+ *    detail    a part's ink fades out as the part shrinks toward a few pixels
+ *              on screen (FADE_PX): rails, ladders and window frames are lines,
+ *              and a far building would otherwise be a black blot
  *    print     the vertex shader keeps the source's print cut: fragments above
  *              iState.w are discarded, so a half-printed building grows no
  *              full-height outline
@@ -231,7 +236,8 @@ function inkMaterial(): THREE.ShaderMaterial {
     u.uInkDay.value.set(p.day);
     u.uInkNight.value.set(p.night);
     u.uTint.value = p.tinted ? 1 : 0;
-    u.uTintKeep.value = 1 - p.tintDark;
+    // darkened by `tintDark` as the eye sees it (the colours are linear here)
+    u.uTintKeep.value = Math.pow(1 - p.tintDark, 2.2);
   };
   m.visible = !state.off && !state.faulted;
   material = m;
