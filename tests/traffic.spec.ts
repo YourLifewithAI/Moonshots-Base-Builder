@@ -411,7 +411,9 @@ window.live = (frames, watch) => {
   g.setPaused(false);
   g.setSpeed(1);
   g.stepFrame(0);
-  g.getRenderInfo();
+  // (the sim time the picture never showed, before the first frame, is a jump: what it counts from here is the run's)
+  const l0 = g.getRenderInfo().life;
+  const base = { rescues: l0.traffic.rescues, setDowns: l0.haulers.setDowns + l0.rovers.setDowns, snaps: l0.haulers.snaps };
   const DT = 0.05;
   const prev = new Map();
   const out = { frames: 0, jump: 0, jumpAt: '', turn: 0, minD: Infinity, minAt: '', lagMaxS: 0, replayLagMaxS: 0 };
@@ -442,10 +444,10 @@ window.live = (frames, watch) => {
   g.setPaused(true);
   g.stepFrame(0);
   const h = life.haulers;
-  out.rescues = life.traffic.rescues;
+  out.rescues = life.traffic.rescues - base.rescues;
   out.courtesies = life.traffic.courtesies;
-  out.setDowns = h.setDowns + life.rovers.setDowns;
-  out.snaps = h.snaps;
+  out.setDowns = h.setDowns + life.rovers.setDowns - base.setDowns;
+  out.snaps = h.snaps - base.snaps;
   return out;
 };
 })()`;
