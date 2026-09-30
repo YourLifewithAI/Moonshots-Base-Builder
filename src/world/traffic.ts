@@ -20,7 +20,13 @@
  *     overlap).
  *
  *  Cells are keyed on the grid (no O(n²)); ways are cut into cell spans once,
- *  when they change. Visual only: the sim never waits. */
+ *  when they change. Visual only: the sim never waits.
+ *
+ *  A **free** unit (a hub unit, docs/19 S4b) is the exception to every rule
+ *  above: the sim already keeps hub units off each other (core/traffic.ts), so
+ *  the drawn unit only follows it. It never waits, backs off or is set down;
+ *  it still holds the cells its body covers, so a rover keeps clear of it, and
+ *  it asks a rover that stands in its way to move (a courtesy, not a wait). */
 import { CELL_M, MAP_M } from '../data/balance';
 
 /** How a unit holds a cell: whole (0), or one half across a lateral axis —
@@ -80,6 +86,10 @@ export interface Agent {
   pivotOk?: boolean;
   /** backing up: its front trails */
   reverse?: boolean;
+  /** a hub unit the sim keeps clear already (see the file comment): never held up, never asked to give way */
+  free?: boolean;
+  /** when (traffic clock, s) it was last asked to make way for a free unit */
+  asked?: number;
   /** a wide unit's gates: where its way enters a junction (or the road), and
    *  the cells from there to the next junction (or its way's end) it takes
    *  all at once before its body enters — it waits short of the gate until
@@ -202,6 +212,7 @@ const BREAK_S = 1;       // a wait cycle this old is broken
 const DETOUR_S = 2;      // held up this long by a unit that is not moving: another road, if there is one
 const STEP_ASIDE_S = 3;  // a unit stood in another's way this long steps aside
 const RESCUE_S = 8;      // nothing worked this long: set down
+const COURTESY_S = 4;    // a rover asked to make way for a free unit is not asked again for this long
 
 export class Traffic {
   /** every unit on the ground this frame, in key order */
@@ -217,6 +228,9 @@ export class Traffic {
   private breaks = 0;
   private detours = 0;
   private lastBreak = '';
+  /** seconds stepped, for the courtesy's spacing */
+  private clock = 0;
+  private courtesies = 0;
 
   /** The road cells (grid cells) units may drive; a signature skips unchanged frames. */
   setRoads(sig: string, cells: readonly [number, number][]) {
@@ -274,7 +288,7 @@ export class Traffic {
     a.reserved = new Set();
     a.lastArc = new Map();
     for (const sp of a.spans) if (sp.road) a.lastArc.set(sp.key, Math.max(a.lastArc.get(sp.key) ?? -Infinity, sp.a1));
-    if (!a.wide) return;
+    if (!a.wide || a.free) return;
     const sp = a.spans;
     const lead = Traffic.ahead(a);
     for (let k = 0; k < sp.length; k++) {
@@ -503,6 +517,7 @@ export class Traffic {
     }
     const steps = Math.min(40, Math.ceil(dt / 0.05));
     const h = dt / steps;
+    this.clock += dt;
     const order = [...this.agents].sort((p, q) => q.cls - p.cls || p.key - q.key);
     for (let k = 0; k < steps; k++) {
       for (const a of this.agents) a.drv.prefer(a, h);
@@ -549,7 +564,50 @@ export class Traffic {
     }
   }
 
+  /** A free unit's move (see the file comment): along its way as far as its
+   *  driver wants, with its speed ramps, holding what its body covers. */
+  private glide(a: Agent, h: number) {
+    a.blocker = null;
+    a.waited = 0;
+    // (a turn on the spot, or a move: the sim has kept its neighbours clear, nothing to wait for; the driver
+    // turns it as it drives, and sets `pivot` when it stands and turns, for the cells its body sweeps)
+    a.pivotOk = true;
+    const end = Traffic.end(a);
+    const want = Math.max(0, Math.max(a.v - a.decel * h, Math.min(a.vmax, a.v + a.accel * h)));
+    const ds = Math.min(want * h, Math.max(0, Math.min(a.stop, end) - a.s));
+    a.s += ds;
+    a.v = ds / h;
+    const cov = this.scratch;
+    const brake = (a.v * a.v) / (2 * a.decel) + 0.3;
+    this.covered(a, a.s - Traffic.behind(a), a.s + Traffic.ahead(a) + brake, cov);
+    const p = pointAt(a.pts, a.arcs, a.s);
+    this.box(a, p.x, p.z, a.fx, a.fz, cov);
+    this.take(a, cov);
+    a.drv.moved(a, h);
+    if (a.v > 0.5 && !a.pivot) this.courtesy(a, brake);
+  }
+
+  private probe2 = { x: 0, z: 0, fx: 0, fz: 1, hw: 0, front: 0, back: 0 };
+  /** A rover (or a legacy digger) whose body lies in a free unit's way ahead is
+   *  asked to make way: the sim lets units drive on past a rover at its work,
+   *  so the picture must move it. Asked at most once in COURTESY_S. */
+  private courtesy(a: Agent, brake: number) {
+    const q = this.probe2;
+    const hx = Math.sign(a.reverse ? -1 : 1);
+    q.x = a.x; q.z = a.z; q.fx = a.fx * hx; q.fz = a.fz * hx; q.hw = a.hw + 0.3;
+    q.front = a.front + brake + 4 + a.v * 1.5; q.back = a.back;
+    for (const o of this.agents) {
+      if (o === a || o.free || o.cls >= a.cls) continue;
+      if (this.clock - (o.asked ?? -Infinity) < COURTESY_S) continue;
+      if (Math.hypot(o.x - a.x, o.z - a.z) > q.front + 8) continue;
+      if (boxGap(q, o) >= 0.3) continue;
+      o.asked = this.clock;
+      if (o.drv.yieldTo(o, [a])) this.courtesies++;
+    }
+  }
+
   private advance(a: Agent, h: number) {
+    if (a.free) { this.glide(a, h); return; }
     const end = Traffic.end(a);
     const front = Traffic.ahead(a), back = Traffic.behind(a);
     // a pivot first takes every road cell its body sweeps, or waits for them
@@ -679,7 +737,7 @@ export class Traffic {
       while (b && !chain.includes(b) && chain.length < 32) { chain.push(b); b = b.blocker; }
       if (b === a) {
         // a cycle: the lowest gives way (then the next, if it cannot)
-        const ranked = [...chain].sort((p, q) => p.cls - q.cls || q.key - p.key);
+        const ranked = [...chain].filter((c) => !c.free).sort((p, q) => p.cls - q.cls || q.key - p.key);
         let done = false;
         for (const y of ranked) {
           if (y.drv.yieldTo(y, chain.filter((c) => c !== y))) { done = true; break; }
@@ -690,6 +748,7 @@ export class Traffic {
       }
       // stood in the way: a unit at the end of its way (parked, working) steps aside
       const w = a.blocker;
+      if (w.free) continue;
       const standing = !w.blocker && w.s >= Traffic.end(w) - 1e-6;
       // held up by one that is not moving (standing, unloading, queued): another road there, if the network has one
       if (a.waited > DETOUR_S && !a.detoured && w.v < 0.05 && a.drv.reroute) {
@@ -716,6 +775,7 @@ export class Traffic {
   place(a: Agent) { this.settle(a); }
 
   private rescue(a: Agent) {
+    if (a.free) return;
     this.rescues++;
     this.releaseAll(a);
     a.drv.rescue(a);
@@ -755,6 +815,8 @@ export class Traffic {
       closest: Number.isFinite(w.gap) ? { gap: Math.round(w.gap * 1000) / 1000, a: w.a, b: w.b } : null,
       /** wait cycles broken, detours taken round a unit that was not moving, and units set down as the last resort */
       breaks: this.breaks,
+      /** rovers asked to make way for a hub unit driving up behind them */
+      courtesies: this.courtesies,
       detours: this.detours,
       rescues: this.rescues,
       units: this.agents.map((a) => ({

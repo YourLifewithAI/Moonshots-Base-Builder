@@ -272,6 +272,15 @@
 .deposit-mark.hl-exhausted, .deposit-mark.hl-boxed {
   background: repeating-linear-gradient(45deg, rgba(14, 15, 17, 0.7) 0 4px, rgba(var(--paper-rgb), 0.12) 4px 5px);
 }
+/* a pit's end state takes its flag's colour (docs/19 S2b; world/depositHighlight.ts PIT_END): the words and the
+   hatch still say it, so colour is never the only carrier */
+.deposit-mark.hl-exhausted, .deposit-mark.hl-boxed, .deposit-mark.hl-reclaimed { border-width: 2px; padding: 1px 4px; }
+.deposit-mark.hl-exhausted { border-color: #e8a72d; }
+.deposit-mark.hl-exhausted .t, .deposit-mark.hl-exhausted .g { color: #e8a72d; }
+.deposit-mark.hl-boxed { border-color: #d9503f; }
+.deposit-mark.hl-boxed .t, .deposit-mark.hl-boxed .g { color: #ee7d6e; }
+.deposit-mark.hl-reclaimed { border-color: #66ad4b; border-style: dashed; background: rgba(14, 15, 17, 0.62); }
+.deposit-mark.hl-reclaimed .t, .deposit-mark.hl-reclaimed .g { color: #8fce74; }
 .deposit-mark.hl-stake { border-style: dashed; }
 .deposit-mark.hl-dim .t { color: rgba(var(--paper-rgb), var(--op-secondary)); font-style: italic; }
 .deposit-mark.pitmark { cursor: default; }

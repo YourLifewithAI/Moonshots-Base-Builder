@@ -37,6 +37,7 @@ import {
 import { HUB, isHubType } from '../data/hubs';
 import { FEED_KINDS } from '../data/deposits';
 import { oreSurveyStep, pitsStep, stripMorale } from './pits';
+import { gradeStep } from './grading';
 import { settleJobs, sinter, spurLeft } from './roads';
 import { TRANSIT, siteTransit, transitArrive, transitPlan, type Arrivals } from './transit';
 import { dayInfo, fmtClock, type DayInfo } from './daynight';
@@ -452,6 +453,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   for (const u of units) if (u.kind === 'rover' || u.kind === 'drone') unitOf.set(u.unit, u);
   const onJob = new Set<RoverUnit>();
   for (const team of here.jobs.values()) for (const r of team) onJob.add(r);
+  // a rover levelling its cell draws the same as one sintering (docs/19 S5)
+  for (const team of here.grade.values()) for (const r of team) onJob.add(r);
   const drives = (u: PackUnit) => (u.kind === 'rover' || u.kind === 'drone') && !!u.unit.trip && !u.unit.trip.stuck && u.unit.trip.t < u.unit.trip.dur - 1e-9;
   // a hub unit's use (docs/17 §4.5): digging its nameplate (a working face), driving its tracks
   const haulerUse = (u: PackUnit): number => {
@@ -670,6 +673,16 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
       team.forEach((r, i) => { if (shares[i] > 1e-9) r.task = 'sinter'; });
     }
     settleJobs(s);
+  }
+  // ── 2.65 · box-drag grading (docs/19 S5, core/grading.ts): the rovers at their stands level their job's cells,
+  // each at its own share of the tick (the grid, else its pack: as a sinter), Site Grading doubling the rate ──
+  if (s.gradeJobs?.length) {
+    gradeStep(s, mods, here.grade, (r) => {
+      const u = unitOf.get(r);
+      if (!u) return 1;
+      if (onGrid.has(unitKey(u))) { packs.grid(u); return 1; }
+      return packs.pay(u, crewKW(mods, 1) * dt);
+    }, dt);
   }
   // ── 2.7 · the fleet's driving: on the grid, else the pack; an excavator
   // whose grid draw is dark digs and drives on its own (its phase's draw) —

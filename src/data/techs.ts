@@ -18,7 +18,7 @@ import { FORECAST } from './forecast';
 import type { GameState } from '../core/state';
 import {
   AGENT_TAX, BATTERY_EFF, BEAM_KW_PER_LAUNCH, CONSTRUCTION_KW, DOWNLINK, FEED,
-  GRADE_COST_ENERGY, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
+  GRADE_JOB, HAUL, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS, LAUNCH_POWER_BURST,
   MAX_SLOPE_LARGE, OVERCLOCK, SURVEY_DRONE, SURVEY_TIERS,
   CREW_ROTATION, EVA, PURE_AT, UNIT_POWER,
 } from './balance';
@@ -285,11 +285,11 @@ export const TECHS: Record<TechId, TechDef> = {
   },
   siteGrading: {
     id: 'siteGrading', era: 1, lane: 'robotics', name: 'Site Grading', short: 'Site Grading',
-    costData: 90, requires: [], sites: [P, L],
+    costData: 90, requires: [],
     effects: [{ kind: 'grading' }],
-    desc: 'Dozer blades flatten rough ground into pads for reactors, racks and rails.',
+    desc: 'Dozer blades on every rover: a dragged box is graded twice as fast, and tailings heaps can be levelled into pads for reactors, racks and rails.',
     visual: 'Graded pads show as raked, flattened ground under your large structures.',
-    tradeoff: 'Each pass spends the night you were saving.',
+    tradeoff: 'Every cell graded spends the night you were saving.',
   },
   iceExtraction: {
     id: 'iceExtraction', era: 1, lane: 'habitat', name: 'Cryo Ice Extraction', short: 'Ice Extraction',
@@ -2234,8 +2234,8 @@ export function describeEffect(fx: TechEffect, ctx: DescribeCtx = {}): EffectLin
       ];
     case 'grading':
       return [
-        pro(`NEW TOOL grade 16×16 m pads (≤${MAX_SLOPE_LARGE} m relief for large pads)`, 1, 'flag'),
-        con(`${GRADE_COST_ENERGY} stored energy per pass`, GRADE_COST_ENERGY, 'use'),
+        pro(`grading ×${GRADE_JOB.techMult}: rovers level a dragged box twice as fast, and can level tailings heaps (≤${MAX_SLOPE_LARGE} m relief for large pads)`, GRADE_JOB.techMult, 'mult'),
+        con(`${GRADE_JOB.energyPerCell} stored energy per cell graded`, GRADE_JOB.energyPerCell, 'use'),
       ];
     case 'recipe': return recipeLines(fx);
     case 'agentTax': {
@@ -2617,7 +2617,7 @@ export function techRelevance(def: TechDef, siteId: SiteId, exp: Expedition): bo
       case 'outputMult': case 'inputMult': case 'powerMult': case 'upkeepMult': case 'crewDelta': case 'buildTime':
         if (anyPlaceable(fx.buildings)) return true;
         break;
-      case 'grading': if (site.terrain.roughness >= 0.8) return true; break;
+      case 'grading': return true; // every site: grading is the rovers' job everywhere (docs/19 S5)
       case 'shadeImmune': if (site.terrain.roughness >= 1.0) return true; break;
       case 'nightDraw': if (site.nightSolarFraction < 0.5) return true; break;
       case 'feedBonus': if (fx.deposit !== 'plain' && siteHasDeposit(siteId, fx.deposit)) return true; break;

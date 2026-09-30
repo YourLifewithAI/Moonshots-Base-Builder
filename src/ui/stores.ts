@@ -1,6 +1,7 @@
 /** nanostores atoms — the one-way bridge sim → UI. The sim publishes at the
  *  1 Hz economy boundary (plus after actions); components subscribe to just
  *  the atoms they render. The UI never touches GameState directly. */
+import type { GradeView } from '../core/grading';
 import { atom } from 'nanostores';
 import type { ResourceId } from '../data/resources';
 import type { BuildingId } from '../data/buildings';
@@ -185,7 +186,7 @@ export interface DepositView {
 export interface DepositLit {
   /** 'lit': the hub wants it · 'dim': shown dimmer (a smelter's glass, KREEP) */
   tier: 'lit' | 'dim';
-  state: 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'plain' | 'stake';
+  state: 'open' | 'pit' | 'far' | 'full' | 'exhausted' | 'boxed' | 'reclaimed' | 'plain' | 'stake';
   /** one way, game-s (null: no hub position — its palette card); approx: no road yet (≈) */
   eta: number | null;
   approx: boolean;
@@ -280,6 +281,16 @@ export const $placing = atom<{
 } | null>(null);
 /** the road tool's hint (player/roadTool.ts): what a release would do; null = the tool is off */
 export const $roadTool = atom<{ mode: '' | 'lay' | 'remove'; cells: number; seconds: number; reason: string; started: boolean; waypoints?: number } | null>(null);
+/** the grading tool's hint (player/gradeTool.ts, docs/19 S5): the box under the cursor, what it takes, why not; null = off */
+export interface GradeToolHint {
+  started: boolean; cells: number; w: number; d: number;
+  /** rover-seconds at the base rate, the wall-clock estimate with the rovers it would take, stored energy, relief now (m) */
+  secs: number; eta: number; rovers: number; energy: number; relief: number;
+  /** cells on a tailings heap */
+  spoil: number;
+  ok: boolean; reason: string;
+}
+export const $gradeTool = atom<GradeToolHint | null>(null);
 export const $victory = atom<boolean>(false);
 export const $defeat = atom<boolean>(false);
 /** a victory or defeat overlay is up: the world's screens and keys wait under it */
@@ -549,10 +560,12 @@ export interface FleetView {
   /** extraction hubs and their units (docs/17) */
   hubs: Record<number, HubView>;
   units: UnitView[];
+  /** box-drag grading jobs under way (docs/19 S5, core/grading.ts) */
+  grading?: GradeView[];
   /** the survey-drone fleet (docs/19 S6) */
   survey: SurveyFleetView;
 }
-export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {}, hubs: {}, units: [], survey: EMPTY_SURVEY_FLEET });
+export const $fleet = atom<FleetView>({ rovers: [], sites: {}, hauls: {}, hubs: {}, units: [], grading: [], survey: EMPTY_SURVEY_FLEET });
 /** the hub unit in its inspector (unit id); a building or rover selection clears it */
 export const $unitSel = atom<number | null>(null);
 /** the construction rover in the inspector (roster id); a building selection clears it */

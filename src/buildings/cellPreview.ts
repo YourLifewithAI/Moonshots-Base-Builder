@@ -34,15 +34,16 @@ export class CellPreview {
   }
 
   /** Show these cells (cell keys); `remove` draws them dark; `dashed` (a road to come, docs/19 S3)
-   *  draws every other cell, in a cooler tint, so it reads as a route and not as a road laid. */
-  show(keys: readonly number[] | undefined, remove = false, dashed = false) {
-    const sig = `${remove ? 'r' : dashed ? 'd' : 'a'}${keys?.join(',') ?? ''}`;
+   *  draws every other cell, in a cooler tint, so it reads as a route and not as a road laid;
+   *  `tint` (the grading box, docs/19 S5) a colour and opacity of its own. */
+  show(keys: readonly number[] | undefined, remove = false, dashed = false, tint?: { color: number; opacity: number }) {
+    const sig = `${remove ? 'r' : dashed ? 'd' : tint ? `t${tint.color}` : 'a'}${keys?.join(',') ?? ''}`;
     if (sig === this.sig) return;
     this.sig = sig;
     const shown = dashed ? keys?.filter((_, i) => i % 2 === 0) : keys;
     const n = Math.min(MAX, shown?.length ?? 0);
-    this.mat.color.set(remove ? 0x101214 : dashed ? 0xbfe3ff : 0xf5f7f9);
-    this.mat.opacity = remove ? 0.55 : dashed ? 0.5 : 0.35;
+    this.mat.color.set(remove ? 0x101214 : dashed ? 0xbfe3ff : tint ? tint.color : 0xf5f7f9);
+    this.mat.opacity = remove ? 0.55 : dashed ? 0.5 : tint ? tint.opacity : 0.35;
     for (let i = 0; i < n; i++) {
       const [gx, gz] = keyCell(shown![i]);
       const [x, z] = cellCentre(gx, gz);
