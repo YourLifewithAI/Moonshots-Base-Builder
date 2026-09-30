@@ -48,7 +48,7 @@ import { inked } from './ink';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
 import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, standAt, type Agent, type Driver } from './traffic';
-import type { WorkAnim } from './workAnim';
+import type { WorkAnim, WorkMode } from './workAnim';
 
 const MAX_ROVERS = 64;
 /** a command view's listener height, as a share of the camera's distance */
@@ -188,8 +188,8 @@ interface Rover {
   target: number;
   vSim: number;
   /** what it does at its stand, from the sim (core/transit.ts, RoverUnit.task): welding a
-   *  building, sintering a road cell, or nothing (driving, parked, waiting) */
-  mode: 'weld' | 'sinter' | null;
+   *  building, sintering a road cell, levelling a grading job's cell, or nothing (driving, parked, waiting) */
+  mode: WorkMode | null;
 }
 
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -1219,7 +1219,7 @@ interface Drone {
   cx: number; cz: number;
   vSim: number;
   /** what it does over its stand, from the sim: welding a building, sintering a road cell, or nothing */
-  mode: 'weld' | 'sinter' | null;
+  mode: WorkMode | null;
 }
 
 /** The Drone Hive's units, drawn as quadcopters that fly straight at their

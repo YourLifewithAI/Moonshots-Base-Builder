@@ -35,6 +35,10 @@ export type Action =
   | { kind: 'surveyIce' }
   | { kind: 'orderResupply' }
   | { kind: 'grade'; gx: number; gz: number }
+  // box-drag grading (core/grading.ts, docs/19 S5): a rectangle of cells [gx0, gx1) × [gz0, gz1) rovers level over time;
+  // `instant` (tests, the debug API) levels it at once
+  | { kind: 'gradeBox'; gx0: number; gz0: number; gx1: number; gz1: number; instant?: boolean }
+  | { kind: 'cancelGrade'; id: number }
   | { kind: 'dismissAlert'; id: number }
   // fleet control (core/fleet.ts, core/haul.ts)
   | { kind: 'summonRover'; site: number }      // pin the nearest free rover here (or one from the busiest site)

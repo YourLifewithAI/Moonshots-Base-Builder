@@ -101,7 +101,7 @@ door (for a field type: to any cell within reach).
 | Spot | Refusal |
 |---|---|
 | on a road cell | `On a road — pick open ground beside it` |
-| too rough | `Terrain too rough (3.1 m relief > 2.5 m) — find flatter ground, or grade it (Site Grading)` (without Site Grading at the site: `find flatter ground`) |
+| too rough | `Terrain too rough (3.1 m relief > 2.5 m) — find flatter ground, or grade it (Grade Site)` (the Grade Site tool is on every site from landing, docs/19 S5) |
 | a door against a structure, off the map, on the apron, on a door | `NO ROAD ROUTE — its door (the front) is against a structure; R rotates`, and so on |
 | a structure no road reaches | `NO ROAD ROUTE — the rovers cannot reach it by road (walled in, or too steep)` |
 | a field type, every cell round it taken | `NO ROAD ROUTE — boxed in: no ground beside it for a road; set it edge to edge with a served Solar Array (no road needed)` |

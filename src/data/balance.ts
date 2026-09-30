@@ -71,7 +71,20 @@ export const HAUL = {
 };
 export const GRADE_COST_ENERGY = 40;   // stored energy per 16x16 m grading pass
 export const GRADE_REGOLITH_YIELD = 6; // spoil recovered per pass
-export const GRADE_CELLS = 4;          // grading footprint, cells
+export const GRADE_CELLS = 4;          // grading footprint, cells (the legacy square pass, gradeAt)
+/** Box-drag grading (docs/19 S5, core/grading.ts): a rectangle of cells rovers level cell by cell. */
+export const GRADE_JOB = {
+  /** rover-seconds a cell takes at the target height, plus this many more per `reliefM` of cut or fill */
+  cellS: 4, reliefM: 2,
+  /** stored energy paid when the job is queued, per cell (a heap's cells: × (1 + relief ÷ 2 m)) */
+  energyPerCell: GRADE_COST_ENERGY / (GRADE_CELLS * GRADE_CELLS),
+  /** regolith spoil recovered per levelled cell (into the nearest smelter's or refinery's hopper, else the pile) */
+  spoilPerCell: 1.5,
+  /** the biggest box, in cells (a 80 m square) */
+  maxCells: 400,
+  /** Site Grading's rate multiplier on every rover's work */
+  techMult: 2,
+} as const;
 export const MAX_SLOPE_DELTA = 2.5;    // max height delta (m) across a footprint
 
 export const START = {
