@@ -30,6 +30,11 @@
  *    away from structures and roads; a building placed later is respected from
  *    the next carve on; no pad's footing ever changes.
  *
+ *  - **Virtual pits** (docs/20 §4.2). On a flat stand-in ground (`hf.virtual`, terrain/flatHeights.ts)
+ *    a rival's pits are counted, not carved: the same fields, gating and batches, the rim solved from the
+ *    volume (`carveVirtual`), no grid, no zones, never boxed in; `faceCapacity`, `targetGrade`, `exhaustCheck`
+ *    and `runningOut` run unchanged on them.
+ *
  *  The heightfield is bound per state (`bindTerrain`, by Game.bootWorld): the
  *  economy tick has no terrain of its own. Pure otherwise: no Three.js, no
  *  randomness beyond the seeded loose layer and stake jitter. */
