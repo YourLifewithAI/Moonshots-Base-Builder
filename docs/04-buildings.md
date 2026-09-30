@@ -214,22 +214,22 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Battery Bank | 1,172 | 2,266 | 4 |
 | Thorium Reactor | 1,978 | 2,270 | 2 |
 | Regolith Smelter | 1,204 | 2,540 | 11 |
-| Silicon Refinery | 2,348 | 3,320 | 8 |
+| Silicon Refinery | 2,336 | 3,308 | 8 |
 | Water Management Plant | 2,240 | 2,472 | 4 |
 | Storage Yard | 1,668 | 1,728 | 1 |
-| Robotics Bay | 1,740 | 3,478 | 12 |
+| Robotics Bay | 1,656 | 3,394 | 12 |
 | Parts Fabricator | 1,224 | 1,820 | 6 |
 | Chip Fab | 1,216 | 2,056 | 9 |
 | Habitat Module | 1,736 | 3,028 | 10 |
 | Hydroponics Farm | 1,896 | 2,924 | 6 |
 | Recreation Dome | 1,956 | 2,080 | 1 |
-| Research Lab | 1,968 | 3,664 | 7 |
+| Research Lab | 1,920 | 3,616 | 7 |
 | Relay Mast | 1,670 | 2,274 | 4 |
 | Prospecting Bay | 688 | 688 | 0 |
 | Solar Observatory | 1,077 | 2,041 | 2 |
 | Data Center | 1,890 | 3,542 | 11 |
 | Foil Factory | 1,492 | 2,522 | 6 |
-| Mass Driver | 1,100 | 1,860 | 5 |
+| Mass Driver | 1,076 | 1,836 | 5 |
 | Propellant Plant | 2,440 | 3,648 | 6 |
 | Drone Hive | 1,684 | 1,744 | 1 |
 | Greenhouse Ring | 1,952 | 2,048 | 2 |
