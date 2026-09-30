@@ -21,7 +21,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock';
+const BASE = '/?debug&seed=42';
 const DEG = Math.PI / 180;
 
 async function boot(page: Page, site = 'mare', extra = '') {
@@ -252,9 +252,10 @@ test('isometric camera: Q/E turn exactly 90°, the wheel zooms continuously, WAS
   let c = await settled(page);
   const home = c.target;
   expect(c.fov).toBe(20);
-  expect(c.iso).toMatchObject({ yawStep: 0, level: 1, pitchDeg: 32 });
+  expect(c.iso).toMatchObject({ rot: 0, tilt: 0 });
+  expect(c.iso.zoom, 'the home distance').toBeCloseTo(170, 0);
   expect(c.iso.yawDeg).toBeCloseTo(45, 6);
-  expect(c.iso.levels).toHaveLength(5);
+  expect((await g(page, 'getRenderInfo')).camera, 'the render info names the same view').toMatchObject({ rot: 0, tilt: 0 });
   expect(c.azimuth).toBeCloseTo(45 * DEG, 6);
   const pitch = (q: any) => Math.asin((q.pos.y - q.target.y) / q.dist);
   expect(pitch(c)).toBeCloseTo(32 * DEG, 3);
@@ -262,19 +263,19 @@ test('isometric camera: Q/E turn exactly 90°, the wheel zooms continuously, WAS
   // E turns one step, Q the other way; exactly 90° each, the pitch kept
   await page.keyboard.press('KeyE');
   c = await settled(page);
-  expect(c.iso.yawStep).toBe(1);
+  expect(c.iso.rot).toBe(1);
   expect(c.azimuth).toBeCloseTo(135 * DEG, 6);
   expect(pitch(c)).toBeCloseTo(32 * DEG, 3);
   await page.keyboard.press('KeyQ');
   await page.keyboard.press('KeyQ');
   c = await settled(page);
-  expect(c.iso.yawStep).toBe(-1);
+  expect(c.iso.rot, 'two steps back from 1: 3').toBe(3);
   expect(c.azimuth).toBeCloseTo(-45 * DEG, 6);
   // a held key turns once, whatever the OS repeat does
   for (let i = 0; i < 5; i++) await page.keyboard.down('KeyE');
   await page.keyboard.up('KeyE');
   c = await settled(page);
-  expect(c.iso.yawStep).toBe(0);
+  expect(c.iso.rot).toBe(0);
   expect(c.azimuth).toBeCloseTo(45 * DEG, 6);
   // turning never moves the target
   expect(Math.hypot(c.target.x - home.x, c.target.z - home.z)).toBeLessThan(0.5);
@@ -292,15 +293,15 @@ test('isometric camera: Q/E turn exactly 90°, the wheel zooms continuously, WAS
   expect(dists.slice(2).map((d) => Math.round(d))).toEqual([830, 830, 830]);
   for (let i = 0; i < 5; i++) { await page.mouse.wheel(0, -120); await frames(page, 2); }
   c = await settled(page);
-  expect(c.iso.level).toBe(0);
-  expect(c.dist).toBeCloseTo(100, 0);
-  // a trackpad's trickle adds up to a step
+  expect(c.iso.zoom, 'the wheel closes in to the near limit').toBeCloseTo(100, 0);
+  // a trackpad's trickle adds up: four events of 15 (a notch is 100, x1.7) are x1.7^0.6
   await page.evaluate(() => {
     const cv = document.getElementById('world')!;
     for (let i = 0; i < 4; i++) cv.dispatchEvent(new WheelEvent('wheel', { deltaY: 15, bubbles: true, cancelable: true }));
   });
   c = await settled(page);
-  expect(c.iso.level).toBe(1);
+  expect(c.iso.zoom).toBeGreaterThan(125);
+  expect(c.iso.zoom).toBeLessThan(150);
 
   // W pans toward where the camera looks
   const t0 = c.target, look = { x: c.target.x - c.pos.x, z: c.target.z - c.pos.z };
@@ -336,13 +337,13 @@ test('isometric camera: Q/E turn exactly 90°, the wheel zooms continuously, WAS
     const q = await cam(page);
     return Math.hypot(q.target.x - labX, q.target.z - labZ);
   }, { timeout: 15_000 }).toBeLessThan(1);
-  expect((await settled(page)).iso.level).toBe(0);
+  expect((await settled(page)).iso.zoom, 'F closes in').toBeCloseTo(100, 0);
   await page.keyboard.press('KeyH');
   await expect.poll(async () => {
     const q = await cam(page);
     return Math.hypot(q.target.x - home.x, q.target.z - home.z);
   }, { timeout: 15_000 }).toBeLessThan(1);
-  expect((await settled(page)).iso.level).toBe(1);
+  expect((await settled(page)).iso.zoom, 'H goes home').toBeCloseTo(170, 0);
 
   // clamped to the map, and always over the ground
   await page.keyboard.down('KeyA');
@@ -412,7 +413,7 @@ test('frame cost: draw calls, triangles and frame time stay small', async ({ pag
     g.setPaused(true);
     g.grantResources({ metals: 3000, parts: 1000 });
     for (const [t, x, z] of [['solar', 132, 126], ['solar', 132, 130], ['habitat', 126, 132], ['lab', 135, 133],
-      ['excavator', 120, 126], ['storageYard', 121, 132]] as const) g.placeBuilding(t, x, z);
+      ['smelter', 120, 126], ['storageYard', 121, 132]] as const) g.placeBuilding(t, x, z);
     g.finishConstruction();
   });
   await page.waitForTimeout(2000);
@@ -529,7 +530,7 @@ test('solar wings stand near-vertical under the grazing polar night sun', async 
  *  paused at game-second `t` of a fresh `site` world; returns its ids. */
 async function litBase(page: Page, site: string, seed: number, t: number): Promise<number[]> {
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto(`/?debug&seed=${seed}&nolock&site=${site}`);
+  await page.goto(`/?debug&seed=${seed}&site=${site}`);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => {
     window.__game.setPaused(true);
@@ -656,7 +657,7 @@ test('own light: a sunlit base at mare noon is dark-free and lays no pool; night
 });
 
 test('safe mode from boot: buildings placed later come up unlit', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&site=mare&safe');
+  await page.goto('/?debug&seed=42&site=mare&safe');
   await page.waitForFunction(() => window.__game !== undefined);
   expect(await page.evaluate(() => window.__game.placeBuilding('solar', 132, 126))).toBe(true);
   const info = await renderInfo(page);
@@ -677,7 +678,7 @@ test('base life: rovers, dust, launch and resupply on the cel materials; none of
   page.on('pageerror', (e) => shaderErrors.push(String(e)));
   // a small canvas keeps software GL near a few frames a second
   await page.setViewportSize({ width: 800, height: 450 });
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&seed=42&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   const life = async () => (await renderInfo(page)).life;
   await page.evaluate(() => {
@@ -694,14 +695,15 @@ test('base life: rovers, dust, launch and resupply on the cel materials; none of
   expect(info.rovers.material).toBe('ShaderMaterial');
   const start = info.rovers.positions;
   await expect.poll(async () => (await life()).rovers.assigned, { timeout: 30_000 }).toBeGreaterThan(0);
-  // emitters and visibility read from one frame: a rover can stop between two reads
+  // emitters, visibility and grains read from one frame: a rover can stop between two reads
+  let dust: any = null;
   await expect.poll(async () => {
     const d = (await life()).dust;
-    return d.emitters > 0 ? d.visible : 'no emitters';
+    dust = d;
+    return d.emitters > 0 ? d.visible && d.grains > 0 : 'no emitters';
   }, { timeout: 60_000 }).toBe(true);
+  expect(dust.mode, 'grains parked in static puffs').toBe('static');
   info = await life();
-  expect(info.dust.mode, 'grains parked in static puffs').toBe('static');
-  expect(info.dust.grains).toBeGreaterThan(0);
   expect(info.rovers.positions, 'the rovers left their parking spots').not.toEqual(start);
 
   // a volley flies off the rail and the swarm shows in the sky; the habitat is bermed
@@ -785,7 +787,7 @@ test('safe mode draws the plain path from boot and at runtime, and the black-fra
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.setViewportSize({ width: 800, height: 450 });
   // from boot
-  await page.goto('/?debug&seed=42&nolock&site=mare&safe');
+  await page.goto('/?debug&seed=42&site=mare&safe');
   await page.waitForFunction(() => window.__game !== undefined);
   await expect.poll(async () => (await renderInfo(page)).framesDrawn).toBeGreaterThan(3);
   let info = await renderInfo(page);
@@ -795,7 +797,7 @@ test('safe mode draws the plain path from boot and at runtime, and the black-fra
   expect(await framesIn(page)).toBeGreaterThan(0);
 
   // at runtime: switching on unlights everything at once, at any hour
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&seed=42&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await expect.poll(async () => (await renderInfo(page)).framesDrawn).toBeGreaterThan(2);
   expect((await renderInfo(page)).safeMode).toBe(false);
@@ -842,7 +844,7 @@ test('safe mode draws the plain path from boot and at runtime, and the black-fra
 });
 
 test('safe mode holds across a reload; turning it off in the menu clears it', async ({ page }) => {
-  await page.goto('/?debug&seed=42&nolock&site=mare');
+  await page.goto('/?debug&seed=42&site=mare');
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => window.__game.enableSafeMode()); // as the render check does
   await page.reload();
