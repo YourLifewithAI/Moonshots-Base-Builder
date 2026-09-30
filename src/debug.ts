@@ -11,7 +11,7 @@ import { GRID, missionLost, refreshDerived, volleyTerms } from './core/economy';
 import { FACTIONS, FACTION_ORDER, type FactionId } from './data/factions';
 import { isHubType } from './data/hubs';
 import type { Action } from './core/actions';
-import type { RivalProgram } from './core/rival';
+import { RivalProgram } from './core/rival';
 import { pushFeed, type FeedKind } from './core/moon';
 import { BaseSim } from './core/baseSim';
 import { HEADLESS_MODE } from './core/simMode';
@@ -98,6 +98,13 @@ function api(game: Game) {
      *  programs take the sites left and the ones that land earlier are already on the Moon. `selectSite` stays a solo game. */
     selectFaction: (faction: FactionId, site?: SiteId) =>
       game.startNew(site ?? FACTIONS[faction].sites[0], FACTIONS[faction].expedition, faction),
+    /** the descent screen's path (`Game.newGame`): the same new faction game with the pre-roll spread over frames, a promise that resolves when
+     *  the player has landed (it clears the saved game first, as the site screen's Land button does) */
+    selectFactionChunked: (faction: FactionId, site?: SiteId) =>
+      game.newGame(site ?? FACTIONS[faction].sites[0], FACTIONS[faction].expedition, faction),
+    /** Give the rivals a mind (the default) or not: off, a rival that lands from now on is the passive base of stream W0i, for a spec that plays
+     *  a rival by hand (`rivalApply`). Call it before `selectFaction`. */
+    setRivalMind: (on: boolean) => { RivalProgram.mind = !!on; },
     /** the shared Moon (clone): clock, flare schedule, claims, race, where and when each faction lands */
     getMoon: () => clone(game.moon ?? null),
     /** the race as the Moon holds it (per faction launches, share, first light, era; phase) */

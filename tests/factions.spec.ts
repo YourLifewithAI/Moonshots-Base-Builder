@@ -88,10 +88,17 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
     expect(x.briefing, x.id).toBeLessThanOrEqual(3);
     expect(x.advantages, x.id).toBeGreaterThan(1);
     expect(x.disadvantages, x.id).toBeGreaterThan(1);
-    // S3 filled the unique content (two buildings and an eight-tech branch each: tests/research.spec.ts reads them) and S4 the policy: empty for now, typed and present
+    // S3 filled the unique content (two buildings and an eight-tech branch each: tests/research.spec.ts reads them)
     expect(x.uniqueBuildings).toHaveLength(2);
     expect(x.uniqueTechs).toHaveLength(8);
-    expect(x.policy).toEqual({ research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, orders: [] });
+    // S4 filled the policy (core/rival.ts reads it): a research list, the destiny side, the doctrine picks, the claim kinds, the caps, the orders
+    expect(x.policy.research.length, x.id).toBeGreaterThan(20);
+    expect(typeof x.policy.destiny === 'string' || Object.keys(x.policy.destiny).length > 0, x.id).toBe(true);
+    expect(Object.keys(x.policy.doctrines).length, x.id).toBeGreaterThan(3);
+    expect(x.policy.claimKinds.length, x.id).toBeGreaterThan(0);
+    expect(x.policy.ruleCaps, x.id).toEqual(expect.any(Object));
+    expect(x.policy.lateCaps, x.id).toEqual({ solar: 60, battery: 10, reactor: 4 });
+    expect(x.policy.orders.length, x.id).toBeGreaterThan(10);
     // the landing tech is the Era 1 faction pick, free, locked to its faction and its expedition
     expect(x.mapped).toBe(x.landingTech);
     expect(x.name2).toBe(x.name);
@@ -573,7 +580,8 @@ test('the UI half, the RACE chip: in a faction game, never in solo; the panel li
   await expect(rows.nth(2)).toContainText('not landed yet');
   await expect(rows.nth(0).locator('.rc-launches')).toHaveText('0 volleys');
   await expect(rows.nth(0).locator('.rc-fl')).toHaveText('first light —');
-  await expect(rows.nth(0).locator('.rc-era')).toHaveText('ERA 1');
+  // (the Foundry plays since S4: it has been thinking for two days, Era 2 opens for it on the first morning)
+  await expect(rows.nth(0).locator('.rc-era')).toHaveText(/^ERA [2-9]$/);
   await chip.click();
   await expect(panel).toBeHidden();
 

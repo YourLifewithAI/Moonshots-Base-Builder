@@ -86,10 +86,10 @@ export function registerRaceFeed() {
   const card = (e: FeedEvent, kind: 'info' | 'warn' = 'info') =>
     ({ text: e.text, kind, faction: e.faction, action: { panel: 'race' } });
   // the player's own landing and eras have their own screens; it is the other programs' that are news
-  onFeed('landed', (e, { player }) => { if (e.faction !== player.faction) notify(player, 'race', card(e)); });
-  onFeed('era', (e, { player }) => { if (e.faction !== player.faction) notify(player, 'race', card(e)); });
+  onFeed('landed', (e, { player }) => { if (player && e.faction !== player.faction) notify(player, 'race', card(e)); });
+  onFeed('era', (e, { player }) => { if (player && e.faction !== player.faction) notify(player, 'race', card(e)); });
   // your own hearing is already a hazard-family alert on the base (core/scrutiny.hearing): only a rival's is news here
-  onFeed('hearing', (e, { player }) => { if (e.faction !== player.faction) notify(player, 'race', card(e)); });
+  onFeed('hearing', (e, { player }) => { if (player && e.faction !== player.faction) notify(player, 'race', card(e)); });
 }
 
 // ─────────────────────────── the mount ───────────────────────────
