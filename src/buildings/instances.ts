@@ -25,6 +25,7 @@ import type { BuildingDarkness } from './darkness';
 import { Trackers, type Placed } from './trackers';
 import { scaffoldGeometry, type ScaffoldSite } from './scaffold';
 import { materials } from '../world/materials';
+import { inked } from '../world/ink';
 import { CUT_NONE, EMISSIVE, buildingUniforms, channelDark, lightLevel, litChannel } from './celBuilding';
 import { ContactDecals } from './contactDecals';
 import { CelFloods } from './celFloods';
@@ -180,7 +181,8 @@ export class BuildingInstances {
       m.count = 0;
       m.userData.buildingType = type;
       this.meshes.set(type, m);
-      this.group.add(m);
+      // its ink outline (a child: follows the instances, count and geometry swaps)
+      this.group.add(inked(m));
     }
     return m;
   }

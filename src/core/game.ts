@@ -81,6 +81,7 @@ import { createRenderer, createCamera, drawFrame, probeGround } from '../world/r
 import { CelLighting, sunStep } from '../world/celLighting';
 import { installCel } from '../world/cel';
 import { CEL_MARKER, celFallbackMaterial } from '../buildings/celBuilding';
+import { INK_MARKER, breakInk, inkFaulted, inkInfo, outlineList, setInkEnabled, setInkVariant } from '../world/ink';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
 import { materials } from '../world/materials';
@@ -209,8 +210,11 @@ export class Game {
       console.error(`THREE.WebGLProgram: Shader Error — ${gl.getProgramInfoLog(program)?.trim() ?? ''}\n` +
         `vertex: ${log(vs)}\nfragment: ${log(fs)}`);
       const src = (m: string) => [vs, fs].some((s) => gl.getShaderSource(s)?.includes(m));
-      // the cel building program's own fault outranks any other
+      // the cel building program's own fault outranks any other; the ink
+      // outline program's is the cheapest of all (hide the outlines), so any
+      // other program's fault (safe mode, which hides them too) outranks it
       if (src(CEL_MARKER)) this.shaderFault = 'cel';
+      else if (src(INK_MARKER)) this.shaderFault ??= 'ink';
       else if (this.shaderFault !== 'cel') this.shaderFault = 'other';
     };
     // context loss (driver reset / tab memory pressure) looks like a permanent
@@ -1504,9 +1508,9 @@ export class Game {
   private probes = { ok: 0, black: 0, unknown: 0 };
   private safeMode = false;
   /** a shader program that failed to compile this frame: the cel building
-   *  program (its fallback is stock Lambert) or any other (safe mode). S1b
-   *  adds 'ink' for the outlines. */
-  private shaderFault: 'cel' | 'other' | null = null;
+   *  program (its fallback is stock Lambert), the ink outline program (its
+   *  fallback is no outlines) or any other (safe mode). */
+  private shaderFault: 'cel' | 'ink' | 'other' | null = null;
   /** the last drawn frame's totals */
   private frameStats = { calls: 0, triangles: 0, points: 0, lines: 0 };
 
@@ -1643,14 +1647,21 @@ export class Game {
 
   /** A shader failed to compile this frame. The cel building program is the
    *  likely culprit and the cheapest to lose: stock Lambert in the same
-   *  palette takes its place (the glow and the print reveal go). Any other
-   *  program means safe mode. */
+   *  palette takes its place (the glow and the print reveal go). The ink
+   *  outlines' program failing only hides the outlines. Any other program
+   *  means safe mode. */
   private recoverFromShaderFault() {
     const fault = this.shaderFault;
     this.shaderFault = null;
     if (fault === 'cel' && materials.replace('building', celFallbackMaterial(), this.scene)) {
       console.warn('[MOONSHOTS] Cel building shader failed to compile — stock Lambert.');
       if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
+      return;
+    }
+    if (fault === 'ink') {
+      inkFaulted();
+      console.warn('[MOONSHOTS] Ink outline shader failed to compile — no outlines.');
+      if (this.state) { alert(this.state, 'RENDER — outlines disabled (GPU limitation)', 'warn'); this.publish(); }
       return;
     }
     this.renderFailed('shader compile error');
@@ -1668,6 +1679,7 @@ export class Game {
     this.safeTrial = false;
     console.warn('[MOONSHOTS] Safe render mode enabled — simplified materials, no effects.');
     materials.enableSafe(this.scene);
+    setInkEnabled(false); // no custom programs in safe mode: no outlines
     this.rocks?.setSafe(true);
     if (persist) saveSettings({ safe: true });
     if (this.state && auto) {
@@ -1687,6 +1699,7 @@ export class Game {
     this.safeTrial = true;
     console.warn('[MOONSHOTS] Safe render mode off — lit materials.');
     materials.disableSafe(this.scene);
+    setInkEnabled(true);
     this.rocks?.setSafe(false);
     this.reprobe(2);
   }
@@ -1703,6 +1716,12 @@ export class Game {
   }
 
   /** Hold the black-frame sentinel off (a test of what only a probe sees). */
+  /** the ink outlines' program fails to compile on the next frame (tests) */
+  debugBreakInk() { breakInk(); }
+
+  /** the bake-off's variant for the outlines, over the constant (screenshots, tests) */
+  debugSetInkVariant(v: 'A' | 'B' | 'C' | null) { setInkVariant(v); }
+
   debugHoldProbe(on: boolean) {
     this.probeHeld = on;
     this.nextProbe = on ? Number.POSITIVE_INFINITY : this.playFrames + 40;
@@ -2943,7 +2962,9 @@ export class Game {
       drawCalls: this.frameStats.calls,
       triangles: this.frameStats.triangles,
       camera: { rot: iso.rot, tilt: iso.tilt, zoom: iso.zoom },
-      outlines: 0,
+      /** ink outline meshes drawing this frame (0 in safe mode or after a fault); `ink` has the detail */
+      outlines: inkInfo().drawn,
+      ink: { ...inkInfo(), list: outlineList() },
       ramp: 3,
       /** the last drawn frame */
       frame: { ...this.frameStats },
