@@ -173,13 +173,19 @@ export function targetOf(s: GameState, key: string | null | undefined): Target |
 /** The pit a target is dug into, once cut (null: not yet). */
 export const pitAt = (s: GameState, t: Pick<Target, 'key'>): PitState | null => pitOf(s, t.key);
 
+/** m between two faces of one pit at least (a unit is 3.8 m across) */
+const FACE_GAP_M = 3.6;
+
 /** Face `i`'s point (world m). Once its pit is cut: on the pit's floor by
  *  the wall, spread round the far side from its ramp (1:2 walls: the floor
  *  is R − 2L across). Before: evenly round the target from a seeded angle. */
 export function facePoint(s: GameState, t: Target, i: number): Pt {
   const p = pitAt(s, t);
   if (p) {
-    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
+    let rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
+    // (docs/19 S4a) faces sit far enough apart for the bodies of the units that dig them (a deep cone's
+    // floor is a few metres across: its faces spread onto the wall's foot rather than pile up in the middle)
+    if (t.faces > 1) rf = Math.min(Math.max(rf, FACE_GAP_M / 2 / Math.sin(Math.PI * 0.6 / (t.faces - 1))), 0.8 * p.R);
     const back = Math.atan2(-p.uz, -p.ux);
     const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * Math.PI * 1.2 : 0);
     return [p.cx + Math.cos(a) * rf, p.cz + Math.sin(a) * rf];

@@ -14,23 +14,28 @@
  *  - **Runs.** A unit holds the run ahead: the cells of its path from where
  *    it stands to the next *boundary* — a road cell beside a passing or
  *    holding bay (`RoadCell.pass`, `hold`) or a dock bay, or a pit ramp — or
- *    to the end of its path. The whole run is granted or none of it; a unit
- *    behind another going the same way (a convoy) is granted the cells behind
- *    it. So two units never meet head on in the middle of a stretch, and an
- *    opposing unit waits at the boundary it is at, in the bay if it has one.
+ *    to the end of its path; on a road with no bay in reach, 48 m ahead. The
+ *    whole run is granted or none of it (a unit standing in a bay holds none
+ *    of it until it can have all); a unit behind another going the same way
+ *    (a convoy) is granted the cells behind it. So two units never meet head
+ *    on in the middle of a stretch, and an opposing unit waits at the
+ *    boundary it is at, in the bay if it has one.
  *  - **Priority.** A loaded digger before an empty one before a rover, ties
- *    by id. The tick is two-phase: every unit's claim is planned in that
+ *    by id. The tick is two-phase: every digger's claim is planned in that
  *    order (`trafficPlan`, economy step 0), then they move (`go`, called by
- *    the hub units' cycle and, for rovers, `roverStep` in core/transit.ts), so
- *    a unit early in the roster cannot take a run a loaded unit should have
- *    had. A leg begun mid-tick asks on the spot, after everyone's plan.
+ *    the hub units' cycle), so a unit early in the roster cannot take a run a
+ *    loaded unit should have had. A leg begun mid-tick asks on the spot, after
+ *    everyone's plan. A rover holds no ground of its own: `roverStep`
+ *    (core/transit.ts) makes it wait for a digger's claim, its clock standing
+ *    still (the trip's ETA stretches) and a digger is never held up by one.
  *  - **Waiting.** A unit refused a cell stops at the centre of the cell before
  *    it (`h.held` counts the seconds). A lower-priority unit that stands where a
  *    higher one needs to pass, and does not move, pulls into the bay beside it
  *    (a `pass` or `hold` cell, or a dock bay), else after 3 s onto the free
- *    ground beside the road. Held 20 s it lets go of the ground ahead and steps
- *    aside; held 60 s (a rover in the way: 20 s) it drives through, counted.
- *    The counters are in `getRenderInfo().life.traffic.sim`.
+ *    ground beside the road (or a free road cell off the other's way). Held
+ *    20 s a unit lets go of the ground ahead and steps aside; held 60 s (a rover
+ *    held 20 s) it drives through, counted. The counters are in
+ *    `getRenderInfo().life.traffic.sim`; `getTraffic()` (debug) says who holds what.
  *
  *  Claims are kept on the unit (`HaulState.claim`, a few cell numbers) so a
  *  saved game resumes them; the table of who holds what is rebuilt every tick.
