@@ -18,6 +18,8 @@ export type MaterialKey = 'building' | 'terrain' | 'rock' | 'ghost' | 'dust' | '
 
 class MaterialRegistry {
   private mats = new Map<MaterialKey, THREE.Material>();
+  /** a stock material to fall back to, per key made of a custom program */
+  private fallbacks = new Map<MaterialKey, () => THREE.Material>();
   private twins = new Map<MaterialKey, THREE.Material>();
   private safe = false;
   /** meshes whose unregistered lit material safe mode replaced */
@@ -26,10 +28,14 @@ class MaterialRegistry {
    *  differently under it poll it */
   revision = 0;
 
-  /** The material for `key` (a later call replaces an earlier one). */
-  define(key: MaterialKey, mat: THREE.Material) {
+  /** The material for `key` (a later call replaces an earlier one). A custom
+   *  program passes `fallback`: the stock material that takes its place if
+   *  the cel programs fail to compile (replaceCustom). */
+  define(key: MaterialKey, mat: THREE.Material, fallback?: () => THREE.Material) {
     this.mats.set(key, mat);
     this.twins.delete(key);
+    if (fallback) this.fallbacks.set(key, fallback);
+    else this.fallbacks.delete(key);
   }
 
   /** Is `key` drawing with its own custom program (not a stock fallback,
@@ -52,6 +58,19 @@ class MaterialRegistry {
       if (mesh.material === old) mesh.material = fallback;
     });
     return true;
+  }
+
+  /** A cel program failed on this GPU and the log does not say which: every
+   *  custom program that has a fallback (the buildings', the ground's) is
+   *  replaced under `root`, and for every mesh made later. False when there
+   *  was none to replace (the fault lies elsewhere). */
+  replaceCustom(root: THREE.Object3D): boolean {
+    let any = false;
+    for (const key of [...this.fallbacks.keys()]) {
+      const make = this.fallbacks.get(key)!;
+      if (this.replace(key, make(), root)) any = true;
+    }
+    return any;
   }
 
   private twin(key: MaterialKey, mat: THREE.Material): THREE.Material {

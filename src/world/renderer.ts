@@ -51,9 +51,10 @@ export function drawFrame(renderer: THREE.WebGLRenderer, scene: THREE.Scene, cam
  *  view to tell. */
 export type ProbeVerdict = 'black' | 'ok' | 'unknown';
 
-/** r+g+b at or under this is black (lit or floored regolith never is; the
- *  black sky is fine) */
-export const BLACK_SUM = 2;
+/** r+g+b (0..255 each) at or under this is black: lit or floored regolith
+ *  never is (the night ground, earthshine on a stepped ramp, sits far above),
+ *  and the sky's dark clear colour is fine */
+export const BLACK_SUM = 12;
 
 /** Some drivers fail shader compilation silently and render pure black —
  *  sometimes only one program (the terrain) while buildings still draw.

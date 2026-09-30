@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import type { SiteDef } from '../data/sites';
 import { skyDirection } from '../core/daynight';
+import { GROUND_RAMP, ramp } from './celStyle';
 
 const SUN_STEP_RAD = 0.1 * Math.PI / 180; // re-aim once the sun turns 0.1° (up to 3×)
 
@@ -32,13 +33,35 @@ export function sunStep(speed: number): number {
   return Math.cos(SUN_STEP_RAD * Math.max(1, speed / 3));
 }
 
-/** the key and fill as the cel building shader sees them */
+/** the light as the cel programs see it (the building shader and the ground's
+ *  own, world/celSurface.ts): the key, the fill, the colour a face at the top
+ *  step wears (`uLightFull`, albedo units) and the ramp that steps it. */
 export const celLightUniforms = {
   uLightDir: { value: new THREE.Vector3(0, 1, 0) },
   uLightColor: { value: new THREE.Color(1, 1, 1) },
   uSky: { value: new THREE.Color(0.3, 0.3, 0.3) },
   uGround: { value: new THREE.Color(0.2, 0.2, 0.2) },
+  uLightFull: { value: new THREE.Color(1, 1, 1) },
+  /** the building ramp: the levels (brightest first; a 2-step ramp repeats its last) and where they begin */
+  uRamp: { value: new THREE.Vector3(1, 0.72, 0.5) },
+  uRampEdge: { value: new THREE.Vector2(0.3, -0.15) },
+  uRampSoft: { value: 0.02 },
+  /** the ground ramp: the shaded step's level and how far a face turns (n·l) before it wears it */
+  uGroundRamp: { value: new THREE.Vector2(GROUND_RAMP.shade, GROUND_RAMP.drop) },
 };
+
+{
+  // the variant's ramp (celStyle.ts, `?cel=`) into the uniforms, once
+  const r = ramp();
+  const lv = r.levels;
+  celLightUniforms.uRamp.value.set(lv[0], lv[1], lv[lv.length - 1]);
+  celLightUniforms.uRampEdge.value.set(r.edges[0], r.edges.length > 1 ? r.edges[1] : -2);
+  celLightUniforms.uRampSoft.value = r.soft;
+}
+
+/** what a face at the top step wears: the key and a share of the fill (so a
+ *  noon roof shows its own colour, and dusk and earthshine dim it) */
+const KEY_SHARE = 0.85, FILL_SHARE = 0.35;
 
 const DEG = Math.PI / 180;
 const SUN_TOP = 0.56;                 // rad: the day arc's peak (core/daynight.ts)
@@ -51,11 +74,17 @@ const GROUND_DAY = new THREE.Color(0.24, 0.215, 0.19);
 const EARTH = new THREE.Color(0.16, 0.22, 0.38);
 const SKY_NIGHT = new THREE.Color(0.06, 0.085, 0.15);
 const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
+/** the clear colour is the sky: black with a trace of blue by day and by night (its r+g+b stays under the black-frame probe's 12, so a frame with no ground still reads black)
+ *  (no dome and no stars; what the camera never sees needs no more) */
+const SKY_CLEAR_DAY = new THREE.Color(0x020306);
+const SKY_CLEAR_NIGHT = new THREE.Color(0x010204);
 
 export class CelLighting {
   readonly sun: THREE.DirectionalLight;
   readonly fill: THREE.HemisphereLight;
 
+  /** the scene's clear colour */
+  private readonly clear: THREE.Color;
   private sunDir = new THREE.Vector3(0, 1, 0);
   private keyDir = new THREE.Vector3(0, 1, 0);
   private earthDir = new THREE.Vector3(0, 1, 0);
@@ -64,7 +93,8 @@ export class CelLighting {
   private v = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
-    scene.background = new THREE.Color(0x000000);
+    this.clear = new THREE.Color().copy(SKY_CLEAR_DAY);
+    scene.background = this.clear;
     this.sun = new THREE.DirectionalLight(0xffffff, Math.PI);
     this.sun.castShadow = false;
     this.fill = new THREE.HemisphereLight(0xffffff, 0x000000, Math.PI);
@@ -102,6 +132,7 @@ export class CelLighting {
     this.sun.position.copy(this.keyDir).multiplyScalar(100);
     this.sun.target.position.set(0, 0, 0);
     this.sun.updateMatrixWorld();
+    this.clear.copy(SKY_CLEAR_DAY).lerp(SKY_CLEAR_NIGHT, Math.max(night, 1 - up));
     this.fill.color.copy(SKY_DAY).lerp(SKY_NIGHT, night);
     this.fill.groundColor.copy(GROUND_DAY).lerp(GROUND_NIGHT, night);
 
@@ -110,6 +141,8 @@ export class CelLighting {
     u.uLightColor.value.copy(key);
     u.uSky.value.copy(this.fill.color);
     u.uGround.value.copy(this.fill.groundColor);
+    const f = this.fill.color;
+    u.uLightFull.value.setRGB(key.r * KEY_SHARE + f.r * FILL_SHARE, key.g * KEY_SHARE + f.g * FILL_SHARE, key.b * KEY_SHARE + f.b * FILL_SHARE);
   }
 
   /** The sun's light as a fraction of full (0 once it has set). */
