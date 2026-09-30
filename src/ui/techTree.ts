@@ -104,10 +104,6 @@ for (const tid of TECH_ORDER) {
 
 const CHARTER_RULE = `An era opens with ${CHARTER_TECHS} of the previous era’s techs — or ${CHARTER_DEED_TECHS} plus a deed.`;
 
-function prettyProspect(id: string): string {
-  return id.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^\w/, (c) => c.toUpperCase());
-}
-
 // ─────────────────────────── the screen ───────────────────────────
 
 let focusHook: ((tid: TechId | null) => void) | null = null;
@@ -485,8 +481,9 @@ export function mountTechTree(root: HTMLElement, game: Game) {
         <div class="l2"><span class="l2a">the Era 8 pick settles it</span></div></div>`;
     }
     if (it.ph) {
-      return `<div class="cb"><div class="l1"><span class="gl">✦</span><span class="nm">? Breakthrough</span></div>
-        <div class="l2"><span class="l2a">survey an anomaly</span></div></div>`;
+      // the compass (docs/19 S6): a ◎ badge and the nearest real host, with the count of the others
+      return `<div class="cb"><div class="l1"><span class="gl" title="Exploration: found by surveying">◎</span><span class="nm">? Breakthrough</span></div>
+        <div class="l2"><span class="l2a">${esc(c.compass ? c.compass.short : 'survey the Moon')}</span></div></div>`;
     }
     const v = view!;
     const L = layout!;
@@ -495,6 +492,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const marks: string[] = [];
     if (c.doctrine) marks.push('<span title="Doctrine — choose one, permanent">◇</span>');
     if (c.breakthrough) marks.push('<span title="Breakthrough">✦</span>');
+    if (c.compass) marks.push(`<span class="cmp" title="${esc(c.compass.text)}">◎</span>`);
     if (c.siteTech) {
       const only = (TECHS[c.tid].sites ?? []).map(siteName).join(' / ');
       marks.push(`<span title="${esc(only)} only">◬</span>`);
@@ -575,7 +573,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
       e.tabIndex = -1;
       e.style.cssText = `--r:${it.row};--x:${it.x}px;--w:${it.w}px`;
       e.setAttribute('aria-label', it.dph ? 'Destiny capstone — the Era 8 pick settles it'
-        : it.ph ? 'Undiscovered breakthrough' : `${c.name} — ${STATUS[c.state]}${c.reason ? `: ${c.reason}` : ''}`);
+        : it.ph ? `Undiscovered breakthrough — ${c.compass?.text ?? 'survey the Moon'}` : `${c.name} — ${STATUS[c.state]}${c.reason ? `: ${c.reason}` : ''}`);
       e.innerHTML = cardHtml(c, it);
       board.appendChild(e);
       cardEls.set(tid, e);
@@ -858,7 +856,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     if (c.insight) {
       rows.push(c.insight.earned
         ? `<div class="ins">✎ earned −${Math.round(c.cost.discount * 100)}% — ${esc(c.insight.hint)}</div>`
-        : `<div class="ins">⚡ Insight: ${esc(c.insight.hint)} (−${Math.round(c.insight.discount * 100)}%)</div>`);
+        : `<div class="ins">◎ Insight: ${esc(c.insight.hint)} (−${Math.round(c.insight.discount * 100)}%)</div>`);
     }
     return rows.join('');
   }
@@ -890,6 +888,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const badges: string[] = [];
     if (c.doctrine) badges.push('◇ DOCTRINE');
     if (c.breakthrough) badges.push('✦ BREAKTHROUGH');
+    if (c.compass) badges.push(`◎ ${esc(c.compass.text)}`);
     if (c.siteTech) badges.push(`◬ ${esc((def.sites ?? []).map(siteName).join(' / '))} only`);
     const lane = laneDef(c.lane);
     const note = siteNote(c.tid);
@@ -982,15 +981,14 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   function placeholderHtml(tid: TechId): string {
     const c = view!.cards[tid];
     const bt = c.breakthrough!;
+    const cp = c.compass;
+    // the hosts named for real, nearest first, with the ones the coverage does not reach yet marked
     const lunar = $lunar.get();
-    const known = (lunar?.prospects ?? []).filter((p) => p.visible && bt.hosts.includes(p.id));
-    const hint = known.length
-      ? `survey an anomaly: ${known.map((p) => `${prettyProspect(p.id)} (${p.cls})`).join(', ')}`
-      : `survey an anomaly to reveal it — ${bt.hosts.length} candidate sites on the Moon`;
+    const beyond = (cp?.hosts ?? []).filter((h) => lunar?.prospects.some((p) => p.id === h.id && !p.visible)).map((h) => h.name);
     return `<div class="sh-col"><div class="sh-name">✦ ? Breakthrough</div>
         <div class="sh-meta label">E${c.era} · ${esc(ERA_NAMES[c.era])} · ◎ EXPLORATION slot ${bt.slot}${jumpBack(c)}</div>
-        <div class="sh-status st-locked">UNDISCOVERED — ${esc(hint)}</div>
-        <div class="sh-desc">A reserved slot: surveying a real anomaly reveals a technology researchable in Era ${c.era}.</div></div>`;
+        <div class="sh-status st-locked">UNDISCOVERED — ${esc(cp?.text ?? 'survey the Moon to reveal it')}</div>
+        <div class="sh-desc">A reserved slot: a survey of ${bt.hosts.length === 1 ? 'that place' : 'any of these places'} reveals a technology researchable in Era ${c.era}.${beyond.length ? ` Beyond your coverage now: ${esc(beyond.join(', '))}.` : ''}</div></div>`;
   }
 
   function summaryHtml(): string {

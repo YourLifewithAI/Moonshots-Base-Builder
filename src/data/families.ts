@@ -21,7 +21,7 @@ export const FAMILY_OF: Record<BuildingId, Family> = {
   waterPlant: 'extraction', iceMiner: 'extraction',
   storageYard: 'industry', roboticsBay: 'industry', partsFab: 'industry', chipFab: 'industry', droneHive: 'industry',
   habitat: 'life', hydroponics: 'life', recDome: 'life', greenhouseRing: 'life', gardenDome: 'life',
-  lab: 'science', dataCenter: 'science', relayMast: 'science', solarObservatory: 'science', serverMonolith: 'science',
+  lab: 'science', dataCenter: 'science', relayMast: 'science', prospectingBay: 'science', solarObservatory: 'science', serverMonolith: 'science',
   foilFactory: 'export', massDriver: 'export', propellantPlant: 'export',
 };
 

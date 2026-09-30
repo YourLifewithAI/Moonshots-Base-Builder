@@ -561,7 +561,7 @@ function buildBlock(s: GameState, mods: Mods, site: SiteDef, g: { type: Building
     const ice = lit.filter((e) => e.eta !== null).sort((a, b) => (a.eta ?? 0) - (b.eta ?? 0))[0];
     warn = ice
       ? `NO ICE IN REACH — the nearest mapped cold trap is ${etaText(ice)} away (reach ${fmtClock(HUB.reachS)}); map further or build nearer`
-      : 'NO ICE IN REACH — no cold trap is mapped yet; map further (Prospecting Rovers, a Relay Mast) or build nearer';
+      : 'NO ICE IN REACH — no cold trap is mapped yet; map further (Prospecting Drones, a Relay Mast) or build nearer';
   }
   const goal = best ?? light.entries.find((e) => e.tier === 'lit' && e.inReach && e.state !== 'exhausted') ?? null;
   const road = goal ? ghostRoad(s, stub, spur, goal.state === 'stake' ? { key: 'stake', kind: undefined, name: 'plain pit', cx: goal.cx, cz: goal.cz, r: HUB.plainR, zone: null, faces: 1, plain: true } : targetOf(s, goal.key), stake) : [];

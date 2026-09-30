@@ -923,7 +923,7 @@ const HUB_FOR: Record<string, string> = { H2: 'smelter', plag: 'refinery', ice: 
 export function surveyRefusal(s: GameState, mods: Mods, depId: string): string {
   const d = terrains.get(s)?.deposits.find((x) => x.id === depId);
   if (!d) return 'NO SUCH DEPOSIT';
-  if (!depositRevealed(s, d, mods.surveyTier)) return 'UNMAPPED — map it first (Prospecting Rovers, a Relay Mast)';
+  if (!depositRevealed(s, d, mods.surveyTier)) return 'UNMAPPED — map it first (Prospecting Drones, a Relay Mast)';
   if (!profileOf(s, d).process) return 'NO ORE BED — KREEP soil and peaks of light hold no ore to measure';
   const done = s.oreSurvey?.done[depId];
   if (done) return `ALREADY SURVEYED (±${Math.round(done.precision * 100)}%)`;
@@ -944,7 +944,7 @@ export function queueSurvey(s: GameState, mods: Mods, depId: string): string {
   s.powerStored -= DEP_SURVEY.energy;
   s.resources.parts -= DEP_SURVEY.parts;
   s.oreSurvey.jobs.push({ id: depId, t: 0 });
-  const free = s.rovers.some((r) => r.site === null && !r.pinned && r.core === undefined && r.id !== s.survey?.active?.rover);
+  const free = s.rovers.some((r) => r.site === null && !r.pinned && r.core === undefined);
   if (!free) alert(s, 'SURVEY NEEDS A FREE ROVER — it waits in the queue', 'info', { deposit: depId });
   return '';
 }

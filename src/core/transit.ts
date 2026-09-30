@@ -21,7 +21,7 @@ import { CELL_M } from '../data/balance';
 import { HIVE_PADS, ROVER } from '../data/roads';
 import type { BuildingState, GameState, RoverTrip, RoverUnit } from './state';
 import type { Mods } from './mods';
-import { DRONE, isDrone, roverDown, surveyRover, whereIs } from './fleet';
+import { DRONE, isDrone, roverDown, whereIs } from './fleet';
 import { groundSpots, type RoverSpot } from './spots';
 import {
   cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, offAreaAt, offGround, roadDistances, spurLeft,
@@ -179,9 +179,9 @@ const spurOpen = (s: GameState, b: BuildingState) => !(b.spur?.length && spurLef
 export function spotGoal(s: GameState, spot: RoverSpot): Goal {
   const cell: Pt = [spot.gx, spot.gz];
   const ck = cellKey(spot.gx, spot.gz);
-  let kind: Kind = spot.survey ? 'survey' : spot.core !== undefined ? 'core' : 'dock';
+  let kind: Kind = spot.core !== undefined ? 'core' : 'dock';
   let [x, z] = [spot.x, spot.z];
-  // inside a dock (or the Lander, lent): in at its door
+  // inside a dock: in at its door
   if (spot.inside) [x, z] = cellCentre(spot.gx, spot.gz);
   else if (spot.site !== null) {
     const b = s.buildings.find((o) => o.id === spot.site);
@@ -218,13 +218,12 @@ export function droneRing(b: BuildingState, id: number): Pt {
   return [cx + Math.cos(a) * r, cz + Math.sin(a) * r];
 }
 
-/** Each drone's pad on its hive: by its place in the roster (the one away excepted). */
+/** Each drone's pad on its hive: by its place in the roster. */
 export function dronePads(s: GameState): Map<number, number> {
-  const away = surveyRover(s);
   const per = new Map<number, number>();
   const out = new Map<number, number>();
   for (const u of s.rovers ?? []) {
-    if (u.id === away || !isDrone(s, u)) continue;
+    if (!isDrone(s, u)) continue;
     const n = per.get(u.home) ?? 0;
     per.set(u.home, n + 1);
     out.set(u.id, n);
@@ -233,16 +232,11 @@ export function dronePads(s: GameState): Map<number, number> {
 }
 
 /** A drone's goal (docs/14 §4.3): straight over its site (the frontier of
- *  its road while that is unfinished), over a road job's frontier, into the
- *  Lander when lent, down where it is when a hazard holds it, else its pad. */
+ *  its road while that is unfinished), over a road job's frontier, down where
+ *  it is when a hazard holds it, else its pad. */
 export function droneGoal(s: GameState, u: RoverUnit, pad: number): Goal {
   const at = (kind: Kind, tgt: number | string, x: number, z: number, cell: number, extra: Partial<Goal> = {}): Goal =>
     ({ key: `${kind}:${tgt}@${cell >= 0 ? cell : `${x.toFixed(1)},${z.toFixed(1)}`}`, kind, cell: null, x, z, ...(cell >= 0 ? { mark: cell } : {}), ...extra });
-  if (u.id === surveyRover(s)) {
-    const lander = s.buildings.find((b) => b.type === 'lander');
-    const [x, z] = lander ? centerOf(lander) : [0, 0];
-    return at('survey', 'lander', x, z, -1);
-  }
   const hive = s.buildings.find((b) => b.id === u.home);
   const [px, pz] = hive ? padPoint(hive, pad) : [u.x ?? 0, u.z ?? 0];
   if (roverDown(s, u)) return { key: 'down', kind: 'down', cell: null, x: u.x ?? px, z: u.z ?? pz };
@@ -338,7 +332,6 @@ export interface Arrivals {
  *  for nothing until its new trip gets it there. */
 export function transitArrive(s: GameState, dt: number): Arrivals {
   const out: Arrivals = { weld: new Map(), front: new Map(), jobs: new Map() };
-  const away = surveyRover(s);
   const push = (m: Map<number, RoverUnit[]>, k: number, r: RoverUnit) => (m.get(k) ?? m.set(k, []).get(k)!).push(r);
   for (const r of s.rovers ?? []) {
     delete r.task;
@@ -362,7 +355,7 @@ export function transitArrive(s: GameState, dt: number): Arrivals {
         [r.x, r.z] = tripPoint(t);
       }
     }
-    if (!arrived(t) || r.id === away || roverDown(s, r)) continue;
+    if (!arrived(t) || roverDown(s, r)) continue;
     if (t.kind === 'weld' && t.site !== undefined && t.site === r.site) push(out.weld, t.site, r);
     else if (t.kind === 'front') {
       // still the frontier: the cell behind it (a drone: over it)
@@ -422,11 +415,10 @@ export function transitPlan(s: GameState, mods: Pick<Mods, 'roadSpeedMult' | 'ro
 export function freeReach(
   s: GameState, mods: Pick<Mods, 'roadSpeedMult' | 'roadNightMult'>, night: boolean, to: Pt | null, at: Pt,
 ): number {
-  const away = surveyRover(s);
   const v = roverSpeed(mods, night);
   let best = Infinity;
   for (const r of s.rovers ?? []) {
-    if (r.pinned || r.site !== null || r.road !== undefined || r.core !== undefined || r.grade !== undefined || r.id === away || roverDown(s, r)) continue;
+    if (r.pinned || r.site !== null || r.road !== undefined || r.core !== undefined || r.grade !== undefined || roverDown(s, r)) continue;
     const [x, z] = whereIs(s, r);
     if (isDrone(s, r)) { best = Math.min(best, travelTime(Math.hypot(at[0] - x, at[1] - z), DRONE.speed, DRONE.accel)); continue; }
     if (!to || !hasRoads(s)) { best = Math.min(best, travelTime(Math.hypot(at[0] - x, at[1] - z), v, ROVER.accel)); continue; }
@@ -447,10 +439,9 @@ export interface SiteTransit {
 /** How a site's crew stands: on its way (and when it gets there), stepping
  *  along the road it sinters, or with no road to it. */
 export function siteTransit(s: GameState, siteId: number): SiteTransit {
-  const away = surveyRover(s);
   let pending = false, stuck = false, step = false, there = false, eta = Infinity;
   for (const r of s.rovers ?? []) {
-    if (r.site !== siteId || r.id === away || roverDown(s, r)) continue;
+    if (r.site !== siteId || roverDown(s, r)) continue;
     const t = r.trip;
     if (!t || t.site !== siteId) { pending = true; continue; }
     if (t.stuck) { stuck = true; continue; }

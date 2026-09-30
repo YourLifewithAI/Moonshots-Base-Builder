@@ -755,7 +755,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         if (!p.visible) continue;
         const u = P.fwd(p.lat, p.lon);
         if (!u) continue;
-        const surveying = lv.active?.id === p.id;
+        const surveying = lv.flights.some((f) => f.id === p.id);
         const pri = surveying ? 90 : p.outpost ? 80 : !p.surveyed ? 55 : 45;
         add(mark(u, 'pm', pri, { id: p.id }), pmMarkup(p, surveying));
       }
@@ -787,7 +787,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       if (m.kind !== 'pm' || !m.el) continue;
       const p = byId.get(m.id!)!;
       m.el.classList.toggle('sel', m.id === selected);
-      m.el.classList.toggle('blocked', !p.surveyed && !p.surveyable && v.active?.id !== p.id);
+      m.el.classList.toggle('blocked', !p.surveyed && !p.surveyable && !v.flights.some((f) => f.id === p.id));
       m.el.classList.toggle('claimable', p.claimable);
       m.pri = m.id === selected ? 100 : m.bp;
     }
@@ -980,8 +980,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     set(head.tier, `T${lv.tier} ${lv.tierLabel}`);
     set(head.count, `${lv.surveyedCount}/${lv.prospects.length} surveyed`);
     set(head.out, `outposts ${lv.used}/${lv.slots}`);
-    const a = lv.active ? lv.prospects.find((p) => p.id === lv.active!.id) : null;
-    set(head.survey, a ? ` · survey: ${a.short} ${fmtClock(lv.active!.remaining)}` : '');
+    // every drone out, soonest home first: ' · drones: Marius tube 1:37, Cabeus 2:10'
+    set(head.survey, lv.flights.length ? ` · drones: ${lv.flights.map((f) => `${f.short} ${fmtClock(f.remaining)}`).join(', ')}` : '');
     set(head.atlas, lv.atlas ? ' · ATLAS COMPLETE' : ` · ATLAS needs T4 + ${ATLAS.surveys}`);
     const sig = `${lv.tier}|${shownView}`;
     if (sig === viewsSig) return;
@@ -1009,7 +1009,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const rows = lv.prospects.filter((p) => p.visible && !p.surveyed).sort(byClassDist);
     const done = lv.prospects.filter((p) => p.surveyed).sort(byClassDist);
     const row = (p: LunarProspectView) => {
-      const run = lv.active?.id === p.id;
+      const run = lv.flights.some((f) => f.id === p.id);
       return `<div class="ns-row${run ? ' run' : ''}" data-id="${p.id}">` +
         `<span class="ns-g">${KIND_GLYPH[p.kind]}</span>` +
         `<div class="ns-m"><div class="ns-n">${esc(p.short)}${p.bt ? ` <span class="ns-bt">✦${TX}?</span>` : ''}</div>` +
@@ -1028,7 +1028,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       : '';
     return `<div class="ns-weak"><div class="label">What this site lacks</div>${esc(SITE_WEAKNESS[siteId!])}</div>` +
       `<div class="label ns-cap">Next surveyable <span class="mono">${rows.length}</span></div>` +
-      (lv.active ? '<div class="ns-busy"></div>' : '') +
+      '<div class="ns-busy"></div>' +
       (rows.map(row).join('') || '<div class="ns-empty">Nothing unsurveyed in range — the next tier widens it.</div>') +
       foot +
       (done.length ? `<div class="label ns-cap">Surveyed <span class="mono">${done.length}</span></div>` +
@@ -1047,10 +1047,14 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   }
 
   function updateList(lv: LunarView) {
-    // one survey at a time: say so once, not on every row
-    const a = lv.active ? find(lv.active.id) : null;
+    // the fleet in one line, once, not on every row: how many drones are docked, and who is out where
     const busy = panel.querySelector('.ns-busy');
-    if (busy && a) busy.textContent = `◌ ${a.short} back in ${fmtClock(lv.active!.remaining)} · one survey at a time`;
+    if (busy) {
+      const d = lv.drones;
+      const t = !d.total ? 'no survey drone aboard'
+        : `△ ${d.ready}/${d.total} drones ready${d.out ? ` · ${d.out} out: ${lv.flights.map((f) => `${f.short} ${fmtClock(f.remaining)}`).join(', ')}` : ''}${d.charging ? ` · ${d.charging} charging` : ''}`;
+      if (busy.textContent !== t) busy.textContent = t;
+    }
     for (const r of panel.querySelectorAll<HTMLElement>('.ns-row')) {
       const p = find(r.dataset.id as ProspectId);
       if (!p) continue;
@@ -1060,22 +1064,24 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         if (st.textContent !== t) st.textContent = t;
         continue;
       }
-      const run = lv.active?.id === p.id;
+      const fl = lv.flights.find((f) => f.id === p.id);
+      const run = !!fl;
       const why = r.querySelector('.ns-why')!;
-      const t = run || p.surveyable || (a && p.reason.startsWith('SURVEY IN PROGRESS')) ? '' : p.reason;
+      // the fleet-wide refusals (all drones out or charging) are the line above, not on every row
+      const t = run || p.surveyable || /^(SURVEY IN PROGRESS|ALL \d+ DRONE|DRONES CHARGING)/.test(p.reason) ? '' : p.reason;
       if (why.textContent !== t) why.textContent = t;
       r.classList.toggle('blocked', !run && !p.surveyable);
       r.querySelector('.ns-go')?.classList.toggle('blocked', !p.surveyable);
       const pay = r.querySelector('.ns-pay')!;
       if (pay.textContent !== `+${p.data}≡`) pay.textContent = `+${p.data}≡`;
       const clock = r.querySelector('.ns-clock');
-      if (clock && lv.active) clock.textContent = `◌ ${fmtClock(lv.active.remaining)}`;
+      if (clock && fl) clock.textContent = `◌ ${fmtClock(fl.remaining)}`;
     }
   }
 
   function sheetHtml(lv: LunarView, p: LunarProspectView): string {
     const c = p.survey;
-    const run = lv.active?.id === p.id;
+    const run = lv.flights.some((f) => f.id === p.id);
     const seen = lv.prospects.filter((x) => x.surveyed && x.kind === p.kind && x.id !== p.id).length;
     const nov = !p.surveyed && seen > 0
       ? `<span class="k">Novelty</span><span class="mono">×${NOVELTY[Math.min(seen, NOVELTY.length - 1)]} — the ${ORDINAL[Math.min(seen, 2)]}${seen >= 2 ? ' or later' : ''} ${KIND_LABEL[p.kind]} surveyed</span>`
@@ -1104,7 +1110,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       `<section><div class="label">Survey — ${esc(c.method)}</div><div class="io">` +
       (p.surveyed
         ? `<span class="k">Result</span><span class="mono">surveyed · +${p.data}≡ paid</span>`
-        : `<span class="k">Costs</span><span class="mono">${costText(c)} · 1 robot lent</span>` +
+        : `<span class="k">Costs</span><span class="mono">${costText(c)} · flies 1 drone</span>` +
           `<span class="k">Takes</span><span class="mono">${fmtClock(c.timeS)}</span>` +
           `<span class="k">Pays</span><span class="mono" id="ps-pay">+${p.data}≡</span>${nov}`) +
       '</div>' +
@@ -1120,10 +1126,11 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   }
 
   function updateSheet(lv: LunarView, p: LunarProspectView) {
-    const run = lv.active?.id === p.id;
+    const fl = lv.flights.find((f) => f.id === p.id);
+    const run = !!fl;
     const reason = $<HTMLElement>('#ps-reason');
     let t: string, ok = false;
-    if (run) t = `◌ Surveying — back in ${fmtClock(lv.active!.remaining)}`;
+    if (fl) t = `◌ Surveying — drone ${fl.drone} back in ${fmtClock(fl.remaining)}`;
     else if (p.outpost) { t = doneStatus(p); ok = true; }
     else if (!p.surveyed) { ok = p.surveyable; t = ok ? '✓ Ready to survey' : `✗ ${p.reason}`; }
     else if (!p.claim) { t = p.kind === 'heritage' ? '⌂ Surveyed — survey only' : '✓ Surveyed — the data is in'; ok = true; }
@@ -1140,10 +1147,10 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     if (cb) { cb.classList.toggle('blocked', !p.claimable); cb.title = p.claimable ? 'Claim an outpost here' : p.reason; }
     const pay = screen.querySelector<HTMLElement>('#ps-pay');
     if (pay && pay.textContent !== `+${p.data}≡`) pay.textContent = `+${p.data}≡`;
-    if (run) {
-      const rem = lv.active!.remaining;
+    if (fl) {
+      const rem = fl.remaining;
       $<HTMLElement>('#ps-clock').textContent = `back in ${fmtClock(rem)}`;
-      $<HTMLElement>('#ps-bar').style.width = `${Math.max(0, Math.min(100, (1 - rem / Math.max(1, p.survey.timeS)) * 100))}%`;
+      $<HTMLElement>('#ps-bar').style.width = `${Math.max(0, Math.min(100, (1 - rem / Math.max(1, fl.total)) * 100))}%`;
     }
   }
 
@@ -1160,8 +1167,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     let p = find(selected);
     if (selected && (!p || !p.visible)) { selected = null; p = null; }
     const sig = p
-      ? `s|${siteId}|${p.id}|${p.surveyed}|${p.outpost}|${lv.active?.id === p.id}|${p.data}`
-      : `l|${siteId}|${lv.tier}|${lv.active?.id ?? ''}|` +
+      ? `s|${siteId}|${p.id}|${p.surveyed}|${p.outpost}|${lv.flights.some((f) => f.id === p.id)}|${p.data}`
+      : `l|${siteId}|${lv.tier}|${lv.flights.map((f) => f.id).join('+')}|` +
         lv.prospects.map((x) => (x.visible ? `${x.id}${x.surveyed ? 's' : ''}${x.outpost ? 'o' : ''}${x.data}` : '')).join(',');
     if (sig !== panelSig) {
       panelSig = sig;
@@ -1290,10 +1297,10 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     if (osig !== outSig) {
       outSig = osig;
       if (!lv.slots && !lv.outposts.length) {
-        const tid = TIER_TECH[2] as TechId;
+        const tid = TIER_TECH[1] as TechId;
         const card = rv?.cards[tid];
         outpostsEl.innerHTML = `<div class="op-none"><div class="label">Outposts · 0 slots</div>` +
-          `T2 ${esc(card?.name ?? TECHS[tid].name)}${card ? ` (Era ${card.era})` : ''} opens the first slot. Survey a deposit, then claim it: its stream comes home continuously.</div>`;
+          `T1 ${esc(card?.name ?? TECHS[tid].name)}${card ? ` (Era ${card.era})` : ''} opens the first slot. Survey a deposit, then claim it: its stream comes home continuously.</div>`;
       } else {
         const cards = lv.outposts.map((o) =>
           `<div class="op" data-id="${o.id}" title="${esc(o.name)} ${KIND_LABEL[o.kind]} — ${esc(o.stream)} · upkeep ${esc(o.upkeep)}${o.fuel ? ` · hopper fuel ${esc(o.fuel)}` : ''} · link ${String(o.linkKW).replace('-', '−')} kW">` +
@@ -1364,9 +1371,8 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     if (!lv) return;
     const pulse = lv.justExpanded && !isOpen;
     const tier = `T${lv.tier} ${lv.tierLabel}`;
-    const a = lv.active ? lv.prospects.find((p) => p.id === lv.active!.id) : null;
     const text = pulse ? `◎ MAP EXPANDED — ${tier} [M]`
-      : `◎ MAP [M] · ${tier}${a ? ` · survey ${fmtClock(lv.active!.remaining)}` : ''}`;
+      : `◎ MAP [M] · ${tier}${lv.active ? ` · survey ${fmtClock(lv.active.remaining)}${lv.flights.length > 1 ? ` +${lv.flights.length - 1}` : ''}` : ''}`;
     if (chip.textContent !== text) chip.textContent = text;
     chip.classList.toggle('pulse', pulse);
     const title = pulse ? `The Lunar Map expanded to ${tier} — open it [M]` : 'The Lunar Map — surveys, prospects and outposts [M]';
