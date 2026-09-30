@@ -431,7 +431,7 @@ Each tech's numeric con uses an existing kind: `powerDelta`, `upkeepMult` or `po
 
 Each `visual` line maps to one recipe part, gated on the tech in `techsDone` by whatever mechanism work/tree establishes. For example, a `TECH_PARTS` table of `{ tech, building, parts }`, with instances rebuilt when a tech completes. The parts reuse `meshKit` primitives only: `lattice`, `antenna`, `box`, `cyl`, `bar`, `LAMP` and `BEACON`.
 
-**Size and art direction.** Every part must be at least 1 m tall or wide, so it reads from the build camera's home distance. The parts stay monochrome ([06](06-art-direction.md)): state is carried by a lamp, never a hue.
+**Size and art direction.** Every part must be at least 1 m tall or wide, so it reads from the build camera's home distance. The parts wear their family's accent on trim like every recipe ([06](06-art-direction.md) §2): state is carried by a lamp, never by hue alone.
 
 **Test.** `recipeTriangles()`, with and without each tech, differs for the building named in its `visual` line.
 

@@ -1220,7 +1220,7 @@ Unanswered: the safe default                               [ Confirm ]
 
 ### 10.6 Monochrome
 
-State is shape and value, never hue (docs/06, docs/07 §3): open, half and solid squares
+State is shape and value, never hue alone (docs/07 §2): open, half and solid squares
 for the classes; hatch for the tail; dashes for a watch; inversion for crit; the
 activity as a bar gauge. Nothing in the panel needs colour to be read.
 
@@ -1255,7 +1255,7 @@ few hundred triangles a dome.
 | Thing | What you see | Cost |
 |---|---|---|
 | **Speckle** | Proton hits on the camera, as SOHO's images fill with snow in a storm. A 2D canvas over the WebGL canvas draws white dots of 1–2 px at 60–90% alpha while the flare is active: 15 a frame for C, 50 for M, 150 for X, 50 in the tail (at 1080p, scaled by area). An X adds a few 6–12 px streaks. A new menu toggle, *Screen speckle* (on by default), turns it off. | CPU, under 0.1 ms a frame |
-| **The frame** | A 1 px hatched frame around the viewport while active, solid for X. **No tint:** earthshine is the only colour (docs/06). | DOM |
+| **The frame** | A 1 px hatched frame around the viewport while active, solid for X. **No tint:** the UI chrome stays greyscale (docs/07 §2). | DOM |
 | **The sky** | Cut: the fixed camera never looks above the horizon and the scene draws no sky (docs/06 §11), so an X's glare sprite and the aurora ring on Earth's night limb have nowhere to appear. The X's flash reads in the speckle and the frame; there is no aurora on the Moon, which has no air. | nothing |
 | **Arrays stowing** | §5.7: the wing turns edge-on, cells down, over 10 s; the foot lamp blinks slowly. Field berms show as a low ridge along each field. | a tween on the existing wing; the berm is a strip of the ground |
 | **Wrecks** | The wing hangs broken, 30° off its hinge, half its panels hidden and a shade darker, debris at its foot, a `✕` marker. Rebuilding shows the usual scaffold (`src/buildings/scaffold.ts`). | a second instanced wing pose; debris reuses the rocks |

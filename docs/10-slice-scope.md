@@ -134,8 +134,8 @@ Three gates, run before any change lands (see 08 §10–11 for the machinery):
    is the slice's definition of "the loop works."
 3. **Screenshot review**: the suite writes `test-results/01-site-select.png`
    through `07-restored.png` — a human looks at all seven after any render,
-   HUD, or terrain change. Grayscale art fails in ways assertions can't see
-   (banding, shadow acne, unreadable value contrast); the screenshots are the
+   HUD, or terrain change. Art fails in ways assertions can't see
+   (banding, a muddy light ramp, unreadable value contrast); the screenshots are the
    art-direction regression test.
 
 What is deliberately *not* verified: long-horizon balance (the 35–50 min
