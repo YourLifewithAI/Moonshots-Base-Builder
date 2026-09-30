@@ -74,11 +74,17 @@ const GROUND_DAY = new THREE.Color(0.24, 0.215, 0.19);
 const EARTH = new THREE.Color(0.16, 0.22, 0.38);
 const SKY_NIGHT = new THREE.Color(0.06, 0.085, 0.15);
 const GROUND_NIGHT = new THREE.Color(0.018, 0.024, 0.04);
+/** the clear colour is the sky: a deep dusk blue by day, near-black by night
+ *  (no dome and no stars; what the camera never sees needs no more) */
+const SKY_CLEAR_DAY = new THREE.Color(0x101828);
+const SKY_CLEAR_NIGHT = new THREE.Color(0x04060b);
 
 export class CelLighting {
   readonly sun: THREE.DirectionalLight;
   readonly fill: THREE.HemisphereLight;
 
+  /** the scene's clear colour */
+  private readonly clear: THREE.Color;
   private sunDir = new THREE.Vector3(0, 1, 0);
   private keyDir = new THREE.Vector3(0, 1, 0);
   private earthDir = new THREE.Vector3(0, 1, 0);
@@ -87,7 +93,8 @@ export class CelLighting {
   private v = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
-    scene.background = new THREE.Color(0x000000);
+    this.clear = new THREE.Color().copy(SKY_CLEAR_DAY);
+    scene.background = this.clear;
     this.sun = new THREE.DirectionalLight(0xffffff, Math.PI);
     this.sun.castShadow = false;
     this.fill = new THREE.HemisphereLight(0xffffff, 0x000000, Math.PI);
@@ -125,6 +132,7 @@ export class CelLighting {
     this.sun.position.copy(this.keyDir).multiplyScalar(100);
     this.sun.target.position.set(0, 0, 0);
     this.sun.updateMatrixWorld();
+    this.clear.copy(SKY_CLEAR_DAY).lerp(SKY_CLEAR_NIGHT, Math.max(night, 1 - up));
     this.fill.color.copy(SKY_DAY).lerp(SKY_NIGHT, night);
     this.fill.groundColor.copy(GROUND_DAY).lerp(GROUND_NIGHT, night);
 

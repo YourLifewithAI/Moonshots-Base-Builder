@@ -26,7 +26,12 @@ export interface DustEmitter {
   h0?: number;
   /** grain size, m */
   size?: number;
+  /** the grains' accent (0xRRGGBB): a digging unit's spoil takes its colour; unset = regolith grey */
+  tint?: number;
 }
+
+/** how far a tinted emitter's grains go toward its accent (the rest stays regolith) */
+const TINT_SHARE = 0.75;
 
 export class DustField {
   readonly points: THREE.Points;
@@ -36,6 +41,9 @@ export class DustField {
   private gate = new Float32Array(COUNT);
   /** puff offsets per grain (unit hemisphere, flattened) */
   private puff = new Float32Array(COUNT * 3);
+  /** per grain drawn: its colour (white = the regolith grey the material gives) */
+  private col = new Float32Array(COUNT * 3).fill(1);
+  private tmp = new THREE.Color();
   private live: (DustEmitter | null)[] = new Array(DUST_SLOTS).fill(null);
   private shown = 0;
 
@@ -48,6 +56,7 @@ export class DustField {
       this.puff.set([Math.cos(a) * r, rnd() * 0.5, Math.sin(a) * r], i * 3);
     }
     this.geo.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
+    this.geo.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
     this.geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
     this.points = new THREE.Points(this.geo, materials.get('dust'));
     this.points.frustumCulled = false;
@@ -79,17 +88,22 @@ export class DustField {
       if (!e) continue;
       const rh = 0.4 + 0.3 * (e.hSpread + Math.hypot(e.vx, e.vz));
       const rv = 0.3 + 0.35 * (e.vy + e.vSpread);
+      // sRGB accent → linear, then part of the way from white
+      const c = e.tint === undefined ? null : this.tmp.set(e.tint);
+      const r = c ? 1 + (c.r - 1) * TINT_SHARE : 1, g = c ? 1 + (c.g - 1) * TINT_SHARE : 1, b = c ? 1 + (c.b - 1) * TINT_SHARE : 1;
       for (let j = 0; j < PER_SLOT; j++) {
         const i = k * PER_SLOT + j;
         if (this.gate[i] > e.strength) continue;
         this.pos[n * 3] = e.x + this.puff[i * 3] * rh;
         this.pos[n * 3 + 1] = e.y + (e.h0 ?? 0) + this.puff[i * 3 + 1] * rv;
         this.pos[n * 3 + 2] = e.z + this.puff[i * 3 + 2] * rh;
+        this.col[n * 3] = r; this.col[n * 3 + 1] = g; this.col[n * 3 + 2] = b;
         n++;
       }
     }
     this.geo.setDrawRange(0, n);
     (this.geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    (this.geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
     this.shown = n;
   }
 

@@ -81,7 +81,7 @@ import { createRenderer, createCamera, drawFrame, probeGround } from '../world/r
 import { CelLighting, sunStep } from '../world/celLighting';
 import { ramp } from '../world/celStyle';
 import { installCel } from '../world/cel';
-import { CEL_MARKER, celFallbackMaterial } from '../buildings/celBuilding';
+import { CEL_MARKER } from '../buildings/celBuilding';
 import { BaseLife } from '../world/life';
 import { leanFrom } from '../buildings/look';
 import { materials } from '../world/materials';
@@ -1639,15 +1639,15 @@ export class Game {
     return this.hf.raycast(o.x, o.y, o.z, d.x, d.y, d.z, 1500) !== null;
   }
 
-  /** A shader failed to compile this frame. The cel building program is the
-   *  likely culprit and the cheapest to lose: stock Lambert in the same
-   *  palette takes its place (the glow and the print reveal go). Any other
-   *  program means safe mode. */
+  /** A shader failed to compile this frame. The cel programs (the buildings'
+   *  and the ground's) are the likely culprits and the cheapest to lose:
+   *  stock Lambert in the same palette takes their place (the ramp, the glow
+   *  and the print reveal go). Any other program means safe mode. */
   private recoverFromShaderFault() {
     const fault = this.shaderFault;
     this.shaderFault = null;
-    if (fault === 'cel' && materials.replace('building', celFallbackMaterial(), this.scene)) {
-      console.warn('[MOONSHOTS] Cel building shader failed to compile — stock Lambert.');
+    if (fault === 'cel' && materials.replaceCustom(this.scene)) {
+      console.warn('[MOONSHOTS] Cel shader failed to compile — stock Lambert.');
       if (this.state) { alert(this.state, 'RENDER — building lights disabled (GPU limitation), plain materials', 'warn'); this.publish(); }
       return;
     }

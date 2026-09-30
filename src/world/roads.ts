@@ -24,13 +24,16 @@ import { zoneCells } from '../core/zones';
 import { ROAD } from '../data/roads';
 import { CEL_PALETTE } from '../buildings/celBuilding';
 import { materials } from './materials';
+import { celSurface } from './celSurface';
 
 const LIFT = 0.07;          // m over the ground
 const MARK_LIFT = 0.09;
 const H = 2;                // half a cell, m
 const TIERS = ['basaltPaving', 'guidanceBeacons', 'guidewayRails', 'maglevFreight'] as const;
 
-materials.define('road', new THREE.MeshLambertMaterial({
+materials.define('road', celSurface('cel-road', {
+  vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
+}), () => new THREE.MeshLambertMaterial({
   vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,
 }));
 

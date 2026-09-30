@@ -33,7 +33,7 @@
  *  −1 = follow the night, for rovers and moving parts), warm or cold by the
  *  instance's `iWarm` (CEL_WARM … CEL_COLD), and flicker red while
  *  its `iAlarm` is up. If a GPU rejects it,
- *  game.ts swaps in stock Lambert (celFallbackMaterial) — the palette
+ *  game.ts swaps in stock Lambert (celFallbackMaterial, with the ground's) — the palette
  *  stays, the glow and the reveal go. */
 import * as THREE from 'three';
 import type { BuildingState } from '../core/state';
@@ -299,13 +299,13 @@ export const CEL_BUILDING = new THREE.ShaderMaterial({
     uBldTime: buildingUniforms.uBldTime,
   },
 });
-materials.define('building', CEL_BUILDING);
-
 /** Stock Lambert in the cel palette: the fallback when the cel building
  *  shader does not compile on a GPU. */
 export function celFallbackMaterial(): THREE.Material {
   return new THREE.MeshLambertMaterial({ vertexColors: true });
 }
+
+materials.define('building', CEL_BUILDING, celFallbackMaterial);
 
 /** Install the cel palette and light level on every instanced view
  *  made from here on (call once at boot). */
