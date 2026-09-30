@@ -16,7 +16,7 @@ import { MILESTONES, milestoneHint } from './data/milestones';
 import type { MapView, ProspectId } from './data/lunarMap';
 import { sfx, type Cue } from './audio/sfx';
 import { worldRect } from './core/paths';
-import { accessCell, cellAt, doorCell, gatesOf, holdOf, mastStand, openAll, planLink, planPath, roadMap, roadRoute, servedFields } from './core/roads';
+import { accessCell, bumpRoads, cellAt, doorCell, gatesOf, holdOf, mastStand, openAll, planLink, planPath, roadMap, roadRoute, servedFields } from './core/roads';
 import { zoneCells } from './core/zones';
 import { choicesFor, haulEnd, haulOpts, heightsOf, hubOf, plainPitRefusal, targetOf, unitsOf } from './core/hubs';
 import { ghostBlock, hubGhostLine, hubLight, pitWayWarning } from './core/hubPreview';
@@ -551,6 +551,44 @@ function api(game: Game) {
     /** a counter, as its button pushes it */
     counter: (counter: CounterId, id?: number) => game.actions.push({ kind: 'counter', counter, id }),
     airGap: (id: number, on = true) => game.actions.push({ kind: 'airGap', id, on }),
+    // ── sim traffic (core/traffic.ts, docs/19 S4a) ──
+    /** who holds which road cell: { cells: 'gx,gz' → unit ids, units: [{ kind, id, cell, claim, held, prio }], heldS, stepAsides, pullIns, forced, overlaps } */
+    getTraffic: () => clone(game.debugTraffic()),
+    /** reservations off (true) or on: A/B a scene against the free-running sim */
+    trafficBypass: (on: boolean) => game.debugTrafficBypass(on),
+    /** mark road cells by hand (tests, until roads generate them): a cell that is not a road yet becomes an
+     *  open plain one; `pass` a passing bay, `hold` a holding bay (a zone id), `gate` a zone's gate; `clear` drops the flags */
+    setRoadFlags: (cells: { gx: number; gz: number; pass?: boolean; hold?: string; gate?: string; clear?: boolean }[]) => {
+      const s = game.state;
+      s.roads ??= [];
+      const map = roadMap(s);
+      for (const f of cells) {
+        let c = map.get(f.gz * 256 + f.gx);
+        if (!c) { c = { gx: f.gx, gz: f.gz, left: 0 }; s.roads.push(c); }
+        if (f.clear) { delete c.pass; delete c.hold; delete c.gate; }
+        if (f.pass) c.pass = true;
+        if (f.hold !== undefined) c.hold = f.hold;
+        if (f.gate !== undefined) c.gate = f.gate;
+      }
+      bumpRoads(s);
+      game.publish();
+    },
+    /** set a hub unit's haul fields by hand (tests): position, phase, cargo, the waypoints left (and the sim keeps its claims from there) */
+    patchHauler: (id: number, patch: { x?: number; z?: number; phase?: string; regolith?: number; path?: [number, number][]; target?: string | null; face?: number }) => {
+      const u = game.state.haulers.find((x) => x.id === id);
+      if (!u) return false;
+      const h = u.haul as unknown as Record<string, unknown>;
+      if (patch.x !== undefined) h.x = patch.x;
+      if (patch.z !== undefined) h.z = patch.z;
+      if (patch.phase !== undefined) h.phase = patch.phase;
+      if (patch.regolith !== undefined) h.cargo = patch.regolith > 0 ? { regolith: patch.regolith } : {};
+      if (patch.path) { h.path = patch.path.map((p) => [p[0], p[1]]); h.route = [[u.haul.x, u.haul.z], ...patch.path]; delete h.w; delete h.claim; delete h.held; delete h.noRoad; }
+      if (patch.target !== undefined) u.target = patch.target;
+      if (patch.face !== undefined) u.face = patch.face;
+      delete u.parked;
+      game.publish();
+      return true;
+    },
     /** the haul road a hub would plan to a target now (docs/19 S3): its whole route from the door, the
      *  gate, the holding bay, the passing bays and the sacrificial cells (cell [gx, gz] lists) */
     planHaul: (hub: number, key: string) => {

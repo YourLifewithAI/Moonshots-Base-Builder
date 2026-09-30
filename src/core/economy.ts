@@ -31,7 +31,7 @@ import {
 } from './unitPower';
 import { ensureHaul, haulTick, haulWaiting } from './haul';
 import {
-  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, pitNews, printTick, printing,
+  ensureHubs, hopperCap, hubDraw, hubHave, hubOf, hubsOf, joinLegacy, meanFeed, noteStarved, pitNews, planTraffic, printTick, printing,
   reconcileRegolith, targetOf, unitRates, unitTick, writeRegolith,
 } from './hubs';
 import { HUB, isHubType } from '../data/hubs';
@@ -300,6 +300,8 @@ function runTick(s: GameState, site: SiteDef, mods: Mods, dt: number): EconEvent
   const crews = assignRovers(s);
   // (debug instant travel: a new goal is reached in the tick that sets it, as before transit)
   if (TRANSIT.instant) transitPlan(s, mods, false);
+  // (docs/19 S4a: every unit's reservations are planned, in priority order, before any of them moves)
+  planTraffic(s);
   const here: Arrivals = transitArrive(s, dt);
   /** a site's road is still to sinter: its crew works from the frontier */
   const roadFirst = (b: BuildingState) => !!b.spur?.length && spurLeft(s, b) > 0;

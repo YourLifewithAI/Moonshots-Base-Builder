@@ -283,21 +283,37 @@ export function haulWaiting(s: GameState, b: BuildingState, caps: Partial<Record
 }
 
 /** Drive along the path for up to `t` seconds (off-road segments inside a
- *  zone at ROAD.offroad of the speed); returns the time left over on arrival. */
-export function drive(h: HaulState, speed: number, t: number): number {
+ *  zone at ROAD.offroad of the speed); returns the time left over on arrival.
+ *  `limit` (docs/19 S4a, core/traffic.ts) is how many metres of the path the
+ *  unit may cover: the ground beyond it is another unit's. It stops there and
+ *  returns the time it did not spend, with the path not yet empty (a caller
+ *  tells a stop from an arrival by `h.path.length`); no limit (a legacy pad,
+ *  a bypassed tick) drives exactly as before. */
+export function drive(h: HaulState, speed: number, t: number, limit = Infinity): number {
+  let moved = 0;
   while (h.path.length && t > 1e-9) {
     const [tx, tz] = h.path[0];
     const v = speed / (h.w?.[0] ?? 1);
     const d = Math.hypot(tx - h.x, tz - h.z);
+    const room = limit - moved;
+    if (d > 1e-9 && room <= 1e-6) return t;
+    const reach = Math.min(d, room);
     const step = v * t;
-    if (step < d) {
+    if (step < reach) {
       h.x += ((tx - h.x) / d) * step;
       h.z += ((tz - h.z) / d) * step;
       return 0;
     }
+    if (reach < d - 1e-9) {
+      // the limit is met part way along this segment: it stops there
+      h.x += ((tx - h.x) / d) * reach;
+      h.z += ((tz - h.z) / d) * reach;
+      return t - reach / v;
+    }
     h.x = tx;
     h.z = tz;
     t -= d / v;
+    moved += d;
     h.path.shift();
     h.w?.shift();
   }

@@ -27,6 +27,7 @@ import {
   cellAt, cellCentre, cellKey, doorCell, frontierOf, groundWay, hasRoads, offAreaAt, offGround, roadDistances, spurLeft,
 } from './roads';
 import { centerOf } from '../buildings/instances';
+import { roverStep } from './traffic';
 
 type Pt = [number, number];
 type Kind = RoverTrip['kind'];
@@ -348,8 +349,18 @@ export function transitArrive(s: GameState, dt: number): Arrivals {
     // out of charge, it waits where it stands; on its RPU alone it creeps (core/unitPower.ts)
     const pw = r.pw ?? 1;
     if (t.t < t.dur && pw > 0) {
-      t.t = Math.min(t.dur, t.t + dt * pw);
-      [r.x, r.z] = tripPoint(t);
+      // the stretch of road this second covers is a digger's or a rover's: a unit whose reservation
+      // holds it waits where it stands, and its trip's ETA stretches (docs/19 S4a, core/traffic.ts)
+      const to = Math.min(t.dur, t.t + dt * pw);
+      const at = (c: number): Pt => pointOnW(t.pts, t.w, travelled(c, t.len, t.v, t.a));
+      const way = [0.25, 0.5, 0.75, 1].map((k) => at(t.t + (to - t.t) * k));
+      const go = roverStep(s, r.id, [r.x ?? way[0][0], r.z ?? way[0][1]], way, t.held ?? 0);
+      if (go === 'held') t.held = (t.held ?? 0) + dt;
+      else {
+        if (t.held !== undefined && go === 'go') delete t.held;
+        t.t = to;
+        [r.x, r.z] = tripPoint(t);
+      }
     }
     if (!arrived(t) || r.id === away || roverDown(s, r)) continue;
     if (t.kind === 'weld' && t.site !== undefined && t.site === r.site) push(out.weld, t.site, r);

@@ -45,7 +45,8 @@ import { groundOf, plainQ, processOf } from './ore';
 import { TECHS, TECH_ORDER } from '../data/techs';
 import { HAUL } from '../data/balance';
 import { zoneAt, zoneOfCell } from './zones';
-import { creditFeed, drive, legLen, stopShort } from './haul';
+import { creditFeed, legLen, stopShort } from './haul';
+import { go, holdSpot, trafficPlan, yieldAside, type Ramp } from './traffic';
 import { centerOf, footprintRect } from '../buildings/instances';
 import { inside, worldRect } from './paths';
 import { groundMapped, landerXZ } from './exploration';
@@ -172,13 +173,19 @@ export function targetOf(s: GameState, key: string | null | undefined): Target |
 /** The pit a target is dug into, once cut (null: not yet). */
 export const pitAt = (s: GameState, t: Pick<Target, 'key'>): PitState | null => pitOf(s, t.key);
 
+/** m between two faces of one pit at least (a unit is 3.8 m across) */
+const FACE_GAP_M = 3.6;
+
 /** Face `i`'s point (world m). Once its pit is cut: on the pit's floor by
  *  the wall, spread round the far side from its ramp (1:2 walls: the floor
  *  is R − 2L across). Before: evenly round the target from a seeded angle. */
 export function facePoint(s: GameState, t: Target, i: number): Pt {
   const p = pitAt(s, t);
   if (p) {
-    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
+    let rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p)) * 0.85;
+    // (docs/19 S4a) faces sit far enough apart for the bodies of the units that dig them (a deep cone's
+    // floor is a few metres across: its faces spread onto the wall's foot rather than pile up in the middle)
+    if (t.faces > 1) rf = Math.min(Math.max(rf, FACE_GAP_M / 2 / Math.sin(Math.PI * 0.6 / (t.faces - 1))), 0.8 * p.R);
     const back = Math.atan2(-p.uz, -p.ux);
     const a = back + (t.faces > 1 ? (Math.max(0, i) / (t.faces - 1) - 0.5) * Math.PI * 1.2 : 0);
     return [p.cx + Math.cos(a) * rf, p.cz + Math.sin(a) * rf];
@@ -818,6 +825,11 @@ function goDig(s: GameState, mods: Mods, u: Hauler, t: Target, face: number) {
       const d = Math.hypot(c[0] - h.x, c[1] - h.z);
       if (d < bd - 1e-9) { bd = d; gate = c; }
     }
+    // it waits in a holding bay beside the gate if there is one (docs/19 S4a), never on the
+    // gate itself, where the loaded unit coming back would meet it head on
+    const zones = [t.zone?.id, pitAt(s, t) ? `pit-${pitAt(s, t)!.id}` : undefined].filter((x): x is string => !!x);
+    const bay = gates.length ? holdSpot(s, u, zones, gates) : null;
+    if (bay) gate = bay;
     h.wait = 'gate';
     h.phase = 'toDig';
     h.t = 0;
@@ -911,6 +923,9 @@ export function unitTick(
   const out: UnitTickOut = { tipped: 0, credited: {}, flow: {}, dugS: 0, kind: h.kind };
   const hub = b.hub!;
   const v = unitSpeed(mods, u.type, night);
+  // held up in traffic only while it drives; a unit standing where a higher-priority one must pass gives way
+  if (h.phase !== 'toDig' && h.phase !== 'toBay' && h.phase !== 'toDrop') delete h.held;
+  yieldAside(s, u);
   // its rates on the ground it digs now (re-read if it changes target this tick)
   let rk = '', r: EffectiveRates = null!, spec: UnitSpec = null!;
   const at = (key: string | null) => {
@@ -948,7 +963,7 @@ export function unitTick(
         else if (h.phase === 'toDrop') setLeg(h, unitLeg(s, mods, u, standPoint(b), b));
         if (h.noRoad) break;
       }
-      t = drive(h, v, t);
+      t = go(s, u, v, t);
       if (h.path.length) continue;
       if (h.phase === 'toBay') { h.phase = 'park'; h.t = 0; continue; }
       if (h.phase === 'toDrop') { h.phase = 'unload'; h.t = 0; continue; }
@@ -1085,6 +1100,24 @@ function pickTarget(s: GameState, mods: Mods, site: SiteDef, u: Hauler, b: Build
   }
   return chooseFor(s, mods, site, u, b);
 }
+
+// ───────────────────────────── traffic (core/traffic.ts) ─────────────────────────────
+
+/** Each cut pit's ramp as the units drive it: top on the rim, foot on the floor (one unit at a time). */
+export function rampsOf(s: GameState): Ramp[] {
+  const out: Ramp[] = [];
+  for (const p of s.pits ?? []) {
+    if (p.state === 'reclaimed' || p.state === 'new') continue;
+    const rf = Math.max(0, p.R - PIT.bench * floorDepth(s, p));
+    const a: Pt = [p.ox + p.ux * p.A, p.oz + p.uz * p.A], b: Pt = [p.cx + p.ux * rf, p.cz + p.uz * rf];
+    if (Math.hypot(b[0] - a[0], b[1] - a[1]) < 3) continue;
+    out.push({ pit: p.id, a, b });
+  }
+  return out;
+}
+
+/** Economy step 0: every unit's reservations planned, in priority order, before any moves. */
+export function planTraffic(s: GameState) { trafficPlan(s, rampsOf(s)); }
 
 // ───────────────────────────── the hub step (economy step 4.1) ─────────────────────────────
 

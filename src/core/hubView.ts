@@ -34,6 +34,10 @@ function unitLine(s: GameState, u: Hauler, bucket: number): string {
   const fl = unitFlareStatus(s, u);
   if (fl) return fl;
   if (h.src === 'flat') return 'NO POWER — waiting for the grid';
+  // held up by another unit's reservation on the road (core/traffic.ts): a moment, or the wait it is at
+  if ((h.held ?? 0) >= 2 && h.path.length && (h.phase === 'toDig' || h.phase === 'toBay' || h.phase === 'toDrop')) {
+    return `HELD UP — another unit has the road ahead (${Math.round(h.held!)} s)`;
+  }
   switch (h.phase) {
     case 'park':
       return u.parked === 'recalled' ? 'PARKED — recalled; Dispatch sends it back to work'

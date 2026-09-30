@@ -458,8 +458,8 @@ export interface RoverTrip {
   local?: boolean;
   /** no road there: it waits where it is and asks again each tick */
   stuck?: boolean;
-  /** game-seconds it has been held up on the way by another unit's reservation
-   *  (docs/19 S4a; the inspector reads it, the trip's own clock is unchanged) */
+  /** game-seconds in a row it has been held up on the way by a digger's reservation (docs/19 S4a,
+   *  core/traffic.ts roverStep): its clock waits, so the trip's ETA stretches; the inspector reads it */
   held?: number;
   /** the share of the clock it drives on now (core/unitPower.ts): 0 flat,
    *  between on an RPU's trickle; absent: 1 (the visuals read it too) */
@@ -584,6 +584,12 @@ export interface HaulState extends PackState {
   full?: boolean;
   /** a hub unit sent to a pit with every face working: it waits at the gate */
   wait?: 'gate';
+  // ── docs/19 S4a (core/traffic.ts): the sim's reservations ──
+  /** the road cells (and pit-ramp keys) it holds, in the order it drives them: the cell it just left,
+   *  the one it stands in, then the run granted ahead; rebuilt from the tick's plan, saved as it stands */
+  claim?: number[];
+  /** game-seconds it has been held up by another unit's reservation on this leg (the inspector reads it) */
+  held?: number;
 }
 
 /** Charter deeds and insight triggers (spec S2). Zeroed on a new run. */
