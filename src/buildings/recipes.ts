@@ -437,8 +437,10 @@ function refinery(): Parts {
     pipe([-3.0, 1.6, 1.4], [3.0, 1.6, 1.4], 0.12, PLATE),
     pipe([-3.0, 1.9, 1.4], [3.0, 1.9, 1.4], 0.12, PLATE),
     box(2.6, 1.8, 1.6, TRIM, 0, 1.9, 2.0),
-    windowStrip(2.0, 3, 0.45, 0, 2.2, 2.81, 0),
-    door(-1.31, 2.0, -PI / 2, 0.9, 1.6, 1.0),
+    windowStrip(1.2, 2, 0.45, -0.65, 2.2, 2.81, 0),
+    // the door on the +z face (the road side), on a stoop up to the plinth
+    door(0.65, 2.8, 0, 0.8, 1.6, 1.0),
+    box(1.3, 1.0, 0.7, PLATE, 0.65, 0.5, 3.15),
     cyl(0.12, 0.16, 5.5, TRIM, 3.2, 3.75, -2.2, 0, 0, 8),
     dome(0.14, BEACON, 3.2, 6.55, -2.2, 8),
     cableTray([3.5, 1.8], [5.6, 1.8]),
@@ -460,9 +462,9 @@ function lab(): Parts {
     box(5.4, 2.8, 5.4, BODY, 0, 1.4, 0),
     box(5.6, 0.5, 5.6, TRIM, 0, 3.05, 0),
     rail(rect(2.7, 2.7), 3.3, true),
-    windowStrip(4.0, 5, 0.7, 0, 1.9, 2.72, 0),
+    windowStrip(2.4, 3, 0.7, 1.3, 1.9, 2.72, 0),
     windowStrip(4.0, 5, 0.7, 2.72, 1.9, 0, PI / 2),
-    door(-2.72, 0.6, -PI / 2, 1.1, 2.0),
+    door(-1.2, 2.72, 0, 1.1, 2.0),
     // the identifier: the dish on a lattice tower over the roof (MOUNTS.lab), a blue rim and rings
     cyl(0.5, 0.6, 0.3, TRIM, 1.4, 3.45, 1.4, 0, 0, 10),
     lattice(3.7, 0.5, 0.24, 1.4, 1.4, 3.6, 3, 1.25),
@@ -560,12 +562,11 @@ function roboticsBay(): Parts {
     bar([0.4, 8.0, 1.6], [-1.6, 7.0, 2.6], 0.14, TRIM),
     box(0.4, 0.34, 0.4, BAND, -1.6, 6.8, 2.6),
     ring(0.44, 5.0, 2.9, -0.5, 0.24, 8), ring(0.36, 6.7, 2.9, -0.5, 0.24, 8),
-    // a second rover on charge at the side door
+    // a second rover on charge at the flank
     box(1.4, 0.45, 0.9, BODY, -3.7, 0.72, 0.6, PI / 2),
     box(0.8, 0.04, 1.1, GLASS, -3.7, 0.97, 0.6),
     bar([-3.7, 0.95, 1.2], [-3.7, 1.5, 1.2], 0.05, TRIM),
     box(0.25, 0.15, 0.2, PLATE, -3.7, 1.57, 1.2),
-    door(-3.32, 0.6, -PI / 2, 1.2, 1.9),
   ];
   for (const z of [0.05, 1.15]) {
     for (const dx of [-0.42, 0.42]) p.push(cyl(0.25, 0.25, 0.18, PLATE, -3.7 + dx, 0.25, z, 0, PI / 2, 10));
@@ -624,11 +625,11 @@ function reactor(): Parts {
     ring(0.95, 10.9, 5.0, -1.9, 0.4, 16), ring(1.15, 1.2, 5.0, -1.9, 0.3, 16),
     dome(0.8, RADIATOR, 5.0, 11.0, -1.9, 10),
     pipe([3.4, 1.8, -1.2], [4.2, 1.8, -1.6], 0.16, PLATE),
-    box(1.8, 1.6, 1.4, BODY, -1.0, 0.8, 5.2),
-    pane(0.8, 0.4, -1.3, 1.1, 5.9, 0),
-    door(-1.0, 4.48, PI, 0.8, 1.3),
-    cableTray([0.2, 5.3], [0.2, 5.9]),
-    junction(0.8, 5.8, 0),
+    box(1.8, 1.6, 1.4, BODY, -1.0, 0.8, 4.8),
+    pane(0.8, 0.4, -0.09, 1.1, 4.8, PI / 2),
+    door(-1.0, 5.5, 0, 0.8, 1.3),
+    cableTray([0.2, 4.9], [0.2, 5.5]),
+    junction(0.8, 5.4, 0),
   ];
   for (const [x, z, w, d] of [[3.35, 0, 0.5, 2.4], [-3.35, 0, 0.5, 2.4], [0, 3.35, 2.4, 0.5], [0, -3.35, 2.4, 0.5]]) {
     p.push(box(w, 6, d, TRIM, x, 3, z));
@@ -756,8 +757,8 @@ function massDriver(): Parts {
   const p: Parts = [
     box(4.6, 3, 5.2, BODY, -9, 1.5, 0),
     box(4.8, 0.3, 5.4, TRIM, -9, 3.15, 0),
-    windowStrip(3.4, 4, 0.45, -9, 2.2, 2.62, 0),
-    door(-11.32, 0, -PI / 2, 1.2, 2.0),
+    windowStrip(2.2, 3, 0.45, -10.0, 2.2, 2.62, 0),
+    door(-7.9, 2.6, 0, 1.2, 2.0),
     box(20, 0.9, 2.4, BODY, 0.6, 3.3, 0, 0, tilt),
     box(20, 0.35, 3.0, TRIM, 0.6 - 0.7 * Math.sin(tilt), 3.3 + 0.62 * Math.cos(tilt), 0, 0, tilt),
     dome(0.16, BEACON, 10.4, railY(10.4) + 0.95, 0, 8),

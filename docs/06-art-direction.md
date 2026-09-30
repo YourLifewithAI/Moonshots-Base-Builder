@@ -385,11 +385,13 @@ and asserts the rules below.
 **Best side.** A recipe's base sits at y = 0, centred on its footprint, and
 its **front is +z**: `frontDir` (`core/roads.ts`) is +z rotated by the
 building's `rot`, the road ends at the door cell on that face, and the home
-camera (yaw 45° + k·90°, looking from +x, +z at rotation 0) sees it. Most
-recipes put their airlock there; the refinery's, lab's and mass driver's door
-meshes are on the −x end and the reactor's annex door faces −z (the road door
-is `doorCell`, not the mesh). A recipe's tall identifier is on the camera's
-side of the footprint where it can be.
+camera (yaw 45° + k·90°, looking from +x, +z at rotation 0) sees it. Every
+recipe's visible door mesh is on that +z face (docs/19 S11 turned the
+refinery's annex door, the lab's, the mass driver's control hut's and the
+reactor's annex door to +z, and dropped the robotics bay's second door on its
+−x flank; the refinery's stands on a small stoop up to its plinth). The road
+door is still `doorCell`, not the mesh. A recipe's tall identifier is on the
+camera's side of the footprint where it can be.
 
 **One tall identifier per recipe**, 5 to 16 m, readable at far zoom, carrying
 the family accent on small `TRIM` parts or `BAND` parts (rings round a tower, a
@@ -424,7 +426,7 @@ that it stands at least 4.4 m.
 | Solar Observatory (science) | 2×2 | 6.9 | a slit dome on a 5 m pier |
 | Server Monolith (science) | 2×2 | 16.0 | blue bands across a near-black slab |
 | Foil Factory (export) | 3×3 | 13.2 | a foil-drawing tower with a gold spool |
-| Mass Driver (export) | 6×2 | 6.9 | accent stripes across the rail, its muzzle ring (22.9 m long) |
+| Mass Driver (export) | 6×2 | 6.9 | accent stripes across the rail, its muzzle ring (22.8 m long) |
 | Propellant Plant (export) | 3×2 | 10.9 | a flare stack |
 
 (The Excavator, the Ice Miner and the Ice Harvester recipes are the legacy
