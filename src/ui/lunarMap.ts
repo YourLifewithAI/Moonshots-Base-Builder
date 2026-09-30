@@ -16,7 +16,6 @@ import { DEPOSIT_INFO } from '../data/deposits';
 import { depositCardHtml, runCardAction } from './depositCard';
 import { BUILDINGS } from '../data/buildings';
 import { ATLAS, MAP_M, SURVEY_TIERS } from '../data/balance';
-import { RESOURCES, type ResourceId } from '../data/resources';
 import { TECHS, type TechId } from '../data/techs';
 import { fmtClock } from '../core/daynight';
 import type { SurveyCost } from '../core/exploration';
@@ -24,6 +23,7 @@ import type { Action } from '../core/actions';
 import type { Game } from '../core/game';
 import { el, perFrame } from './hud';
 import { echoes } from './notify';
+import { outpostChip, outpostCover } from './outpostView';
 import { openTechTreeAt } from './techTree';
 import {
   $alerts, $defeat, $deposits, $hubLight, $lunar, $menuOpen, $phase, $research, $siteId, $victory, overlayUp,
@@ -85,8 +85,6 @@ const CLASS_ORDER: ProspectClass[] = ['local', 'regional', 'near', 'far', 'subsu
 const ORDINAL = ['1st', '2nd', '3rd'];
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
-const goods = (m: Partial<Record<ResourceId, number>>) =>
-  Object.entries(m).map(([r, n]) => `${n}${RESOURCES[r as ResourceId].glyph}`).join(' ');
 const latLon = (lat: number, lon: number) =>
   `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
 const costText = (c: SurveyCost) =>
@@ -518,6 +516,11 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   if (eraChip) eraChip.after(chip);
   else if (timeCol) timeCol.insertBefore(chip, timeCol.querySelector('#alerts'));
   else root.appendChild(chip);
+  // ── the OUTPOSTS chip beneath it (docs/19 S8): how many stand, and how they fare; it opens the strip ──
+  const opChip = el('button', 'btn panel interactive') as HTMLButtonElement;
+  opChip.id = 'outposts-chip';
+  opChip.style.display = 'none';
+  chip.after(opChip);
 
   const screen = el('div', 'interactive');
   screen.id = 'map-screen';
@@ -1026,7 +1029,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     const foot = ntid && more
       ? `<div class="ns-foot">T${nt} ${esc(card?.name ?? TECHS[ntid].name)}${card ? ` (Era ${card.era})` : ''} brings ${more} more into range${SURVEY_TIERS[nt].slots > SURVEY_TIERS[lv.tier].slots ? ' and an outpost slot' : ''}</div>`
       : '';
-    return `<div class="ns-weak"><div class="label">What this site lacks</div>${esc(SITE_WEAKNESS[siteId!])}</div>` +
+    return `<div class="ns-weak"><div class="label">Outposts cover</div>${esc(SITE_WEAKNESS[siteId!])}<div class="ns-live mono"></div></div>` +
       `<div class="label ns-cap">Next surveyable <span class="mono">${rows.length}</span></div>` +
       '<div class="ns-busy"></div>' +
       (rows.map(row).join('') || '<div class="ns-empty">Nothing unsurveyed in range — the next tier widens it.</div>') +
@@ -1054,6 +1057,13 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
       const t = !d.total ? 'no survey drone aboard'
         : `△ ${d.ready}/${d.total} drones ready${d.out ? ` · ${d.out} out: ${lv.flights.map((f) => `${f.short} ${fmtClock(f.remaining)}`).join(', ')}` : ''}${d.charging ? ` · ${d.charging} charging` : ''}`;
       if (busy.textContent !== t) busy.textContent = t;
+    }
+    // what the standing outposts stream, in the field report's words
+    const live = panel.querySelector('.ns-live');
+    if (live) {
+      const c = outpostCover(lv);
+      const t = c ? `live now: ${c}` : '';
+      if (live.textContent !== t) live.textContent = t;
     }
     for (const r of panel.querySelectorAll<HTMLElement>('.ns-row')) {
       const p = find(r.dataset.id as ProspectId);
@@ -1095,9 +1105,10 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
         : `<section class="ps-bt">✦${TX}? The readings hint at a breakthrough — a survey would tell</section>`;
     const x = p.claim;
     const haul = OUTPOST_CLASS[p.cls].haul;
+    // the site line is the field report's own (exploration.outpostSiteLine): stream and claim in one breath
     const claim = x
-      ? `<div class="io"><span class="k">Stream</span><span class="mono">${esc(x.stream)}</span>` +
-        `<span class="k">Claim</span><span class="mono">${goods(x.cost)} · deploys ${fmtClock(x.deployS)}</span>` +
+      ? `<div class="ps-site"><span class="ps-tag mono">OUTPOST SITE</span><span class="mono">${esc(x.line)}</span></div>` +
+        `<div class="io"><span class="k">Deploys</span><span class="mono">${fmtClock(x.deployS)}</span>` +
         `<span class="k">Upkeep</span><span class="mono">${x.upkeepPerDay}⚙/day · link ${String(x.linkKW).replace('-', '−')} kW</span>` +
         `<span class="k">Fuel</span><span class="mono">${x.fuel ? esc(x.fuel) : '— none (rover haul)'}</span></div>`
       : `<div class="ps-none">${p.kind === 'heritage' ? 'Protected heritage site — survey only (the Artemis Accords keep-out)' : 'Nothing to extract — an anomaly pays in data'}</div>`;
@@ -1315,7 +1326,7 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     for (const c of outpostsEl.querySelectorAll<HTMLElement>('.op[data-id]')) {
       const o = lv.outposts.find((x) => x.id === c.dataset.id) as LunarOutpostView | undefined;
       if (!o) continue;
-      const s2 = o.live ? o.stream : `deploying ${fmtClock(o.deployLeft)}`;
+      const s2 = o.state === 'off' ? 'cut off from the Lander' : o.live ? o.stream : `deploying ${fmtClock(o.deployLeft)}`;
       const s3 = `fuel ${o.fuel ? (o.fuelOk ? '✓' : '✗') : '—'} · upkeep ${o.upkeepOk ? '✓' : '✗'}`;
       const e2 = c.children[1], e3 = c.children[2];
       if (e2.textContent !== s2) e2.textContent = s2;
@@ -1368,7 +1379,14 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
   // ── the chip ──
   function renderChip(lv: LunarView | null) {
     chip.style.display = lv ? '' : 'none';
-    if (!lv) return;
+    if (!lv) { opChip.style.display = 'none'; return; }
+    const oc = outpostChip(lv);
+    opChip.style.display = oc ? '' : 'none';
+    if (oc) {
+      if (opChip.textContent !== oc.text) opChip.textContent = oc.text;
+      if (opChip.title !== oc.title) opChip.title = oc.title;
+      opChip.classList.toggle('fault', oc.fault);
+    }
     const pulse = lv.justExpanded && !isOpen;
     const tier = `T${lv.tier} ${lv.tierLabel}`;
     const text = pulse ? `◎ MAP EXPANDED — ${tier} [M]`
@@ -1450,13 +1468,27 @@ export function mountLunarMap(root: HTMLElement, game: Game) {
     if (isOpen) toggle(false);
     else if (canOpen()) toggle(true);
   });
+  // the OUTPOSTS chip opens the map on its outposts strip: the strip is outlined for a moment
+  let hlTimer = 0;
+  function focusOutposts() {
+    screen.dataset.focus = 'outposts';
+    outpostsEl.classList.add('hl');
+    clearTimeout(hlTimer);
+    hlTimer = window.setTimeout(() => { outpostsEl.classList.remove('hl'); delete screen.dataset.focus; }, 2400);
+  }
+  opChip.addEventListener('click', () => {
+    if (!isOpen && !canOpen()) return;
+    if (!isOpen) toggle(true);
+    focusOutposts();
+  });
   $('#map-close').addEventListener('click', () => toggle(false));
   // an alert's {map: prospect} action opens the map with that prospect's sheet up (ui/notifyUi.ts)
   window.addEventListener('moonshots:open-map', (e) => {
     if (!canOpen()) return;
-    const pid = (e as CustomEvent<{ prospect?: ProspectId } | null>).detail?.prospect;
+    const d = (e as CustomEvent<{ prospect?: ProspectId; focus?: 'outposts' } | null>).detail;
     if (!isOpen) toggle(true);
-    if (pid) select(pid);
+    if (d?.prospect) select(d.prospect);
+    if (d?.focus === 'outposts') focusOutposts();
   });
 
   // capture phase, after the menu's: while the map is open, Esc closes it and

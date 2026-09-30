@@ -4,21 +4,25 @@
 import { BUILDINGS, BUILD_ORDER, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import {
-  CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, CREW, FLEET, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS,
+  CONSTRUCTION_KW, CONSTRUCTION_PARTS_PER_S, CREW, FEED, FLEET, DATA_RATE, LAUNCH_CAP_PER_VOLLEY, LAUNCH_COST_FOILS,
   LAUNCH_POWER_BURST, MORALE, RESEARCH_RATE_PER_DC, RESEARCH_RATE_PER_LAB, RESUPPLY,
 } from '../data/balance';
 import { SITES } from '../data/sites';
 import { effectiveDef, effectiveRates, type EffectiveRates, type Mods } from '../core/mods';
 import type { Game } from '../core/game';
 import { stripMorale, type StripTerm } from '../core/pits';
-import { STRIP } from '../data/ore';
+import { DEP_SURVEY, STRIP } from '../data/ore';
+import { FORECAST } from '../data/forecast';
+import { SURVEY_CLASS, type ProspectId } from '../data/lunarMap';
 import { fmtClock } from '../core/daynight';
 import type { ReadableAtom } from 'nanostores';
 import { el, fmt, perFrame, PERSON_SVG } from './hud';
 import {
-  $caps, $counts, $feed, $fleet, $lander, $power, $rates, $research, $resourcePanel, $resources, $siteId, $tech,
+  $caps, $counts, $feed, $fleet, $lander, $lunar, $power, $rates, $research, $resourcePanel, $resources, $siteId, $tech,
   $time, $vitals, $weather,
 } from './stores';
+import { runAlertAction } from './notify';
+import { outpostConsumers, outpostLinkKW, outpostProducers } from './outpostView';
 import { SPACE_WEATHER } from '../data/spaceWeather';
 import { FEED_KINDS, FEED_LABEL } from '../data/deposits';
 import { TECHS, TECH_ORDER } from '../data/techs';
@@ -82,6 +86,16 @@ function feedSection(): string {
 function perMin(ratePerS: number): string {
   const m = ratePerS * 60;
   return fmt(Math.abs(m)) === '0' ? '0' : (m >= 0 ? '+' : '−') + fmt(Math.abs(m));
+}
+
+/** the ≡ panel's survey rows: what a map survey and a deposit's core sample pay, and how much is mapped */
+function surveyRows(): string {
+  const lv = $lunar.get();
+  if (!lv) return '';
+  const pays = Object.values(SURVEY_CLASS).map((c) => c.data);
+  const paid = lv.prospects.filter((p) => p.surveyed).reduce((t, p) => t + p.data, 0);
+  return row('Map surveys', `+${Math.min(...pays)}–${Math.max(...pays)} each · ${lv.surveyedCount}/${lv.prospects.length} surveyed, +${paid} paid`) +
+    row('Deposit surveys', `+${DEP_SURVEY.data} each · a core sample`);
 }
 
 const NOTES: Partial<Record<string, string>> = {
@@ -156,10 +170,11 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
           · stored ${fmt(p.stored)} / ${fmt(p.capacity)}${drain > 0.01 ? ` · lasts ${fmtClock(p.stored / drain)}` : ''}
           · ${time.isNight ? `dawn in ${fmtClock(time.phaseLeft)}` : `dusk in ${fmtClock(time.phaseLeft)}`}</span></section>
       ${$weather.get()?.powerLine ? `<section><span class="label mono" id="res-flare">☉ ${$weather.get()!.powerLine}</span></section>` : ''}
-      <section><span class="label">Generation</span>${gen}
+      <section><span class="label">Generation</span>${gen}${outpostProducers('power', $lunar.get())}
         <div class="goal-hint">Solar dies at night; batteries store the day (${Math.round((1 - mods.storageEff) * 100)}% round-trip loss); reactors don't care.</div></section>
       <section><span class="label">Draws</span>${draws}
         ${row('Fleet: driving, road work, charging', `−${kw(p.fleet)} kW${p.charging >= 0.05 ? ` (${kw(p.charging)} charging)` : ''}`)}
+        ${outpostLinkKW($lunar.get()).n ? row(`Outposts ×${outpostLinkKW($lunar.get()).n} · Lander links`, `−${kw(outpostLinkKW($lunar.get()).kw)} kW`) : ''}
         <div class="goal-hint">Construction sites pull ${siteKW} kW per working rover while building. Under shortage, high-priority-number buildings idle first: idling only priority 2–3 loads is a LOAD SHED; a dark priority 0–1 load is a BROWNOUT, and it sheds priority 2–3 whole.</div>
         <div class="goal-hint">Rovers, drones and excavators carry packs: they work from the grid while it serves them, from the pack when it cannot, and recharge at their docks and pads${p.flat ? ` — ${p.flat} unit${p.flat === 1 ? ' is' : 's are'} out of charge now, waiting for the grid` : ''}.</div></section>`;
   }
@@ -217,6 +232,11 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
         ${buildingLine('dataCenter', ratesOf('dataCenter', mods).data, '+')}
         ${$tech.get().unlocked.includes('serverMonolith') || $counts.get().serverMonolith?.total
           ? buildingLine('serverMonolith', ratesOf('serverMonolith', mods).data, '+') : ''}
+        ${buildingLine('solarObservatory', FORECAST.obsDataPerS, '+')}
+        ${row('Solar flares', `+${SPACE_WEATHER.heliophysics.C} · +${SPACE_WEATHER.heliophysics.M} · +${SPACE_WEATHER.heliophysics.X} (C · M · X) each, with a lab running`)}
+        ${surveyRows()}
+        ${outpostProducers('data', $lunar.get())}
+        <div class="goal-hint">A Solar Observatory reads the Sun (+${fmt(FORECAST.obsDataPerS * 60)}/min while it sees it) and doubles a flare’s heliophysics. Map surveys pay once each; a radio outpost streams data for as long as it stands.</div>
         ${agentLab ? `<div class="goal-hint">Agent-run labs hold ${Math.round(DATA_RATE.agentLabCap * 100)}% — inference is not insight; settlers staffing them lift the cap. Crewed labs scale with morale.</div>` : ''}
         ${share < 1 ? `<div class="goal-hint">${rv!.agentLabs} agent-run labs share one Deep Space Network uplink: each keeps ${Math.round(share * 100)}% of its data.</div>` : ''}
         <div class="goal-hint">Each OPERATING lab also feeds at most ${fmt(RESEARCH_RATE_PER_LAB * 60)}/min of banked data into the research queue — no lab, no research progress. A Data Center moves ${fmt(RESEARCH_RATE_PER_DC * 60)}/min, ${Math.floor(RESEARCH_RATE_PER_DC / RESEARCH_RATE_PER_LAB)} labs' worth, and produces data itself; big eras want compute.</div></section>`;
@@ -230,14 +250,16 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
   const rate = $rates.get()[rid] ?? 0;
   const hasIce = SITES[$siteId.get() ?? 'mare'].hasIce;
   const makers = BUILD_ORDER.filter((b) => (effectiveDef(b, mods).outputs[rid] ?? 0) > 0);
-  const producers = makers.filter((b) => hasIce || !BUILDINGS[b].requiresIce)
-    .map((b) => buildingLine(b, ratesOf(b, mods).outputs[rid] ?? 0, '+')).join('');
+  const lunar = $lunar.get();
+  const producers = makers.map((b) => buildingLine(b, ratesOf(b, mods).outputs[rid] ?? 0, '+')).join('');
+  const outposts = outpostProducers(rid, lunar);
   const units = $fleet.get().units;
   const extraction = rid === 'regolith' ? `<div class="goal-hint">Hub mining units: ${units.filter((u) => u.type === 'excavator').length} excavators · ${units.filter((u) => u.type === 'iceMiner').length} ice miners. Hubs commission with one unit and print more in their inspector. Delivery rate includes digging, the haul, unloading and charging.</div>` : '';
-  const iceless = makers.some((b) => BUILDINGS[b].requiresIce) && !hasIce
-    ? '<div class="goal-hint">No ice at this site. Use a Water Management Plant’s excavators on mature soil instead.</div>' : '';
+  // a dry site (no polar ice): the Water Management Plant digs mature soil, and its rate above is the soil rate
+  const iceless = rid === 'water' && !hasIce
+    ? `<div class="goal-hint">No polar ice at this site: a Water Management Plant digs mature soil instead — ${Math.round(FEED.soilWater * 100)}% of the ice recipe’s water at ×${FEED.soilKW} the power. Ice and volatiles outposts add water without digging.</div>` : '';
   const consumers = BUILD_ORDER.filter((b) => (effectiveDef(b, mods).inputs[rid] ?? 0) > 0)
-    .map((b) => buildingLine(b, ratesOf(b, mods).inputs[rid] ?? 0, '−')).join('');
+    .map((b) => buildingLine(b, ratesOf(b, mods).inputs[rid] ?? 0, '−')).join('') + outpostConsumers(rid, lunar);
   // Published totals already include reclamation; the per-person row above
   // derives its own rate from CREW and applies the factor there.
   const crewDraw = rid === 'oxygen' || rid === 'food' || rid === 'water' ? v.lifeSupport[rid] : 0;
@@ -262,8 +284,8 @@ function panelHtml(key: string, mods: Mods, strip?: StripTerm): string | null {
     <section><div class="tt-name"><span>${def.glyph} ${def.name}</span>
       <span class="mono">${fmt(stock)}${cap ? ` / ${fmt(cap)}` : ''}</span></div>
       <span class="label">net ${perMin(rate)}/min${eta} · ${def.desc}</span></section>
-    <section><span class="label">Produced by</span>${producers}${extraction}${extraIn}${iceless}
-      ${!producers && !extraction && !extraIn && !iceless ? '<div class="goal-hint">Nothing on the Moon makes this yet.</div>' : ''}</section>
+    <section><span class="label">Produced by</span>${producers}${outposts}${extraction}${extraIn}${iceless}
+      ${!producers && !outposts && !extraction && !extraIn && !iceless ? '<div class="goal-hint">Nothing on the Moon makes this yet.</div>' : ''}</section>
     <section><span class="label">Consumed by</span>${consumers}${extraOut}
       ${!consumers && !extraOut ? '<div class="goal-hint">Nothing consumes this directly.</div>' : ''}</section>
     ${rid === 'regolith' ? feedSection() : ''}
@@ -285,6 +307,11 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
   actions.querySelector('#res-panel-close')!.addEventListener('click', () => $resourcePanel.set(null));
   // the Builder's orders and rules for this resource: stable DOM, outside the re-rendered body
   mountBuilderSection(panel, actions, game);
+  // an outpost row opens the Lunar Map at that prospect (the same action an outpost alert runs)
+  body.addEventListener('click', (e) => {
+    const r = (e.target as HTMLElement).closest<HTMLElement>('[data-map]');
+    if (r) runAlertAction({ map: r.dataset.map as ProspectId });
+  });
   body.addEventListener('change', (e) => {
     const t = e.target as HTMLInputElement;
     if (t.matches('[data-act="agent-cover"]')) game.actions.push({ kind: 'setAgentCover', on: t.checked });
@@ -299,7 +326,7 @@ export function mountInfoPanel(root: HTMLElement, game: Game) {
     if (html !== lastHtml) { lastHtml = html; body.innerHTML = html; }
   };
   const schedule = perFrame(render);
-  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time, $feed, $fleet, $research] as ReadableAtom<unknown>[]) {
+  for (const store of [$resourcePanel, $counts, $vitals, $resources, $rates, $caps, $power, $tech, $lander, $time, $feed, $fleet, $research, $lunar] as ReadableAtom<unknown>[]) {
     store.subscribe(schedule);
   }
 }
