@@ -315,3 +315,39 @@ test('the mission day counts from the base’s own landing; a solo game shows da
   expect(r.tags).toEqual(['D1', 'D2', 'D4']);
   expect(r.filled).toBe(0);
 });
+
+test('the feed: ids count up, the list is capped, a cursor reads what is new, handlers hear each kind once', async ({ page }) => {
+  await pure(page);
+  const r = await page.evaluate(() => {
+    const { M } = (window as any).H;
+    const moon = M.createMoon(42, { player: 'solarpunks' });
+    moon.clock = 1000;
+    const heard: string[] = [], all: number[] = [];
+    const off = M.onFeed('claim', (e: any) => heard.push(`${e.faction}:${e.prospect}`));
+    const offAll = M.onFeed('*', (e: any) => all.push(e.id));
+    const push = (kind: string, extra: object = {}) => M.pushFeed(moon, { faction: 'robots', kind, text: kind, ...extra });
+    const a = push('landed'), b = push('claim', { prospect: 'moltke' });
+    M.dispatchFeed(a, { moon, player: null }); M.dispatchFeed(b, { moon, player: null });
+    const since = M.feedSince(moon, a.id).map((e: any) => e.id);
+    off();
+    M.dispatchFeed(push('claim', { prospect: 'cabeus' }), { moon, player: null });
+    offAll();
+    for (let i = 0; i < 100; i++) push('launch', { n: i });
+    return {
+      ids: [a.id, b.id], at: [a.at, b.at], since, heard, all,
+      len: moon.feed.length, firstId: moon.feed[0].id, lastId: moon.feed.at(-1).id, seq: moon.feedSeq, max: M.FEED_MAX,
+      saved: JSON.parse(JSON.stringify(moon)).feedSeq,
+      late: M.pushFeed(moon, { faction: 'robots', kind: 'era', text: 'era', at: 5 }).at,
+    };
+  });
+  expect(r.ids).toEqual([1, 2]);
+  expect(r.at).toEqual([1000, 1000]);
+  expect(r.since).toEqual([2]);
+  expect(r.heard).toEqual(['robots:moltke']);   // the claim handler heard the first claim, then was switched off
+  expect(r.all).toEqual([1, 2, 3]);              // the wildcard handler heard all three (the claim handler was off for the third)
+  expect(r.len).toBe(r.max);
+  expect(r.lastId).toBe(r.seq);                  // the newest event is the last id issued, none reused
+  expect(r.firstId).toBe(r.seq - r.max + 1);
+  expect(r.late).toBe(5);                        // an explicit `at` is kept
+  expect(r.saved).toBe(r.seq);                   // the Moon serialises with its feed (save v2)
+});
