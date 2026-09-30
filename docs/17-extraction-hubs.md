@@ -596,17 +596,16 @@ tap on the hub's card or on the hub is enough.
 | A plain pit | a plain solid rim with its heap outline | `P4 · q 0.62 · 3/3` |
 | Not this hub's kind | the usual ring at 30% | none |
 
-- **Never colour alone** (docs/07 §6a): weight, pattern, fill and label carry every
-  state. Classic palette keys: `depositLit`, `depositFull`, `depositSpent`,
-  `pitRim`.
+- **Never colour alone** (docs/07 §2, §6a): weight, pattern, fill and label carry every
+  state.
 - **Time.** The nearest lit deposit's time comes from the planned haul road (§5.3).
   Other labels use the straight line × 1.3 plus the off-road leg, marked `≈`.
 - **The Lunar Map's SITE view** draws the same states from `$deposits`, which gains
   `lit`, `state`, `eta`, `faces`, `ore`, `pitR` and `fullR`. Opening the map with a
   hub selected keeps the highlight.
-- **Classic and High detail** share the overlay's draped line segments
-  (`Game.rebuildDepositOverlay`); High adds an emissive rim line. Nothing depends on
-  hover.
+- The overlay is draped line segments (`Game.rebuildDepositOverlay`); a pit's rim in
+  the highlight is `drapedLine(…, 'rim')` along the real cut contour (docs/06 §9).
+  Nothing depends on hover.
 - The overlay turns itself on for a hub's ghost, as it does for an excavator's today
   (`src/core/game.ts:695`).
 
@@ -636,7 +635,7 @@ tap on the hub's card or on the hub is enough.
 | Water per tonne | 1 t of water needs about 20 t of regolith, about 13 m³ | why ice pits are big |
 | Bulk density | about 1.5 t/m³ (loose 1.3, compacted 1.8) | ▲ = 1 t; a pit's volume is tonnes ÷ 1.5; a heap stacks at 1.3 |
 | Angle of repose | about 35° for loose regolith | heap sides at 35°; pit walls at 1:2 (27°), safely below it |
-| Space weathering | darkens the surface over millions of years (nanophase iron, agglutinates); fresh material is brighter | the cut and the heap are brighter than the ground around them (§20) |
+| Space weathering | darkens the surface over millions of years (nanophase iron, agglutinates); fresh material is brighter | the cut reads as fresh ground: its own ochre bench palette, well apart from the land around it (§20) |
 
 **Game units.** ▲ is a tonne. Products (◆ ○ ≈ ◇) stay game units: each hub's recipe
 at q 1 is today's. A smelter eats 2 t/s, about 1.3 m³/s. One lunar day (720 s) of one
@@ -943,7 +942,7 @@ So on load: **base → deltas → flattens**, and the result is exact.
 | Zones and gates (`src/core/zones.ts`) | a pit's zone is its deposit's ring or its rim + 4 m, whichever is bigger; plain pits are zones | `zonesFrom` gains pits; a zone that grows bumps `roadRev` |
 | Transit and traffic | 2D, as now; the ramp is a lane with a junction at its top | the sim adds the ramp to off-road legs (§8.3) |
 | Unit and rover visuals | height from `hf.sample` | none: they follow the ground |
-| Shadows | terrain chunks cast them | `onShadowCastersChanged` after a rebuild, throttled (§11.6) |
+| Shadows | none: the cel style draws no shadow map | the contact decals and rock blobs re-drape with the ground |
 | Rocks (`src/terrain/rocks.ts`) | none inside a pit or heap | re-scatter the affected chunk, skipping carved samples |
 | The deposit overlay, road mesh and decals | draped on the ground | re-drape rings and rims after a carve; roads are never carved, so they don't move |
 | The horizon ring | outside the map | none |
@@ -1003,10 +1002,10 @@ still hold for every box, see docs/19 "As shipped: S5"):
   renderer rebuilds the 1–4 chunks it overlaps (`TerrainChunks.rebuildAround`,
   `src/terrain/chunks.ts:110-123`), at most one chunk a frame and two a second, from
   a queue. A chunk is 33 × 33 vertices, so a rebuild is cheap.
-- **Shadows** refresh at most once every 2 s.
-- **Classic and High detail** both build from `h`. Classic's faceted triangles show the
-  benches as facets. High's smooth normals show them as rings, and bench lips add
-  the edges (§20).
+- **The cel style builds from `h`.** The faceted triangles are split on the odd metres
+  of depth, so each bench is a flat band of its own colour with an ink contour laid
+  along the cut (`decorate` in `terrain/pitLook.ts`; §20, docs/06 §9). No extra draw
+  call.
 - The sim never waits on the renderer. A carve is a state change like any other.
   Sim time the visuals never showed (a load, a debug advance) rebuilds every changed
   chunk once.
@@ -1593,29 +1592,40 @@ Starting fresh only makes old saves generous for an era or two.
 
 ## 20. Look
 
-All parts use `meshKit` primitives and stay monochrome; state is carried by lamps and
-tone (docs/06). Triangle budgets follow docs/04's table.
+The hubs and pits are drawn in the cel style (docs/06): every part is a `meshKit` primitive,
+a structure's trim is its family's accent (the extraction ochre, `#d9772b`), a unit wears its
+livery, and state is carried by shape, pattern and words as well as colour (docs/07 §2).
+Triangle budgets follow docs/04's table. What follows is the shipped look (docs/19 S2a and
+S2b); the last table lists what was designed here and has not been built.
 
 | Thing | What you see | Budget |
 |---|---|---|
-| **Pits** | Terraced rings: each 4 m sample ring sits a 2 m bench lower. Classic's faceted ground shows each bench as a facet ring; High detail adds a thin instanced **bench lip** on each ring's edge. The ramp spirals down the gate side. | lips: 1 instanced strip mesh for the map |
-| **The cut** | **Brighter** than the ground around it: +20% albedo on carved samples in `celGround` (the old `regolithAlbedo` is gone), fading over the first 2 m of the rim. **Why brighter:** freshly exposed regolith is immature, not yet darkened by space weathering, as a young crater's rays show. Rover tracks look dark because trampling changes how the surface scatters light, not its maturity. A pit exposes metres of fresh material, so maturity wins. It also matches the game's own "fresh bright rim" crater rule. | no geometry |
-| **Bedrock benches** (Deep Coring) | Rock tone by site: fractured basalt a shade darker at the mare and lava tube, anorthosite brighter still at the pole, with rubble instanced on the bench. | 1 instanced rubble mesh |
-| **Tailings heaps** | Flat-topped dumps with 35° sides, bright like the cut, with tip lines on the top. | the terrain itself |
+| **Pits** (S2b, docs/06 §9) | The cut is split on the odd metres of depth and each bench is a flat band of its own colour, **ochre `#c9a06a`** and **dark ochre `#a7833f`** alternating from the rim in, the floor `#8f7a5a`. An ink ribbon 0.25 m wide (`#3a2c1a`, 0.05 m proud) runs along every cut, one ring a bench, so the ribbons number the benches. It replaces the bench lip of the first design. | baked into the chunk: no extra draw call; a 40,000 m³ pit rebuilds in about 40 ms |
+| **The cut** | Not a fixed brightness boost: its own palette, at least 40/255 away from the ground it was cut from in one channel for nine samples in ten (10th percentile 48, median 72; the floor, close to the mare's ground by design, is the exception at 20). The two benches stay 32/255 apart through the ground's two light steps and its posterising, by day and at night. `PIT.cutBright` and `heapBright` scale the palette (1 as authored). | no geometry |
+| **The ramp** | A causeway the sim leaves standing (1:4, 4.5 m either side of its line), drawn as a lighter tread `#dcc48e` with contour-ink edges and an ink arrow (a shaft and a head, at most 14 m long, `#141618`) pointing down it; a tread under 4.5 m has none. It faces the gate (docs/15 §3a). | baked |
+| **Tailings heaps** | Flat-topped dumps with 35° sides in a grey `#6f665c`, outlined in ink where 0.5 m high (`#2b2722`) and cross-hatched every 3.6 m along the world diagonals (`#43392f`). Graded spoil is plain ground again. | baked |
+| **The rim in the highlight** | §6.1's rim is `drapedLine(…, 'rim')` along the real cut contour (96 rays to the outermost point of the first bench's line), recoloured white; its heap's outline is the real foot, dashed. The circle is the fallback when the grid holds no cut there. | draped lines |
+| **Exhausted, boxed in, reclaimed** | A flag beside the ramp on the rim and a dashed ring 3.5 m outside it, always on. **EXHAUSTED** an amber `#e8a72d` banner and long dashes (3 m, 2 m); **BOXED IN** a red `#d9503f` pennant and short dashes (1.2, 1.2); **RECLAIMED** a green `#66ad4b` swallow-tail and mid dashes (2.4, 2.4). The label chip takes the colour and keeps its word. Shape and pattern say the state as well as colour. | two meshes in all (the flags, the rings); none while no pit is in an end state |
 | **Units on the benches** | Each digs at its face on its bench, at the bench's height; others climb the ramp nose-up. | — |
-| **Hub bays** | A charge post (a 1.2 m bollard with a lamp) per bay cell against the hub's front wall, and stall lines. Parked units stand nose-in, charge lamps lit. Level II: a lattice canopy (Bay Extensions). Level III: a roofed depot hall with a gantry (Depot Halls). | +120 △ a bay; +300 canopy; +500 hall |
-| **Hopper chute** | A sloped chute at the door with a four-step gauge lamp. | +80 △ |
-| **Water Management Plant** | A melt hall (7 × 4 × 5.4 m, a radiator pair), three banded water tanks and a sublimation chimney. Upgrades: a greywater still (Water Reclamation), an electrolysis stack with busbars and a flare mast (Water Electrolysis), a spherical propellant dewar on legs (Propellant Depot). | ~1,500 △ stock · ~2,600 upgraded |
-| **Ice Miner** | A tracked crawler (the excavator's hull and track pods), an insulated ore bin in FOIL finish, a heated auger drum on a short boom (its rig), a frost vent and two lamps. | ~1,000 △ |
+| **Regolith Smelter** | The smelter's hall, twin stacks (its identifier) and ochre bands. | 1,204 △ |
+| **Water Management Plant** (S2a) | Its own model, nothing of the smelter's hall: a frosted cold-trap dome on a plinth (a foil belt, an ochre band, a lit window ring, an airlock at +z), one 11.6 m condenser tower (finned plates, three ochre rings, a domed head), a vapour line between them and two water tanks. Upgrades sit on this layout (`LANE.waterPlant`): bays by the airlock (Bay Extensions), a hoist beam from the tower (Depot Halls), a reclamation bulb on the dome (Water Reclamation), an electrolysis rack by the tower (Water Electrolysis). | 2,240 △ stock |
+| **Digger units** (S2a, docs/06 §7) | Three unit meshes told apart by shape and livery, 3.0 m across the tracks: the **smelter digger** (an open ore bin on its back deck with a heap in it, an ochre band), the **refinery digger** (a covered hopper with a gabled lid, ridge stripe and hatches, a domed cab, a taller whip, slate tracks, quartz-white body, violet band) and the **ice miner**. A water plant on the ice prints ice miners and elsewhere excavators; the legacy pad's and a water plant's excavator are the plain excavator. | 944 · 870 · 848 △ |
+| **Ice Miner** | A cyan crawler (`#5fc4d6`, band `#3bb6c9`) with an insulated foil tank across its back deck, cyan straps, a cab at the front left and slate tracks. Its rig is its own: a broad boom and a ten-slat cutter drum with ten teeth and two octagonal flanges (Heated Augers adds a second row); at work the drum swings and its spoil is cyan. Its lane's parts are dust skirts, a cold-trap canister, a heater pack and a sensor mast (`LANE.iceMiner`). | 848 △ |
 | **The highlight** | §6.1: double-weight rings, the full-size ring dashed, the rim solid, the ore band hatched, and label chips. | no new geometry |
-| **Survey markers** | An unsurveyed deposit shows its `?` chip. A surveyed one gets four stake flags on its full-size ring (1.5 m poles with pennants) and core-hole dots at its centre. | 1 instanced stake mesh |
-| **Exhausted and boxed in** | The ring cross-hatched, the ramp's top barred with a lamp-lit gate arm. | +40 △ |
-| **Reclaimed** | Raked, levelled ground, like Site Grading's pads, a shade brighter than the land around it. | none |
 
-- Classic palette keys: `depositLit`, `depositFull`, `depositSpent`, `pitRim`, `cut`,
-  `bedrock`, `stake`. High detail: an emissive rim line on lit rings; lamps use
-  `LAMP`.
-- The excavator's research parts (`src/buildings/upgrades.ts:308`) stay on the unit.
+**Designed and not built.** The rows below were specified with the first design and no code
+draws them:
+
+| Thing | Design |
+|---|---|
+| **Bedrock benches** (Deep Coring) | Rock tone by site: fractured basalt a shade darker at the mare and lava tube, anorthosite brighter still at the pole, with rubble instanced on the bench. |
+| **Hub bays** | A charge post (a 1.2 m bollard with a lamp) per bay cell against the hub's front wall, and stall lines; a lattice canopy at Level II, a roofed depot hall with a gantry at Level III. (Bay Extensions and Depot Halls add a small box and a beam today.) |
+| **Hopper chute** | A sloped chute at the door with a four-step gauge lamp. |
+| **Survey markers** | Four stake flags on a surveyed deposit's full-size ring and core-hole dots at its centre. (An unsurveyed deposit shows its `?` chip.) |
+| **Exhausted and boxed in, at the ramp** | The ramp's top barred with a lamp-lit gate arm. (The flag and ring above are the shipped marks.) |
+| **Reclaimed ground** | Raked, levelled ground like a Site Grading pad, a shade brighter than the land around it. A graded pad has no look of its own yet; it would ride `padMask`. |
+
+- The excavator's research parts (`src/buildings/upgrades.ts`) stay on the unit.
   The Solar-Wind Volatiles retort moves to the water plant, where the baking now
   happens.
 - Retired from the palette: the Excavator pad (its recipe becomes the unit's body) and
@@ -1638,9 +1648,9 @@ tone (docs/06). Triangle budgets follow docs/04's table.
 | Readers | Placement refuses pit and heap samples and the 4 m rim margin, and warns inside a full-size ring. Road A* cannot cross a pit or heap. The road tool stops at the rim. A zone grows with its pit and its gate steps back. `roadReach` refreshes on `terrain.rev`. Rocks are gone from carved chunks. |
 | Grading and Reclaim | Site Grading refuses a pit and levels a heap. Reclaim fills a pit to about −1 m and removes its heap; the ground becomes buildable. |
 | Morale | On a crewed base, a plain pit within 100 m of a habitat costs −1 per 1,000 m² of scar, a deposit's pit −0.4, reclaimed ground ×0.2, capped at −12. A robotic base shows no term. |
-| Rendering | Carving rebuilds only the chunks it touches, at most two a second. The cut is brighter in Classic and High detail. A load rebuilds each changed chunk once. |
+| Rendering | Carving rebuilds only the chunks it touches, at most two a second. The cut differs from the ground it was cut from by at least 40/255 in one channel (`pits.spec`). A load rebuilds each changed chunk once. |
 | Surveys | The job waits for a free rover, drives, cores for 40 s, pays 30 energy and 2⚙, and reveals ore, grade, depth, faces and the full-size ring. Precision ±30/15/5%; the truth is always inside the range. A mast with Neutron Spectrometry surveys ice. |
-| The ghost and highlight | The HUB line: trip, faces now and at full size, rate, grade, ore and life. The IN THE PIT'S WAY warning asks once. A hub with nothing wanted stakes a plain pit. Picking a smelter lights ◆ only; full, exhausted and boxed-in states show. It works in Classic, in High detail, and on touch with no hover. The Lunar Map shows the same. |
+| The ghost and highlight | The HUB line: trip, faces now and at full size, rate, grade, ore and life. The IN THE PIT'S WAY warning asks once. A hub with nothing wanted stakes a plain pit. Picking a smelter lights ◆ only; full, exhausted and boxed-in states show. It works on touch with no hover. The Lunar Map shows the same. |
 | Migration | Old excavators become units, each on a fresh pit (V = 0) at the deposit it dug. With no hub they stay legacy pads and convert later. Nothing is carved on load. Old ▲ fills hoppers, then the pile. The old rules merge into `hubUnit`. |
 | Determinism | Two runs of the same seed and inputs give the same state hash, delta grid included, after 30 min. |
 
@@ -1677,7 +1687,7 @@ Each phase merges on its own and leaves the game playable.
 | 5 | **The preview and the highlight** ✅ **shipped** (`work/hubview`) | the ghost's HUB block, its plain-pit stake and ring warnings; lit rings, rims and labels; the Lunar Map; touch | Placement shows its strategy |
 | 6 | **The research reshuffle** | Pit Mapping and the six other new techs; §14.4's changes; techSchema 5; milestones; discovery; the 71 test references | The ladder is in |
 | 7 | **The Builder and the probe** | `hubUnit`; siting's anchors and ring-keeping; plain-pit staking; relocation; Site Survey AI surveys; Feed Planner routing; the probe bot, its metrics and the pacing pass against §18 | Automation and pacing are tuned |
-| 8 | **The look and the migration** | recipes (the water plant, the ice miner, bays, chutes, stakes); bench lips, the cut's tone, bedrock and rubble; the ice miner rig and work animations; the full migration | Finished |
+| 8 | **The look and the migration** | recipes (the water plant ✅ and the ice miner ✅, docs/19 S2a; bays, chutes, stakes not built); the cut's palette, contours, ramp arrow and end-state flags ✅ (docs/19 S2b; the bench lips are dropped: the contours replace them); bedrock and rubble; the ice miner rig and work animations ✅; the full migration | Finished |
 
 Phases 1–2 touch `src/core/haul.ts`, `src/core/economy.ts` and `src/core/fleet.ts`,
 which work/unitpower also changes; that is why Phase B waits for it. Design the units
@@ -1795,13 +1805,13 @@ repoint it without rewriting pits.
 - **Demolished pads.** A pad stays no-dig after demolition, since its flatten stays
   in the history. That keeps the load order exact. Phase 8's migration `free` flag
   lifts this.
-- **The look.** There is no shader change. The cut is brighter in the vertex colours,
-  which both Classic's Lambert and the `regolith-2` patch read. The tone is +20%
-  (fading in over the first 2 m), +8% on every other bench so the terraces read from
-  the isometric view, and +16% on heaps. Bench lips, bedrock and rubble are Phase 8.
+- **The look.** *Superseded by docs/19 S2b (§20):* this phase drew the cut brighter in
+  the vertex colours (+20%, +8% on every other bench, +16% on heaps); the pit now has
+  its own palette, ink contours, a ramp arrow, a hatched heap and end-state flags.
+  Bedrock and rubble are Phase 8.
 - **Rendering.**
   - Carved boxes queue their chunks. The queue rebuilds at most one a frame and two
-    a second of frame time, and asks for shadows at most every 2 s.
+    a second of frame time.
   - A debug advance, or a load, rebuilds each changed chunk once.
   - Rocks on a cut or heaped cell are removed.
   - The deposit rings re-drape at most once a second.
@@ -1831,10 +1841,10 @@ Nothing in the sim changed.
 
 | Piece | As shipped |
 |---|---|
-| Sources | A hub's ghost, else a selected hub, else its palette card (hover on the desktop; the touch info card for a locked card). Build mode only. Recomputed at once when the ghost moves a cell or the source changes, else at most 4 times a second. |
+| Sources | A hub's ghost, else a selected hub, else its palette card (hover on the desktop; the touch info card for a locked card). Recomputed at once when the ghost moves a cell or the source changes, else at most 4 times a second. |
 | Lit | The kinds in `HUB_DEFS.wants`: ◆ for the smelter, ◇ for the refinery, ❄ or ≈ for the water plant. A smelter's ○ glass (`O₂ +60%`) and ☢ KREEP (`reactor make-up at 15%`) show at normal weight. A selected hub's plain pit and any target its units work light too. So does the plain pit a ghost would stake. Every other ring fades to 30% and loses its label. The rings show whatever [I] says. |
 | States | open · pit · far (beyond 90 s) · full (every face held) · exhausted · boxed (from `PitState.state`) · plain · stake. Drawn by weight, pattern, fill and hatch, never by colour alone. |
-| On the ground | `world/depositHighlight.ts`, draped like the overlay's rings and re-draped with them (at most once a second). A lit ring is a 1.2 m ribbon in its kind's pattern with a faint fill, and the full-size ring is dashed outside it. A cut pit adds its rim (solid), its heap's outline, and the ore still in the ground: the full-size disc hatched one way, less the pit. Far is a plain line, full is long dashes, and exhausted or boxed in is cross-hatched. High detail adds an emissive rim line, bright enough for the bloom. Classic uses the palette keys `depositLit`, `depositFull`, `depositSpent` and `pitRim`. |
+| On the ground | `world/depositHighlight.ts`, draped like the overlay's rings and re-draped with them (at most once a second). A lit ring is a 1.2 m ribbon in its kind's pattern with a faint fill, and the full-size ring is dashed outside it. A cut pit adds its rim (solid), its heap's outline, and the ore still in the ground: the full-size disc hatched one way, less the pit. Far is a plain line, full is long dashes, and exhausted or boxed in is cross-hatched. A pit's rim is `drapedLine(…, 'rim')` along its real cut contour, recoloured white (docs/06 §9); an end-state pit also carries a flag and a dashed ring whether or not the highlight is up (§20). |
 | Labels | The overlay's DOM markers, as chips: `≈0:08 · 0/5 faces`, `0:20 · 1/5 faces · pit 14 m`, `FULL 5/5 · 0:20`, `> 1:30`, `EXHAUSTED`, `BOXED IN`, `P3 · q 1.00 · 0/3`, `plain pit here · q 1.00 · 0:09`. The best choice's chip is heavier. While placing, labels let clicks and taps through to the ground. |
 | Time | A deposit a road reaches reads the road: the ghost's spur, the open network to the nearest gate, off-road to the face. A selected hub reads `choicesFor`. Anything else is the estimate (1.3 × the straight line to the rim, then off-road), marked ≈. A card has no position, so it shows no time. |
 | Full-size ring | `fullRadius`: the pit's plan ring (`core/pits.ts` planRadius). That is a deposit's ring × 1.3, where the ore halo ends, or three lunar days of a plain pit. Phase 4's survey may name it (`Reserves.fullR`). |
@@ -1867,7 +1877,7 @@ the block, near against far) and the refinery and water plant kinds. It covers
 the plain-pit stake against the one placement stakes, and MRE. It checks that IN
 THE PIT'S WAY asks once. It covers a selected hub's pit, full and boxed-in
 states, and the pole's NO ICE IN REACH. It covers card hover, the Lunar Map, and
-High detail's rim line. It covers the phone: the card tap, the bar's block, a
+the rim line along the real cut. It covers the phone: the card tap, the bar's block, a
 tapped hub. `tests/hubs.spec.ts` still passes.
 
 ### As shipped: Phase 4 (`work/pitgrade`)
