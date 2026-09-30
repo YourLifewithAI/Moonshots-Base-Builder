@@ -22,6 +22,14 @@ html.touch #first-mine-stack {
   max-height: calc(var(--app-h) - var(--content-t) - var(--edge-b) - 8px);
 }
 html.touch #first-mine-stack #milestones { position: static; width: min(270px, 34vw); }
+/* the palette or the placement bar under the stack: the stack (the guide's toggle, then the objectives) ends above it.
+   The objectives' own open height did not count the toggle over them, so the open card ran into the palette */
+html.touch #hud-layer.pal-open:not(.t-bar) #first-mine-stack,
+html.touch #hud-layer.t-bar #first-mine-stack {
+  max-height: calc(var(--app-h) - var(--content-t) - var(--edge-b) - 140px);
+}
+html.touch #hud-layer.pal-open:not(.t-bar) #first-mine-stack #milestones.open,
+html.touch #hud-layer.t-bar #first-mine-stack #milestones.open { max-height: none; }
 html.touch #first-mine-toggle { font-size: 11px; min-height: 44px; }
 html.touch #first-mine { padding: 9px; font-size: 13px; }
 html.touch #first-mine .fm-head { flex-wrap: wrap; }

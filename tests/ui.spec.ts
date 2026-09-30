@@ -16,7 +16,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function boot(page: Page, exp: 'human' | 'robotic' = 'robotic', site = 'mare') {
   await page.goto(`${BASE}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
@@ -144,11 +144,11 @@ test('before a world exists: T, M, Tab, Space and Esc on the title and site scre
 test('inspector: Dynamic Clocking gets an overclock toggle with its WORN countdown', async ({ page }) => {
   await boot(page);
   await g(page, 'setPaused', true);
-  await g(page, 'completeTech', 'regolithProcessing');
+  // (a lab: a machine with a clock to push and no ore to wait for; the excavator is a hub unit now)
   expect(await g(page, 'placeBuilding', 'solar', 132, 126)).toBe(true);
-  expect(await g(page, 'placeBuilding', 'excavator', 120, 126)).toBe(true);
+  expect(await g(page, 'placeBuilding', 'lab', 135, 133)).toBe(true);
   await g(page, 'finishConstruction');
-  const ex = (await state(page)).buildings.find((b: any) => b.type === 'excavator');
+  const ex = (await state(page)).buildings.find((b: any) => b.type === 'lab');
   await g(page, 'select', ex.id);
   await expect(page.locator('#insp-toggle')).toBeVisible();
   // no tech, no control
@@ -317,15 +317,15 @@ for (const vp of [{ width: 1280, height: 720 }, { width: 1280, height: 633 }]) {
     const pad = await page.evaluate(() => {
       for (let gx = 116; gx < 140; gx += 2) {
         for (let gz = 116; gz < 140; gz += 2) {
-          if (window.__game.canPlace('excavator', gx, gz).valid) return [gx, gz];
+          if (window.__game.canPlace('lab', gx, gz).valid) return [gx, gz];
         }
       }
       return null;
     });
     expect(pad).not.toBeNull();
-    expect(await g(page, 'placeBuilding', 'excavator', pad![0], pad![1])).toBe(true);
+    expect(await g(page, 'placeBuilding', 'lab', pad![0], pad![1])).toBe(true);
     await g(page, 'finishConstruction');
-    await g(page, 'select', (await state(page)).buildings.find((b: any) => b.type === 'excavator').id);
+    await g(page, 'select', (await state(page)).buildings.find((b: any) => b.type === 'lab').id);
     await expect(page.locator('#insp-oc-on')).toBeVisible();
     await inView();
     await page.screenshot({ path: `test-results/ui-inspector-${vp.width}x${vp.height}.png` });
@@ -501,12 +501,16 @@ test('the strip never reflows: a survey starting, or dusk turning the bank chip 
   const widths = () => page.locator('#resource-strip .chip').evaluateAll((els) =>
     els.map((e) => Math.round(e.getBoundingClientRect().width * 10) / 10));
   const w0 = await widths();
+  const bots0 = await page.locator('.chip[data-key="bots"]').innerText();
   const prospect = (await g(page, 'getLunar')).prospects.find((p: any) => p.surveyable);
   expect(prospect).toBeTruthy();
   await g(page, 'surveyProspect', prospect.id);
   await g(page, 'advanceGameSeconds', 1);
-  await expect.poll(async () => (await state(page)).survey.active).toBeTruthy();
-  await expect(page.locator('.chip[data-key="bots"]')).toHaveAttribute('title', /lent to a survey/);
+  // a drone flies it (S6): a flight, and no construction rover is lent
+  await expect.poll(async () => (await state(page)).survey.flights?.length ?? 0).toBe(1);
+  await expect(page.locator('.chip[data-key="bots"]')).toHaveAttribute('title', /^Construction rovers free \/ fleet/);
+  await expect(page.locator('.chip[data-key="bots"]')).not.toHaveAttribute('title', /lent/);
+  expect(await page.locator('.chip[data-key="bots"]').innerText(), 'the rovers stay free').toBe(bots0);
   expect(await widths()).toEqual(w0);
   // at night the bank chip counts its runway down in the same slot
   // (a lab: its data has no store to fill, so it draws all night)
@@ -516,29 +520,4 @@ test('the strip never reflows: a survey starting, or dusk turning the bank chip 
   await g(page, 'advanceGameSeconds', 490 - (await state(page)).simTime);
   await expect(page.locator('.chip[data-slot="stored"] .cap')).toHaveText(/^· (\d+:\d\d|1h\+)$/);
   expect(await widths()).toEqual(w0);
-});
-
-test('the mare\'s locked Ice Harvester says why, and opens no tree', async ({ page }) => {
-  await boot(page);
-  await page.locator('#palette .cats .btn', { hasText: 'Extraction' }).click();
-  const card = page.locator('.bld-btn.locked', { hasText: 'Ice Harvester' });
-  await card.hover();
-  await expect(page.locator('#tooltip')).toContainText('Not buildable here — no polar ice');
-  await expect(page.locator('#tooltip')).not.toContainText('Requires research');
-  // the floater lives 1.4 s: record every one rather than race it
-  await page.evaluate(() => {
-    const w = window as any;
-    w.__floaters = [];
-    new MutationObserver((ms) => {
-      for (const m of ms) {
-        for (const n of m.addedNodes) {
-          if ((n as HTMLElement).classList?.contains('floater')) w.__floaters.push((n as HTMLElement).textContent);
-        }
-      }
-    }).observe(document.body, { childList: true, subtree: true });
-  });
-  await card.click();
-  await expect.poll(() => page.evaluate(() => (window as any).__floaters.join('|'))).toContain('NOT BUILDABLE HERE — NO POLAR ICE');
-  await frames(page, 4);
-  await expect(page.locator('#tech-screen')).toBeHidden();
 });

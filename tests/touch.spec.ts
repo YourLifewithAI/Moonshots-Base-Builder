@@ -16,7 +16,7 @@ declare global {
   interface Window { __game?: any; __audioLog?: string[] }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 const PHONES = {
   'iPhone SE': { width: 667, height: 375 },
   'iPhone 14': { width: 844, height: 390 },
@@ -215,35 +215,35 @@ test('gestures: one finger pans, a pinch zooms freely, a twist turns 90°, ▱ t
 
   // pinch out: closer (eased back inside the near clamp); pinch in: farther, and it
   // stays where the fingers left it — no snapping to a level
-  expect(c1.iso.level).toBe(1);
+  expect(c1.iso.zoom, 'the home distance').toBeCloseTo(170, 0);
   await f.pair([360, 200], 40, 140);
-  await expect.poll(async () => (await cam()).iso.level).toBe(0);
-  await expect.poll(async () => Math.abs((await cam()).iso.dist - 100)).toBeLessThan(0.5);
+  await expect.poll(async () => Math.abs((await cam()).iso.zoom - 100)).toBeLessThan(0.5);
   await f.pair([360, 200], 140, 30);
-  await expect.poll(async () => (await cam()).iso.level).toBeGreaterThanOrEqual(2);
-  await expect.poll(async () => { const c = (await cam()).iso; return Math.abs(c.dist - c.zoomTo) < 0.05; }).toBe(true);
+  await expect.poll(async () => (await cam()).iso.zoom).toBeGreaterThan(220);
+  await expect.poll(async () => { const c = (await cam()).iso; return Math.abs(c.zoom - c.zoomTo) < 0.05; }).toBe(true);
   const pinched = (await cam()).iso;
-  expect(pinched.dist).toBeGreaterThanOrEqual(100);
-  expect(pinched.dist).toBeLessThanOrEqual(830);
-  for (const l of pinched.levels) expect(Math.abs(pinched.dist - l), `not snapped to ${l}`).toBeGreaterThan(3);
+  expect(pinched.zoom).toBeGreaterThanOrEqual(100);
+  expect(pinched.zoom).toBeLessThanOrEqual(830);
+  // (the five steps of the old zoom)
+  for (const l of [100, 170, 290, 490, 830]) expect(Math.abs(pinched.zoom - l), `not snapped to ${l}`).toBeGreaterThan(3);
 
   // twist: past 40° the view turns a step with the fingers
-  const yaw = (await cam()).iso.yawStep;
+  const rot = (await cam()).iso.rot;
   await f.pair([360, 200], 70, 70, 0, 1.1);
-  await expect.poll(async () => (await cam()).iso.yawStep).toBe(yaw - 1);
+  await expect.poll(async () => (await cam()).iso.rot).toBe((rot + 3) % 4);
   // ⟲ turns it back
   await page.locator('#t-turn-l').tap();
-  await expect.poll(async () => (await cam()).iso.yawStep).toBe(yaw);
+  await expect.poll(async () => (await cam()).iso.rot).toBe(rot);
   // ▱ tilts the view, low ↔ high, and back
-  expect((await cam()).iso).toMatchObject({ tilt: 0, pitchDeg: 32 });
+  expect((await cam()).iso).toMatchObject({ tilt: 0, tilting: false });
   await page.locator('#t-tilt').tap();
-  await expect.poll(async () => (await cam()).iso).toMatchObject({ tilt: 1, pitchDeg: 55, tilting: false });
+  await expect.poll(async () => (await cam()).iso).toMatchObject({ tilt: 1, tilting: false });
   await page.locator('#t-tilt').tap();
-  await expect.poll(async () => (await cam()).iso).toMatchObject({ tilt: 0, pitchDeg: 32, tilting: false });
+  await expect.poll(async () => (await cam()).iso).toMatchObject({ tilt: 0, tilting: false });
 
   // home, then a tap on the Lander selects it; a tap on empty ground clears
   await page.locator('#t-home').tap();
-  await expect.poll(async () => (await cam()).iso.level).toBe(1);
+  await expect.poll(async () => Math.abs((await cam()).iso.zoom - 170)).toBeLessThan(0.5);
   await page.waitForTimeout(800);
   const at = await g(page, 'screenOf', -2, -2, 6);
   await f.tap(at.x, at.y);
@@ -311,8 +311,17 @@ test('placement by taps: a card puts its ghost mid-view, a drag moves the ghost 
   const rot = (await g(page, 'getTouch')).placing.rot;
   await page.locator('#tp-rotate').tap();
   await expect.poll(async () => (await g(page, 'getTouch')).placing.rot).toBe((rot + 1) % 4);
-  // ✓ places it there, and the placement ends
+  // ✓ places it there, and the placement ends. A caution on the spot (here the pit's way, docs/17) asks for a
+  // second ✓: "Tap ✓ again to build it anyway"
+  const spot = (await g(page, 'getTouch')).placing;
+  const caution = (await g(page, 'canPlace', 'solar', spot.gx, spot.gz)).warn as string;
   await page.locator('#tp-ok').tap();
+  if (caution) {
+    await frames(page, 3);
+    expect((await g(page, 'getState')).buildings.length, 'the first ✓ only arms a cautioned spot').toBe(before);
+    await expect(page.locator('#place-hint')).toContainText('Tap ✓ again');
+    await page.locator('#tp-ok').tap();
+  }
   await expect.poll(async () => (await g(page, 'getState')).buildings.length).toBe(before + 1);
   await expect(page.locator('#touch-bar')).toBeHidden();
   await expect(page.locator('#palette')).toBeVisible();
@@ -369,6 +378,35 @@ test('the road tool by drag: from a road cell out, laid as a job; Remove replace
   expect((await g(page, 'getTouch')).roadRemove).toBe(false);
 });
 
+test('the grade tool by touch (docs/19 S5): a one-finger drag is a box, a tap grades the 16 m square, ✕ leaves', async ({ page }) => {
+  await boot(page);
+  await g(page, 'grantPower', 800);
+  const f = await fingers(page);
+  await page.locator('#palette .cats .btn', { hasText: 'Extraction' }).tap();
+  await page.locator('#grade-btn').tap();
+  await expect(page.locator('#touch-bar')).toBeVisible();
+  // (the grade hint is not in the bar as the road tool's is: S9's touch pass)
+  expect((await g(page, 'getGrading')).tool.active).toBe(true);
+  // a drag over open ground east of the Lander: a box, queued on release (the camera stays)
+  const cam0 = await g(page, 'getCamera');
+  await f.drag([520, 180], [640, 240], 12, 300);
+  await expect.poll(async () => (await g(page, 'getGrading')).jobs.length).toBe(1);
+  const one = (await g(page, 'getGrading')).jobs[0];
+  expect(one.cells, 'a box of several cells').toBeGreaterThan(4);
+  const cam1 = await g(page, 'getCamera');
+  expect(Math.hypot(cam1.target.x - cam0.target.x, cam1.target.z - cam0.target.z), 'the drag did not pan').toBeLessThan(0.5);
+  // the tool stays on: a tap without a drag grades the 16 m square (4 × 4 cells) centred on the cell
+  expect((await g(page, 'getGrading')).tool.active).toBe(true);
+  await f.tap(730, 215);
+  await expect.poll(async () => (await g(page, 'getGrading')).jobs.length).toBe(2);
+  expect((await g(page, 'getGrading')).jobs.map((j: any) => j.cells).sort((a: number, b: number) => a - b)).toContain(16);
+  // ✕ in the bar leaves the tool and brings the palette back; the jobs stand
+  await page.locator('#tb-cancel').tap();
+  await expect(page.locator('#touch-bar')).toBeHidden();
+  expect((await g(page, 'getGrading')).tool.active).toBe(false);
+  expect((await g(page, 'getGrading')).jobs.length).toBe(2);
+});
+
 // ───────────────────────────── the research tree ─────────────────────────────
 
 test('research tree by touch: the rail opens it, tabs change page, a tap shows, a second queues, a hold queues the path', async ({ page }) => {
@@ -379,7 +417,7 @@ test('research tree by touch: the rail opens it, tabs change page, a tap shows, 
   const cardEl = page.locator('.tech-card[data-tech="regolithProcessing"]');
   await cardEl.tap();
   await expect(cardEl).toHaveClass(/\bsel\b/);
-  await expect(page.locator('#tech-sheet-body .sh-name')).toContainText('Regolith');
+  await expect(page.locator('#tech-sheet-body .sh-name')).toContainText('Pit Mapping');
   expect((await g(page, 'getState')).researchQueue).toEqual([]);
   await cardEl.tap();
   await expect.poll(async () => (await g(page, 'getState')).researchQueue).toEqual(['regolithProcessing']);

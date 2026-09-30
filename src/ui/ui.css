@@ -206,6 +206,12 @@
 :is(#inspector, #rover-inspector, #unit-inspector) .insp-foot section { padding: 7px 14px; }
 :is(#inspector, #rover-inspector, #unit-inspector) .insp-foot .prio { margin-top: 4px; }
 :is(#inspector, #rover-inspector, #unit-inspector) .insp-foot .btn { font-size: 11px; padding: 4px 9px; }
+/* a laptop-height screen: the Lander's foot (two wrapped buttons and the map link) would run past the panel's foot,
+   so the rhythm tightens by a few px a row and every button stays in view */
+@media (max-height: 700px) {
+  #inspector .insp-foot section { padding: 5px 14px; }
+  #inspector .insp-foot .btn { padding: 3px 9px; }
+}
 :is(#inspector, #rover-inspector, #unit-inspector) .row { display: flex; justify-content: space-between; margin: 3px 0; }
 :is(#inspector, #rover-inspector, #unit-inspector) .prio { display: flex; gap: 4px; margin-top: 6px; }
 :is(#inspector, #rover-inspector, #unit-inspector) .prio .btn { padding: 3px 8px; font-size: 11px; }

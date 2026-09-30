@@ -6,7 +6,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, site = 'mare') {
   await page.goto(`${URL_DEBUG}&site=${site}&exp=robotic`);

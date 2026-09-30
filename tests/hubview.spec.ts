@@ -17,9 +17,9 @@ declare global {
 const SHOTS = process.env.HUBVIEW_SHOTS ?? '';
 const shot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 
-async function start(page: Page, opts: { site?: string; style?: string; extra?: string; grant?: boolean } = {}) {
-  const { site = 'mare', style = 'classic', extra = '', grant = true } = opts;
-  await page.goto(`/?debug&seed=42&nolock&lowfx&style=${style}&site=${site}&exp=robotic${extra}`);
+async function start(page: Page, opts: { site?: string; extra?: string; grant?: boolean } = {}) {
+  const { site = 'mare', extra = '', grant = true } = opts;
+  await page.goto(`/?debug&seed=42&site=${site}&exp=robotic${extra}`);
   await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
   await page.evaluate((grant) => {
     const g = window.__game!;

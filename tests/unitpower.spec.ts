@@ -14,7 +14,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx&style=classic';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, exp: 'human' | 'robotic' = 'robotic', site = 'mare') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
@@ -30,6 +30,8 @@ async function start(page: Page, exp: 'human' | 'robotic' = 'robotic', site = 'm
 }
 
 declare function near(type: string, x: number, z: number): number | null;
+declare function hub(): { hub: number; unit: number; vid: number };
+declare function hubUnit(id: number): any;
 declare function byId(id: number): any;
 declare function unit(id: number): any;
 declare function crewOf(site: number): any[];
@@ -48,6 +50,23 @@ window.near = (type, x, z) => {
   return null;
 };
 window.byId = (id) => window.__game.getState().buildings.find((b) => b.id === id);
+/** a Regolith Smelter by the guaranteed high-Ti basalt (12 m off its ring toward the Lander, the pits' setback),
+ *  built: its first unit, an excavator (docs/17), digs the deposit's pit. vid: its digger id in getWorkAnim() */
+window.hub = () => {
+  const g = window.__game;
+  const z = g.getZones().find((q) => q.kind === 'ilmenite');
+  const l = Math.hypot(z.cx, z.cz) || 1, out = z.r + 22;
+  const cx = Math.round((z.cx - (z.cx / l) * out + 512) / 4) - 1, cz = Math.round((z.cz - (z.cz / l) * out + 512) / 4) - 1;
+  let id = -1;
+  for (let r = 0; r <= 10 && id < 0; r++) for (let dx = -r; dx <= r && id < 0; dx++) for (let dz = -r; dz <= r && id < 0; dz++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+    for (const rot of [0, 1, 2, 3]) if (id < 0 && g.placeBuilding('smelter', cx + dx, cz + dz, rot)) id = g.getState().buildings.find((b) => b.type === 'smelter').id;
+  }
+  g.finishConstruction();
+  const unit = g.getState().haulers.find((u) => u.hub === id).id;
+  return { hub: id, unit, vid: 100000 + unit };
+};
+window.hubUnit = (id) => window.__game.getState().haulers.find((u) => u.id === id);
 window.unit = (id) => window.__game.getState().rovers.find((u) => u.id === id);
 window.crewOf = (site) => window.__game.getState().rovers.filter((u) => u.site === site);
 /** tick until a rover welds at the site: its id (null: none within a minute) */
@@ -141,68 +160,53 @@ for (const exp of ['robotic', 'human'] as const) {
 
 // ───────────────────────────── an excavator ─────────────────────────────
 
-test('an excavator on its pack stops digging when it is empty — the wheel stands still — and digs again once the grid charges it', async ({ page }) => {
+test('a hub excavator on its pack stops digging when it is empty — the wheel stands still — and digs again once the grid serves it', async ({ page }) => {
   test.setTimeout(180_000);
   await start(page);
   const a = await page.evaluate(() => {
     const g = window.__game!;
-    // plain ground near the Lander: it digs its own pad
-    let id: number | null = null;
-    for (let r = 0; r < 14 && id === null; r++) {
-      for (let dx = -r; dx <= r && id === null; dx++) {
-        for (const [x, z] of [[118 + dx, 124 - r], [118 + dx, 124 + r]]) {
-          const cx = (x + 1) * 4 - 512, cz = (z + 1) * 4 - 512;
-          if (g.depositAt(cx, cz) === null && g.canPlace('excavator', x, z).valid && g.placeBuilding('excavator', x, z)) {
-            id = g.getState().buildings[g.getState().buildings.length - 1].id;
-            break;
-          }
-        }
-      }
-    }
-    g.finishConstruction();
+    const { unit, vid } = hub();
     g.grantPower(5000);
-    for (let t = 0; t < 30 && !(byId(id!).haul.phase === 'dig' && byId(id!).active); t++) g.advanceGameSeconds(1);
+    let t = 0;
+    for (; t < 300 && hubUnit(unit).haul.phase !== 'dig'; t++) { g.grantPower(500); g.advanceGameSeconds(1); }
     // five seconds of digging left, and the grid gone
-    g.setCharge('digger', id!, 30);
+    g.setCharge('unit', unit, 30);
     g.forceGridDark(true);
     g.advanceGameSeconds(2);
-    const onPack = byId(id!);
-    let t = 0;
-    for (; t < 20 && byId(id!).haul.src !== 'flat'; t++) g.advanceGameSeconds(1);
-    const dug = byId(id!).haul.t;
+    const onPack = hubUnit(unit);
+    let f = 0;
+    for (; f < 20 && hubUnit(unit).haul.src !== 'flat'; f++) g.advanceGameSeconds(1);
+    const dug = hubUnit(unit).haul.t;
     g.advanceGameSeconds(4);
-    return { id: id!, onPack, flatAfter: t, flat: byId(id!), dug, dugLater: byId(id!).haul.t };
+    return { unit, vid, arrived: t, onPack, flatAfter: f, flat: hubUnit(unit), dug, dugLater: hubUnit(unit).haul.t };
   });
-  expect(a.onPack.active).toBe(true);
-  expect(a.onPack.onPack).toBe(true);
+  expect(a.arrived, 'it reached its face').toBeLessThan(300);
+  expect(a.onPack.haul.phase).toBe('dig');
   expect(a.onPack.haul.src).toBe('pack');
   expect(a.flatAfter).toBeLessThan(8);
-  expect(a.flat.active).toBe(false);
-  expect(a.flat.idleReason).toBe('power');
   expect(a.flat.haul.src).toBe('flat');
+  expect(a.flat.haul.phase, 'it stands where it is').toBe('dig');
   expect(a.dugLater).toBe(a.dug); // the bucket fills no more
   // drawn stopped: the wheel stands still, no digging
   const w1 = await live(page, 10);
   const w2 = await live(page, 30);
-  const d1 = w1.diggers.find((d: any) => d.id === a.id), d2 = w2.diggers.find((d: any) => d.id === a.id);
+  const d1 = w1.diggers.find((d: any) => d.id === a.vid), d2 = w2.diggers.find((d: any) => d.id === a.vid);
   expect(d2.digging).toBe(false);
   expect(d2.wheel).toBe(d1.wheel);
-  // the grid back: it charges on its pad and digs again
-  const b = await page.evaluate((id) => {
+  // the grid back: the grid serves it and it digs again (a unit at its face charges when it next docks)
+  const b = await page.evaluate((unit) => {
     const g = window.__game!;
     g.forceGridDark(false);
     g.grantPower(5000);
     g.advanceGameSeconds(3);
-    return byId(id);
-  }, a.id);
-  expect(b.active).toBe(true);
+    return hubUnit(unit);
+  }, a.unit);
   expect(b.haul.src).toBe('grid');
-  expect(b.haul.chg).toBe(true);
-  expect(b.haul.charge).toBeGreaterThan(0);
-  const w3 = await until(page, (w) => w.diggers.find((d: any) => d.id === a.id)?.digging);
+  expect(b.haul.phase).toBe('dig');
+  const w3 = await until(page, (w) => w.diggers.find((d: any) => d.id === a.vid)?.digging);
   expect(w3, 'it digs again').not.toBeNull();
   const w4 = await live(page, 20);
-  expect(w4.diggers.find((d: any) => d.id === a.id).wheel).not.toBe(w3!.diggers.find((d: any) => d.id === a.id).wheel);
+  expect(w4.diggers.find((d: any) => d.id === a.vid).wheel).not.toBe(w3!.diggers.find((d: any) => d.id === a.vid).wheel);
 });
 
 // ───────────────────────────── priority triage ─────────────────────────────
@@ -292,28 +296,27 @@ test('Rover Power Packs carry the fleet through a lunar night; Fuel-Cell Packs t
   expect(cells.done).toBeGreaterThanOrEqual(2);
 });
 
-test('Radioisotope Power Units: with the grid at 0 and the pack empty, a rover welds slowly and an excavator digs slowly', async ({ page }) => {
+test('Radioisotope Power Units: with the grid at 0 and the pack empty, a rover welds slowly and a hub excavator digs slowly', async ({ page }) => {
   test.setTimeout(180_000);
   await start(page);
   const r = await page.evaluate(() => {
     const g = window.__game!;
     for (const t of ['roverPowerPacks', 'fuelCellPacks', 'radioisotopeUnits']) g.completeTech(t);
     g.instantTravel(true);
-    // an excavator digging its own pad, and a rover welding a lab
-    const dig = near('excavator', -24, 0)!;
-    g.finishConstruction();
+    // a hub's excavator digging its deposit, and a rover welding a lab
+    const { unit: dig } = hub();
     g.grantPower(5000);
-    for (let t = 0; t < 30 && !(byId(dig).haul.phase === 'dig' && byId(dig).active); t++) g.advanceGameSeconds(1);
+    for (let t = 0; t < 300 && hubUnit(dig).haul.phase !== 'dig'; t++) { g.grantPower(500); g.advanceGameSeconds(1); }
     const lab = near('lab', 20, 24)!;
     g.finishRoads();
     const rover = weldOn(lab)!;
     g.setCharge('rover', rover, 0);
-    g.setCharge('digger', dig, 0);
+    g.setCharge('unit', dig, 0);
     g.forceGridDark(true);
     g.advanceGameSeconds(2);
-    const c0 = byId(lab).construction, d0 = byId(dig).haul.t;
+    const c0 = byId(lab).construction, d0 = hubUnit(dig).haul.t;
     g.advanceGameSeconds(20);
-    return { u: unit(rover), c0, c1: byId(lab).construction, b: byId(lab), d0, d1: byId(dig).haul.t, h: byId(dig).haul };
+    return { u: unit(rover), c0, c1: byId(lab).construction, b: byId(lab), d0, d1: hubUnit(dig).haul.t, h: hubUnit(dig).haul };
   });
   // 1 kW of 4: a quarter of the weld rate, on its RPU alone
   expect(r.u.src).toBe('rpu');
@@ -332,24 +335,33 @@ test('Radioisotope Power Units: with the grid at 0 and the pack empty, a rover w
 
 // ───────────────────────────── saves ─────────────────────────────
 
-test('an old save (fleet schema 1) starts every rover and excavator fully charged', async ({ page }) => {
+test('an old save (fleet schema 1) starts every rover and excavator fully charged, the excavator as its hub\'s unit', async ({ page }) => {
   test.setTimeout(120_000);
   await start(page);
   const r = await page.evaluate(async () => {
     const g = window.__game!;
-    near('excavator', -24, 0);
+    hub();
+    g.advanceGameSeconds(1);
+    // a lab where the old excavator pad stood, made one in the save (hubs.spec's old-save recipe): before hubs
+    // there were no units, and the pad's haul carried the pack
+    const pad = near('lab', -24, 0)!;
     g.finishConstruction();
-    g.advanceGameSeconds(5);
     const blob = g.saveBlob();
+    const st = blob.state;
+    delete st.hubSchema;
+    st.haulers = [];
+    for (const b of st.buildings) delete b.hub;
+    const ex = st.buildings.find((b: any) => b.id === pad);
+    ex.type = 'excavator';
+    ex.haul = { digX: 9, digZ: 44, phase: 'dig', x: 9, z: 44, path: [], t: 10, cargo: {}, kind: 'ilmenite', drop: null, charge: 2, src: 'flat' };
     // a save from before packs: schema 1, and stale pack fields that mean nothing to it
-    blob.state.fleetSchema = 1;
-    for (const u of blob.state.rovers) { u.charge = 3; u.src = 'flat'; u.pw = 0; }
-    for (const b of blob.state.buildings) if (b.haul) { b.haul.charge = 2; b.haul.src = 'flat'; }
+    st.fleetSchema = 1;
+    for (const u of st.rovers) { u.charge = 3; u.src = 'flat'; u.pw = 0; }
     await g.loadBlob(blob);
     g.setPaused(true);
     const s1 = g.getState();
     g.advanceGameSeconds(1);
-    return { schema: s1.fleetSchema, rovers: s1.rovers, hauls: s1.buildings.filter((b: any) => b.haul).map((b: any) => b.haul), fleet: g.getFleet() };
+    return { schema: s1.fleetSchema, rovers: s1.rovers, hauls: s1.haulers.map((u: any) => u.haul), pad: s1.buildings.find((b: any) => b.id === pad), fleet: g.getFleet() };
   });
   expect(r.schema).toBe(2);
   for (const u of r.rovers) {
@@ -357,6 +369,8 @@ test('an old save (fleet schema 1) starts every rover and excavator fully charge
     expect(u.src).toBeUndefined();
     expect(u.pw).toBeUndefined();
   }
+  // the pad became its hub's unit (docs/17 §19), its pack full
+  expect(r.pad).toBeUndefined();
   expect(r.hauls.length).toBe(1);
   expect(r.hauls[0].charge).toBeUndefined();
   for (const v of r.fleet.rovers) expect(v.pack).toMatch(/^BATTERY 100%/);

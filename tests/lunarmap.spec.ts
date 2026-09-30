@@ -13,7 +13,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function boot(page: Page, site = 'mare', exp: 'human' | 'robotic' = 'robotic', viewport = { width: 1280, height: 720 }) {
   await page.setViewportSize(viewport);
@@ -109,7 +109,7 @@ test('at landing only SITE and VICINITY open; VICINITY shows the 2 local prospec
   await expect(viewBtn(page, 'site')).toBeEnabled();
   await expect(viewBtn(page, 'vicinity')).toBeEnabled();
   const locks: Record<string, string> = {
-    region: '🔒 T1 Prospecting Rovers', near: '🔒 T2 Orbital Prospector',
+    region: '🔒 T1 Prospecting Drones', near: '🔒 T2 Orbital Prospector',
     far: '🔒 T3 Far-Side Relay', moon: '🔒 T4 Deep Sounding',
   };
   for (const [v, text] of Object.entries(locks)) {
@@ -130,11 +130,11 @@ test('at landing only SITE and VICINITY open; VICINITY shows the 2 local prospec
   // "Next surveyable": the site-weakness line, then the two local prospects
   await expect(page.locator('.ns-weak')).toContainText('Ilmenite Plains lacks water → Cabeus or Haworth ice outpost');
   await expect(page.locator('.ns-row:not(.done)')).toHaveCount(2);
-  await expect(page.locator('.ns-foot')).toContainText('T1 Prospecting Rovers (Era 1) brings 6 more into range');
+  await expect(page.locator('.ns-foot')).toContainText('T1 Prospecting Drones (Era 1) brings 6 more into range');
   // the ladder: T0 is the current tier, the rest are locked
   await expect(page.locator('.tl[data-tier="0"]')).toHaveClass(/cur/);
   await expect(page.locator('.tl[data-tier="2"]')).toHaveClass(/locked/);
-  await expect(page.locator('.op-none')).toContainText('Orbital Prospector (Era 4) opens the first slot');
+  await expect(page.locator('.op-none')).toContainText('T1 Prospecting Drones (Era 1) opens the first slot');
   await page.locator('#map-inset').click();
   await expect(mapScreen(page)).toHaveAttribute('data-view', 'site');
   await expect(page.locator('#mh-atlas')).toHaveText(/ATLAS needs T4 \+ 12/);
@@ -201,7 +201,7 @@ test('a survey started from the sheet counts down in place and ends surveyed', a
   await pick(page, 'moltke');
   await expect(page.locator('.ps-name')).toHaveText('Moltke crater ejecta');
   await expect(page.locator('.ps')).toContainText('a fresh 7 km crater exposing high-Ti basalt');
-  await expect(page.locator('.ps')).toContainText('60▮ · 1 robot lent');
+  await expect(page.locator('.ps')).toContainText('60▮ · flies 1 drone');
   await expect(page.locator('#ps-pay')).toHaveText('+20≡');
   await expect(page.locator('.ps')).toContainText('+0.20◆ +0.08○/s');
   await expect(page.locator('#ps-reason')).toHaveText('✓ Ready to survey');
@@ -210,7 +210,7 @@ test('a survey started from the sheet counts down in place and ends surveyed', a
   await page.locator('#ps-survey').click();
   await expect(page.locator('#ps-clock')).toHaveText('back in 1:00');
   expect((await g(page, 'getLunar')).active).toEqual({ id: 'moltke', remaining: 60 });
-  await expect(page.locator('#mh-survey')).toHaveText(' · survey: Moltke 1:00');
+  await expect(page.locator('#mh-survey')).toHaveText(' · drones: Moltke 1:00');
   await expect(marker(page, 'moltke')).toHaveClass(/surveying/);
   await expect(marker(page, 'moltke').locator('.spin')).toHaveCount(1);
   // countdowns update in place: the same elements, new text
@@ -218,18 +218,19 @@ test('a survey started from the sheet counts down in place and ends surveyed', a
   const pm = await marker(page, 'moltke').elementHandle();
   await g(page, 'advanceGameSeconds', 10);
   await expect(page.locator('#ps-clock')).toHaveText('back in 0:50');
-  await expect(page.locator('#mh-survey')).toHaveText(' · survey: Moltke 0:50');
-  await expect(page.locator('#ps-reason')).toHaveText('◌ Surveying — back in 0:50');
+  await expect(page.locator('#mh-survey')).toHaveText(' · drones: Moltke 0:50');
+  await expect(page.locator('#ps-reason')).toHaveText('◌ Surveying — drone 1 back in 0:50');
   expect(await clock!.evaluate((e) => e.isConnected)).toBe(true);
   expect(await pm!.evaluate((e) => e.isConnected)).toBe(true);
 
-  // the list shows the running survey once; a second one is refused by the sim, which says why
+  // the list shows the running survey once; the fleet is one line (the Lander's one drone is out), and a second
+  // survey is refused by the sim, which says why
   await page.locator('.ps-back').click();
   await expect(page.locator('.ns-row[data-id="moltke"] .ns-clock')).toHaveText('◌ 0:50');
-  await expect(page.locator('.ns-busy')).toHaveText('◌ Moltke back in 0:50 · one survey at a time');
+  await expect(page.locator('.ns-busy')).toHaveText('△ 0/1 drones ready · 1 out: Moltke 0:50');
   await expect(page.locator('.ns-row[data-id="tranquilityBase"] .ns-go')).toHaveClass(/blocked/);
   await page.locator('.ns-row[data-id="tranquilityBase"] .ns-go').click();
-  await expect(page.locator('#map-alert')).toContainText('SURVEY IN PROGRESS — Moltke 0:50');
+  await expect(page.locator('#map-alert')).toContainText('ALL 1 DRONE IS OUT — the next is home in 1:10'); // 0:50 of flight and the drone's 20 s recharge
 
   // closed, the chip carries the countdown; the survey lands while it is shut
   await page.keyboard.press('KeyM');
@@ -241,8 +242,8 @@ test('a survey started from the sheet counts down in place and ends surveyed', a
   await expect(marker(page, 'moltke')).toHaveClass(/surveyed/);
   await pick(page, 'moltke');
   await expect(page.locator('.ps')).toContainText('surveyed · +20≡ paid');
-  // no slot before T2: the claim is refused in so many words
-  await expect(page.locator('#ps-reason')).toHaveText('✗ NO OUTPOST SLOT — Orbital Prospector (Era 4)');
+  // no slot before T1 (Prospecting Drones, S6): the claim is refused in so many words
+  await expect(page.locator('#ps-reason')).toHaveText(/^✗ NO OUTPOST SLOT — .*Prospecting Drones \(Era 1\)/);
 });
 
 test('claiming an outpost at T2 shows its card; abandoning takes a second click', async ({ page }) => {

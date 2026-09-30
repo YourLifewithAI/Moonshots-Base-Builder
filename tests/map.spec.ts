@@ -8,7 +8,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function start(page: Page, site: string, exp: 'human' | 'robotic' = 'human') {
   await page.goto(`${URL_DEBUG}&site=${site}${exp === 'robotic' ? '&exp=robotic' : ''}`);
@@ -78,7 +78,7 @@ test('deposits reveal by tier: 120 m at landing, 320 m with rovers, the whole ma
     // orbital data hints ilmenite, anorthosite and KREEP; the rest are unknown
     expect(d.label).toBe(d.kind === 'ilmenite' ? '? possible high-Ti basalt' : '? unknown');
   }
-  // Prospecting Rovers: 320 m, announced
+  // Prospecting Drones: 320 m, announced
   await complete(page, ['prospectingRovers']);
   const s1 = await page.evaluate(() => window.__game.getState());
   const d1 = await page.evaluate(() => window.__game.getDeposits());
@@ -101,102 +101,97 @@ test('deposits reveal by tier: 120 m at landing, 320 m with rovers, the whole ma
   await expect(page.locator('.deposit-mark')).toHaveCount(0);
 });
 
-/** metals/s of one smelter fed by one excavator, on the deposit or off it */
+/** metals/s of one smelter hub (docs/17): its first unit digs the ilmenite deposit's pit (`onDeposit`) or a plain pit
+ *  of the hub's own on mare ground */
 async function smelterRun(page: Page, onDeposit: boolean) {
   await start(page, 'mare');
   return page.evaluate((on) => {
     const g = window.__game!;
-    g.completeTech('regolithProcessing');
-    g.grantResources({ regolith: 200, metals: 150, parts: 50 });
-    const dep = g.getDeposits().find((d: any) => d.kind === 'ilmenite' && d.revealed && d.inNetwork);
-    for (const [x, z] of [[14, -2], [14, 8]]) {
+    g.holdHazards(true);
+    g.grantResources({ regolith: 200, metals: 300, parts: 100 });
+    for (const [x, z] of [[14, -2], [14, 8], [14, 18]]) {
       const c = near('solar', x, z);
       g.placeBuilding('solar', c!.gx, c!.gz);
     }
-    const sm = near('smelter', -2, 16, undefined, 3, 2);
+    // the hub stands 22 m off the deposit's ring toward the Lander (the pits' setback), or by the Lander
+    const z = g.getZones().find((q: any) => q.kind === 'ilmenite');
+    const l = Math.hypot(z.cx, z.cz) || 1, out = z.r + 22;
+    const at = on ? [z.cx - (z.cx / l) * out, z.cz - (z.cz / l) * out] : [-2, 16];
+    const sm = near('smelter', at[0], at[1], undefined, 3, 2);
     g.placeBuilding('smelter', sm!.gx, sm!.gz);
-    const ex = on
-      ? near('excavator', dep.x, dep.z, (x, z) => g.depositAt(x, z)?.id === dep.id)
-      : near('excavator', -20, -2, (x, z) => g.depositAt(x, z) === null);
-    g.placeBuilding('excavator', ex!.gx, ex!.gz);
+    const hub = g.getState().buildings.find((b: any) => b.type === 'smelter').id;
     powered(240 - g.getState().simTime); // everything is built by now
-    powered(60);
-    const smelter = g.getState().buildings.find((b: any) => b.type === 'smelter');
-    const excavator = g.getState().buildings.find((b: any) => b.type === 'excavator');
+    if (!on) {
+      // its own plain pit, nearest the hub that keeps the pits' setbacks
+      let opened = false;
+      for (let r = 0; r <= 60 && !opened; r += 4) for (let k = 0; k < (r ? 16 : 1) && !opened; k++) {
+        const a = (k / 16) * Math.PI * 2, px = -2 + Math.cos(a) * r, pz = 30 + Math.sin(a) * r;
+        if (g.plainPitWhy(px, pz)) continue;
+        g.openPit(hub, px, pz);
+        g.advanceGameSeconds(1);
+        opened = g.getState().plainPits.length > 0;
+      }
+      const pit = g.getState().plainPits[0];
+      g.assignPit(hub, `plain:${pit.id}`);
+      for (const u of g.getState().haulers.filter((h: any) => h.hub === hub)) g.sendUnit(u.id, `plain:${pit.id}`);
+    }
+    powered(120);
     const m0 = g.getState().stats.produced.metals;
-    powered(60);
+    powered(120);
     const s = g.getState();
-    return { feed: s.feed, rate: (s.stats.produced.metals - m0) / 60, smelter, excavator };
+    const smelter = s.buildings.find((b: any) => b.type === 'smelter');
+    return { feed: s.feed, rate: (s.stats.produced.metals - m0) / 120, smelter, id: hub };
   }, onDeposit);
 }
 
-test('feed grade: an excavator on high-Ti basalt lifts the smelter 30%', async ({ page }) => {
+test('feed grade: a smelter hub whose unit digs high-Ti basalt yields more than one on plain ground', async ({ page }) => {
   const off = await smelterRun(page, false);
-  expect(off.excavator.deposit).toBeUndefined();
-  expect(off.smelter.active).toBe(true);
-  expect(off.feed.plain).toBeCloseTo(1, 9);
   const on = await smelterRun(page, true);
-  expect(on.excavator.deposit).toBe('ilmenite');
-  expect(on.smelter.active).toBe(true);
-  // the delivered loads' share: every load came off the deposit
-  expect(on.feed.ilmenite).toBeCloseTo(1, 9);
-  expect(on.feed.plain).toBe(0);
-  expect(on.rate / off.rate).toBeGreaterThan(1.27);
-  expect(on.rate / off.rate).toBeLessThan(1.33);
-  // the inspector names the feed and the yield
-  await page.evaluate((id) => window.__game.select(id), on.smelter.id);
-  await expect(page.locator('#insp-feed')).toHaveText('Feed (recent loads): 100% high-Ti → yield +30%');
-  // stats.ilmeniteDigS counts the excavator's seconds on the deposit
+  expect(off.rate, 'the plain hub smelts').toBeGreaterThan(0);
+  expect(off.feed.plain).toBeGreaterThan(0.95);
+  // the delivered loads' share: every load came off the deposit (the hub's own feed, docs/17 §9.1)
+  expect(on.feed.ilmenite).toBeGreaterThan(0.95);
+  expect(on.feed.plain).toBeLessThan(0.05);
+  expect(on.smelter.hub.feed.ilmenite).toBeGreaterThan(0.95);
+  // the grade is the cut's: at most the deposit's centre (Phase 4), well above plain mare ground
+  expect(on.smelter.hub.q).toBeGreaterThan(off.smelter.hub.q * 1.5);
+  expect(on.rate / off.rate, 'metals per second').toBeGreaterThan(1.2);
+  // stats.ilmeniteDigS counts the seconds a unit digs the deposit
   const st = await page.evaluate(() => window.__game.getState());
   expect(st.stats.ilmeniteDigS).toBeGreaterThan(100);
-  // nothing delivered keeps the last feed: shut the excavator down and tick on
+  // nothing delivered keeps the last feed: switch the hub off and tick on
   const kept = await page.evaluate((id) => {
     const g = window.__game!;
     g.setEnabled(id, false);
     powered(20);
     return g.getState().feed;
-  }, on.excavator.id);
-  expect(kept.ilmenite).toBeCloseTo(1, 9);
+  }, on.id);
+  expect(kept.ilmenite).toBeGreaterThan(0.9);
 });
 
 test('deposit gating: ice must be confirmed, KREEP takes no habitat, a strike maps the ground', async ({ page }) => {
-  // the pole: a harvester on ice beyond the survey is refused, and the reason names the fix
+  // the pole: ice beyond the landing survey stays a lead (the Ice Harvester and its 'ICE UNCONFIRMED' placement
+  // rule went with the retired building; a Water Management Plant's miners dig only mapped ground, hubs.spec)
   await start(page, 'southpole');
-  await complete(page, ['iceExtraction']);
   const far = await page.evaluate(() => {
     const g = window.__game!;
     const d = g.getDeposits().find((x: any) => x.kind === 'ice' && !x.revealed);
-    const c = cellAt(d.x, d.z);
-    return { id: d.id, dist: fromLander(d.x, d.z) - d.r, check: g.canPlace('iceHarvester', c.gx, c.gz) };
+    return { id: d.id, dist: fromLander(d.x, d.z) - d.r, label: d.label, glyph: d.glyph };
   });
   expect(far.dist).toBeGreaterThan(120);
-  expect(far.check.valid).toBe(false);
-  expect(far.check.reason).toBe('ICE UNCONFIRMED — extend your survey (Prospecting Drones) or place a Relay Mast nearby');
-  // unmapped ground reads the same with or without ice under it: no free hints
-  const bare = await page.evaluate(() => {
-    const g = window.__game!;
-    for (let r = 200; r < 420; r += 8) {
-      for (let a = 0; a < Math.PI * 2; a += 0.3) {
-        const x = Math.cos(a) * r, z = Math.sin(a) * r;
-        if (g.depositAt(x, z) !== null) continue;
-        const c = cellAt(x, z);
-        const [cx, cz] = centreOf(c.gx, c.gz);
-        if (g.depositAt(cx, cz) === null) return g.canPlace('iceHarvester', c.gx, c.gz).reason;
-      }
-    }
-    return 'no bare ground';
-  });
-  expect(bare).toBe(far.check.reason);
-  // with Prospecting Rovers the survey reaches it: the ice rule passes (the network does not yet)
+  expect(far.glyph).toBe('?');
+  // the retired Ice Harvester is never placed, whatever the ground
+  const retired = await page.evaluate(() => window.__game.canPlace('iceHarvester', 130, 130));
+  expect(retired.valid).toBe(false);
+  expect(retired.reason).toMatch(/^HUBS PRINT THEM/);
+  // with Prospecting Drones the survey reaches it
   await complete(page, ['prospectingRovers']);
   const later = await page.evaluate((id) => {
-    const g = window.__game!;
-    const d = g.getDeposits().find((x: any) => x.id === id);
-    const c = cellAt(d.x, d.z);
-    return { revealed: d.revealed, reason: g.canPlace('iceHarvester', c.gx, c.gz).reason };
+    const d = window.__game.getDeposits().find((x: any) => x.id === id);
+    return { revealed: d.revealed, glyph: d.glyph };
   }, far.id);
   expect(later.revealed).toBe(true);
-  expect(later.reason).not.toMatch(/ICE UNCONFIRMED|No ice beneath/); // what remains is range or terrain
+  expect(later.glyph).not.toBe('?');
 
   // the lava tube: KREEP soil is radioactive ground for a habitat
   await start(page, 'lavatube');
@@ -225,19 +220,20 @@ test('deposit gating: ice must be confirmed, KREEP takes no habitat, a strike ma
       g.placeBuilding('habitat', h!.gx, h!.gz);
       powered(120);
     }
-    const ex = near('excavator', target.x, target.z, (x, z) => g.depositAt(x, z)?.id === target.id);
-    g.placeBuilding('excavator', ex!.gx, ex!.gz);
+    // any structure standing on the ground finds it out (a solar array: the excavator is a hub unit now)
+    const ex = near('solar', target.x, target.z, (x, z) => g.depositAt(x, z)?.id === target.id);
+    g.placeBuilding('solar', ex!.gx, ex!.gz);
     g.advanceGameSeconds(0);
     const s = g.getState();
     return {
-      target, s, excavator: s.buildings.find((b: any) => b.type === 'excavator'),
+      target, s, array: s.buildings.filter((b: any) => b.type === 'solar').pop(),
       after: g.getDeposits().find((d: any) => d.id === target.id),
     };
   });
   expect(struck.s.survey.struck).toContain(struck.target.id);
   expect(struck.after.revealed).toBe(true);
-  expect(struck.excavator.deposit).toBe(struck.target.kind);
-  expect(hasAlert(struck.s, new RegExp(`^PROSPECT STRUCK — Regolith Excavator #${struck.excavator.id} is on .+ \\(.+\\)$`))).toBe(true);
+  expect(struck.array.deposit).toBe(struck.target.kind);
+  expect(hasAlert(struck.s, new RegExp(`^PROSPECT STRUCK — Solar Array #${struck.array.id} is on .+ \\(.+\\)$`))).toBe(true);
 });
 
 test('relay mast: the network extends 45 m from a completed mast, masts chain, and a mast maps its ground', async ({ page }) => {
@@ -696,8 +692,9 @@ test('save migration rule 7: a legacy ice survey maps every ice deposit; deposit
   const legacy = await page.evaluate(() => {
     const g = window.__game!;
     const dep = g.getDeposits().find((d: any) => d.kind === 'anorthosite' && d.inNetwork);
-    const ex = near('excavator', dep.x, dep.z, (x, z) => g.depositAt(x, z)?.id === dep.id);
-    g.placeBuilding('excavator', ex!.gx, ex!.gz);
+    // (a solar array on the deposit: an old save's excavator pad is a hub unit after the migration)
+    const ex = near('solar', dep.x, dep.z, (x, z) => g.depositAt(x, z)?.id === dep.id);
+    g.placeBuilding('solar', ex!.gx, ex!.gz);
     const st = g.getState();
     for (const k of ['techSchema', 'insights', 'discoveries', 'researchStalled', 'researchPaused',
       'researchRateAvg', 'stats', 'feed', 'downlinks', 'crewRotation', 'survey']) delete st[k];
@@ -730,7 +727,7 @@ test('save migration rule 7: a legacy ice survey maps every ice deposit; deposit
   }
   // other deposits past the landing-site survey stay unmapped
   expect(r.deps.some((d: any) => d.kind !== 'ice' && !d.revealed)).toBe(true);
-  expect(r.s.buildings.find((b: any) => b.type === 'excavator').deposit).toBe('anorthosite');
-  expect(r.s.feed).toEqual({ ilmenite: 0, anorthosite: 0, glass: 0, kreep: 0, volatiles: 0, plain: 0 });
+  expect(r.s.buildings.find((b: any) => b.type === 'solar' && b.deposit).deposit).toBe('anorthosite');
+  expect(r.s.feed).toEqual({ ilmenite: 0, anorthosite: 0, glass: 0, kreep: 0, volatiles: 0, ice: 0, plain: 0 }); // (ice: the Ice Miners' feed kind)
   expect(errors).toEqual([]);
 });

@@ -8,7 +8,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx';
+const URL_DEBUG = '/?debug&seed=42';
 
 async function boot(page: Page, site: string, extra = '') {
   await page.goto(`${URL_DEBUG}&site=${site}${extra}`);
@@ -238,18 +238,18 @@ test('isometric camera: Q/E turn one exact step each way, V flips the tilt 32° 
   let c = await isoSettled(page);
   const home = c.target;
   const pitch = (q: any) => Math.asin((q.pos.y - q.target.y) / q.dist);
-  expect(c.iso).toMatchObject({ rot: 0, tilt: 0, zoom: 170, pitchDeg: 32, yawStep: 0 });
+  expect(c.iso).toMatchObject({ rot: 0, tilt: 0, zoom: 170 });
   expect(pitch(c)).toBeCloseTo(32 * DEG, 3);
 
   // E turns one step, Q the other way; exactly 90° each
   await page.keyboard.press('KeyE');
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ rot: 1, yawStep: 1 });
+  expect(c.iso).toMatchObject({ rot: 1 });
   expect(c.azimuth).toBeCloseTo(135 * DEG, 6);
   await page.keyboard.press('KeyQ');
   await page.keyboard.press('KeyQ');
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ rot: 3, yawStep: -1 }); // rot wraps to 0–3; yawStep is the raw count
+  expect(c.iso).toMatchObject({ rot: 3 }); // rot wraps to 0–3
   expect(c.azimuth).toBeCloseTo(-45 * DEG, 6);
   await page.keyboard.press('KeyE');
   c = await isoSettled(page);
@@ -261,7 +261,7 @@ test('isometric camera: Q/E turn one exact step each way, V flips the tilt 32° 
   await expect.poll(async () => (await iso(page)).tilting).toBe(true);
   expect((await iso(page)).tilt).toBe(1);
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ tilt: 1, pitchDeg: 55, rot: 0 });
+  expect(c.iso).toMatchObject({ tilt: 1, rot: 0 });
   expect(pitch(c)).toBeCloseTo(55 * DEG, 3);
   expect(c.azimuth, 'the tilt keeps the yaw').toBeCloseTo(45 * DEG, 6);
   expect(c.dist, 'and the zoom').toBeCloseTo(170, 0);
@@ -269,7 +269,7 @@ test('isometric camera: Q/E turn one exact step each way, V flips the tilt 32° 
   for (let i = 0; i < 5; i++) await page.keyboard.down('KeyV');
   await page.keyboard.up('KeyV');
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ tilt: 0, pitchDeg: 32 });
+  expect(c.iso).toMatchObject({ tilt: 0 });
   expect(pitch(c)).toBeCloseTo(32 * DEG, 3);
 
   // R rotates the ghost and T opens the tree: neither touches the camera
@@ -280,9 +280,8 @@ test('isometric camera: Q/E turn one exact step each way, V flips the tilt 32° 
   expect(c.iso).toMatchObject({ rot: 0, tilt: 0 });
   // turning and tilting never move the target
   expect(Math.hypot(c.target.x - home.x, c.target.z - home.z)).toBeLessThan(0.5);
-  // the old names still read: yawStep, pitchDeg, levels, level
-  expect(c.iso).toMatchObject({ level: 1, pitchDeg: 32, yawStep: 0 });
-  expect(c.iso.levels).toEqual([100, 170, 290, 490, 830]);
+  // the render info names the same view
+  expect(await page.evaluate(() => window.__game.getRenderInfo().camera)).toMatchObject({ rot: 0, tilt: 0 });
 });
 
 test('isometric camera: the wheel zooms continuously, clamped at the near and far ends; a tilt keeps the zoom', async ({ page }) => {
@@ -292,7 +291,7 @@ test('isometric camera: the wheel zooms continuously, clamped at the near and fa
   expect(c.dist).toBeCloseTo(170, 0);
   await page.mouse.move(720, 450);
 
-  // a small nudge lands between the old levels; it is not a step
+  // a small nudge lands between the old five zoom levels; it is not a step
   const levels = [100, 170, 290, 490, 830];
   await page.mouse.wheel(0, 40);
   c = await isoSettled(page);
@@ -306,18 +305,14 @@ test('isometric camera: the wheel zooms continuously, clamped at the near and fa
   await page.mouse.wheel(0, -40);
   c = await isoSettled(page);
   expect(c.dist).toBeCloseTo(d1, 0);
-  // the alias reads the nearest level
-  expect(c.iso.level).toBe(1);
 
   // clamped at both ends
   for (let i = 0; i < 8; i++) await page.mouse.wheel(0, 120);
   c = await isoSettled(page);
   expect(c.dist).toBeCloseTo(830, 0);
-  expect(c.iso.level).toBe(4);
   for (let i = 0; i < 12; i++) await page.mouse.wheel(0, -120);
   c = await isoSettled(page);
   expect(c.dist).toBeCloseTo(100, 0);
-  expect(c.iso.level).toBe(0);
 
   // a trackpad's trickle is continuous too: many small events add up smoothly
   await page.evaluate(() => {
@@ -401,8 +396,8 @@ test('isometric camera: the preset (turn, tilt, zoom) is saved and survives a re
   await page.locator('#btn-continue').click();
   await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ rot: 2, tilt: 1, pitchDeg: 55 });
-  expect(c.iso.dist).toBeCloseTo(want.dist, 0);
+  expect(c.iso).toMatchObject({ rot: 2, tilt: 1 });
+  expect(c.iso.zoom).toBeCloseTo(want.dist, 0);
   expect(c.azimuth).toBeCloseTo(-135 * DEG, 6); // 225°, as atan2 reports it
   expect(Math.asin((c.pos.y - c.target.y) / c.dist)).toBeCloseTo(55 * DEG, 3);
   // the lander is still what the view is centred on
@@ -414,11 +409,11 @@ test('isometric camera: the preset (turn, tilt, zoom) is saved and survives a re
   delete old.camera;
   await page.evaluate((b) => window.__game.loadBlob(b), old);
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ rot: 0, tilt: 0, pitchDeg: 32, yawStep: 0 });
-  expect(c.iso.dist).toBeCloseTo(170, 0);
+  expect(c.iso).toMatchObject({ rot: 0, tilt: 0 });
+  expect(c.iso.zoom).toBeCloseTo(170, 0);
   // and a damaged one keeps what it can read
   await page.evaluate((b) => window.__game.loadBlob({ ...b, camera: { step: 1, tilt: 'high', dist: 'far' } }), blob);
   c = await isoSettled(page);
-  expect(c.iso).toMatchObject({ rot: 1, tilt: 0, pitchDeg: 32 });
-  expect(c.iso.dist).toBeCloseTo(170, 0);
+  expect(c.iso).toMatchObject({ rot: 1, tilt: 0 });
+  expect(c.iso.zoom).toBeCloseTo(170, 0);
 });

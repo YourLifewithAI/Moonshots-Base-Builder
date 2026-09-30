@@ -12,7 +12,7 @@ declare global {
   interface Window { __game?: any }
 }
 
-const BASE = '/?debug&seed=42&nolock&lowfx';
+const BASE = '/?debug&seed=42';
 
 async function start(page: Page, extra = '') {
   await page.setViewportSize({ width: 1366, height: 768 });

@@ -430,16 +430,14 @@ export class IsoCam implements CommandCam {
   /** The view's state (tests, probes).
    *  `rot` (0–3), `tilt` (0 low, 1 high; the one asked for) and `zoom` (the
    *  distance, m; `zoomTo` the one it is easing toward) are the names
-   *  getRenderInfo().camera reports. `yawStep`
-   *  (unwrapped), `pitchDeg` (eased), `level` (the nearest of `levels`),
-   *  `levels` and `dist` are the older names, kept as aliases. */
+   *  getRenderInfo().camera reports. `dist` repeats `zoom`. */
   info() {
     const yawDeg = (this.yaw / DEG) % 360;
     return {
       rot: ((this.step % 4) + 4) % 4, tilt: this.tilt, zoom: this.dist, zoomTo: this.want,
-      yawStep: this.step, yawDeg: yawDeg < 0 ? yawDeg + 360 : yawDeg, turning: this.turn !== null,
+      yawDeg: yawDeg < 0 ? yawDeg + 360 : yawDeg, turning: this.turn !== null,
       tilting: this.tiltTw !== null,
-      level: nearestLevel(this.dist), levels: [...ISO_LEVELS], dist: this.dist, pitchDeg: this.pitchDeg, fov: ISO_FOV,
+      dist: this.dist, fov: ISO_FOV,
       pinching: this.pinch0 !== null,
     };
   }

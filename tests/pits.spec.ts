@@ -11,12 +11,12 @@ declare global {
   interface Window { __game?: any }
 }
 
-const URL_DEBUG = '/?debug&seed=42&nolock&lowfx&site=mare&exp=robotic';
+const URL_DEBUG = '/?debug&seed=42&site=mare&exp=robotic';
 /** data/balance.ts PIT: t per m³ in place, the heap's share, rings no pit digs near */
 const T_PER_M3 = 1.5, HEAP = (0.7 * 1.5) / 1.3, PAD_RINGS = 3, ROAD_RINGS = 2;
 
-async function start(page: Page, style = '') {
-  await page.goto(`${URL_DEBUG}${style ? `&style=${style}` : ''}`);
+async function start(page: Page) {
+  await page.goto(URL_DEBUG);
   await page.waitForFunction(() => window.__game !== undefined);
   await page.evaluate(() => {
     const g = window.__game;
@@ -446,27 +446,33 @@ test('road A* routes round a pit and never crosses it; the road tool stops at it
   expect(r.zone.cells.length).toBeGreaterThan(20);
 });
 
-test('determinism: the same seed and the same actions give the same delta grid', async ({ page, browser }) => {
+test('determinism: the same save and the same actions give the same delta grid', async ({ page }) => {
   test.setTimeout(300_000);
-  const once = async (p: Page) => {
-    await start(p);
-    return p.evaluate(() => {
+  await start(page);
+  // Two fresh page loads do not begin at one simTime (a few live frames run before a spec pauses the clock, and
+  // hub units are sensitive to that: docs/19 S4a), so the same save is loaded twice: the sim then repeats exactly
+  const both = await page.evaluate(() => {
+    const g = window.__game;
+    const blob = JSON.parse(JSON.stringify(g.saveBlob()));
+    const once = () => {
       P.excavator();
       P.run(40);
       P.dig(-60, -30, 4000, 10);
-      const all = window.__game.getPits();
-      return { delta: all.delta, pits: all.pits, rev: all.rev, zones: window.__game.getZones() };
-    });
-  };
-  const a = await once(page);
-  const other = await browser.newPage();
-  const b = await once(other);
-  await other.close();
-  expect(a.pits.length).toBe(2);
-  expect(a.delta.length).toBeGreaterThan(100);
-  expect(b.delta).toBe(a.delta);
-  expect(b.pits).toEqual(a.pits);
-  expect(b.zones).toEqual(a.zones);
+      const all = g.getPits();
+      return { delta: all.delta, pits: all.pits, rev: all.rev, zones: g.getZones() };
+    };
+    const a = once();
+    g.loadBlob(JSON.parse(JSON.stringify(blob)));
+    g.setPaused(true);
+    g.advanceGameSeconds(0);
+    g.holdHazards(true);
+    return { a, b: once() };
+  });
+  expect(both.a.pits.length).toBe(2);
+  expect(both.a.delta.length).toBeGreaterThan(100);
+  expect(both.b.delta).toBe(both.a.delta);
+  expect(both.b.pits).toEqual(both.a.pits);
+  expect(both.b.zones).toEqual(both.a.zones);
 });
 
 test('save and reload restore the ground exactly (base → deltas → flattens); an old save starts clean', async ({ page, browser }) => {
