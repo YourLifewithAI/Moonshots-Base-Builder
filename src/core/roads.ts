@@ -790,7 +790,7 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
     targets = [dk];
   }
   const found = search(s, hf, sources, new Set(targets), blocked);
-  const path = found?.path;
+  let path = found?.path;
   if (!path) {
     const field = FIELD_TYPES.has(b.type);
     return { cells: [], fresh: [], bays: [], reason: !sources.length
@@ -798,19 +798,27 @@ function planFresh(s: GameState, hf: Heights, b: Placed): SpurPlan {
       : field ? `NO ROAD ROUTE — no road can reach its edge (walled in, or steps over ${ROAD.maxStep} m); ${fieldFix(s, b.type)}`
       : 'NO ROAD ROUTE — the rovers cannot reach it by road (walled in, or too steep)' };
   }
-  const cells = path.filter((k) => !isOpen(map.get(k)));
-  const fresh = cells.filter((k) => !map.has(k));
+  let cells = path.filter((k) => !isOpen(map.get(k)));
+  let fresh = cells.filter((k) => !map.has(k));
   const bays: number[] = [];
   if (DOCK_TYPES.has(b.type) && b.type !== 'lander') {
     // parking beside the door, along the front: left, then right
     const d = doorCell(b)!;
     const [fx, fz] = frontDir(b);
-    const taken = new Set([...blocked, ...path]);
-    for (const side of [-1, 1]) {
-      const bx = d[0] + side * -fz, bz = d[1] + side * fx;
-      const k = cellKey(bx, bz);
-      if (!inMap(bx, bz) || taken.has(k) || map.has(k)) continue;
-      bays.push(k);
+    const side = (taken: Set<number>) => [-1, 1].map((sd) => cellKey(d[0] + sd * -fz, d[1] + sd * fx))
+      .filter((k) => { const [bx, bz] = keyCell(k); return inMap(bx, bz) && !taken.has(k) && !map.has(k); });
+    bays.push(...side(new Set([...blocked, ...path])));
+    if (!bays.length) {
+      // the road came in beside the door and took the only ground for a bay (the pad's flattening
+      // can tip an equal choice the other way after the check): route round the parking cells
+      const spare = side(blocked);
+      const again = spare.length ? search(s, hf, sources, new Set(targets), new Set([...blocked, ...spare])) : null;
+      if (again) {
+        path = again.path;
+        cells = path.filter((k) => !isOpen(map.get(k)));
+        fresh = cells.filter((k) => !map.has(k));
+        bays.push(...side(new Set([...blocked, ...path])));
+      }
     }
     // a dock parks its rovers beside its door: with no room for a bay (its road along its
     // front, a structure or an extraction zone beside it) it has nowhere to put them
