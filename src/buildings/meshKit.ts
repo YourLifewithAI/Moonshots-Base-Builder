@@ -368,6 +368,13 @@ let instanceHook: InstanceHook | null = null;
 export function setInstanceHook(hook: InstanceHook | null) {
   instanceHook = hook;
 }
+/** More per-view extras, kept apart from the palette's hook (the ink
+ *  outline's per-vertex push directions: world/ink.ts). Every hook runs on
+ *  every view, before the view is first drawn. */
+const extraHooks: InstanceHook[] = [];
+export function addInstanceHook(hook: InstanceHook) {
+  extraHooks.push(hook);
+}
 
 /** An instanced view of a shared recipe geometry (same GPU buffers) with its
  *  own per-instance state: iState = (lit, dust, wear, print cut height),
@@ -393,6 +400,7 @@ export function withInstanceState(src: THREE.BufferGeometry, max: number,
   g.setAttribute('iWarm', new THREE.InstancedBufferAttribute(new Float32Array(max).fill(1), 1));
   g.setAttribute('iAlarm', new THREE.InstancedBufferAttribute(new Float32Array(max), 1));
   instanceHook?.(g, src, max);
+  for (const hook of extraHooks) hook(g, src, max);
   if (prev) {
     for (const [name, attr] of Object.entries(prev.attributes)) {
       if (!(attr instanceof THREE.InstancedBufferAttribute)) continue;

@@ -45,6 +45,7 @@ import {
   BEACON, BODY, GLASS, LAMP, PLATE, TRIM, bar, box, cyl, dome, merge, withInstanceState,
 } from '../buildings/meshKit';
 import { materials } from './materials';
+import { inked } from './ink';
 import type { DustEmitter } from './dust';
 import { MAX_ROVER_VOICES, type RoverSound } from '../audio/roverVoices';
 import { Traffic, WHOLE, laneAxis, laneMode, laneSide, pointAt, standAt, type Agent, type Driver } from './traffic';
@@ -301,6 +302,7 @@ export class RoverFleet implements Driver {
     this.mesh.castShadow = false;
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
+    inked(this.mesh, 'rover');
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({
@@ -1260,6 +1262,7 @@ export class DroneFlight {
     this.mesh.receiveShadow = true;
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
+    inked(this.mesh, 'drone');
     const plane = new THREE.PlaneGeometry(1, 1);
     plane.rotateX(-PI / 2);
     this.decalMat = new THREE.MeshBasicMaterial({
