@@ -4,13 +4,13 @@ import type { Action } from './actions';
 import type { GameState } from './state';
 import { alert } from './economy';
 import { ROAD } from '../data/roads';
-import { cellKey, layJob, planLink, removeCells, strands, type Heights } from './roads';
+import { cellKey, layJob, planLink, planPath, removeCells, strands, type Heights } from './roads';
 
 const cells = (n: number) => `${n} cell${n === 1 ? '' : 's'}`;
 
 export function roadAction(s: GameState, hf: Heights, a: Extract<Action, { kind: 'layRoad' | 'removeRoad' }>) {
   if (a.kind === 'layRoad') {
-    const plan = planLink(s, hf, a.from, a.to);
+    const plan = a.via?.length ? planPath(s, hf, a.from, [...a.via, a.to]) : planLink(s, hf, a.from, a.to);
     if (plan.reason) { alert(s, `CANNOT LAY ROAD — ${plan.reason}`, 'warn'); return; }
     if (!plan.cells.length) return;
     layJob(s, plan, 'draw');

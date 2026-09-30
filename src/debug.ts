@@ -362,7 +362,11 @@ function api(game: Game) {
     /** a hub ghost's whole HUB block at (gx, gz, rot): headline, lines, warning, stake, lit entries (docs/17 §5.2) */
     hubBlock: (type: BuildingId, gx: number, gz: number, rot: 0 | 1 | 2 | 3 = 0) => {
       const b = ghostBlock(game.state, game.mods, SITES[game.state.siteId], { type, gx, gz, rot });
-      return { headline: b.headline, lines: [...b.lines], warn: b.warn, stake: b.stake, entries: b.light?.entries ?? [] };
+      return {
+        headline: b.headline, lines: [...b.lines], warn: b.warn, stake: b.stake, entries: b.light?.entries ?? [],
+        // the dashed haul road it would plan from its door (docs/19 S3): [gx, gz] cells
+        road: (b.road ?? []).map((k) => [k % 256, Math.floor(k / 256)]),
+      };
     },
     /** the highlight a selected hub (its id) or a hub card (its type) would light */
     hubLightOf: (src: number | BuildingId) =>
@@ -559,7 +563,7 @@ function api(game: Game) {
       return z ? holdOf(game.state, z, gate) : null;
     },
     /** the road tool's actions: a road from an open road cell to a cell; remove cells */
-    layRoad: (from: [number, number], to: [number, number]) => game.actions.push({ kind: 'layRoad', from, to }),
+    layRoad: (from: [number, number], to: [number, number], via?: [number, number][]) => game.actions.push({ kind: 'layRoad', from, to, ...(via?.length ? { via } : {}) }),
     removeRoad: (cells: [number, number][]) => game.actions.push({ kind: 'removeRoad', cells }),
   };
 }

@@ -101,6 +101,8 @@ export class PlacementController {
   private outlinePos = new THREE.BufferAttribute(new Float32Array(4 * OUTLINE_SEG * 2 * 3), 3);
   /** the road the placement would lay, on the ground */
   readonly roadPreview: CellPreview;
+  /** the haul road a hub ghost's units would take on from the network, dashed (core/hubPreview.ts, docs/19 S3) */
+  readonly haulPreview: CellPreview;
   /** a warning of the game's own for a valid spot ('' none): a hub ghost's
    *  NO ICE IN REACH (core/hubPreview.ts needs the mods placement has not) */
   extraWarn: ((p: PlacementProbe) => string) | null = null;
@@ -119,6 +121,7 @@ export class PlacementController {
     this.outline.visible = false;
     scene.add(this.outline);
     this.roadPreview = new CellPreview(scene, hf);
+    this.haulPreview = new CellPreview(scene, hf);
   }
 
   begin(type: PlaceableType, techsDone: readonly string[] = []) {
@@ -150,6 +153,7 @@ export class PlacementController {
     if (this.ghost) { this.scene.remove(this.ghost); this.ghost = null; }
     this.outline.visible = false;
     this.roadPreview.hide();
+    this.haulPreview.hide();
     this.probe = null;
   }
 
@@ -169,7 +173,7 @@ export class PlacementController {
       }
     }
     const hit = this.hf.raycast(origin.x, origin.y, origin.z, dir.x, dir.y, dir.z);
-    if (!hit) { this.ghost.visible = false; this.outline.visible = false; this.roadPreview.hide(); return; }
+    if (!hit) { this.ghost.visible = false; this.outline.visible = false; this.roadPreview.hide(); this.haulPreview.hide(); return; }
     let w: number, d: number;
     if (this.probe.type === 'grade') {
       w = GRADE_CELLS; d = GRADE_CELLS;

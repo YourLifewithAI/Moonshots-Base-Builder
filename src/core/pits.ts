@@ -222,6 +222,8 @@ export function blockersOf(s: GameState): Blockers {
 export function ringOf(s: GameState, key: string): { x: number; z: number; r: number } | null {
   const hf = terrains.get(s);
   if (!hf) return null;
+  // (a key that names no deposit or staked pit — a ghost's trial pit — has no ring)
+  if (key.startsWith('plain:') ? !s.plainPits.some((q) => q.id === Number(key.slice(6))) : !key.startsWith('dep:')) return null;
   const cut = (s.pits ?? []).find((p) => p.key === key && p.anchor >= 0 && p.state !== 'reclaimed');
   const dep = key.startsWith('dep:') ? hf.deposits.find((d) => d.id === key.slice(4)) : undefined;
   const [x, z] = keyPoint(hf, key, s);

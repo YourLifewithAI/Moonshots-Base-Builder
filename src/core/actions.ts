@@ -57,7 +57,7 @@ export type Action =
   | { kind: 'surveyDeposit'; id: string }      // a rover cores a deposit: ore, grade, faces
   | { kind: 'reclaimPit'; pit: number }        // push a worked-out pit's heap back in
   // roads (core/roads.ts): the road tool
-  | { kind: 'layRoad'; from: [number, number]; to: [number, number] } // from an open road cell to a cell
+  | { kind: 'layRoad'; from: [number, number]; to: [number, number]; via?: [number, number][] } // from an open road cell to a cell, by waypoints (docs/19 S3)
   | { kind: 'removeRoad'; cells: [number, number][] }
   // the Builder (core/automation.ts, docs/13)
   | { kind: 'order'; type: BuildingId; count: number; intent?: { res?: ResourceId; like?: number } }

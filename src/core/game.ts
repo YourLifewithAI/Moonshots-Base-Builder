@@ -480,7 +480,13 @@ export class Game {
           // the Hazards panel (docs/14 §3.8): risks, counters, the network
           $resourcePanel.set($resourcePanel.get() === 'hazards' ? null : 'hazards');
           break;
+        case 'Backspace':
+          // drawing a road: the last waypoint back
+          if (this.roadTool.active) { e.preventDefault(); this.roadTool.undo(); }
+          break;
         case 'Enter': case 'NumpadEnter':
+          // drawing a road: lay it through its waypoints (docs/19 S3)
+          if (this.roadTool.active) { e.preventDefault(); this.roadTool.commit(); break; }
           // while placing: let the rovers choose the site for this one
           if (this.placement.active && this.placement.probe && this.placement.probe.type !== 'grade') {
             e.preventDefault();
@@ -650,6 +656,8 @@ export class Game {
     this.roadTool.begin();
   }
   cancelRoadTool() { this.roadTool?.cancel(); }
+  /** ✓ Lay on the touch bar (Enter): the road through its waypoints */
+  commitRoad() { this.roadTool?.commit(); }
   debugRoadTool() { return this.roadTool.info(); }
 
   beginPlacement(type: PlaceableType) {
@@ -1736,6 +1744,8 @@ export class Game {
       const p = this.placement.probe!;
       const block = p.valid && p.type !== 'grade' && isHubType(p.type)
         ? ghostBlock(this.state, this.mods, SITES[this.state.siteId], p as { type: BuildingId; gx: number; gz: number; rot: 0 | 1 | 2 | 3 }) : null;
+      // a hub ghost also shows the haul road its units would take on from the network (dashed)
+      this.placement.haulPreview.show(block?.road?.length ? block.road : undefined, false, true);
       $placing.set({
         type: p.type, valid: p.valid, reason: p.reason, warn: p.warn, note: p.note, confirm: p.confirm,
         road: p.road?.length, roadS: p.roadS, offM: p.offM, travelS: p.valid && p.type !== 'grade' ? this.placeTravel(p) : undefined,

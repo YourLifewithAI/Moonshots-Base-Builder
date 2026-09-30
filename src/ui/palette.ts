@@ -382,11 +382,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
     cats.querySelector('#road-btn')?.classList.toggle('active', !!t);
     if (!t) { roadHint.style.display = 'none'; return; }
     roadHint.style.display = '';
+    const way = t.waypoints ? ` · ${t.waypoints} waypoint${t.waypoints === 1 ? '' : 's'}` : '';
     const line = t.mode === 'lay' && t.cells
-      ? `ROAD ${t.cells} cell${t.cells === 1 ? '' : 's'} · ${Math.round(t.seconds)} rover-s to sinter · release to lay`
+      ? `ROAD ${t.cells} cell${t.cells === 1 ? '' : 's'} · ${Math.round(t.seconds)} rover-s to sinter${way} · ${t.waypoints ? (touchOn() ? '✓ Lay lays it' : 'Enter or double-click lays it') : 'release to lay'}`
       : t.mode === 'remove' ? `REMOVE ${t.cells} road cell${t.cells === 1 ? '' : 's'} · release to remove`
-      : touchOn() ? (t.started ? 'ROAD · tap or release where it ends' : 'ROAD · drag out from a road cell · Remove toggles · ✕ done')
-      : t.started ? 'ROAD · click or release where it ends' : 'ROAD · drag out from a road cell · Alt-drag removes · right-click done';
+      : touchOn() ? (t.started ? 'ROAD · tap where it goes · ✓ Lay when it ends' : 'ROAD · drag out from a road cell · Remove toggles · ✕ done')
+      : t.started ? 'ROAD · click each waypoint · Enter or double-click lays · Backspace undoes' : 'ROAD · drag out from a road cell, or click it and click on · Alt-drag removes · right-click done';
     roadHint.innerHTML = `<span class="label hint-line">${line}</span>${t.reason
       ? `<div class="${t.mode === 'remove' ? 'caution' : 'blocked'}">${t.reason}</div>` : ''}`;
   });
