@@ -185,7 +185,9 @@ export function claimNotice(e: FeedEvent, s: Pick<GameState, 'siteId' | 'faction
 const HANDLE = '__claimNotice';
 const reg = globalThis as unknown as Record<string, (() => void) | undefined>;
 reg[HANDLE]?.();
-reg[HANDLE] = onFeed('claim', (e, ctx: { moon: MoonState; player: GameState }) => {
-  const n = claimNotice(e, ctx.player);
-  if (n) notify(ctx.player, 'field', { text: n.text, action: { map: n.pid } });
+reg[HANDLE] = onFeed('claim', (e, ctx: { moon: MoonState; player: GameState | null }) => {
+  // (a feed with no player base, as a spec or a solo Moon dispatches it, has nobody to tell)
+  const pl = ctx.player;
+  const n = pl ? claimNotice(e, pl) : null;
+  if (pl && n) notify(pl, 'field', { text: n.text, action: { map: n.pid } });
 });
