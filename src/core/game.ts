@@ -51,10 +51,11 @@ import {
 import { UNIT_VID, isHubType } from '../data/hubs';
 import { setHubPolicy, setUnitFeedPlan } from './hubPlanner';
 import { ghostBlock, hubLight, type HubLight, type LightSource } from './hubPreview';
-import { DepositHighlight } from '../world/depositHighlight';
+import { DepositHighlight, PitMarks } from '../world/depositHighlight';
 import { ROAD } from '../data/roads';
 import { bindTerrain, digSiteKey, onDig, pitsView, queueSurvey, restoreTerrain, saveTerrain, startReclaim, syncPitZones } from './pits';
 import { encodeDelta, takeCarved } from '../terrain/pitCarve';
+import { lookInfo } from '../terrain/pitLook';
 import { roadAction } from './roadActions';
 import { fleetView, groundName } from './fleetView';
 import { applyCounter, forceHazard, hazardView, setAirGap } from './hazards';
@@ -189,6 +190,8 @@ export class Game {
   private markerSig = '';
   /** the resource highlight (docs/17 §6): a hub ghost's, a selected hub's or a hub card's lit deposits */
   private highlight: DepositHighlight | null = null;
+  /** the pits in an end state: a flag and a dashed ring each, always on (docs/19 S2b) */
+  private pitMarks: PitMarks | null = null;
   private light: HubLight | null = null;
   private lightKey = '';
   private lightClock = 0;
@@ -392,13 +395,16 @@ export class Game {
     this.worldGroup = new THREE.Group();
     this.highlight?.dispose();
     this.highlight = new DepositHighlight(this.hf);
+    this.pitMarks?.dispose();
+    this.pitMarks = new PitMarks(this.hf);
     this.light = null;
     this.lightKey = '';
     this.overlayLit = '';
     this.depLitSig = null;
     $hubLight.set(null);
     this.worldGroup.add(this.chunks.group, this.horizon.mesh, this.rocks.group, this.instances.group,
-      this.overlays.group, this.life.group, this.fleetTarget.group, this.highlight.group, this.gradeMarks.group);
+      this.overlays.group, this.life.group, this.fleetTarget.group, this.highlight.group, this.pitMarks.group,
+      this.gradeMarks.group);
     for (const c of this.depositOverlay?.children ?? []) (c as THREE.LineSegments).geometry.dispose();
     this.depositOverlay = null;
     this.revealedIds = new Set();
@@ -922,12 +928,14 @@ export class Game {
   private syncTerrain(dt: number) {
     this.takeTerrain();
     this.chunks.pump(dt);
+    this.pitMarks?.set(this.state.pits ?? []);
     this.overlayClock += dt;
     if (this.overlayOwed && this.overlayClock >= 1) {
       this.overlayOwed = false;
       this.overlayClock = 0;
       if (this.depositOverlay) this.rebuildDepositOverlay();
       this.highlight?.redrape();
+      this.pitMarks?.redrape();
     }
   }
 
@@ -2339,6 +2347,11 @@ export class Game {
     if (this.depositOverlay) this.depositOverlay.visible = $depositOverlay.get() || !!this.light;
   }
 
+  /** The pits' flags and rings as drawn (tests). */
+  debugPitMarks() {
+    return this.pitMarks?.info() ?? null;
+  }
+
   /** The highlight as drawn (tests). */
   debugHighlight() {
     return { drawn: this.highlight?.info() ?? null, light: this.light };
@@ -3122,6 +3135,11 @@ export class Game {
   /** The terrain mesh's vertex colour nearest (x, z) (tests). */
   debugTerrainColor(x: number, z: number) {
     return this.chunks.colorAt(x, z);
+  }
+
+  /** What the chunks hold of the pits' look: contour levels, ribbons, tones, the palette (tests, probes). */
+  debugPitLook() {
+    return lookInfo(this.hf);
   }
 
   /** The drawn ground against hf.sample (tests, probes). */

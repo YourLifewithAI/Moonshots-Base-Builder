@@ -294,8 +294,24 @@ export const PIT = {
   planM3: 1800,
   /** where the staking looks for free ground round the dig, m */
   stakeMinM: 8, stakeMaxM: 72,
-  /** the cut's tone: brighter than the weathered ground round it (§20) */
-  cutBright: 0.2, heapBright: 0.16, benchBand: 0.08,
+  /** the pit's look (docs/19 S2b; terrain/pitLook.ts). Colours are sRGB hex, drawn as authored:
+   *  benches alternate ochre and dark ochre from the rim in, the floor is its own tone, the
+   *  ramp a lighter tread, the heap a cool grey. Ink: the contour ribbons and the tread's
+   *  edges, the ramp's arrow, the heap's hatch. */
+  cutOchre: 0xc9a06a, cutDark: 0xa7833f, cutFloor: 0x8f7a5a, cutTread: 0xdcc48e,
+  heapTone: 0x6f665c, heapHatchInk: 0x43392f,
+  /** how bright the cut's and the heap's palette are drawn (a multiplier, 1 as authored),
+   *  and `benchBand`, the width of a bench's ink contour, m (baked into the chunk: about
+   *  3 px at the home zoom, under 1 px far out, where the palette carries the bench) */
+  cutBright: 1, heapBright: 1, benchBand: 0.25,
+  /** the contour, the ramp's arrow and the hatch sit this far above the ground, m */
+  contourLift: 0.05, arrowLift: 0.07,
+  /** the ink of the contours and the tread's edges (the cut's own dark), of the arrow, of the heap's foot */
+  contourInk: 0x3a2c1a, arrowInk: 0x141618, heapFootInk: 0x2b2722,
+  /** a heap is outlined where it is this high, m, and hatched both ways every `hatchM` m, `hatchW` wide */
+  heapFootH: 0.5, hatchM: 3.6, hatchW: 0.13,
+  /** the ramp's arrow: its length as a share of the tread's, at most `arrowMaxM`, none on a tread shorter than `arrowMinM` */
+  arrowShare: 0.7, arrowMaxM: 14, arrowMinM: 4.5,
 };
 
 /** Exploration coverage tiers (index = tier) — reveal radius and outpost slots */

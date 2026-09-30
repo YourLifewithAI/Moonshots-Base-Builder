@@ -286,6 +286,8 @@ function api(game: Game) {
     // ── strip-mine pits (core/pits.ts, terrain/pitCarve.ts, docs/17 Phase 3) ──
     /** every pit (derived numbers too), the delta grid encoded, the chunk rebuild queue */
     getPits: () => clone(game.debugPits()),
+    /** the pit's look baked into the chunks (terrain/pitLook.ts): bench contour levels, ribbons, tones, the palette */
+    getPitLook: () => clone(game.debugPitLook()),
     /** one heightfield sample: { h, base, delta (dm), pad, skirt } */
     terrainSample: (ix: number, iz: number) => game.debugSample(ix, iz),
     /** the adapter as an excavator calls it: `tonnes` of regolith dug at world (x, z) */
@@ -395,6 +397,8 @@ function api(game: Game) {
     hubLightOf: (src: number | BuildingId) =>
       hubLight(game.state, game.mods, SITES[game.state.siteId], typeof src === 'number' ? { kind: 'selected', id: src } : { kind: 'card', type: src })?.entries ?? null,
     /** the highlight up now: what is drawn, and its entries (docs/17 §6.1) */
+    /** the flags and dashed rings on the pits in an end state (EXHAUSTED, BOXED IN, RECLAIMED) */
+    getPitMarks: () => clone(game.debugPitMarks()),
     getHighlight: () => ({ ...game.debugHighlight(), view: $hubLight.get() }),
     /** R: turn the ghost a quarter */
     rotatePlacement: () => game.rotatePlacement(),
@@ -417,8 +421,8 @@ function api(game: Game) {
       }
       return k;
     },
-    /** view tests only: set the pit at `key`'s state ('boxed', 'exhausted', 'open') */
-    setPitState: (key: string, state: 'open' | 'boxed' | 'exhausted') => {
+    /** view tests only: set the pit at `key`'s state ('boxed', 'exhausted', 'reclaimed', 'open') */
+    setPitState: (key: string, state: 'open' | 'boxed' | 'exhausted' | 'reclaimed') => {
       const p = game.state.pits?.find((x) => x.key === key);
       if (p) p.state = state;
       return !!p;

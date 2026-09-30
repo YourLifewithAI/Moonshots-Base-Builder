@@ -24,7 +24,6 @@
  *  Pure: plain data in, the grid out. No Three.js, no randomness; scratch
  *  buffers are reused, never allocated per call once grown. */
 import { CELL_M, MAP_CELLS, MAP_M, PIT } from '../data/balance';
-import type { BufferGeometry } from 'three';
 import type { Heightfield } from './heightfield';
 
 const N = MAP_CELLS + 1;
@@ -798,31 +797,8 @@ export function lowerHeap(hf: Heightfield, samples: readonly number[], share: nu
   return dm * DM_M3;
 }
 
-// ───────────────────────────── the look ─────────────────────────────
-
-/** The cut's and the heap's tone (§20), a multiplier on the ground's colour:
- *  fresh regolith is brighter than the weathered surface round it, fading in
- *  over the first 2 m of the rim; every other bench a shade brighter still, so
- *  the terraces read from the isometric view. Graded ground is plain. */
-export function cutTone(hf: Heightfield, ix: number, iz: number): number {
-  const k = Math.min(Math.max(iz, 0), N - 1) * N + Math.min(Math.max(ix, 0), N - 1);
-  const d = hf.delta[k];
-  if (d === 0 || hf.padMask[k]) return 1;
-  if (d > 0) return 1 + PIT.heapBright * Math.min(1, d / 10);
-  const depth = -d / 10;
-  const band = Math.floor(depth / PIT.bench + 0.5) % 2 === 1 ? PIT.benchBand : 0;
-  return 1 + PIT.cutBright * Math.min(1, depth / 2) + band;
-}
-
-/** The chunk-geometry hook (docs/19; terrain/chunks.ts calls it last in
- *  buildGeometry, once per chunk `(cx, cz)` rebuild): whatever a pit adds to
- *  the ground's own geometry — S2b's baked bench contours — is added here, so
- *  the ground's shading (S1a) and the pit's contours never share a function.
- *  It returns the chunk's geometry, appended to or replaced.
- *  Contract stream W0d, a functional stub: the geometry unchanged. */
-export function decorate(geo: BufferGeometry, _cx: number, _cz: number, _hf: Heightfield): BufferGeometry {
-  return geo;
-}
+// The pit's look (the cut palette, the bench contours, the ramp's arrow, the heap's hatch) is
+// terrain/pitLook.ts: `decorate`, the chunk-geometry hook, and `cutTone`.
 
 // ───────────────────────────── saving ─────────────────────────────
 
