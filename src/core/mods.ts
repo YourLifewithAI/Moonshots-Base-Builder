@@ -442,12 +442,19 @@ export function modsFor(s: GameState): Mods {
 /** The research-cost multipliers alone (what techCost needs), without building a whole Mods: only the
  *  few techs that carry a laneCost / pickCost are scanned, so a state with none is neutral at once. */
 const COST_TECHS = TECH_ORDER.filter((t) => TECHS[t].effects.some((fx) => fx.kind === 'laneCost' || fx.kind === 'pickCost'));
+/** shared and frozen: a caller reads it */
+const NEUTRAL_COST: Pick<Mods, 'laneCostMult' | 'pickCostMult'> = Object.freeze({
+  laneCostMult: Object.freeze(neutralLanes()) as Record<Lane, number>,
+  pickCostMult: Object.freeze({ colony: 1, automation: 1 }) as Record<Side, number>,
+});
 export function costMults(
   s: { techsDone?: readonly TechId[]; siteId: SiteId; expedition: Expedition; faction?: FactionId | null },
 ): Pick<Mods, 'laneCostMult' | 'pickCostMult'> {
+  const done = s.techsDone ?? [];
+  // the hot path (every solo card, every tick): no faction tech done, the shared neutral object
+  if (!COST_TECHS.some((t) => done.includes(t))) return NEUTRAL_COST;
   const laneCostMult = neutralLanes();
   const pickCostMult: Record<Side, number> = { colony: 1, automation: 1 };
-  const done = s.techsDone ?? [];
   const faction = factionOfState(s);
   for (const tid of COST_TECHS) {
     if (!done.includes(tid)) continue;
