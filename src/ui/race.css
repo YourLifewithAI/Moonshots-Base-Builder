@@ -1,0 +1,83 @@
+/* The race (docs/20, stream S1): the faction step of the site screen, the briefing, the RACE chip and its panel.
+   docs/07 stays greyscale; a faction's TRIM colour (data/factions.ts livery, set per element as --ft) is the one hue,
+   as a 3 px rule and a glyph colour, and the glyph always says the faction too. */
+
+/* ── the faction step (screens.ts): the site card's shape, a trim rule on top ── */
+.faction-card { width: 318px; border-top: 3px solid var(--ft, var(--paper)); }
+/* the selected card keeps its trim rule (the site card's paper border would repaint the top edge) */
+.faction-card.sel { border-top-color: var(--ft, var(--paper)); }
+.faction-card:focus-visible { outline: 1px solid var(--paper); outline-offset: 2px; }
+.faction-card h3 { display: flex; align-items: baseline; gap: 8px; }
+.faction-card .fc-glyph { color: var(--ft); font-size: 1.2em; line-height: 1; }
+.faction-card .fc-lands { color: var(--ink-050); }
+.faction-card .blurb { margin-bottom: 10px; }
+.faction-card .pro, .faction-card .con { margin-bottom: 2px; }
+.fc-rivals { margin-top: 12px; padding-top: 8px; border-top: var(--hair); font-size: 11px; line-height: 16px; }
+.fc-rivals .label { display: block; margin-bottom: 3px; }
+.fc-rival { color: rgba(var(--paper-rgb), var(--op-secondary)); }
+.fc-rival .fc-gap { color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+#faction-sub { max-width: 640px; text-align: center; text-transform: none; letter-spacing: 0.04em; line-height: 18px; }
+html.touch #site-screen #faction-sub { display: none; }
+
+/* ── the era banners of a faction game: the Moon line, and a faction glyph in running text ── */
+.eb-fg { font-size: 1.05em; line-height: 1; }
+#era-banner .eb-moon { margin-top: -2px; }
+
+/* ── the briefing (ui/discovery.ts): an era-family banner of its own, before the Era 1 explainer; it holds the pause until Continue ── */
+#briefing {
+  position: absolute; inset: 0; z-index: 55; align-items: center; justify-content: center;
+  background: rgba(8, 9, 11, 0.62);
+  animation: eb-in 0.6s ease-out;
+}
+#briefing .eb-panel {
+  width: 640px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow-y: auto;
+  padding: 18px 30px 18px; background: var(--ink-900, #0e0f11); border: 1px solid rgba(var(--paper-rgb), 0.35);
+  border-top: 3px solid var(--ft, var(--nf-era));
+}
+#briefing .eb-k { display: flex; gap: 8px; justify-content: center; align-items: baseline; }
+#briefing .eb-k .nf-g { color: var(--nf-era); }
+#briefing .eb-name { text-align: center; font-size: 30px; line-height: 34px; margin: 6px 0 4px; letter-spacing: 0.06em; }
+#briefing .br-glyph { color: var(--ft); margin-right: 6px; }
+#briefing .br-ethos { text-align: center; margin: 0 0 12px; font-size: 12px; letter-spacing: 0.05em; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#briefing .br-blurb { font-size: 13px; line-height: 19px; margin: 0 0 12px; }
+#briefing .br-sec { padding: 8px 0 6px; border-top: var(--hair); }
+#briefing .br-sec .label { display: block; margin-bottom: 4px; }
+#briefing .br-line { font-size: 12px; line-height: 18px; color: rgba(var(--paper-rgb), var(--op-secondary)); margin-bottom: 2px; }
+#briefing .br-line[data-faction] { color: var(--ink-050); }
+#briefing .br-con::before { content: '− '; font-weight: 700; }
+#briefing .br-survey { margin: 8px 0 0; padding-top: 8px; border-top: var(--hair); font-size: 12px; line-height: 18px; }
+#briefing .eb-foot { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+html.touch #briefing { padding: var(--edge-t) var(--edge-r) var(--edge-b) var(--edge-l); }
+html.touch #briefing .eb-panel { max-height: calc(var(--app-h) - var(--edge-t) - var(--edge-b)); padding: 10px 18px 8px; }
+html.touch #briefing .eb-name { font-size: 22px; line-height: 26px; }
+html.touch #briefing .br-blurb { font-size: 12px; line-height: 17px; margin-bottom: 6px; }
+html.touch #briefing .br-sec { padding: 4px 0 3px; }
+/* on a phone the panel scrolls, and Continue stays in view at its foot */
+html.touch #briefing .eb-foot { margin-top: 8px; position: sticky; bottom: -8px; padding: 6px 0 2px; background: var(--ink-900, #0e0f11); }
+
+/* ── the RACE chip (after the OUTPOSTS chip) and its panel (the hazards panel's pattern) ── */
+#race-chip { align-self: flex-end; text-align: right; padding: 5px 10px; font-size: 11px; white-space: nowrap; }
+#race-chip.behind { border-style: dashed; }
+#race-chip.lit { font-weight: 600; }
+html.touch #race-chip { min-height: var(--tap, 44px); }
+#race-panel {
+  width: 380px; max-height: 70vh;
+  flex: 0 1 auto; min-height: 120px; display: flex; flex-direction: column;
+  font-size: 12px; line-height: 17px;
+}
+#race-panel .rc-body { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+#race-panel section { padding: 8px 13px; border-top: var(--hair); }
+#race-panel section:first-child { border-top: none; }
+#race-panel .actions { flex: 0 0 auto; display: flex; justify-content: flex-end; }
+#race-panel .goal-hint { font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-tertiary)); margin-top: 4px; }
+#race-panel .rc-row { border-left: 3px solid var(--ft); }
+#race-panel .rc-row.you { background: rgba(var(--paper-rgb), var(--op-fill)); }
+#race-panel .rc-head { display: flex; align-items: baseline; gap: 8px; color: var(--ink-050); }
+#race-panel .rc-rank { flex: none; width: 2.4em; font-size: 11px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#race-panel .rc-g { flex: none; color: var(--ft); font-size: 1.15em; }
+#race-panel .rc-you { margin-left: auto; padding: 0 5px; border: 1px solid rgba(var(--paper-rgb), 0.4); font-size: 9px; }
+#race-panel .rc-site { margin-top: 2px; }
+#race-panel .rc-stats { margin-top: 3px; font-size: 11px; line-height: 16px; color: var(--ink-050); }
+#race-panel .rc-last { margin-top: 3px; font-size: 11px; line-height: 15px; color: rgba(var(--paper-rgb), var(--op-secondary)); }
+#race-panel .rc-ld { font-family: var(--font-mono); font-size: 10px; margin-right: 4px; color: rgba(var(--paper-rgb), var(--op-tertiary)); }
+#race-panel .rc-none { color: rgba(var(--paper-rgb), var(--op-tertiary)); }

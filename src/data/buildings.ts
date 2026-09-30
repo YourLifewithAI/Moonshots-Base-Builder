@@ -1,8 +1,11 @@
 /** The 14 slice buildings + the pre-placed Lander. Every building pulls on base
  *  resources, contributes something economic or social, and carries an explicit
  *  pro AND con — nothing is strictly good. Rates are per game-second.
- *  (Full 28-building roster: docs/04-buildings.md.) */
+ *  (Full 28-building roster: docs/04-buildings.md.) Six more belong to one faction
+ *  each (docs/20 §1, `faction`): they are unlocked by that faction's tech and shown
+ *  to no one else. */
 import type { ResourceId } from './resources';
+import type { FactionId } from './factions';
 
 export type BuildingId =
   | 'lander'
@@ -18,7 +21,9 @@ export type BuildingId =
   // extraction hubs and their units (docs/17): the water plant, and the Ice Miner it prints on the ice
   | 'waterPlant' | 'iceMiner'
   // destiny buildings (docs/14 §2.8)
-  | 'greenhouseRing' | 'gardenDome' | 'droneHive' | 'serverMonolith';
+  | 'greenhouseRing' | 'gardenDome' | 'droneHive' | 'serverMonolith'
+  // faction buildings (docs/20 §1): the Foundry's two, the Vanguard's two, the Commons' two
+  | 'faradayShed' | 'nightVault' | 'missionOps' | 'skunkworks' | 'commonsHall' | 'regolithTerrace';
 
 export type Category = 'power' | 'extraction' | 'industry' | 'life' | 'science' | 'export';
 
@@ -61,6 +66,8 @@ export interface BuildingDef {
   unit?: boolean;
   /** retired from the palette: only old saves' legacy pads stand (docs/17 §3.3, §19) */
   retired?: boolean;
+  /** a faction's own building (docs/20 §1): its tech unlocks it, and only that faction's palette and cards show it */
+  faction?: FactionId;
 }
 
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
@@ -322,6 +329,60 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     pro: 'A Data Center’s work on less than half the ground: research data and transfer cap, no crew.',
     con: 'Twenty-six kW, and a network hub: everything within 60 m links to it.',
   },
+
+  // ─── the factions' own buildings (docs/20 §1): unlocked by a branch tech (data/techs.ts), shown to their faction only ───
+  // The Foundry's need no crew. Their effects on flares, nights and hearings are read by building id (core/flareEffects.ts,
+  // economy, core/scrutiny.ts, hazards): this file holds the numbers a card shows and the economy runs on.
+  nightVault: {
+    id: 'nightVault', name: 'Night Vault', category: 'industry', era: 2, faction: 'robots',
+    footprint: [3, 2], height: 4, buildTime: 80,
+    buildCost: { metals: 50, parts: 10 }, crew: 0, powerKW: -1.5,
+    inputs: {}, outputs: {}, upkeepParts: 1, priority: 1,
+    pro: 'Docked units hibernate through the night: their standby draw is halved.',
+    con: 'A hall for machines that earn nothing while they sleep, and it keeps its own heaters on.',
+  },
+  faradayShed: {
+    id: 'faradayShed', name: 'Faraday Shed', category: 'industry', era: 3, faction: 'robots',
+    footprint: [3, 3], height: 6, buildTime: 100,
+    buildCost: { metals: 60, silicon: 10 }, crew: 0, powerKW: -1,
+    inputs: {}, outputs: {}, upkeepParts: 1, priority: 1,
+    pro: 'Machines within 40 m take ×0.4 flare damage: park the fleet under it when the warning goes up.',
+    con: 'It shields only its own 40 m, draws a little all night, and is steel you wanted for arrays.',
+  },
+  missionOps: {
+    id: 'missionOps', name: 'Mission Ops', category: 'science', era: 1, faction: 'accelerationists',
+    footprint: [2, 2], height: 8, buildTime: 90,
+    buildCost: { metals: 30, parts: 10 }, crew: 1, powerKW: -4,
+    inputs: {}, outputs: {}, upkeepParts: 1, priority: 3,
+    pro: 'A console for the story: scrutiny decays ×2 while it runs, and its dish adds one more share of the uplink.',
+    con: 'A crew post and a dish that never sleep: 4 kW for a control room that makes nothing.',
+  },
+  skunkworks: {
+    id: 'skunkworks', name: 'Skunkworks', category: 'science', era: 4, faction: 'accelerationists',
+    footprint: [3, 2], height: 6, buildTime: 140,
+    buildCost: { metals: 60, parts: 20 }, crew: 2, powerKW: -10,
+    inputs: {}, outputs: {}, upkeepParts: 2, priority: 3,
+    pro: 'A lab off the books: twice a Research Lab’s data, and it counts as a lab for research.',
+    con: 'Twice the draw and half the shielding: hazards strike it ×1.5 as hard.',
+  },
+  commonsHall: {
+    id: 'commonsHall', name: 'Commons Hall', category: 'life', era: 1, faction: 'solarpunks',
+    footprint: [4, 3], height: 6, buildTime: 120,
+    buildCost: { metals: 40, parts: 8 }, crew: 0, powerKW: -3,
+    inputs: {}, outputs: {}, upkeepParts: 1, priority: 2,
+    moraleDelta: 8,
+    pro: 'A long table, a stage and a workshop under one roof: +8 morale for everyone who lives here.',
+    con: 'Produces nothing you can eat or burn, and the crew will expect the lights on every night.',
+  },
+  regolithTerrace: {
+    id: 'regolithTerrace', name: 'Regolith Terrace', category: 'life', era: 4, faction: 'solarpunks',
+    footprint: [3, 2], height: 4, buildTime: 100,
+    buildCost: { metals: 25, parts: 5 }, crew: 0, powerKW: 0,
+    inputs: { water: 0.01 }, outputs: { food: 0.03 }, upkeepParts: 0.5, priority: 2,
+    moraleDelta: 3,
+    pro: 'Sun-warmed terraces cut into the berm: slow food, a green view (+3 morale) and nothing on the grid, day or night.',
+    con: 'Slow: a third of a farm’s food from the same ground, and it still drinks.',
+  },
 };
 
 /** The four buildings the destiny picks unlock. Standing rules never build
@@ -332,6 +393,10 @@ export const DESTINY_BUILDINGS: readonly BuildingId[] = ['greenhouseRing', 'gard
  *  the Era 6 deed, Predictive Scheduling, the objectives). */
 export const isCompute = (type: BuildingId): boolean => type === 'dataCenter' || type === 'serverMonolith';
 
+/** Counts as a Research Lab for research (the transfer cap, the operating-lab check, the data): the Vanguard's Skunkworks
+ *  is a lab variant (docs/20 §1); its data is ×SKUNKWORKS.dataMult in mods.effectiveRates. */
+export const isLab = (type: BuildingId): boolean => type === 'lab' || type === 'skunkworks';
+
 export const BUILD_ORDER: BuildingId[] = [
   'solar', 'battery', 'reactor',
   'smelter', 'refinery', 'waterPlant', 'storageYard', 'roboticsBay', 'partsFab', 'chipFab',
@@ -339,6 +404,8 @@ export const BUILD_ORDER: BuildingId[] = [
   'lab', 'relayMast', 'prospectingBay', 'solarObservatory', 'dataCenter',
   'foilFactory', 'massDriver', 'propellantPlant',
   'droneHive', 'greenhouseRing', 'gardenDome', 'serverMonolith',
+  // the factions' own (docs/20 §1): the palette shows a faction's alone
+  'nightVault', 'faradayShed', 'missionOps', 'skunkworks', 'commonsHall', 'regolithTerrace',
 ];
 
 export const CATEGORY_ORDER: Category[] = ['power', 'extraction', 'industry', 'life', 'science', 'export'];

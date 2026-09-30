@@ -1,12 +1,16 @@
 /** Full-screen screens: site selection (Surviving Mars-style rated cards)
  *  and the FIRST LIGHT victory / defeat overlays. The tech tree is techTree.ts. */
+import './race.css';
 import { SITES, SITE_ORDER, type SiteId } from '../data/sites';
+import { FACTIONS, FACTION_ORDER, assignSites, isFactionId, type FactionId } from '../data/factions';
 import type { Game } from '../core/game';
-import { el, PERSON_SVG } from './hud';
+import { el } from './hud';
+import { esc } from './notify';
+import { siteWords } from '../core/raceView';
 import { $siteId as $siteIdAtom } from './stores';
 import { $counts, $defeat, $descent, $destiny, $hasSave, $lossStory, $lostMission, $phase, $swarm, $time, $vitals, $victory } from './stores';
 import { clearSave } from '../core/save';
-import { DESTINY_SUBTITLE, expeditionCopy } from './expeditionCopy';
+import { DESTINY_SUBTITLE } from './expeditionCopy';
 import { BAND_ENDING, BAND_LABEL, type Band } from '../data/techs';
 import { destinyPips } from './techDestiny';
 
@@ -16,18 +20,24 @@ function rate(n: number): string {
 
 // ─────────────────────────── site selection ───────────────────────────
 
+/** `?faction=` on the URL (docs/20 §2): it opens the faction step on that faction when there is no `?site=` to land on */
+function urlFaction(): FactionId | null {
+  const f = new URLSearchParams(location.search).get('faction');
+  return isFactionId(f) ? f : null;
+}
+
 export function mountSiteSelect(root: HTMLElement, game: Game) {
   const screen = el('div', 'screen interactive');
   screen.id = 'site-screen';
   root.appendChild(screen);
   let selected: SiteId | null = null;
-  let step: 'site' | 'expedition' = 'site';
+  let step: 'site' | 'faction' = 'site';
   let landing = false;
-  // robots first — the realistic default; a crewed landing is the what-if
-  let expedition: 'human' | 'robotic' = 'robotic';
+  // the Foundry first — the realistic default (robots survive the Moon); `?faction=` picks another
+  let faction: FactionId = urlFaction() ?? 'robots';
 
   const render = () => {
-    if (step === 'expedition') { renderExpedition(); return; }
+    if (step === 'faction') { renderFaction(); return; }
     const lost = $lostMission.get();
     screen.innerHTML = `
       <h1>MOONSHOTS</h1>
@@ -37,7 +47,7 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
         ${lost
           ? `<span class="label" id="lost-mission">✕ Mission lost — ${SITES[lost.siteId].name}, day ${lost.day}${lost.cause ? `: ${lost.cause}.` : '. The base fell silent.'}</span>`
           : $hasSave.get() ? '<button class="btn" id="btn-continue">Continue base</button>' : ''}
-        <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose expedition ▸</button>
+        <button class="btn primary" id="btn-land" ${selected ? '' : 'disabled'}>Choose faction ▸</button>
       </div>
       <div class="sub" style="margin-top:26px">Every site is a trade-off. Choose where your story gets hard.</div>`;
     const sites = screen.querySelector('#sites')!;
@@ -63,53 +73,69 @@ export function mountSiteSelect(root: HTMLElement, game: Game) {
       sites.appendChild(card);
     }
     screen.querySelector('#btn-land')?.addEventListener('click', () => {
-      if (selected) { step = 'expedition'; render(); }
+      if (selected) { step = 'faction'; render(); }
     });
     screen.querySelector('#btn-continue')?.addEventListener('click', () => {
       void game.continueSave();
     });
   };
 
-  const renderExpedition = () => {
+  /** The second step, WHO ARE YOU? (docs/20 §2): one card per faction. The expedition comes from the faction, and the two
+   *  programs you do not play land on the sites you leave (`assignSites`), so each card says where, given your site. */
+  const factionCard = (f: FactionId, site: SiteId) => {
+    const d = FACTIONS[f];
+    const where = assignSites(f, site);
+    const rivals = FACTION_ORDER.filter((x) => x !== f).map((x) => {
+      const r = FACTIONS[x];
+      const gap = r.landsAtDay - d.landsAtDay;
+      const when = gap < 0 ? `${-gap} day${gap === -1 ? '' : 's'} before you` : `${gap} day${gap === 1 ? '' : 's'} after you`;
+      return `<div class="fc-rival" data-rival="${x}"><span class="fc-rg" style="color:${r.livery.trim}" aria-hidden="true">${r.glyph}</span> ` +
+        `${esc(r.name)} · ${esc(siteWords(where[x]))} · day ${r.landsAtDay} <span class="fc-gap">(${when})</span></div>`;
+    }).join('');
+    return `<div class="site-card faction-card${faction === f ? ' sel' : ''}" data-faction="${f}" style="--ft:${d.livery.trim}" ` +
+      `role="button" tabindex="0" aria-pressed="${faction === f}">
+        <h3><span class="fc-glyph" aria-hidden="true">${d.glyph}</span> ${esc(d.name)}</h3>
+        <div class="place">${d.expedition === 'robotic' ? 'Robotic mission' : 'Human crew'} · <span class="fc-lands">lands day ${d.landsAtDay}</span></div>
+        <div class="blurb">${esc(d.ethos)}</div>
+        ${d.advantages.map((t) => `<div class="pro">${esc(t)}</div>`).join('')}
+        ${d.disadvantages.map((t) => `<div class="con">${esc(t)}</div>`).join('')}
+        <div class="fc-rivals"><span class="label">Rivals land at</span>${rivals}</div>
+      </div>`;
+  };
+
+  const renderFaction = () => {
     const site = SITES[selected!];
     screen.innerHTML = `
-      <h1 style="font-size:26px; line-height:30px">WHO GOES TO ${site.name}?</h1>
-      <div class="sub">Robots survive the Moon. Humans beat it.</div>
+      <h1 style="font-size:26px; line-height:30px">WHO ARE YOU?</h1>
+      <div class="sub" id="faction-sub">You land at ${site.name}. The other two programs take the sites you leave, and race you to the swarm.</div>
       <div class="sub" id="destiny-sub">${DESTINY_SUBTITLE}</div>
-      <div id="sites" style="margin-top:30px">
-        ${(['human', 'robotic'] as const).map((exp) => {
-          const c = expeditionCopy(exp, selected);
-          return `<div class="site-card${expedition === exp ? ' sel' : ''}" data-exp="${exp}">
-          <h3>${exp === 'human' ? PERSON_SVG : '◉'} ${c.title}</h3>
-          <div class="label dz-exp-tag" data-destiny="${exp === 'human' ? 'colony' : 'automation'}">${c.tag}</div>
-          <div class="place">${c.place}</div>
-          <div class="blurb">${c.blurb}</div>
-          ${c.pros.map((t) => `<div class="pro">${t}</div>`).join('')}
-          ${c.cons.map((t) => `<div class="con">${t}</div>`).join('')}
-          <div class="diff">${c.diff}</div>
-        </div>`;
-        }).join('')}
-      </div>
+      <div id="sites" style="margin-top:30px">${FACTION_ORDER.map((f) => factionCard(f, selected!)).join('')}</div>
       <div style="display:flex; gap:12px">
         <button class="btn" id="btn-back" ${landing ? 'disabled' : ''}>◂ Back</button>
         <button class="btn primary" id="btn-launch-exp" ${landing ? 'disabled' : ''}>${landing ? `DESCENDING…${$descent.get() ? ` · ${$descent.get()}` : ''}` : 'Land ▸'}</button>
       </div>`;
-    screen.querySelectorAll<HTMLElement>('[data-exp]').forEach((card) => {
-      card.addEventListener('click', () => {
-        expedition = card.dataset.exp as 'human' | 'robotic';
+    screen.querySelectorAll<HTMLElement>('[data-faction]').forEach((card) => {
+      const pick = () => {
+        if (landing) return;
+        faction = card.dataset.faction as FactionId;
         render();
+      };
+      card.addEventListener('click', pick);
+      card.addEventListener('keydown', (e) => {
+        if (e.code === 'Enter' || e.code === 'Space') { e.preventDefault(); pick(); }
       });
     });
     screen.querySelector('#btn-back')?.addEventListener('click', () => { step = 'site'; render(); });
     screen.querySelector('#btn-launch-exp')?.addEventListener('click', () => {
       if (!selected || landing) return;
-      // building the world stalls the page for a few seconds: paint the
-      // descent first, and take no second click meanwhile
+      // building the world stalls the page for a few seconds (a late landing also plays the days the other programs
+      // have had): paint the descent first, and take no second click meanwhile
       landing = true;
       render();
-      const site = selected;
+      const siteId = selected;
+      const f = faction;
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        void game.newGame(site, expedition).finally(() => { landing = false; });
+        void game.newGame(siteId, FACTIONS[f].expedition, f).finally(() => { landing = false; });
       }));
     });
   };
@@ -157,7 +183,7 @@ export function mountDefeat(root: HTMLElement) {
     screen.style.justifyContent = 'center';
     screen.style.textAlign = 'center';
     screen.innerHTML = `
-      <div class="sub">MISSION LOST — ${SITES[$siteIdOf()]?.name?.toUpperCase() ?? ''} · day ${t.dayIndex + 1}</div>
+      <div class="sub">MISSION LOST — ${SITES[$siteIdOf()]?.name?.toUpperCase() ?? ''} · day ${t.missionDay}</div>
       <h1>THE BASE FALLS SILENT</h1>
       <div class="stats" id="defeat-story" style="margin:22px 0 30px; font-size:13px; line-height:22px; color:rgba(245,247,249,0.72)">
         ${story ? `<span id="defeat-cause">${esc(story.lead)}</span><br/>${story.warning ? `<span id="defeat-warning">${esc(story.warning)}</span><br/>` : ''}` +
@@ -208,23 +234,23 @@ export function mountVictory(root: HTMLElement, game: Game) {
       const who = uncrewed ? `${bots} robot${bots === 1 ? '' : 's'}, no one aboard` : `crew of ${vit.crew}, morale ${vit.morale}%`;
       lead = 'Volley one is away';
       body = `Ten thin-film collectors are riding a rail-launched arc to solar orbit.<br/>The swarm stands at ${pct} — day ` +
-        `${t.dayIndex + 1}, ${who}.<br/><br/>A Dyson swarm is not built. It is <i>begun</i>.`;
+        `${t.missionDay}, ${who}.<br/><br/>A Dyson swarm is not built. It is <i>begun</i>.`;
     } else if (band === 'colony') {
       const where = (counts.gardenDome?.total ?? 0) > 0 ? 'from under the Garden Domes' : 'from the habitat windows';
       lead = 'Volley one is away';
       body = `Ten thin-film collectors are riding ${rail} toward the Sun, and ${vit.crew} ${vit.crew === 1 ? 'person' : 'people'} ` +
-        `watched them go ${where}.<br/>The swarm stands at ${pct} — day ${t.dayIndex + 1}. The Moon has citizens now.<br/><br/>` +
+        `watched them go ${where}.<br/>The swarm stands at ${pct} — day ${t.missionDay}. The Moon has citizens now.<br/><br/>` +
         'A Dyson swarm is not built. It is <i>begun</i> — by people who mean to stay.';
     } else if (band === 'automation') {
       lead = `Volley one left at ${clock(game.state?.simTime ?? 0)}`;
       const who = d.crewHome ? 'The last crew rotated home on the volley’s day.'
         : vit.crew > 0 ? `${vit.crew} crew aboard saw it on a status board.` : 'No one has ever lived here.';
-      body = `Nobody watched: ${machines} logged it. ${who}<br/>The swarm stands at ${pct} — day ${t.dayIndex + 1}.<br/><br/>` +
+      body = `Nobody watched: ${machines} logged it. ${who}<br/>The swarm stands at ${pct} — day ${t.missionDay}.<br/><br/>` +
         'A Dyson swarm is not built. It is <i>begun</i> — and it will not need us to finish it.';
     } else {
       lead = 'Volley one is away';
       const people = vit.crew > 0 ? `${vit.crew} ${vit.crew === 1 ? 'person' : 'people'} on console and ` : '';
-      body = `${people}${machines} on ${rail} sent it together.<br/>The swarm stands at ${pct} — day ${t.dayIndex + 1}.<br/><br/>` +
+      body = `${people}${machines} on ${rail} sent it together.<br/>The swarm stands at ${pct} — day ${t.missionDay}.<br/><br/>` +
         'A Dyson swarm is not built. It is <i>begun</i>.';
     }
     screen.style.display = 'flex';

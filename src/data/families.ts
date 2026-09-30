@@ -13,7 +13,8 @@ export type Family = 'power' | 'extraction' | 'industry' | 'life' | 'science' | 
 
 export const FAMILIES: readonly Family[] = ['power', 'extraction', 'industry', 'life', 'science', 'export', 'logistics'];
 
-/** Every building's family: its palette tab. (A Record, so a new building must be filed here.) */
+/** Every building's family: its palette tab (the exception: the Foundry's shed and vault are `logistics`, which has no tab, and
+ *  stand in Industry). (A Record, so a new building must be filed here.) */
 export const FAMILY_OF: Record<BuildingId, Family> = {
   lander: 'life',
   solar: 'power', battery: 'power', reactor: 'power',
@@ -23,6 +24,11 @@ export const FAMILY_OF: Record<BuildingId, Family> = {
   habitat: 'life', hydroponics: 'life', recDome: 'life', greenhouseRing: 'life', gardenDome: 'life',
   lab: 'science', dataCenter: 'science', relayMast: 'science', prospectingBay: 'science', solarObservatory: 'science', serverMonolith: 'science',
   foilFactory: 'export', massDriver: 'export', propellantPlant: 'export',
+  // the factions' own (docs/20 §1): the Foundry's shed and vault are logistics (grey trim, in the Industry tab),
+  // the Vanguard's console and lab are science, the Commons' hall and terrace are life
+  faradayShed: 'logistics', nightVault: 'logistics',
+  missionOps: 'science', skunkworks: 'science',
+  commonsHall: 'life', regolithTerrace: 'life',
 };
 
 /** The family accent, as a 0xRRGGBB number (the initial palette; S1a may tune it). */

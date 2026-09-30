@@ -9,7 +9,12 @@
  *  research (`#discovery-card`, RESEARCH COMPLETE, top centre), era
  *  (`#era-banner`, full screen, until Continue) and hazard (`#hazard-card`,
  *  the first-of-a-kind drill's card and HAZARDS ARE LIVE: it holds the game
- *  paused unless the menu's "Pause on hazard drills" is off). */
+ *  paused unless the menu's "Pause on hazard drills" is off).
+ *
+ *  A faction game (docs/20 §2) opens on `#briefing`, an era-family banner of its
+ *  own before the Era 1 explainer: who you are, the timeline of the landings,
+ *  what you race for, your three biggest weaknesses. The era banners of a faction
+ *  game also say the mission day and who is on the Moon. */
 import { touchOn } from '../core/touch';
 import { BUILDINGS, CATEGORY_LABEL, type BuildingId } from '../data/buildings';
 import {
@@ -17,7 +22,9 @@ import {
   describeTech, effectApplies, type Era, type TechEffect, type TechId,
 } from '../data/techs';
 import { destinyOf, resolveTech, techVisible } from '../core/research';
-import { CREW, CREW_ROTATION, LAUNCH_COST_FOILS, PURE_AT } from '../data/balance';
+import { FACTIONS, FACTION_ORDER, factionOfState, type FactionId } from '../data/factions';
+import { siteWords } from '../core/raceView';
+import { CREW, CREW_ROTATION, CYCLE_S, LAUNCH_COST_FOILS, PURE_AT, SWARM_PCT_PER_LAUNCH } from '../data/balance';
 import { RESOURCES } from '../data/resources';
 import type { GameState } from '../core/state';
 import { destinyPips, reachLine } from './techDestiny';
@@ -185,6 +192,79 @@ function hazardHtml(kind: HazardId): string {
     `<div class="eb-foot"><button class="btn primary" data-dsc="ok">Continue ▸</button></div></div>`;
 }
 
+
+// ─────────────────────────── the faction game's words (docs/20 §2) ───────────────────────────
+
+/** The landings in order, as sentences: "The Foundry landed on day 0 at Ilmenite Plains. You land on day 2 at Shackleton Rim.
+ *  The Commons arrive on day 4 at Marius Hills Tube." Days are the Moon's (day 0 is the first landing). */
+export function timelineLines(game: Game): { faction: FactionId; text: string }[] {
+  const moon = game.moon;
+  const me = moon.player;
+  if (me === null) return [];
+  const mine = moon.factions[me].landedAt;
+  return [...FACTION_ORDER]
+    .sort((a, b) => moon.factions[a].landedAt - moon.factions[b].landedAt || FACTION_ORDER.indexOf(a) - FACTION_ORDER.indexOf(b))
+    .map((f) => {
+      const m = moon.factions[f];
+      const day = Math.round(m.landedAt / CYCLE_S);
+      const at = siteWords(m.siteId);
+      const name = FACTIONS[f].name;
+      return {
+        faction: f,
+        text: f === me ? `You land on day ${day} at ${at}.`
+          : m.landedAt < mine ? `${name} landed on day ${day} at ${at}.` : `${name} ${f === 'solarpunks' ? 'arrive' : 'arrives'} on day ${day} at ${at}.`,
+      };
+    });
+}
+
+/** What the race is for, in one sentence (the briefing; the Era 1 explainer says it again in its own words). */
+function raceFor(game: Game): string {
+  const close = game.moon.race.closeAt;
+  return `First light, the first volley any program flies, is a partial win. Then the share: when the combined swarm reaches ` +
+    `${close} volleys (${(close * SWARM_PCT_PER_LAUNCH).toFixed(2)} %), the largest share wins, and a tie goes to the earlier first light.`;
+}
+
+/** The mission day and who is on the Moon (an era banner of a faction game). */
+function moonLine(game: Game): string {
+  const moon = game.moon;
+  const me = moon.player;
+  if (me === null) return '';
+  const tag = (f: FactionId) => `<span class="eb-fg" style="color:${FACTIONS[f].livery.trim}" aria-hidden="true">${FACTIONS[f].glyph}</span> ${esc(FACTIONS[f].short)}${f === me ? ' (you)' : ''}`;
+  const on = FACTION_ORDER.filter((f) => moon.factions[f].landed);
+  const off = FACTION_ORDER.filter((f) => !moon.factions[f].landed);
+  return `<p class="eb-line eb-moon"><span class="label">Mission day ${$time.get().missionDay}</span> ` +
+    `on the Moon: ${on.map(tag).join(' · ')}` +
+    `${off.length ? ` · still to land: ${off.map((f) => `${tag(f)} (day ${Math.round(moon.factions[f].landedAt / CYCLE_S)})`).join(' · ')}` : ''}</p>`;
+}
+
+/** The Era 1 explainer's THE RACE paragraph (a faction game only). */
+function racePara(game: Game): string {
+  const close = game.moon.race.closeAt;
+  return `<p class="eb-line eb-race"><span class="label">The race</span> Two other programs share this Moon and run their own bases. ` +
+    `Launch the first volley for first light, and hold the largest share of the swarm when the combined total reaches ${close} volleys. ` +
+    `A prospect a rival claims is gone: survey early. The ⚑ RACE chip keeps the standings.</p>`;
+}
+
+/** #briefing: who you are, who is on the Moon and when, what you race for, your three biggest weaknesses. */
+function briefingHtml(game: Game): string {
+  const me = game.moon.player;
+  if (me === null) return '';
+  const d = FACTIONS[me];
+  return `<div class="eb-panel eb-briefing" style="--ft:${d.livery.trim}">` +
+    `<div class="label eb-k"><span class="nf-g" aria-hidden="true">${FAMILY.era.glyph}</span> Mission briefing</div>` +
+    `<h1 class="eb-name br-who"><span class="br-glyph" aria-hidden="true">${d.glyph}</span> ${esc(d.name.toUpperCase())}</h1>` +
+    `<p class="br-ethos">${esc(d.ethos)}</p>` +
+    `<p class="eb-blurb br-blurb">${esc(d.briefing)}</p>` +
+    `<div class="br-sec br-timeline"><span class="label">On the Moon · day 0 is the first landing</span>` +
+    `${timelineLines(game).map((l) => `<div class="br-line" data-faction="${l.faction}"><span class="eb-fg" style="color:${FACTIONS[l.faction].livery.trim}" aria-hidden="true">${FACTIONS[l.faction].glyph}</span> ${esc(l.text)}</div>`).join('')}</div>` +
+    `<div class="br-sec br-race"><span class="label">What you race for</span><div class="br-line">${esc(raceFor(game))}</div></div>` +
+    `<div class="br-sec br-weak"><span class="label">Your three biggest weaknesses</span>` +
+    `${d.disadvantages.slice(0, 3).map((t) => `<div class="br-line br-con">${esc(t)}</div>`).join('')}</div>` +
+    `<p class="br-survey"><b>Survey early:</b> a prospect a rival claims is gone.</p>` +
+    `<div class="eb-foot"><button class="btn primary" data-dsc="ok">Continue ▸</button>` +
+    `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these explainers and pop-ups</label></div></div>`;
+}
+
 export function mountDiscovery(root: HTMLElement, game: Game) {
   // ── research family: tech cards, top centre, under the swarm meter, one at a time ──
   const card = el('div', 'panel interactive nf nf-research');
@@ -196,6 +276,11 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
   banner.id = 'era-banner';
   banner.style.display = 'none';
   root.appendChild(banner);
+  // ── era family again: the faction game's mission briefing, ahead of the Era 1 explainer (docs/20 §2) ──
+  const briefing = el('div', 'interactive nf nf-era');
+  briefing.id = 'briefing';
+  briefing.style.display = 'none';
+  root.appendChild(briefing);
   // ── hazard family: the drill's card (and HAZARDS ARE LIVE), centred; a scrim only while it holds the pause ──
   const hazardCard = el('div', 'nf nf-hazard');
   hazardCard.id = 'hazard-card';
@@ -208,7 +293,8 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
 
   const pop = () => {
     const [first, ...rest] = $announce.get();
-    if (first && first.kind !== 'tech' && pausedByBanner) {
+    // (a banner that hands over to another that holds the pause too — the briefing, then the Era 1 explainer — keeps it)
+    if (first && first.kind !== 'tech' && pausedByBanner && !announceHolds(rest[0])) {
       game.actions.push({ kind: 'setPaused', paused: false });
       pausedByBanner = false;
     }
@@ -217,9 +303,10 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
 
   const techHtml = (tid: TechId, more: number) => {
     const s = game.state;
-    const def = resolveTech(TECHS[tid], s.expedition);
+    const fac = factionOfState(s);
+    const def = resolveTech(TECHS[tid], s.expedition, fac);
     const lane = LANES.find((l) => l.id === def.lane);
-    const lines = describeTech(def, { siteId: s.siteId, expedition: s.expedition, agentTax: game.mods.agentTax, done: s.techsDone });
+    const lines = describeTech(def, { siteId: s.siteId, expedition: s.expedition, agentTax: game.mods.agentTax, done: s.techsDone, faction: fac });
     const track = def.track ? `${SIDE_GLYPH[def.track.side]} ${SIDE_LABEL[def.track.side]} · the Era ${def.track.era} destiny` : '';
     const pros = lines.filter((l) => l.sign === 'pro').slice(0, 3);
     const cons = lines.filter((l) => l.sign === 'con').slice(0, 2);
@@ -231,7 +318,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `${cons.map((l) => `<div class="dsc-con">⊖ ${esc(l.text)}</div>`).join('')}</div>` +
       (def.visual ? `<div class="dsc-look"><span class="label">Look for it</span> ${esc(def.visual)}</div>` : '') +
       riskLine(def.effects) +
-      `<div class="dsc-next"><span class="label">Next</span> ${esc(nextStep(def.effects.filter((fx) => effectApplies(fx, s.siteId, s.expedition, s.techsDone)), s))}</div>` +
+      `<div class="dsc-next"><span class="label">Next</span> ${esc(nextStep(def.effects.filter((fx) => effectApplies(fx, s.siteId, s.expedition, s.techsDone, fac)), s))}</div>` +
       `<div class="dsc-foot"><button class="btn primary" data-dsc="ok">Got it</button>` +
       `<button class="btn" data-dsc="tree" data-tech="${tid}">In the tree</button>` +
       `<label class="dsc-off"><input type="checkbox" data-dsc="off"> Hide these pop-ups</label></div>`;
@@ -239,14 +326,15 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
 
   const eraHtml = (era: number, intro: boolean) => {
     const s = game.state;
-    const ctx = { siteId: s.siteId, expedition: s.expedition, discoveries: s.discoveries, techsDone: s.techsDone };
+    const fac = factionOfState(s);
+    const ctx = { siteId: s.siteId, expedition: s.expedition, discoveries: s.discoveries, techsDone: s.techsDone, faction: fac ?? null };
     const opens = TECH_ORDER.filter((t) => {
-      const d = resolveTech(TECHS[t], s.expedition);
+      const d = resolveTech(TECHS[t], s.expedition, fac);
       return d.era === era && !d.breakthrough && !d.track && techVisible(d, ctx);
     });
     // breakthroughs open in the era too (docs/19 S6): they count, and each is found by a survey
     const finds = TECH_ORDER.filter((t) => {
-      const d = resolveTech(TECHS[t], s.expedition);
+      const d = resolveTech(TECHS[t], s.expedition, fac);
       return d.era === era && !!d.breakthrough && techVisible(d, { ...ctx, discoveries: TECH_ORDER });
     });
     const next = ERA_GATES[(era + 1) as Era];
@@ -266,12 +354,14 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
       `<div class="eb-era mono">ERA ${era}</div>` +
       `<h1 class="eb-name">${esc(ERA_NAMES[era] ?? '')}</h1>` +
       `<p class="eb-blurb">${esc(blurb)}</p>` +
+      moonLine(game) +
       (opens.length + finds.length ? `<p class="eb-line"><span class="label">Research opens</span> ${opens.length + finds.length} techs — ${esc(names)}${opens.length > 4 ? '…' : ''}` +
         `${finds.length ? ` · ${finds.length} found by survey ◎` : ''}</p>` : '') +
       destiny +
       (next ? `<p class="eb-line"><span class="label">Era ${era + 1}</span> ${era >= 2
         ? `opens with this era’s destiny and ${CHARTER_TECHS - 1} more of its techs, or the destiny, ${CHARTER_DEED_TECHS - 1} more and: ${esc(next.deed)}`
         : `opens with ${CHARTER_TECHS} techs from this era, or ${CHARTER_DEED_TECHS} plus: ${esc(next.deed)}`}</p>` : '') +
+      (intro && game.moon.player !== null ? racePara(game) : '') +
       (intro ? (touchOn()
         ? '<p class="eb-line">Your objectives are in the top-left card. <b>Build</b> opens the palette · <b>Tree</b> research · <b>Map</b> the Lunar Map · drag to pan, pinch to zoom · <b>☰</b> menu.</p>'
         : '<p class="eb-line">Your objectives are in the bottom-left panel. <b>T</b> research · <b>M</b> Lunar Map · <b>I</b> deposits · <b>Esc</b> menu.</p>') : '') +
@@ -285,6 +375,7 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
     if (!first || $phase.get() !== 'playing' || !loadSettings().tips) {
       card.style.display = 'none';
       banner.style.display = 'none';
+      briefing.style.display = 'none';
       hazardCard.style.display = 'none';
       shownId = -1;
       if (q.length && !loadSettings().tips) $announce.set([]);
@@ -294,20 +385,23 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
     shownId = first.id;
     if (first.kind === 'tech') {
       banner.style.display = 'none';
+      briefing.style.display = 'none';
       hazardCard.style.display = 'none';
       card.innerHTML = techHtml(first.tid, q.filter((a) => a.kind === 'tech').length - 1);
       card.style.display = '';
     } else {
       card.style.display = 'none';
-      // an era opens on the banner; a hazard's drill (or its side going live) on its own card
-      const host = first.kind === 'era' ? banner : hazardCard;
-      (host === banner ? hazardCard : banner).style.display = 'none';
+      // an era opens on the banner (a faction game's briefing on its own, the same family); a hazard's drill (or its side going
+      // live) on its own card
+      const host = first.kind === 'era' ? banner : first.kind === 'briefing' ? briefing : hazardCard;
+      for (const other of [banner, briefing, hazardCard]) if (other !== host) other.style.display = 'none';
       host.innerHTML = first.kind === 'era' ? eraHtml(first.era, first.intro)
+        : first.kind === 'briefing' ? briefingHtml(game)
         : first.kind === 'hazardsLive' ? hazardsLiveHtml(first.side) : hazardHtml(first.hazard);
       const holds = announceHolds(first);
       hazardCard.classList.toggle('holds', holds);
       host.style.display = 'flex';
-      sfx.play(host === banner ? 'era' : 'warn');
+      sfx.play(host === hazardCard ? 'warn' : 'era');
       if (holds && !$time.get().paused) {
         game.actions.push({ kind: 'setPaused', paused: true });
         pausedByBanner = true;
@@ -343,10 +437,11 @@ export function mountDiscovery(root: HTMLElement, game: Game) {
   };
   card.addEventListener('click', onClick);
   banner.addEventListener('click', onClick);
+  briefing.addEventListener('click', onClick);
   hazardCard.addEventListener('click', onClick);
   // Enter or Esc takes the banner (or the hazard card) down (the menu's own keys win while it is open)
   window.addEventListener('keydown', (e) => {
-    if ((banner.style.display === 'none' && hazardCard.style.display === 'none') || $menuOpen.get()) return;
+    if ((banner.style.display === 'none' && briefing.style.display === 'none' && hazardCard.style.display === 'none') || $menuOpen.get()) return;
     if (e.code === 'Enter' || e.code === 'Escape') {
       e.preventDefault();
       e.stopImmediatePropagation();

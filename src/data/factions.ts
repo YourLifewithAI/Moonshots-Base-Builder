@@ -78,7 +78,7 @@ export interface FactionDef {
   briefing: string;
   advantages: string[];
   disadvantages: string[];
-  /** filled by stream S3 */
+  /** the faction's own buildings and the eight techs of its branch, in era order (data/techs.ts, data/buildings.ts: stream S3) */
   uniqueBuildings: BuildingId[];
   uniqueTechs: TechId[];
   /** filled by stream S4 */
@@ -169,7 +169,11 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Night: stations and units run at ×0.25 output, standby draw ×1.3',
       'The bank charges at 75 % and discharges ×1.25 as fast',
     ],
-    uniqueBuildings: [], uniqueTechs: [],
+    uniqueBuildings: ['nightVault', 'faradayShed'],
+    uniqueTechs: [
+      'nightVaultDocks', 'faradaySheds', 'hardenedFirmware', 'isotopeWarmers', 'bankTrenches', 'selfRepairCells',
+      'lightsOutFoundry', 'swarmRelayUplink',
+    ],
     policy: {
       // power, robotics, compute, materials: the landing branch's lanes first
       research: [
@@ -224,7 +228,11 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Hazard rate ×1.25',
       'Colony picks cost ×1.15',
     ],
-    uniqueBuildings: [], uniqueTechs: [],
+    uniqueBuildings: ['missionOps', 'skunkworks'],
+    uniqueTechs: [
+      'pressCorps', 'crunchCulture', 'hazardWaivers', 'skunkworksLabs', 'hearingPrep', 'ventureFoils', 'launchFever',
+      'mediaBlitz',
+    ],
     policy: {
       // compute, materials, robotics: labs run hot and the data is cheap
       research: [
@@ -279,7 +287,11 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       'Materials, robotics and exploration research ×1.3 cost',
       'Lands last: day 4',
     ],
-    uniqueBuildings: [], uniqueTechs: [],
+    uniqueBuildings: ['commonsHall', 'regolithTerrace'],
+    uniqueTechs: [
+      'commonsCharter', 'mutualAidDrills', 'slowBuildDoctrine', 'regolithTerraces', 'consensusCouncil', 'cooperativeSwarm',
+      'guardianship', 'longNightGardens',
+    ],
     policy: {
       // habitat, power, compute: a crew that eats well and a base that does not break
       research: [
@@ -331,6 +343,11 @@ export const LANDING_TECH_FOR: Record<FactionId, TechId> = {
   accelerationists: FACTIONS.accelerationists.landingTech,
   solarpunks: FACTIONS.solarpunks.landingTech,
 };
+
+/** The faction a building belongs to (docs/20 §1), or undefined for every shared building */
+export function factionOfBuilding(b: BuildingId): FactionId | undefined {
+  return FACTION_ORDER.find((f) => FACTIONS[f].uniqueBuildings.includes(b));
+}
 
 export const isFactionId = (v: unknown): v is FactionId =>
   v === 'robots' || v === 'accelerationists' || v === 'solarpunks';

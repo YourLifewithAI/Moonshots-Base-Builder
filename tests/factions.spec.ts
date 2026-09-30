@@ -2,8 +2,12 @@
  *  carry each faction's traits into the mods, faction-locked tech visibility, the lane and pick cost
  *  multipliers in techCost, the new mods fields' neutral defaults, `?faction=` parsing and the resolveTech
  *  faction override. The traits are read here through the debug API on a SOLO game (completeTech of the
- *  landing tech); the UI half (S1) and the rivals half (S4) extend this file later. Every test pauses the
- *  game and drives nothing forward. */
+ *  landing tech); the rivals half (S4) extends this file later. Every data test pauses the
+ *  game and drives nothing forward.
+ *
+ *  The UI HALF (stream S1, the tests from "the UI half" down): the faction step of the site screen (Site →
+ *  WHO ARE YOU? → Land), the briefing and the Era 1 explainer's race paragraph, the ⚑ RACE chip and panel and
+ *  the standings, and the `race` notification family's feed handlers (a rival landing; the pre-roll is silent). */
 import { test, expect as baseExpect, type Page } from '@playwright/test';
 
 const expect = baseExpect.configure({ timeout: 20_000 });
@@ -84,9 +88,9 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
     expect(x.briefing, x.id).toBeLessThanOrEqual(3);
     expect(x.advantages, x.id).toBeGreaterThan(1);
     expect(x.disadvantages, x.id).toBeGreaterThan(1);
-    // S3 fills the unique content: empty for now, typed and present
-    expect(x.uniqueBuildings).toEqual([]);
-    expect(x.uniqueTechs).toEqual([]);
+    // S3 filled the unique content (two buildings and an eight-tech branch each: tests/research.spec.ts reads them)
+    expect(x.uniqueBuildings).toHaveLength(2);
+    expect(x.uniqueTechs).toHaveLength(8);
     // S4 filled the policy (core/rival.ts reads it): a research list, the destiny side, the doctrine picks, the claim kinds, the caps, the orders
     expect(x.policy.research.length, x.id).toBeGreaterThan(20);
     expect(typeof x.policy.destiny === 'string' || Object.keys(x.policy.destiny).length > 0, x.id).toBe(true);
@@ -367,4 +371,309 @@ test('?faction= boots the faction game on the faction\'s expedition (the integra
   await page.goto('/?debug&seed=42&faction=accelerationists');
   await page.waitForFunction(() => window.__game !== undefined);
   expect(await g(page, 'getState')).toBeNull();
+});
+
+// ───────────────────────────── the UI half (docs/20 S1) ─────────────────────────────
+
+const FIDS = ['robots', 'accelerationists', 'solarpunks'] as const;
+type FId = (typeof FIDS)[number];
+const GLYPH: Record<FId, string> = { robots: '⚙', accelerationists: '▲', solarpunks: '❀' };
+const NAME: Record<FId, string> = { robots: 'The Foundry', accelerationists: 'The Vanguard', solarpunks: 'The Commons' };
+const SITE_WORDS: Record<string, string> = { mare: 'Ilmenite Plains', southpole: 'Shackleton Rim', lavatube: 'Marius Hills Tube' };
+const SITE_CARD: Record<string, string> = { mare: 'ILMENITE', southpole: 'SHACKLETON', lavatube: 'MARIUS' };
+
+/** the site screen, through the site step to the faction step on `site` */
+async function toFactionStep(page: Page, site: string, query = '') {
+  await page.goto(`/?debug&seed=42${query}`);
+  await page.waitForFunction(() => window.__game !== undefined);
+  await expect(page.locator('#site-screen')).toBeVisible();
+  await page.locator('.site-card', { hasText: SITE_CARD[site] }).click();
+  await page.locator('#btn-land').click();
+  await expect(page.locator('#site-screen h1')).toHaveText('WHO ARE YOU?');
+}
+
+/** a fresh page with no game started, tips on (the banners draw), the debug API up */
+async function bare(page: Page, query = '') {
+  await page.goto(`/?debug&seed=42${query}`);
+  await page.waitForFunction(() => window.__game !== undefined);
+}
+
+test('the UI half, pick: Site → WHO ARE YOU? gives three faction cards (glyph, ethos, advantages, disadvantages, lands day) and where the rivals land', async ({ page }) => {
+  await toFactionStep(page, 'southpole');
+  const data = await page.evaluate(async () => {
+    const F = await import('/src/data/factions.ts');
+    return F.FACTION_ORDER.map((id: string) => {
+      const d = F.FACTIONS[id];
+      return { id, ethos: d.ethos, adv: d.advantages.length, dis: d.disadvantages.length, day: d.landsAtDay, trim: d.livery.trim, exp: d.expedition };
+    });
+  });
+  await expect(page.locator('.faction-card')).toHaveCount(3);
+  // the Foundry is the default: robots survive the Moon
+  await expect(page.locator('.faction-card.sel')).toHaveAttribute('data-faction', 'robots');
+  // where the rivals land, given the player's site (docs/20 §1: each takes the first site of its own preference still free)
+  const rivalsAt = (site: string, f: FId): [FId, string, number][] => {
+    const order: FId[] = ['robots', 'accelerationists', 'solarpunks'];
+    const days: Record<FId, number> = { robots: 0, accelerationists: 2, solarpunks: 4 };
+    const pref: Record<FId, string[]> = { robots: ['mare', 'lavatube', 'southpole'], accelerationists: ['southpole', 'mare', 'lavatube'], solarpunks: ['lavatube', 'southpole', 'mare'] };
+    const taken = new Set([site]);
+    const at: Partial<Record<FId, string>> = { [f]: site };
+    for (const o of order) { if (o === f) continue; const s = pref[o].find((x) => !taken.has(x))!; taken.add(s); at[o] = s; }
+    return order.filter((o) => o !== f).map((o) => [o, at[o]!, days[o]]);
+  };
+  for (const d of data) {
+    const c = page.locator(`.faction-card[data-faction="${d.id}"]`);
+    await expect(c.locator('h3')).toContainText(GLYPH[d.id as FId]);
+    await expect(c.locator('h3')).toContainText(NAME[d.id as FId]);
+    await expect(c).toContainText(d.ethos);
+    await expect(c.locator('.pro')).toHaveCount(d.adv);
+    await expect(c.locator('.con')).toHaveCount(d.dis);
+    await expect(c.locator('.fc-lands')).toHaveText(`lands day ${d.day}`);
+    await expect(c).toContainText(d.exp === 'robotic' ? 'Robotic mission' : 'Human crew');
+    expect(await c.getAttribute('style')).toContain(d.trim);
+    await expect(c.locator('.fc-rival')).toHaveCount(2);
+    for (const [rf, site, day] of rivalsAt('southpole', d.id as FId)) {
+      await expect(c.locator(`.fc-rival[data-rival="${rf}"]`)).toContainText(`${NAME[rf]} · ${SITE_WORDS[site]} · day ${day}`);
+    }
+  }
+  // the three sites are all used: at southpole the Foundry's rivals hold the other two
+  await expect(page.locator('.faction-card[data-faction="robots"] .fc-rival[data-rival="accelerationists"]')).toContainText('Ilmenite Plains');
+  await expect(page.locator('.faction-card[data-faction="robots"] .fc-rival[data-rival="solarpunks"]')).toContainText('Marius Hills Tube');
+  // a card is picked with a click; Back keeps the pick; another site moves the rivals
+  await page.locator('.faction-card[data-faction="accelerationists"]').click();
+  await expect(page.locator('.faction-card.sel')).toHaveAttribute('data-faction', 'accelerationists');
+  await page.locator('#btn-back').click();
+  await expect(page.locator('#btn-land')).toBeEnabled();
+  await page.locator('.site-card', { hasText: 'ILMENITE' }).click();
+  await page.locator('#btn-land').click();
+  await expect(page.locator('.faction-card.sel')).toHaveAttribute('data-faction', 'accelerationists');
+  const v = page.locator('.faction-card[data-faction="accelerationists"]');
+  await expect(v.locator('.fc-rival[data-rival="robots"]')).toContainText('Marius Hills Tube');
+  await expect(v.locator('.fc-rival[data-rival="solarpunks"]')).toContainText('Shackleton Rim');
+});
+
+test('the UI half, pick: ?faction= preselects its card; Land starts that faction\'s game, its expedition derived, the rivals on the other sites', async ({ page }) => {
+  test.setTimeout(240_000);
+  const cases: [FId, 'robotic' | 'human', string][] = [
+    ['robots', 'robotic', 'landingFoundry'], ['accelerationists', 'human', 'landingVanguard'], ['solarpunks', 'human', 'landingCommons'],
+  ];
+  for (const [f, exp, landing] of cases) {
+    await toFactionStep(page, 'mare', `&faction=${f}`);
+    await expect(page.locator('.faction-card.sel')).toHaveAttribute('data-faction', f);
+    await page.locator('#btn-launch-exp').click();
+    await page.waitForFunction(() => window.__game.getState() !== null, null, { timeout: 90_000 });
+    await expect(page.locator('#site-screen')).toBeHidden();
+    const s = await g(page, 'getState');
+    expect(s.faction, f).toBe(f);
+    expect(s.expedition, f).toBe(exp);
+    expect(s.siteId, f).toBe('mare');
+    expect(s.techsDone, f).toEqual([landing]);
+    const rivals = (await g(page, 'getRivals')) as { faction: string; siteId: string }[];
+    expect(rivals.map((r) => r.faction).sort(), f).toEqual(FIDS.filter((x) => x !== f).sort());
+    expect(new Set([...rivals.map((r) => r.siteId), 'mare']).size, `${f}: three distinct sites`).toBe(3);
+  }
+  // a bogus ?faction= opens the same screen on the default card
+  await toFactionStep(page, 'mare', '&faction=bogus');
+  await expect(page.locator('.faction-card.sel')).toHaveAttribute('data-faction', 'robots');
+});
+
+test('the UI half, briefing: a faction game opens on who you are, who landed when, what you race for, your weaknesses; then the Era 1 explainer with THE RACE', async ({ page }) => {
+  await bare(page, '&tips');
+  await page.evaluate(() => window.__game.selectFaction('solarpunks', 'mare'));
+  const brief = page.locator('#briefing');
+  await expect(brief).toBeVisible();
+  await expect(brief).toHaveClass(/nf-era/);
+  await expect(page.locator('#era-banner')).toBeHidden();
+  expect((await g(page, 'getState')).paused).toBe(true);
+  // who you are
+  await expect(brief.locator('.br-who')).toContainText('THE COMMONS');
+  await expect(brief.locator('.br-who')).toContainText('❀');
+  const d = await page.evaluate(async () => {
+    const F = await import('/src/data/factions.ts');
+    const c = F.FACTIONS.solarpunks;
+    return { ethos: c.ethos, briefing: c.briefing, dis: c.disadvantages.slice(0, 3) as string[] };
+  });
+  await expect(brief.locator('.br-ethos')).toHaveText(d.ethos);
+  await expect(brief.locator('.br-blurb')).toHaveText(d.briefing);
+  // the timeline, from the Moon: the Foundry and the Vanguard landed before you (they took the sites you did not), in landing order
+  const lines = brief.locator('.br-timeline .br-line');
+  await expect(lines).toHaveCount(3);
+  await expect(lines.nth(0)).toContainText('The Foundry landed on day 0 at Marius Hills Tube.');
+  await expect(lines.nth(1)).toContainText('The Vanguard landed on day 2 at Shackleton Rim.');
+  await expect(lines.nth(2)).toContainText('You land on day 4 at Ilmenite Plains.');
+  await expect(lines.nth(2)).toHaveAttribute('data-faction', 'solarpunks');
+  // what you race for, and the weaknesses (three, one line each, the faction's own)
+  await expect(brief.locator('.br-race')).toContainText('First light');
+  await expect(brief.locator('.br-race')).toContainText('100 volleys (0.01 %)');
+  await expect(brief.locator('.br-con')).toHaveCount(3);
+  for (let i = 0; i < 3; i++) await expect(brief.locator('.br-con').nth(i)).toHaveText(d.dis[i]);
+  await expect(brief.locator('.br-survey')).toHaveText('Survey early: a prospect a rival claims is gone.');
+  // Continue hands over to the Era 1 explainer, still holding the pause: the race paragraph, the mission day, who is on the Moon
+  await brief.locator('[data-dsc="ok"]').click();
+  await expect(brief).toBeHidden();
+  const era = page.locator('#era-banner');
+  await expect(era).toBeVisible();
+  await expect(era.locator('.eb-race')).toContainText('The race');
+  await expect(era.locator('.eb-race')).toContainText('100 volleys');
+  await expect(era.locator('.eb-moon')).toContainText('Mission day 1');
+  await expect(era.locator('.eb-moon')).toContainText('Foundry');
+  await expect(era.locator('.eb-moon')).toContainText('Vanguard');
+  await expect(era.locator('.eb-moon')).toContainText('Commons (you)');
+  await page.waitForTimeout(400);
+  expect((await g(page, 'getState')).paused).toBe(true);
+  await era.locator('[data-dsc="ok"]').click();
+  await expect.poll(async () => (await g(page, 'getState')).paused).toBe(false);
+
+  // a solo game: the era banner only, none of it
+  await bare(page, '&tips&site=mare&exp=robotic');
+  await expect(page.locator('#era-banner')).toBeVisible();
+  await expect(page.locator('#briefing')).toBeHidden();
+  await expect(page.locator('#era-banner .eb-race, #era-banner .eb-moon')).toHaveCount(0);
+});
+
+/** stage a race on the real Moon (per faction: launches, first-light Moon day, era) and publish it; the standings it reads are the game's */
+const craft = async (page: Page, spec: Record<FId, [number, number | null, number]>, feed: { faction: FId; kind: string; text: string }[] = []) => {
+  await page.evaluate(([sp, fd]) => {
+    const g = window.__game;
+    for (const [f, [launches, day, era]] of Object.entries(sp)) g.raceSet(f, { launches, era, firstLaunchAt: day === null ? null : day * 720 + 30 });
+    for (const e of fd) g.feedPush(e);
+  }, [spec, feed] as const);
+};
+const standings = (page: Page) => page.locator('#race-panel .rc-row').evaluateAll((rows) => rows.map((r) => (r as HTMLElement).dataset.faction));
+
+test('the UI half, the RACE chip: in a faction game, never in solo; the panel lists each faction; standings rank by launches, first light, landing order', async ({ page }) => {
+  // solo: no chip, no race
+  await bare(page, '&site=mare&exp=robotic');
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  await expect(page.locator('#race-chip')).toBeHidden();
+  expect(await page.evaluate(() => window.__game.getState().faction)).toBeUndefined();
+  expect((await g(page, 'getRace')).phase).toBe('solo');
+
+  // a Vanguard game at the south pole: the Foundry landed on day 0 (mare), the Commons land on day 4 (lavatube)
+  await bare(page);
+  await page.evaluate(() => { window.__game.selectFaction('accelerationists', 'southpole'); window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  const chip = page.locator('#race-chip');
+  await expect(chip).toBeVisible();
+  await expect(chip).toHaveText('⚑ RACE · no first light yet');
+  // it sits in the chip column, after the outposts chip
+  const place = await page.evaluate(() => {
+    const c = document.getElementById('race-chip')!;
+    const prev = c.previousElementSibling?.id;
+    return { prev, parent: c.parentElement?.id };
+  });
+  expect(place).toEqual({ prev: 'outposts-chip', parent: 'time-controls' });
+  await expect(page.locator('#race-panel')).toBeHidden();
+  await chip.click();
+  const panel = page.locator('#race-panel');
+  await expect(panel).toBeVisible();
+  // nobody has launched: landing order, each row with its glyph, name, site and day
+  const rows = panel.locator('.rc-row');
+  await expect(rows).toHaveCount(3);
+  await expect(rows.nth(0)).toHaveAttribute('data-faction', 'robots');
+  await expect(rows.nth(1)).toHaveAttribute('data-faction', 'accelerationists');
+  await expect(rows.nth(2)).toHaveAttribute('data-faction', 'solarpunks');
+  await expect(rows.nth(0)).toContainText('The Foundry');
+  await expect(rows.nth(0)).toContainText('⚙');
+  await expect(rows.nth(0)).toContainText('Ilmenite Plains · landed day 0');
+  await expect(rows.nth(1)).toContainText('Shackleton Rim · landed day 2');
+  await expect(rows.nth(1).locator('.rc-you')).toBeVisible();
+  await expect(rows.nth(2)).toContainText('Marius Hills Tube · lands day 4');
+  await expect(rows.nth(2)).toContainText('not landed yet');
+  await expect(rows.nth(0).locator('.rc-launches')).toHaveText('0 volleys');
+  await expect(rows.nth(0).locator('.rc-fl')).toHaveText('first light —');
+  await expect(rows.nth(0).locator('.rc-era')).toHaveText('ERA 1');
+  await chip.click();
+  await expect(panel).toBeHidden();
+
+  // the standings, in a game where all three have landed (the Commons, day 4, are last to land): launches first (the Foundry, 3),
+  // then the earlier first light (the Vanguard, day 20, before the Commons, day 22), then the landing order
+  await bare(page);
+  await page.evaluate(() => { window.__game.selectFaction('solarpunks', 'southpole'); window.__game.setPaused(true); window.__game.advanceGameSeconds(0); });
+  await craft(page, { robots: [3, 19, 4], accelerationists: [1, 20, 2], solarpunks: [1, 22, 2] },
+    [{ faction: 'robots', kind: 'era', text: 'THE FOUNDRY REACHES ERA 4' }]);
+  await expect(chip).toHaveText('⚑ RACE 3rd · Foundry 3 volleys · you 1');
+  await chip.click();
+  expect(await standings(page)).toEqual(['robots', 'accelerationists', 'solarpunks']);
+  await expect(rows.nth(0).locator('.rc-rank')).toHaveText('1st');
+  await expect(rows.nth(2).locator('.rc-rank')).toHaveText('3rd');
+  await expect(rows.nth(2).locator('.rc-you')).toBeVisible();
+  await expect(rows.nth(0).locator('.rc-launches')).toHaveText('3 volleys');
+  await expect(rows.nth(0).locator('.rc-fl')).toHaveText('first light day 19');
+  await expect(rows.nth(0).locator('.rc-era')).toHaveText('ERA 4');
+  await expect(rows.nth(1).locator('.rc-launches')).toHaveText('1 volley');
+  await expect(rows.nth(0).locator('.rc-last')).toContainText('THE FOUNDRY REACHES ERA 4');
+  await expect(panel).toContainText('5 of 100 combined volleys');
+  await chip.click();
+
+  // the player's first light is the earlier: second place; a tie on both falls to the landing order; the leader is you
+  await craft(page, { robots: [3, 19, 4], accelerationists: [1, 20, 2], solarpunks: [1, 18, 2] });
+  await expect(chip).toHaveText('⚑ RACE 2nd · Foundry 3 volleys · you 1');
+  await chip.click();
+  expect(await standings(page)).toEqual(['robots', 'solarpunks', 'accelerationists']);
+  await chip.click();
+  await craft(page, { robots: [1, 20, 4], accelerationists: [1, 20, 2], solarpunks: [1, 20, 2] });
+  await chip.click();
+  expect(await standings(page)).toEqual(['robots', 'accelerationists', 'solarpunks']);
+  await chip.click();
+  await craft(page, { robots: [3, 19, 4], accelerationists: [1, 20, 2], solarpunks: [4, 22, 2] });
+  await expect(chip).toHaveText('⚑ RACE 1st · you 4 volleys · Foundry 3');
+});
+
+test('the UI half, race news: a rival landing during play raises a race-family line; the landings before yours are silent (the feed cursor)', async ({ page }) => {
+  test.setTimeout(240_000);
+  // the Commons land last: the Foundry and the Vanguard are on the Moon before the game's first frame (the pre-roll), and say nothing
+  await bare(page, '&tips');
+  await page.evaluate(() => window.__game.selectFaction('solarpunks', 'mare'));
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(30); });
+  const feed = (await g(page, 'getFeed')) as { kind: string; faction: string }[];
+  expect(feed.filter((e) => e.kind === 'landed').map((e) => e.faction)).toEqual(['robots', 'accelerationists']);
+  const s0 = await g(page, 'getState');
+  expect(s0.log.filter((e: any) => e.family === 'race')).toEqual([]);
+  expect(s0.alerts.filter((a: any) => /LANDS/.test(a.text))).toEqual([]);
+  await expect(page.locator('#race-card')).toBeHidden();
+
+  // the Foundry's game: the Vanguard lands on day 2 (second 1530), while the player plays
+  await bare(page, '&tips');
+  await page.evaluate(() => window.__game.selectFaction('robots', 'mare'));
+  await page.locator('#briefing [data-dsc="ok"]').click();
+  await page.locator('#era-banner [data-dsc="ok"]').click();
+  await page.evaluate(() => { window.__game.setPaused(true); window.__game.advanceGameSeconds(1450); });
+  const s1 = await g(page, 'getState');
+  const news = s1.log.filter((e: any) => e.family === 'race' && /LANDS/.test(e.text));
+  expect(news).toHaveLength(1);
+  expect(news[0]).toMatchObject({ text: 'THE VANGUARD LANDS — at SHACKLETON RIM', faction: 'accelerationists', kind: 'info', action: { panel: 'race' } });
+  // a stack line, a card: the Vanguard's glyph and trim colour
+  const line = page.locator('#alerts .alert', { hasText: 'THE VANGUARD LANDS' });
+  await expect(line).toHaveClass(/nf-race/);
+  await expect(line.locator('.alert-g')).toHaveText('▲');
+  const card = page.locator('#race-card .rc-item[data-faction="accelerationists"]');
+  await expect(card).toBeVisible();
+  await expect(card.locator('.rc-ig')).toHaveText('▲');
+  await expect(card).toContainText('THE VANGUARD LANDS — at SHACKLETON RIM');
+  expect(await card.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe('rgb(47, 95, 208)'); // #2f5fd0, the Vanguard's trim
+  expect(await card.evaluate((e) => getComputedStyle(e).borderLeftWidth)).toBe('3px');
+  // its action opens the RACE panel, showing the Vanguard landed
+  await card.locator('[data-rc="open"]').click();
+  await expect(page.locator('#race-panel')).toBeVisible();
+  await expect(page.locator('#race-panel .rc-row[data-faction="accelerationists"]')).toContainText('landed day 2');
+  await expect(page.locator('#race-panel .rc-row[data-faction="accelerationists"] .rc-last')).toContainText('THE VANGUARD LANDS');
+
+  // the feed's other two kinds S1 tells: a rival reaching an era, and a hearing (a rival's is news; yours is already the base's own hazard-family alert, so no second card); your own era is not news
+  await page.evaluate(() => {
+    const g = window.__game;
+    g.feedPush({ faction: 'accelerationists', kind: 'era', text: 'TEST: THE VANGUARD REACHES ERA 9', era: 9 });
+    g.feedPush({ faction: 'robots', kind: 'era', text: 'TEST: THE FOUNDRY REACHES ERA 9 (your own)', era: 9 });
+    g.feedPush({ faction: 'accelerationists', kind: 'hearing', text: 'TEST: THE VANGUARD FACES A HEARING' });
+    g.feedPush({ faction: 'robots', kind: 'hearing', text: 'TEST: HEARING — a quarter of the crew is recalled' });
+    g.advanceGameSeconds(1);
+  });
+  const log = (await g(page, 'getState')).log.filter((e: any) => e.family === 'race' && /^TEST:|LANDS/.test(e.text));
+  expect(log.map((e: any) => `${e.faction}|${e.kind}|${e.text}`)).toEqual([
+    'accelerationists|info|THE VANGUARD LANDS — at SHACKLETON RIM',
+    'accelerationists|info|TEST: THE VANGUARD REACHES ERA 9',
+    'accelerationists|info|TEST: THE VANGUARD FACES A HEARING',
+  ]);
+  // the Commons land on day 4
+  await page.evaluate(() => window.__game.advanceGameSeconds(1440));
+  const commons = (await g(page, 'getState')).log.filter((e: any) => e.family === 'race' && /LANDS/.test(e.text)).pop();
+  expect(commons).toMatchObject({ text: 'THE COMMONS LANDS — at MARIUS HILLS TUBE', faction: 'solarpunks' });
 });

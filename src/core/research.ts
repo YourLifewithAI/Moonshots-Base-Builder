@@ -8,7 +8,7 @@ import {
   type Band, type DoctrineId, type Era, type Expedition, type Lane, type Side, type TechDef, type TechId,
 } from '../data/techs';
 import { INSIGHTS, insightAt } from '../data/insights';
-import { BUILDINGS, BUILD_ORDER, isCompute, type BuildingId } from '../data/buildings';
+import { BUILDINGS, BUILD_ORDER, isCompute, isLab, type BuildingId } from '../data/buildings';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
 import { PROSPECTS, PROSPECT_IDS, type OutpostKind, type ProspectId } from '../data/lunarMap';
@@ -22,6 +22,8 @@ import { FACTION_NAME, factionOfState, type FactionId } from '../data/factions';
 import { alert as rawAlert, alertIn, crewReserve, moraleWorkMult } from './economy';
 import { CLASS_LABEL, KIND_LABEL, baseStream, outpostSlots, prospectClass, prospectDist, surveyCost } from './exploration';
 import { recordSpend } from './flowBook';
+import { dayInfo } from './daynight';
+import { scrutinyPenalty, uplinkBonus } from './scrutiny';
 
 /** research's alerts belong to the research family; an era opening to the era family (docs/19 S7) */
 const alert = alertIn('research');
@@ -83,6 +85,8 @@ const RS = (tid: TechId, s: { expedition: Expedition }) => R(tid, s.expedition, 
 const factionHides = (def: TechDef, ctx: TechCtx): boolean => {
   const f = factionOfState(ctx);
   if (def.factions) return !f || !def.factions.includes(f);
+  // an ethos lock (docs/20 §3): a solo game and every faction but these see it
+  if (def.notFactions && f && def.notFactions.includes(f)) return true;
   return !!f && !!def.track?.landing;
 };
 
@@ -127,7 +131,9 @@ export function compassOf(def: TechDef, s: Pick<GameState, 'siteId' | 'survey' |
 
 function hiddenReason(def: TechDef, ctx: TechCtx): string {
   if (factionHides(def, ctx)) {
-    return def.factions ? `⚑ ${def.factions.map((f) => FACTION_NAME[f]).join(' / ')} only` : 'the solo landing — not offered in a faction game';
+    if (def.factions) return `⚑ ${def.factions.map((f) => FACTION_NAME[f]).join(' / ')} only`;
+    if (def.notFactions) return `⚑ not open to ${def.notFactions.map((f) => FACTION_NAME[f]).join(' / ')}`;
+    return 'the solo landing — not offered in a faction game';
   }
   if (def.band && !(def.sites && !def.sites.includes(ctx.siteId))) {
     return 'a destiny capstone — the Era 8 pick settles which one opens';
@@ -540,11 +546,13 @@ export function sanitizeQueue(s: GameState): TechId[] {
 
 // ─────────────────────────── rates & the tick ───────────────────────────
 
-/** E(n)/n: every active agent-run lab gets the same share of the DSN link. */
-export function uplinkShare(agentLabs: number): number {
+/** E(n)/n: every active agent-run lab gets the same share of the DSN link. `bonus` (a standing Mission Ops, docs/20 S2):
+ *  one more lab at full weight, i.e. the weights are read as if the lab count were one less (the first two labs both weigh the
+ *  first weight). */
+export function uplinkShare(agentLabs: number, bonus: 0 | 1 = 0): number {
   if (agentLabs <= 0) return 1;
   let e = 0;
-  for (let i = 0; i < agentLabs; i++) e += LAB_UPLINK_WEIGHTS[Math.min(i, LAB_UPLINK_WEIGHTS.length - 1)];
+  for (let i = 0; i < agentLabs; i++) e += LAB_UPLINK_WEIGHTS[Math.min(Math.max(0, i - bonus), LAB_UPLINK_WEIGHTS.length - 1)];
   return e / agentLabs;
 }
 
@@ -564,17 +572,22 @@ export function researchRates(s: GameState, mods: Mods): ResearchRates {
   let labsActive = 0, agentLabs = 0, dcsActive = 0, monoliths = 0;
   for (const b of s.buildings) {
     if (!b.active) continue;
-    if (b.type === 'lab') { labsActive++; if (isAgentRun(b, s)) agentLabs++; }
+    // a Skunkworks is a lab for the transfer cap, but not a DSN-link user (its share is the labs', docs/20 §1)
+    if (isLab(b.type)) { labsActive++; if (b.type === 'lab' && isAgentRun(b, s)) agentLabs++; }
     else if (isCompute(b.type)) { dcsActive++; if (b.type === 'serverMonolith') monoliths++; }
   }
-  const share = uplinkShare(agentLabs);
+  const share = uplinkShare(agentLabs, uplinkBonus(s));
   const site = SITES[s.siteId];
   const workMult = unmanned(s) ? 1 : moraleWorkMult(s.morale);
+  // the faction readers (docs/20 S2): scrutiny's data penalty, and the Foundry's night (only its base asks for the clock)
+  const penalty = scrutinyPenalty(s);
+  const night = mods.nightOutputMult !== 1 ? dayInfo(s.simTime, site).isNight : undefined;
   let production = 0;
   for (const b of s.buildings) {
-    if (!b.active || (b.type !== 'lab' && !isCompute(b.type))) continue;
+    if (!b.active || (!isLab(b.type) && !isCompute(b.type))) continue;
     production += effectiveRates(b.type, mods, site, b, {
       agentRun: isAgentRun(b, s), robotic: s.expedition === 'robotic', workMult, uplinkShare: share,
+      ...(penalty ? { dataMult: penalty.data } : {}), ...(night !== undefined ? { isNight: night } : {}),
     }).data;
   }
   return {
@@ -681,7 +694,7 @@ export function researchTick(s: GameState, mods: Mods, dt: number): ResearchTick
   let paused: GameState['researchPaused'] = '';
   if (wantsData && rates.cap <= 0) {
     const stations = s.buildings.filter((b) =>
-      (b.type === 'lab' || isCompute(b.type)) && b.enabled && (b.construction ?? 0) <= 0);
+      (isLab(b.type) || isCompute(b.type)) && b.enabled && (b.construction ?? 0) <= 0);
     paused = stations.length && stations.every((b) => b.idleReason === 'power') ? 'brownout' : 'noLab';
   }
   if (paused && paused !== s.researchPaused) {
@@ -1001,6 +1014,12 @@ export interface ResearchView {
   otherSites: TechId[];
   /** the destiny meter (docs/14 §2.4) */
   destiny: DestinyView;
+  /** the state's faction (docs/20): none in a solo game. The pages draw its techs in the ⚑ FACTION row */
+  faction: FactionId | null;
+  /** the cost multipliers the state's faction techs set (mods.laneCostMult / pickCostMult): a lane header and the destiny
+   *  column show `×1.3` where one is not 1 */
+  laneCost: Record<Lane, number>;
+  pickCost: Record<Side, number>;
 }
 
 export function researchView(s: GameState, mods: Mods): ResearchView {
@@ -1061,6 +1080,9 @@ export function researchView(s: GameState, mods: Mods): ResearchView {
     dcsActive: rates.dcsActive,
     otherSites: otherSiteTechs(s.siteId),
     destiny: destinyOf(s),
+    faction: factionOfState(s) ?? null,
+    laneCost: { ...mods.laneCostMult },
+    pickCost: { ...mods.pickCostMult },
   };
 }
 

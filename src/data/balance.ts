@@ -121,6 +121,25 @@ export const MORALE = {
   workMultMin: 0.5, workMultSpan: 0.7, // work mult = 0.5 + morale/100 * 0.7
 };
 
+/** The Vanguard's scrutiny meter (docs/20 S2, core/scrutiny.ts): what raises it, the day's decay, the two thresholds
+ *  (a penalty, then HEARINGS), and the recall. Read only while `mods.scrutiny`. */
+export const SCRUTINY = {
+  death: 40, wreck: 10, hazard: 15,
+  decayPerDay: 5,                      // points a lunar day (CYCLE_S)
+  missionOpsDecay: 2,                  // a standing Mission Ops: decay ×2
+  max: 100,
+  penaltyAt: 50, crewedMult: 0.7, dataMult: 0.8,
+  hearingAt: 80, hearingTo: 40,
+  hearingGapDays: 3,                   // at most one hearing in this many lunar days
+  recallShare: 0.25, recallDays: 2,    // a quarter of the crew (rounded up) is away this long
+  logMax: 12,
+};
+
+/** The faction buildings' effects (docs/20 S2; the buildings themselves are stream S3's). */
+export const FARADAY = { radiusM: 40, mult: 0.4 };     // machines and arrays within 40 m of a standing Faraday Shed: flare damage ×0.4
+export const NIGHT_VAULT = { standbyMult: 0.5 };       // a docked unit's night standby (charger) draw ×0.5
+export const SKUNKWORKS_RATE = { each: 0.25, cap: 0.5 }; // each standing Skunkworks adds to the hazard-event rate multiplier, capped
+
 /** brownout hysteresis: a load that loses power stays dark this many ticks
  *  before retrying — unless the budget covers it with the release margin */
 export const BROWNOUT_HOLD_S = 8;
@@ -217,6 +236,8 @@ export const LAB_DATA = {
   humanAgent: 1.0,                     // agent-run lab on a crewed mission
   crewedMoraleExp: 1.5,                // crewed labs scale with workMult^1.5
 };
+/** the Skunkworks (docs/20 §1) is a lab variant: a Research Lab's data ×dataMult (mods.effectiveRates) */
+export const SKUNKWORKS = { dataMult: 2 };
 export const DC_DATA_PER_S = 1.0;
 
 /** agent-run crewed stations draw ×(1 + agentTax); Rad-Hard multiplies the tax */

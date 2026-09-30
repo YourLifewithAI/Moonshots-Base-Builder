@@ -17,7 +17,7 @@
  *
  *  Pure and deterministic: every draw is mulberry32((seed ^ K) + index). */
 import { BUILDINGS } from '../data/buildings';
-import { CYCLE_S, DEPOSIT_FX } from '../data/balance';
+import { CYCLE_S, DEPOSIT_FX, SCRUTINY } from '../data/balance';
 import {
   CLASS_RANK, LEGACY_FLARE, PORTIONS, SPACE_WEATHER as W, worse,
   type ArrayChoice, type FlareClass, type FlareDecider,
@@ -31,6 +31,8 @@ import { alertIn, condition } from './economy';
 import { fmtClock, type DayInfo } from './daynight';
 import { mulberry32 } from './rng';
 import { wreckBuilding } from './hazards';
+import { scrutinyAdd, shedCover } from './scrutiny';
+import { centerOf } from '../buildings/instances';
 import { budgetShort, buildCostAt, ruleState } from './automation';
 import {
   drawMachines, effectsTick, effectsView, migrateScars, onActiveStart, onFlareEnd, replaceDone, resolveScars, type EffectsView,
@@ -428,16 +430,21 @@ export function previewChoice(s: GameState, mods: Mods, site: SiteDef, day: DayI
   const tail = cls === 'X';
   const runIds = plan.night ? [] : plan.run;
   const stowIds = plan.night ? [...plan.run, ...plan.stow] : plan.stow;
-  const destroyed = Math.round(runIds.length * W.arrays.destroy[K] * hard + 1e-9);
-  const scar = (W.arrays.scar[K] + (tail ? W.arrays.scar.tail : 0)) * hard;
-  const dmg = Math.min(W.arrays.dmgMax, (W.arrays.stowed[cls] + (tail ? W.arrays.stowed.tail : 0)) * (1 - stowSigma(mods)) * hard);
-  const pct = Math.round(dmg * 100);
   const byId = new Map(s.buildings.map((b) => [b.id, b]));
+  // a standing Faraday Shed covers the arrays within 40 m (docs/20 S2): the same per-array factor the sim applies
+  const cover = shedCover(s);
+  const kOf = (id: number) => { const b = byId.get(id); if (!cover || !b) return 1; const [x, z] = centerOf(b); return cover(x, z); };
+  const runK = cover ? runIds.reduce((m, id) => m + kOf(id), 0) : runIds.length;
+  const destroyed = Math.round(runK * W.arrays.destroy[K] * hard + 1e-9);
+  const scar = (W.arrays.scar[K] + (tail ? W.arrays.scar.tail : 0)) * hard * (cover && runIds.length ? runK / runIds.length : 1);
+  const dmgBase = (W.arrays.stowed[cls] + (tail ? W.arrays.stowed.tail : 0)) * (1 - stowSigma(mods)) * hard;
+  const dmg = Math.min(W.arrays.dmgMax, dmgBase);
+  const pct = Math.round(dmg * 100);
   let parts = 0, secs = 0, damaged = 0;
   if (pct > 0) {
     for (const id of stowIds) {
       const b = byId.get(id);
-      const total = Math.min(W.arrays.dmgMax, (b?.flareDmg ?? 0) + dmg);
+      const total = Math.min(W.arrays.dmgMax, (b?.flareDmg ?? 0) + (cover ? Math.min(W.arrays.dmgMax, dmgBase * kOf(id)) : dmg));
       const p = Math.round(total * 100);
       damaged++;
       parts += repairParts(p);
@@ -785,7 +792,7 @@ export function weatherTick(s: GameState, site: SiteDef, mods: Mods, day: DayInf
     const cost = buildCostAt('solar', site);
     const back = Math.floor((cost.metals ?? 0) * W.wreck.salvage);
     s.resources.metals += back;
-    wreckBuilding(s, b.id, out.removed);
+    wreckBuilding(s, b.id, out.removed, false); // (counted when it fell, docs/20 S2)
     alert(s, `WRECK CLEARED — ${label(b)} salvaged for +${back}◆; its pad is free`, 'info');
   }
   if (w.legacy) { legacyTick(s, site, day, dt); return out; }
@@ -1059,6 +1066,9 @@ function resolveArrays(s: GameState, mods: Mods, day: DayInfo, part: 'flash' | '
   const cls = f.cls ?? 'C';
   const ex = f.exposure ?? {};
   const hard = arrayHard(mods);
+  // a standing Faraday Shed takes ×0.4 of a flare's destruction, scars and stowed damage off the arrays within 40 m (docs/20 S2)
+  const cover = shedCover(s);
+  const kOf = (b: BuildingState) => { if (!cover) return 1; const [x, z] = centerOf(b); return cover(x, z); };
   const drillX = cls === 'X' && !!f.drill;
   const K: 'C' | 'M' | 'X' | 'tail' = part === 'tail' ? 'tail' : drillX ? 'M' : cls;
   const pD = W.arrays.destroy[K] * hard;
@@ -1068,7 +1078,7 @@ function resolveArrays(s: GameState, mods: Mods, day: DayInfo, part: 'flash' | '
   const arrays = s.buildings.filter((b) => upArray(b) && ex[b.id]);
   const share = (b: BuildingState) => { const [r, st] = ex[b.id]; return r + st > 0 ? r / (r + st) : 0; };
   // which are destroyed: the expected count, rounded, by a seeded draw weighted by exposure
-  const expected = arrays.reduce((m, b) => m + share(b) * pD, 0);
+  const expected = arrays.reduce((m, b) => m + share(b) * pD * kOf(b), 0);
   const count = Math.min(arrays.length, Math.round(expected + 1e-9));
   const keyed = arrays.filter((b) => share(b) > 1e-9)
     .map((b) => ({ b, k: Math.pow(mulberry32((s.seed ^ W.keys.arrays) + n * 4096 + b.id)(), 1 / share(b)) }))
@@ -1081,15 +1091,16 @@ function resolveArrays(s: GameState, mods: Mods, day: DayInfo, part: 'flash' | '
     if (gone.has(b.id)) {
       b.wreck = { at: s.simTime, n, cls };
       delete b.stow; delete b.stowT; delete b.flareDmg;
+      scrutinyAdd(s, SCRUTINY.wreck, 'Solar Array wrecked by a flare'); // the Vanguard's meter (docs/20 S2)
       continue;
     }
     if (r > 1e-9 && scar > 0) {
-      const cut = scar * r;
+      const cut = scar * r * kOf(b);
       b.cap = Math.max(W.arrays.capFloor, (b.cap ?? 1) * (1 - cut));
       scarred++;
       scarSum += cut;
     }
-    const d = dmg * (1 - r);
+    const d = dmg * (1 - r) * kOf(b);
     if (d > 1e-9) {
       b.flareDmg = Math.min(W.arrays.dmgMax, (b.flareDmg ?? 0) + d);
       damaged++;
@@ -1105,7 +1116,7 @@ function resolveArrays(s: GameState, mods: Mods, day: DayInfo, part: 'flash' | '
   }
   // the first X: what a real one would have cost (§4.11)
   if (drillX && part === 'flash') {
-    const real = Math.round(arrays.reduce((m, b) => m + share(b) * W.arrays.destroy.X * hard, 0) + 1e-9);
+    const real = Math.round(arrays.reduce((m, b) => m + share(b) * W.arrays.destroy.X * hard * kOf(b), 0) + 1e-9);
     const ran = arrays.filter((b) => share(b) > 1e-9).length;
     alert(s, `THIS ONE WAS A DRILL — a real X on this base would have destroyed ${real} of your ${ran} running arrays` +
       `${real ? ` (${gone.size} were)` : ''} · stow, dock, shut down or shield before the next`, 'warn', { panel: 'weather' });

@@ -96,7 +96,11 @@ function landingSlot(exp: 'human' | 'robotic', siteId: SiteId): DestinySlot {
 const PICK_STATE: Partial<Record<ResearchCard['state'], string>> = {
   done: '✓ CHOSEN', stalled: 'queued · waiting on goods', foreclosed: 'foreclosed',
   crewLocked: 'crew tech', requires: 'locked', requiresAny: 'locked', full: 'queue full',
+  // an ethos lock (docs/20 §3): the card's reason says `⚑ not open to The Commons`
+  hidden: 'locked by ethos',
 };
+/** a cost multiplier as a tag (`×1.15`); '' at ×1 (docs/20 §3: the faction's price for this side's picks) */
+const multTag = (m: number | undefined) => (m === undefined || Math.abs(m - 1) < 1e-9 ? '' : `×${Number(m.toFixed(2))}`);
 
 function pickSlot(era: Era, v: ResearchView, siteId: SiteId, exp: 'human' | 'robotic', done: readonly TechId[]): DestinySlot {
   const t = TRACKS[era];
@@ -108,6 +112,8 @@ function pickSlot(era: Era, v: ResearchView, siteId: SiteId, exp: 'human' | 'rob
     const st = c.state === 'queued' || c.state === 'stalled' ? 'queued' : c.state === 'done' ? 'done'
       : c.state === 'foreclosed' ? 'foreclosed' : c.state === 'available' ? 'available' : c.state === 'full' ? 'full'
       : c.state === 'eraLocked' ? 'future' : 'locked';
+    // a pick the faction's ethos locks is shown, greyed, with its reason: it cannot be chosen
+    const ethos = c.state === 'hidden';
     const status = c.state === 'available' ? '[select]'
       : c.state === 'queued' ? `#${qi(tid) + 1} queued`
       : c.state === 'eraLocked' ? `choose when Era ${era} opens` : PICK_STATE[c.state] ?? '';
@@ -120,19 +126,21 @@ function pickSlot(era: Era, v: ResearchView, siteId: SiteId, exp: 'human' | 'rob
       ...cons.map((l) => `<span class="dz-fx fx-con" title="${esc(l.text)}">⊖ ${esc(l.text)}</span>`),
     ].join('');
     const hint = c.state === 'available' ? 'a click selects; commit in the sheet' : c.reason;
-    return `<button class="dz-card side-${side} st-${st}" data-select="${tid}" data-side="${side}" data-state="${c.state}"
-        title="${esc(`${SIDE_GLYPH[side]} ${SIDE_LABEL[side]} · ${c.name}${hint ? ` — ${hint}` : ''}`)}">
+    const pm = multTag(v.pickCost[side]);
+    const pmTag = pm ? ` <span class="dz-mult mono ${v.pickCost[side] > 1 ? 'dear' : 'cheap'}" title="${esc(`your faction pays ${pm} for ${SIDE_LABEL[side]} picks`)}">${pm}</span>` : '';
+    return `<button class="dz-card side-${side} st-${st}"${ethos ? ' disabled' : ` data-select="${tid}"`} data-side="${side}" data-state="${c.state}"
+        title="${esc(`${SIDE_GLYPH[side]} ${SIDE_LABEL[side]} · ${c.name}${hint ? ` — ${hint}` : ''}${pm ? ` · ${pm} cost` : ''}`)}">
       <span class="dz-l1"><span class="gl">${SIDE_GLYPH[side]}</span><span class="nm">${esc(c.name)}</span>
         <span class="dz-st">${esc(status)}</span></span>
       ${fx}
       <span class="dz-vis">${esc(def.visual ?? '')}</span>
-      <span class="dz-l2 mono">${c.state === 'done' ? `${SIDE_LABEL[side]} · researched` : `${c.cost.data}≡${goods}`}</span>
+      <span class="dz-l2 mono">${c.state === 'done' ? `${SIDE_LABEL[side]} · researched` : `${c.cost.data}≡${goods}`}${c.state === 'done' ? '' : pmTag}</span>
     </button>`;
   };
   const sig = SIDES.map((sd) => {
     const tid = sd === 'colony' ? t.colony : t.automation;
     const c = v.cards[tid];
-    return `${tid}${c.state}${qi(tid)}${c.cost.data}${c.goodsShort.join('')}`;
+    return `${tid}${c.state}${qi(tid)}${c.cost.data}${c.goodsShort.join('')}${v.pickCost[sd]}`;
   }).join(',');
   return {
     sig: `pick|${era}|${siteId}|${exp}|${sig}|${done.includes('humanCohabitation') ? 'cohab' : ''}`,

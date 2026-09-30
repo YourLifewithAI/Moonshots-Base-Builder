@@ -12,6 +12,7 @@ import {
   type DoctrineId, type Era, type EffectLine, type Lane, type TechId,
 } from '../data/techs';
 import { BUILDINGS } from '../data/buildings';
+import { FACTIONS, factionOfState } from '../data/factions';
 import { CHARTER_DEED_TECHS, CHARTER_TECHS } from '../data/balance';
 import { RESOURCES, type ResourceId } from '../data/resources';
 import { SITES, type SiteId } from '../data/sites';
@@ -43,6 +44,15 @@ const titleCase = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpp
 const siteName = (id: SiteId) => titleCase(SITES[id].name);
 const glyph = (r: string) => RESOURCES[r as ResourceId]?.glyph ?? '';
 const laneDef = (l: Lane | null) => LANES.find((d) => d.id === l);
+/** a cost multiplier as a tag (`×1.3`, `×0.85`); '' at ×1 (docs/20 §3: lane headers and the destiny column) */
+const multTag = (m: number | undefined) => (m === undefined || Math.abs(m - 1) < 1e-9 ? '' : `×${Number(m.toFixed(2))}`);
+/** a faction tech's glyph in the faction's trim colour, for its card and sheet (docs/20 §3) */
+function factionMark(tid: TechId): string {
+  const f = TECHS[tid].factions?.[0];
+  if (!f) return '';
+  const d = FACTIONS[f];
+  return `<span class="fmark" style="color:${d.livery.trim}" title="${esc(d.name)} only">${d.glyph}</span>`;
+}
 const clampEra = (n: number) => Math.min(8, Math.max(1, Math.round(n))) as Era;
 
 function fmtClock(s: number | null): string {
@@ -187,9 +197,9 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     siteId: ($siteId.get() ?? 'mare') as SiteId,
     expedition: ($vitals.get().expedition ?? 'human') as Expedition,
   });
-  const linesOf = (tid: TechId) => describeTech(TECHS[tid], { ...ctx(), done: game.state?.techsDone });
+  const linesOf = (tid: TechId) => describeTech(TECHS[tid], { ...ctx(), done: game.state?.techsDone, faction: factionOfState(game.state) });
   const tag = (tid: TechId) => {
-    const k = `${tid}|${ctx().siteId}|${ctx().expedition}`;
+    const k = `${tid}|${ctx().siteId}|${ctx().expedition}|${factionOfState(game.state) ?? ''}`;
     if (!tagCache.has(k)) tagCache.set(k, tagOf(linesOf(tid)));
     return tagCache.get(k)!;
   };
@@ -310,7 +320,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   const stubSig = (m: Map<TechId, Stub>) => [...m].map(([t, s]) => `${t}${s.done ? 1 : 0}${s.eras.join('')}`).join(',');
   function signature(v: ResearchView, L: PageLayout, dsig: string): string {
     const { siteId, expedition } = ctx();
-    return `${page}|${v.era}|${siteId}|${expedition}|${dsig}|${v.destiny.picks.join('')}|` +
+    return `${page}|${v.era}|${siteId}|${expedition}|${v.faction ?? ''}|${Object.values(v.laneCost).join(',')}|${dsig}|${v.destiny.picks.join('')}|` +
       L.rows.map((r) => `${r.key}${r.compact ? '~' : ''}:${r.cards.map((t) => cardSig(v, t)).join(',')}`).join('/') +
       `|<${stubSig(L.before)}|>${stubSig(L.after)}`;
   }
@@ -438,16 +448,17 @@ export function mountTechTree(root: HTMLElement, game: Game) {
   }
   function updatePageHead() {
     const v = view!;
-    let n = 0, done = 0, q = 0, avail = 0;
+    let n = 0, done = 0, q = 0, avail = 0, fac = 0;
     for (const t of TECH_ORDER) {
       const c = v.cards[t];
       if (c.era !== page || c.state === 'hidden' || c.track) continue;
       n++;
+      if (TECHS[t].factions) fac++;
       if (c.state === 'done') done++;
       else if (c.state === 'queued' || c.state === 'stalled') q++;
       else if (c.state === 'available') avail++;
     }
-    const txt = `${n} techs · ${done} researched${q ? ` · ${q} queued` : ''}${avail ? ` · ${avail} available` : ''}`;
+    const txt = `${n} techs${fac ? ` (${fac} ⚑)` : ''} · ${done} researched${q ? ` · ${q} queued` : ''}${avail ? ` · ${avail} available` : ''}`;
     const cEl = pageHead.querySelector<HTMLElement>('[data-g="count"]');
     if (cEl && cEl.textContent !== txt) cEl.textContent = txt;
     const goals = pageHead.querySelector<HTMLElement>('.ph-goals');
@@ -492,6 +503,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const marks: string[] = [];
     if (c.doctrine) marks.push('<span title="Doctrine — choose one, permanent">◇</span>');
     if (c.breakthrough) marks.push('<span title="Breakthrough">✦</span>');
+    if (TECHS[c.tid].factions) marks.push(factionMark(c.tid));
     if (c.compass) marks.push(`<span class="cmp" title="${esc(c.compass.text)}">◎</span>`);
     if (c.siteTech) {
       const only = (TECHS[c.tid].sites ?? []).map(siteName).join(' / ');
@@ -553,8 +565,11 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     board.dataset.era = String(page);
     let html = '<svg id="tech-links" aria-hidden="true"></svg>';
     for (const [i, r] of L.rows.entries()) {
-      html += `<div class="lane${i % 2 ? ' alt' : ''}${r.compact ? ' compact' : ''}" data-lane="${r.key}" style="--r:${i}" title="${esc(r.holds)}">
-        <span class="lane-label">${esc(r.label)}</span></div>`;
+      // a lane's research costs ×m for this faction (docs/20 §3): the header says so
+      const lm = r.lane ? multTag(v.laneCost[r.lane]) : '';
+      const lmTitle = lm ? ` — your faction pays ${lm} for research in this lane` : '';
+      html += `<div class="lane${i % 2 ? ' alt' : ''}${r.compact ? ' compact' : ''}${r.key === 'faction' ? ' fac-row' : ''}" data-lane="${r.key}" style="--r:${i}" title="${esc(r.holds + lmTitle)}">
+        <span class="lane-label">${esc(r.label)}${lm ? ` <span class="lane-mult mono${v.laneCost[r.lane!] > 1 ? ' dear' : ' cheap'}">${lm}</span>` : ''}</span></div>`;
     }
     for (const b of L.brackets) {
       const q = DOCTRINES[b.group].question;
@@ -893,7 +908,7 @@ export function mountTechTree(root: HTMLElement, game: Game) {
     const lane = laneDef(c.lane);
     const note = siteNote(c.tid);
     return `<div class="sh-name">${esc(c.name)} <span class="badges">${badges.join(' · ')}</span></div>
-      <div class="sh-meta label">E${c.era} · ${esc(ERA_NAMES[c.era])}${lane ? ` · ${esc(lane.label)}` : ' · ✺ SWARM'}${jumpBack(c)}</div>
+      <div class="sh-meta label">E${c.era} · ${esc(ERA_NAMES[c.era])}${def.factions ? ` · ⚑ ${esc(FACTIONS[def.factions[0]].name.toUpperCase())}` : ''}${lane ? ` · ${esc(lane.label)}${multTag(view!.laneCost[lane.id]) ? ` ${multTag(view!.laneCost[lane.id])}` : ''}` : ' · ✺ SWARM'}${jumpBack(c)}</div>
       ${statusHtml(c)}
       <div class="sh-desc">${esc(def.desc)}</div>
       <div class="sh-flavor"><i>${esc(def.tradeoff)}</i></div>
