@@ -840,3 +840,196 @@ test('goods chips follow the sim: water the crew is holding is short, on the car
     else await expect(rc).not.toHaveClass(/\bshort\b/);
   }
 });
+
+// ───────────────────────────── the faction branches on the pages (docs/20 §3, stream S3) ─────────────────────────────
+
+/** each faction's branch by era page, its glyph and trim colour (data/factions.ts) */
+const FACTION_PAGES: Record<string, { site: string; glyph: string; trim: string; rgb: string; byEra: Record<number, string[]> }> = {
+  robots: {
+    site: 'mare', glyph: '⚙', trim: '#e8632b', rgb: 'rgb(232, 99, 43)',
+    byEra: { 2: ['nightVaultDocks'], 3: ['faradaySheds', 'hardenedFirmware'], 4: ['isotopeWarmers'], 5: ['bankTrenches', 'selfRepairCells'], 6: ['lightsOutFoundry'], 7: ['swarmRelayUplink'] },
+  },
+  accelerationists: {
+    site: 'southpole', glyph: '▲', trim: '#2f5fd0', rgb: 'rgb(47, 95, 208)',
+    byEra: { 1: ['pressCorps'], 2: ['crunchCulture'], 3: ['hazardWaivers'], 4: ['skunkworksLabs', 'hearingPrep'], 5: ['ventureFoils'], 6: ['launchFever'], 7: ['mediaBlitz'] },
+  },
+  solarpunks: {
+    site: 'lavatube', glyph: '❀', trim: '#5f9f3f', rgb: 'rgb(95, 159, 63)',
+    byEra: { 1: ['commonsCharter'], 2: ['mutualAidDrills'], 3: ['slowBuildDoctrine'], 4: ['regolithTerraces'], 5: ['consensusCouncil'], 6: ['cooperativeSwarm'], 7: ['guardianship', 'longNightGardens'] },
+  },
+};
+const BRANCH_TECHS = Object.values(FACTION_PAGES).flatMap((f) => Object.values(f.byEra).flat());
+
+/** boot a faction game on the tree's own page (the debug API starts it; the UI follows the state) */
+async function bootFaction(page: Page, faction: string, viewport = { width: 1280, height: 720 }) {
+  await boot(page, 'mare', 'human', viewport);
+  await g(page, 'selectFaction', faction, FACTION_PAGES[faction].site);
+  await g(page, 'setPaused', true);
+  await openTree(page);
+}
+
+test('faction pages: a ⚑ FACTION row after the lanes holds that era’s branch techs, each with the faction glyph in its trim colour; a solo page has none', async ({ page }) => {
+  test.setTimeout(240_000);
+  for (const [faction, f] of Object.entries(FACTION_PAGES)) {
+    await bootFaction(page, faction);
+    for (let era = 1; era <= 8; era++) {
+      if (era > 1) await page.keyboard.press('BracketRight');
+      await onPage(page, era);
+      const at = `${faction} E${era}`;
+      const want = f.byEra[era] ?? [];
+      const lanes = await page.locator('.lane').evaluateAll((els) => els.map((e) => ({ key: (e as HTMLElement).dataset.lane, label: e.querySelector('.lane-label')!.textContent!.trim() })));
+      const row = lanes.filter((l) => l.key === 'faction');
+      if (!want.length) { expect(row, at).toHaveLength(0); continue; }
+      expect(row, at).toHaveLength(1);
+      expect(row[0].label, at).toBe('⚑ FACTION');
+      // after the lanes: the row is the last on the page (Era 8 has no branch tech)
+      expect(lanes[lanes.length - 1].key, at).toBe('faction');
+      const cards = await page.locator('.tech-card').evaluateAll((els, rowIdx) => els
+        .filter((e) => (e as HTMLElement).style.getPropertyValue('--r') === String(rowIdx))
+        .map((e) => ({ t: (e as HTMLElement).dataset.tech, mark: e.querySelector('.fmark')?.textContent ?? '', color: e.querySelector('.fmark') ? getComputedStyle(e.querySelector('.fmark')!).color : '' })), lanes.length - 1);
+      expect(cards.map((c) => c.t).sort(), `${at} row cards`).toEqual([...want].sort());
+      for (const c of cards) { expect(c.mark, `${at} ${c.t} glyph`).toBe(f.glyph); expect(c.color, `${at} ${c.t} colour`).toBe(f.rgb); }
+      // no branch tech of another faction is on the page anywhere
+      const onPageTechs = await page.locator('.tech-card').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.tech));
+      const foreign = onPageTechs.filter((t) => BRANCH_TECHS.includes(t!) && !want.includes(t!));
+      expect(foreign, `${at} shows none of another faction's`).toEqual([]);
+    }
+  }
+  // a solo game: no row, no glyph, no branch tech on any page
+  await boot(page, 'mare', 'human');
+  await openTree(page);
+  for (let era = 1; era <= 8; era++) {
+    if (era > 1) await page.keyboard.press('BracketRight');
+    await onPage(page, era);
+    await expect(page.locator('.lane[data-lane="faction"]')).toHaveCount(0);
+    await expect(page.locator('.tech-card .fmark')).toHaveCount(0);
+  }
+});
+
+test('lane headers show the faction’s research price; the destiny column shows its pick price; the goals column counts faction techs', async ({ page }) => {
+  // the Commons: materials, robotics and exploration ×1.3, habitat ×0.6; Colony picks ×0.85
+  await bootFaction(page, 'solarpunks');
+  const mult = (lane: string) => page.locator(`.lane[data-lane="${lane}"] .lane-mult`);
+  await expect(mult('materials')).toHaveText('×1.3');
+  await expect(mult('robotics')).toHaveText('×1.3');
+  await expect(mult('exploration')).toHaveText('×1.3');
+  await expect(mult('habitat')).toHaveText('×0.6');
+  await expect(mult('power')).toHaveCount(0);
+  await expect(mult('compute')).toHaveCount(0);
+  // the multiplier is in the price the card shows: Pit Mapping is 30 × 1.6 × 1.3 = 62
+  await expect(card(page, 'regolithProcessing')).toContainText('62≡');
+  // the Commons' own branch counts: a done Era 1 branch tech shows in the page count and in the charter row
+  await g(page, 'completeTech', 'commonsCharter');
+  await expect(page.locator('.ph-count')).toContainText('(1 ⚑)');
+  await expect(page.locator('.ph-goals [data-g="fac"]')).toContainText('⚑ 1 faction');
+  // the destiny column, Era 2: ⌂ Colony ×0.85, ◉ Automation untouched
+  await page.keyboard.press('BracketRight');
+  await onPage(page, 2);
+  await expect(page.locator('.dz-card[data-side="colony"] .dz-mult')).toHaveText('×0.85');
+  await expect(page.locator('.dz-card[data-side="automation"] .dz-mult')).toHaveCount(0);
+  // the Vanguard: compute and materials ×0.8, Colony picks ×1.15
+  await bootFaction(page, 'accelerationists');
+  await expect(mult('compute')).toHaveText('×0.8');
+  await expect(mult('materials')).toHaveText('×0.8');
+  await expect(mult('habitat')).toHaveCount(0);
+  await page.keyboard.press('BracketRight');
+  await expect(page.locator('.dz-card[data-side="colony"] .dz-mult')).toHaveText('×1.15');
+  // the Foundry: robotics and compute ×0.85, no pick price
+  await bootFaction(page, 'robots');
+  await expect(mult('robotics')).toHaveText('×0.85');
+  await expect(mult('compute')).toHaveText('×0.85');
+  await page.keyboard.press('BracketRight');
+  await expect(page.locator('.dz-mult')).toHaveCount(0);
+  // a solo game: no tag anywhere
+  await boot(page, 'mare', 'robotic');
+  await openTree(page);
+  await expect(page.locator('.lane-mult')).toHaveCount(0);
+  await page.keyboard.press('BracketRight');
+  await expect(page.locator('.dz-mult')).toHaveCount(0);
+});
+
+test('the Commons see Lights-Out Charter and Replicator Stacks greyed on the destiny column with the ethos text, and cannot choose them', async ({ page }) => {
+  await bootFaction(page, 'solarpunks');
+  for (const [era, tid] of [[6, 'lightsOutCharter'], [7, 'replicatorStacks']] as const) {
+    await tab(page, era).click();
+    await onPage(page, era);
+    const pick = page.locator(`.dz-card[data-side="automation"]`);
+    await expect(pick).toBeDisabled();
+    await expect(pick).toHaveAttribute('data-state', 'hidden');
+    await expect(pick).toHaveAttribute('title', new RegExp(`⚑ not open to The Commons`));
+    await expect(pick).toContainText('locked by ethos');
+    // the ⌂ pick beside it is an ordinary card
+    await expect(page.locator('.dz-card[data-side="colony"]')).toBeEnabled();
+    const r = await g(page, 'getResearch');
+    expect(r.cards[tid].state).toBe('hidden');
+    expect(r.cards[tid].reason).toBe('⚑ not open to The Commons');
+  }
+  // the Vanguard may choose either
+  await bootFaction(page, 'accelerationists');
+  await tab(page, 6).click();
+  await onPage(page, 6);
+  await expect(page.locator('.dz-card[data-side="automation"]')).toBeEnabled();
+});
+
+test('the palette offers a faction’s own buildings (locked until their tech, then open) to that faction alone', async ({ page }) => {
+  const OWN: Record<string, [string, string, string][]> = {
+    robots: [['nightVault', 'Industry', 'nightVaultDocks'], ['faradayShed', 'Industry', 'faradaySheds']],
+    accelerationists: [['missionOps', 'Science', 'pressCorps'], ['skunkworks', 'Science', 'skunkworksLabs']],
+    solarpunks: [['commonsHall', 'Life', 'commonsCharter'], ['regolithTerrace', 'Life', 'regolithTerraces']],
+  };
+  const ALL = Object.values(OWN).flat().map(([b]) => b);
+  const cat = async (label: string) => { await page.locator('#palette .cats .btn', { hasText: label }).first().click(); };
+  const cardOf = (type: string) => page.locator(`#palette .bld-btn[data-type="${type}"]`);
+  for (const [faction, list] of Object.entries(OWN)) {
+    await boot(page, 'mare', 'human');
+    await g(page, 'selectFaction', faction, FACTION_PAGES[faction].site);
+    await g(page, 'setPaused', true);
+    for (const [type, label] of list) {
+      await cat(label);
+      await expect(cardOf(type), `${faction}: ${type} is offered`).toHaveCount(1);
+      await expect(cardOf(type)).toHaveClass(/\blocked\b/);
+    }
+    // the other factions' buildings are in no tab
+    for (const label of ['Power', 'Extraction', 'Industry', 'Life', 'Science', 'Export']) {
+      await cat(label);
+      for (const other of ALL.filter((b) => !list.some(([t]) => t === b))) await expect(cardOf(other), `${faction} ${label}: ${other}`).toHaveCount(0);
+    }
+    // a locked card answers with the research that opens it
+    const [type, label, tech] = list[0];
+    await cat(label);
+    await cardOf(type).click();
+    await expect(page.locator('#tech-screen')).toBeVisible();
+    const techName = (await g(page, 'getResearch')).cards[tech].name as string;
+    await expect(page.locator('#tech-sheet .sh-name')).toContainText(techName);
+    await page.keyboard.press('Escape');
+    // the tech done: the card opens
+    for (const [, , t] of list) await g(page, 'completeTech', t);
+    for (const [t, l] of list) { await cat(l); await expect(cardOf(t)).not.toHaveClass(/\blocked\b/); }
+  }
+  // a solo game: none of the six, in any tab
+  await boot(page, 'mare', 'human');
+  for (const label of ['Power', 'Extraction', 'Industry', 'Life', 'Science', 'Export']) {
+    await cat(label);
+    for (const b of ALL) await expect(cardOf(b), `solo ${label}: ${b}`).toHaveCount(0);
+  }
+});
+
+test('a faction page with its ⚑ FACTION row fits 1280×720: eight rows, no overlap, nothing off screen, no scroll', async ({ page }) => {
+  test.setTimeout(240_000);
+  for (const faction of ['solarpunks', 'robots']) {
+    await bootFaction(page, faction, { width: 1280, height: 720 });
+    // the pages with two branch techs are the crowded ones: Commons E7, Foundry E3 and E5
+    for (let p = 1; p <= 8; p++) {
+      if (p > 1) await page.keyboard.press('BracketRight');
+      await onPage(page, p);
+      const r = await fitReport(page);
+      const at = `${faction} E${p}`;
+      expect(r.overlaps, at).toEqual([]);
+      expect(r.outside, at).toEqual([]);
+      expect(r.offscreen, at).toEqual([]);
+      expect(r.clipped, at).toEqual([]);
+      expect(r.lanes, at).toBeLessThanOrEqual(8);
+      expect(r.scroll.every((d) => d <= 0), `${at} scroll overflow ${r.scroll}`).toBe(true);
+    }
+  }
+});

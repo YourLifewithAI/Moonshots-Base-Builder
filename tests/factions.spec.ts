@@ -84,9 +84,9 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
     expect(x.briefing, x.id).toBeLessThanOrEqual(3);
     expect(x.advantages, x.id).toBeGreaterThan(1);
     expect(x.disadvantages, x.id).toBeGreaterThan(1);
-    // S3 fills the unique content and S4 the policy: empty for now, typed and present
-    expect(x.uniqueBuildings).toEqual([]);
-    expect(x.uniqueTechs).toEqual([]);
+    // S3 filled the unique content (two buildings and an eight-tech branch each: tests/research.spec.ts reads them) and S4 the policy: empty for now, typed and present
+    expect(x.uniqueBuildings).toHaveLength(2);
+    expect(x.uniqueTechs).toHaveLength(8);
     expect(x.policy).toEqual({ research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, orders: [] });
     // the landing tech is the Era 1 faction pick, free, locked to its faction and its expedition
     expect(x.mapped).toBe(x.landingTech);

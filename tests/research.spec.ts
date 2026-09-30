@@ -791,3 +791,343 @@ test('insight: Regolith Shielding has a deed the flare-proof lava tube can meet'
   expect(hasAlert(r.s,
     /^INSIGHT — Regolith Shielding 40% cheaper: a machine wore out under the skylight — bury what the tube’s roof leaves open$/)).toBe(true);
 });
+
+// ───────────────────────────── the faction branches (docs/20 §3, stream S3) ─────────────────────────────
+
+/** each faction's eight techs, and where they sit (docs/20 §3: existing lanes and eras) */
+const BRANCH: Record<string, [string, number, string][]> = {
+  robots: [
+    ['nightVaultDocks', 2, 'power'], ['faradaySheds', 3, 'robotics'], ['hardenedFirmware', 3, 'compute'],
+    ['isotopeWarmers', 4, 'power'], ['bankTrenches', 5, 'power'], ['selfRepairCells', 5, 'robotics'],
+    ['lightsOutFoundry', 6, 'materials'], ['swarmRelayUplink', 7, 'export'],
+  ],
+  accelerationists: [
+    ['pressCorps', 1, 'compute'], ['crunchCulture', 2, 'compute'], ['hazardWaivers', 3, 'robotics'],
+    ['skunkworksLabs', 4, 'compute'], ['hearingPrep', 4, 'habitat'], ['ventureFoils', 5, 'materials'],
+    ['launchFever', 6, 'export'], ['mediaBlitz', 7, 'compute'],
+  ],
+  solarpunks: [
+    ['commonsCharter', 1, 'habitat'], ['mutualAidDrills', 2, 'habitat'], ['slowBuildDoctrine', 3, 'materials'],
+    ['regolithTerraces', 4, 'habitat'], ['consensusCouncil', 5, 'compute'], ['cooperativeSwarm', 6, 'export'],
+    ['guardianship', 7, 'exploration'], ['longNightGardens', 7, 'habitat'],
+  ],
+};
+const ALL_BRANCH = Object.values(BRANCH).flat().map(([t]) => t);
+/** the faction's own building, the tech that unlocks it */
+const FACTION_BUILDINGS: Record<string, [string, string][]> = {
+  robots: [['nightVault', 'nightVaultDocks'], ['faradayShed', 'faradaySheds']],
+  accelerationists: [['missionOps', 'pressCorps'], ['skunkworks', 'skunkworksLabs']],
+  solarpunks: [['commonsHall', 'commonsCharter'], ['regolithTerrace', 'regolithTerraces']],
+};
+
+async function startFaction(page: Page, faction: string, site?: string) {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
+  await page.evaluate(([f, s]) => {
+    const g = window.__game;
+    g.selectFaction(f, s ?? undefined);
+    g.setPaused(true); g.holdHazards(true); g.advanceGameSeconds(0);
+  }, [faction, site ?? null]);
+  await page.evaluate(POWERED);
+}
+
+test('branches: a faction base sees its eight techs and none of the other sixteen; a solo game sees none of the 24', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
+  const r = await page.evaluate(async (branch) => {
+    const g = window.__game!;
+    const F = await import('/src/data/factions.ts');
+    const seen = (): { visible: string[]; reasons: Record<string, string> } => {
+      const cards = g.getResearch().cards;
+      const all = Object.values(branch).flat() as string[];
+      return {
+        visible: all.filter((t) => cards[t].state !== 'hidden').sort(),
+        reasons: Object.fromEntries(all.filter((t) => cards[t].state === 'hidden').map((t) => [t, cards[t].reason])),
+      };
+    };
+    const out: Record<string, any> = {};
+    for (const f of F.FACTION_ORDER) {
+      g.selectFaction(f);
+      out[f] = seen();
+    }
+    g.selectSite('mare', 'human'); out.soloHuman = seen();
+    g.selectSite('mare', 'robotic'); out.soloRobotic = seen();
+    return { out, unique: Object.fromEntries(F.FACTION_ORDER.map((f: string) => [f, F.FACTIONS[f].uniqueTechs])) };
+  }, BRANCH);
+  const names: Record<string, string> = { robots: 'The Foundry', accelerationists: 'The Vanguard', solarpunks: 'The Commons' };
+  for (const f of Object.keys(BRANCH)) {
+    const mine = BRANCH[f].map(([t]) => t).sort();
+    expect(r.out[f].visible, `${f} sees its eight`).toEqual(mine);
+    // the other sixteen are hidden, each with the faction that owns it
+    const hidden = Object.keys(r.out[f].reasons).sort();
+    expect(hidden, `${f} is shown none of the others'`).toEqual(ALL_BRANCH.filter((t) => !mine.includes(t)).sort());
+    expect(hidden).toHaveLength(16);
+    for (const t of hidden) {
+      const owner = Object.keys(BRANCH).find((o) => BRANCH[o].some(([x]) => x === t))!;
+      expect(r.out[f].reasons[t], `${f}: ${t}`).toBe(`⚑ ${names[owner]} only`);
+    }
+    expect(r.unique[f], `${f}'s table lists its branch`).toEqual(BRANCH[f].map(([t]) => t));
+  }
+  for (const k of ['soloHuman', 'soloRobotic']) {
+    expect(r.out[k].visible, k).toEqual([]);
+    expect(Object.keys(r.out[k].reasons), k).toHaveLength(24);
+  }
+});
+
+test('branches: the data — era and lane as docs/20 lists them, priced with their neighbours, honest, reachable on every site', async ({ page }) => {
+  await start(page, 'mare');
+  const r = await page.evaluate(async (branch) => {
+    const T = await import('/src/data/techs.ts');
+    const S = await import('/src/data/sites.ts');
+    const F = await import('/src/data/factions.ts');
+    const audit = window.__game.auditTechs() as { id: string; pros: number; cons: number }[];
+    const median = (e: number) => {
+      const c = T.TECH_ORDER.filter((t: string) => T.TECHS[t].era === e && !T.TECHS[t].factions && !T.TECHS[t].track && !T.TECHS[t].band)
+        .map((t: string) => T.TECHS[t].costData).sort((a: number, b: number) => a - b);
+      return c[Math.floor(c.length / 2)];
+    };
+    const rows: any[] = [];
+    for (const f of Object.keys(branch)) {
+      const exp = F.FACTIONS[f].expedition;
+      /** a prerequisite the faction can always reach: no site lock, doctrine, breakthrough or other expedition; no crew tech on a robotic base */
+      const reachable = (t: string, seen = new Set<string>()): boolean => {
+        if (seen.has(t)) return true;
+        seen.add(t);
+        const d = T.TECHS[t];
+        if (d.sites || d.exclusive || d.breakthrough || d.band || (d.expeditions && !d.expeditions.includes(exp)) || (d.crewTech && exp === 'robotic')) return false;
+        if (d.factions && !d.factions.includes(f)) return false;
+        return [...d.requires, ...(d.requiresAny ?? [])].every((x: string) => reachable(x, seen));
+      };
+      for (const [t, era, lane] of branch[f] as [string, number, string][]) {
+        const d = T.TECHS[t];
+        const a = audit.find((x) => x.id === t)!;
+        rows.push({
+          t, f, era: d.era, wantEra: era, lane: d.lane, wantLane: lane, factions: d.factions,
+          ratio: d.costData / median(d.era), pros: a.pros, cons: a.cons,
+          visual: (d.visual ?? '').length > 20, tradeoff: (d.tradeoff ?? '').length > 10, desc: (d.desc ?? '').length > 30,
+          short: d.short.length, goodsOk: Object.values(d.costGoods ?? {}).every((v: any) => v > 0),
+          requires: d.requires.length, reachable: d.requires.every((x: string) => reachable(x)),
+          relevant: S.SITE_ORDER.every((site: string) => T.techRelevance(d, site, exp)),
+        });
+      }
+    }
+    return { rows, n: T.TECH_ORDER.length };
+  }, BRANCH);
+  expect(r.rows).toHaveLength(24);
+  for (const x of r.rows) {
+    expect(x.factions, x.t).toEqual([x.f]);
+    expect([x.era, x.lane], x.t).toEqual([x.wantEra, x.wantLane]);
+    // priced in line with its era's neighbours
+    expect(x.ratio, `${x.t} cost vs its era's median`).toBeGreaterThan(0.6);
+    expect(x.ratio, `${x.t} cost vs its era's median`).toBeLessThan(1.6);
+    expect(x.pros, `${x.t} pros`).toBeGreaterThanOrEqual(1);
+    expect(x.cons, `${x.t} cons (docs/01 pillar 1: everything has a con)`).toBeGreaterThanOrEqual(1);
+    expect(x.visual && x.tradeoff && x.desc, `${x.t} copy`).toBe(true);
+    expect(x.short, `${x.t} short`).toBeLessThanOrEqual(18);
+    expect(x.goodsOk).toBe(true);
+    expect(x.reachable, `${x.t} prerequisites are reachable on every site`).toBe(true);
+    expect(x.relevant, `${x.t} is relevant wherever it shows`).toBe(true);
+  }
+  expect(r.n).toBe(168);
+});
+
+test('ethos locks: Lights-Out Charter and Replicator Stacks are hidden from the Commons with the ethos text, and open to everyone else', async ({ page }) => {
+  await page.goto(`${URL_DEBUG}&site=mare`);
+  await page.waitForFunction(() => window.__game !== undefined && window.__game.getState() !== null);
+  const r = await page.evaluate(async () => {
+    const g = window.__game!;
+    const T = await import('/src/data/techs.ts');
+    const R = await import('/src/core/research.ts');
+    const read = () => Object.fromEntries(['lightsOutCharter', 'replicatorStacks', 'benchRobots', 'lowGCourt'].map((t) => {
+      const c = g.getResearch().cards[t]; return [t, [c.state, c.reason]];
+    }));
+    const out: Record<string, any> = {};
+    for (const f of ['robots', 'accelerationists', 'solarpunks']) { g.selectFaction(f); out[f] = read(); }
+    g.selectSite('mare', 'human'); out.solo = read();
+    // enqueue on the Commons says so
+    g.selectFaction('solarpunks');
+    g.setPaused(true);
+    g.research('lightsOutCharter'); g.advanceGameSeconds(1);
+    out.alerts = g.getState().alerts.map((a: any) => a.text);
+    out.queue = g.getState().researchQueue;
+    out.notFactions = { lightsOutCharter: T.TECHS.lightsOutCharter.notFactions, replicatorStacks: T.TECHS.replicatorStacks.notFactions };
+    out.hidden = R.techVisible(T.TECHS.lightsOutCharter, { siteId: 'mare', expedition: 'human', faction: 'solarpunks' });
+    out.shown = [undefined, 'robots', 'accelerationists'].map((f) => R.techVisible(T.TECHS.replicatorStacks, { siteId: 'mare', expedition: 'human', faction: f }));
+    return out;
+  });
+  expect(r.notFactions).toEqual({ lightsOutCharter: ['solarpunks'], replicatorStacks: ['solarpunks'] });
+  for (const t of ['lightsOutCharter', 'replicatorStacks']) {
+    expect(r.solarpunks[t], t).toEqual(['hidden', '⚑ not open to The Commons']);
+    for (const f of ['robots', 'accelerationists', 'solo']) expect(r[f][t][0], `${f} ${t}`).not.toBe('hidden');
+  }
+  // the human-only techs stay human-only (both human factions), the Foundry's crew techs stay behind Cohabitation
+  expect(r.robots.lowGCourt[0]).toBe('hidden');
+  expect(r.accelerationists.lowGCourt[0]).not.toBe('hidden');
+  expect(r.solarpunks.lowGCourt[0]).not.toBe('hidden');
+  expect(r.hidden).toBe(false);
+  expect(r.shown).toEqual([true, true, true]);
+  expect(r.queue).toEqual([]);
+  expect(r.alerts.some((a: string) => /NOT AVAILABLE HERE — Lights-Out Charter: ⚑ not open to The Commons/.test(a))).toBe(true);
+});
+
+test('branch effects: Isotope Warmers replaces the night output (never ×0.125), Bank Trenches restores 85%, the rest reach the mods', async ({ page }) => {
+  await start(page, 'mare');
+  const r = await page.evaluate(async () => {
+    const M = await import('/src/core/mods.ts');
+    const S = await import('/src/data/sites.ts');
+    const mods = (faction: string, exp: 'robotic' | 'human', techs: string[], site = 'mare') => M.computeMods(techs, exp, site, [], faction);
+    const land = { robots: 'landingFoundry', accelerationists: 'landingVanguard', solarpunks: 'landingCommons' } as Record<string, string>;
+    const f = (x: number) => Math.round(x * 1e6) / 1e6;
+    const foundry = (...t: string[]) => mods('robots', 'robotic', [land.robots, ...t]);
+    const rates = (type: string, m: any, opts: object) => M.effectiveRates(type, m, S.SITES.mare, undefined, opts);
+    const solo = M.computeMods(['landingRobotic'], 'robotic', 'mare', [], undefined);
+    const vg = (...t: string[]) => mods('accelerationists', 'human', [land.accelerationists, ...t]);
+    const cm = (...t: string[]) => mods('solarpunks', 'human', [land.solarpunks, ...t]);
+    const lonely = foundry('lightsOutFoundry');
+    return {
+      landing: [foundry().nightOutputMult, foundry().storageEff, foundry().machineFlareMult],
+      warmers: [foundry('isotopeWarmers').nightOutputMult, M.computeMods(['isotopeWarmers', land.robots], 'robotic', 'mare', [], 'robots').nightOutputMult],
+      trenches: [foundry('isotopeWarmers', 'bankTrenches').storageEff, foundry('isotopeWarmers', 'bankTrenches').nightOutputMult, foundry('bankTrenches').bankDischargeMult, foundry('bankTrenches').buildTimeMult.battery],
+      firmware: f(foundry('hardenedFirmware').machineFlareMult),
+      repair: f(foundry('selfRepairCells').repairMult),
+      relay: [foundry('swarmRelayUplink').volleyCap, solo.volleyCap],
+      unmanned: {
+        agent: f(rates('foilFactory', lonely, { agentRun: true }).outputs.foils / rates('foilFactory', foundry(), { agentRun: true }).outputs.foils),
+        crewed: f(rates('foilFactory', lonely, { agentRun: false }).outputs.foils / rates('foilFactory', foundry(), { agentRun: false }).outputs.foils),
+      },
+      vanguard: {
+        base: [vg().scrutiny, vg().scrutinyDecayMult, vg().scrutinyRecallMult, vg().firstLightClearsScrutiny, vg().firstLightMorale],
+        tuned: [vg('pressCorps', 'hearingPrep', 'mediaBlitz').scrutiny, vg('pressCorps').scrutinyDecayMult, vg('hearingPrep').scrutinyRecallMult, vg('mediaBlitz').firstLightClearsScrutiny, vg('mediaBlitz').firstLightMorale],
+        crunch: [vg('crunchCulture').moraleBase, f(vg('crunchCulture').outputMult.lab / vg().outputMult.lab)],
+        waivers: [f(vg('hazardWaivers').buildSpeedMult / vg().buildSpeedMult), f(vg('hazardWaivers').hazardRateMult / vg().hazardRateMult)],
+        venture: [f(vg('ventureFoils').outputMult.foilFactory), f(vg('ventureFoils').upkeepMult.foilFactory)],
+        fever: [vg('launchFever').volleyCap, vg('launchFever').moraleBase - vg().moraleBase],
+      },
+      commons: {
+        charter: cm('commonsCharter').moraleBase - cm().moraleBase,
+        drills: [f(cm('mutualAidDrills').hazardRateMult / cm().hazardRateMult), cm('mutualAidDrills').crewedOutputMult.smelter],
+        slow: [f(cm('slowBuildDoctrine').buildSpeedMult / cm().buildSpeedMult), f(cm('slowBuildDoctrine').upkeepMult.solar / cm().upkeepMult.solar)],
+        council: [cm('consensusCouncil').builderDwellMult, cm('consensusCouncil').crewDelta.lab],
+        swarm: [cm('cooperativeSwarm').volleyFoilsMult, cm().volleyFoilsMult],
+        guard: cm('guardianship').rivalAidData,
+        night: {
+          day: f(rates('greenhouseRing', cm('longNightGardens'), { isNight: false }).outputs.food / rates('greenhouseRing', cm(), { isNight: false }).outputs.food),
+          night: f(rates('greenhouseRing', cm('longNightGardens'), { isNight: true }).outputs.food / rates('greenhouseRing', cm(), { isNight: true }).outputs.food),
+        },
+      },
+      soloNeutral: [solo.nightOutputMult, solo.volleyFoilsMult, solo.scrutinyDecayMult, solo.rivalAidData, solo.agentOutputMult.foilFactory, solo.nightBuildingMult.greenhouseRing],
+    };
+  });
+  // the Foundry's landing, then Isotope Warmers raise its night output from 0.25 to 0.5 — in either order — and never multiply (0.125)
+  expect(r.landing).toEqual([0.25, 0.75, 1.75]);
+  expect(r.warmers).toEqual([0.5, 0.5]);
+  // Bank Trenches restores the 0.85 the landing took to 0.75; the rest of the night penalty (discharge ×1.25) stays
+  expect(r.trenches).toEqual([0.85, 0.5, 1.25, 1.3]);
+  expect(r.firmware).toBe(0.875);
+  expect(r.repair).toBe(1.3);
+  expect(r.relay).toEqual([2, 3]);
+  expect(r.unmanned).toEqual({ agent: 1.2, crewed: 1 });
+  expect(r.vanguard.base).toEqual([true, 1, 1, false, 0]);
+  expect(r.vanguard.tuned).toEqual([true, 1.5, 0.5, true, 10]);
+  expect(r.vanguard.crunch).toEqual([-13, 1.15]);
+  expect(r.vanguard.waivers).toEqual([0.85, 1.2]);
+  expect(r.vanguard.venture).toEqual([1.25, 1.5]);
+  expect(r.vanguard.fever).toEqual([2, -5]);
+  expect(r.commons.charter).toBe(6);
+  expect(r.commons.drills).toEqual([0.8, 0.95]);
+  expect(r.commons.slow).toEqual([1.15, 0.7]);
+  expect(r.commons.council).toEqual([0.8, 1]);
+  expect(r.commons.swarm).toEqual([0.9, 1]);
+  expect(r.commons.guard).toBe(120);
+  expect(r.commons.night).toEqual({ day: 1, night: 1.2 });
+  expect(r.soloNeutral).toEqual([1, 1, 1, 0, 1, 1]);
+});
+
+test('faction buildings: placeable only after their tech, only for their faction — never in a solo game — and their numbers run', async ({ page }) => {
+  await start(page, 'mare');
+  const solo = await page.evaluate(async (list) => {
+    const g = window.__game!;
+    g.grantResources({ metals: 5000, parts: 2000, silicon: 500, water: 500 });
+    const place = (t: string) => {
+      for (let r = 4; r < 40; r++) for (let dx = -r; dx <= r; dx += 2) for (const [x, z] of [[127 + dx, 127 - r], [127 + dx, 127 + r], [127 - r, 127 + dx], [127 + r, 127 + dx]]) if (g.placeBuilding(t, x, z)) return true;
+      return false;
+    };
+    const out: Record<string, boolean> = {};
+    // even the debug completion leaves a branch tech alone on a base that cannot research it
+    for (const [, tech] of (list as [string, string][][]).flat()) g.completeTech(tech);
+    for (const [b] of (list as [string, string][][]).flat()) out[b] = place(b);
+    return { placed: out, done: g.getState().techsDone.filter((t: string) => (list as [string, string][][]).flat().some(([, x]) => x === t)) };
+  }, Object.values(FACTION_BUILDINGS));
+  expect(Object.values(solo.placed).some(Boolean), 'a solo game places none of them').toBe(false);
+  expect(solo.done).toEqual([]);
+
+  for (const f of Object.keys(FACTION_BUILDINGS)) {
+    await startFaction(page, f);
+    const r = await page.evaluate(async ([faction, mine, others]) => {
+      const g = window.__game!;
+      g.grantResources({ metals: 5000, parts: 2000, silicon: 500, water: 500 });
+      const place = (t: string) => {
+        for (let r = 4; r < 40; r++) for (let dx = -r; dx <= r; dx += 2) for (const [x, z] of [[127 + dx, 127 - r], [127 + dx, 127 + r], [127 - r, 127 + dx], [127 + r, 127 + dx]]) if (g.placeBuilding(t, x, z)) return true;
+        return false;
+      };
+      const B = await import('/src/data/buildings.ts');
+      const F = await import('/src/data/factions.ts');
+      const before: Record<string, boolean> = {}, after: Record<string, boolean> = {}, foreign: Record<string, boolean> = {};
+      for (const [b] of mine as [string, string][]) before[b] = place(b);
+      for (const [, tech] of mine as [string, string][]) g.completeTech(tech);
+      for (const [b] of mine as [string, string][]) after[b] = place(b);
+      // another faction's tech cannot be completed here, so its buildings stay locked
+      for (const [, tech] of others as [string, string][]) g.completeTech(tech);
+      for (const [b] of others as [string, string][]) foreign[b] = place(b);
+      const s = g.getState();
+      return {
+        before, after, foreign, done: (mine as [string, string][]).every(([, t]) => s.techsDone.includes(t)),
+        otherDone: (others as [string, string][]).some(([, t]) => s.techsDone.includes(t)),
+        tagged: (mine as [string, string][]).map(([b]) => [B.BUILDINGS[b].faction, F.factionOfBuilding(b)]),
+        unique: F.FACTIONS[faction as string].uniqueBuildings,
+      };
+    }, [f, FACTION_BUILDINGS[f], Object.entries(FACTION_BUILDINGS).filter(([o]) => o !== f).flatMap(([, v]) => v)] as const);
+    const mine = FACTION_BUILDINGS[f].map(([b]) => b);
+    expect(Object.values(r.before), `${f} before its tech`).toEqual([false, false]);
+    expect(Object.values(r.after), `${f} after its tech`).toEqual([true, true]);
+    expect(Object.values(r.foreign).some(Boolean), `${f} places none of the others'`).toBe(false);
+    expect(r.done).toBe(true);
+    expect(r.otherDone).toBe(false);
+    expect(r.tagged).toEqual([[f, f], [f, f]]);
+    expect(r.unique).toEqual(mine);
+  }
+
+  // the numbers the economy runs on
+  const n = await page.evaluate(async () => {
+    const M = await import('/src/core/mods.ts');
+    const S = await import('/src/data/sites.ts');
+    const B = await import('/src/data/buildings.ts');
+    const vg = M.computeMods(['landingVanguard', 'skunkworksLabs'], 'human', 'mare', [], 'accelerationists');
+    const cm = M.computeMods(['landingCommons', 'commonsCharter', 'regolithTerraces'], 'human', 'mare', [], 'solarpunks');
+    const site = S.SITES.mare;
+    const rate = (t: string, m: any, o: object = {}) => M.effectiveRates(t, m, site, undefined, o);
+    const crewed = { agentRun: false, workMult: 1 };
+    return {
+      skunk: rate('skunkworks', vg, crewed).data / rate('lab', vg, crewed).data,
+      skunkAgent: rate('skunkworks', vg, { agentRun: true, robotic: false }).data / rate('lab', vg, { agentRun: true, robotic: false }).data,
+      lab: rate('lab', vg, crewed).data,
+      isLab: [B.isLab('lab'), B.isLab('skunkworks'), B.isLab('dataCenter')],
+      hall: [M.effectiveDef('commonsHall', cm).moraleDelta, M.effectiveDef('commonsHall', cm).crew],
+      terrace: { day: rate('regolithTerrace', cm, { isNight: false }), night: rate('regolithTerrace', cm, { isNight: true }), farm: rate('hydroponics', cm, { isNight: false }) },
+      crews: ['nightVault', 'faradayShed'].map((t) => B.BUILDINGS[t].crew),
+      order: ['nightVault', 'faradayShed', 'missionOps', 'skunkworks', 'commonsHall', 'regolithTerrace'].every((t) => B.BUILD_ORDER.includes(t)),
+    };
+  });
+  expect(n.skunk, 'a Skunkworks makes twice a Research Lab’s data').toBeCloseTo(2, 6);
+  expect(n.skunkAgent).toBeCloseTo(2, 6);
+  expect(n.lab).toBeGreaterThan(0);
+  expect(n.isLab).toEqual([true, true, false]);
+  expect(n.hall).toEqual([8, 0]);
+  // the terrace: slow food (a third of a farm's), a little morale, nothing drawn by day or night
+  expect(n.terrace.day.outputs.food).toBeGreaterThan(0);
+  expect(n.terrace.day.outputs.food).toBeLessThan(n.terrace.farm.outputs.food / 2);
+  expect(n.terrace.day.powerKW).toBe(0);
+  expect(n.terrace.night.powerKW).toBe(0);
+  expect(n.crews, 'the Foundry’s buildings need no crew').toEqual([0, 0]);
+  expect(n.order).toBe(true);
+});
