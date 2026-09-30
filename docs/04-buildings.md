@@ -235,6 +235,12 @@ of each era's destiny pick (the landing is Era 1's) and one capstone.
 | Greenhouse Ring | 1,952 | 2,048 | 2 |
 | Garden Dome | 2,156 | 2,252 | 1 |
 | Server Monolith | 516 | 768 | 4 |
+| Night Vault | 24 | 24 | 0 |
+| Faraday Shed | 24 | 24 | 0 |
+| Mission Ops | 24 | 24 | 0 |
+| Skunkworks | 24 | 24 | 0 |
+| Commons Hall | 24 | 24 | 0 |
+| Regolith Terrace | 24 | 24 | 0 |
 | Regolith Excavator | 1,060 | 2,568 | 14 |
 | Ice Miner | 1,184 | 1,568 | 4 |
 

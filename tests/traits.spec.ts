@@ -695,3 +695,220 @@ test('solo is untouched: neutral mods, no scrutiny state, and a rotation with no
   }
   expect(r.human.rotation).toBeNull();
 });
+
+// ───────────────────────────────── S3's branch techs and the real faction buildings ─────────────────────────────────
+
+/** in-page: one building of a type near the Lander, finished; its id (-1: no room) */
+const PLACE = `window.placeReal = (type, r0 = 4) => {
+  const g = window.__game;
+  g.grantResources({ metals: 800, parts: 400, silicon: 200, chips: 60 });
+  for (let r = r0; r < 40; r++) for (let dx = -r; dx <= r; dx += 2) {
+    for (const [x, z] of [[127 + dx, 127 - r], [127 + dx, 127 + r], [127 - r, 127 + dx], [127 + r, 127 + dx]]) {
+      if (g.placeBuilding(type, x, z, 0)) { g.finishConstruction(); const s = g.getState(); return s.buildings[s.buildings.length - 1].id; }
+    }
+  }
+  return -1;
+};`;
+
+test('Press Corps ×1.5 and a really built Mission Ops ×2 stack on the meter’s decay (×1, ×1.5, ×3); Hearing Prep halves the recall and the last crew member is never recalled; your own hearing is one card, not two', async ({ page }) => {
+  test.setTimeout(180_000);
+  await boot(page);
+  const r = await page.evaluate(async (place) => {
+    const g = window.__game;
+    (0, eval)(place);
+    g.selectFaction('accelerationists', 'southpole');
+    g.setPaused(true); g.holdHazards(true); g.openRoads(true); g.instantTravel(true);
+    g.advanceGameSeconds(1);
+    const sc = () => g.getScrutiny();
+    const feed = () => g.grantResources({ oxygen: 900, water: 900, food: 900 });
+    /** the points the meter loses in 360 s from 30 */
+    const decay = () => {
+      g.addScrutiny(30 - sc().state.value);
+      const a = sc().state.value;
+      feed(); g.grantPower(9999);
+      g.advanceGameSeconds(360);
+      return a - sc().state.value;
+    };
+    const out: any = {};
+    out.plain = decay();
+    g.completeTech('pressCorps');
+    out.press = decay();
+    out.pressView = sc().view.decayPerDay;
+    out.ops = window.placeReal('missionOps');
+    out.both = decay();
+    out.bothView = { perDay: sc().view.decayPerDay, missionOps: sc().view.missionOps };
+    // Hearing Prep: a quarter of the crew rounded up (2 of 7) was 2; halved it is 1
+    g.completeTech('hearingPrep');
+    const crew = g.getState().crew;
+    g.addScrutiny(100);
+    g.advanceGameSeconds(3);
+    const s = g.getState();
+    out.hearing = {
+      crew0: crew, crew: s.crew, rotation: s.crewRotation, value: sc().state.value,
+      alerts: s.alerts.filter((a: any) => /^HEARINGS — /.test(a.text)).map((a: any) => [a.family, a.text]),
+      race: s.log.filter((e: any) => e.family === 'race' && /BEFORE CONGRESS/.test(e.text)).length,
+      hazardLog: s.log.filter((e: any) => e.family === 'hazard' && /^HEARINGS — /.test(e.text)).length,
+      feed: g.getMoon().feed.filter((e: any) => e.kind === 'hearing').map((e: any) => [e.n, e.text]),
+    };
+    // the last crew member is never recalled, with or without the tech
+    g.selectFaction('accelerationists', 'southpole');
+    g.setPaused(true); g.holdHazards(true); g.advanceGameSeconds(1);
+    g.completeTech('hearingPrep');
+    g.killCrew(6);
+    g.advanceGameSeconds(2);
+    const t = g.getState();
+    out.last = { crew: t.crew, rotation: t.crewRotation, alert: t.alerts.some((a: any) => /nobody can be spared to go/.test(a.text)) };
+    return out;
+  }, PLACE);
+  expect(r.plain).toBeCloseTo(2.5, 6);            // 5 points a lunar day
+  expect(r.press).toBeCloseTo(3.75, 6);           // Press Corps ×1.5
+  expect(r.pressView).toBeCloseTo(7.5, 6);
+  expect(r.ops).toBeGreaterThan(0);
+  expect(r.both).toBeCloseTo(7.5, 6);             // a standing Mission Ops ×2 on top: ×3
+  expect(r.bothView.perDay).toBeCloseTo(15, 6);
+  expect(r.bothView.missionOps).toBe(true);
+  // seven (or eight, once a settler has come): a quarter rounded up was 2; halved it is 1
+  expect(r.hearing.crew0).toBeGreaterThanOrEqual(7);
+  expect(r.hearing.crew0).toBeLessThanOrEqual(8);
+  expect(r.hearing.crew).toBe(r.hearing.crew0 - 1);
+  expect(r.hearing.rotation).toMatchObject({ count: 1, recall: true });
+  expect(r.hearing.value).toBeLessThan(40.1);
+  // one card for your own hearing: the hazard-family alert on the base, no race-family duplicate (S1's feed handler skips your own)
+  expect(r.hearing.alerts).toHaveLength(1);
+  expect(r.hearing.alerts[0][0]).toBe('hazard');
+  expect(r.hearing.alerts[0][1]).toMatch(/1 crew member recalled to Earth/);
+  expect(r.hearing.race).toBe(0);
+  expect(r.hearing.feed).toEqual([[1, 'THE VANGUARD BEFORE CONGRESS — 1 crew member recalled']]);
+  expect(r.last.crew).toBe(1);
+  expect(r.last.rotation).toBeNull();
+  expect(r.last.alert).toBe(true);
+});
+
+test('Media Blitz: the first volley clears the meter and lifts morale for a lunar day; nothing without the tech, and only the first volley counts', async ({ page }) => {
+  test.setTimeout(180_000);
+  await boot(page);
+  const r = await page.evaluate(async () => {
+    const g = window.__game;
+    const run = (blitz: boolean) => {
+      g.selectFaction('accelerationists', 'southpole');
+      g.setPaused(true); g.holdHazards(true); g.advanceGameSeconds(1);
+      g.completeTech('swarmProtocol');
+      if (blitz) g.completeTech('mediaBlitz');
+      g.grantResources({ foils: 100, launch: 20, oxygen: 900, water: 900, food: 900 });
+      g.grantPower(9999);
+      g.addScrutiny(60);
+      const before = g.getScrutiny().state.value;
+      g.launch();
+      g.advanceGameSeconds(1);
+      const s = g.getState();
+      const a = { launches: s.launches, before, value: g.getScrutiny().state.value, until: g.getScrutiny().state.moraleUntil ?? null, now: s.simTime,
+        alert: s.alerts.some((x: any) => /^FIRST LIGHT — /.test(x.text)) };
+      for (let i = 0; i < 12; i++) { feedUp(); g.advanceGameSeconds(10); }
+      // a second volley clears nothing
+      g.addScrutiny(40);
+      const v2 = g.getScrutiny().state.value;
+      g.grantResources({ foils: 100, launch: 20 });
+      g.launch();
+      g.advanceGameSeconds(1);
+      return { ...a, morale: g.getState().morale, second: { before: v2, after: g.getScrutiny().state.value, launches: g.getState().launches } };
+    };
+    const feedUp = () => { g.grantResources({ oxygen: 900, water: 900, food: 900 }); g.grantPower(9999); };
+    return { control: run(false), blitz: run(true) };
+  });
+  expect(r.control.launches).toBe(1);
+  expect(r.control.before).toBeGreaterThan(59);
+  expect(r.control.value).toBeGreaterThan(58);     // nothing cleared
+  expect(r.control.until).toBeNull();
+  expect(r.control.alert).toBe(false);
+  expect(r.blitz.launches).toBe(1);
+  expect(r.blitz.value).toBe(0);
+  expect(r.blitz.until).toBeGreaterThan(r.blitz.now + 700);
+  expect(r.blitz.until).toBeLessThanOrEqual(r.blitz.now + 721);
+  expect(r.blitz.alert).toBe(true);
+  // +10 to the morale target for the day: two minutes on, the crew is happier than the control's
+  expect(r.blitz.morale - r.control.morale).toBeGreaterThan(1);
+  // the second volley is not a first light: the 40 just added stays (less a few seconds' decay)
+  expect(r.blitz.second.launches).toBe(2);
+  expect(r.blitz.second.after).toBeGreaterThan(r.blitz.second.before - 1);
+});
+
+test('the real Faraday Shed covers machines within 40 m (×0.4 flare odds) and the real Night Vault halves a docked unit’s night charge; neither exists before its tech', async ({ page }) => {
+  test.setTimeout(180_000);
+  await boot(page);
+  const r = await page.evaluate(async (helpers) => {
+    const g = window.__game;
+    (0, eval)(helpers);
+    const Sc = await import('/src/core/scrutiny.ts');
+    const Fe = await import('/src/core/flareEffects.ts');
+    const M = await import('/src/core/mods.ts');
+    const S = await import('/src/data/sites.ts');
+    const I = await import('/src/buildings/instances.ts');
+    const out: any = {};
+    // ── the shed: a real placed building on a Foundry base ──
+    g.selectFaction('robots', 'mare');
+    g.setPaused(true); g.holdHazards(true); g.advanceGameSeconds(1);
+    out.before = { placed: window.fx.place('faradayShed') };
+    g.completeTech('faradaySheds');
+    const id = window.fx.place('faradayShed', 4, false);
+    const base = g.getState();
+    const unfinished = Sc.shedCover(base);
+    g.finishConstruction();
+    const live = g.getState();
+    const shed = live.buildings.find((b: any) => b.id === id);
+    const [cx, cz] = I.centerOf(shed);
+    const cover = Sc.shedCover(live)!;
+    out.shed = { id, unfinished, near: cover(cx + 39, cz), far: cover(cx + 41, cz) };
+    // a rover at an M: on a Foundry (×1.75) a draw of 0.3..0.38 reboots it in the open (0.7) and spares it under the shed (0.28)
+    const mods = M.modsFor(live);
+    const rid = live.rovers[0].id;
+    let n = -1;
+    for (let i = 3; i < 6000 && n < 0; i++) { const u = window.fx.draw(i, rid); if (u > 0.3 && u < 0.38) n = i; }
+    const rebooted = (withShed: boolean) => {
+      const s = JSON.parse(JSON.stringify(live));
+      if (!withShed) s.buildings = s.buildings.filter((b: any) => b.id !== id);
+      s.flare = { ...s.flare, phase: 'active', cls: 'M', n, activeAt: s.simTime, drawn: true, drill: false, tally: { rebooted: 0, latched: 0, lost: 0 } };
+      s.rovers = s.rovers.slice(0, 1);
+      s.haulers = [];
+      s.rovers[0].x = cx; s.rovers[0].z = cz; s.rovers[0].site = 1;
+      delete s.rovers[0].rebootUntil;
+      Fe.drawMachines(s, S.SITES.mare, mods, 'flash');
+      return (s.rovers[0].rebootUntil ?? 0) > s.simTime;
+    };
+    out.flare = { n, mult: mods.machineFlareMult, open: rebooted(false), underShed: rebooted(true) };
+    // ── the vault: a docked unit's night charge, with and without a real Night Vault ──
+    const charge = (vault: boolean) => {
+      g.selectFaction('robots', 'mare');
+      g.setPaused(true); g.holdHazards(true); g.advanceGameSeconds(1);
+      g.grantPower(9999);
+      let ok = -2;
+      if (vault) { g.completeTech('nightVaultDocks'); ok = window.fx.place('nightVault'); }
+      for (let i = 0; i < 200 && !g.getState().wasNight; i++) { g.grantPower(9999); g.advanceGameSeconds(10); }
+      const s = g.getState();
+      for (const rv of s.rovers) g.setCharge('rover', rv.id, 0);
+      g.grantPower(9999);
+      g.advanceGameSeconds(1);
+      const t = g.getState();
+      return { ok, night: t.wasNight, standing: Sc.nightVaultStanding(t), charges: t.rovers.map((x: any) => x.charge) };
+    };
+    out.awake = charge(false);
+    out.asleep = charge(true);
+    return out;
+  }, HELPERS);
+  expect(r.before.placed).toBe(-1);                 // no shed before the tech
+  expect(r.shed.id).toBeGreaterThan(0);
+  expect(r.shed.unfinished).toBeNull();             // a building still under construction does not stand
+  expect(r.shed.near).toBe(0.4);
+  expect(r.shed.far).toBe(1);
+  expect(r.flare.mult).toBe(1.75);
+  expect(r.flare.open).toBe(true);
+  expect(r.flare.underShed).toBe(false);
+  expect(r.awake.night).toBe(true);
+  expect(r.awake.standing).toBe(false);
+  expect(r.asleep.ok).toBeGreaterThan(0);
+  expect(r.asleep.standing).toBe(true);
+  expect(r.awake.charges.length).toBeGreaterThan(0);
+  for (let i = 0; i < r.awake.charges.length; i++) {
+    expect(r.awake.charges[i]).toBeGreaterThan(0);
+    expect(r.asleep.charges[i] / r.awake.charges[i]).toBeCloseTo(0.5, 6);
+  }
+});

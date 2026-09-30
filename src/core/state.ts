@@ -965,6 +965,8 @@ export interface ScrutinyState {
   tier?: 0 | 1 | 2;
   hearingsUntil: number;
   lastHearingAt: number;
+  /** Media Blitz (docs/20 S3): FIRST LIGHT lifted morale by `mods.firstLightMorale` until this second */
+  moraleUntil?: number;
   log: { at: number; text: string; value: number }[];
 }
 /** crew with no bed breathing suit air, from `from` */

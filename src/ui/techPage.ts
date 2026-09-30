@@ -18,6 +18,11 @@ export const isCapstone = (tid: TechId) => TECHS[tid].effects.some((fx) => fx.ki
 export const onBoard = (c: ResearchCard) => !c.track && (isVisible(c) || isPlaceholder(c));
 /** the key of the Era 8 destiny-capstone placeholder (no band settled yet) */
 export const DESTINY_PH: TechId = CAPSTONES.colony;
+/** a faction's own tech (docs/20 §3): it keeps its lane's era, cost multiplier and prerequisites, but is drawn in the page's
+ *  ⚑ FACTION row; techVisible already hides every other faction's (and every solo game's) */
+export const isFactionTech = (tid: TechId) => !!TECHS[tid].factions;
+/** the row's key, label and hover text (the lanes' own come from data/techs LANES) */
+export const FACTION_ROW = { key: 'faction', label: '⚑ FACTION', holds: 'the techs only your faction has: each keeps its lane’s price' } as const;
 
 /** geometry (px): the lane-label column, a card, a compact card and the gutter */
 export const GEO = { lw: 116, cw: 204, compactW: 140, gap: 8 } as const;
@@ -97,10 +102,13 @@ export function computePageLayout(v: ResearchView, era: Era, maxWidth = Infinity
   // Era 8 capstone column) make the SWARM block: steps, capstone, purpose
   const groups: { key: string; lane: Lane | null; label: string; holds: string; list: ResearchCard[] }[] = [];
   for (const lane of LANE_ORDER) {
-    const list = cards.filter((c) => c.lane === lane);
+    const list = cards.filter((c) => c.lane === lane && !isFactionTech(c.tid));
     const d = LANES.find((l) => l.id === lane)!;
     if (list.length) groups.push({ key: lane, lane, label: d.label, holds: d.holds, list });
   }
+  // the ⚑ FACTION row follows the lanes: this era's techs of the state's faction (none in a solo game)
+  const factionCards = cards.filter((c) => isFactionTech(c.tid) && isVisible(c));
+  if (factionCards.length) groups.push({ key: FACTION_ROW.key, lane: null, label: FACTION_ROW.label, holds: FACTION_ROW.holds, list: factionCards });
   const free = cards.filter((c) => !c.lane);
   const steps = free.filter((c) => !c.doctrine && !isCapstone(c.tid) && !c.band);
   const caps = free.filter((c) => !c.doctrine && isCapstone(c.tid));

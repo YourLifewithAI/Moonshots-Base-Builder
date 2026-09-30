@@ -64,9 +64,10 @@ export function scrutinyAdd(s: GameState, amount: number, why: string): void {
   if (sc.log.length > SCRUTINY.logMax) sc.log.splice(0, sc.log.length - SCRUTINY.logMax);
 }
 
-/** What the meter takes off a second: SCRUTINY.decayPerDay a lunar day, ×2 with a standing Mission Ops. */
-export function decayPerSecond(s: Pick<GameState, 'buildings'>): number {
-  return (SCRUTINY.decayPerDay / CYCLE_S) * (countOf(s, 'missionOps') > 0 ? SCRUTINY.missionOpsDecay : 1);
+/** What the meter takes off a second: SCRUTINY.decayPerDay a lunar day, ×2 with a standing Mission Ops, and × Press Corps'
+ *  `mods.scrutinyDecayMult` (1.5; it stacks with the Mission Ops: ×3 with both; ×1 where no tech tunes it). */
+export function decayPerSecond(s: Pick<GameState, 'buildings'>, mods?: Partial<Pick<Mods, 'scrutinyDecayMult'>>): number {
+  return (SCRUTINY.decayPerDay / CYCLE_S) * (countOf(s, 'missionOps') > 0 ? SCRUTINY.missionOpsDecay : 1) * (mods?.scrutinyDecayMult ?? 1);
 }
 
 /** The penalties at this meter: crewed stations' outputs × and research data ×, or null below the threshold (and with
@@ -99,15 +100,17 @@ export function scrutinyTick(s: GameState, mods: Mods, dt: number): void {
         'warn', { panel: 'crew' });
     }
   }
-  if (due) hearing(s, sc, name);
+  if (due) hearing(s, sc, name, mods);
   sc.tier = tier(sc.value);
-  if (sc.value > 0) sc.value = Math.max(0, sc.value - decayPerSecond(s) * dt);
+  if (sc.value > 0) sc.value = Math.max(0, sc.value - decayPerSecond(s, mods) * dt);
 }
 
-/** HEARINGS: a quarter of the crew (rounded up; one always stays) goes to Earth for two lunar days, the meter drops to 40. */
-function hearing(s: GameState, sc: ScrutinyState, name: string): void {
+/** HEARINGS: a quarter of the crew (rounded up; one always stays: the last crew member is never recalled) goes to Earth for
+ *  two lunar days, the meter drops to 40. Hearing Prep (`mods.scrutinyRecallMult`, 0.5) halves the share. */
+function hearing(s: GameState, sc: ScrutinyState, name: string, mods?: Partial<Pick<Mods, 'scrutinyRecallMult'>>): void {
   const now = s.simTime;
-  const n = Math.min(Math.ceil(s.crew * SCRUTINY.recallShare), Math.max(0, s.crew - 1));
+  const recallMult = mods?.scrutinyRecallMult ?? 1;
+  const n = Math.min(Math.ceil(s.crew * SCRUTINY.recallShare * recallMult), Math.max(0, s.crew - 1));
   const days = SCRUTINY.recallDays;
   sc.lastHearingAt = now;
   sc.value = SCRUTINY.hearingTo;
@@ -126,8 +129,30 @@ function hearing(s: GameState, sc: ScrutinyState, name: string): void {
     'crit', { panel: 'crew' });
   const moon = moonOf(s);
   if (moon) {
-    pushFeed(moon, { faction: s.faction ?? 'accelerationists', kind: 'hearing', text: `${name} BEFORE CONGRESS — a quarter of the crew recalled`, n });
+    const what = recallMult === 1 ? 'a quarter of the crew recalled' : `${plural(n, 'crew member')} recalled`;
+    pushFeed(moon, { faction: s.faction ?? 'accelerationists', kind: 'hearing', text: `${name} BEFORE CONGRESS — ${what}`, n });
   }
+}
+
+/** FIRST LIGHT (economy.launchVolley, the base's first volley; docs/20 S3's Media Blitz): clears the meter and lifts morale
+ *  by `mods.firstLightMorale` for a lunar day (economy's morale target reads `moraleUntil`). Nothing where no tech asks for
+ *  either (every solo game, every other faction), and nothing on a base with no meter. fs6 extends it for the race. */
+export function onFirstLight(s: GameState, mods: Pick<Mods, 'scrutiny' | 'firstLightClearsScrutiny' | 'firstLightMorale'>): void {
+  const sc = s.scrutiny;
+  if (!mods.scrutiny || !sc) return;
+  const said: string[] = [];
+  if (mods.firstLightClearsScrutiny && sc.value > 0) {
+    sc.value = 0;
+    sc.tier = 0;
+    sc.log.push({ at: s.simTime, text: 'FIRST LIGHT', value: 0 });
+    if (sc.log.length > SCRUTINY.logMax) sc.log.splice(0, sc.log.length - SCRUTINY.logMax);
+    said.push('the scrutiny meter is cleared');
+  }
+  if (mods.firstLightMorale > 0) {
+    sc.moraleUntil = s.simTime + CYCLE_S;
+    said.push(`+${mods.firstLightMorale} morale for a lunar day`);
+  }
+  if (said.length) alert(s, `FIRST LIGHT — the press is at the window: ${said.join(', ')}`, 'info', { panel: 'crew' });
 }
 
 // ─────────────────────────── what the UI reads ───────────────────────────
@@ -151,12 +176,12 @@ export interface ScrutinyView {
 }
 
 /** The meter for the info panel and the tests; null where none runs (no `mods`: where none has been created). */
-export function scrutinyView(s: GameState, mods?: Pick<Mods, 'scrutiny'>): ScrutinyView | null {
+export function scrutinyView(s: GameState, mods?: Pick<Mods, 'scrutiny'> & Partial<Pick<Mods, 'scrutinyDecayMult'>>): ScrutinyView | null {
   if (mods && !mods.scrutiny) return null;
   const sc = s.scrutiny ?? (mods ? fresh() : undefined);
   if (!sc) return null;
   const tier: 0 | 1 | 2 = sc.value >= SCRUTINY.hearingAt ? 2 : sc.value >= SCRUTINY.penaltyAt ? 1 : 0;
-  const rate = decayPerSecond(s);
+  const rate = decayPerSecond(s, mods);
   const nextAt = tier === 2 ? SCRUTINY.hearingAt : tier === 1 ? SCRUTINY.penaltyAt : 0;
   const rot = s.crewRotation;
   return {

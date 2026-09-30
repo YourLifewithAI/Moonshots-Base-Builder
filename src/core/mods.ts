@@ -2,7 +2,7 @@
  *  goes live / is abandoned. The economy consults this instead of re-scanning
  *  tech defs every tick; effectiveDef/effectiveRates give every reader (sim,
  *  palette, inspector, previews) the same numbers. */
-import { BUILDINGS, type BuildingDef, type BuildingId } from '../data/buildings';
+import { BUILDINGS, isLab, type BuildingDef, type BuildingId } from '../data/buildings';
 import { TECHS, TECH_ORDER, effectApplies, type Expedition, type Lane, type RecipeOverride, type Side, type TechId } from '../data/techs';
 import { factionOfState, type FactionId } from '../data/factions';
 import type { GuardId, HazardId } from '../data/hazards';
@@ -13,7 +13,7 @@ import { DEP_SURVEY } from '../data/ore';
 import { OUTPOST_LINK_KW } from '../data/lunarMap';
 import {
   AGENT_GEN_TAX, AGENT_TAX, BATTERY_EFF, DC_DATA_PER_S, DEPOSIT_FX, FEED, LAB_DATA, LAUNCH_CAP_PER_VOLLEY, MONOLITH,
-  OVERCLOCK, SURVEY_TIERS, WEAR,
+  OVERCLOCK, SKUNKWORKS, SURVEY_TIERS, WEAR,
 } from '../data/balance';
 import type { BuildingState, GameState, OutpostState } from './state';
 import { AUTO, type AutoFamily } from '../data/automation';
@@ -184,6 +184,21 @@ export interface Mods {
   moraleFallMult: number;
   /** the scrutiny meter runs (core/scrutiny.ts: stream S2's) */
   scrutiny: boolean;
+  /** the branch techs' scrutiny tuning (docs/20 §3, stream S3's data; core/scrutiny.ts, stream S2's readers): the meter fades
+   *  × this as fast (Press Corps), a hearing recalls × this many crew (Hearing Prep), FIRST LIGHT clears the meter and lifts
+   *  morale by this much for a lunar day (Media Blitz) */
+  scrutinyDecayMult: number;
+  scrutinyRecallMult: number;
+  firstLightClearsScrutiny: boolean;
+  firstLightMorale: number;
+  /** a collector volley's foils × this (Cooperative Swarm; economy.volleyTerms) */
+  volleyFoilsMult: number;
+  /** data another program's disaster grants (Guardianship; the rival events of streams S4 and S6 read it) */
+  rivalAidData: number;
+  /** a station's output × this while it runs on agents (Lights-Out Foundry; effectiveRates) */
+  agentOutputMult: Record<BuildingId, number>;
+  /** a building's output × this at night (Long Night Gardens; effectiveRates, with `isNight`) */
+  nightBuildingMult: Record<BuildingId, number>;
   /** the Builder founds what a player's first build would (automation.ts 'founded' check): a rival's; stream S4 sets it */
   builderFounds: boolean;
 }
@@ -246,7 +261,12 @@ export function computeMods(
     stowShield: 0, arrayHardMult: 1, forecastTier: 0,
     laneCostMult: neutralLanes(), pickCostMult: { colony: 1, automation: 1 }, outpostCostMult: 1,
     machineFlareMult: 1, nightOutputMult: 1, bankDischargeMult: 1, moraleFallMult: 1, scrutiny: false, builderFounds: false,
+    scrutinyDecayMult: 1, scrutinyRecallMult: 1, firstLightClearsScrutiny: false, firstLightMorale: 0,
+    volleyFoilsMult: 1, rivalAidData: 0, agentOutputMult: fill(1), nightBuildingMult: fill(1),
   };
+  // the long night's output factor is ABSOLUTE and the best of the nightMode effects wins (the Foundry's landing sets ×0.25,
+  // Isotope Warmers raises it to ×0.5): a running tally, so the order of techsDone never matters
+  let nightOut: number | undefined;
 
   // a Server Monolith counts as a Data Center wherever one is read (docs/14
   // §2.8): a tech that changes Data Centers' output, power or upkeep changes
@@ -261,7 +281,7 @@ export function computeMods(
       switch (fx.kind) {
         case 'unlock': m.unlocked.add(fx.building); break;
         case 'outputMult': {
-          const target = fx.crewedOnly ? m.crewedOutputMult : m.outputMult;
+          const target = fx.crewedOnly ? m.crewedOutputMult : fx.agentOnly ? m.agentOutputMult : m.outputMult;
           for (const b of compute(fx.buildings)) target[b] *= fx.mult;
           break;
         }
@@ -404,14 +424,26 @@ export function computeMods(
           m.machineFlareMult *= fx.machine ?? 1;
           break;
         case 'nightMode':
-          m.nightOutputMult *= fx.output ?? 1;
+          if (fx.output !== undefined) {
+            nightOut = nightOut === undefined ? fx.output : Math.max(nightOut, fx.output);
+            m.nightOutputMult = nightOut;
+          }
           m.nightDrawMult *= fx.standby ?? 1;
           // absolute, and the worse of it and the grid's: a later `storage` tech's efficiency still replaces it
           if (fx.chargeEff !== undefined) m.storageEff = Math.min(m.storageEff, fx.chargeEff);
           m.bankDischargeMult *= fx.discharge ?? 1;
           break;
         case 'moraleDynamics': m.moraleFallMult *= fx.fallMult; break;
-        case 'scrutiny': m.scrutiny = fx.on; break;
+        case 'scrutiny':
+          if (fx.on) m.scrutiny = true;
+          if (fx.decay !== undefined) m.scrutinyDecayMult *= fx.decay;
+          if (fx.recall !== undefined) m.scrutinyRecallMult *= fx.recall;
+          if (fx.firstLight?.clear) m.firstLightClearsScrutiny = true;
+          if (fx.firstLight?.morale) m.firstLightMorale += fx.firstLight.morale;
+          break;
+        case 'volleyFoils': m.volleyFoilsMult *= fx.mult; break;
+        case 'rivalAid': m.rivalAidData += fx.data; break;
+        case 'nightOutput': for (const b of fx.buildings) m.nightBuildingMult[b] *= fx.mult; break;
         case 'grant': break; // research.onTechComplete acts on it once
       }
     }
@@ -647,8 +679,11 @@ export function effectiveRates(
 
   let outMult = mods.outputMult[type] * oc * wear;
   if (crewed) outMult *= workMult * mods.crewedOutputMult[type];
+  else if (agentRun) outMult *= mods.agentOutputMult[type];
   if (crewed && opts.crewedMult !== undefined) outMult *= opts.crewedMult; // scrutiny ≥ 50 (docs/20 S2)
   if (nightK !== 1) outMult *= nightK;
+  // a branch tech's night output (Long Night Gardens): ×1 for every other building and every solo game
+  if (opts.isNight) outMult *= mods.nightBuildingMult[type];
   if (ISRU.includes(type)) outMult *= site.isruMult;
   let feedFactor = 1;
   let o2Factor = 1;
@@ -686,11 +721,13 @@ export function effectiveRates(
   }
 
   let data = 0;
-  if (type === 'lab') {
+  if (isLab(type)) {
+    // the Skunkworks is a lab variant (docs/20 §1): a lab's data ×SKUNKWORKS.dataMult, under the lab techs' multipliers too
     const mode = agentRun
       ? (opts.robotic ? LAB_DATA.roboticAgent : LAB_DATA.humanAgent) * (opts.uplinkShare ?? 1)
       : Math.pow(workMult, LAB_DATA.crewedMoraleExp) * mods.crewedOutputMult.lab;
-    data = LAB_DATA.base * mods.outputMult.lab * mode * oc * wear;
+    const variant = type === 'skunkworks' ? SKUNKWORKS.dataMult * mods.outputMult.skunkworks : 1;
+    data = LAB_DATA.base * mods.outputMult.lab * variant * mode * oc * wear;
   } else if (type === 'dataCenter') {
     data = DC_DATA_PER_S * mods.outputMult.dataCenter * oc * wear;
   } else if (type === 'serverMonolith') {

@@ -57,6 +57,8 @@ const ICONS: Record<BuildingId, string> = {
   waterPlant: '≋', iceMiner: '❄',
   // destiny buildings (docs/14 §2.8)
   greenhouseRing: '❁', gardenDome: '◓', droneHive: '⬢', serverMonolith: '▥',
+  // the factions' own (docs/20 §1)
+  nightVault: '☾', faradayShed: '⊓', missionOps: '◈', skunkworks: '⚛', commonsHall: '❦', regolithTerrace: '♣',
 };
 
 /** The tech that unlocks `b` on this site and expedition — a visible card
@@ -64,12 +66,17 @@ const ICONS: Record<BuildingId, string> = {
 export function unlockingTech(b: BuildingId): TechId | null {
   const site = $siteId.get() ?? 'mare';
   const exp = $vitals.get().expedition;
-  const cards = $research.get()?.cards;
+  const rv = $research.get();
+  const cards = rv?.cards;
+  // the state's faction (docs/20): a branch tech unlocks its building for its own faction only
+  const faction = rv?.faction ?? undefined;
   let hidden: TechId | null = null;
   for (const tid of TECH_ORDER) {
     const def = TECHS[tid];
-    if (!def.effects.some((fx) => fx.kind === 'unlock' && fx.building === b && effectApplies(fx, site, exp))) continue;
+    if (!def.effects.some((fx) => fx.kind === 'unlock' && fx.building === b && effectApplies(fx, site, exp, undefined, faction))) continue;
     if ((def.sites && !def.sites.includes(site)) || (def.expeditions && !def.expeditions.includes(exp))) continue;
+    if (def.factions && !(faction && def.factions.includes(faction))) continue;
+    if (def.notFactions && faction && def.notFactions.includes(faction)) continue;
     if (!cards || cards[tid]?.state !== 'hidden') return tid;
     hidden ??= tid;
   }
@@ -241,6 +248,8 @@ export function mountPalette(root: HTMLElement, game: Game) {
       const def = BUILDINGS[type];
       if (def.category !== activeCat) continue;
       const locked = !unlocked.has(type);
+      // a faction's own building is shown to that faction alone (docs/20 §1): nothing in any other game, solo included, can ever unlock it
+      if (def.faction && locked && !unlockingTech(type)) continue;
       const b = el('button', `bld-btn${locked ? ' locked' : ''}`) as HTMLButtonElement;
       const site = SITES[$siteId.get() ?? 'mare'];
       const cost = Object.entries(buildCost(type, site))
@@ -325,6 +334,12 @@ export function mountPalette(root: HTMLElement, game: Game) {
     if (sig !== itemSig) { itemSig = sig; renderItems(); }
   });
   $siteId.subscribe(() => { itemSig = ''; renderItems(); });
+  // a new game of another faction offers that faction's own buildings (the research view carries it: docs/20 §1)
+  let itemFaction: string | null | undefined;
+  $research.subscribe((rv) => {
+    const f = rv?.faction ?? null;
+    if (f !== itemFaction) { itemFaction = f; renderItems(); }
+  });
 
   // ── placement hint: in the palette column, above the cards ──
   const hint = el('div', 'panel');

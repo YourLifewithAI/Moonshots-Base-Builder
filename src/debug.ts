@@ -137,6 +137,8 @@ function api(game: Game) {
     rivalCompleteTech: (faction: FactionId, id: TechId) => {
       const r = game.rivals.find((x) => x.faction === faction);
       if (!r || !TECHS[id] || r.state.techsDone.includes(id)) return false;
+      // another faction's branch tech stays unresearched, as in play (docs/20 S3; landings exempt)
+      if (TECHS[id].factions && !TECHS[id].track?.landing && !TECHS[id].factions!.includes(faction)) return false;
       r.state.techsDone.push(id);
       onTechComplete(r.state, id);
       r.base.mods = refreshDerived(r.state);
