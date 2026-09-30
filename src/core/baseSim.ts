@@ -155,6 +155,8 @@ export class BaseSim {
     bindHeights(state, this.hf);
     bindTerrain(state, this.hf); // the pits carve this ground (core/pits.ts, economy step 4.2)
     bindMode(state, mode); // the legs, the traffic and the pits read how this base runs from its state (core/simMode.ts)
+    // a flat ground hashes its virtual pits' signature (even of none), as a load re-derives it: start from the same value
+    if (flat) syncPitZones(state, this.hf, undefined, false);
   }
 
   /** A new base: the Lander at the map heart (free, with its apron), its rovers and survey drone, parked. */

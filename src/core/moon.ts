@@ -160,13 +160,18 @@ export function schedEnd(sc: SchedFields, c: SchedCtx): number {
   return days;
 }
 
-/** Copy the schedule fields of `from` onto `to` (deleting what `from` lacks; arrays and objects copied). */
+const SCHED_SET: ReadonlySet<string> = new Set(SCHED_KEYS);
+
+/** Copy the schedule fields of `from` onto `to` (deleting what `from` lacks; arrays and objects copied). A key `to` does not
+ *  have yet is added in `from`'s own order, so the mirror's keys come in the order the machine wrote them (a solo base's
+ *  `s.flare` is that object itself, and its saved JSON and digests read the same either way). */
 export function copySched(to: SchedFields, from: SchedFields) {
   const t = to as unknown as Record<string, unknown>;
   const f = from as unknown as Record<string, unknown>;
-  for (const k of SCHED_KEYS) {
-    if (f[k] === undefined) delete t[k];
-    else t[k] = Array.isArray(f[k]) ? [...(f[k] as unknown[])] : f[k];
+  for (const k of SCHED_KEYS) if (f[k] === undefined) delete t[k];
+  for (const k of Object.keys(f)) {
+    if (!SCHED_SET.has(k) || f[k] === undefined) continue;
+    t[k] = Array.isArray(f[k]) ? [...(f[k] as unknown[])] : f[k];
   }
   if (from.seen) to.seen = { ...from.seen };
   if (from.cme) to.cme = { ...from.cme }; else delete to.cme;

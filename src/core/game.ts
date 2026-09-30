@@ -307,8 +307,8 @@ export class Game {
   }
 
   /** One Moon second of the other programs, right after the player's tick (the live loop and `debugAdvance` both call it):
-   *  the landings that are due, then every rival's step in landing order. `now` is the whole second the player's base has
-   *  ticked to. The Moon's clock itself is advanced by the ticks (whoever reaches a second first drives it), never here. */
+   *  every landed rival's step in landing order, then the landings that are due. `now` is the whole second the player's base
+   *  has ticked to. The Moon's clock itself is advanced by the ticks (whoever reaches a second first drives it), never here. */
   private stepRivals(now: number) {
     const s = this.state;
     const me = this.moon.player;
@@ -322,8 +322,9 @@ export class Game {
     }
     if (!this.rivalsOn || me === null) return;
     const t0 = performance.now();
-    this.landDue(now, true);
+    // (a rival that lands this second starts at it: it is created after the others' steps, which bring them up to it)
     for (const r of this.rivals) r.step();
+    this.landDue(now, true);
     const ms = performance.now() - t0;
     const p = this.rivalPerf;
     p.ticks++;
@@ -2444,8 +2445,11 @@ export class Game {
       rivals: { n: this.rivals.length, ticks: this.rivalPerf.ticks, msLast: this.rivalPerf.msLast, msPerTick: this.rivalPerf.msPerTick, behind: 0 },
       /** the shared Moon: its clock and the flare schedule in brief */
       moon: {
-        clock: this.moon.clock,
-        weather: { phase: this.moon.weather.phase, n: this.moon.weather.n ?? 0, cls: this.moon.weather.cls ?? null, nextAt: this.moon.weather.nextAt },
+        clock: this.moon?.clock ?? 0,
+        weather: {
+          phase: this.moon?.weather.phase ?? 'idle', n: this.moon?.weather.n ?? 0, cls: this.moon?.weather.cls ?? null,
+          nextAt: this.moon?.weather.nextAt ?? 0,
+        },
       },
     };
   }

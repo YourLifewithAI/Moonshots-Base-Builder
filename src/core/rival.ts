@@ -57,7 +57,9 @@ export class RivalProgram {
   /** One Moon second: the economy step (the clock moves by 1 and the base ticks), the mailbox nobody reads emptied, the
    *  standing written to the Moon. S4 adds the policy here (research, the Builder's orders, claims). */
   step() {
-    this.base.tick();
+    const ev = this.base.tick();
+    // a crewed base whose last crew died falls silent (economy.ts): it is lost, as the player's would be, and its ticks end there
+    if (ev.defeat) this.base.state.defeatShown = true;
     this.base.clearOut();
     this.steps++;
     this.report();
