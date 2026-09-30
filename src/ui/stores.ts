@@ -170,6 +170,8 @@ export interface LunarRivalView {
   outposts: ProspectId[];
   launches: number;
   era: number;
+  /** the prospects its survey drones are flying to now */
+  surveying: ProspectId[];
 }
 export interface LunarView {
   tier: 0 | 1 | 2 | 3 | 4;
