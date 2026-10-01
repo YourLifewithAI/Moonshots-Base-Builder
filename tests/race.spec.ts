@@ -13,7 +13,7 @@ declare global {
 }
 
 /** each faction's trim colour (data/factions.ts livery), as the browser computes it */
-const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(47, 95, 208)', solarpunks: 'rgb(95, 159, 63)' } as const;
+const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(63, 115, 238)', solarpunks: 'rgb(95, 159, 63)' } as const;
 
 async function bare(page: Page, query = '') {
   await page.goto(`/?debug&seed=42${query}`);

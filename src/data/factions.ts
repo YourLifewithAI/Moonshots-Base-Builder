@@ -12,7 +12,7 @@
 import type { BuildingId } from './buildings';
 import type { AutoRuleId } from './automation';
 import type { OutpostKind } from './lunarMap';
-import type { SiteId } from './sites';
+import { SITES, type SiteId } from './sites';
 import type { DoctrineId, Era, Expedition, Side, TechId } from './techs';
 import type { GameState } from '../core/state';
 import type { Mods } from '../core/mods';
@@ -122,6 +122,8 @@ function orders(...extra: FactionOrder[]): FactionOrder[] {
     { type: 'smelter', count: 1, rush: true },
     { type: 'lab', count: 1 },
     { type: 'partsFab', count: 1, rush: true },
+    // a base with no night sun makes its Battery Banks of silicon: its refinery comes before the arrays' second wave
+    { type: 'refinery', count: 1, when: (s) => SITES[s.siteId].nightSolarFraction < 0.5 },
     { type: 'waterPlant', count: 1, when: (s) => hasCrew(s) && s.siteId === 'southpole', rush: true },
     { type: 'solar', count: 3 },
     { type: 'smelter', count: 2, when: (s) => minutes(s) > 6 }, // (metals are the gate to Era 2 — 450 smelted — and to every build)
@@ -146,6 +148,11 @@ function orders(...extra: FactionOrder[]): FactionOrder[] {
     { type: 'propellantPlant', count: 2, when: eraAtLeast(8) },
   ];
 }
+
+/** The launch doctrine a rival takes on each site, whoever it is (docs/20 S8): a Mass Driver on the equator (×1.5) and under the lava
+ *  tube, where there is no ice for a Propellant Plant to drink; Propellant at the pole, which ignores the pole's ×0.6. A program that
+ *  picked by faction left the Commons and the Vanguard at Ilmenite Plains with plants that had no water and no volley. */
+export const LAUNCH_ARCHITECTURE: Record<SiteId, TechId> = { southpole: 'propellantDepot', mare: 'massDriver', lavatube: 'massDriver' };
 
 export const FACTIONS: Record<FactionId, FactionDef> = {
   robots: {
@@ -203,8 +210,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'acceleratorDesign', launchArchitecture: 'massDriver', swarmPurpose: 'vonNeumann',
       },
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
-      ruleCaps: {},
-      lateCaps: { solar: 60, battery: 10, reactor: 4 },
+      ruleCaps: { solar: 40, battery: 24, reactor: 2 },
+      lateCaps: { solar: 60, battery: 30, reactor: 4 },
       orders: orders(
         { type: 'nightVault', count: 1 },
         { type: 'faradayShed', count: 1 },
@@ -216,7 +223,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
     name: 'The Vanguard', short: 'Vanguard', glyph: '▲',
     expedition: 'human', landsAtDay: 2,
     sites: ['southpole', 'mare', 'lavatube'],
-    livery: { hull: '#f2f3f5', trim: '#2f5fd0', suit: '#f2f3f5' },
+    livery: { hull: '#f2f3f5', trim: '#3f73ee', suit: '#f2f3f5' },
     landingTech: 'landingVanguard',
     ethos: 'Move fast, publish, own the launch window.',
     briefing: 'Seven people land two days behind the Foundry, and they mean to take the launch window back. ' +
@@ -266,8 +273,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'ilmenite', 'radio'],
-      ruleCaps: { food: 2 },
-      lateCaps: { solar: 60, battery: 10, reactor: 4 },
+      ruleCaps: { food: 2, solar: 40, battery: 24, reactor: 2 },
+      lateCaps: { solar: 60, battery: 30, reactor: 4 },
       // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
       skip: ['hazardWaivers'],
       orders: orders(
@@ -330,8 +337,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'volatiles', 'silica'],
-      ruleCaps: { food: 2 },
-      lateCaps: { solar: 60, battery: 10, reactor: 4 },
+      ruleCaps: { food: 2, solar: 40, battery: 24, reactor: 2 },
+      lateCaps: { solar: 60, battery: 30, reactor: 4 },
       // the Consensus Council asks a second crew member at every lab
       skip: ['consensusCouncil'],
       orders: orders(

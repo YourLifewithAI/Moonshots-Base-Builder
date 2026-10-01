@@ -850,7 +850,7 @@ const FACTION_PAGES: Record<string, { site: string; glyph: string; trim: string;
     byEra: { 2: ['nightVaultDocks'], 3: ['faradaySheds', 'hardenedFirmware'], 4: ['isotopeWarmers'], 5: ['bankTrenches', 'selfRepairCells'], 6: ['lightsOutFoundry'], 7: ['swarmRelayUplink'] },
   },
   accelerationists: {
-    site: 'southpole', glyph: '▲', trim: '#2f5fd0', rgb: 'rgb(47, 95, 208)',
+    site: 'southpole', glyph: '▲', trim: '#3f73ee', rgb: 'rgb(63, 115, 238)',
     byEra: { 1: ['pressCorps'], 2: ['crunchCulture'], 3: ['hazardWaivers'], 4: ['skunkworksLabs', 'hearingPrep'], 5: ['ventureFoils'], 6: ['launchFever'], 7: ['mediaBlitz'] },
   },
   solarpunks: {

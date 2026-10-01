@@ -136,6 +136,8 @@ export interface BuildingState {
   replace?: { at: number };
   /** shut down for a flare (Shut down exposed; an excavator parked by Recall machines): on again at `warm` (0: the flare is on) */
   flareShut?: { warm: number };
+  /** switched off for the night by a rival's night discipline (core/rival.ts `nightShift`, docs/20 S8): on again at dawn */
+  nightShed?: boolean;
   /** an excavator's digger: rebooting until then; latched up until re-flashed (lost at `until`); burned out */
   rebootUntil?: number;
   latch?: { until: number; real: boolean; n: number };

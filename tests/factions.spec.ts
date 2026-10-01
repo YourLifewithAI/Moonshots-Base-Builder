@@ -79,7 +79,7 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
   ]);
   expect(r.rows.map((x: any) => x.livery)).toEqual([
     { hull: '#6f7580', trim: '#e8632b', suit: '#d9d4c8' },
-    { hull: '#f2f3f5', trim: '#2f5fd0', suit: '#f2f3f5' },
+    { hull: '#f2f3f5', trim: '#3f73ee', suit: '#f2f3f5' },
     { hull: '#d9c9a3', trim: '#5f9f3f', suit: '#e8dcb8' },
   ]);
   for (const x of r.rows) {
@@ -650,7 +650,7 @@ test('the UI half, race news: a rival landing during play raises a race-family l
   await expect(card).toBeVisible();
   await expect(card.locator('.rc-ig')).toHaveText('▲');
   await expect(card).toContainText('THE VANGUARD LANDS — at SHACKLETON RIM');
-  expect(await card.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe('rgb(47, 95, 208)'); // #2f5fd0, the Vanguard's trim
+  expect(await card.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe('rgb(63, 115, 238)'); // #3f73ee, the Vanguard's trim
   expect(await card.evaluate((e) => getComputedStyle(e).borderLeftWidth)).toBe('3px');
   // its action opens the RACE panel, showing the Vanguard landed
   await card.locator('[data-rc="open"]').click();

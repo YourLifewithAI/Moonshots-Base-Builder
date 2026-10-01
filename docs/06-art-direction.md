@@ -997,7 +997,7 @@ was (`tests/silhouettes.spec.ts` compares them).
 | | The Foundry · ⚙ | The Vanguard · ▲ | The Commons · ❀ |
 |---|---|---|---|
 | Hull (`BODY`) | `#6f7580` gunmetal | `#f2f3f5` white | `#d9c9a3` sand |
-| Trim (`MARK`: emblem, hazard tape, fins, awnings, banners) | `#e8632b` signal orange | `#2f5fd0` cobalt | `#5f9f3f` leaf green |
+| Trim (`MARK`: emblem, hazard tape, fins, awnings, banners) | `#e8632b` signal orange | `#3f73ee` cobalt | `#5f9f3f` leaf green |
 | Suit (EVA walkers) | `#d9d4c8` | `#f2f3f5` | `#e8dcb8` |
 | Emblem | a gear: an eight-sided plate and six square teeth (116 △) | a solid triangle (24 △) | a five-petal flower round a hub (104 △) |
 
