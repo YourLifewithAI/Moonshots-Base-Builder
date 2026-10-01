@@ -105,6 +105,16 @@ const eraAtLeast = (n: number) => (s: GameState) => s.era >= n;
 /** game-minutes since the base landed */
 const minutes = (s: GameState) => (s.simTime - (s.landedAt ?? 0)) / 60;
 
+/** The road to the swarm is open: Era 8, with Thin-Film Foils behind it (Swarm Protocol itself costs 5 foils, so a factory has to stand first). A program
+ *  that raises its Foil Factories and launch pads at Era 7 sits on a stockpile of foils and launch capacity when the protocol lands and fires
+ *  a hundred volleys in a day (docs/20 S8): they wait for the last era. */
+const chainReady = (s: GameState) => s.techsDone.includes('swarmProtocol') || (s.era >= 8 && s.techsDone.includes('foilManufacturing'));
+/** Launch pads (Mass Drivers at the equator and under the lava tube, Propellant Plants at the pole) a program raises on each site: a pad's volleys a
+ *  day follow its site (a driver at mare makes 3.6, under the tube 2.4; a plant 2.4 anywhere), so the three programs launch at about one rate,
+ *  eight to twelve volleys a day. The second and later pads follow the first volleys. */
+const PADS: Record<SiteId, number> = { mare: 3, lavatube: 4, southpole: 3 };
+const padAt = (n: number) => (s: GameState) => n <= PADS[s.siteId] && s.launches >= 3 * (n - 1);
+
 /** Labs by the clock: [minutes since landing, labs wanted]. The pacing probe's reasonable player (scripts/probe-pacing.mjs LAB_CLOCK)
  *  runs a robotic base at 3 labs by minute 14 and eight by 66; a rival follows that clock a fifth slower (×`slow`). A crewed base
  *  can only crew two before Construction Robotics (core/rival.ts `handsFor`), and gets the rest as agents run them. */
@@ -137,15 +147,19 @@ function orders(...extra: FactionOrder[]): FactionOrder[] {
     { type: 'greenhouseRing', count: 1, when: hasCrew },
     { type: 'droneHive', count: 1 },
     { type: 'dataCenter', count: 2, when: eraAtLeast(5) },
-    { type: 'foilFactory', count: 1 },
-    { type: 'massDriver', count: 1 },
-    { type: 'propellantPlant', count: 1 },
+    { type: 'foilFactory', count: 1, when: chainReady },
+    { type: 'massDriver', count: 1, when: chainReady },
+    { type: 'propellantPlant', count: 1, when: chainReady },
     { type: 'gardenDome', count: 1, when: hasCrew },
     { type: 'dataCenter', count: 3, when: eraAtLeast(6) },
     { type: 'smelter', count: 3, when: eraAtLeast(5) },
-    { type: 'foilFactory', count: 2, when: eraAtLeast(7) },
-    { type: 'massDriver', count: 2, when: eraAtLeast(8) },
-    { type: 'propellantPlant', count: 2, when: eraAtLeast(8) },
+    { type: 'foilFactory', count: 2, when: (s) => s.launches >= 3 },
+    { type: 'massDriver', count: 2, when: padAt(2) },
+    { type: 'propellantPlant', count: 2, when: padAt(2) },
+    { type: 'foilFactory', count: 3, when: (s) => s.launches >= 12 },
+    { type: 'massDriver', count: 3, when: padAt(3) },
+    { type: 'propellantPlant', count: 3, when: padAt(3) },
+    { type: 'massDriver', count: 4, when: padAt(4) },
   ];
 }
 
@@ -273,7 +287,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'ilmenite', 'radio'],
-      ruleCaps: { food: 2, solar: 80, battery: 24, reactor: 2 },
+      ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 2 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
       // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
       skip: ['hazardWaivers'],
@@ -337,7 +351,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'volatiles', 'silica'],
-      ruleCaps: { food: 2, solar: 80, battery: 24, reactor: 2 },
+      ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 2 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
       // the Consensus Council asks a second crew member at every lab
       skip: ['consensusCouncil'],

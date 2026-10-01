@@ -514,7 +514,7 @@ and need prerequisites from its chain. What is new is who sees them:
 | Foundry | 3 robotics | Faraday Sheds | unlocks the shed · likewise |
 | Foundry | 3 compute | Hardened Firmware | machine reboot/latch/burn ×0.5 (1.75 → 0.875) · +15% draw on bays and fabs |
 | Foundry | 4 power | Isotope Warmers | night output ×0.25 → ×0.5 · unit packs ×0.9 |
-| Foundry | 5 power | Bank Trenches | bank round trip 75% → 85% · batteries build ×1.3 slower, +20% upkeep |
+| Foundry | 5 power | Bank Trenches | lifts the Foundry's 75% cap on the bank's round trip back to the grid's 85% (a Fuel Cells' 60% stays 60%, in either order of research) · batteries build ×1.3 slower, +20% upkeep |
 | Foundry | 5 robotics | Self-Repair Cells | wear heals ×1.3 · parts fab upkeep +30% |
 | Foundry | 6 materials | Lights-Out Foundry | foil factory +20% while agent-run · +25% upkeep |
 | Foundry | 7 export | Swarm Relay Uplink | a volley needs 2↑ instead of 3 · −3 kW at the Lander |
@@ -534,6 +534,12 @@ and need prerequisites from its chain. What is new is who sees them:
 | Commons | 6 export | Cooperative Swarm | a volley flies with 9▰ not 10▰ · upkeep +15% on foil factory, driver, plant |
 | Commons | 7 exploration | Guardianship | a rival's disaster grants +120≡ data · −3 kW at the Lander |
 | Commons | 7 habitat | Long Night Gardens | greenhouse ring +20% at night · +15% draw |
+
+**Counts (S8).** `TECH_ORDER` is 168: the 141 techs of the tree this document designed, the three faction landings (`landingFoundry`, `landingVanguard`, `landingCommons`; the solo
+`landingCrew` and `landingRobotic` were already counted) and the 24 branch techs. A faction base sees the 141, the one landing, its own eight and none of the other sixteen (a solo
+base sees the 141 and its solo landing); `tests/research.spec.ts` and `tests/destiny.spec.ts` count them. The Foundry's rows above carry numbers as coded; the rivals research them
+by `FACTIONS[f].policy.research` (docs/20 S4), and Bank Trenches' efficiency is a `storage` effect with `restore: true` (`core/mods.ts` tallies the grid's own figure, the faction's cap and a
+restore separately, so the order of techsDone never matters).
 
 The effect kinds added for them (all additive, neutral in a solo game; `core/mods.ts` carries the fields): `outputMult.agentOnly`,
 `nightMode.relief` (and `nightMode.output` is now absolute, the best of the nightMode effects), `scrutiny` tuning

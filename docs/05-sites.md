@@ -283,6 +283,41 @@ Home 14.1°N 56.8°W
 **Breakthrough hosts (every site):** Lava-Tube Caverns (Tranquillitatis pit, Marius tube, Ingenii pit); Volcanic Glass Reduction (Taurus–Littrow, Aristarchus, Schrödinger); Cold-Trap Chemistry (Cabeus, Hermite). 34 prospects in all.
 <!-- END GENERATED -->
 
+## The three sites in a faction game (docs/20)
+
+In a faction game **every game uses all three sites**: you take the site you chose and the two rival programs take the others, each by its own
+preference order (`assignSites`, `src/data/factions.ts`). The Foundry lands first and picks first (Ilmenite Plains, Marius Hills Tube, Shackleton
+Rim), then the Vanguard (Shackleton Rim, Ilmenite Plains, Marius Hills Tube), then the Commons (Marius Hills Tube, Shackleton Rim, Ilmenite Plains).
+The nine games:
+
+| You play | at | Foundry | Vanguard | Commons |
+|---|---|---|---|---|
+| Foundry | Ilmenite Plains | you | Shackleton Rim | Marius Hills Tube |
+| Foundry | Shackleton Rim | you | Ilmenite Plains | Marius Hills Tube |
+| Foundry | Marius Hills Tube | you | Shackleton Rim | Ilmenite Plains |
+| Vanguard | Ilmenite Plains | Marius Hills Tube | you | Shackleton Rim |
+| Vanguard | Shackleton Rim | Ilmenite Plains | you | Marius Hills Tube |
+| Vanguard | Marius Hills Tube | Ilmenite Plains | you | Shackleton Rim |
+| Commons | Ilmenite Plains | Marius Hills Tube | Shackleton Rim | you |
+| Commons | Shackleton Rim | Ilmenite Plains | Marius Hills Tube | you |
+| Commons | Marius Hills Tube | Ilmenite Plains | Shackleton Rim | you |
+
+So as a **rival** the Foundry is only ever at Ilmenite Plains (four games of nine) or Marius Hills Tube (two); it is never at the pole, because it lands first and only you can hold one of
+its first two choices. The Vanguard rival is at the pole in four games, Ilmenite Plains in one and the
+lava tube in one; the Commons rival at the lava tube in three, the pole in two and Ilmenite Plains in one. A rival plays the same site you would: the lava tube
+and Ilmenite Plains have no night sun (the 240 s night is a blackout for every program that has not banked the day) and no ice (a crew's water comes from the
+smelters' trickle and from mature soil, `FEED.soilWater`), the pole has ice and 85 % of its sun at night but its mass driver runs at ×0.6, which is why a program takes the
+launch tech its **site** wants (`LAUNCH_ARCHITECTURE`: Propellant at the pole, a Mass Driver at the equator and under the tube) whoever it is.
+
+**Rivals' bases stand on a flat stand-in of the site's ground** (`FlatHeights`: the real deposits, no craters, virtual pits counted rather than carved, straight legs, no
+traffic). Their pits exhaust earlier than a real pit would (the stand-in's pit does not drift off its ore), which is part of why a rival's mine plays out sooner.
+
+**The map is shared and a claim is exclusive.** The three homes are 80–104° apart (Ilmenite Plains–Marius Hills Tube 79.9°, Ilmenite Plains–Shackleton Rim 90.7°, Marius
+Hills Tube–Shackleton Rim 104.0°) and a regional prospect is within 27° of its home, so a program's own prospects are never within reach of another's: a prospect is
+contested only from the near-side tier (T2, Orbital Prospector), and the near-side prospects around the Marius domes, Moltke and Maskelyne are the ones two programs
+fight for. A claimed prospect is gone for everyone else (`CLAIMED BY THE FOUNDRY — its outpost stands there`), a rival's claim inside 27° of your home is a
+field-family notification, and the survey report reads `RIVAL — The Foundry holds Moltke, 1.8° away`. Docs/11 §5d is the claim rule.
+
 ## Slice status
 
 **Shipped:** Shackleton Rim, Ilmenite Plains, and Marius Hills Tube, exactly as

@@ -436,6 +436,26 @@ Rules never build these four, except under `selenicMind` (every family).
 Orders can place them. Housing and pressurization mean the Garden Dome and the
 Ring count for breach, and the Dome counts for the Life support rule's beds.
 
+### 2.9 Factions and the destiny (docs/20 W0d, S3, S8)
+
+A faction's **landing tech is its Era 1 pick**, with its side: the Foundry's lands on ◉ Automation (`track: { era: 1, side: 'automation', landing: true }`), the Vanguard's and the
+Commons' on ⌂ Colony, exactly as `landingRobotic` and `landingCrew` do for a solo game (they stay as the solo landings and are hidden in a faction game). `destinyCounts` counts a
+faction landing on its side, so purity (6 of 8) and Concord work unchanged, and `gateProgress` skips every `track.landing`. What the factions add to the picks:
+
+| | Foundry | Vanguard | Commons |
+|---|---|---|---|
+| Flavour | the ◉ picks read as Foundry doctrine; a ⌂ pick is "Bring people" (`bringsCrew`, the existing Colony brings a crew) | both sides open | ⌂ is the ethos |
+| **Pick cost** (`pickCost { side, mult }`, applied by `techCost` to a `track` tech that is not a landing) | ×1 | ⌂ ×1.15 | ⌂ ×0.85 |
+| **Ethos locks** (`TechDef.notFactions`) | — | — | Lights-Out Charter (Era 6 ◉) and Replicator Stacks (Era 7 ◉) are `⚑ not open to The Commons` |
+| Rival policy (`FACTIONS[f].policy.destiny`) | ◉ in every era | ⌂ in Eras 2–4, ◉ in Eras 5–8 (a Concord band) | ⌂ in every era |
+
+The destiny column of an era page shows the pick multiplier beside the cost (`×0.85`); a locked pick is a disabled card reading `locked by ethos` (`⚑ not open to The Commons` in its title). **The meter knows
+the locks** (S8): `destinyOf` reads `factionOfState` and counts an era whose ◉ (or ⌂) pick is ethos-locked as fixed to the other side, so for the Commons the two locked eras can only
+add ⌂ picks: ◉ pure is no longer reported reachable (the landing and the two locked eras are ⌂, so at most five ◉ are possible, one short of a pure band), Concord and ⌂ pure still are. A solo game and a faction with no
+locks read exactly what they read before (`reach.colony.ok`, `reach.automation.ok` and `reach.concord` are the same expressions with `left` as the free count). The Era 8 pick is also the launch
+doctrine's other half: a ◉ band takes Autonomous Cadence (fires itself once ready), a ⌂ band Crewed Mission Control (2↑ with four on console); the rival programs take the pick of their `destiny` and, with
+it, the volley rules of their band (`core/rival.ts`).
+
 ---
 
 ## 3. Hazards

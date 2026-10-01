@@ -167,7 +167,7 @@ export class RivalProgram {
   private think() {
     const s = this.base.state;
     const t = Math.round(s.simTime - (s.landedAt ?? 0));
-    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.capHands(); this.lateCaps(); this.rationParts(); this.gate(); this.resupply(); }
+    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.goodsGuard(); this.capHands(); this.foodCap(); this.lateCaps(); this.rationParts(); this.gate(); this.resupply(); }
     if (t % RIVAL_CADENCE.life === RIVAL_CADENCE.lifeAt) this.life();
     if (t % RIVAL_CADENCE.hazards === RIVAL_CADENCE.hazardsAt) this.hazards();
     if (t % RIVAL_CADENCE.night === RIVAL_CADENCE.nightAt) this.nightShift();
@@ -234,13 +234,47 @@ export class RivalProgram {
     }
     // keep the queue in the order of wants: a tech moves up past any that it does not need (and never out of a prerequisite's way)
     const q = s.researchQueue;
+    const rank = new Map<TechId, number>();
+    order.forEach((tid, i) => rank.set(tid, i));
+    const at = (tid: TechId) => rank.get(tid) ?? order.length;
     if (q.length > 1) {
-      const rank = new Map<TechId, number>();
-      order.forEach((tid, i) => rank.set(tid, i));
-      const at = (tid: TechId) => rank.get(tid) ?? order.length;
       for (let i = 1; i < q.length; i++) {
         for (let j = i; j > 0 && at(q[j - 1]) > at(q[j]) && !needs(q[j], q[j - 1]); j--) [q[j - 1], q[j]] = [q[j], q[j - 1]];
       }
+    }
+    // a full queue of what was wanted when the base was young holds a want that matters more out (Parts Fabrication, the bank's Battery Banks): labs that are
+    // dark for days never drain it, and the seed-11 Vanguard sat three techs in for a week with 0 parts and no way to ask for the fabricator. The best want that
+    // is not queued takes the place of the last queued tech when that one has less than a third of its data paid.
+    if (q.length >= QUEUE_MAX) {
+      const want0 = order.find((tid) => !q.includes(tid) && techAvailability(tid, s, mods).state === 'available' && !goodsHopeless(s, mods, tid));
+      const last = q[q.length - 1];
+      if (want0 && at(want0) < at(last)) {
+        const paid = (s.researchSpent[last] ?? 0) / Math.max(1, techCost(last, s, mods).data);
+        if (paid < 1 / 3) {
+          this.base.apply({ kind: 'cancelResearch', tech: last });
+          enqueue(s, want0);
+          const w = q.indexOf(want0);
+          // (it goes where its rank puts it)
+          for (let j = w; j > 0 && at(q[j - 1]) > at(q[j]) && !needs(q[j], q[j - 1]); j--) [q[j - 1], q[j]] = [q[j], q[j - 1]];
+        }
+      }
+    }
+  }
+
+  /** A tech whose goods the base cannot gather waits, paid in data and idle, while a Foil Factory (silicon 0.6 and metals 0.2 a second each) eats
+   *  every grain that arrives: the Commons at the pole of seed 7 sat in Era 7 for twenty days, 900 foils made and 40 silicon never found for
+   *  Garden Domes, the pick that opens Era 8. A stalled tech that lacks silicon or metals switches the Foil Factories off until it has them. */
+  private goodsGuard() {
+    const b = this.base;
+    const s = b.state;
+    let hold = false;
+    for (const tid of s.researchStalled) {
+      for (const g of goodsShortfall(techCost(tid, s, b.mods).goods, s, b.mods)) if (g.res === 'silicon' || g.res === 'metals') hold = true;
+    }
+    for (const x of s.buildings) {
+      if (x.type !== 'foilFactory' || x.wreck || (x.construction ?? 0) > 0) continue;
+      if (hold && x.enabled && !x.nightShed) { x.goodsHold = true; b.apply({ kind: 'setEnabled', id: x.id, enabled: false }); }
+      else if (!hold && x.goodsHold) { x.goodsHold = false; if (!x.flareShut && !x.nightShed) b.apply({ kind: 'setEnabled', id: x.id, enabled: true }); }
     }
   }
 
@@ -296,6 +330,16 @@ export class RivalProgram {
     }
   }
 
+  /** One Hydroponics Farm feeds about eight crew (0.1 food a second against 0.008 each) and drinks 0.03 water a second: a second farm for seven people
+   *  drinks the crew's reserve dry on a site whose water comes from mature soil (the farms idle on `reserve`, the food falls, the crew starves).
+   *  The Builder's food rule may add the next one when the crew outgrows the last. */
+  private foodCap() {
+    const s = this.base.state;
+    if (s.expedition === 'robotic') return;
+    const cap = Math.min(RULES.food.capRange[1], Math.max(1, Math.ceil(s.crew / FARM_CREW)), FACTIONS[this.faction].policy.ruleCaps.food ?? RULES.food.cap);
+    ruleState(s, 'food').cap = cap;
+  }
+
   /** Past Era RIVAL_LATE_ERA the base's night and a volley's burst need a bigger bank and baseload than the Builder's stock caps allow
    *  (`policy.lateCaps`: the caps only ever go up). */
   private lateCaps() {
@@ -340,6 +384,18 @@ export class RivalProgram {
     const labs = ok || (this.bankless() && this.stable(true));
     for (const id of GROWTH_RULES) ruleState(s, id).on = id === 'lab' ? labs : ok;
     if (labs && !ok) { const r = ruleState(s, 'lab'); r.cap = Math.min(r.cap, BANKLESS_LABS); }
+    // the spare parts are all a base has until its fabricator stands, and the fabricator itself is welded of them: a third smelter and a second refinery
+    // bought out of the last forty (a smelter is 15, a refinery 20) left the seed-21 Vanguard with 0 parts at the moment its fabricator was placed, and no
+    // water plant could be built after it. Until it stands the Builder's smelter and refinery rules wait.
+    const poor = this.partsPoor();
+    for (const id of PARTS_RULES) ruleState(s, id).on = !poor;
+  }
+
+  /** No parts fabricator yet and a cache that is running low (see `gate`). */
+  private partsPoor(): boolean {
+    const s = this.base.state;
+    if (s.expedition === 'robotic') return false;
+    return s.resources.parts < PARTS_POOR && !s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0);
   }
 
   /** A crewed base on a site with no night sun and no Battery Storage yet: the night's bank it would wait for cannot exist until the
@@ -350,11 +406,14 @@ export class RivalProgram {
   }
 
   /** Earth sends 40 parts and 60 metals a lunar day after the order (the player's own Lander action): a base with no parts fabricator yet
-   *  and a cache under 70 orders it, twice at the most (each later order waits a day longer). */
+   *  orders it. A robotic base does it under 100 parts, twice at the most (each later order waits a day longer); a crewed one at once and
+   *  every time the last has landed, four at the most: the spare parts are what a crew's first week is built of and the fabricator is welded of
+   *  them (the Vanguard at the lava tube, 0 parts on day 5, fabricator placed and never finished, no water plant). */
   private resupply() {
     const s = this.base.state;
-    if (s.resupply?.pending || (s.resupply?.ordered ?? 0) >= 2) return;
-    if (s.resources.parts >= RESUPPLY_PARTS || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
+    const crewed = s.expedition !== 'robotic';
+    if (s.resupply?.pending || (s.resupply?.ordered ?? 0) >= (crewed ? RESUPPLY_MAX : 2)) return;
+    if (s.resources.parts >= (crewed ? RESUPPLY_PARTS : 100) || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
     this.base.apply({ kind: 'orderResupply' });
   }
 
@@ -464,16 +523,21 @@ export class RivalProgram {
     const b = this.base;
     const s = b.state;
     const site = SITES[s.siteId];
-    if (site.nightSolarFraction >= 0.5) return;
     const day = dayInfo(s.simTime, site);
-    if (!day.isNight) {
+    const p = s.power;
+    // the dark: the night of a site with no night sun, or a flare's stow (the arrays are packed away and the bank is all there is; the crewed rivals of
+    // seed 42 lost their water in the dark of a day, the bank gone by dusk, to an X flare whose protons kept the arrays stowed for minutes)
+    const full = p.supplyFull ?? 0;
+    const night = site.nightSolarFraction < 0.5 && day.isNight;
+    const stowed = !day.isNight && full > 0 && p.supply < STOW_SUPPLY * full;
+    if (!night && !stowed) {
       for (const x of s.buildings) if (x.nightShed) { x.nightShed = false; if (!x.flareShut) b.apply({ kind: 'setEnabled', id: x.id, enabled: true }); }
       return;
     }
-    const p = s.power;
-    const night = p.supplyNight ?? 0;
+    const left = night ? day.phaseLeft : STOW_HORIZON_S;
+    const supply = night ? (p.supplyNight ?? 0) : p.supply;
     const mult = b.mods.bankDischargeMult;
-    const carries = (load: number) => s.powerStored / mult >= Math.max(0, load - night) * day.phaseLeft * NIGHT_SHED_MARGIN;
+    const carries = (load: number) => s.powerStored / mult >= Math.max(0, load - supply) * left * NIGHT_SHED_MARGIN;
     let load = p.demand;
     if (carries(load)) return;
     const cand: { x: typeof s.buildings[number]; kw: number }[] = [];
@@ -552,9 +616,12 @@ export class RivalProgram {
     if (Math.floor((s.simTime - (s.landedAt ?? 0)) / RIVAL_CADENCE.orders) % 2 === 0 && this.power()) return;
     const stable = this.stable();
     const bankless = this.bankless() && this.stable(true);
+    const poor = this.partsPoor();
     for (const o of FACTIONS[this.faction].policy.orders) {
       if (!mods.unlocked.has(o.type)) continue;
       if (!stable && !STEADYING.includes(o.type) && !(o.type === 'lab' && (o.count === 1 || (o.count <= BANKLESS_LABS && bankless)))) continue;
+      // (a base with no fabricator and a thin cache buys only what the fabricator, the arrays, the bank, the first water plant and two labs (the research that brings the fabricator) need)
+      if (poor && !PARTS_POOR_OK.includes(o.type) && o.count > 1 && !(o.type === 'lab' && o.count <= 2)) continue;
       if (o.when && !o.when(s, mods)) continue;
       if (!handsFor(s, mods, o.type)) continue;
       let have = 0;
@@ -699,10 +766,18 @@ const DARK_FIRST: readonly TechId[] = ['partsFabrication', 'siliconRefining', 'b
 /** the day's supply a rival keeps over its load, and the share of a night's deficit its bank covers */
 const POWER_MARGIN = 1.15;
 const SURVEY_PARTS_FLOOR = 70;
+/** a crewed base without a parts fabricator is parts-poor under this many in the cache; the rules and orders that spend parts on more than the basics wait */
+const PARTS_POOR = 60;
+const PARTS_RULES: readonly AutoRuleId[] = ['smelter', 'refinery'];
+const PARTS_POOR_OK: readonly BuildingId[] = ['solar', 'battery', 'partsFab', 'waterPlant'];
+/** crew one Hydroponics Farm feeds */
+const FARM_CREW = 4;
 /** a deposit's core costs 2 parts: not while the cache is this low */
 const CORE_PARTS_FLOOR = 30;
 /** a base with no parts fabricator orders Earth's shipment once its cache falls under this */
-const RESUPPLY_PARTS = 100;
+const RESUPPLY_PARTS = 200;
+/** shipments a base with no fabricator may order (each waits a lunar day longer than the last) */
+const RESUPPLY_MAX = 4;
 const STABLE_S = 2400;
 const STABLE_PARTS = 40;
 const STABLE_NIGHT = 1.0;
@@ -716,6 +791,9 @@ const NIGHT_COVER = 1.3;
 const NIGHT_COVER_ROBOTIC = 0.35;
 /** night discipline: the bank must cover this much of what the rest of the night asks, or the big loads go off until dawn */
 const NIGHT_SHED_MARGIN = 1.1;
+/** a flare's stow: the supply is under this share of the full sun's, and the bank is asked to carry this many seconds of it */
+const STOW_SUPPLY = 0.35;
+const STOW_HORIZON_S = 300;
 /** priority 2–3 buildings the night never switches off: they make what a crew eats and drinks (and its smelters, which make its oxygen) */
 const NIGHT_KEEP: readonly BuildingId[] = ['waterPlant', 'hydroponics', 'iceHarvester', 'iceMiner', 'excavator', 'habitat', 'greenhouseRing', 'gardenDome', 'regolithTerrace', 'commonsHall'];
 /** from this era a base whose full-sun supply is under this share of its load adds no load (see `stable`) */

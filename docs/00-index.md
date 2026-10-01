@@ -23,7 +23,8 @@ the loop; these documents are the map of the game it grows into.
 | `src/data/techs.ts` | The 18 shipped techs, era gating constant, effects, trade-offs |
 | `src/data/sites.ts` | The 3 shipped landing sites and every mechanical modifier |
 | `src/data/milestones.ts` | The goal/tutorial sequence and swarm milestone bands |
-| `src/data/balance.ts` | Global tuning: day/night lengths, morale math, crew needs, flare timing |
+| `src/data/balance.ts` | Global tuning: day/night lengths, morale math, crew needs, flare timing, the race's close (`RACE`: combined volleys, shared-verdict margin) |
+| `src/data/factions.ts` | The three factions (landing day, site preferences, livery, copy) and each rival program's policy: research order, destiny sides, claim kinds, rule caps, build orders, launch pads |
 
 If a number in these documents disagrees with `src/data`, **the code wins** — file
 a doc fix, not a balance change. The documents add what the code cannot hold:
