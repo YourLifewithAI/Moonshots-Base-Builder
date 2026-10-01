@@ -201,6 +201,13 @@ export class RivalProgram {
       }
       if (inHand >= 3) want(this.destinyPick(era as Era));
     }
+    // the road to first light (docs/20 S8): from Era 5 the techs a volley needs lead the queue, whatever order the faction's list is in —
+    // Thin-Film Foils needs Cleanroom Robotics or Dust Mitigation (the cheap one), then the site's launch doctrine, the Era 8 pick and Swarm Protocol
+    if (era >= LAUNCH_CHAIN_ERA) {
+      if (!done.has('cleanroomRobotics') && this.wanted('dustMitigation')) want('dustMitigation');
+      for (const tid of [...LAUNCH_CHAIN, LAUNCH_ARCHITECTURE[s.siteId], this.destinyPick(8)]) if (this.wanted(tid)) want(tid);
+      if (this.wanted('swarmProtocol')) want('swarmProtocol');
+    }
     for (const tid of pol.research as TechId[]) if (this.wanted(tid)) want(tid);
     for (const tid of FACTIONS[this.faction].uniqueTechs) if (this.wanted(tid)) want(tid);
     for (let e = 2 as Era; e <= era; e = (e + 1) as Era) want(this.destinyPick(e));
@@ -506,14 +513,18 @@ export class RivalProgram {
     // the night: a site with no night sun runs it on the bank
     const dark = site.nightSolarFraction < 0.5 && mods.unlocked.has('battery');
     let bankShort = false;
+    let urgent = false;
     if (dark && batterySites < 3) {
       const per = (BUILDINGS.battery.storageKWh ?? 0) * mods.batteryCapMult;
-      const want = pb.nightShort * NIGHT_S * NIGHT_COVER;
+      // a crew has to be carried through the night; a robotic base has nothing to keep alive (its machines make a quarter of their output in the dark),
+      // so its bank is a fraction of the night and the big loads go off at dusk (`nightShift`)
+      const want = pb.nightShort * NIGHT_S * (s.expedition === 'robotic' ? NIGHT_COVER_ROBOTIC : NIGHT_COVER);
       const capB = ruleState(s, 'battery').cap * mods.builderCapMult;
       bankShort = s.power.capacity < want && batteries < capB && per > 0;
+      urgent = bankShort && s.expedition !== 'robotic' && s.power.capacity < want * 0.6;
     }
     // (the day's arrays come first only while they cannot even carry the day's load: a bank with nothing to charge it is no bank)
-    const bankFirst = bankShort && pb.full >= pb.load;
+    const bankFirst = urgent && pb.full >= pb.load;
     const place = (type: BuildingId) => {
       if (orderRefusal(s, mods, site, type) || budgetShort(s, mods, site, type, { by: 'order' })) return false;
       b.apply({ kind: 'order', type, count: 1 });
@@ -537,7 +548,8 @@ export class RivalProgram {
     const s = b.state;
     const mods = b.mods;
     const site = SITES[s.siteId];
-    if (this.power()) return;
+    // (the arrays and the bank take every other turn: a base that always has a battery to buy never buys anything else)
+    if (Math.floor((s.simTime - (s.landedAt ?? 0)) / RIVAL_CADENCE.orders) % 2 === 0 && this.power()) return;
     const stable = this.stable();
     const bankless = this.bankless() && this.stable(true);
     for (const o of FACTIONS[this.faction].policy.orders) {
@@ -552,7 +564,11 @@ export class RivalProgram {
       // a cheap look before the siting one: only ask what the budget and the unlocks allow
       if (orderRefusal(s, mods, site, o.type) || budgetShort(s, mods, site, o.type, { by: 'order' })) continue;
       // one building a turn: choosing a site is the costliest thing a base does, and a turn that places several is a frame that stalls
+      const before = s.buildings.length;
       b.apply({ kind: 'order', type: o.type, count: 1 });
+      // no valid ground inside the build network (a big base, its pits and its roads fill it): a Relay Mast at the edge widens it (a rule would
+      // only do so for a rule that cannot place, never for an order)
+      if (s.buildings.length === before && !s.auto.orders.some((x) => x.type === o.type)) this.growNetwork();
       if (o.rush) for (const x of s.buildings) if (x.type === o.type && (x.construction ?? 0) > 0) b.apply({ kind: 'buildNext', id: x.id });
       return;
     }
@@ -577,6 +593,18 @@ export class RivalProgram {
         return;
       }
     }
+  }
+
+  /** Widen the build network by one Relay Mast at its edge (45 m a mast, chained), one at a time and up to MASTS_MAX. */
+  private growNetwork() {
+    const b = this.base;
+    const s = b.state;
+    const mods = b.mods;
+    const site = SITES[s.siteId];
+    let masts = 0;
+    for (const x of s.buildings) if (x.type === 'relayMast') { masts++; if ((x.construction ?? 0) > 0) return; }
+    if (masts >= MASTS_MAX || orderRefusal(s, mods, site, 'relayMast') || budgetShort(s, mods, site, 'relayMast', { by: 'order' })) return;
+    b.apply({ kind: 'order', type: 'relayMast', count: 1 });
   }
 
   /** Claim the best prospect it can pay for: the faction's preferred kinds first, then the nearest. One a minute. */
@@ -661,8 +689,12 @@ const RULE_TYPE: Partial<Record<AutoRuleId, BuildingId>> = {
   lab: 'lab', oxygen: 'smelter', food: 'hydroponics', water: 'waterPlant', partsFab: 'partsFab', refinery: 'refinery', smelter: 'smelter', chipFab: 'chipFab',
 };
 
+/** the era from which a rival heads for its first volley, and the techs that lead (Thin-Film Foils; the site's launch tech, the Era 8 pick and Swarm Protocol follow) */
+const LAUNCH_CHAIN_ERA = 5;
+const LAUNCH_CHAIN: readonly TechId[] = ['foilManufacturing'];
+
 /** researched first on a site with no night sun: nothing lights a base through the dark without them */
-const DARK_FIRST: readonly TechId[] = ['siliconRefining', 'batteryStorage'];
+const DARK_FIRST: readonly TechId[] = ['partsFabrication', 'siliconRefining', 'batteryStorage'];
 
 /** the day's supply a rival keeps over its load, and the share of a night's deficit its bank covers */
 const POWER_MARGIN = 1.15;
@@ -678,7 +710,10 @@ const STABLE_NIGHT = 1.0;
 const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 'chipFab', 'foilFactory', 'storageYard'];
 /** what an unstable base may still order */
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
+/** Relay Masts a rival may raise to widen its build network */
+const MASTS_MAX = 12;
 const NIGHT_COVER = 1.3;
+const NIGHT_COVER_ROBOTIC = 0.35;
 /** night discipline: the bank must cover this much of what the rest of the night asks, or the big loads go off until dawn */
 const NIGHT_SHED_MARGIN = 1.1;
 /** priority 2–3 buildings the night never switches off: they make what a crew eats and drinks (and its smelters, which make its oxygen) */

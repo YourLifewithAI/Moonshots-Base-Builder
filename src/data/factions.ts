@@ -210,8 +210,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'acceleratorDesign', launchArchitecture: 'massDriver', swarmPurpose: 'vonNeumann',
       },
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
-      ruleCaps: { solar: 40, battery: 24, reactor: 2 },
-      lateCaps: { solar: 60, battery: 30, reactor: 4 },
+      ruleCaps: { solar: 80, battery: 24, reactor: 2 },
+      lateCaps: { solar: 100, battery: 30, reactor: 4 },
       orders: orders(
         { type: 'nightVault', count: 1 },
         { type: 'faradayShed', count: 1 },
@@ -273,8 +273,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'ilmenite', 'radio'],
-      ruleCaps: { food: 2, solar: 40, battery: 24, reactor: 2 },
-      lateCaps: { solar: 60, battery: 30, reactor: 4 },
+      ruleCaps: { food: 2, solar: 80, battery: 24, reactor: 2 },
+      lateCaps: { solar: 100, battery: 30, reactor: 4 },
       // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
       skip: ['hazardWaivers'],
       orders: orders(
@@ -337,8 +337,8 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'volatiles', 'silica'],
-      ruleCaps: { food: 2, solar: 40, battery: 24, reactor: 2 },
-      lateCaps: { solar: 60, battery: 30, reactor: 4 },
+      ruleCaps: { food: 2, solar: 80, battery: 24, reactor: 2 },
+      lateCaps: { solar: 100, battery: 30, reactor: 4 },
       // the Consensus Council asks a second crew member at every lab
       skip: ['consensusCouncil'],
       orders: orders(
