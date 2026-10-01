@@ -117,9 +117,10 @@ const minutes = (s: GameState) => (s.simTime - (s.landedAt ?? 0)) / 60;
 const chainReady = (s: GameState) => s.techsDone.includes('swarmProtocol') || (s.era >= 8 && s.techsDone.includes('foilManufacturing') && launchOpen(s));
 /** Launch pads (Mass Drivers at the equator and under the lava tube, Propellant Plants at the pole) a program raises on each site: a pad's volleys a
  *  day follow its site (a driver at mare makes 3.6, under the tube 2.4; a plant 2.4 anywhere), so the three programs launch at about one rate,
- *  eight to twelve volleys a day. The second and later pads follow the first volleys. */
+ *  ten to fourteen volleys a day. The second and later pads follow the first volleys (one more after each volley). */
 const PADS: Record<SiteId, number> = { mare: 3, lavatube: 4, southpole: 3 };
-const padAt = (n: number) => (s: GameState) => n <= PADS[s.siteId] && s.launches >= 3 * (n - 1);
+/** (the Foundry has no Launch Fever, Mission Control or Uplink at first light, so its volley asks 3 launch capacity where the others' asks 2: one pad more) */
+const padAt = (n: number) => (s: GameState) => n <= PADS[s.siteId] + (s.faction === 'robots' ? 1 : 0) && s.launches >= n - 1;
 
 /** Labs by the clock: [minutes since landing, labs wanted]. The pacing probe's reasonable player (scripts/probe-pacing.mjs LAB_CLOCK)
  *  runs a robotic base at 3 labs by minute 14 and eight by 66; a rival follows that clock a fifth slower (×`slow`). A crewed base
@@ -159,13 +160,14 @@ function orders(...extra: FactionOrder[]): FactionOrder[] {
     { type: 'gardenDome', count: 1, when: hasCrew },
     { type: 'dataCenter', count: 3, when: eraAtLeast(6) },
     { type: 'smelter', count: 3, when: eraAtLeast(5) },
-    { type: 'foilFactory', count: 2, when: (s) => s.launches >= 3 },
+    { type: 'foilFactory', count: 2, when: (s) => s.launches >= 1 },
     { type: 'massDriver', count: 2, when: padAt(2) },
     { type: 'propellantPlant', count: 2, when: padAt(2) },
-    { type: 'foilFactory', count: 3, when: (s) => s.launches >= 12 },
+    { type: 'foilFactory', count: 3, when: (s) => s.launches >= 6 },
     { type: 'massDriver', count: 3, when: padAt(3) },
     { type: 'propellantPlant', count: 3, when: padAt(3) },
     { type: 'massDriver', count: 4, when: padAt(4) },
+    { type: 'massDriver', count: 5, when: padAt(5) },
   ];
 }
 
@@ -303,7 +305,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ice', 'ilmenite', 'radio'],
       ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 1 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
-      launchDay: { mare: 26.9, southpole: 26.9, lavatube: 26.9 },
+      launchDay: { mare: 27.3, southpole: 27.3, lavatube: 27.3 },
       // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
       skip: ['hazardWaivers'],
       orders: orders(
@@ -368,7 +370,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ice', 'volatiles', 'silica'],
       ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 2 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
-      launchDay: { mare: 26.2, southpole: 26.2, lavatube: 25.0 },
+      launchDay: { mare: 25.6, southpole: 26.4, lavatube: 25.0 },
       // the Consensus Council asks a second crew member at every lab
       skip: ['consensusCouncil', 'slowBuildDoctrine'],
       orders: orders(

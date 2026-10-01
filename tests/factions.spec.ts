@@ -505,7 +505,7 @@ test('the UI half, briefing: a faction game opens on who you are, who landed whe
   await expect(lines.nth(2)).toHaveAttribute('data-faction', 'solarpunks');
   // what you race for, and the weaknesses (three, one line each, the faction's own)
   await expect(brief.locator('.br-race')).toContainText('First light');
-  await expect(brief.locator('.br-race')).toContainText('100 volleys (0.01 %)');
+  await expect(brief.locator('.br-race')).toContainText('70 volleys (0.007 %)');
   await expect(brief.locator('.br-con')).toHaveCount(3);
   for (let i = 0; i < 3; i++) await expect(brief.locator('.br-con').nth(i)).toHaveText(d.dis[i]);
   await expect(brief.locator('.br-survey')).toHaveText('Survey early: a prospect a rival claims is gone.');
@@ -515,7 +515,7 @@ test('the UI half, briefing: a faction game opens on who you are, who landed whe
   const era = page.locator('#era-banner');
   await expect(era).toBeVisible();
   await expect(era.locator('.eb-race')).toContainText('The race');
-  await expect(era.locator('.eb-race')).toContainText('100 volleys');
+  await expect(era.locator('.eb-race')).toContainText('70 volleys');
   await expect(era.locator('.eb-moon')).toContainText('Mission day 1');
   await expect(era.locator('.eb-moon')).toContainText('Foundry');
   await expect(era.locator('.eb-moon')).toContainText('Vanguard');
@@ -604,7 +604,7 @@ test('the UI half, the RACE chip: in a faction game, never in solo; the panel li
   await expect(rows.nth(0).locator('.rc-era')).toHaveText('ERA 4');
   await expect(rows.nth(1).locator('.rc-launches')).toHaveText('1 volley');
   await expect(rows.nth(0).locator('.rc-last')).toContainText('THE FOUNDRY REACHES ERA 4');
-  await expect(panel).toContainText('5 of 100 combined volleys');
+  await expect(panel).toContainText('5 of 70 combined volleys');
   await chip.click();
 
   // the player's first light is the earlier: second place; a tie on both falls to the landing order; the leader is you

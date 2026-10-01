@@ -268,7 +268,8 @@ export class RivalProgram {
     const b = this.base;
     const s = b.state;
     let hold = false;
-    for (const tid of s.researchStalled) {
+    // (once Era 8 is open the volleys are the point: a Commons base under the lava tube flew four volleys a day on foils the tail techs' goods kept switching off)
+    for (const tid of s.era >= 8 ? [] : s.researchStalled) {
       for (const g of goodsShortfall(techCost(tid, s, b.mods).goods, s, b.mods)) if (g.res === 'silicon' || g.res === 'metals') hold = true;
     }
     for (const x of s.buildings) {
