@@ -245,7 +245,7 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
         firstOrders: p.orders.slice(0, 3).map((o: any) => o.type),
         badOrders: p.orders.filter((o: any) => !B.BUILDINGS[o.type]).map((o: any) => o.type),
         badSkip: (p.skip ?? []).filter((t: string) => !T.TECHS[t]),
-        late: p.lateCaps,
+        late: p.lateCaps, launchDay: p.launchDay,
         unique: F.FACTIONS[f].uniqueTechs.filter((t: string) => !p.research.includes(t) && !(p.skip ?? []).includes(t)),
       };
     }
@@ -261,13 +261,17 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
     expect(o.orders, `${f}: orders`).toBeGreaterThan(5);
     expect(o.badOrders, `${f}: orders name real buildings`).toEqual([]);
     expect(o.badSkip, `${f}: skipped techs exist`).toEqual([]);
-    expect(o.late, `${f}: late caps`).toEqual({ solar: 60, battery: 10, reactor: 4 });
+    expect(o.late, `${f}: late caps`).toEqual({ solar: 100, battery: 30, reactor: 4 });
+    expect(o.launchDay, `${f}: a planned first light`).toBeGreaterThan(14);
   }
   // the Foundry's and the Vanguard's own techs are all in their lists (placed where they help) or deliberately skipped; the Commons leave
-  // three cheap late ones (Slow Build, Guardianship, Long Night Gardens) to the tail, where the runner takes what is left
+  // two cheap late ones (Guardianship, Long Night Gardens) to the tail, where the runner takes what is left (Slow Build is skipped: a program
+  // racing the Sun does not slow its building)
   expect(r.out.robots.unique).toEqual([]);
   expect(r.out.accelerationists.unique).toEqual([]);
-  expect(r.out.solarpunks.unique.sort()).toEqual(['guardianship', 'longNightGardens', 'slowBuildDoctrine']);
+  expect(r.out.solarpunks.unique.sort()).toEqual(['guardianship', 'longNightGardens']);
+  expect(r.out.robots.launchDay).toBeLessThan(r.out.accelerationists.launchDay);
+  expect(r.out.accelerationists.launchDay).toBeLessThan(r.out.solarpunks.launchDay);
   expect(r.out.robots.claimKinds[0]).toBe('ilmenite');
   expect(r.out.accelerationists.claimKinds[0]).toBe('ice');
   expect(r.out.solarpunks.claimKinds[0]).toBe('ice');

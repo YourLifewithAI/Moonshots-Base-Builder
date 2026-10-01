@@ -1,12 +1,13 @@
 # 18 — Follow-ups
 
-The hand-off list after the graphics and gameplay program ([19-graphics-and-gameplay-plan.md](19-graphics-and-gameplay-plan.md), PRs #50–#72; main at 0497053). It says what is really open. What shipped is recorded in docs/19's "As shipped" subsections, and the mining and learning work in [19-mining-learning-plan.md](19-mining-learning-plan.md).
+The hand-off list after the graphics and gameplay program ([19-graphics-and-gameplay-plan.md](19-graphics-and-gameplay-plan.md), PRs #50–#72; main at 0497053) and after the factions program ([20-factions-and-the-race.md](20-factions-and-the-race.md), PRs #75–#89 and stream S8). It says what is really open. What shipped is recorded in docs/19's and docs/20's "As shipped" subsections, and the mining and learning work in [19-mining-learning-plan.md](19-mining-learning-plan.md).
 
 It covers:
 - the tests: their state, the tests that are sensitive to load, and how to run the suite;
 - the design phases not yet built, and the stand-ins they will replace;
 - open findings the program turned up;
 - the mobile pass, which the player paused;
+- the factions and the race: the knobs, what is left open, perf;
 - what only the player can do.
 
 ## 1. The tests
@@ -26,6 +27,8 @@ D6 fixed two specs the full run found: `anim.spec` (the busy base now sends one 
 
 Test round 2 result (main 6b239b6, one file at a time, 67 minutes): 502 passed, 2 skipped by design (the two `pwa.spec` tests that need a built copy or a dev server), 4 failed. Run alone on a quiet machine, `avoidance.spec` "a rover working on the hub's haul road gets out of the loaded unit's way" and `map.spec` "survey: pays data, flies a drone" passed (load flakes). The other two were fixed in the next commit: the fleet inspector layout at 1280×720 (the OUTPOSTS chip from S8 took a row from the right-hand stack, so the alert cap now steps to two rows at 760 px height and under; the two layout tests pass) and `pwa.spec` "the service worker registers…" (the page could read the precache a moment before its last entry landed; the test now waits for the cache to fill, and the file passes 4/4).
 
+**After the factions program (docs/20).** The list now reads **587 tests in 48 files** (`npx playwright test --list`): seven new files (`factions` 14, `moon` 7, `headless` 3, `integration` 9, `rivals` 8, `race` 4, `traits` 11) and the extended `research` (26), `techtree` (23), `lunarmap` (23), `notify` (11) and `silhouettes` (9). Every stream ran its own spec once and the determinism guard on a solo game was IDENTICAL after each (docs/20); a full run of the merged work was started after PR #89 and its result is not recorded here, so treat the counts above as the list, not as a pass.
+
 ### 1.2 Tests that are sensitive to load
 
 Under software GL on a busy machine these can fail with no fault in the game. Re-run each alone with `--timeout=300000` before treating it as a real failure.
@@ -36,6 +39,8 @@ Under software GL on a busy machine these can fail with no fault in the game. Re
 - `playability.spec` "audio: cues follow the state; the hum sags as the bank runs dry": the brownout drain. The test pauses first, because one live frame can slip a charge in between the drain and the reading.
 - `destiny.spec` "Human Cohabitation: the first Colony pick brings it forward…".
 - `avoidance.spec` (the crowded base) depends on the sim clock's starting phase: boot leaves a fraction of a game-second in the tick accumulator, and it varies with machine load (it failed at .48 and .50 before D6). A red at some other phase is worth a look; it is not a flake to ignore.
+- `rivals.spec` "the day targets on seed 42": `msMean < 2` and `msPerTick < 2` read the rivals' cost in wall time (±0.3 ms with the box busy), and the Foundry's first claim must be by day 8 (it lands on day 7.5: a change to the Foundry's research list or orders moves it). `integration.spec` and `rivals.spec` bound the pre-roll in wall time (12 s and 20 s; the Commons' start steps 4,320 rival ticks: 2.4 to 5.5 s measured) and the descent path's longest frame gap.
+- Any spec that plays a rival by hand needs `setRivalMind(false)` before `selectFaction`, and the pure-module specs (`moon`, `headless`) fail spuriously on a dev server that served edited files (the module is imported twice): restart it first.
 - From the first full runs, before the repairs (load-sensitive then; re-check if a full run goes red): the camera's WASD and easing, clicks at 10×, the WebAudio stubs, the menu's Esc, live numbers, held keys, and techtree "keys and live updates".
 
 ### 1.3 How to run the suite
@@ -92,6 +97,8 @@ Untested and unfinished:
 - No Playwright spec has been run on the branch: the new `touch.spec` tests ("grading with two fingers", "the fixed camera by touch") and D4's extended grade test have never executed.
 - The Pair test's corner points landed on the alert stack (HUD, not canvas) at 667×375, so the recognizer rightly ignored them; they need canvas points clear of `#hud-right` and the rails.
 - 932×430 is not yet reviewed (the field sheet, the grade bar and Pair, the menu), nor `#grade-jobs` and the SURVEY DRONES section on the sheet.
+
+**The factions program added to it (docs/20), and the branch predates all of that.** fs1 checked the faction step and the briefing at three phone sizes (the `touch.spec` fit report of `#btn-land`'s step passes at 667×375, 844×390 and 932×430). Not looked at on a phone: the RACE chip (in `#time-controls` after the OUTPOSTS chip, which touch hides), the RACE panel (`#race-panel` joined the touch sheet list by one id), the rival first-light banner (centred above the build palette) and the race cards (lower right), the verdict screen and its standings table, the swarm meter's three share bars (hidden on touch: the chip stays), the faction cards' rival lines, and the map's rival marks. The mobile pass must cover them when it resumes.
 
 Left to do when resumed: the notifications test at both sizes, the controls-table test, the Pair test geometry; run the new tests, then `touch.spec.ts` whole; docs/19 "As shipped: S9"; then merge `origin/main`, tsc, `docs:check`. The OUTPOSTS chip is hidden on touch (S8). Resume only when the player asks.
 

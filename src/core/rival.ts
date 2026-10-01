@@ -31,7 +31,7 @@ import { dayInfo } from './daynight';
 import { claimRefusal, prospectDist, KIND_LABEL, type RivalInfo } from './exploration';
 import { SITES, type SiteId } from '../data/sites';
 import type { ResourceId } from '../data/resources';
-import { FACTIONS, FACTION_NAME, FACTION_ORDER, LAUNCH_ARCHITECTURE, type FactionId } from '../data/factions';
+import { FACTIONS, FACTION_NAME, FACTION_ORDER, LAUNCH_ARCHITECTURE, launchOpen, type FactionId } from '../data/factions';
 import { DOCTRINES, DOCTRINE_ORDER, ERA_NAMES, TECHS, TECH_ORDER, TRACKS, type Era, type Side, type TechId } from '../data/techs';
 import { FAMILY_PRIORITY, RULE_ORDER, RULES, type AutoRuleId } from '../data/automation';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
@@ -285,6 +285,7 @@ export class RivalProgram {
     if (!def) return false;
     if (FACTIONS[this.faction].policy.skip?.includes(tid)) return false;
     const s = this.base.state;
+    if (tid === 'swarmProtocol' && !launchOpen(s)) return false; // (the program's launch window: factions.ts `launchDay`)
     if (def.track && !def.track.landing) return this.destinyPick(def.track.era) === tid;
     if (def.exclusive && isDoctrineHere(def, s)) return this.doctrinePick(def.exclusive) === tid;
     return true;
@@ -587,6 +588,13 @@ export class RivalProgram {
       bankShort = s.power.capacity < want && batteries < capB && per > 0;
       urgent = bankShort && s.expedition !== 'robotic' && s.power.capacity < want * 0.6;
     }
+    // baseload: a Thorium Reactor (120 metals, 40 parts) is forty kilowatts through the night and a flare, for what six arrays and three batteries cost
+    // and without their dust; on a site with no night sun the first ones are raised once the tech is in (the Builder's own rule waits for a 25 kW
+    // shortfall, a dwell and a ten-minute cooldown). Their morale cost is why the Vanguard's cap is one.
+    let reactors = 0, reactorSites = 0;
+    for (const x of s.buildings) if (x.type === 'reactor') { reactors++; if ((x.construction ?? 0) > 0) reactorSites++; }
+    const reactorShort = site.nightSolarFraction < 0.5 && mods.unlocked.has('reactor') && reactorSites === 0 &&
+      reactors < ruleState(s, 'reactor').cap * mods.builderCapMult && pb.nightShort > REACTOR_AT_KW;
     // (the day's arrays come first only while they cannot even carry the day's load: a bank with nothing to charge it is no bank)
     const bankFirst = urgent && pb.full >= pb.load;
     const place = (type: BuildingId) => {
@@ -600,6 +608,7 @@ export class RivalProgram {
       const cost = buildCostAt('battery', site);
       if (!orderRefusal(s, mods, site, 'battery') && (s.resources.silicon ?? 0) >= (cost.silicon ?? 0) && s.resources.metals < (cost.metals ?? 0)) return true;
     }
+    if (reactorShort && place('reactor')) return true;
     if (solarShort && place('solar')) return true;
     if (bankShort && !bankFirst && place('battery')) return true;
     return false;
@@ -761,7 +770,7 @@ const LAUNCH_CHAIN_ERA = 5;
 const LAUNCH_CHAIN: readonly TechId[] = ['foilManufacturing'];
 
 /** researched first on a site with no night sun: nothing lights a base through the dark without them */
-const DARK_FIRST: readonly TechId[] = ['partsFabrication', 'siliconRefining', 'batteryStorage'];
+const DARK_FIRST: readonly TechId[] = ['partsFabrication', 'siliconRefining', 'batteryStorage', 'regolithShielding', 'thoriumPower'];
 
 /** the day's supply a rival keeps over its load, and the share of a night's deficit its bank covers */
 const POWER_MARGIN = 1.15;
@@ -787,6 +796,8 @@ const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
 /** Relay Masts a rival may raise to widen its build network */
 const MASTS_MAX = 12;
+/** a site with no night sun raises a reactor while the night runs this many kW short */
+const REACTOR_AT_KW = 30;
 const NIGHT_COVER = 1.3;
 const NIGHT_COVER_ROBOTIC = 0.35;
 /** night discipline: the bank must cover this much of what the rest of the night asks, or the big loads go off until dawn */

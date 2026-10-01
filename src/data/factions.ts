@@ -16,6 +16,7 @@ import { SITES, type SiteId } from './sites';
 import type { DoctrineId, Era, Expedition, Side, TechId } from './techs';
 import type { GameState } from '../core/state';
 import type { Mods } from '../core/mods';
+import { CYCLE_S } from './balance';
 
 export type FactionId = 'robots' | 'accelerationists' | 'solarpunks';
 
@@ -55,6 +56,10 @@ export interface FactionPolicy {
   lateCaps: Partial<Record<AutoRuleId, number>>;
   /** techs the program never researches (a branch tech that costs a crew more than it brings) */
   skip?: TechId[];
+  /** the Moon day the program plans its first light for (docs/20 S8): Swarm Protocol and the launch pads wait until `LAUNCH_LEAD_DAYS` before it,
+   *  so the three programs light within a day or two of each other whatever their sites let them do sooner. A program whose base is later than
+   *  this lights when it can. */
+  launchDay: number;
   orders: FactionOrder[];
 }
 
@@ -89,7 +94,7 @@ export interface FactionDef {
 
 /** the empty policy (a fresh object each: a faction edits its own) */
 const noPolicy = (): FactionPolicy => ({
-  research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, lateCaps: {}, orders: [],
+  research: [], destiny: {}, doctrines: {}, claimKinds: [], ruleCaps: {}, lateCaps: {}, launchDay: 0, orders: [],
 });
 
 // ─────────────────────────── the rivals' policies (stream S4) ───────────────────────────
@@ -108,7 +113,7 @@ const minutes = (s: GameState) => (s.simTime - (s.landedAt ?? 0)) / 60;
 /** The road to the swarm is open: Era 8, with Thin-Film Foils behind it (Swarm Protocol itself costs 5 foils, so a factory has to stand first). A program
  *  that raises its Foil Factories and launch pads at Era 7 sits on a stockpile of foils and launch capacity when the protocol lands and fires
  *  a hundred volleys in a day (docs/20 S8): they wait for the last era. */
-const chainReady = (s: GameState) => s.techsDone.includes('swarmProtocol') || (s.era >= 8 && s.techsDone.includes('foilManufacturing'));
+const chainReady = (s: GameState) => s.techsDone.includes('swarmProtocol') || (s.era >= 8 && s.techsDone.includes('foilManufacturing') && launchOpen(s));
 /** Launch pads (Mass Drivers at the equator and under the lava tube, Propellant Plants at the pole) a program raises on each site: a pad's volleys a
  *  day follow its site (a driver at mare makes 3.6, under the tube 2.4; a plant 2.4 anywhere), so the three programs launch at about one rate,
  *  eight to twelve volleys a day. The second and later pads follow the first volleys. */
@@ -168,6 +173,13 @@ function orders(...extra: FactionOrder[]): FactionOrder[] {
  *  picked by faction left the Commons and the Vanguard at Ilmenite Plains with plants that had no water and no volley. */
 export const LAUNCH_ARCHITECTURE: Record<SiteId, TechId> = { southpole: 'propellantDepot', mare: 'massDriver', lavatube: 'massDriver' };
 
+/** days before its planned first light that a program starts the last leg: Swarm Protocol (1,800 data), a Foil Factory and a launch pad, and the first volley */
+export const LAUNCH_LEAD_DAYS = 1.5;
+/** has the program's launch window opened? (a state with no faction is never held) */
+export function launchOpen(s: GameState): boolean {
+  return !s.faction || s.simTime >= (FACTIONS[s.faction].policy.launchDay - LAUNCH_LEAD_DAYS) * CYCLE_S;
+}
+
 export const FACTIONS: Record<FactionId, FactionDef> = {
   robots: {
     id: 'robots',
@@ -226,6 +238,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
       ruleCaps: { solar: 80, battery: 24, reactor: 2 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
+      launchDay: 26.5,
       orders: orders(
         { type: 'nightVault', count: 1 },
         { type: 'faradayShed', count: 1 },
@@ -287,8 +300,9 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
         chipDoctrine: 'radHardProcess', launchArchitecture: 'propellantDepot', swarmPurpose: 'powerBeaming',
       },
       claimKinds: ['ice', 'ilmenite', 'radio'],
-      ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 2 },
+      ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 1 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
+      launchDay: 27.0,
       // Hazard Waivers raise the hazard rate ×1.2 on a crew that cannot spare a death
       skip: ['hazardWaivers'],
       orders: orders(
@@ -353,8 +367,9 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ice', 'volatiles', 'silica'],
       ruleCaps: { food: 4, solar: 80, battery: 24, reactor: 2 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
+      launchDay: 27.5,
       // the Consensus Council asks a second crew member at every lab
-      skip: ['consensusCouncil'],
+      skip: ['consensusCouncil', 'slowBuildDoctrine'],
       orders: orders(
         { type: 'commonsHall', count: 1 },
         { type: 'regolithTerrace', count: 2 },
