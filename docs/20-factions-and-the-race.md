@@ -362,7 +362,7 @@ Branch `work/fs4`. The two rival bases have a mind: a rival researches along its
 - **Alive at day 12**: all nine faction × site pairs, crew 7–14 (the minimum along the way is 7, except the Vanguard at the lava tube: 5, two dying of thirst around day 7 when the water plant goes dark with the night and the stock is under ten). **Era at day 12**: the Foundry E6 (mare) / E5 (lava tube) / E4 (pole), the Vanguard E5 / E5 / E3 (lava tube), the Commons E3 (lava tube) / E4 (mare) / E5 (pole), 11–32 techs.
 - **Beyond day 12** (Node harness, day 30, seed 42, three bases): the Foundry at mare is in Era 8 by day 15 and its **first light is day 23.5** (56 volleys by day 30), the Vanguard at the pole is in Era 8 on day 17 and lights **on day 17.7** (34 volleys), the Commons light on days 25.9 and 28.4 (two of the three sites), so the race has runners from about day 18 (the design's "the Foundry lit on day 19" is the right order). Not every crewed rival lives that long: the Commons at the lava tube are lost on day 19.6, the Vanguard at the lava tube on day 20.9 and at mare on day 26.2 (the water loop at a site with no ice, the night's brownouts), the others live on (crew 11 to 42).
 
-**For fs8 (balance).** Everything below is a knob in `data/factions.ts` (`policy`, `LAB_CLOCK` and its `slow` 1.2, `lateCaps`, `skip`) or at the top of `core/rival.ts` (`RIVAL_CADENCE`, `LIFE_RUNWAY_S`, `CRISIS_S`, `POWER_MARGIN`, `NIGHT_COVER`, `STABLE_*`, `BANKLESS_LABS`, `RESUPPLY_PARTS`, `LIFE_MAX`, `rivalMods`):
+**For fs8 (balance; S8 has since changed most of what follows: `lateCaps` are 100 / 30 / 4, the life controller runs to 3,600 s, the Foundry no longer sits in Era 5, and "As shipped: S8" is the truth).** Everything below is a knob in `data/factions.ts` (`policy`, `LAB_CLOCK` and its `slow` 1.2, `lateCaps`, `skip`) or at the top of `core/rival.ts` (`RIVAL_CADENCE`, `LIFE_RUNWAY_S`, `CRISIS_S`, `POWER_MARGIN`, `NIGHT_COVER`, `STABLE_*`, `BANKLESS_LABS`, `RESUPPLY_PARTS`, `LIFE_MAX`, `rivalMods`):
 
 - **What lights the launches** (`lateCaps`: solar 60, battery 10, reactor 4 from Era 6; the runaway-rule answer; no load added while the full-sun supply is under 90 % of the load from Era 5): without them the Foundry sat in Era 8 with an empty bank (supply 280 kW against a demand of 759) and never launched in 30 days, ten Prospecting Bays welded by a runaway Survey rule among its loads. The first light day is this, the Foundry's night (S2's ×0.25, the leaky bank) and the launch techs' research: move any of them and the race moves.
 - **The Foundry at the pole is the slow case**: one smelter for ten days (metals 0–40), Era 2 on day 2.6, Era 4 at day 12 and no claim. The orders list puts `smelter ×2` after solar ×3, so the labs by the clock (`LAB_CLOCK` × 1.2) and arrays pass it over while metals are short; saving up for it (tried: a blocked smelter order stops the list) made the Foundry at mare slower (its labs late). S2's night (output ×0.25, bank ×0.75) is what hurts it there.
@@ -444,6 +444,99 @@ Branch `work/fs7`. A faction game wears its faction's livery on every structure,
 Screenshots (seed 42): `$SP/shots/fs7/contact-{robots,accelerationists,solarpunks}-{day,night}.png` (Lander, habitat, lab, the two faction buildings, a rover, a hub digger, a Drone Hive deck with its drones, a walker) and `wide-{robots,accelerationists,solarpunks}-{day,night}.png`.
 
 **S8 · Balance and docs** — Owns docs/20 (status), docs/02/05/11/12/14 notes, docs/18, `src/data/factions.ts` numbers, `src/data/balance.ts` `RACE`. One seed-42 run per faction on its preferred site with the debug API (`advanceGameMinutes` to first light or 240 min), a table of era times, first-light day, rival first-light day, claims held, and the verdict; tune landing days, `closeAt` and trait numbers so that on seed 42 the player, played by the Builder, is neither always first nor always last. No pacing probes beyond that table.
+
+#### As shipped: S8
+
+Branch `work/fs8`. The rival programs now play a whole game: on seeds 42 and 7 all nine faction × site pairs are alive and still growing at day 40 (and on seeds 99 and 2024 to day 34), the first claims fall on days 7 to 18, the eight real pairs light on days 26 to 30 within a day or two of one another, and the race closes about three Moon days after the first volley. Almost all of it is rival policy (`src/core/rival.ts`, `src/data/factions.ts`), plus small fixes in shared files (`mods.ts`, `research.ts`, `state.ts`, `techs.ts` and two lines of UI text); a solo game is untouched (the determinism guard is IDENTICAL, below). Deviations from the brief and the plan first, then what was wrong, the tables, the flags the brief listed, the knobs.
+
+**Deviations from the brief and the plan**
+
+- **The balance was not in the numbers the plan named.** The brief said to tune landing days, `closeAt` and trait numbers. Landing days (0, 2, 4) and every trait stay as S1 wrote them: tried on the Vanguard at the pole (a slower build, less lab output, costlier lanes) its first light moved only from 13.3 to 13.7–15.3, a build time ×1.3 took it to 15–20 days and cost a death at the lava tube, and the Commons' traits moved theirs by about a day. What decided a program's pace was its **policy and its site**, and the policy was broken (below): at d87f7b0 three of the nine pairs were dead by day 27, the Foundry sat at Era 5 or in the dark for a month, and only three pairs ever lit by day 40.
+- **First light is scheduled (`FactionPolicy.launchDay`, new).** The natural first lights spread over seventeen days (the Vanguard at the pole 13.3, the Commons under the lava tube 28 to 30): one race cannot have a two-week gap between its first and its last runner, and no trait number closes it (the pole is continuous sun for a crew, so its base never stalls). So each program has, per site, a Moon day on which it **opens its last leg**: Swarm Protocol is not researched, and the first Foil Factory, Mass Driver or Propellant Plant is not ordered, before `launchDay − LAUNCH_LEAD_DAYS` (1 day); a program that is not ready by then lights when it can. The days come from each pair's measured chain time (Swarm Protocol's 1,800 data, a factory, a pad and the first volley take a Foundry on the plains 0.6 to 1 day and a Commons base under the lava tube 2 days), so first lights fall within two days. It is a scheduler, not a handicap: a program that lights late through its own base (the Commons under the tube, the Foundry at the pole) is not held up further.
+- **First lights are days 26.2 to 28.4 (seed 42; 26.2 to 30.3 on seed 7), not spread over 14 to 30, and the Foundry is first by a fraction of a day, not by a week.** The brief asked for the plan's order (robots earliest) inside days 14 to 30; the shipped order is by hours, so that "a player who lights one or two days after a rival can still win by out-launching" is true at the table: the race is a near thing between three programs that launch at about one rate, and a Commons base at the pole or at Ilmenite Plains lit before the Foundry on seed 42. The price is that a rival is idle for a long time: the Vanguard at the pole is in Era 8 on day 12 and lights on day 26.8 (it uses the fortnight to build and bank; nothing about it shows on the player's screen but the RACE panel's `ERA 8`).
+- **`RACE.closeAt` 100 → 70** (0.007 % of the swarm; the briefing and the verdict screen now print three decimals). Measured volley rates (seed 42 and 7, 3-base games): a program flies 25 to 44 volleys in its first three days (8 to 12 on the first, 13 to 15 a day by the third), the three together 25 to 40 a day, so **100 volleys took 4 to 7 days after the first light and 70 take 2.1 to 4.1 days (mean 2.9)**; the single-base matrix of four seeds reads 2.6 days (min 2.1, max 4.2). `sharedMargin` stays 0.05 (3 to 4 volleys at the new close: the first and second within that read as A SHARED SWARM). Specs that print the number (`factions.spec`, `race.spec`) moved with it.
+- **The launch doctrine follows the site, not the faction** (`LAUNCH_ARCHITECTURE`: Propellant Depot at the pole, Mass Driver at mare and under the tube). A Propellant Plant needs 0.3 water a second, which Ilmenite Plains and the lava tube do not have: a Commons or Vanguard base there that took its faction's propellant doctrine had plants and no volleys at all.
+- **Foil Factories and pads wait for Era 8** (`chainReady`, was Era 5 and 7): a program that raised them early sat on a stockpile of foils and launch capacity and fired a hundred volleys on the day Swarm Protocol landed.
+- **First claims are not all by day 14.** The Foundry claims on day 7.7 to 8.1 (at Ilmenite Plains; 8.0 at the lava tube on seed 7, 16.6 on seed 42, where it had a surveyed prospect and no metals for twelve days), the Vanguard on days 8.7 to 12.3, the Commons on day 11.7 at the pole, 14.2 at Ilmenite Plains and 17.2 to 18.2 under the lava tube (every claim needs 5 chips, so a Wafer Fab, an Era 4 tech, and the Commons reach Era 4 on day 10.5 to 16.3). Against d87f7b0 (no Commons claim at the lava tube because it was dead; the Foundry at the pole on day 19.6, unchanged) that is better everywhere but not on the brief's line for the Commons at the lava tube. A hold on the first claim's goods was tried and removed (docs/18 §5.3).
+- **The Commons skip Slow Build Doctrine** (`policy.skip`): a program in a race does not take ×1.15 build time for ×0.7 upkeep; worth about a day at the lava tube.
+
+**What was wrong, and what changed** (all but the last three rows are in `core/rival.ts` and `data/factions.ts`; "baseline" is origin/main d87f7b0, seed 42)
+
+| Defect (baseline) | Change |
+|---|---|
+| The Foundry's solar cap 24 and battery cap 6 bound until Era 6 (`lateCaps` only from then): Foundry at the lava tube sat in Era 5 with 24 arrays and no bank, dark | `ruleCaps` solar 80, battery 24, reactor 2 from the start; `lateCaps` 100 / 30 / 4 (was 60 / 10 / 4). The Vanguard's reactor cap is 1 (a reactor's morale cost) |
+| Crewed rivals died of thirst at the lava tube and at mare (Commons, Vanguard: days 17 to 26): a water plant on ground with no ice digs plain regolith at 0.4 of mature soil's water because a hub unit digs a deposit only once a rover has cored it; farms idle on `reserve` and drink the crew's reserve; the bank was spent on labs and the water went dark at the end of the night | `coreDeposits()` (a survey every minute, mature soil first); `nightShift()` (sites with no night sun, and a flare's stow: when the bank cannot carry what is left of the night, the biggest priority 2 and 3 loads that are not life support go off until dawn: `BuildingState.nightShed`); `foodCap()` (one farm for four crew); the life controller raised to `LIFE_RUNWAY_S` 3600 s and up to 4 smelters, 4 water plants, 3 farms; crewed resupply under 200 parts, up to four shipments; `power()` puts the bank first while it is under 60 % of the night's want (crewed) and alternates turns with the orders; reactors on a dark site once Thorium Power is in |
+| A full research queue of what was wanted at landing held Parts Fabrication out for a week (seed 11) | queue replacement: the best unqueued want takes the place of the last queued tech when under a third of it is paid; `DARK_FIRST` techs lead on sites with no night sun |
+| A crewed base with no parts fabricator bought a third smelter out of its last 40 parts and could build nothing after it | `partsPoor()`: smelter and refinery rules wait, and the orders skip all but the fabricator, arrays, bank, first water plant and two labs, until the fabricator stands |
+| Orders refused "no valid ground" for ten days (the first Foil Factory, Mass Driver) once a big base filled its build network | `growNetwork()`: a Relay Mast at the network's edge (`MASTS_MAX` 12) when an order was refused and no rule would place it |
+| A stalled tech (Garden Domes, the Era 8 pick) lacked silicon while a Foil Factory ate every grain: the Commons at the pole of seed 7 sat in Era 7 for twenty days | `goodsGuard()`: Foil Factories off (`BuildingState.goodsHold`) while a stalled tech lacks silicon or metals |
+| The launch chain waited behind a faction's whole research list | from Era 5 `dustMitigation` (unless Cleanroom Robotics is in), Thin-Film Foils, the site's launch tech, the Era 8 pick and Swarm Protocol lead the queue |
+| The Foundry at the pole sat on one smelter for ten days (metals 0 to 40) and its first refinery came at Era 5 | an early Refinery order wherever the night is dark; still the slow pair (docs/18 §5.3) |
+| Bank Trenches (the Foundry's Era 5 tech, "bank efficiency 85 %") did nothing: the Foundry's landing caps the round trip at 75 % and Trenches only replaced the tech's own figure, never the cap | `storage` effects gained `restore`: it lifts the faction cap and never a tech's own figure (Fuel Cells' 60 % then Trenches stays 60 %), tallied in `computeMods` so the order of `techsDone` never matters (`mods.ts`, `techs.ts`) |
+| The destiny meter called Colony or Concord "reachable" for a faction that cannot take the picks (the Commons' ethos locks the Era 6 and 7 ◉ picks) | `destinyOf` counts a pick left on a locked era as fixed to the side the lock leaves (`research.ts`); a solo game and a faction without locks are exactly as before |
+| Vanguard trim `#2f5fd0` read 3.3 : 1 on the dark UI | `#3f73ee` (4.4 : 1): `factions.ts`, five spec pins (`factions`, `techtree`, `notify`, `race`) and docs/06 |
+
+**Seed 42, the nine faction × site pairs, three Builder-played bases on one Moon** (the harness: docs/18 §5.2). Days are Moon days; "first claim (held at day 14 · at day 20)" counts the outposts held. Before is d87f7b0 to day 40, after is this branch to day 40. The game column is the site assignment of the three programs (A: Foundry at Ilmenite Plains, Vanguard at the pole, Commons under the lava tube; B: pole, lava tube, Ilmenite Plains; C: lava tube, Ilmenite Plains, pole).
+
+| Program @ site | Game | Before: Era 4 / 6 / 8 | first light | first claim (14 · 20) | state | After: Era 4 / 6 / 8 | first light | first claim (14 · 20) | state |
+|---|---|---|---|---|---|---|---|---|---|
+| Foundry @ Marius Hills Tube | C | 7.5 / – / – | – | 9.6 (1 · 1) | alive | 6.6 / 14.6 / 22.2 | 26.9 | 16.6 (0 · 2) | alive |
+| Foundry @ Ilmenite Plains | A | 6.3 / 11.4 / 20.0 | 23.5 | 7.2 (2 · 2) | alive | 6.6 / 12.6 / 18.6 | 26.4 | 7.7 (2 · 2) | alive |
+| Foundry @ Shackleton Rim | B | 8.5 / 21.4 / 26.9 | – | 19.6 (0 · 1) | alive | 10.4 / 18.5 / 29.1 | 36.4 | 19.6 (0 · 1) | alive |
+| Vanguard @ Marius Hills Tube | B | – / – / – | – | – (0 · 0) | **dead 17.9** | 9.4 / 15.1 / 20.2 | 26.9 | 12.3 (1 · 1) | alive |
+| Vanguard @ Ilmenite Plains | C | 8.6 / 13.5 / 18.5 | – | 10.5 (1 · 2) | **dead 26.2** | 8.4 / 12.0 / 15.5 | 26.8 | 10.1 (1 · 2) | alive |
+| Vanguard @ Shackleton Rim | A | 9.9 / 12.6 / 15.6 | 17.7 | 10.8 (1 · 2) | alive | 7.7 / 10.1 / 11.9 | 26.8 | 8.7 (2 · 4) | alive |
+| Commons @ Marius Hills Tube | A | – / – / – | – | – (0 · 0) | **dead 19.6** | 14.3 / 19.5 / 26.4 | 28.4 | 17.2 (0 · 1) | alive |
+| Commons @ Ilmenite Plains | B | 10.8 / 16.4 / 23.8 | – | 12.6 (1 · 1) | alive | 11.7 / 17.1 / 24.1 | 26.3 | 14.2 (0 · 1) | alive |
+| Commons @ Shackleton Rim | C | 10.9 / 15.0 / 20.7 | 25.9 | 12.1 (1 · 2) | alive | 10.5 / 14.0 / 19.1 | 26.5 | 11.7 (1 · 2) | alive |
+
+**The close at 70 combined volleys** (the first 70 volleys of the three programs, by game):
+
+| Seed · game | first light | closes | window | Foundry | Vanguard | Commons | winner |
+|---|---|---|---|---|---|---|---|
+| 42 · A (before) | 17.7 | day 24.4 | 6.7 d | 11 | 59 | 0 | Vanguard |
+| 42 · B (before) | – | not reached (0 volleys by day 40) | – | – | – | – | – |
+| 42 · C (before) | 25.9 | day 30.5 | 4.6 d | 0 | 0 | 70 | Commons |
+| 42 · A | 26.4 | day 29.3 | 2.9 d | 35 | 32 | 3 | Foundry |
+| 42 · B | 26.3 | day 30.4 | 4.1 d | 0 | 43 | 27 | Vanguard |
+| 42 · C | 26.5 | day 28.6 | 2.1 d | 20 | 26 | 24 | Vanguard |
+| 7 · A | 26.5 | day 29.3 | 2.8 d | 39 | 31 | 0 | Foundry |
+| 7 · B | 26.2 | day 29.9 | 3.7 d | 1 | 32 | 37 | Commons |
+| 7 · C | 26.5 | day 28.7 | 2.2 d | 21 | 24 | 25 | Commons |
+| 99 · A | 26.5 | day 29.3 | 2.8 d | 35 | 35 | 0 | Foundry |
+| 2024 · A | 26.5 | day 28.8 | 2.3 d | 33 | 26 | 11 | Foundry |
+
+**Seeds 7, 99 and 2024, after** (same columns; 99 and 2024 run the preferred-site game A only, to day 34):
+
+| Program @ site | Seed · game | Era 4 / 6 / 8 | first light | first claim (14 · 20) | state |
+|---|---|---|---|---|---|
+| Foundry @ Marius Hills Tube | 7 · C | 7.1 / 12.7 / 17.1 | 26.5 | 8.0 (2 · 2) | alive |
+| Foundry @ Ilmenite Plains | 7 · A | 6.6 / 12.6 / 17.1 | 26.5 | 8.1 (2 · 2) | alive |
+| Foundry @ Shackleton Rim | 7 · B | 8.9 / 18.0 / 22.7 | 29.6 | 15.5 (0 · 2) | alive |
+| Vanguard @ Marius Hills Tube | 7 · B | 11.3 / 15.4 / 19.0 | 27.2 | 12.1 (1 · 1) | alive |
+| Vanguard @ Ilmenite Plains | 7 · C | 10.0 / 14.3 / 17.5 | 26.7 | 11.5 (1 · 2) | alive |
+| Vanguard @ Shackleton Rim | 7 · A | 7.7 / 10.1 / 12.1 | 27.1 | 8.7 (2 · 2) | alive |
+| Commons @ Marius Hills Tube | 7 · A | 16.3 / 21.4 / 28.5 | 30.3 | 18.2 (0 · 1) | alive |
+| Commons @ Ilmenite Plains | 7 · B | 12.3 / 17.3 / 23.7 | 26.2 | 14.2 (0 · 1) | alive |
+| Commons @ Shackleton Rim | 7 · C | 14.7 / 17.8 / 22.3 | 26.6 | 16.3 (0 · 1) | alive |
+| Foundry @ Ilmenite Plains | 99 · A | 6.4 / 12.4 / 18.5 | 26.5 | 7.6 (2 · 2) | alive |
+| Vanguard @ Shackleton Rim | 99 · A | 8.1 / 10.4 / 12.6 | 26.8 | 9.0 (2 · 4) | alive |
+| Commons @ Marius Hills Tube | 99 · A | 20.4 / 25.2 / 32.3 | – | 22.1 (0 · 0) | alive |
+| Foundry @ Ilmenite Plains | 2024 · A | 6.5 / 12.2 / 16.4 | 26.5 | 7.6 (2 · 2) | alive |
+| Vanguard @ Shackleton Rim | 2024 · A | 8.0 / 10.4 / 13.0 | 26.9 | 9.1 (2 · 4) | alive |
+| Commons @ Marius Hills Tube | 2024 · A | 13.4 / 19.4 / 25.5 | 27.5 | 16.5 (0 · 1) | alive |
+
+**Reading the tables.** (1) Alive: nine of nine at day 40 on seeds 42 and 7 (three of nine were dead by day 27 on seed 42 before), eight of eight real pairs alive on seeds 99 and 2024 at day 34 for the game played. Minimum crew along the way is 7 for the Vanguard and the Commons except under the lava tube (5 to 7). **One of the nine is only just alive: the Commons under the lava tube on seed 42 grew to 30 and starved to 5 between day 34 and 35** (food 600 on day 26, 0 on day 34, the water at 12 to 30 so the farms idled on `reserve`; it stood at 6 on day 40). Open finding, docs/18 §5.3. (2) **Every program lights on days 26 to 28** because of `launchDay`; before, the first light of a program ranged from day 17.7 to never. (3) The Foundry at Shackleton Rim lights on day 29.6 to 36.4 or not at all: it is not a rival pair (the Foundry lands first and never gets the pole, docs/05) and its game 'B' share is zero by construction. (4) **Game A, the preferred sites**: the Foundry and the Vanguard finish within a few volleys of each other (35 to 32, 39 to 31, 35 to 35 with the Foundry ahead on first light, 33 to 26) and the Commons under the lava tube get 0 to 11 of the 70: they reach Era 8 on day 25.5 to 32 and fly 3 to 8 volleys a day where the others fly 10 to 15. That pair is the open balance finding (docs/18 §5.3); in games B and C, where the Commons sit at Ilmenite Plains or the pole, they win 2 of 4 on seeds 42 and 7 and fly 24 to 37 of the 70.
+@@MATRIX@@
+
+**Knobs and how it was measured** are in docs/18 §5 (where each number lives, the harness, what is left open). The faction-economy, site, claim, destiny-pick and tree-count notes the brief asked for are in docs/02 ("Factions — what their traits do to the economy"), docs/05 ("The three sites in a faction game", the nine games), docs/11 §5d (claims and the shared map, `outpostCost`, the rival lines in the field report), docs/12 (the Bank Trenches row, 168 techs and the branch counts) and docs/14 §2.9 (faction destiny picks, the Commons' ethos locks, the pick cost multipliers).
+
+**Flags from the brief**
+
+- **Foundry far frame**: the Foundry's far-zoom frame on `look.spec`'s "cel budget" scene is about 299,800 of the 300,000 triangles that spec allows (S7: 200 under); nothing in S8 added geometry, so it did not move, but any new Foundry-only mesh breaks `look.spec`'s far bound first (docs/18 §3).
+- **Perf**: see docs/18 §5.4. No change was made: the cost is in the base sim a rival shares with the player, which S8 does not own, and `dt` stays 1 s.
+
+**Runs** @@RUNS@@
 
 ## 10. Checkpoints and what the player sees
 
