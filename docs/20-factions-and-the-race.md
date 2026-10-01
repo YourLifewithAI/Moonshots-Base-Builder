@@ -480,8 +480,8 @@ Branch `work/fs8`. The rival programs now play a whole game: on seeds 42 and 7 a
 
 | Program @ site | Game | Before: Era 4 / 6 / 8 | first light | first claim (14 · 20) | state | After: Era 4 / 6 / 8 | first light | first claim (14 · 20) | state |
 |---|---|---|---|---|---|---|---|---|---|
-| Foundry @ Marius Hills Tube | C | 7.5 / – / – | – | 9.6 (1 · 1) | alive | 6.6 / 14.6 / 22.2 | 26.9 | 16.6 (0 · 2) | alive |
-| Foundry @ Ilmenite Plains | A | 6.3 / 11.4 / 20.0 | 23.5 | 7.2 (2 · 2) | alive | 6.6 / 12.6 / 18.6 | 26.4 | 7.7 (2 · 2) | alive |
+| Foundry @ Marius Hills Tube | C | 7.5 / – / – | – | 9.6 (1 · 1) | alive | 6.6 / 14.6 / 22.2 | 26.6 | 16.6 (0 · 2) | alive |
+| Foundry @ Ilmenite Plains | A | 6.3 / 11.4 / 20.0 | 23.5 | 7.2 (2 · 2) | alive | 6.6 / 12.6 / 18.6 | 26.7 | 7.7 (2 · 2) | alive |
 | Foundry @ Shackleton Rim | B | 8.5 / 21.4 / 26.9 | – | 19.6 (0 · 1) | alive | 10.4 / 18.5 / 29.1 | 36.4 | 19.6 (0 · 1) | alive |
 | Vanguard @ Marius Hills Tube | B | – / – / – | – | – (0 · 0) | **dead 17.9** | 9.4 / 15.1 / 20.2 | 26.9 | 12.3 (1 · 1) | alive |
 | Vanguard @ Ilmenite Plains | C | 8.6 / 13.5 / 18.5 | – | 10.5 (1 · 2) | **dead 26.2** | 8.4 / 12.0 / 15.5 | 26.8 | 10.1 (1 · 2) | alive |
@@ -497,21 +497,21 @@ Branch `work/fs8`. The rival programs now play a whole game: on seeds 42 and 7 a
 | 42 · A (before) | 17.7 | day 24.4 | 6.7 d | 11 | 59 | 0 | Vanguard |
 | 42 · B (before) | – | not reached (0 volleys by day 40) | – | – | – | – | – |
 | 42 · C (before) | 25.9 | day 30.5 | 4.6 d | 0 | 0 | 70 | Commons |
-| 42 · A | 26.4 | day 29.3 | 2.9 d | 35 | 32 | 3 | Foundry |
+| 42 · A | 26.7 | day 29.3 | 2.6 d | 35 | 32 | 3 | Foundry |
 | 42 · B | 26.3 | day 30.4 | 4.1 d | 0 | 43 | 27 | Vanguard |
-| 42 · C | 26.5 | day 28.6 | 2.1 d | 20 | 26 | 24 | Vanguard |
-| 7 · A | 26.5 | day 29.3 | 2.8 d | 39 | 31 | 0 | Foundry |
+| 42 · C | 26.5 | day 28.7 | 2.2 d | 18 | 27 | 25 | Vanguard |
+| 7 · A | 26.4 | day 29.4 | 2.9 d | 38 | 32 | 0 | Foundry |
 | 7 · B | 26.2 | day 29.9 | 3.7 d | 1 | 32 | 37 | Commons |
-| 7 · C | 26.5 | day 28.7 | 2.2 d | 21 | 24 | 25 | Commons |
-| 99 · A | 26.5 | day 29.3 | 2.8 d | 35 | 35 | 0 | Foundry |
-| 2024 · A | 26.5 | day 28.8 | 2.3 d | 33 | 26 | 11 | Foundry |
+| 7 · C | 26.5 | day 28.7 | 2.3 d | 20 | 24 | 26 | Commons |
+| 99 · A | 26.6 | day 29.2 | 2.6 d | 36 | 34 | 0 | Foundry |
+| 2024 · A | 26.9 | day 29.2 | 2.4 d | 27 | 32 | 11 | Vanguard |
 
 **Seeds 7, 99 and 2024, after** (same columns; 99 and 2024 run the preferred-site game A only, to day 34):
 
 | Program @ site | Seed · game | Era 4 / 6 / 8 | first light | first claim (14 · 20) | state |
 |---|---|---|---|---|---|
 | Foundry @ Marius Hills Tube | 7 · C | 7.1 / 12.7 / 17.1 | 26.5 | 8.0 (2 · 2) | alive |
-| Foundry @ Ilmenite Plains | 7 · A | 6.6 / 12.6 / 17.1 | 26.5 | 8.1 (2 · 2) | alive |
+| Foundry @ Ilmenite Plains | 7 · A | 6.6 / 12.6 / 17.1 | 26.4 | 8.1 (2 · 2) | alive |
 | Foundry @ Shackleton Rim | 7 · B | 8.9 / 18.0 / 22.7 | 29.6 | 15.5 (0 · 2) | alive |
 | Vanguard @ Marius Hills Tube | 7 · B | 11.3 / 15.4 / 19.0 | 27.2 | 12.1 (1 · 1) | alive |
 | Vanguard @ Ilmenite Plains | 7 · C | 10.0 / 14.3 / 17.5 | 26.7 | 11.5 (1 · 2) | alive |
@@ -519,15 +519,16 @@ Branch `work/fs8`. The rival programs now play a whole game: on seeds 42 and 7 a
 | Commons @ Marius Hills Tube | 7 · A | 16.3 / 21.4 / 28.5 | 30.3 | 18.2 (0 · 1) | alive |
 | Commons @ Ilmenite Plains | 7 · B | 12.3 / 17.3 / 23.7 | 26.2 | 14.2 (0 · 1) | alive |
 | Commons @ Shackleton Rim | 7 · C | 14.7 / 17.8 / 22.3 | 26.6 | 16.3 (0 · 1) | alive |
-| Foundry @ Ilmenite Plains | 99 · A | 6.4 / 12.4 / 18.5 | 26.5 | 7.6 (2 · 2) | alive |
+| Foundry @ Ilmenite Plains | 99 · A | 6.4 / 12.4 / 18.5 | 26.6 | 7.6 (2 · 2) | alive |
 | Vanguard @ Shackleton Rim | 99 · A | 8.1 / 10.4 / 12.6 | 26.8 | 9.0 (2 · 4) | alive |
 | Commons @ Marius Hills Tube | 99 · A | 20.4 / 25.2 / 32.3 | – | 22.1 (0 · 0) | alive |
-| Foundry @ Ilmenite Plains | 2024 · A | 6.5 / 12.2 / 16.4 | 26.5 | 7.6 (2 · 2) | alive |
+| Foundry @ Ilmenite Plains | 2024 · A | 6.5 / 12.2 / 16.4 | 27.1 | 7.6 (2 · 2) | alive |
 | Vanguard @ Shackleton Rim | 2024 · A | 8.0 / 10.4 / 13.0 | 26.9 | 9.1 (2 · 4) | alive |
 | Commons @ Marius Hills Tube | 2024 · A | 13.4 / 19.4 / 25.5 | 27.5 | 16.5 (0 · 1) | alive |
 
-**Reading the tables.** (1) Alive: nine of nine at day 40 on seeds 42 and 7 (three of nine were dead by day 27 on seed 42 before), eight of eight real pairs alive on seeds 99 and 2024 at day 34 for the game played. Minimum crew along the way is 7 for the Vanguard and the Commons except under the lava tube (5 to 7). **One of the nine is only just alive: the Commons under the lava tube on seed 42 grew to 30 and starved to 5 between day 34 and 35** (food 600 on day 26, 0 on day 34, the water at 12 to 30 so the farms idled on `reserve`; it stood at 6 on day 40). Open finding, docs/18 §5.3. (2) **Every program lights on days 26 to 28** because of `launchDay`; before, the first light of a program ranged from day 17.7 to never. (3) The Foundry at Shackleton Rim lights on day 29.6 to 36.4 or not at all: it is not a rival pair (the Foundry lands first and never gets the pole, docs/05) and its game 'B' share is zero by construction. (4) **Game A, the preferred sites**: the Foundry and the Vanguard finish within a few volleys of each other (35 to 32, 39 to 31, 35 to 35 with the Foundry ahead on first light, 33 to 26) and the Commons under the lava tube get 0 to 11 of the 70: they reach Era 8 on day 25.5 to 32 and fly 3 to 8 volleys a day where the others fly 10 to 15. That pair is the open balance finding (docs/18 §5.3); in games B and C, where the Commons sit at Ilmenite Plains or the pole, they win 2 of 4 on seeds 42 and 7 and fly 24 to 37 of the 70.
-@@MATRIX@@
+**Reading the tables.** (1) Alive: nine of nine at day 40 on seeds 42 and 7 (three of nine were dead by day 27 on seed 42 before), and the games played on seeds 99 and 2024 at day 34. Minimum crew along the way is 7 for the Vanguard and the Commons except under the lava tube (5 to 7). **One of the nine is only just alive: the Commons under the lava tube on seed 42 grew to 30 and starved to 5 between day 34 and 35** (food 600 on day 26, 0 on day 34, the water at 12 to 30 so the farms idled on `reserve`; it stood at 6 on day 40). Open finding, docs/18 §5.3. (2) **Every program lights on days 26 to 28** (30.3 for the Commons under the lava tube on seed 7) because of `launchDay`; before, the first light of a program ranged from day 17.7 to never. (3) The Foundry at Shackleton Rim lights on day 29.6 to 36.4 or not at all: it is not a rival pair (the Foundry lands first and never gets the pole, docs/05) and its game 'B' share is zero by construction. (4) **Game A, the preferred sites**: the Foundry and the Vanguard finish within a few volleys of each other (35 to 32, 38 to 32, 36 to 34, and 27 to 32 for the Vanguard on seed 2024) and the Commons under the lava tube get 0 to 11 of the 70: they reach Era 8 on day 25.5 to 32 and fly 3 to 8 volleys a day where the others fly 10 to 15. That pair is the open balance finding (docs/18 §5.3); in games B and C, where the Commons sit at Ilmenite Plains or the pole, they win 2 of 4 on seeds 42 and 7 and fly 25 to 37 of the 70. The tables' Foundry first light is 26.4 to 26.9 (the Foundry's `launchDay` is 26.7; the matrix below was re-run with it).
+
+**The nine games, every program Builder-played** (the single-base matrix of the shipped build: nine faction × site pairs on four seeds, 36 games; each game's verdict is read off the three programs' volley times as if they shared a Moon, as the nine rows of docs/05's table assign the sites; `RACE.closeAt` 70). Verdicts by faction at the close: **Foundry 47 % (17 of 36), Vanguard 36 % (13), Commons 17 % (6)**; on seeds 42 and 7 alone Foundry 56 %, Vanguard 28 %, Commons 17 % of 18. First light to close: mean 2.6 days (shortest 2.0, longest 4.3). What the player would be told (margin 0.05; the twelve games in which each faction is the player's, {yours, shared, theirs}): Foundry {2, 2, 8}, Vanguard {1, 4, 7}, Commons {2, 1, 9} (a Builder-played faction is the player's stand-in, so these are what a program playing as well as the Builder gets: a human who plays better wins more). Two cautions: the Commons are the weakest program (the pair under the lava tube: docs/18 §5.3), and the verdict moves by 10 to 20 points for a 0.3-day move of one program's `launchDay` (that is how the Foundry's 56 % became 47 %), so the table is a measurement of this build, not a promise.
 
 **Knobs and how it was measured** are in docs/18 §5 (where each number lives, the harness, what is left open). The faction-economy, site, claim, destiny-pick and tree-count notes the brief asked for are in docs/02 ("Factions — what their traits do to the economy"), docs/05 ("The three sites in a faction game", the nine games), docs/11 §5d (claims and the shared map, `outpostCost`, the rival lines in the field report), docs/12 (the Bank Trenches row, 168 techs and the branch counts) and docs/14 §2.9 (faction destiny picks, the Commons' ethos locks, the pick cost multipliers).
 
@@ -536,7 +537,7 @@ Branch `work/fs8`. The rival programs now play a whole game: on seeds 42 and 7 a
 - **Foundry far frame**: the Foundry's far-zoom frame on `look.spec`'s "cel budget" scene is about 299,800 of the 300,000 triangles that spec allows (S7: 200 under); nothing in S8 added geometry, so it did not move, but any new Foundry-only mesh breaks `look.spec`'s far bound first (docs/18 §3).
 - **Perf**: see docs/18 §5.4. No change was made: the cost is in the base sim a rival shares with the player, which S8 does not own, and `dt` stays 1 s.
 
-**Runs** @@RUNS@@
+**Runs** Specs, each once on the final code with the dev server restarted: `rivals.spec` 8 passed (and its policy-data test again alone after it gained the launch-window gate assertion), `race.spec` 4, `factions.spec` 14, `traits.spec` 11, `techtree.spec` 23, `notify.spec` 11 (71 tests; the Vanguard trim's pins are in `factions`, `techtree`, `notify` and `race`). `baseline-det1.mjs` against `cp0.json`: **IDENTICAL on both scenarios** (mare-robotic `4e4d7ce7`, southpole-human `b1c34b7c`), so a solo game is bit-identical. `tsc` and `docs:check` clean. The last trim (the Foundry's `launchDay` 26.4 → 26.7, data only, taken on the evidence of the matrix and re-measured by it and by the tables above) came after the spec runs; the specs read the launch days only as "inside days 14 to 30". Harness runs: the seed-42 and seed-7 games to day 40 (3 bases on one Moon), seeds 99 and 2024 to day 34, the single-base matrix of nine pairs on four seeds, and survival sweeps of the lava-tube pairs over a dozen seeds to day 20 while the controllers were built (`$SP/fs8tmp`, not committed).
 
 ## 10. Checkpoints and what the player sees
 
