@@ -221,7 +221,7 @@ export function timelineLines(game: Game): { faction: FactionId; text: string }[
 function raceFor(game: Game): string {
   const close = game.moon.race.closeAt;
   return `First light, the first volley any program flies, is a partial win. Then the share: when the combined swarm reaches ` +
-    `${close} volleys (${(close * SWARM_PCT_PER_LAUNCH).toFixed(2)} %), the largest share wins, and a tie goes to the earlier first light.`;
+    `${close} volleys (${(close * SWARM_PCT_PER_LAUNCH).toFixed(3)} %), the largest share wins, and a tie goes to the earlier first light.`;
 }
 
 /** The mission day and who is on the Moon (an era banner of a faction game). */

@@ -528,7 +528,7 @@ test('today\'s callers reach the right family: research, era, field (a real surv
 // ───────────────────────────── the race family (docs/20 S1) ─────────────────────────────
 
 /** each faction's trim colour (data/factions.ts livery), as the browser computes it */
-const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(47, 95, 208)', solarpunks: 'rgb(95, 159, 63)' } as const;
+const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(63, 115, 238)', solarpunks: 'rgb(95, 159, 63)' } as const;
 const TRIM_GLYPH = { robots: '⚙', accelerationists: '▲', solarpunks: '❀' } as const;
 const edge = (l: import('@playwright/test').Locator) =>
   l.evaluate((e) => ({ w: getComputedStyle(e).borderLeftWidth, color: getComputedStyle(e).borderLeftColor }));

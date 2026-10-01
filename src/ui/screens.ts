@@ -269,7 +269,7 @@ export function mountVictory(root: HTMLElement, game: Game) {
         `<b>${ordinalWord(fl.rank).toUpperCase()} OF ${numberWord(fl.of).toUpperCase()} TO LIGHT</b> · ${before}<br/>` +
         `<span class="label">You lit on Moon day ${me.firstLightDay} · your mission day ${t.missionDay}</span></div>`;
       keep = `Keep launching: from here every volley is share. The race closes at ${race.closeAt} combined volleys ` +
-        `(${(race.closeAt * SWARM_PCT_PER_LAUNCH).toFixed(2)} % of the swarm), and the largest share wins.`;
+        `(${(race.closeAt * SWARM_PCT_PER_LAUNCH).toFixed(3)} % of the swarm), and the largest share wins.`;
     }
     screen.style.display = 'flex';
     screen.innerHTML = `

@@ -79,7 +79,7 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
   ]);
   expect(r.rows.map((x: any) => x.livery)).toEqual([
     { hull: '#6f7580', trim: '#e8632b', suit: '#d9d4c8' },
-    { hull: '#f2f3f5', trim: '#2f5fd0', suit: '#f2f3f5' },
+    { hull: '#f2f3f5', trim: '#3f73ee', suit: '#f2f3f5' },
     { hull: '#d9c9a3', trim: '#5f9f3f', suit: '#e8dcb8' },
   ]);
   for (const x of r.rows) {
@@ -97,7 +97,9 @@ test('data: the faction table, landing days, sites, liveries and the legacy mapp
     expect(Object.keys(x.policy.doctrines).length, x.id).toBeGreaterThan(3);
     expect(x.policy.claimKinds.length, x.id).toBeGreaterThan(0);
     expect(x.policy.ruleCaps, x.id).toEqual(expect.any(Object));
-    expect(x.policy.lateCaps, x.id).toEqual({ solar: 60, battery: 10, reactor: 4 });
+    expect(x.policy.lateCaps, x.id).toEqual({ solar: 100, battery: 30, reactor: 4 });
+    // S8: the day each program opens its last leg to first light, per site (Moon days), is inside the plan's 14-30 window
+    for (const d of Object.values(x.policy.launchDay) as number[]) { expect(d, x.id).toBeGreaterThan(14); expect(d, x.id).toBeLessThan(30); }
     expect(x.policy.orders.length, x.id).toBeGreaterThan(10);
     // the landing tech is the Era 1 faction pick, free, locked to its faction and its expedition
     expect(x.mapped).toBe(x.landingTech);
@@ -503,7 +505,7 @@ test('the UI half, briefing: a faction game opens on who you are, who landed whe
   await expect(lines.nth(2)).toHaveAttribute('data-faction', 'solarpunks');
   // what you race for, and the weaknesses (three, one line each, the faction's own)
   await expect(brief.locator('.br-race')).toContainText('First light');
-  await expect(brief.locator('.br-race')).toContainText('100 volleys (0.01 %)');
+  await expect(brief.locator('.br-race')).toContainText('70 volleys (0.007 %)');
   await expect(brief.locator('.br-con')).toHaveCount(3);
   for (let i = 0; i < 3; i++) await expect(brief.locator('.br-con').nth(i)).toHaveText(d.dis[i]);
   await expect(brief.locator('.br-survey')).toHaveText('Survey early: a prospect a rival claims is gone.');
@@ -513,7 +515,7 @@ test('the UI half, briefing: a faction game opens on who you are, who landed whe
   const era = page.locator('#era-banner');
   await expect(era).toBeVisible();
   await expect(era.locator('.eb-race')).toContainText('The race');
-  await expect(era.locator('.eb-race')).toContainText('100 volleys');
+  await expect(era.locator('.eb-race')).toContainText('70 volleys');
   await expect(era.locator('.eb-moon')).toContainText('Mission day 1');
   await expect(era.locator('.eb-moon')).toContainText('Foundry');
   await expect(era.locator('.eb-moon')).toContainText('Vanguard');
@@ -602,7 +604,7 @@ test('the UI half, the RACE chip: in a faction game, never in solo; the panel li
   await expect(rows.nth(0).locator('.rc-era')).toHaveText('ERA 4');
   await expect(rows.nth(1).locator('.rc-launches')).toHaveText('1 volley');
   await expect(rows.nth(0).locator('.rc-last')).toContainText('THE FOUNDRY REACHES ERA 4');
-  await expect(panel).toContainText('5 of 100 combined volleys');
+  await expect(panel).toContainText('5 of 70 combined volleys');
   await chip.click();
 
   // the player's first light is the earlier: second place; a tie on both falls to the landing order; the leader is you
@@ -650,7 +652,7 @@ test('the UI half, race news: a rival landing during play raises a race-family l
   await expect(card).toBeVisible();
   await expect(card.locator('.rc-ig')).toHaveText('▲');
   await expect(card).toContainText('THE VANGUARD LANDS — at SHACKLETON RIM');
-  expect(await card.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe('rgb(47, 95, 208)'); // #2f5fd0, the Vanguard's trim
+  expect(await card.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe('rgb(63, 115, 238)'); // #3f73ee, the Vanguard's trim
   expect(await card.evaluate((e) => getComputedStyle(e).borderLeftWidth)).toBe('3px');
   // its action opens the RACE panel, showing the Vanguard landed
   await card.locator('[data-rc="open"]').click();

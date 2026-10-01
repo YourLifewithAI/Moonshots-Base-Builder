@@ -13,7 +13,7 @@ declare global {
 }
 
 /** each faction's trim colour (data/factions.ts livery), as the browser computes it */
-const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(47, 95, 208)', solarpunks: 'rgb(95, 159, 63)' } as const;
+const TRIM = { robots: 'rgb(232, 99, 43)', accelerationists: 'rgb(63, 115, 238)', solarpunks: 'rgb(95, 159, 63)' } as const;
 
 async function bare(page: Page, query = '') {
   await page.goto(`/?debug&seed=42${query}`);
@@ -99,7 +99,7 @@ test('a faction game: the player\'s volleys write the Moon\'s line, the first vo
   await expect(page.locator('#victory-screen')).toBeVisible();
   await expect(page.locator('#victory-standing')).toContainText('FIRST OF THREE TO LIGHT');
   await expect(page.locator('#victory-standing')).toContainText('no other program has lit before you');
-  await expect(page.locator('#victory-body')).toContainText('The race closes at 100 combined volleys');
+  await expect(page.locator('#victory-body')).toContainText('The race closes at 70 combined volleys');
   await expect(page.locator('#race-banner')).toBeHidden();
   await page.locator('#btn-victory-continue').click();
 
@@ -144,11 +144,11 @@ test('a faction game: the player\'s volleys write the Moon\'s line, the first vo
   const standing = await feedOf(page, 'standing');
   expect(standing.filter((e) => /THE FOUNDRY TAKES THE LEAD/.test(e.text))).toHaveLength(1);
   expect(standing.filter((e) => /THE VANGUARD DRAWS LEVEL WITH FOUNDRY AND LEADS ON THE EARLIER FIRST LIGHT/.test(e.text))).toHaveLength(1);
-  expect(standing.filter((e) => /THE RACE AT 10 OF 100 VOLLEYS/.test(e.text))).toHaveLength(1);
+  expect(standing.filter((e) => /THE RACE AT 10 OF 70 VOLLEYS/.test(e.text))).toHaveLength(1);
   expect(standing.map((e) => [e.faction, e.n])).toEqual([['robots', 3], ['accelerationists', 4], ['accelerationists', 10]]);
   expect(standing[2].text).toContain('LEADS BY 6');
   // the beat is a race notification: the leader's glyph and colour, and where we stand
-  const beat = page.locator('#alerts .alert', { hasText: 'THE RACE AT 10 OF 100 VOLLEYS' });
+  const beat = page.locator('#alerts .alert', { hasText: 'THE RACE AT 10 OF 70 VOLLEYS' });
   await expect(beat).toHaveClass(/nf-race/);
   await expect(beat.locator('.alert-g')).toHaveText('▲');
   expect(await beat.evaluate((e) => getComputedStyle(e).borderLeftColor)).toBe(TRIM.accelerationists);
@@ -160,7 +160,7 @@ test('a faction game: the player\'s volleys write the Moon\'s line, the first vo
   expect((await g(page, 'getRace')).phase).toBe('lit');
   // the closing line is in the panel
   await chip.click();
-  await expect(page.locator('#race-panel .rc-close')).toContainText('10 of 100 combined volleys');
+  await expect(page.locator('#race-panel .rc-close')).toContainText('10 of 70 combined volleys');
   await expect(page.locator('#race-panel .rc-row').first()).toHaveAttribute('data-faction', 'accelerationists');
 });
 

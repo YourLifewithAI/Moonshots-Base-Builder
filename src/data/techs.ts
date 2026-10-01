@@ -134,7 +134,7 @@ export type TechEffect = EffectFilter & (
   | ({ kind: 'recipe'; building: BuildingId } & RecipeOverride)
   | { kind: 'agentTax'; mult: number }
   | { kind: 'construction'; kwMult?: number; rateMult?: number; partsMult?: number }
-  | { kind: 'storage'; capacityMult?: number; efficiency?: number }
+  | { kind: 'storage'; capacityMult?: number; efficiency?: number; /** lifts a faction's cap on the round trip, never a tech's own (Bank Trenches) */ restore?: boolean }
   | { kind: 'repair'; mult: number }
   | { kind: 'shadeImmune' }
   | { kind: 'buildTime'; buildings: BuildingId[]; mult: number }
@@ -1369,7 +1369,7 @@ export const TECHS: Record<TechId, TechDef> = {
     id: 'bankTrenches', era: 5, lane: 'power', name: 'Bank Trenches', short: 'Bank Trenches',
     costData: 420, requires: ['isotopeWarmers'], factions: ['robots'],
     effects: [
-      { kind: 'storage', efficiency: 0.85 },
+      { kind: 'storage', efficiency: 0.85, restore: true },
       { kind: 'buildTime', buildings: ['battery'], mult: 1.3 },
       { kind: 'upkeepMult', buildings: ['battery'], mult: 1.2 },
     ],

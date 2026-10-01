@@ -1,12 +1,13 @@
 # 18 — Follow-ups
 
-The hand-off list after the graphics and gameplay program ([19-graphics-and-gameplay-plan.md](19-graphics-and-gameplay-plan.md), PRs #50–#72; main at 0497053). It says what is really open. What shipped is recorded in docs/19's "As shipped" subsections, and the mining and learning work in [19-mining-learning-plan.md](19-mining-learning-plan.md).
+The hand-off list after the graphics and gameplay program ([19-graphics-and-gameplay-plan.md](19-graphics-and-gameplay-plan.md), PRs #50–#72; main at 0497053) and after the factions program ([20-factions-and-the-race.md](20-factions-and-the-race.md), PRs #75–#89 and stream S8). It says what is really open. What shipped is recorded in docs/19's and docs/20's "As shipped" subsections, and the mining and learning work in [19-mining-learning-plan.md](19-mining-learning-plan.md).
 
 It covers:
 - the tests: their state, the tests that are sensitive to load, and how to run the suite;
 - the design phases not yet built, and the stand-ins they will replace;
 - open findings the program turned up;
 - the mobile pass, which the player paused;
+- the factions and the race: the knobs, what is left open, perf;
 - what only the player can do.
 
 ## 1. The tests
@@ -26,6 +27,8 @@ D6 fixed two specs the full run found: `anim.spec` (the busy base now sends one 
 
 Test round 2 result (main 6b239b6, one file at a time, 67 minutes): 502 passed, 2 skipped by design (the two `pwa.spec` tests that need a built copy or a dev server), 4 failed. Run alone on a quiet machine, `avoidance.spec` "a rover working on the hub's haul road gets out of the loaded unit's way" and `map.spec` "survey: pays data, flies a drone" passed (load flakes). The other two were fixed in the next commit: the fleet inspector layout at 1280×720 (the OUTPOSTS chip from S8 took a row from the right-hand stack, so the alert cap now steps to two rows at 760 px height and under; the two layout tests pass) and `pwa.spec` "the service worker registers…" (the page could read the precache a moment before its last entry landed; the test now waits for the cache to fill, and the file passes 4/4).
 
+**After the factions program (docs/20).** The list now reads **587 tests in 48 files** (`npx playwright test --list`): seven new files (`factions` 14, `moon` 7, `headless` 3, `integration` 9, `rivals` 8, `race` 4, `traits` 11) and the extended `research` (26), `techtree` (23), `lunarmap` (23), `notify` (11) and `silhouettes` (9). Every stream ran its own spec once and the determinism guard on a solo game was IDENTICAL after each (docs/20); a full run of the merged work was started after PR #89 and its result is not recorded here, so treat the counts above as the list, not as a pass.
+
 ### 1.2 Tests that are sensitive to load
 
 Under software GL on a busy machine these can fail with no fault in the game. Re-run each alone with `--timeout=300000` before treating it as a real failure.
@@ -36,6 +39,8 @@ Under software GL on a busy machine these can fail with no fault in the game. Re
 - `playability.spec` "audio: cues follow the state; the hum sags as the bank runs dry": the brownout drain. The test pauses first, because one live frame can slip a charge in between the drain and the reading.
 - `destiny.spec` "Human Cohabitation: the first Colony pick brings it forward…".
 - `avoidance.spec` (the crowded base) depends on the sim clock's starting phase: boot leaves a fraction of a game-second in the tick accumulator, and it varies with machine load (it failed at .48 and .50 before D6). A red at some other phase is worth a look; it is not a flake to ignore.
+- `rivals.spec` "the day targets on seed 42": `msMean < 2` and `msPerTick < 2` read the rivals' cost in wall time (±0.3 ms with the box busy), and the Foundry's first claim must be by day 8 (it lands on day 7.5: a change to the Foundry's research list or orders moves it). `integration.spec` and `rivals.spec` bound the pre-roll in wall time (12 s and 20 s; the Commons' start steps 4,320 rival ticks: 2.4 to 5.5 s measured) and the descent path's longest frame gap.
+- Any spec that plays a rival by hand needs `setRivalMind(false)` before `selectFaction`, and the pure-module specs (`moon`, `headless`) fail spuriously on a dev server that served edited files (the module is imported twice): restart it first.
 - From the first full runs, before the repairs (load-sensitive then; re-check if a full run goes red): the camera's WASD and easing, clicks at 10×, the WebAudio stubs, the menu's Esc, live numbers, held keys, and techtree "keys and live updates".
 
 ### 1.3 How to run the suite
@@ -93,9 +98,43 @@ Untested and unfinished:
 - The Pair test's corner points landed on the alert stack (HUD, not canvas) at 667×375, so the recognizer rightly ignored them; they need canvas points clear of `#hud-right` and the rails.
 - 932×430 is not yet reviewed (the field sheet, the grade bar and Pair, the menu), nor `#grade-jobs` and the SURVEY DRONES section on the sheet.
 
+**The factions program added to it (docs/20), and the branch predates all of that.** fs1 checked the faction step and the briefing at three phone sizes (the `touch.spec` fit report of `#btn-land`'s step passes at 667×375, 844×390 and 932×430). Not looked at on a phone: the RACE chip (in `#time-controls` after the OUTPOSTS chip, which touch hides), the RACE panel (`#race-panel` joined the touch sheet list by one id), the rival first-light banner (centred above the build palette) and the race cards (lower right), the verdict screen and its standings table, the swarm meter's three share bars (hidden on touch: the chip stays), the faction cards' rival lines, and the map's rival marks. The mobile pass must cover them when it resumes.
+
 Left to do when resumed: the notifications test at both sizes, the controls-table test, the Pair test geometry; run the new tests, then `touch.spec.ts` whole; docs/19 "As shipped: S9"; then merge `origin/main`, tsc, `docs:check`. The OUTPOSTS chip is hidden on touch (S8). Resume only when the player asks.
 
-## 5. For the player
+## 5. The factions and the race (docs/20)
+
+What the balance stream (S8) left, where its knobs are, and how it measured. The numbers it measured are in docs/20 "As shipped: S8".
+
+### 5.1 Where the knobs are
+
+- **A rival's pace and survival** (`src/core/rival.ts`, constants near the bottom): `RIVAL_CADENCE` (how often each controller thinks, in game-seconds since landing), `LIFE_RUNWAY_S` 3600 and `LIFE_MAX` (the life controller), `POWER_MARGIN`, `NIGHT_COVER` / `NIGHT_COVER_ROBOTIC` (how much of a night's deficit the bank is built to cover), `NIGHT_SHED_MARGIN`, `STOW_SUPPLY` / `STOW_HORIZON_S` (the dusk and flare-stow shedding), `STABLE_*` and `BANKLESS_LABS` (the growth gate), `PARTS_POOR`, `RESUPPLY_PARTS` / `RESUPPLY_MAX`, `FARM_CREW`, `MASTS_MAX`, `REACTOR_AT_KW`, `CORE_PARTS_FLOOR`, `DARK_FIRST` (what a dark site researches before anything else), `LAUNCH_CHAIN_ERA`.
+- **A faction's policy** (`src/data/factions.ts`, `policy`): `research` order, `skip`, `ruleCaps` and `lateCaps` (the Builder's standing-rule caps before and after Era 6), `orders` (what no rule builds), `claimKinds`, and the S8 additions **`launchDay`** (by site: when the program opens its last leg to first light) and, above the table, `LAUNCH_ARCHITECTURE` (the launch tech by **site**), `PADS` / `padAt` (launch pads by site, one more for the Foundry, the n-th pad after n − 1 volleys), `chainReady`, `LAUNCH_LEAD_DAYS`, `LAB_CLOCK`.
+- **The close** (`src/data/balance.ts`): `RACE.closeAt` and `RACE.sharedMargin`. `closeAt` is the one number that sets how long the race lasts after first light; `tests/race.spec.ts` and `tests/factions.spec.ts` pin its text (the briefing, the era page and the panel read it), so change the specs with it.
+- **Traits** are tech effects on the three landing techs (`src/data/techs.ts`, `landingFoundry` / `landingVanguard` / `landingCommons`); S8 changed none. The pace of a rival turned out to depend on its policy and its site far more than on them (docs/20 S8).
+
+### 5.2 How the balance was measured (not in the repo)
+
+A Node harness bundled with esbuild from the real sources: one `Moon`, the three programs as `RivalProgram`s with the Builder playing every one (the same policy that runs when a rival is on the Moon), stepped at dt = 1 s to day 34 or 40, recording once a game-day each program's era, crew, stocks, power and launches, plus the second of every volley and claim. Two shapes: all three on one Moon in the three site permutations (the real game: shared claims and flares), and one program alone on a site (the nine faction × site pairs, cheaper: a verdict is then read off the per-volley times of three single runs as if they shared a Moon). Seeds 42, 7, 99 and 2024. Numbers come from the sim's own clock only: never from wall time, never from a probe. The harness is a few hundred lines on `BaseSim` / `RivalProgram` / `Moon` (`src/core/headless.ts`, `rival.ts`, `moon.ts`); rebuild it if the balance needs another pass. Nothing in it is needed by a spec.
+
+### 5.3 What is left open
+
+- **The Foundry at the pole is the slow pair**: first light on day 29 to 36 (Era 8 on day 23 to 29), first claim day 15 to 20, short of metals for the first fortnight on one smelter. It never happens as a rival (the Foundry lands first and takes Ilmenite Plains or the lava tube, docs/05), only as a Builder-played Foundry at the pole, so the race is not affected; a human Foundry at the pole is not slowed by it. If it is ever wanted, the cause is the opening orders (a second smelter before the labs) and the metals the early Refinery order takes.
+- **The Commons under the lava tube** (three of the nine games) are the weakest program: first claim on day 15.4 to 16.5 alone on the Moon and 16.5 to 22.1 in a game of three (the brief said about 14: Era 4 opens on day 12 to 20, and a claim needs 5 chips, so a Wafer Fab; the labs are held at three until the bank stands and, in a game of three, the arrays a flare damages are rebuilt slowly: seed 99 had its labs unpowered for a week), Era 8 on day 24.6 to 32.3, and only 3 to 8 volleys a day after first light, where every other pair flies 10 to 15 (three Foil Factories stand with 4 to 20 foils in stock; the silicon or metals they eat is the limit, and `goodsGuard` is not what holds them: it was ruled out). Their share of a race there is 0 to 16 % of the 70 (they light two days late, on day 27.5 to 30.3, or not by day 34 on seed 99); in the nine games of the matrix the Commons take 17 % of the verdicts, so they are the first program to look at. **A claim hold was tried and removed**: reserving the first claim's metals, parts and chips from the orders moved the Foundry's first claim under the tube from day 16.6 to 8.0 on seed 42 and the Vanguard's from 12.3 to 14.1 on both seeds; the Builder's own rules ignore a hold and spend the metals first, so it only starved the orders.
+- **A big Commons crew outgrows the water under the lava tube**: seed 42's Commons there grew to 30 by day 33, food fell from 600 (day 26) to 0 (day 34) with the water at 12 to 30 (the farms idle on `reserve`), and the crew starved to 5 between days 34 and 35; it stood at 6 on day 40 (all nine pairs are 'alive' at day 40, this one by a thread). The Builder's habitat rule keeps adding beds and the settlers keep coming (growth ×1.25); `foodCap` caps farms by crew, not crew by water. The rival-side fix is a beds cap tied to the water and food a base makes (`ruleCaps.habitat`, or a check in `life()`); not tried.
+- **`launchDay` is measured, not derived** (`src/data/factions.ts`, docs/20 S8): each number is the day a program opens its chain plus one (`LAUNCH_LEAD_DAYS`), chosen from the measured time from Swarm Protocol to first volley of that pair (0.5 to 2.4 days). A change to a research list, a build speed, `PADS` or a power rule moves those times by a day or more: re-measure the nine pairs (docs/18 §5.2) before changing the policy, and re-pin nothing: the specs read only that every number is inside days 14 to 30.
+- **The early game of a crewed rival under the lava tube and at Ilmenite Plains is a knife edge** (water made 0.1 a second against 0.1 used, a flare that stows the arrays drains the bank): all 36 single-base games (nine pairs, four seeds) are alive at the end (day 40 on seeds 42 and 7, day 34 on 99 and 2024), but the minimum crew along the way is 6 or 7 of 7 and a small edit to `rival.ts` flipped single games more than once in the sweeps (a Vanguard at the lava tube on seed 21 died on day 7.6 with an earlier setting). After any change to the life, power or research controllers run the Vanguard and the Commons at the lava tube and the Vanguard at mare over a dozen seeds to day 20.
+- **Seed 99 and 2024** are informative only; both are alive on all nine pairs. The shares in docs/20 are 36 games (18 on seeds 42 and 7), so ±15 points is noise.
+- **The Vanguard's reactor cap is 1** (a reactor's morale cost against its crew): a Vanguard at the lava tube lights its night with batteries and arrays.
+- **Not looked at**: the rival's Hazard responder against the new shed logic (a flare's stow shuts the loads for up to 300 s; the hazard answers were not re-run under it).
+
+### 5.4 Performance
+
+Measured in the Node harness (a profile of one Foundry at Ilmenite Plains to day 19, 13,700 ticks, 167 buildings, V8's sampler on, the box loaded): **2.3 ms a tick on average**, 31 s in all; the self time is `runTick` 15.5 %, `economyTick` 6.9 %, the collector 5.5 %, `effectiveRates` 4.8 %, `chooseSite` 3.4 % (siting an order), `roadReach` 2.7 %, `rates` 2.2 %, `footprintRect`, `automationTick`, `unitRates`, `roverSpots` 1.4 % each. A whole game to day 40 (28,800 ticks, 150 to 180 buildings late) took 77 to 194 s per base with four running at once on four CPUs and another job on the box: **2.7 to 6.7 ms a tick late**, against 1.2 to 1.9 ms at day 5 (`rivals.spec`, under 2 ms). At 1× game speed two rivals cost 6 to 14 ms of every 1000 ms; at 10× and above they are the limit (a 60× catch-up tick runs three bases' worth of work per frame).
+
+No change was made. S4 already memoised what was cheap (`unlocker`, `familyTech`, `costMults`, the `roadReach` window on a flat map) and what is left is the base sim every base shares with the player: it is the player's hot path too, so a cache there needs the solo determinism guard and its own stream. Where to look first: (1) `effectiveRates`, per building per tick, keyed by building type and a mods version; (2) `chooseSite`, which a refused order repeats every 20 s: remember a failed site for a minute (a rival-side change in `orders()`, no shared file); (3) `think()` runs its controllers on fixed cadences (research 30 s, orders 20 s, power every other order turn): the cadence offsets can be widened for a base that has nothing to order (a built-out Era 8 base re-checks 40 orders every 20 s). `dt` stays 1 s.
+
+## 6. For the player
 
 - **Web version:** GitHub Pages isn't enabled yet. Go to Settings → Pages → Source: **GitHub Actions**, then re-run the "Deploy to GitHub Pages" workflow. Until then, deploys fail at `configure-pages`.
 - **Unit power:** machines on packs charged from the grid apply to both the crewed and the robotic expedition. This hasn't been confirmed as intended yet.

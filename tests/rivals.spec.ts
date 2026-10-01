@@ -245,12 +245,20 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
         firstOrders: p.orders.slice(0, 3).map((o: any) => o.type),
         badOrders: p.orders.filter((o: any) => !B.BUILDINGS[o.type]).map((o: any) => o.type),
         badSkip: (p.skip ?? []).filter((t: string) => !T.TECHS[t]),
-        late: p.lateCaps,
+        late: p.lateCaps, launchDay: Object.values(p.launchDay),
         unique: F.FACTIONS[f].uniqueTechs.filter((t: string) => !p.research.includes(t) && !(p.skip ?? []).includes(t)),
       };
     }
-    return { out, groups: Object.keys(T.DOCTRINES).sort() };
+    // S8: a program's launch window (`launchDay − LAUNCH_LEAD_DAYS`, Moon days) is closed a second before it and open at it; a state with no faction is never held
+    const CYC = 720;
+    const win = (f: string, site: string) => (F.FACTIONS[f].policy.launchDay[site] - F.LAUNCH_LEAD_DAYS) * CYC;
+    const gate = Object.fromEntries(F.FACTION_ORDER.map((f: string) => [f, [
+      F.launchOpen({ faction: f, siteId: 'mare', simTime: win(f, 'mare') - 1 }), F.launchOpen({ faction: f, siteId: 'mare', simTime: win(f, 'mare') }),
+    ]]));
+    return { out, groups: Object.keys(T.DOCTRINES).sort(), gate, solo: F.launchOpen({ siteId: 'mare', simTime: 0 }) };
   });
+  for (const f of Object.keys(r.gate)) expect(r.gate[f], `${f}: the launch window is shut a second before its day and open on it`).toEqual([false, true]);
+  expect(r.solo, 'a solo state is never held').toBe(true);
   for (const f of Object.keys(r.out)) {
     const o = r.out[f];
     expect(o.unknown, `${f}: unknown tech ids in its research list`).toEqual([]);
@@ -261,13 +269,15 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
     expect(o.orders, `${f}: orders`).toBeGreaterThan(5);
     expect(o.badOrders, `${f}: orders name real buildings`).toEqual([]);
     expect(o.badSkip, `${f}: skipped techs exist`).toEqual([]);
-    expect(o.late, `${f}: late caps`).toEqual({ solar: 60, battery: 10, reactor: 4 });
+    expect(o.late, `${f}: late caps`).toEqual({ solar: 100, battery: 30, reactor: 4 });
+    for (const d of o.launchDay) { expect(d, `${f}: a planned first light`).toBeGreaterThan(14); expect(d, `${f}: a planned first light`).toBeLessThan(30); }
   }
   // the Foundry's and the Vanguard's own techs are all in their lists (placed where they help) or deliberately skipped; the Commons leave
-  // three cheap late ones (Slow Build, Guardianship, Long Night Gardens) to the tail, where the runner takes what is left
+  // two cheap late ones (Guardianship, Long Night Gardens) to the tail, where the runner takes what is left (Slow Build is skipped: a program
+  // racing the Sun does not slow its building)
   expect(r.out.robots.unique).toEqual([]);
   expect(r.out.accelerationists.unique).toEqual([]);
-  expect(r.out.solarpunks.unique.sort()).toEqual(['guardianship', 'longNightGardens', 'slowBuildDoctrine']);
+  expect(r.out.solarpunks.unique.sort()).toEqual(['guardianship', 'longNightGardens']);
   expect(r.out.robots.claimKinds[0]).toBe('ilmenite');
   expect(r.out.accelerationists.claimKinds[0]).toBe('ice');
   expect(r.out.solarpunks.claimKinds[0]).toBe('ice');

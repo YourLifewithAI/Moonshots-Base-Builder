@@ -25,16 +25,19 @@ import { modsFor } from './mods';
 import {
   enqueue, enqueuePath, goodsShortfall, isDoctrineHere, techAvailability, techCost, techVisible, resolveTech,
 } from './research';
-import { budgetShort, orderRefusal, powerBook, ruleState } from './automation';
+import { budgetShort, buildCostAt, orderRefusal, powerBook, ruleState } from './automation';
 import { chooseSite } from './siting';
+import { dayInfo } from './daynight';
 import { claimRefusal, prospectDist, KIND_LABEL, type RivalInfo } from './exploration';
 import { SITES, type SiteId } from '../data/sites';
 import type { ResourceId } from '../data/resources';
-import { FACTIONS, FACTION_NAME, FACTION_ORDER, type FactionId } from '../data/factions';
+import { FACTIONS, FACTION_NAME, FACTION_ORDER, LAUNCH_ARCHITECTURE, launchOpen, type FactionId } from '../data/factions';
 import { DOCTRINES, DOCTRINE_ORDER, ERA_NAMES, TECHS, TECH_ORDER, TRACKS, type Era, type Side, type TechId } from '../data/techs';
 import { FAMILY_PRIORITY, RULE_ORDER, RULES, type AutoRuleId } from '../data/automation';
 import { BUILDINGS, type BuildingId } from '../data/buildings';
 import { PROSPECTS, PROSPECT_IDS, type ProspectId, type OutpostKind } from '../data/lunarMap';
+import type { DepositKind } from '../data/deposits';
+import { surveyRefusal } from './pits';
 import { NIGHT_S, QUEUE_MAX } from '../data/balance';
 import { HZ } from '../data/hazards';
 
@@ -53,7 +56,7 @@ function groundWorks(siteId: SiteId, seed: number): boolean {
 }
 
 /** How often a rival thinks, in Moon seconds (offsets keep the three from landing on one tick). */
-export const RIVAL_CADENCE = { research: 30, orders: 20, ordersAt: 5, claims: 60, claimsAt: 40, life: 30, lifeAt: 10, hazards: 10, hazardsAt: 3 } as const;
+export const RIVAL_CADENCE = { research: 30, orders: 20, ordersAt: 5, claims: 60, claimsAt: 40, life: 30, lifeAt: 10, hazards: 10, hazardsAt: 3, night: 10, nightAt: 7, cores: 60, coresAt: 25 } as const;
 
 /** The relaxations a rival's mods carry (`BaseSim.modsHook`): every Builder family (the rules the player unlocks one lane tech at a
  *  time), rules that may build destiny buildings, rules that found the first building of a kind, and Autonomous Cadence. */
@@ -164,11 +167,13 @@ export class RivalProgram {
   private think() {
     const s = this.base.state;
     const t = Math.round(s.simTime - (s.landedAt ?? 0));
-    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.capHands(); this.lateCaps(); this.rationParts(); this.gate(); this.resupply(); }
+    if (t % RIVAL_CADENCE.research === 0) { this.research(); this.goodsGuard(); this.capHands(); this.foodCap(); this.lateCaps(); this.rationParts(); this.gate(); this.resupply(); }
     if (t % RIVAL_CADENCE.life === RIVAL_CADENCE.lifeAt) this.life();
     if (t % RIVAL_CADENCE.hazards === RIVAL_CADENCE.hazardsAt) this.hazards();
+    if (t % RIVAL_CADENCE.night === RIVAL_CADENCE.nightAt) this.nightShift();
     if (t % RIVAL_CADENCE.orders === RIVAL_CADENCE.ordersAt) this.orders();
     if (t % RIVAL_CADENCE.claims === RIVAL_CADENCE.claimsAt) this.claims();
+    if (t % RIVAL_CADENCE.cores === RIVAL_CADENCE.coresAt) this.coreDeposits();
   }
 
   /** Keep the research queue full and in the faction's order. The order of wants: the era's destiny pick once three of its techs are in
@@ -184,6 +189,8 @@ export class RivalProgram {
     const order: TechId[] = [];
     const seen = new Set<TechId>();
     const want = (tid: TechId) => { if (!seen.has(tid) && TECHS[tid] && !done.has(tid)) { seen.add(tid); order.push(tid); } };
+    // a site with no night sun: the bank comes first (Era 2's Battery Banks, and the silicon they are made of)
+    if (SITES[s.siteId].nightSolarFraction < 0.5) for (const tid of DARK_FIRST) if (this.wanted(tid)) want(tid);
     // the era's pick, once three of the era's own techs are done or queued
     if (era >= 2) {
       let inHand = 0;
@@ -193,6 +200,13 @@ export class RivalProgram {
         if (eraOf(s, tid) === era && techVisible(resolveTech(d, s.expedition, this.faction), s)) inHand++;
       }
       if (inHand >= 3) want(this.destinyPick(era as Era));
+    }
+    // the road to first light (docs/20 S8): from Era 5 the techs a volley needs lead the queue, whatever order the faction's list is in —
+    // Thin-Film Foils needs Cleanroom Robotics or Dust Mitigation (the cheap one), then the site's launch doctrine, the Era 8 pick and Swarm Protocol
+    if (era >= LAUNCH_CHAIN_ERA) {
+      if (!done.has('cleanroomRobotics') && this.wanted('dustMitigation')) want('dustMitigation');
+      for (const tid of [...LAUNCH_CHAIN, LAUNCH_ARCHITECTURE[s.siteId], this.destinyPick(8)]) if (this.wanted(tid)) want(tid);
+      if (this.wanted('swarmProtocol')) want('swarmProtocol');
     }
     for (const tid of pol.research as TechId[]) if (this.wanted(tid)) want(tid);
     for (const tid of FACTIONS[this.faction].uniqueTechs) if (this.wanted(tid)) want(tid);
@@ -220,13 +234,48 @@ export class RivalProgram {
     }
     // keep the queue in the order of wants: a tech moves up past any that it does not need (and never out of a prerequisite's way)
     const q = s.researchQueue;
+    const rank = new Map<TechId, number>();
+    order.forEach((tid, i) => rank.set(tid, i));
+    const at = (tid: TechId) => rank.get(tid) ?? order.length;
     if (q.length > 1) {
-      const rank = new Map<TechId, number>();
-      order.forEach((tid, i) => rank.set(tid, i));
-      const at = (tid: TechId) => rank.get(tid) ?? order.length;
       for (let i = 1; i < q.length; i++) {
         for (let j = i; j > 0 && at(q[j - 1]) > at(q[j]) && !needs(q[j], q[j - 1]); j--) [q[j - 1], q[j]] = [q[j], q[j - 1]];
       }
+    }
+    // a full queue of what was wanted when the base was young holds a want that matters more out (Parts Fabrication, the bank's Battery Banks): labs that are
+    // dark for days never drain it, and the seed-11 Vanguard sat three techs in for a week with 0 parts and no way to ask for the fabricator. The best want that
+    // is not queued takes the place of the last queued tech when that one has less than a third of its data paid.
+    if (q.length >= QUEUE_MAX) {
+      const want0 = order.find((tid) => !q.includes(tid) && techAvailability(tid, s, mods).state === 'available' && !goodsHopeless(s, mods, tid));
+      const last = q[q.length - 1];
+      if (want0 && at(want0) < at(last)) {
+        const paid = (s.researchSpent[last] ?? 0) / Math.max(1, techCost(last, s, mods).data);
+        if (paid < 1 / 3) {
+          this.base.apply({ kind: 'cancelResearch', tech: last });
+          enqueue(s, want0);
+          const w = q.indexOf(want0);
+          // (it goes where its rank puts it)
+          for (let j = w; j > 0 && at(q[j - 1]) > at(q[j]) && !needs(q[j], q[j - 1]); j--) [q[j - 1], q[j]] = [q[j], q[j - 1]];
+        }
+      }
+    }
+  }
+
+  /** A tech whose goods the base cannot gather waits, paid in data and idle, while a Foil Factory (silicon 0.6 and metals 0.2 a second each) eats
+   *  every grain that arrives: the Commons at the pole of seed 7 sat in Era 7 for twenty days, 900 foils made and 40 silicon never found for
+   *  Garden Domes, the pick that opens Era 8. A stalled tech that lacks silicon or metals switches the Foil Factories off until it has them. */
+  private goodsGuard() {
+    const b = this.base;
+    const s = b.state;
+    let hold = false;
+    // (once Era 8 is open the volleys are the point: a Commons base under the lava tube flew four volleys a day on foils the tail techs' goods kept switching off)
+    for (const tid of s.era >= 8 ? [] : s.researchStalled) {
+      for (const g of goodsShortfall(techCost(tid, s, b.mods).goods, s, b.mods)) if (g.res === 'silicon' || g.res === 'metals') hold = true;
+    }
+    for (const x of s.buildings) {
+      if (x.type !== 'foilFactory' || x.wreck || (x.construction ?? 0) > 0) continue;
+      if (hold && x.enabled && !x.nightShed) { x.goodsHold = true; b.apply({ kind: 'setEnabled', id: x.id, enabled: false }); }
+      else if (!hold && x.goodsHold) { x.goodsHold = false; if (!x.flareShut && !x.nightShed) b.apply({ kind: 'setEnabled', id: x.id, enabled: true }); }
     }
   }
 
@@ -237,6 +286,7 @@ export class RivalProgram {
     if (!def) return false;
     if (FACTIONS[this.faction].policy.skip?.includes(tid)) return false;
     const s = this.base.state;
+    if (tid === 'swarmProtocol' && !launchOpen(s)) return false; // (the program's launch window: factions.ts `launchDay`)
     if (def.track && !def.track.landing) return this.destinyPick(def.track.era) === tid;
     if (def.exclusive && isDoctrineHere(def, s)) return this.doctrinePick(def.exclusive) === tid;
     return true;
@@ -256,7 +306,8 @@ export class RivalProgram {
     const members = DOCTRINES[g].members.filter((m) => techVisible(resolveTech(TECHS[m], s.expedition, this.faction), s));
     // (a group with one visible member here is no doctrine: it is an ordinary tech the lists reach)
     if (members.length < 2) return null;
-    const set = FACTIONS[this.faction].policy.doctrines[g];
+    // the launch doctrine follows the site (LAUNCH_ARCHITECTURE), not the faction
+    const set = g === 'launchArchitecture' ? LAUNCH_ARCHITECTURE[s.siteId] : FACTIONS[this.faction].policy.doctrines[g];
     if (set && members.includes(set)) return set;
     return [...members].sort((a, b) => techCost(a, s).data - techCost(b, s).data)[0];
   }
@@ -279,6 +330,16 @@ export class RivalProgram {
       for (const b of s.buildings) if (b.type === RULE_TYPE[id]) n++;
       r.cap = Math.max(1, Math.min(cap, n));
     }
+  }
+
+  /** One Hydroponics Farm feeds about eight crew (0.1 food a second against 0.008 each) and drinks 0.03 water a second: a second farm for seven people
+   *  drinks the crew's reserve dry on a site whose water comes from mature soil (the farms idle on `reserve`, the food falls, the crew starves).
+   *  The Builder's food rule may add the next one when the crew outgrows the last. */
+  private foodCap() {
+    const s = this.base.state;
+    if (s.expedition === 'robotic') return;
+    const cap = Math.min(RULES.food.capRange[1], Math.max(1, Math.ceil(s.crew / FARM_CREW)), FACTIONS[this.faction].policy.ruleCaps.food ?? RULES.food.cap);
+    ruleState(s, 'food').cap = cap;
   }
 
   /** Past Era RIVAL_LATE_ERA the base's night and a volley's burst need a bigger bank and baseload than the Builder's stock caps allow
@@ -325,6 +386,18 @@ export class RivalProgram {
     const labs = ok || (this.bankless() && this.stable(true));
     for (const id of GROWTH_RULES) ruleState(s, id).on = id === 'lab' ? labs : ok;
     if (labs && !ok) { const r = ruleState(s, 'lab'); r.cap = Math.min(r.cap, BANKLESS_LABS); }
+    // the spare parts are all a base has until its fabricator stands, and the fabricator itself is welded of them: a third smelter and a second refinery
+    // bought out of the last forty (a smelter is 15, a refinery 20) left the seed-21 Vanguard with 0 parts at the moment its fabricator was placed, and no
+    // water plant could be built after it. Until it stands the Builder's smelter and refinery rules wait.
+    const poor = this.partsPoor();
+    for (const id of PARTS_RULES) ruleState(s, id).on = !poor;
+  }
+
+  /** No parts fabricator yet and a cache that is running low (see `gate`). */
+  private partsPoor(): boolean {
+    const s = this.base.state;
+    if (s.expedition === 'robotic') return false;
+    return s.resources.parts < PARTS_POOR && !s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0);
   }
 
   /** A crewed base on a site with no night sun and no Battery Storage yet: the night's bank it would wait for cannot exist until the
@@ -335,11 +408,14 @@ export class RivalProgram {
   }
 
   /** Earth sends 40 parts and 60 metals a lunar day after the order (the player's own Lander action): a base with no parts fabricator yet
-   *  and a cache under 70 orders it, twice at the most (each later order waits a day longer). */
+   *  orders it. A robotic base does it under 100 parts, twice at the most (each later order waits a day longer); a crewed one at once and
+   *  every time the last has landed, four at the most: the spare parts are what a crew's first week is built of and the fabricator is welded of
+   *  them (the Vanguard at the lava tube, 0 parts on day 5, fabricator placed and never finished, no water plant). */
   private resupply() {
     const s = this.base.state;
-    if (s.resupply?.pending || (s.resupply?.ordered ?? 0) >= 2) return;
-    if (s.resources.parts >= RESUPPLY_PARTS || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
+    const crewed = s.expedition !== 'robotic';
+    if (s.resupply?.pending || (s.resupply?.ordered ?? 0) >= (crewed ? RESUPPLY_MAX : 2)) return;
+    if (s.resources.parts >= (crewed ? RESUPPLY_PARTS : 100) || s.buildings.some((b) => b.type === 'partsFab' && (b.construction ?? 0) <= 0)) return;
     this.base.apply({ kind: 'orderResupply' });
   }
 
@@ -439,6 +515,49 @@ export class RivalProgram {
     if (sick && s.data >= HZ.malware.reimage.data) b.apply({ kind: 'counter', counter: 'reimage', id: sick.id });
   }
 
+  /** Night discipline (docs/20 S8). The grid serves loads in priority order out of one budget (the day's supply and the whole bank), so a
+   *  base whose bank cannot carry its night spends the bank on its labs and Data Centers and has nothing left at the end of the night
+   *  for the priority 0–1 loads that keep a crew alive (water plants, farms, the habitat): the crewed rivals of seed 42 died of thirst
+   *  in the dark at the lava tube and at mare. On a site with no night sun, whenever the bank cannot carry what the night still asks
+   *  (the loads' draw less what the night supply gives, over what is left of the night), the biggest priority 2–3 loads that are not
+   *  life support are switched off until it can, and they come back at dawn. A load that is off draws nothing and makes nothing. */
+  private nightShift() {
+    const b = this.base;
+    const s = b.state;
+    const site = SITES[s.siteId];
+    const day = dayInfo(s.simTime, site);
+    const p = s.power;
+    // the dark: the night of a site with no night sun, or a flare's stow (the arrays are packed away and the bank is all there is; the crewed rivals of
+    // seed 42 lost their water in the dark of a day, the bank gone by dusk, to an X flare whose protons kept the arrays stowed for minutes)
+    const full = p.supplyFull ?? 0;
+    const night = site.nightSolarFraction < 0.5 && day.isNight;
+    const stowed = !day.isNight && full > 0 && p.supply < STOW_SUPPLY * full;
+    if (!night && !stowed) {
+      for (const x of s.buildings) if (x.nightShed) { x.nightShed = false; if (!x.flareShut) b.apply({ kind: 'setEnabled', id: x.id, enabled: true }); }
+      return;
+    }
+    const left = night ? day.phaseLeft : STOW_HORIZON_S;
+    const supply = night ? (p.supplyNight ?? 0) : p.supply;
+    const mult = b.mods.bankDischargeMult;
+    const carries = (load: number) => s.powerStored / mult >= Math.max(0, load - supply) * left * NIGHT_SHED_MARGIN;
+    let load = p.demand;
+    if (carries(load)) return;
+    const cand: { x: typeof s.buildings[number]; kw: number }[] = [];
+    for (const x of s.buildings) {
+      if (!x.enabled || x.wreck || (x.construction ?? 0) > 0 || x.nightShed) continue;
+      const def = BUILDINGS[x.type];
+      if (def.powerKW >= 0 || x.priority < 2 || NIGHT_KEEP.includes(x.type) || (x.type === 'smelter' && s.expedition !== 'robotic')) continue;
+      cand.push({ x, kw: -def.powerKW * b.mods.nightDrawMult });
+    }
+    cand.sort((a, c) => c.x.priority - a.x.priority || c.kw - a.kw || a.x.id - c.x.id);
+    for (const c of cand) {
+      b.apply({ kind: 'setEnabled', id: c.x.id, enabled: false });
+      c.x.nightShed = true;
+      load -= c.kw;
+      if (carries(load)) break;
+    }
+  }
+
   /** Power comes before growth: the day's supply stays ahead of what runs, what is being built and the bank's recharge (the pacing probe's
    *  reasonable player does the same, from the same book as the Builder's solar rule; the rule itself waits to see a shortfall, dwells,
    *  cools down and builds one array at a time, and a base that browns out cannot build the parts that would end it), and the bank
@@ -456,22 +575,43 @@ export class RivalProgram {
     }
     const kw = 10 * mods.powerMult.solar * site.solarDayMult;
     const capS = ruleState(s, 'solar').cap * mods.builderCapMult;
-    if (pb.full + solarSites * kw < (pb.load + pb.pending) * POWER_MARGIN + pb.recharge && solarSites < 2 && solar < capS) {
-      if (!orderRefusal(s, mods, site, 'solar') && !budgetShort(s, mods, site, 'solar', { by: 'order' })) {
-        b.apply({ kind: 'order', type: 'solar', count: 1 });
-        return true;
-      }
-    }
+    const solarShort = pb.full + solarSites * kw < (pb.load + pb.pending) * POWER_MARGIN + pb.recharge && solarSites < 3 && solar < capS;
     // the night: a site with no night sun runs it on the bank
-    if (site.nightSolarFraction < 0.5 && mods.unlocked.has('battery') && batterySites < 2) {
+    const dark = site.nightSolarFraction < 0.5 && mods.unlocked.has('battery');
+    let bankShort = false;
+    let urgent = false;
+    if (dark && batterySites < 3) {
       const per = (BUILDINGS.battery.storageKWh ?? 0) * mods.batteryCapMult;
-      const want = pb.nightShort * NIGHT_S * NIGHT_COVER;
+      // a crew has to be carried through the night; a robotic base has nothing to keep alive (its machines make a quarter of their output in the dark),
+      // so its bank is a fraction of the night and the big loads go off at dusk (`nightShift`)
+      const want = pb.nightShort * NIGHT_S * (s.expedition === 'robotic' ? NIGHT_COVER_ROBOTIC : NIGHT_COVER);
       const capB = ruleState(s, 'battery').cap * mods.builderCapMult;
-      if (s.power.capacity < want && batteries < capB && per > 0 && !orderRefusal(s, mods, site, 'battery') && !budgetShort(s, mods, site, 'battery', { by: 'order' })) {
-        b.apply({ kind: 'order', type: 'battery', count: 1 });
-        return true;
-      }
+      bankShort = s.power.capacity < want && batteries < capB && per > 0;
+      urgent = bankShort && s.expedition !== 'robotic' && s.power.capacity < want * 0.6;
     }
+    // baseload: a Thorium Reactor (120 metals, 40 parts) is forty kilowatts through the night and a flare, for what six arrays and three batteries cost
+    // and without their dust; on a site with no night sun the first ones are raised once the tech is in (the Builder's own rule waits for a 25 kW
+    // shortfall, a dwell and a ten-minute cooldown). Their morale cost is why the Vanguard's cap is one.
+    let reactors = 0, reactorSites = 0;
+    for (const x of s.buildings) if (x.type === 'reactor') { reactors++; if ((x.construction ?? 0) > 0) reactorSites++; }
+    const reactorShort = site.nightSolarFraction < 0.5 && mods.unlocked.has('reactor') && reactorSites === 0 &&
+      reactors < ruleState(s, 'reactor').cap * mods.builderCapMult && pb.nightShort > REACTOR_AT_KW;
+    // (the day's arrays come first only while they cannot even carry the day's load: a bank with nothing to charge it is no bank)
+    const bankFirst = urgent && pb.full >= pb.load;
+    const place = (type: BuildingId) => {
+      if (orderRefusal(s, mods, site, type) || budgetShort(s, mods, site, type, { by: 'order' })) return false;
+      b.apply({ kind: 'order', type, count: 1 });
+      return true;
+    };
+    if (bankFirst) {
+      if (place('battery')) return true;
+      // saving for it: metals short (silicon is the refinery's, which the orders place), so nothing else is bought this turn
+      const cost = buildCostAt('battery', site);
+      if (!orderRefusal(s, mods, site, 'battery') && (s.resources.silicon ?? 0) >= (cost.silicon ?? 0) && s.resources.metals < (cost.metals ?? 0)) return true;
+    }
+    if (reactorShort && place('reactor')) return true;
+    if (solarShort && place('solar')) return true;
+    if (bankShort && !bankFirst && place('battery')) return true;
     return false;
   }
 
@@ -482,12 +622,16 @@ export class RivalProgram {
     const s = b.state;
     const mods = b.mods;
     const site = SITES[s.siteId];
-    if (this.power()) return;
+    // (the arrays and the bank take every other turn: a base that always has a battery to buy never buys anything else)
+    if (Math.floor((s.simTime - (s.landedAt ?? 0)) / RIVAL_CADENCE.orders) % 2 === 0 && this.power()) return;
     const stable = this.stable();
     const bankless = this.bankless() && this.stable(true);
+    const poor = this.partsPoor();
     for (const o of FACTIONS[this.faction].policy.orders) {
       if (!mods.unlocked.has(o.type)) continue;
       if (!stable && !STEADYING.includes(o.type) && !(o.type === 'lab' && (o.count === 1 || (o.count <= BANKLESS_LABS && bankless)))) continue;
+      // (a base with no fabricator and a thin cache buys only what the fabricator, the arrays, the bank, the first water plant and two labs (the research that brings the fabricator) need)
+      if (poor && !PARTS_POOR_OK.includes(o.type) && o.count > 1 && !(o.type === 'lab' && o.count <= 2)) continue;
       if (o.when && !o.when(s, mods)) continue;
       if (!handsFor(s, mods, o.type)) continue;
       let have = 0;
@@ -497,10 +641,47 @@ export class RivalProgram {
       // a cheap look before the siting one: only ask what the budget and the unlocks allow
       if (orderRefusal(s, mods, site, o.type) || budgetShort(s, mods, site, o.type, { by: 'order' })) continue;
       // one building a turn: choosing a site is the costliest thing a base does, and a turn that places several is a frame that stalls
+      const before = s.buildings.length;
       b.apply({ kind: 'order', type: o.type, count: 1 });
+      // no valid ground inside the build network (a big base, its pits and its roads fill it): a Relay Mast at the edge widens it (a rule would
+      // only do so for a rule that cannot place, never for an order)
+      if (s.buildings.length === before && !s.auto.orders.some((x) => x.type === o.type)) this.growNetwork();
       if (o.rush) for (const x of s.buildings) if (x.type === o.type && (x.construction ?? 0) > 0) b.apply({ kind: 'buildNext', id: x.id });
       return;
     }
+  }
+
+  /** The hubs' units dig a deposit only once a rover has cored it (a lunar day of surveyed ore: `hubPlanner.usefulUnit`), and without that a
+   *  water plant on a site with no ice digs plain ground at 0.4 of mature soil's water: the crewed rivals of seed 42 at the lava tube and
+   *  at mare had one starved plant, idle farms (they drink the crew's reserve) and died of thirst. One survey at a time, mature soil first
+   *  for a crew without ice, then the ores the smelters and refineries take, nearest first (a rover's 40 s, 30 stored energy and 2 parts). */
+  private coreDeposits() {
+    const b = this.base;
+    const s = b.state;
+    if ((s.oreSurvey?.jobs.length ?? 0) > 0 || s.resources.parts < CORE_PARTS_FLOOR) return;
+    const site = SITES[s.siteId];
+    const kinds: DepositKind[] = ['ilmenite', 'anorthosite', 'glass', 'ice'];
+    if (s.expedition !== 'robotic' && !site.hasIce) kinds.unshift('volatiles');
+    for (const kind of kinds) {
+      const list = b.hf.deposits.filter((d) => d.kind === kind).sort((a, c) => Math.hypot(a.cx, a.cz) - Math.hypot(c.cx, c.cz));
+      for (const d of list) {
+        if (surveyRefusal(s, b.mods, d.id)) continue;
+        b.apply({ kind: 'surveyDeposit', id: d.id });
+        return;
+      }
+    }
+  }
+
+  /** Widen the build network by one Relay Mast at its edge (45 m a mast, chained), one at a time and up to MASTS_MAX. */
+  private growNetwork() {
+    const b = this.base;
+    const s = b.state;
+    const mods = b.mods;
+    const site = SITES[s.siteId];
+    let masts = 0;
+    for (const x of s.buildings) if (x.type === 'relayMast') { masts++; if ((x.construction ?? 0) > 0) return; }
+    if (masts >= MASTS_MAX || orderRefusal(s, mods, site, 'relayMast') || budgetShort(s, mods, site, 'relayMast', { by: 'order' })) return;
+    b.apply({ kind: 'order', type: 'relayMast', count: 1 });
   }
 
   /** Claim the best prospect it can pay for: the faction's preferred kinds first, then the nearest. One a minute. */
@@ -585,19 +766,48 @@ const RULE_TYPE: Partial<Record<AutoRuleId, BuildingId>> = {
   lab: 'lab', oxygen: 'smelter', food: 'hydroponics', water: 'waterPlant', partsFab: 'partsFab', refinery: 'refinery', smelter: 'smelter', chipFab: 'chipFab',
 };
 
+/** the era from which a rival heads for its first volley, and the techs that lead (Thin-Film Foils; the site's launch tech, the Era 8 pick and Swarm Protocol follow) */
+const LAUNCH_CHAIN_ERA = 5;
+const LAUNCH_CHAIN: readonly TechId[] = ['foilManufacturing'];
+
+/** researched first on a site with no night sun: nothing lights a base through the dark without them */
+const DARK_FIRST: readonly TechId[] = ['partsFabrication', 'siliconRefining', 'batteryStorage', 'regolithShielding', 'thoriumPower'];
+
 /** the day's supply a rival keeps over its load, and the share of a night's deficit its bank covers */
 const POWER_MARGIN = 1.15;
 const SURVEY_PARTS_FLOOR = 70;
+/** a crewed base without a parts fabricator is parts-poor under this many in the cache; the rules and orders that spend parts on more than the basics wait */
+const PARTS_POOR = 60;
+const PARTS_RULES: readonly AutoRuleId[] = ['smelter', 'refinery'];
+const PARTS_POOR_OK: readonly BuildingId[] = ['solar', 'battery', 'partsFab', 'waterPlant'];
+/** crew one Hydroponics Farm feeds */
+const FARM_CREW = 4;
+/** a deposit's core costs 2 parts: not while the cache is this low */
+const CORE_PARTS_FLOOR = 30;
 /** a base with no parts fabricator orders Earth's shipment once its cache falls under this */
-const RESUPPLY_PARTS = 100;
+const RESUPPLY_PARTS = 200;
+/** shipments a base with no fabricator may order (each waits a lunar day longer than the last) */
+const RESUPPLY_MAX = 4;
 const STABLE_S = 2400;
 const STABLE_PARTS = 40;
-const STABLE_NIGHT = 0.5;
+const STABLE_NIGHT = 1.0;
 /** the rules that only grow the base (labs past the first are the orders' business, and gated there) */
 const GROWTH_RULES: readonly AutoRuleId[] = ['lab', 'roboticsBay', 'relayMast', 'chipFab', 'foilFactory', 'storageYard'];
 /** what an unstable base may still order */
 const STEADYING: readonly BuildingId[] = ['solar', 'smelter', 'partsFab', 'waterPlant', 'hydroponics', 'battery', 'refinery', 'habitat'];
-const NIGHT_COVER = 0.9;
+/** Relay Masts a rival may raise to widen its build network */
+const MASTS_MAX = 12;
+/** a site with no night sun raises a reactor while the night runs this many kW short */
+const REACTOR_AT_KW = 30;
+const NIGHT_COVER = 1.3;
+const NIGHT_COVER_ROBOTIC = 0.35;
+/** night discipline: the bank must cover this much of what the rest of the night asks, or the big loads go off until dawn */
+const NIGHT_SHED_MARGIN = 1.1;
+/** a flare's stow: the supply is under this share of the full sun's, and the bank is asked to carry this many seconds of it */
+const STOW_SUPPLY = 0.35;
+const STOW_HORIZON_S = 300;
+/** priority 2–3 buildings the night never switches off: they make what a crew eats and drinks (and its smelters, which make its oxygen) */
+const NIGHT_KEEP: readonly BuildingId[] = ['waterPlant', 'hydroponics', 'iceHarvester', 'iceMiner', 'excavator', 'habitat', 'greenhouseRing', 'gardenDome', 'regolithTerrace', 'commonsHall'];
 /** from this era a base whose full-sun supply is under this share of its load adds no load (see `stable`) */
 const LOADED_ERA = 5;
 const LOADED_MARGIN = 0.9;
@@ -608,9 +818,9 @@ const BANKLESS_LABS = 3;
 
 /** a life-support stock that would run out inside this many seconds at its present rate asks for another maker; inside CRISIS_S it may
  *  take the hands a lab needs */
-const LIFE_RUNWAY_S = 1500;
+const LIFE_RUNWAY_S = 3600;
 const CRISIS_S = 600;
-const LIFE_MAX: Partial<Record<BuildingId, number>> = { smelter: 3, waterPlant: 2, hydroponics: 2 };
+const LIFE_MAX: Partial<Record<BuildingId, number>> = { smelter: 4, waterPlant: 4, hydroponics: 3 };
 
 /** Does `a` need `b` first (directly: a prerequisite or an any-of member)? */
 const needs = (a: TechId, b: TechId): boolean => TECHS[a].requires.includes(b) || !!TECHS[a].requiresAny?.includes(b);

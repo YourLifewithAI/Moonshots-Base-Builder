@@ -304,6 +304,30 @@ The picks tilt the economy; no lane is ever removed.
   outpost, the control plane). The picks' `exposure` (⊖) and `guard` (⊕)
   lines are on the cards. The economy reads them as multipliers (below).
 
+## Factions — what their traits do to the economy (docs/20)
+
+In a faction game ([20-factions-and-the-race.md](20-factions-and-the-race.md)) the landing tech carries the faction's traits as ordinary tech
+effects, so `computeMods` is the only place they live and a solo game (no faction) reads every one of them as neutral. The economy meets them in
+five places:
+
+| Trait | Mods | What the tick does with it |
+|---|---|---|
+| **Night output** (Foundry) | `nightOutputMult` 0.25, `nightDrawMult` 1.3, `storageEff` 0.75, `bankDischargeMult` 1.25 | At night a station that is not a generator takes in and makes ×0.25 of its nameplate (a smelter at ×0.25 eats ×0.25 of the regolith) and a lab's or Data Center's data is ×0.25; generation and storage are never scaled. Hub units dig and tip ×0.25 a cycle (the tip time and the drive speeds are not scaled). The bank charges at 75 % and the tick's budget is `supply + stored ÷ 1.25`, so a night costs a quarter more stored energy. Isotope Warmers raise the output to ×0.5; Bank Trenches lift the bank's 75 % cap (not a Fuel Cells' 60 %: a faction's cap and a tech's own figure are separate, the lower of the two applies unless the tech is a `restore`). |
+| **Flare vulnerability** (Foundry) | `arrayHardMult` 1.6, `machineFlareMult` 1.75 | Arrays take ×1.6 of the destroyed count, the scar and the stowed damage; each of a machine's burn, latch and reboot odds is ×1.75 (the three may sum past 1: an X's open machine is mostly latched). A standing Faraday Shed makes both ×0.4 within 40 m. |
+| **Morale dynamics** (Vanguard, Commons) | `moraleBase`, `moraleFallMult` | The target takes the faction's base (−8, +10) and a falling morale falls ×2 as fast for the Vanguard; a rise is unchanged. `workMult = 0.5 + morale/100 × 0.7` as before, so the Commons' morale 100 is ×1.2 on every crewed output. |
+| **Scrutiny** (Vanguard) | `scrutiny` | A meter 0–100: +40 a death, +15 a hazard that starts (not a drill), +10 a building wrecked and +10 for each array a flare destroys; it falls 5 a lunar day (×2 with a standing Mission Ops, ×1.5 with Press Corps). At 50 crewed stations' outputs are ×0.7 and every lab's and Data Center's data ×0.8; at 80, and not within three lunar days of the last hearing, **HEARINGS**: a quarter of the crew (rounded up, never the last member) leaves for two lunar days and the meter drops to 40. |
+| **Recall** | `crewRotation { recall: true }` | The recalled crew come home to their own beds at their second whatever the larder holds (no shortfall or grief check; only a flare's blackout holds the landing); settler growth waits while a rotation is pending. |
+
+The Commons' other numbers are the existing levers at new values: `hazardRateMult` 0.6 and the `safety` guard (longer warnings), `growthMult` 1/1.25
+(a period: settlers arrive 25 % as often again), `buildSpeedMult` 1.3 (build **time**), research lane costs ×0.6 habitat and ×1.3 materials, robotics and
+exploration, and claim metals ×0.85. The Vanguard's: lab ×1.35 and Data Center ×1.2 data, compute and materials lanes ×0.8, +100 data once, survey data
+×1.2, hazard rate ×1.25. The faction buildings (Mission Ops, Skunkworks, Faraday Shed, Night Vault, Commons Hall, Regolith Terrace) are in
+[04-buildings.md](04-buildings.md).
+
+**A rival's base obeys the same book.** The two programs you did not pick run this exact tick on a flat stand-in ground. What they build and when is a
+policy (`src/data/factions.ts`, `src/core/rival.ts`), not a different economy; docs/20 "As shipped: S8" lists the numbers that make them survive the
+long night and light the swarm on the days the plan wants.
+
 ## The umbilical arc — Earth Supply Credits (CUT)
 
 Full design: you land with a finite balance of **Earth Supply Credits**,

@@ -823,17 +823,32 @@ export interface DestinyView {
 }
 
 /** The destiny meter: counts, the band, and what is still reachable. */
-export function destinyOf(s: Pick<GameState, 'techsDone'> & { crewHome?: boolean }): DestinyView {
+export function destinyOf(s: Pick<GameState, 'techsDone'> & { crewHome?: boolean; faction?: FactionId | null }): DestinyView {
   const d = destinyCounts(s.techsDone);
   const picks: (Side | null)[] = [];
   for (let e = 1; e <= 8; e++) picks.push(d.picks[e as Era] ?? null);
   const left = picks.filter((p) => p === null).length;
+  // An ethos lock (the Commons never take the Era 6 and 7 ◉ picks: `notFactions`) fixes an era's side: a pick left on a locked era can
+  // only be the other side, so the meter must not call a pure band reachable that the faction cannot take (docs/20 S8). A solo game
+  // and a faction without locks count every pick left as free, exactly as before.
+  const f = factionOfState(s);
+  let fixedC = 0, fixedA = 0;
+  if (f) {
+    for (let e = 1; e <= 8; e++) {
+      if (picks[e - 1] !== null) continue;
+      const lockA = !!TECHS[TRACKS[e as Era].automation]?.notFactions?.includes(f);
+      const lockC = !!TECHS[TRACKS[e as Era].colony]?.notFactions?.includes(f);
+      if (lockA && !lockC) fixedC++; else if (lockC && !lockA) fixedA++;
+    }
+  }
+  const free = left - fixedC - fixedA;
   const need = (n: number) => Math.max(0, PURE_AT - n);
-  const colony = { need: need(d.c), ok: need(d.c) <= left };
-  const automation = { need: need(d.a), ok: need(d.a) <= left };
-  // Concord: some split of the picks left keeps both sides under PURE_AT
-  const concord = d.c < PURE_AT && d.a < PURE_AT &&
-    Math.max(0, d.a + left - (PURE_AT - 1)) <= Math.min(left, PURE_AT - 1 - d.c);
+  const colony = { need: need(d.c), ok: need(d.c) <= fixedC + free };
+  const automation = { need: need(d.a), ok: need(d.a) <= fixedA + free };
+  // Concord: some split of the free picks left keeps both sides under PURE_AT (the fixed ones go where the lock sends them)
+  const c0 = d.c + fixedC, a0 = d.a + fixedA;
+  const concord = c0 < PURE_AT && a0 < PURE_AT &&
+    Math.max(0, a0 + free - (PURE_AT - 1)) <= Math.min(free, PURE_AT - 1 - c0);
   const reachable: Band[] = [];
   if (colony.ok) reachable.push('colony');
   if (automation.ok) reachable.push('automation');

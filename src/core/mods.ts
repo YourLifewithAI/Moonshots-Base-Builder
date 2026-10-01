@@ -267,6 +267,11 @@ export function computeMods(
   // the long night's output factor is ABSOLUTE and the best of the nightMode effects wins (the Foundry's landing sets ×0.25,
   // Isotope Warmers raises it to ×0.5): a running tally, so the order of techsDone never matters
   let nightOut: number | undefined;
+  // and so is the bank's round trip (docs/20 S8): the last `storage` efficiency is the grid's own figure (Fuel Cells' 60%), the Foundry's
+  // landing caps it (75%), and a `restore` (Bank Trenches) lifts only that cap: Fuel Cells then Trenches stays 60%, never 85%
+  let storageTech: number | undefined;
+  let chargeCeil = Infinity;
+  let storageRestore = false;
 
   // a Server Monolith counts as a Data Center wherever one is read (docs/14
   // §2.8): a tech that changes Data Centers' output, power or upkeep changes
@@ -320,7 +325,10 @@ export function computeMods(
           break;
         case 'storage':
           m.batteryCapMult *= fx.capacityMult ?? 1;
-          if (fx.efficiency !== undefined) m.storageEff = fx.efficiency;
+          if (fx.efficiency !== undefined) {
+            if (fx.restore) storageRestore = true; else storageTech = fx.efficiency;
+            m.storageEff = fx.efficiency;
+          }
           break;
         case 'repair': m.repairMult *= fx.mult; break;
         case 'shadeImmune': m.solarShadeImmune = true; break;
@@ -430,7 +438,7 @@ export function computeMods(
           }
           m.nightDrawMult *= fx.standby ?? 1;
           // absolute, and the worse of it and the grid's: a later `storage` tech's efficiency still replaces it
-          if (fx.chargeEff !== undefined) m.storageEff = Math.min(m.storageEff, fx.chargeEff);
+          if (fx.chargeEff !== undefined) { chargeCeil = Math.min(chargeCeil, fx.chargeEff); m.storageEff = Math.min(m.storageEff, fx.chargeEff); }
           m.bankDischargeMult *= fx.discharge ?? 1;
           break;
         case 'moraleDynamics': m.moraleFallMult *= fx.fallMult; break;
@@ -454,6 +462,8 @@ export function computeMods(
   m.outputMult.iceMiner *= m.outputMult.iceHarvester;
   m.powerMult.iceMiner *= m.powerMult.iceHarvester;
   m.upkeepMult.iceMiner *= m.upkeepMult.iceHarvester;
+
+  if (storageRestore || chargeCeil < Infinity) m.storageEff = Math.min(storageTech ?? BATTERY_EFF, storageRestore ? Infinity : chargeCeil);
 
   for (const o of outposts) {
     if (!o.live) continue;
