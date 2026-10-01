@@ -806,9 +806,9 @@ const BANKLESS_LABS = 3;
 
 /** a life-support stock that would run out inside this many seconds at its present rate asks for another maker; inside CRISIS_S it may
  *  take the hands a lab needs */
-const LIFE_RUNWAY_S = 1500;
+const LIFE_RUNWAY_S = 3600;
 const CRISIS_S = 600;
-const LIFE_MAX: Partial<Record<BuildingId, number>> = { smelter: 3, waterPlant: 2, hydroponics: 2 };
+const LIFE_MAX: Partial<Record<BuildingId, number>> = { smelter: 4, waterPlant: 4, hydroponics: 3 };
 
 /** Does `a` need `b` first (directly: a prerequisite or an any-of member)? */
 const needs = (a: TechId, b: TechId): boolean => TECHS[a].requires.includes(b) || !!TECHS[a].requiresAny?.includes(b);
