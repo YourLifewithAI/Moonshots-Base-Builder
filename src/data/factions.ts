@@ -241,7 +241,7 @@ export const FACTIONS: Record<FactionId, FactionDef> = {
       claimKinds: ['ilmenite', 'glass', 'silica', 'kreep'],
       ruleCaps: { solar: 80, battery: 24, reactor: 2 },
       lateCaps: { solar: 100, battery: 30, reactor: 4 },
-      launchDay: { mare: 26.4, southpole: 26.4, lavatube: 26.4 },
+      launchDay: { mare: 26.7, southpole: 26.7, lavatube: 26.7 },
       orders: orders(
         { type: 'nightVault', count: 1 },
         { type: 'faradayShed', count: 1 },
