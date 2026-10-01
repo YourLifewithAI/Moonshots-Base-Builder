@@ -249,8 +249,16 @@ test('the policy data: every listed tech exists, each faction has its lists, a d
         unique: F.FACTIONS[f].uniqueTechs.filter((t: string) => !p.research.includes(t) && !(p.skip ?? []).includes(t)),
       };
     }
-    return { out, groups: Object.keys(T.DOCTRINES).sort() };
+    // S8: a program's launch window (`launchDay − LAUNCH_LEAD_DAYS`, Moon days) is closed a second before it and open at it; a state with no faction is never held
+    const CYC = 720;
+    const win = (f: string, site: string) => (F.FACTIONS[f].policy.launchDay[site] - F.LAUNCH_LEAD_DAYS) * CYC;
+    const gate = Object.fromEntries(F.FACTION_ORDER.map((f: string) => [f, [
+      F.launchOpen({ faction: f, siteId: 'mare', simTime: win(f, 'mare') - 1 }), F.launchOpen({ faction: f, siteId: 'mare', simTime: win(f, 'mare') }),
+    ]]));
+    return { out, groups: Object.keys(T.DOCTRINES).sort(), gate, solo: F.launchOpen({ siteId: 'mare', simTime: 0 }) };
   });
+  for (const f of Object.keys(r.gate)) expect(r.gate[f], `${f}: the launch window is shut a second before its day and open on it`).toEqual([false, true]);
+  expect(r.solo, 'a solo state is never held').toBe(true);
   for (const f of Object.keys(r.out)) {
     const o = r.out[f];
     expect(o.unknown, `${f}: unknown tech ids in its research list`).toEqual([]);
